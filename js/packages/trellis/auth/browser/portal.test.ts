@@ -109,7 +109,7 @@ Deno.test("submitPortalApproval posts decision and parses next state", async () 
       );
       assertEquals(init?.method, "POST");
       assertEquals(init?.headers, { "content-type": "application/json" });
-      assertEquals(String(init?.body), '{"decision":"approved"}');
+      assertEquals(String(init?.body), '{"approved":true}');
 
       return new Response(JSON.stringify({
         status: "redirect",

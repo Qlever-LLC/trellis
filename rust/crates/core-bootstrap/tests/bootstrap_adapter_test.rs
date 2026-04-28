@@ -106,7 +106,6 @@ fn map_binding_response_handles_some_and_none() {
                 jobs: None,
                 kv: None,
                 store: None,
-                streams: None,
             },
         }),
     };
@@ -125,7 +124,6 @@ fn map_binding_response_handles_some_and_none() {
                     jobs: None,
                     kv: None,
                     store: None,
-                    streams: None,
                 },
             }
         ))
@@ -147,7 +145,6 @@ async fn adapter_fetch_binding_passes_expected_filter_to_client() {
                     jobs: None,
                     kv: None,
                     store: None,
-                    streams: None,
                 },
             }),
         }))),
@@ -189,7 +186,7 @@ async fn adapter_maps_client_error_to_server_error() {
 }
 
 #[test]
-fn stream_binding_types_deserialize_with_resolved_sources() {
+fn jobs_binding_types_deserialize_with_work_stream() {
     let response: TrellisBindingsGetResponse = serde_json::from_value(json!({
         "binding": {
             "contractId": "trellis.jobs@v1",
@@ -197,6 +194,7 @@ fn stream_binding_types_deserialize_with_resolved_sources() {
             "resources": {
                 "jobs": {
                     "namespace": "jobs",
+                    "workStream": "JOBS_WORK",
                     "queues": {
                         "document-process": {
                             "queueType": "document-process",
@@ -220,28 +218,11 @@ fn stream_binding_types_deserialize_with_resolved_sources() {
                         "history": 1,
                         "ttlMs": 0
                     }
-                },
-                "streams": {
-                    "jobsWork": {
-                        "name": "JOBS_WORK",
-                        "subjects": ["trellis.work.>"],
-                        "retention": "workqueue",
-                        "storage": "file",
-                        "numReplicas": 3,
-                        "sources": [
-                            {
-                                "fromAlias": "jobs",
-                                "streamName": "JOBS",
-                                "filterSubject": "trellis.jobs.*.*.*.created",
-                                "subjectTransformDest": "trellis.work.$1.$2"
-                            }
-                        ]
-                    }
                 }
             }
         }
     }))
-    .expect("deserialize bindings response with streams");
+    .expect("deserialize bindings response with jobs work stream");
 
     let binding = response.binding.expect("binding");
     let jobs = binding.resources.jobs.as_ref().expect("jobs binding");
@@ -249,20 +230,13 @@ fn stream_binding_types_deserialize_with_resolved_sources() {
         .queues
         .get("document-process")
         .expect("document-process queue");
+    assert_eq!(jobs.work_stream.as_deref(), Some("JOBS_WORK"));
     assert_eq!(queue.consumer_name, "documents-document-process");
     let kv = binding.resources.kv.as_ref().expect("kv binding");
     assert_eq!(
         kv.get("jobsState").expect("jobsState").bucket,
         "trellis_jobs"
     );
-    let streams = binding.resources.streams.expect("streams");
-    let jobs_work = streams.get("jobsWork").expect("jobsWork binding");
-    assert_eq!(jobs_work.name, "JOBS_WORK");
-    assert_eq!(jobs_work.retention.as_deref(), Some("workqueue"));
-    let source = &jobs_work.sources.as_ref().expect("sources")[0];
-    assert_eq!(source.from_alias, "jobs");
-    assert_eq!(source.stream_name, "JOBS");
-
     let contract: TrellisContractGetResponse = serde_json::from_value(json!({
         "contract": {
             "id": "trellis.jobs@v1",
@@ -270,58 +244,42 @@ fn stream_binding_types_deserialize_with_resolved_sources() {
             "description": "jobs",
             "format": "trellis.contract.v1",
             "kind": "service",
+            "jobs": {
+                "document-process": {
+                    "payload": { "schema": "DocumentPayload" },
+                    "maxDeliver": 5,
+                    "backoffMs": [5000, 30000],
+                    "ackWaitMs": 60000,
+                    "progress": true,
+                    "logs": true,
+                    "dlq": true,
+                    "concurrency": 2
+                }
+            },
             "resources": {
-                "jobs": {
-                    "queues": {
-                        "document-process": {
-                            "payload": { "schema": "DocumentPayload" },
-                            "maxDeliver": 5,
-                            "backoffMs": [5000, 30000],
-                            "ackWaitMs": 60000,
-                            "progress": true,
-                            "logs": true,
-                            "dlq": true,
-                            "concurrency": 2
-                        }
-                    }
-                },
                 "kv": {
                     "jobsState": {
                         "purpose": "Projected job state",
+                        "schema": { "schema": "JobState" },
                         "history": 1,
                         "ttlMs": 0
-                    }
-                },
-                "streams": {
-                    "jobsWork": {
-                        "purpose": "Store sourced work queue messages",
-                        "subjects": ["trellis.work.>"],
-                        "retention": "workqueue",
-                        "sources": [
-                            {
-                                "fromAlias": "jobs",
-                                "filterSubject": "trellis.jobs.*.*.*.created",
-                                "subjectTransformDest": "trellis.work.$1.$2"
-                            }
-                        ]
                     }
                 }
             }
         }
     }))
-    .expect("deserialize contract response with stream resources");
+    .expect("deserialize contract response without stream resources");
 
-    let resources: TrellisContractGetResponseContractResources =
-        contract.contract.resources.expect("resources");
-    let jobs = resources.jobs.as_ref().expect("jobs resources");
+    let jobs = contract.contract.jobs.as_ref().expect("jobs resources");
     assert_eq!(
-        jobs.queues
-            .get("document-process")
+        jobs.get("document-process")
             .expect("document-process queue")
             .payload
             .schema,
         "DocumentPayload"
     );
+    let resources: TrellisContractGetResponseContractResources =
+        contract.contract.resources.expect("resources");
     assert_eq!(
         resources
             .kv
@@ -332,7 +290,4 @@ fn stream_binding_types_deserialize_with_resolved_sources() {
             .purpose,
         "Projected job state"
     );
-    let streams = resources.streams.expect("stream resources");
-    let jobs_work = streams.get("jobsWork").expect("jobsWork resource");
-    assert_eq!(jobs_work.retention.as_deref(), Some("workqueue"));
 }

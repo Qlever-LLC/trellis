@@ -16,8 +16,7 @@ import { getConfig } from "../../config.ts";
 import { getResourcePermissionGrants } from "../../catalog/resources.ts";
 import type { ContractStore } from "../../catalog/store.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
-import { authRuntimeDeps } from "../runtime_deps.ts";
-import { kick } from "./kick.ts";
+import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import { resolveUserReconnectSession } from "./user_reconnect.ts";
 import {
   getServicePublishSubjects,
@@ -50,9 +49,7 @@ import {
   parseConnectionKey,
 } from "../session/connections.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
-import { loadEffectiveGrantPolicies } from "../grants/store.ts";
 import { parseContractApprovalKey } from "../http/support.ts";
-import { runtimeServiceLookup } from "../admin/service_lookup.ts";
 import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
@@ -155,14 +152,6 @@ export type BackgroundTaskHandle = {
   stop: () => Promise<void>;
 };
 
-async function loadServiceInstanceByKey(instanceKey: string) {
-  return await runtimeServiceLookup().loadServiceInstanceByKey(instanceKey);
-}
-
-async function loadServiceDeployment(deploymentId: string) {
-  return await runtimeServiceLookup().loadServiceDeployment(deploymentId);
-}
-
 function extractClientIp(natsReq: NatsAuthRequest): string | undefined {
   const clientInfo = natsReq.client_info;
   if (clientInfo) {
@@ -193,11 +182,25 @@ type DeviceRuntimeGrant = ReturnType<typeof deriveDeviceRuntimeAccess> & {
   };
 };
 
+type ServiceRuntimeLoaders = Required<
+  Pick<
+    Parameters<typeof resolveSessionPrincipal>[2],
+    | "loadServiceInstance"
+    | "loadServiceDeployment"
+    | "loadInstanceGrantPolicies"
+  >
+>;
+
+type DeviceRuntimeGrantDeps = {
+  deviceActivationStorage: Pick<SqlDeviceActivationRepository, "get" | "put">;
+  deviceDeploymentStorage: Pick<SqlDeviceDeploymentRepository, "get">;
+};
+
 async function findDeviceActivationByIdentityKey(
+  deps: Pick<DeviceRuntimeGrantDeps, "deviceActivationStorage">,
   publicIdentityKey: string,
 ): Promise<DeviceActivationRecord | null> {
-  const { deviceActivationStorage } = authRuntimeDeps();
-  const activation = await deviceActivationStorage.get(
+  const activation = await deps.deviceActivationStorage.get(
     deviceInstanceId(publicIdentityKey),
   );
   if (!activation) return null;
@@ -205,19 +208,24 @@ async function findDeviceActivationByIdentityKey(
 }
 
 async function resolveDeviceRuntimeGrant(
+  deps: DeviceRuntimeGrantDeps,
   publicIdentityKey: string,
   contractStorage: SqlContractStorageRepository,
   contractDigest?: string,
   contractStore?: ContractStore,
 ): Promise<DeviceRuntimeGrant> {
-  const activation = await findDeviceActivationByIdentityKey(publicIdentityKey);
+  const activation = await findDeviceActivationByIdentityKey(
+    deps,
+    publicIdentityKey,
+  );
   if (!activation) throw new Error("unknown_device");
   if (activation.state !== "activated" || activation.revokedAt !== null) {
     throw new Error("device_activation_revoked");
   }
 
-  const { deviceDeploymentStorage } = authRuntimeDeps();
-  const deployment = await deviceDeploymentStorage.get(activation.deploymentId);
+  const deployment = await deps.deviceDeploymentStorage.get(
+    activation.deploymentId,
+  );
   if (!deployment) throw new Error("device_deployment_not_found");
   if (deployment.disabled) throw new Error("device_deployment_disabled");
 
@@ -249,9 +257,14 @@ async function resolveDeviceRuntimeGrant(
   };
 }
 
-export function startDisconnectCleanup(): BackgroundTaskHandle {
-  const { connectionsKV, logger, natsAuth, sessionStorage, trellis } =
-    authRuntimeDeps();
+export function startDisconnectCleanup(deps: {
+  connectionsKV: AuthRuntimeDeps["connectionsKV"];
+  logger: AuthRuntimeDeps["logger"];
+  natsAuth: AuthRuntimeDeps["natsAuth"];
+  sessionStorage: AuthRuntimeDeps["sessionStorage"];
+  trellis: AuthRuntimeDeps["trellis"];
+}): BackgroundTaskHandle {
+  const { connectionsKV, logger, natsAuth, sessionStorage, trellis } = deps;
   const disconnectSub = natsAuth.subscribe("$SYS.ACCOUNT.*.DISCONNECT");
   let stopping = false;
   const task = (async () => {
@@ -304,13 +317,13 @@ export function startDisconnectCleanup(): BackgroundTaskHandle {
                   sessionKey: parsedKey.sessionKey,
                   userNkey,
                 })
-              ).inspectErr((error) =>
+              ).inspectErr((error: unknown) =>
                 logger.warn({ error }, "Failed to publish Auth.Disconnect")
               );
             }
           }
 
-          (await connectionsKV.delete(key)).inspectErr((error) =>
+          (await connectionsKV.delete(key)).inspectErr((error: unknown) =>
             logger.warn(
               { error, key },
               "Failed to delete disconnect connection",
@@ -339,6 +352,17 @@ export function startAuthCallout(
     contractStorage: SqlContractStorageRepository;
     userStorage: SqlUserProjectionRepository;
     contractApprovalStorage: SqlContractApprovalRepository;
+    connectionsKV: AuthRuntimeDeps["connectionsKV"];
+    deviceActivationStorage: AuthRuntimeDeps["deviceActivationStorage"];
+    deviceDeploymentStorage: AuthRuntimeDeps["deviceDeploymentStorage"];
+    logger: AuthRuntimeDeps["logger"];
+    natsAuth: AuthRuntimeDeps["natsAuth"];
+    sessionStorage: AuthRuntimeDeps["sessionStorage"];
+    trellis: AuthRuntimeDeps["trellis"];
+    loadServiceInstanceByKey: ServiceRuntimeLoaders["loadServiceInstance"];
+    loadServiceDeployment: ServiceRuntimeLoaders["loadServiceDeployment"];
+    loadInstanceGrantPolicies:
+      ServiceRuntimeLoaders["loadInstanceGrantPolicies"];
     contractStore?: ContractStore;
   },
 ): BackgroundTaskHandle {
@@ -350,7 +374,10 @@ export function startAuthCallout(
     natsAuth,
     sessionStorage,
     trellis,
-  } = authRuntimeDeps();
+    loadServiceInstanceByKey,
+    loadServiceDeployment,
+    loadInstanceGrantPolicies,
+  } = opts;
   const xkp = fromSeed(
     new TextEncoder().encode(config.nats.authCallout.sxSeed),
   );
@@ -492,6 +519,7 @@ export function startAuthCallout(
         let deviceGrant: DeviceRuntimeGrant;
         try {
           deviceGrant = await resolveDeviceRuntimeGrant(
+            { deviceActivationStorage, deviceDeploymentStorage },
             sessionKey,
             opts.contractStorage,
             authToken.contractDigest,
@@ -536,6 +564,7 @@ export function startAuthCallout(
       let currentGrant: DeviceRuntimeGrant;
       try {
         currentGrant = await resolveDeviceRuntimeGrant(
+          { deviceActivationStorage, deviceDeploymentStorage },
           sessionKey,
           opts.contractStorage,
           authToken.contractDigest,
@@ -600,7 +629,7 @@ export function startAuthCallout(
           ) ?? null;
         },
         loadInstanceGrantPolicies: async (contractId) => {
-          return await loadEffectiveGrantPolicies(contractId);
+          return await loadInstanceGrantPolicies(contractId);
         },
       });
       if (!resolvedReconnect.ok) {
@@ -642,7 +671,7 @@ export function startAuthCallout(
         ) ?? null;
       },
       loadInstanceGrantPolicies: async (contractId: string) => {
-        return await loadEffectiveGrantPolicies(contractId);
+        return await loadInstanceGrantPolicies(contractId);
       },
     });
     if (!principal.ok) {
@@ -826,7 +855,7 @@ export function startAuthCallout(
               connectedAt: now,
             },
           )
-        ).inspectErr((error) =>
+        ).inspectErr((error: unknown) =>
           logger.warn({ error }, "Failed to track connection")
         );
       }
@@ -839,7 +868,7 @@ export function startAuthCallout(
             sessionKey,
             userNkey: decoded.userNkey,
           })
-        ).inspectErr((error) =>
+        ).inspectErr((error: unknown) =>
           logger.warn({ error }, "Failed to publish Auth.Connect")
         );
       }

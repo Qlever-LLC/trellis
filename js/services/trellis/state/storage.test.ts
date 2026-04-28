@@ -64,6 +64,14 @@ function isMigrationRequired(value: unknown): value is {
     "migrationRequired" in value && value.migrationRequired === true;
 }
 
+function assertRecord(
+  value: unknown,
+): asserts value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") {
+    throw new Error("expected record");
+  }
+}
+
 Deno.test("StateStore put/get/list returns lexicographic pages for map stores", async () => {
   const kv = new FakeStateKV();
   const store = new StateStore({
@@ -393,6 +401,7 @@ Deno.test("StateStore stamps state provenance and keeps namespace contract-id sc
   const stored = kv.snapshot(
     "user.user-1.acme=2Enotes=40v1.preferences.~value",
   );
+  assertRecord(stored?.value);
   assertEquals(stored?.value.stateVersion, "prefs.v2");
   assertEquals(stored?.value.writerContractDigest, "digest-a");
 });

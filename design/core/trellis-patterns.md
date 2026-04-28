@@ -118,16 +118,24 @@ Rules:
 - use RPCs for bounded synchronous work and jobs for service-private execution machinery
 - operation control and watch semantics are defined in [../operations/trellis-operations.md](./../operations/trellis-operations.md)
 
-#### Raw subjects
+#### Runtime subject spaces
 
-Some subsystem-owned subject spaces are not `events.v1.*`, `rpc.v1.*`, or `operations.v1.*`. They exist for infrastructure coordination, stream projections, and service-private transport contracts.
+Some subsystem-owned subject spaces are not `events.v1.*`, `rpc.v1.*`, or
+`operations.v1.*`. They exist for infrastructure coordination, stream
+projections, and service-private transport protocols.
 
 Rules:
 
-- raw subjects must still be contract-owned when they are part of a public or cross-service boundary
-- Trellis-owned runtime protocols may still use raw subjects behind a contract-owned public API; file transfer chunk subjects are an example of this pattern
-- subsystem docs should define the semantics and naming rules for any raw subject space they introduce
-- examples include jobs stream subjects and other platform-owned control surfaces described in companion docs
+- public and cross-service boundaries must be modeled as contract-owned RPCs,
+  operations, events, jobs, state, or resources rather than caller-authored raw
+  subject declarations
+- Trellis-owned runtime protocols may still use raw subjects behind a
+  contract-owned public API; file transfer chunk subjects are an example of this
+  pattern
+- subsystem docs should define the semantics and naming rules for any runtime
+  subject space they introduce
+- examples include jobs work subjects and other platform-owned control surfaces
+  described in companion docs
 
 ## Companion Documents
 

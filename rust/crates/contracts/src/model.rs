@@ -65,7 +65,7 @@ pub struct ContractUseRpc {
     pub call: Option<Vec<String>>,
 }
 
-/// Event or subject selections from a `uses` dependency.
+/// Event selections from a `uses` dependency.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ContractUsePubSub {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,8 +91,6 @@ pub struct ContractUseRef {
     pub operations: Option<ContractUseOperation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub events: Option<ContractUsePubSub>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub subjects: Option<ContractUsePubSub>,
 }
 
 /// Capability requirements for invoking and observing an operation.
@@ -186,16 +184,6 @@ pub struct ContractEvent {
     pub capabilities: Option<PubSubCapabilities>,
 }
 
-/// One owned raw subject declaration in a contract manifest.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContractSubject {
-    pub subject: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<ContractSchemaRef>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<PubSubCapabilities>,
-}
-
 /// One logical KV resource declaration in a contract manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractKvResource {
@@ -249,45 +237,6 @@ pub struct ContractJobQueueResource {
     pub concurrency: Option<i64>,
 }
 
-/// One logical stream resource declaration in a contract manifest.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContractStreamSource {
-    #[serde(rename = "fromAlias")]
-    pub from_alias: String,
-    #[serde(rename = "filterSubject", skip_serializing_if = "Option::is_none")]
-    pub filter_subject: Option<String>,
-    #[serde(
-        rename = "subjectTransformDest",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub subject_transform_dest: Option<String>,
-}
-
-/// One logical stream resource declaration in a contract manifest.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContractStreamResource {
-    pub purpose: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub required: Option<bool>,
-    pub subjects: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub retention: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub storage: Option<String>,
-    #[serde(rename = "numReplicas", skip_serializing_if = "Option::is_none")]
-    pub num_replicas: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub discard: Option<String>,
-    #[serde(rename = "maxMsgs", skip_serializing_if = "Option::is_none")]
-    pub max_msgs: Option<i64>,
-    #[serde(rename = "maxBytes", skip_serializing_if = "Option::is_none")]
-    pub max_bytes: Option<i64>,
-    #[serde(rename = "maxAgeMs", skip_serializing_if = "Option::is_none")]
-    pub max_age_ms: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sources: Option<Vec<ContractStreamSource>>,
-}
-
 /// Resource declarations in a contract manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ContractResources {
@@ -295,8 +244,6 @@ pub struct ContractResources {
     pub kv: BTreeMap<String, ContractKvResource>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub store: BTreeMap<String, ContractStoreResource>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub streams: BTreeMap<String, ContractStreamResource>,
 }
 
 /// Explicit public schema exports for generated SDK consumers.
@@ -328,8 +275,6 @@ pub struct ContractManifest {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub events: BTreeMap<String, ContractEvent>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub subjects: BTreeMap<String, ContractSubject>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub errors: BTreeMap<String, ContractErrorDecl>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub jobs: BTreeMap<String, ContractJobQueueResource>,
@@ -339,7 +284,7 @@ pub struct ContractManifest {
 
 impl ContractResources {
     fn is_empty(&self) -> bool {
-        self.kv.is_empty() && self.store.is_empty() && self.streams.is_empty()
+        self.kv.is_empty() && self.store.is_empty()
     }
 }
 

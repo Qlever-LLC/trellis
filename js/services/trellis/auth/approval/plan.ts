@@ -2,7 +2,6 @@ import type {
   ContractEvent,
   ContractOperation,
   ContractRpcMethod,
-  ContractSubject,
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
 import {
@@ -48,21 +47,6 @@ export async function planUserContractApproval(
   ) {
     publishSubjects.add(templateToWildcard(event.subject));
     for (const capability of event.capabilities?.publish ?? []) {
-      capabilities.add(capability);
-    }
-  }
-
-  for (
-    const subject of Object.values<ContractSubject>(
-      validated.contract.subjects ?? {},
-    )
-  ) {
-    publishSubjects.add(subject.subject);
-    subscribeSubjects.add(subject.subject);
-    for (const capability of subject.capabilities?.publish ?? []) {
-      capabilities.add(capability);
-    }
-    for (const capability of subject.capabilities?.subscribe ?? []) {
       capabilities.add(capability);
     }
   }
@@ -120,20 +104,6 @@ export async function planUserContractApproval(
   for (const event of uses.eventSubscribes) {
     subscribeSubjects.add(templateToWildcard(event.event.subject));
     for (const capability of event.event.capabilities?.subscribe ?? []) {
-      capabilities.add(capability);
-    }
-  }
-
-  for (const subject of uses.subjectPublishes) {
-    publishSubjects.add(subject.subject.subject);
-    for (const capability of subject.subject.capabilities?.publish ?? []) {
-      capabilities.add(capability);
-    }
-  }
-
-  for (const subject of uses.subjectSubscribes) {
-    subscribeSubjects.add(subject.subject.subject);
-    for (const capability of subject.subject.capabilities?.subscribe ?? []) {
       capabilities.add(capability);
     }
   }

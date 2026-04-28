@@ -1,7 +1,7 @@
 import { AuthError, UnexpectedError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
 
-import { authRuntimeDeps } from "../runtime_deps.ts";
+import type { AuthLogger, RuntimeKV } from "../runtime_deps.ts";
 import {
   type CreateDeviceDeploymentRequest,
   type CreatePortalRequest,
@@ -32,7 +32,6 @@ import {
   validatePortalRequest,
 } from "./shared.ts";
 import { deriveDeviceConfirmationCode } from "@qlever-llc/trellis/auth";
-import { kick } from "../callout/kick.ts";
 import type { ContractStore } from "../../catalog/store.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
@@ -40,12 +39,24 @@ import {
   matchingInstanceGrantPolicies,
   userDelegationAllowed,
 } from "../grants/policy.ts";
-import { loadEffectiveGrantPolicies } from "../grants/store.ts";
 import type {
+  Connection,
   InstanceGrantPolicy,
   Session,
   UserProjectionEntry,
 } from "../schemas.ts";
+import type {
+  SqlContractApprovalRepository,
+  SqlDeviceDeploymentRepository,
+  SqlDeviceProvisioningSecretRepository,
+  SqlInstanceGrantPolicyRepository,
+  SqlLoginPortalSelectionRepository,
+  SqlPortalDefaultRepository,
+  SqlPortalProfileRepository,
+  SqlPortalRepository,
+  SqlSessionRepository,
+  SqlUserProjectionRepository,
+} from "../storage.ts";
 import {
   connectionFilterForSession,
   parseConnectionKey,
@@ -93,134 +104,200 @@ type DeviceActivationReviewRecord = {
 };
 type ActiveContractsDeps = { refreshActiveContracts: () => Promise<void> };
 
+export type AdminRpcDeps = {
+  browserFlowsKV: RuntimeKV<unknown>;
+  connectionsKV: RuntimeKV<Connection>;
+  contractApprovalStorage: SqlContractApprovalRepository;
+  deviceActivationReviewStorage: {
+    get(reviewId: string): Promise<DeviceActivationReviewRecord | undefined>;
+    getByFlowId(
+      flowId: string,
+    ): Promise<DeviceActivationReviewRecord | undefined>;
+    put(record: DeviceActivationReviewRecord): Promise<void>;
+    list(): Promise<DeviceActivationReviewRecord[]>;
+  };
+  deviceActivationStorage: {
+    get(instanceId: string): Promise<DeviceActivation | undefined>;
+    put(record: DeviceActivation): Promise<void>;
+    delete(instanceId: string): Promise<void>;
+    list(): Promise<DeviceActivation[]>;
+  };
+  deviceDeploymentStorage: SqlDeviceDeploymentRepository;
+  deviceInstanceStorage: {
+    get(instanceId: string): Promise<DeviceInstance | undefined>;
+    put(record: DeviceInstance): Promise<void>;
+    delete(instanceId: string): Promise<void>;
+    list(): Promise<DeviceInstance[]>;
+  };
+  devicePortalSelectionStorage: {
+    get(deploymentId: string): Promise<DevicePortalSelection | undefined>;
+    put(record: DevicePortalSelection): Promise<void>;
+    delete(deploymentId: string): Promise<void>;
+    list(): Promise<DevicePortalSelection[]>;
+  };
+  deviceProvisioningSecretStorage: SqlDeviceProvisioningSecretRepository;
+  instanceGrantPolicyStorage: SqlInstanceGrantPolicyRepository;
+  kick: (serverId: string, clientId: number) => Promise<void>;
+  loadEffectiveGrantPolicies: (
+    contractId: string,
+  ) => Promise<InstanceGrantPolicy[]>;
+  logger: Pick<AuthLogger, "trace" | "warn">;
+  loginPortalSelectionStorage: SqlLoginPortalSelectionRepository;
+  portalDefaultStorage: SqlPortalDefaultRepository;
+  portalProfileStorage: SqlPortalProfileRepository;
+  portalStorage: SqlPortalRepository;
+  publishSessionRevoked: (
+    event: {
+      origin: string;
+      id: string;
+      sessionKey: string;
+      revokedBy: string;
+    },
+  ) => Promise<void>;
+  sessionStorage: Pick<
+    SqlSessionRepository,
+    "deleteByInstanceKey" | "deleteBySessionKey" | "listEntries"
+  >;
+  userStorage: SqlUserProjectionRepository;
+};
+
+let configuredAdminRpcDeps: AdminRpcDeps | undefined;
+
+/** Sets explicit dependencies used by admin RPC handlers registered by auth. */
+export function setAdminRpcDeps(deps: AdminRpcDeps): void {
+  configuredAdminRpcDeps = deps;
+}
+
+function adminRpcDeps(): AdminRpcDeps {
+  if (!configuredAdminRpcDeps) {
+    throw new Error("auth admin RPC dependencies have not been configured");
+  }
+  return configuredAdminRpcDeps;
+}
+
 const LOGIN_DEFAULT_KEY = "login.default";
 const DEVICE_DEFAULT_KEY = "device.default";
 
 const logger = {
   trace: (fields: Record<string, unknown>, message: string) =>
-    authRuntimeDeps().logger.trace(fields, message),
+    adminRpcDeps().logger.trace(fields, message),
   warn: (fields: Record<string, unknown>, message: string) =>
-    authRuntimeDeps().logger.warn(fields, message),
+    adminRpcDeps().logger.warn(fields, message),
 };
 
 const browserFlowsKV = {
-  get: (key: string) => authRuntimeDeps().browserFlowsKV.get(key),
+  get: (key: string) => adminRpcDeps().browserFlowsKV.get(key),
 };
 const connectionsKV = {
-  get: (key: string) => authRuntimeDeps().connectionsKV.get(key),
-  delete: (key: string) => authRuntimeDeps().connectionsKV.delete(key),
+  get: (key: string) => adminRpcDeps().connectionsKV.get(key),
+  delete: (key: string) => adminRpcDeps().connectionsKV.delete(key),
   keys: (filter: string | string[]) =>
-    authRuntimeDeps().connectionsKV.keys(filter),
-};
-const trellis = {
-  publish: (event: string, payload: unknown) =>
-    authRuntimeDeps().trellis.publish(event, payload),
+    adminRpcDeps().connectionsKV.keys(filter),
 };
 const contractApprovalStorage = {
   get: (userTrellisId: string, contractDigest: string) =>
-    authRuntimeDeps().contractApprovalStorage.get(
+    adminRpcDeps().contractApprovalStorage.get(
       userTrellisId,
       contractDigest,
     ),
 };
 const portalStorage = {
-  get: (portalId: string) => authRuntimeDeps().portalStorage.get(portalId),
-  put: (record: Portal) => authRuntimeDeps().portalStorage.put(record),
-  list: () => authRuntimeDeps().portalStorage.list(),
+  get: (portalId: string) => adminRpcDeps().portalStorage.get(portalId),
+  put: (record: Portal) => adminRpcDeps().portalStorage.put(record),
+  list: () => adminRpcDeps().portalStorage.list(),
 };
 const portalProfileStorage = {
-  get: (portalId: string) =>
-    authRuntimeDeps().portalProfileStorage.get(portalId),
+  get: (portalId: string) => adminRpcDeps().portalProfileStorage.get(portalId),
   put: (record: PortalProfile) =>
-    authRuntimeDeps().portalProfileStorage.put(record),
-  list: () => authRuntimeDeps().portalProfileStorage.list(),
+    adminRpcDeps().portalProfileStorage.put(record),
+  list: () => adminRpcDeps().portalProfileStorage.list(),
 };
 const instanceGrantPolicyStorage = {
   get: (contractId: string) =>
-    authRuntimeDeps().instanceGrantPolicyStorage.get(contractId),
+    adminRpcDeps().instanceGrantPolicyStorage.get(contractId),
   put: (record: InstanceGrantPolicy) =>
-    authRuntimeDeps().instanceGrantPolicyStorage.put(record),
-  list: () => authRuntimeDeps().instanceGrantPolicyStorage.list(),
+    adminRpcDeps().instanceGrantPolicyStorage.put(record),
+  list: () => adminRpcDeps().instanceGrantPolicyStorage.list(),
 };
 const deviceDeploymentStorage = {
   get: (deploymentId: string) =>
-    authRuntimeDeps().deviceDeploymentStorage.get(deploymentId),
+    adminRpcDeps().deviceDeploymentStorage.get(deploymentId),
   put: (record: DeviceDeployment) =>
-    authRuntimeDeps().deviceDeploymentStorage.put(record),
+    adminRpcDeps().deviceDeploymentStorage.put(record),
   delete: (deploymentId: string) =>
-    authRuntimeDeps().deviceDeploymentStorage.delete(deploymentId),
-  list: () => authRuntimeDeps().deviceDeploymentStorage.list(),
+    adminRpcDeps().deviceDeploymentStorage.delete(deploymentId),
+  list: () => adminRpcDeps().deviceDeploymentStorage.list(),
 };
 const deviceInstanceStorage = {
   get: (instanceId: string) =>
-    authRuntimeDeps().deviceInstanceStorage.get(instanceId),
+    adminRpcDeps().deviceInstanceStorage.get(instanceId),
   put: (record: DeviceInstance) =>
-    authRuntimeDeps().deviceInstanceStorage.put(record),
+    adminRpcDeps().deviceInstanceStorage.put(record),
   delete: (instanceId: string) =>
-    authRuntimeDeps().deviceInstanceStorage.delete(instanceId),
-  list: () => authRuntimeDeps().deviceInstanceStorage.list(),
+    adminRpcDeps().deviceInstanceStorage.delete(instanceId),
+  list: () => adminRpcDeps().deviceInstanceStorage.list(),
 };
 const deviceProvisioningSecretStorage = {
   get: (instanceId: string) =>
-    authRuntimeDeps().deviceProvisioningSecretStorage.get(instanceId),
+    adminRpcDeps().deviceProvisioningSecretStorage.get(instanceId),
   put: (record: DeviceProvisioningSecret) =>
-    authRuntimeDeps().deviceProvisioningSecretStorage.put(record),
+    adminRpcDeps().deviceProvisioningSecretStorage.put(record),
   delete: (instanceId: string) =>
-    authRuntimeDeps().deviceProvisioningSecretStorage.delete(instanceId),
+    adminRpcDeps().deviceProvisioningSecretStorage.delete(instanceId),
 };
 const deviceActivationReviewStorage = {
   get: (reviewId: string) =>
-    authRuntimeDeps().deviceActivationReviewStorage.get(reviewId),
+    adminRpcDeps().deviceActivationReviewStorage.get(reviewId),
   getByFlowId: (flowId: string) =>
-    authRuntimeDeps().deviceActivationReviewStorage.getByFlowId(flowId),
+    adminRpcDeps().deviceActivationReviewStorage.getByFlowId(flowId),
   put: (record: DeviceActivationReviewRecord) =>
-    authRuntimeDeps().deviceActivationReviewStorage.put(record),
-  list: () => authRuntimeDeps().deviceActivationReviewStorage.list(),
+    adminRpcDeps().deviceActivationReviewStorage.put(record),
+  list: () => adminRpcDeps().deviceActivationReviewStorage.list(),
 };
 const deviceActivationStorage = {
   get: (instanceId: string) =>
-    authRuntimeDeps().deviceActivationStorage.get(instanceId),
+    adminRpcDeps().deviceActivationStorage.get(instanceId),
   put: (record: DeviceActivation) =>
-    authRuntimeDeps().deviceActivationStorage.put(record),
+    adminRpcDeps().deviceActivationStorage.put(record),
   delete: (instanceId: string) =>
-    authRuntimeDeps().deviceActivationStorage.delete(instanceId),
-  list: () => authRuntimeDeps().deviceActivationStorage.list(),
+    adminRpcDeps().deviceActivationStorage.delete(instanceId),
+  list: () => adminRpcDeps().deviceActivationStorage.list(),
 };
 const portalDefaultStorage = {
-  getLogin: () => authRuntimeDeps().portalDefaultStorage.getLogin(),
-  getDevice: () => authRuntimeDeps().portalDefaultStorage.getDevice(),
+  getLogin: () => adminRpcDeps().portalDefaultStorage.getLogin(),
+  getDevice: () => adminRpcDeps().portalDefaultStorage.getDevice(),
   putLogin: (record: PortalDefault) =>
-    authRuntimeDeps().portalDefaultStorage.putLogin(record),
+    adminRpcDeps().portalDefaultStorage.putLogin(record),
   putDevice: (record: PortalDefault) =>
-    authRuntimeDeps().portalDefaultStorage.putDevice(record),
+    adminRpcDeps().portalDefaultStorage.putDevice(record),
 };
 const loginPortalSelectionStorage = {
   get: (contractId: string) =>
-    authRuntimeDeps().loginPortalSelectionStorage.get(contractId),
+    adminRpcDeps().loginPortalSelectionStorage.get(contractId),
   put: (record: LoginPortalSelection) =>
-    authRuntimeDeps().loginPortalSelectionStorage.put(record),
+    adminRpcDeps().loginPortalSelectionStorage.put(record),
   delete: (contractId: string) =>
-    authRuntimeDeps().loginPortalSelectionStorage.delete(contractId),
-  list: () => authRuntimeDeps().loginPortalSelectionStorage.list(),
+    adminRpcDeps().loginPortalSelectionStorage.delete(contractId),
+  list: () => adminRpcDeps().loginPortalSelectionStorage.list(),
 };
 const devicePortalSelectionStorage = {
   get: (deploymentId: string) =>
-    authRuntimeDeps().devicePortalSelectionStorage.get(deploymentId),
+    adminRpcDeps().devicePortalSelectionStorage.get(deploymentId),
   put: (record: DevicePortalSelection) =>
-    authRuntimeDeps().devicePortalSelectionStorage.put(record),
+    adminRpcDeps().devicePortalSelectionStorage.put(record),
   delete: (deploymentId: string) =>
-    authRuntimeDeps().devicePortalSelectionStorage.delete(deploymentId),
-  list: () => authRuntimeDeps().devicePortalSelectionStorage.list(),
+    adminRpcDeps().devicePortalSelectionStorage.delete(deploymentId),
+  list: () => adminRpcDeps().devicePortalSelectionStorage.list(),
 };
 const userStorage = {
-  get: (trellisId: string) => authRuntimeDeps().userStorage.get(trellisId),
+  get: (trellisId: string) => adminRpcDeps().userStorage.get(trellisId),
 };
 const sessionStorage = {
   deleteBySessionKey: (sessionKey: string) =>
-    authRuntimeDeps().sessionStorage.deleteBySessionKey(sessionKey),
+    adminRpcDeps().sessionStorage.deleteBySessionKey(sessionKey),
   deleteByInstanceKey: (instanceKey: string) =>
-    authRuntimeDeps().sessionStorage.deleteByInstanceKey(instanceKey),
-  listEntries: () => authRuntimeDeps().sessionStorage.listEntries(),
+    adminRpcDeps().sessionStorage.deleteByInstanceKey(instanceKey),
+  listEntries: () => adminRpcDeps().sessionStorage.listEntries(),
 };
 
 function isAdmin(user: RpcUser): boolean {
@@ -473,21 +550,21 @@ async function revokeUserSessionByKey(
       const entry = await connectionsKV.get(connKey).take();
       if (!isErr(entry)) {
         const connection = unwrapConnection(entry);
-        if (connection) await kick(connection.serverId, connection.clientId);
+        if (connection) {
+          await adminRpcDeps().kick(connection.serverId, connection.clientId);
+        }
       }
       await connectionsKV.delete(connKey);
     }
   }
 
   if (revokedBy) {
-    (await trellis.publish("Auth.SessionRevoked", {
+    await adminRpcDeps().publishSessionRevoked({
       origin: session.origin,
       id: session.id,
       sessionKey,
       revokedBy,
-    })).inspectErr((error: unknown) =>
-      logger.warn({ error }, "Failed to publish Auth.SessionRevoked")
-    );
+    });
   }
   await sessionStorage.deleteBySessionKey(sessionKey);
 }
@@ -502,7 +579,9 @@ async function kickInstanceRuntimeAccess(instanceKey: string): Promise<void> {
       const entry = await connectionsKV.get(connKey).take();
       if (!isErr(entry)) {
         const connection = unwrapConnection(entry);
-        if (connection) await kick(connection.serverId, connection.clientId);
+        if (connection) {
+          await adminRpcDeps().kick(connection.serverId, connection.clientId);
+        }
       }
       await connectionsKV.delete(connKey);
     }
@@ -668,7 +747,7 @@ async function revokeInvalidatedEffectiveGrantSessions(args: {
 }): Promise<void> {
   await revokeInvalidatedInstanceGrantSessions({
     contractId: args.contractId,
-    policies: await loadEffectiveGrantPolicies(args.contractId),
+    policies: await adminRpcDeps().loadEffectiveGrantPolicies(args.contractId),
     revokedBy: args.revokedBy,
   });
 }

@@ -46,7 +46,6 @@ import {
   schema,
   type SchemaLike,
   type SerializableErrorData,
-  type SubjectDesc,
   type TrellisAPI,
   unwrapSchema,
 } from "./runtime.ts";
@@ -258,12 +257,6 @@ export type ContractEvent = {
   capabilities?: { publish?: Capability[]; subscribe?: Capability[] };
 };
 
-export type ContractSubject = {
-  subject: string;
-  message?: ContractSchemaRef;
-  capabilities?: { publish?: Capability[]; subscribe?: Capability[] };
-};
-
 export type ContractJobQueueResource = {
   payload: ContractSchemaRef;
   result?: ContractSchemaRef;
@@ -317,7 +310,6 @@ export type ContractUse = {
   rpc?: ContractUsesRpc;
   operations?: ContractUsesRpc;
   events?: ContractUsesPubSub;
-  subjects?: ContractUsesPubSub;
 };
 
 export type ContractUses = Record<string, ContractUse>;
@@ -335,7 +327,6 @@ export type TrellisContractV1 = {
   rpc?: Record<string, ContractRpcMethod>;
   operations?: Record<string, ContractOperation>;
   events?: Record<string, ContractEvent>;
-  subjects?: Record<string, ContractSubject>;
   errors?: Record<string, ContractErrorDecl>;
   jobs?: ContractJobs;
   resources?: ContractResources;
@@ -622,15 +613,6 @@ export type ContractSourceEvent<TSchemaName extends string = string> = {
   subject?: string;
 };
 
-export type ContractSourceSubject<TSchemaName extends string = string> = {
-  subject: string;
-  message?: ContractSchemaRef<TSchemaName>;
-  capabilities?: {
-    publish?: readonly Capability[];
-    subscribe?: readonly Capability[];
-  };
-};
-
 export type ContractSourceJobQueue<
   TSchemaName extends string = string,
 > = {
@@ -678,7 +660,6 @@ export type ContractSourceUse = {
   rpc?: { call?: readonly string[] };
   operations?: { call?: readonly string[] };
   events?: { publish?: readonly string[]; subscribe?: readonly string[] };
-  subjects?: { publish?: readonly string[]; subscribe?: readonly string[] };
 };
 
 export type TrellisContractSource = {
@@ -693,7 +674,6 @@ export type TrellisContractSource = {
   rpc?: Record<string, ContractSourceRpcMethod>;
   operations?: Record<string, ContractSourceOperation>;
   events?: Record<string, ContractSourceEvent>;
-  subjects?: Record<string, ContractSourceSubject>;
   errors?: Record<string, ContractSourceErrorDecl>;
   jobs?: ContractSourceJobs;
   resources?: ContractSourceResources;
@@ -703,7 +683,7 @@ export type TrellisApiLike = {
   rpc: Record<string, RPCDesc>;
   operations: Record<string, OperationDesc>;
   events: Record<string, EventDesc>;
-  subjects: Record<string, SubjectDesc>;
+  subjects: Record<string, unknown>;
 };
 
 type ApiShape = {
@@ -769,10 +749,6 @@ export type UseSpec<TApi extends ApiShape> = {
     publish?: readonly StringKeyOf<TApi["events"]>[];
     subscribe?: readonly StringKeyOf<TApi["events"]>[];
   };
-  subjects?: {
-    publish?: readonly StringKeyOf<TApi["subjects"]>[];
-    subscribe?: readonly StringKeyOf<TApi["subjects"]>[];
-  };
 };
 
 type UseRpcCall<TSpec> =
@@ -793,17 +769,6 @@ type UseEventsSubscribe<TSpec> = NonNullable<
 > extends { subscribe?: infer TSubscribe extends readonly string[] | undefined }
   ? TSubscribe
   : never;
-type UseSubjectsPublish<TSpec> = NonNullable<
-  TSpec extends { subjects?: infer TSubjects } ? TSubjects : never
-> extends { publish?: infer TPublish extends readonly string[] | undefined }
-  ? TPublish
-  : never;
-type UseSubjectsSubscribe<TSpec> = NonNullable<
-  TSpec extends { subjects?: infer TSubjects } ? TSubjects : never
-> extends { subscribe?: infer TSubscribe extends readonly string[] | undefined }
-  ? TSubscribe
-  : never;
-
 type ContractModuleMarker<
   TContractModule = ContractModule<
     string,
@@ -832,10 +797,6 @@ export type ContractDependencyUse<
   events?: {
     publish?: UseEventsPublish<TSpec>;
     subscribe?: UseEventsSubscribe<TSpec>;
-  };
-  subjects?: {
-    publish?: UseSubjectsPublish<TSpec>;
-    subscribe?: UseSubjectsSubscribe<TSpec>;
   };
 };
 
@@ -1128,16 +1089,6 @@ type ProjectedEvents<
   }
   : {};
 
-type ProjectedSubjects<
-  T extends Readonly<Record<string, ContractSourceSubject>> | undefined,
-  TSchemas,
-> = T extends Readonly<Record<string, ContractSourceSubject>> ? {
-    [K in keyof T]: SubjectDesc<
-      ResolveSchemaFromMap<TSchemas, T[K]["message"]>
-    >;
-  }
-  : {};
-
 export type OwnedApiFromSource<
   T extends {
     schemas?: Readonly<Record<string, TSchema>>;
@@ -1145,13 +1096,12 @@ export type OwnedApiFromSource<
     rpc?: Readonly<Record<string, ContractSourceRpcMethod>>;
     operations?: Readonly<Record<string, ContractSourceOperation>>;
     events?: Readonly<Record<string, ContractSourceEvent>>;
-    subjects?: Readonly<Record<string, ContractSourceSubject>>;
   },
 > = {
   rpc: ProjectedRpc<T["rpc"], T["schemas"], T["errors"]>;
   operations: ProjectedOperations<T["operations"], T["schemas"]>;
   events: ProjectedEvents<T["events"], T["schemas"]>;
-  subjects: ProjectedSubjects<T["subjects"], T["schemas"]>;
+  subjects: {};
 };
 
 type RpcKeysFromSpec<TSpec> = TSpec extends { rpc?: { call?: infer TCall } }
@@ -1167,20 +1117,12 @@ type EventKeysFromSpec<TSpec> =
 type OperationKeysFromSpec<TSpec> = TSpec extends
   { operations?: { call?: infer TCall } } ? KeysFromList<TCall>
   : never;
-type SubjectKeysFromSpec<TSpec> =
-  | (TSpec extends { subjects?: { publish?: infer TPublish } }
-    ? KeysFromList<TPublish>
-    : never)
-  | (TSpec extends { subjects?: { subscribe?: infer TSubscribe } }
-    ? KeysFromList<TSubscribe>
-    : never);
-
 type ApiFromDependencyUse<TUse> = TUse extends
   ContractDependencyUse<string, infer TApi, infer TSpec> ? {
     rpc: Pick<TApi["rpc"], RpcKeysFromSpec<TSpec>>;
     operations: Pick<TApi["operations"], OperationKeysFromSpec<TSpec>>;
     events: Pick<TApi["events"], EventKeysFromSpec<TSpec>>;
-    subjects: Pick<TApi["subjects"], SubjectKeysFromSpec<TSpec>>;
+    subjects: {};
   }
   : EmptyApi;
 
@@ -1305,9 +1247,6 @@ export type DefineContractInput<
   TEvents extends
     | Readonly<Record<string, ContractSourceEvent<SchemaNameOf<TSchemas>>>>
     | undefined = undefined,
-  TSubjects extends
-    | Readonly<Record<string, ContractSourceSubject<SchemaNameOf<TSchemas>>>>
-    | undefined = undefined,
 > = {
   id: string;
   displayName: string;
@@ -1321,7 +1260,6 @@ export type DefineContractInput<
   rpc?: TRpc;
   operations?: TOperations;
   events?: TEvents;
-  subjects?: TSubjects;
   jobs?: ContractSourceJobs<SchemaNameOf<TSchemas>>;
   resources?: ContractSourceResources<SchemaNameOf<TSchemas>>;
 };
@@ -1339,7 +1277,6 @@ type DefineContractSource = {
   rpc?: Readonly<Record<string, ContractSourceRpcMethod>>;
   operations?: Readonly<Record<string, ContractSourceOperation>>;
   events?: Readonly<Record<string, ContractSourceEvent>>;
-  subjects?: Readonly<Record<string, ContractSourceSubject>>;
   jobs?: ContractSourceJobs;
   resources?: ContractSourceResources;
 };
@@ -1381,12 +1318,6 @@ type ValidateDefineContractInput<T extends DefineContractSource> =
     ConstrainSection<
       T["events"],
       Readonly<Record<string, ContractSourceEvent<SchemaNameOf<T["schemas"]>>>>
-    >,
-    ConstrainSection<
-      T["subjects"],
-      Readonly<
-        Record<string, ContractSourceSubject<SchemaNameOf<T["schemas"]>>>
-      >
     >
   >;
 
@@ -1460,15 +1391,6 @@ type RegistryEvents<TRegistry extends AnyDefineContractRegistry> =
   >
   | undefined;
 
-type RegistrySubjects<TRegistry extends AnyDefineContractRegistry> =
-  | Readonly<
-    Record<
-      string,
-      ContractSourceSubject<SchemaNameOf<RegistrySchemas<TRegistry>>>
-    >
-  >
-  | undefined;
-
 type UsedApiOf<TBody extends { uses?: unknown }> = UsedApiFromUses<
   TBody["uses"]
 >;
@@ -1495,9 +1417,6 @@ type DefineContractBodyInput<
   TEvents extends
     | Readonly<Record<string, ContractSourceEvent<SchemaNameOf<TSchemas>>>>
     | undefined = undefined,
-  TSubjects extends
-    | Readonly<Record<string, ContractSourceSubject<SchemaNameOf<TSchemas>>>>
-    | undefined = undefined,
 > =
   & Omit<
     DefineContractInput<
@@ -1506,8 +1425,7 @@ type DefineContractBodyInput<
       TErrors,
       TRpc,
       TOperations,
-      TEvents,
-      TSubjects
+      TEvents
     >,
     "schemas" | "errors"
   >
@@ -1538,9 +1456,6 @@ type ServiceContractBodyInput<
   TEvents extends
     | Readonly<Record<string, ContractSourceEvent<SchemaNameOf<TSchemas>>>>
     | undefined = undefined,
-  TSubjects extends
-    | Readonly<Record<string, ContractSourceSubject<SchemaNameOf<TSchemas>>>>
-    | undefined = undefined,
 > =
   & Omit<
     DefineContractBodyInput<
@@ -1549,12 +1464,11 @@ type ServiceContractBodyInput<
       TErrors,
       TRpc,
       TOperations,
-      TEvents,
-      TSubjects
+      TEvents
     >,
     "kind"
   >
-  & { kind?: never };
+  & { kind?: never; subjects?: never };
 
 type ClientContractBodyInput<
   TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
@@ -1877,10 +1791,6 @@ function collectReachableSchemaNames(contract: TrellisContractV1): Set<string> {
     collectSchemaRef(reachableSchemas, event.event);
   }
 
-  for (const subject of Object.values(contract.subjects ?? {})) {
-    collectSchemaRef(reachableSchemas, subject.message);
-  }
-
   for (const job of Object.values(contract.jobs ?? {})) {
     collectSchemaRef(reachableSchemas, job.payload);
     collectSchemaRef(reachableSchemas, job.result);
@@ -1963,18 +1873,6 @@ function projectDigestUses(
                 : {}),
               ...(use.events.subscribe
                 ? { subscribe: sortedUnique(use.events.subscribe) }
-                : {}),
-            },
-          }
-          : {}),
-        ...((use.subjects?.publish || use.subjects?.subscribe)
-          ? {
-            subjects: {
-              ...(use.subjects.publish
-                ? { publish: sortedUnique(use.subjects.publish) }
-                : {}),
-              ...(use.subjects.subscribe
-                ? { subscribe: sortedUnique(use.subjects.subscribe) }
                 : {}),
             },
           }
@@ -2073,35 +1971,6 @@ function projectDigestEvents(
   );
 }
 
-function projectDigestSubjects(
-  subjects: Record<string, ContractSubject> | undefined,
-): Record<string, ContractSubject> | undefined {
-  if (!subjects) {
-    return undefined;
-  }
-
-  return Object.fromEntries(
-    Object.entries(subjects).map(([name, subject]) => [
-      name,
-      {
-        ...subject,
-        ...((subject.capabilities?.publish || subject.capabilities?.subscribe)
-          ? {
-            capabilities: {
-              ...(subject.capabilities.publish
-                ? { publish: sortedUnique(subject.capabilities.publish) }
-                : {}),
-              ...(subject.capabilities.subscribe
-                ? { subscribe: sortedUnique(subject.capabilities.subscribe) }
-                : {}),
-            },
-          }
-          : {}),
-      } satisfies ContractSubject,
-    ]),
-  );
-}
-
 /**
  * Build the normalized runtime/interface projection used for contract identity.
  */
@@ -2115,7 +1984,6 @@ export function projectContractDigestManifest(
   const rpc = projectDigestRpc(contract.rpc);
   const operations = projectDigestOperations(contract.operations);
   const events = projectDigestEvents(contract.events);
-  const subjects = projectDigestSubjects(contract.subjects);
 
   return {
     format: contract.format,
@@ -2127,7 +1995,6 @@ export function projectContractDigestManifest(
     ...(rpc ? { rpc } : {}),
     ...(operations ? { operations } : {}),
     ...(events ? { events } : {}),
-    ...(subjects ? { subjects } : {}),
     ...(errors ? { errors } : {}),
     ...(contract.jobs ? { jobs: contract.jobs } : {}),
     ...(resources ? { resources } : {}),
@@ -2364,18 +2231,6 @@ function emitUses(
             },
           }
           : {}),
-        ...((use.subjects?.publish || use.subjects?.subscribe)
-          ? {
-            subjects: {
-              ...(use.subjects.publish
-                ? { publish: sortedUnique(use.subjects.publish) }
-                : {}),
-              ...(use.subjects.subscribe
-                ? { subscribe: sortedUnique(use.subjects.subscribe) }
-                : {}),
-            },
-          }
-          : {}),
       } satisfies ContractUse,
     ]),
   );
@@ -2520,30 +2375,6 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     )
     : undefined;
 
-  const subjects = source.subjects
-    ? Object.fromEntries(
-      Object.entries(source.subjects).map(([name, subject]) => {
-        const emitted: ContractSubject = {
-          subject: subject.subject,
-        };
-        if (subject.message) {
-          emitted.message = { ...subject.message };
-        }
-        if (subject.capabilities?.publish || subject.capabilities?.subscribe) {
-          emitted.capabilities = {
-            ...(subject.capabilities.publish
-              ? { publish: sortedUnique(subject.capabilities.publish) }
-              : {}),
-            ...(subject.capabilities.subscribe
-              ? { subscribe: sortedUnique(subject.capabilities.subscribe) }
-              : {}),
-          };
-        }
-        return [name, emitted];
-      }),
-    )
-    : undefined;
-
   const errors = source.errors
     ? Object.fromEntries(
       Object.entries(source.errors).map(([name, error]) => {
@@ -2577,7 +2408,6 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     ...(rpc ? { rpc } : {}),
     ...(operations ? { operations } : {}),
     ...(events ? { events } : {}),
-    ...(subjects ? { subjects } : {}),
     ...(errors ? { errors } : {}),
     ...(jobs ? { jobs } : {}),
     ...(resources ? { resources } : {}),
@@ -2716,27 +2546,7 @@ function buildOwnedApi(source: TrellisContractSource): ApiShape {
     }),
   ) as Record<string, EventDesc>;
 
-  const subjects = Object.fromEntries(
-    Object.entries(source.subjects ?? {}).map(([name, subject]) => [
-      name,
-      {
-        subject: subject.subject,
-        schema: subject.message
-          ? schema(
-            resolveSchemaRef(
-              source.schemas,
-              subject.message,
-              `subject '${name}'`,
-            ),
-          )
-          : undefined,
-        publishCapabilities: subject.capabilities?.publish ?? [],
-        subscribeCapabilities: subject.capabilities?.subscribe ?? [],
-      },
-    ]),
-  ) as Record<string, SubjectDesc>;
-
-  return { rpc, operations, events, subjects } as ApiShape;
+  return { rpc, operations, events, subjects: {} } as ApiShape;
 }
 
 function mergeRecord(
@@ -2796,18 +2606,6 @@ function assertValidUseSpec<TApi extends TrellisApiLike>(
     "events",
     spec.events?.subscribe,
     api.events,
-  );
-  assertSelectedKeysExist(
-    contractId,
-    "subjects",
-    spec.subjects?.publish,
-    api.subjects,
-  );
-  assertSelectedKeysExist(
-    contractId,
-    "subjects",
-    spec.subjects?.subscribe,
-    api.subjects,
   );
 }
 
@@ -2987,18 +2785,6 @@ function createUseHelper<
           },
         }
         : {}),
-      ...((spec.subjects?.publish || spec.subjects?.subscribe)
-        ? {
-          subjects: {
-            ...(spec.subjects.publish
-              ? { publish: [...spec.subjects.publish] }
-              : {}),
-            ...(spec.subjects.subscribe
-              ? { subscribe: [...spec.subjects.subscribe] }
-              : {}),
-          },
-        }
-        : {}),
     };
 
     return attachContractModuleMetadata(
@@ -3064,13 +2850,6 @@ function normalizeUses(
     const eventsSubscribe = useValue.events?.subscribe as
       | readonly string[]
       | undefined;
-    const subjectsPublish = useValue.subjects?.publish as
-      | readonly string[]
-      | undefined;
-    const subjectsSubscribe = useValue.subjects?.subscribe as
-      | readonly string[]
-      | undefined;
-
     if (useValue.contract !== contractModule.CONTRACT_ID) {
       throw new Error(
         `Contract use '${alias}' references '${useValue.contract}' but module id is '${contractModule.CONTRACT_ID}'`,
@@ -3090,14 +2869,6 @@ function normalizeUses(
             },
           }
           : {}),
-        ...((subjectsPublish || subjectsSubscribe)
-          ? {
-            subjects: {
-              ...(subjectsPublish ? { publish: subjectsPublish } : {}),
-              ...(subjectsSubscribe ? { subscribe: subjectsSubscribe } : {}),
-            },
-          }
-          : {}),
       },
       contractModule.API.owned,
     );
@@ -3111,14 +2882,6 @@ function normalizeUses(
           events: {
             ...(eventsPublish ? { publish: [...eventsPublish] } : {}),
             ...(eventsSubscribe ? { subscribe: [...eventsSubscribe] } : {}),
-          },
-        }
-        : {}),
-      ...((subjectsPublish || subjectsSubscribe)
-        ? {
-          subjects: {
-            ...(subjectsPublish ? { publish: [...subjectsPublish] } : {}),
-            ...(subjectsSubscribe ? { subscribe: [...subjectsSubscribe] } : {}),
           },
         }
         : {}),
@@ -3164,22 +2927,6 @@ function normalizeUses(
           [...eventKeys].map((
             key,
           ) => [key, contractModule.API.owned.events[key]]),
-        ),
-      );
-    }
-
-    const subjectKeys = new Set([
-      ...selectedKeys(subjectsPublish),
-      ...selectedKeys(subjectsSubscribe),
-    ]);
-    if (subjectKeys.size > 0) {
-      mergeRecord(
-        "subjects",
-        usedApi.subjects,
-        Object.fromEntries(
-          [...subjectKeys].map((
-            key,
-          ) => [key, contractModule.API.owned.subjects[key]]),
         ),
       );
     }
@@ -3230,11 +2977,6 @@ function mergeUseIntoManifest(
   addUniqueStrings(eventsPublish, use.events?.publish ?? []);
   const eventsSubscribe = [...(existing.events?.subscribe ?? [])];
   addUniqueStrings(eventsSubscribe, use.events?.subscribe ?? []);
-  const subjectsPublish = [...(existing.subjects?.publish ?? [])];
-  addUniqueStrings(subjectsPublish, use.subjects?.publish ?? []);
-  const subjectsSubscribe = [...(existing.subjects?.subscribe ?? [])];
-  addUniqueStrings(subjectsSubscribe, use.subjects?.subscribe ?? []);
-
   manifestUses[alias] = {
     contract: existing.contract,
     ...(rpcCall.length > 0 ? { rpc: { call: rpcCall } } : {}),
@@ -3246,16 +2988,6 @@ function mergeUseIntoManifest(
         events: {
           ...(eventsPublish.length > 0 ? { publish: eventsPublish } : {}),
           ...(eventsSubscribe.length > 0 ? { subscribe: eventsSubscribe } : {}),
-        },
-      }
-      : {}),
-    ...((subjectsPublish.length > 0 || subjectsSubscribe.length > 0)
-      ? {
-        subjects: {
-          ...(subjectsPublish.length > 0 ? { publish: subjectsPublish } : {}),
-          ...(subjectsSubscribe.length > 0
-            ? { subscribe: subjectsSubscribe }
-            : {}),
         },
       }
       : {}),
@@ -3454,7 +3186,6 @@ function defineContract(
     ...(source.rpc ? { rpc: source.rpc } : {}),
     ...(source.operations ? { operations: source.operations } : {}),
     ...(source.events ? { events: source.events } : {}),
-    ...(source.subjects ? { subjects: source.subjects } : {}),
     ...(source.errors ? { errors: source.errors } : {}),
     ...(source.jobs ? { jobs: source.jobs } : {}),
     ...(source.resources ? { resources: source.resources } : {}),
@@ -3538,22 +3269,13 @@ export function defineServiceContract<
       >
     >
     | undefined,
-  const TSubjects extends
-    | Readonly<
-      Record<
-        string,
-        ContractSourceSubject<SchemaNameOf<RegistrySchemas<TRegistry>>>
-      >
-    >
-    | undefined,
   const TBody extends ServiceContractBodyInput<
     RegistrySchemas<TRegistry>,
     TUses,
     RegistryErrors<TRegistry>,
     TRpc,
     TOperations,
-    TEvents,
-    TSubjects
+    TEvents
   >,
 >(
   registry: TRegistry & { exports?: never },
@@ -4038,7 +3760,6 @@ export type {
   Schema,
   SchemaLike,
   SerializableErrorData,
-  SubjectDesc,
   TrellisAPI,
 };
 export { canonicalizeJson, digestJson, isJsonValue, schema, unwrapSchema };

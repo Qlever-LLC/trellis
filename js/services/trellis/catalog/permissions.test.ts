@@ -132,15 +132,6 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           },
         },
       },
-      subjects: {
-        "Jobs.Stream": {
-          subject: "trellis.jobs.>",
-          capabilities: {
-            publish: ["jobs.publish"],
-            subscribe: ["jobs.subscribe"],
-          },
-        },
-      },
     },
   },
   {
@@ -159,10 +150,6 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           events: {
             publish: ["Partner.Changed"],
             subscribe: ["Partner.Changed"],
-          },
-          subjects: {
-            publish: ["Jobs.Stream"],
-            subscribe: ["Jobs.Stream"],
           },
         },
       },
@@ -222,23 +209,20 @@ Deno.test("user permissions do not include RPC subscribe", () => {
   });
 });
 
-Deno.test("user permissions include event and raw subject capabilities", () => {
+Deno.test("user permissions include event capabilities without raw subjects", () => {
   withContracts(TEST_CONTRACTS, () => {
     const caller = { contractDigest: "portal-digest" };
     const publishSubjects = getUserPublishSubjects([
       "partners:write",
-      "jobs.publish",
     ], caller);
     const subscribeSubjects = getUserSubscribeSubjects([
       "partners:read",
-      "jobs.subscribe",
     ], caller);
 
     assertEquals(
       publishSubjects.includes("events.v1.Partner.Changed.*.*"),
       true,
     );
-    assertEquals(publishSubjects.includes("trellis.jobs.>"), true);
     assertEquals(publishSubjects.includes("operations.v1.Partner.Sync"), true);
     assertEquals(
       publishSubjects.includes("operations.v1.Partner.Sync.control"),
@@ -251,7 +235,6 @@ Deno.test("user permissions include event and raw subject capabilities", () => {
       true,
     );
     assertEquals(subscribeSubjects.includes("transfer.v1.download.*.*"), true);
-    assertEquals(subscribeSubjects.includes("trellis.jobs.>"), true);
   });
 });
 
@@ -420,7 +403,6 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
       },
     );
 
-    assertEquals(publishSubjects.includes("trellis.jobs.>"), true);
     assertEquals(publishSubjects.includes("rpc.v1.Trellis.Catalog"), true);
     assertEquals(
       publishSubjects.includes("operations.v1.Billing.Refund"),
@@ -453,7 +435,6 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
       subscribeSubjects.includes("operations.v1.Partner.Sync.control"),
       true,
     );
-    assertEquals(subscribeSubjects.includes("trellis.jobs.>"), true);
     assertEquals(subscribeSubjects.includes("events.v1.Auth.Connect"), true);
     assertEquals(
       subscribeSubjects.includes("transfer.v1.upload.graph-key.*"),

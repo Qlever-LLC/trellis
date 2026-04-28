@@ -4,12 +4,15 @@ use trellis_core_bootstrap::CoreBootstrapClientPort;
 use trellis_sdk_core::types::{
     TrellisBindingsGetRequest, TrellisBindingsGetResponseBinding,
     TrellisBindingsGetResponseBindingResourcesKvValue,
-    TrellisBindingsGetResponseBindingResourcesStreamsValue,
 };
 use trellis_server::BootstrapContractRef;
 
 use super::{JobsKvBuckets, JobsQueryError, JOBS_STATE_ALIAS};
 use crate::worker_presence::worker_presence_bucket_name;
+
+const BUILTIN_JOBS_STREAM: &str = "JOBS";
+const BUILTIN_JOBS_ADVISORIES_STREAM: &str = "JOBS_ADVISORIES";
+const BUILTIN_JOBS_STREAM_REPLICAS: usize = 3;
 
 /// Resolved admin-side resources needed by projector, janitor, and advisory loops.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,12 +70,11 @@ pub fn jobs_kv_buckets_from_binding(
         .ok_or(JobsQueryError::MissingKvResources)?;
 
     let jobs_state_bucket = extract_bucket_alias(kv, JOBS_STATE_ALIAS)?;
-    let jobs_stream = extract_stream(streams_required(binding)?, "jobs")?;
 
     Ok(JobsKvBuckets {
         jobs_state_bucket,
-        worker_presence_bucket: worker_presence_bucket_name(&jobs_stream.name),
-        worker_presence_replicas: jobs_stream.num_replicas.unwrap_or(1).max(1) as usize,
+        worker_presence_bucket: worker_presence_bucket_name(BUILTIN_JOBS_STREAM),
+        worker_presence_replicas: BUILTIN_JOBS_STREAM_REPLICAS,
     })
 }
 
@@ -81,52 +83,14 @@ pub fn jobs_admin_resources_from_binding(
     binding: &TrellisBindingsGetResponseBinding,
 ) -> Result<JobsAdminResources, JobsQueryError> {
     let buckets = jobs_kv_buckets_from_binding(binding)?;
-    let streams = binding
-        .resources
-        .streams
-        .as_ref()
-        .ok_or(JobsQueryError::MissingStreamResources)?;
-    let jobs_stream = streams
-        .get("jobs")
-        .map(|stream| stream.name.clone())
-        .ok_or_else(|| JobsQueryError::MissingStreamAlias("jobs".to_string()))?;
-    let jobs_advisories_stream = streams
-        .get("jobsAdvisories")
-        .map(|stream| stream.name.clone())
-        .ok_or_else(|| JobsQueryError::MissingStreamAlias("jobsAdvisories".to_string()))?;
 
     Ok(JobsAdminResources {
         jobs_state_bucket: buckets.jobs_state_bucket,
         worker_presence_bucket: buckets.worker_presence_bucket,
         worker_presence_replicas: buckets.worker_presence_replicas,
-        jobs_stream,
-        jobs_advisories_stream,
+        jobs_stream: BUILTIN_JOBS_STREAM.to_string(),
+        jobs_advisories_stream: BUILTIN_JOBS_ADVISORIES_STREAM.to_string(),
     })
-}
-
-fn streams_required(
-    binding: &TrellisBindingsGetResponseBinding,
-) -> Result<
-    &std::collections::BTreeMap<String, TrellisBindingsGetResponseBindingResourcesStreamsValue>,
-    JobsQueryError,
-> {
-    binding
-        .resources
-        .streams
-        .as_ref()
-        .ok_or(JobsQueryError::MissingStreamResources)
-}
-
-fn extract_stream<'a>(
-    streams: &'a std::collections::BTreeMap<
-        String,
-        TrellisBindingsGetResponseBindingResourcesStreamsValue,
-    >,
-    alias: &str,
-) -> Result<&'a TrellisBindingsGetResponseBindingResourcesStreamsValue, JobsQueryError> {
-    streams
-        .get(alias)
-        .ok_or_else(|| JobsQueryError::MissingStreamAlias(alias.to_string()))
 }
 
 async fn fetch_binding<C>(

@@ -75,14 +75,6 @@ export const ContractRecordSchema = Type.Object({
         subscribeCapabilities: Type.Array(Type.String()),
       }, { additionalProperties: false })),
     }, { additionalProperties: false }),
-    subjects: Type.Optional(Type.Object({
-      subjects: Type.Array(Type.Object({
-        key: Type.String(),
-        subject: Type.String(),
-        publishCapabilities: Type.Array(Type.String()),
-        subscribeCapabilities: Type.Array(Type.String()),
-      }, { additionalProperties: false })),
-    }, { additionalProperties: false })),
     nats: Type.Object({
       publish: Type.Array(Type.Object({
         kind: Type.String(),

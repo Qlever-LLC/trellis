@@ -6,9 +6,9 @@ Before starting, complete [Tutorial: Write a TypeScript service](/guides/tutoria
 
 Jobs are **service-private** background work units. Callers never interact with your jobs directly — they are internal to your service. For caller-visible async workflows, see [Operations: TypeScript](/guides/using-operations-ts).
 
-## 1. Add `resources.jobs` to the contract
+## 1. Add top-level `jobs` to the contract
 
-Jobs participation is declared in the contract's `resources.jobs` field. Job schemas are registered by name in the contract's `schemas` map and referenced by that name in queue definitions. Update `contracts/orders_service.ts`:
+Jobs participation is declared in the contract's top-level `jobs` map. Job schemas are registered by name in the contract's `schemas` map and referenced by that name in queue definitions. Update `contracts/orders_service.ts`:
 
 ```ts
 import {
@@ -38,26 +38,24 @@ resources: {
       ttlMs: 0,
     },
   },
-  jobs: {
-    queues: {
-      reserveInventory: {
-        payload: { schema: "ReserveInventoryPayload" },
-        result: { schema: "ReserveInventoryResult" },
-        maxDeliver: 5,
-        backoffMs: [5000, 30000, 120000],
-      },
-      chargePayment: {
-        payload: { schema: "ChargePaymentPayload" },
-        result: { schema: "ChargePaymentResult" },
-        maxDeliver: 5,
-        ackWaitMs: 600000,
-      },
-      notifyWarehouse: {
-        payload: { schema: "NotifyWarehousePayload" },
-        result: { schema: "NotifyWarehouseResult" },
-        maxDeliver: 3,
-      },
-    },
+},
+jobs: {
+  reserveInventory: {
+    payload: { schema: "ReserveInventoryPayload" },
+    result: { schema: "ReserveInventoryResult" },
+    maxDeliver: 5,
+    backoffMs: [5000, 30000, 120000],
+  },
+  chargePayment: {
+    payload: { schema: "ChargePaymentPayload" },
+    result: { schema: "ChargePaymentResult" },
+    maxDeliver: 5,
+    ackWaitMs: 600000,
+  },
+  notifyWarehouse: {
+    payload: { schema: "NotifyWarehousePayload" },
+    result: { schema: "NotifyWarehouseResult" },
+    maxDeliver: 3,
   },
 },
 ```
@@ -219,7 +217,7 @@ service.jobs.chargePayment.handle(async ({ job }) => {
 
 ## Development loop
 
-1. Update job schemas and contract `resources.jobs.queues`
+1. Update job schemas and the contract's top-level `jobs` map
 2. Rebuild contract artifacts: `deno task prepare`
 3. Apply the updated contract in Trellis if queues changed: `trellis deploy apply svc/<id> ...`
 4. Restart the service

@@ -536,10 +536,6 @@ pub(crate) fn contract_review_rows(loaded: &trellis_contracts::LoadedManifest) -
             "events".to_string(),
             loaded.manifest.events.len().to_string(),
         ],
-        vec![
-            "subjects".to_string(),
-            loaded.manifest.subjects.len().to_string(),
-        ],
         vec!["kv resources".to_string(), kv_resources.to_string()],
     ]
 }

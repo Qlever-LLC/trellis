@@ -138,15 +138,6 @@ function getRequiredServiceCapabilities(
     }
   }
 
-  for (const subject of Object.values(contract.subjects ?? {})) {
-    for (const capability of subject.capabilities?.publish ?? []) {
-      capabilities.add(capability);
-    }
-    for (const capability of subject.capabilities?.subscribe ?? []) {
-      capabilities.add(capability);
-    }
-  }
-
   for (const method of uses.rpcCalls) {
     for (const capability of method.method.capabilities?.call ?? []) {
       capabilities.add(capability);
@@ -167,18 +158,6 @@ function getRequiredServiceCapabilities(
 
   for (const event of uses.eventSubscribes) {
     for (const capability of event.event.capabilities?.subscribe ?? []) {
-      capabilities.add(capability);
-    }
-  }
-
-  for (const subject of uses.subjectPublishes) {
-    for (const capability of subject.subject.capabilities?.publish ?? []) {
-      capabilities.add(capability);
-    }
-  }
-
-  for (const subject of uses.subjectSubscribes) {
-    for (const capability of subject.subject.capabilities?.subscribe ?? []) {
       capabilities.add(capability);
     }
   }
@@ -308,15 +287,6 @@ export function createContractsModule(opts: {
       });
     }
 
-    for (const subject of Object.values(validated.contract.subjects ?? {})) {
-      checkOwnedSubject({
-        contractStore,
-        validated,
-        label: "Subject",
-        subject: subject.subject,
-      });
-    }
-
     return {
       validated,
       usedNamespaces,
@@ -336,6 +306,13 @@ export function createContractsModule(opts: {
   }> {
     const { validated, usedNamespaces, analyzed } =
       await validateManagedContract({ contract });
+    const expectedKind = persistOpts?.device ? "device" : "service";
+    if (validated.contract.kind !== expectedKind) {
+      throw new Error(
+        `${expectedKind} contract install requires kind '${expectedKind}', got '${validated.contract.kind}'`,
+      );
+    }
+
     if (
       persistOpts?.device &&
       (

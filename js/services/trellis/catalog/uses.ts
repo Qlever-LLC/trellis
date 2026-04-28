@@ -2,7 +2,6 @@ import type {
   ContractEvent,
   ContractOperation,
   ContractRpcMethod,
-  ContractSubject,
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
 import { canonicalizeJson, isJsonValue } from "@qlever-llc/trellis/contracts";
@@ -16,7 +15,6 @@ export type ContractUseRef = {
   rpc?: { call?: string[] };
   operations?: { call?: string[] };
   events?: { publish?: string[]; subscribe?: string[] };
-  subjects?: { publish?: string[]; subscribe?: string[] };
 };
 
 export type ResolvedRpcUse = {
@@ -40,20 +38,11 @@ export type ResolvedOperationUse = {
   operation: ContractOperation;
 };
 
-export type ResolvedSubjectUse = {
-  alias: string;
-  contractId: string;
-  key: string;
-  subject: ContractSubject;
-};
-
 export type ResolvedContractUses = {
   rpcCalls: ResolvedRpcUse[];
   operationCalls: ResolvedOperationUse[];
   eventPublishes: ResolvedEventUse[];
   eventSubscribes: ResolvedEventUse[];
-  subjectPublishes: ResolvedSubjectUse[];
-  subjectSubscribes: ResolvedSubjectUse[];
 };
 
 function unionCapabilities(
@@ -198,34 +187,6 @@ function mergeEvent(
   };
 }
 
-function mergeSubject(
-  key: string,
-  left: ContractSubject,
-  right: ContractSubject,
-): ContractSubject {
-  requireSameSubject(key, left.subject, right.subject);
-  requireSameJsonField(key, "message", left.message, right.message);
-  const publish = unionCapabilities(
-    left.capabilities?.publish,
-    right.capabilities?.publish,
-  );
-  const subscribe = unionCapabilities(
-    left.capabilities?.subscribe,
-    right.capabilities?.subscribe,
-  );
-  return {
-    ...left,
-    ...(publish || subscribe
-      ? {
-        capabilities: {
-          ...(publish ? { publish } : {}),
-          ...(subscribe ? { subscribe } : {}),
-        },
-      }
-      : {}),
-  };
-}
-
 function mergeRecords<T>(
   records: Array<Record<string, T> | undefined>,
   mergeValue: (key: string, left: T, right: T) => T,
@@ -262,17 +223,11 @@ function mergeCompatibleContractSurfaces(
     contracts.map((contract) => contract.events),
     mergeEvent,
   );
-  const subjects = mergeRecords(
-    contracts.map((contract) => contract.subjects),
-    mergeSubject,
-  );
-
   return {
     ...first,
     ...(rpc ? { rpc } : {}),
     ...(operations ? { operations } : {}),
     ...(events ? { events } : {}),
-    ...(subjects ? { subjects } : {}),
   };
 }
 
@@ -304,8 +259,6 @@ export function resolveContractUses(
     operationCalls: [],
     eventPublishes: [],
     eventSubscribes: [],
-    subjectPublishes: [],
-    subjectSubscribes: [],
   };
 
   for (const [alias, use] of Object.entries(contractUses(contract))) {
@@ -366,36 +319,6 @@ export function resolveContractUses(
         contractId: target.id,
         key,
         event,
-      });
-    }
-
-    for (const key of use.subjects?.publish ?? []) {
-      const subject = target.subjects?.[key];
-      if (!subject) {
-        throw new Error(
-          `Dependency '${alias}' references missing subject '${key}' on '${use.contract}'`,
-        );
-      }
-      resolved.subjectPublishes.push({
-        alias,
-        contractId: target.id,
-        key,
-        subject,
-      });
-    }
-
-    for (const key of use.subjects?.subscribe ?? []) {
-      const subject = target.subjects?.[key];
-      if (!subject) {
-        throw new Error(
-          `Dependency '${alias}' references missing subject '${key}' on '${use.contract}'`,
-        );
-      }
-      resolved.subjectSubscribes.push({
-        alias,
-        contractId: target.id,
-        key,
-        subject,
       });
     }
   }

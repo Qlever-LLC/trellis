@@ -15,11 +15,14 @@ import {
   createAuthRemoveDeviceDeploymentHandler,
   createAuthRemoveDeviceInstanceHandler,
   createAuthUnapplyDeviceDeploymentContractHandler,
+  setAdminRpcDeps,
 } from "../admin/rpc.ts";
+import { createKick } from "../callout/kick.ts";
 import {
   createActivateDeviceHandler,
   createGetDeviceConnectInfoHandler,
 } from "../device_activation/operation.ts";
+import { createEffectiveGrantPolicyLoader } from "../grants/store.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type { AuthContractsRuntime, AuthRuntime } from "./types.ts";
 
@@ -31,19 +34,43 @@ export async function registerDeviceAdminAndActivation(
         AuthContractsRuntime,
         "installDeviceContract" | "refreshActiveContracts"
       >;
+      publishSessionRevoked: (
+        event: {
+          origin: string;
+          id: string;
+          sessionKey: string;
+          revokedBy: string;
+        },
+      ) => Promise<void>;
     }
     & Pick<
       AuthRuntimeDeps,
       | "browserFlowsKV"
+      | "connectionsKV"
+      | "contractApprovalStorage"
       | "deviceActivationReviewStorage"
       | "deviceActivationStorage"
       | "deviceDeploymentStorage"
       | "deviceInstanceStorage"
+      | "devicePortalSelectionStorage"
       | "deviceProvisioningSecretStorage"
+      | "instanceGrantPolicyStorage"
       | "logger"
+      | "loginPortalSelectionStorage"
+      | "natsAuth"
+      | "portalDefaultStorage"
+      | "portalProfileStorage"
+      | "portalStorage"
       | "sentinelCreds"
+      | "sessionStorage"
+      | "userStorage"
     >,
 ): Promise<void> {
+  setAdminRpcDeps({
+    ...deps,
+    kick: createKick(deps),
+    loadEffectiveGrantPolicies: createEffectiveGrantPolicyLoader(deps),
+  });
   await deps.trellis.mount(
     "Auth.CreateDeviceDeployment",
     createAuthCreateDeviceDeploymentHandler({

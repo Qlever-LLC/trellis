@@ -27,9 +27,11 @@ Examples:
 - intermediate binary artifacts produced between workflow steps
 - service-local attachments that are not modeled as typed records
 
-Today Trellis already has service-owned resources such as `kv`, `streams`, and
+Today Trellis already has service-owned resources such as `kv` and first-class
 `jobs`. `store` should follow the same ownership pattern while exposing a
-blob-oriented runtime surface instead of a typed record API.
+blob-oriented runtime surface instead of a typed record API. Services do not
+declare arbitrary stream resources in v1; subsystem streams are provisioned by
+the owning runtime feature, such as jobs or operations.
 
 ## Scope
 

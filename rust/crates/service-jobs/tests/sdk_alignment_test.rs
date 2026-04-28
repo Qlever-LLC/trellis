@@ -29,7 +29,7 @@ fn service_contract_manifest_matches_generated_jobs_sdk() {
 }
 
 #[test]
-fn generated_jobs_contract_uses_scoped_capability_names() {
+fn generated_jobs_contract_uses_scoped_rpc_capability_names() {
     let contract = generated_contract::contract_manifest();
 
     let jobs_cancel = contract.rpc.get("Jobs.Cancel").expect("Jobs.Cancel rpc");
@@ -48,18 +48,6 @@ fn generated_jobs_contract_uses_scoped_capability_names() {
             .as_ref()
             .and_then(|caps| caps.call.as_ref()),
         Some(&vec!["jobs.admin.read".to_string()])
-    );
-
-    let jobs_stream = contract
-        .subjects
-        .get("Jobs.Stream")
-        .expect("Jobs.Stream subject");
-    assert_eq!(
-        jobs_stream
-            .capabilities
-            .as_ref()
-            .and_then(|caps| caps.subscribe.as_ref()),
-        Some(&vec!["jobs.admin.stream".to_string()])
     );
 }
 

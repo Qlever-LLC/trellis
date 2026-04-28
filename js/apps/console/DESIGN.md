@@ -226,8 +226,13 @@ Detail MUST include:
 - RPC methods
 - Events
 - KV resources
-- Pub/Sub surfaces
+- Store and jobs resources
+- Derived NATS publish/subscribe rules
 - Required capabilities
+
+Contracts UI MUST NOT imply v1 supports caller-authored raw subject declarations
+or arbitrary stream resource requests. Runtime NATS subjects may be displayed as
+derived permissions only.
 
 ---
 

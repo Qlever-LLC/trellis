@@ -1505,19 +1505,6 @@
       ]
     }
   },
-  "subjects": {
-    "Jobs.Stream": {
-      "capabilities": {
-        "publish": [
-          "service:jobs"
-        ],
-        "subscribe": [
-          "jobs.admin.stream"
-        ]
-      },
-      "subject": "trellis.jobs.>"
-    }
-  },
   "uses": {
     "auth": {
       "contract": "trellis.auth@v1",

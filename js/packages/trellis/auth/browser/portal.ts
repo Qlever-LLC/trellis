@@ -52,7 +52,7 @@ export async function submitPortalApproval(
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision }),
+      body: JSON.stringify({ approved: decision === "approved" }),
     },
   );
 

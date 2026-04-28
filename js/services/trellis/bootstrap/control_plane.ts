@@ -15,8 +15,15 @@ import type { ContractStore } from "../catalog/store.ts";
 import type { SqlContractStorageRepository } from "../catalog/storage.ts";
 import type {
   SqlContractApprovalRepository,
+  SqlDeviceActivationRepository,
+  SqlDeviceDeploymentRepository,
+  SqlInstanceGrantPolicyRepository,
+  SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../auth/storage.ts";
+import type { AuthRuntimeDeps } from "../auth/runtime_deps.ts";
+import { createServiceLookup } from "../auth/admin/service_lookup.ts";
+import { createEffectiveGrantPolicyLoader } from "../auth/grants/store.ts";
 
 type BuiltinContract = { digest: string; contract: TrellisContractV1 };
 
@@ -45,13 +52,43 @@ export function startControlPlaneBackgroundTasks(opts: {
   contractStorage: SqlContractStorageRepository;
   userStorage: SqlUserProjectionRepository;
   contractApprovalStorage: SqlContractApprovalRepository;
+  deviceActivationStorage: SqlDeviceActivationRepository;
+  deviceDeploymentStorage: SqlDeviceDeploymentRepository;
+  instanceGrantPolicyStorage: SqlInstanceGrantPolicyRepository;
+  serviceDeploymentStorage: AuthRuntimeDeps["serviceDeploymentStorage"];
+  serviceInstanceStorage: AuthRuntimeDeps["serviceInstanceStorage"];
+  portalProfileStorage: AuthRuntimeDeps["portalProfileStorage"];
+  portalStorage: AuthRuntimeDeps["portalStorage"];
+  connectionsKV: AuthRuntimeDeps["connectionsKV"];
+  logger: AuthRuntimeDeps["logger"];
+  natsAuth: AuthRuntimeDeps["natsAuth"];
+  sessionStorage: SqlSessionRepository;
+  trellis: AuthRuntimeDeps["trellis"];
   contractStore?: ContractStore;
 }) {
-  const disconnectCleanup = startDisconnectCleanup();
+  const serviceLookup = createServiceLookup(opts);
+  const loadInstanceGrantPolicies = createEffectiveGrantPolicyLoader(opts);
+  const disconnectCleanup = startDisconnectCleanup({
+    connectionsKV: opts.connectionsKV,
+    logger: opts.logger,
+    natsAuth: opts.natsAuth,
+    sessionStorage: opts.sessionStorage,
+    trellis: opts.trellis,
+  });
   const authCallout = startAuthCallout({
     contractStorage: opts.contractStorage,
     userStorage: opts.userStorage,
     contractApprovalStorage: opts.contractApprovalStorage,
+    connectionsKV: opts.connectionsKV,
+    deviceActivationStorage: opts.deviceActivationStorage,
+    deviceDeploymentStorage: opts.deviceDeploymentStorage,
+    logger: opts.logger,
+    natsAuth: opts.natsAuth,
+    sessionStorage: opts.sessionStorage,
+    trellis: opts.trellis,
+    loadServiceInstanceByKey: serviceLookup.loadServiceInstanceByKey,
+    loadServiceDeployment: serviceLookup.loadServiceDeployment,
+    loadInstanceGrantPolicies,
     contractStore: opts.contractStore,
   });
 

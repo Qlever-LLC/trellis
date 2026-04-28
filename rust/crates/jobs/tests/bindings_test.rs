@@ -8,7 +8,6 @@ use trellis_sdk_core::types::{
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValue,
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValuePayload,
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValueResult,
-    TrellisBindingsGetResponseBindingResourcesStreamsValue,
 };
 
 #[test]
@@ -81,6 +80,7 @@ fn sample_core_binding() -> TrellisBindingsGetResponseBinding {
         resources: TrellisBindingsGetResponseBindingResources {
             jobs: Some(TrellisBindingsGetResponseBindingResourcesJobs {
                 namespace: "documents".to_string(),
+                work_stream: Some("JOBS_WORK".to_string()),
                 queues: BTreeMap::from([(
                     "document-process".to_string(),
                     TrellisBindingsGetResponseBindingResourcesJobsQueuesValue {
@@ -117,21 +117,6 @@ fn sample_core_binding() -> TrellisBindingsGetResponseBinding {
                 },
             )])),
             store: None,
-            streams: Some(BTreeMap::from([(
-                "jobsWork".to_string(),
-                TrellisBindingsGetResponseBindingResourcesStreamsValue {
-                    discard: None,
-                    max_age_ms: None,
-                    max_bytes: None,
-                    max_msgs: None,
-                    name: "JOBS_WORK".to_string(),
-                    num_replicas: Some(3),
-                    retention: Some("workqueue".to_string()),
-                    sources: None,
-                    storage: Some("file".to_string()),
-                    subjects: vec!["trellis.work.>".to_string()],
-                },
-            )])),
         },
     }
 }
@@ -192,7 +177,7 @@ fn jobs_runtime_binding_try_from_core_binding_rejects_missing_jobs_resource() {
 #[test]
 fn jobs_runtime_binding_try_from_core_binding_rejects_missing_jobs_work_stream() {
     let mut binding = sample_core_binding();
-    binding.resources.streams = None;
+    binding.resources.jobs.as_mut().expect("jobs").work_stream = None;
 
     let error =
         JobsRuntimeBinding::try_from(&binding).expect_err("missing jobsWork stream should fail");

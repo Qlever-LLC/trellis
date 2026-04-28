@@ -1,22 +1,33 @@
 import { AsyncResult } from "@qlever-llc/result";
 
-import { authRuntimeDeps } from "../runtime_deps.ts";
+import { type AuthRuntimeDeps, authRuntimeDeps } from "../runtime_deps.ts";
+
+type KickDeps = {
+  logger: Pick<AuthRuntimeDeps["logger"], "debug" | "warn">;
+  natsAuth: Pick<AuthRuntimeDeps["natsAuth"], "request">;
+};
+
+/** Creates a connection-kick helper from explicit NATS auth dependencies. */
+export function createKick(deps: KickDeps) {
+  return async (serverId: string, clientId: number): Promise<void> => {
+    deps.logger.debug({ serverId, clientId }, "Kicking connection");
+    const result = await AsyncResult.try(() =>
+      deps.natsAuth.request(
+        `$SYS.REQ.SERVER.${serverId}.KICK`,
+        JSON.stringify({ cid: clientId }),
+      )
+    );
+    if (result.isErr()) {
+      deps.logger.warn(
+        { serverId, clientId, error: result.error },
+        "Failed to kick connection",
+      );
+    } else {
+      deps.logger.debug({ serverId, clientId }, "Connection kicked");
+    }
+  };
+}
 
 export async function kick(serverId: string, clientId: number): Promise<void> {
-  const { logger, natsAuth } = authRuntimeDeps();
-  logger.debug({ serverId, clientId }, "Kicking connection");
-  const result = await AsyncResult.try(() =>
-    natsAuth.request(
-      `$SYS.REQ.SERVER.${serverId}.KICK`,
-      JSON.stringify({ cid: clientId }),
-    )
-  );
-  if (result.isErr()) {
-    logger.warn(
-      { serverId, clientId, error: result.error },
-      "Failed to kick connection",
-    );
-  } else {
-    logger.debug({ serverId, clientId }, "Connection kicked");
-  }
+  return await createKick(authRuntimeDeps())(serverId, clientId);
 }

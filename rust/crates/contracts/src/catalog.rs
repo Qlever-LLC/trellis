@@ -130,13 +130,13 @@ pub fn write_catalog_pack(
 fn loaded_subjects(manifest: &ContractManifest) -> Vec<String> {
     let mut subjects = Vec::new();
     subjects.extend(manifest.rpc.values().map(|rpc| rpc.subject.clone()));
-    subjects.extend(manifest.events.values().map(|event| event.subject.clone()));
     subjects.extend(
         manifest
-            .subjects
+            .operations
             .values()
-            .map(|subject| subject.subject.clone()),
+            .map(|operation| operation.subject.clone()),
     );
+    subjects.extend(manifest.events.values().map(|event| event.subject.clone()));
     subjects
 }
 

@@ -26,11 +26,8 @@ import type {
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
-import { authRuntimeDeps, maybeAuthRuntimeDeps } from "../runtime_deps.ts";
+import { type AuthRuntimeDeps, maybeAuthRuntimeDeps } from "../runtime_deps.ts";
 import { parseContractApprovalKey } from "../http/support.ts";
-import { runtimeServiceLookup } from "../admin/service_lookup.ts";
-import { loadEffectiveGrantPolicies } from "../grants/store.ts";
-import { kick as kickConnection } from "../callout/kick.ts";
 
 const logger = {
   trace: (fields: Record<string, unknown>, message: string) =>
@@ -748,24 +745,6 @@ export function createAuthMeHandler(deps: {
   };
 }
 
-export const authMeHandler = async (
-  args: Parameters<
-    ReturnType<typeof createAuthMeHandler>
-  >[0],
-) => {
-  const globals = authRuntimeDeps();
-  const { loadServiceDeployment, loadServiceInstanceByKey } =
-    runtimeServiceLookup();
-  return await createAuthMeHandler({
-    sessionStorage: globals.sessionStorage,
-    userStorage: globals.userStorage,
-    deviceActivationStorage: globals.deviceActivationStorage,
-    deviceDeploymentStorage: globals.deviceDeploymentStorage,
-    loadServiceInstance: loadServiceInstanceByKey,
-    loadServiceDeployment,
-  })(args);
-};
-
 /** Creates the Auth.ValidateRequest RPC handler backed by SQL auth projections. */
 export function createAuthValidateRequestHandler(deps: {
   sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
@@ -855,61 +834,47 @@ export function createAuthValidateRequestHandler(deps: {
   };
 }
 
-export const authValidateRequestHandler = async (
-  args: Parameters<
-    ReturnType<typeof createAuthValidateRequestHandler>
-  >[0],
-) => {
-  const globals = authRuntimeDeps();
-  const serviceLookup = runtimeServiceLookup();
-  return await createAuthValidateRequestHandler({
-    sessionStorage: globals.sessionStorage,
-    userStorage: globals.userStorage,
-    contractApprovalStorage: globals.contractApprovalStorage,
-    deviceActivationStorage: globals.deviceActivationStorage,
-    deviceDeploymentStorage: globals.deviceDeploymentStorage,
-    loadServiceInstance: serviceLookup.loadServiceInstanceByKey,
-    loadServiceDeployment: serviceLookup.loadServiceDeployment,
-    loadInstanceGrantPolicies: loadEffectiveGrantPolicies,
-  })(args);
-};
+export function createAuthLogoutHandler(deps: {
+  sessionStorage: Pick<SessionStorage, "deleteBySessionKey">;
+  connectionsKV: AuthRuntimeDeps["connectionsKV"];
+  natsAuth: Pick<AuthRuntimeDeps["natsAuth"], "request">;
+}) {
+  return async (
+    { context: { caller, sessionKey } }: { context: SessionContext },
+  ) => {
+    const user = requireUserCaller(caller);
+    logger.trace(
+      { rpc: "Auth.Logout", sessionKey, userId: user.id },
+      "RPC request",
+    );
+    await deps.sessionStorage.deleteBySessionKey(sessionKey);
 
-export const authLogoutHandler = async (
-  { context: { caller, sessionKey } }: { context: SessionContext },
-) => {
-  const { connectionsKV, natsAuth, sessionStorage } = authRuntimeDeps();
-  const user = requireUserCaller(caller);
-  logger.trace(
-    { rpc: "Auth.Logout", sessionKey, userId: user.id },
-    "RPC request",
-  );
-  await sessionStorage.deleteBySessionKey(sessionKey);
-
-  const connKeys = await connectionsKV.keys(
-    connectionFilterForSession(sessionKey),
-  )
-    .take();
-  if (!isErr(connKeys)) {
-    for await (const key of connKeys) {
-      const parsedKey = parseConnectionKey(key);
-      if (!parsedKey || parsedKey.scopeId !== user.trellisId) continue;
-      const entry = await connectionsKV.get(key).take();
-      if (!isErr(entry)) {
-        const connection = unwrapConnectionEntry(entry);
-        if (!connection) continue;
-        await AsyncResult.try(() =>
-          natsAuth.request(
-            `$SYS.REQ.SERVER.${connection.serverId}.KICK`,
-            JSON.stringify({ cid: connection.clientId }),
-          )
-        );
+    const connKeys = await deps.connectionsKV.keys(
+      connectionFilterForSession(sessionKey),
+    )
+      .take();
+    if (!isErr(connKeys)) {
+      for await (const key of connKeys) {
+        const parsedKey = parseConnectionKey(key);
+        if (!parsedKey || parsedKey.scopeId !== user.trellisId) continue;
+        const entry = await deps.connectionsKV.get(key).take();
+        if (!isErr(entry)) {
+          const connection = unwrapConnectionEntry(entry);
+          if (!connection) continue;
+          await AsyncResult.try(() =>
+            deps.natsAuth.request(
+              `$SYS.REQ.SERVER.${connection.serverId}.KICK`,
+              JSON.stringify({ cid: connection.clientId }),
+            )
+          );
+        }
+        await deps.connectionsKV.delete(key);
       }
-      await connectionsKV.delete(key);
     }
-  }
 
-  return Result.ok({ success: true });
-};
+    return Result.ok({ success: true });
+  };
+}
 
 export function createAuthListSessionsHandler(deps: {
   sessionStorage: Pick<
@@ -940,35 +905,6 @@ export function createAuthListSessionsHandler(deps: {
     return Result.ok({ sessions });
   };
 }
-
-export const authListSessionsHandler = async (
-  args: Parameters<
-    ReturnType<typeof createAuthListSessionsHandler>
-  >[0],
-) => {
-  const { sessionStorage } = authRuntimeDeps();
-  return await createAuthListSessionsHandler({ sessionStorage })(args);
-};
-
-export const authRevokeSessionHandler = async (
-  ...args: Parameters<ReturnType<typeof createAuthRevokeSessionHandler>>
-) => {
-  const globals = authRuntimeDeps();
-  return await createAuthRevokeSessionHandler({
-    sessionStorage: globals.sessionStorage,
-    connectionsKV: globals.connectionsKV,
-    contractApprovalStorage: globals.contractApprovalStorage,
-    deviceActivationStorage: globals.deviceActivationStorage,
-    serviceInstanceStorage: globals.serviceInstanceStorage,
-    kick: kickConnection,
-    publishSessionRevoked: async (event) => {
-      (await globals.trellis.publish("Auth.SessionRevoked", event)).inspectErr(
-        (error: unknown) =>
-          logger.warn({ error }, "Failed to publish Auth.SessionRevoked"),
-      );
-    },
-  })(...args);
-};
 
 export function createAuthListConnectionsHandler(deps: {
   sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
@@ -1069,22 +1005,11 @@ export function createAuthListConnectionsHandler(deps: {
   };
 }
 
-export const authListConnectionsHandler = async (
-  args: Parameters<
-    ReturnType<typeof createAuthListConnectionsHandler>
-  >[0],
-) => {
-  const { sessionStorage, connectionsKV } = authRuntimeDeps();
-  return await createAuthListConnectionsHandler({
-    sessionStorage,
-    connectionsKV,
-  })(
-    args,
-  );
-};
-
 export function createAuthKickConnectionHandler(opts: {
   kick: (serverId: string, clientId: number) => Promise<void>;
+  connectionsKV: AuthRuntimeDeps["connectionsKV"];
+  sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
+  trellis: AuthRuntimeDeps["trellis"];
 }) {
   return async (
     {
@@ -1105,8 +1030,7 @@ export function createAuthKickConnectionHandler(opts: {
       return Result.err(new AuthError({ reason: "invalid_request" }));
     }
 
-    const { connectionsKV, sessionStorage, trellis } = authRuntimeDeps();
-    const iter = await connectionsKV.keys(">").take();
+    const iter = await opts.connectionsKV.keys(">").take();
     if (isErr(iter)) {
       return Result.ok({ success: false });
     }
@@ -1117,7 +1041,7 @@ export function createAuthKickConnectionHandler(opts: {
     for await (const key of iter) {
       const parsedKey = parseConnectionKey(key);
       if (!parsedKey || parsedKey.userNkey !== req.userNkey) continue;
-      const entry = await connectionsKV.get(key).take();
+      const entry = await opts.connectionsKV.get(key).take();
       if (!isErr(entry)) {
         const connection = unwrapConnectionEntry(entry);
         if (connection) {
@@ -1126,14 +1050,14 @@ export function createAuthKickConnectionHandler(opts: {
       }
 
       if (parsedKey.sessionKey && parsedKey.scopeId) {
-        const session = await sessionStorage.getOneBySessionKey(
+        const session = await opts.sessionStorage.getOneBySessionKey(
           parsedKey.sessionKey,
         );
         if (session) {
           if (session.type === "device") {
             continue;
           }
-          (await trellis.publish("Auth.ConnectionKicked", {
+          (await opts.trellis.publish("Auth.ConnectionKicked", {
             origin: session.origin,
             id: session.id,
             userNkey: req.userNkey,
@@ -1144,7 +1068,7 @@ export function createAuthKickConnectionHandler(opts: {
         }
       }
 
-      await connectionsKV.delete(key);
+      await opts.connectionsKV.delete(key);
       kicked = true;
     }
 

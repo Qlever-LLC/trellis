@@ -1,7 +1,8 @@
 # Trellis Login Portal
 
 Trellis-owned SvelteKit portal for browser auth UX and the default device
-activation route.
+activation route. The portal is deployment-owned browser routing, not a special
+contract kind.
 
 The app has two distinct roles:
 
@@ -46,3 +47,7 @@ served separately by `POST /auth/devices/connect-info`.
 For device activation to succeed, the portal contract digest must be allowed on
 the relevant device deployment through `appliedContracts[].allowedDigests` or an
 empty allowed-digest lineage entry.
+
+If a custom portal needs to call Trellis after login, model that follow-on access
+with a normal `app` contract and a portal profile. Passive portals that only
+render flow state do not need their own Trellis contract.

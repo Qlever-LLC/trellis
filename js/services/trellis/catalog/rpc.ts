@@ -58,7 +58,6 @@ function toRpcContract(
     ...(contract.rpc ? { rpc: contract.rpc } : {}),
     ...(contract.operations ? { operations: contract.operations } : {}),
     ...(contract.events ? { events: contract.events } : {}),
-    ...(contract.subjects ? { subjects: contract.subjects } : {}),
     ...(contract.errors ? { errors: contract.errors } : {}),
     ...(contract.jobs ? { jobs: contract.jobs } : {}),
     ...(contract.resources ? { resources: contract.resources } : {}),

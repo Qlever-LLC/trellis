@@ -64,6 +64,12 @@ fields can keep the same `stateVersion`; incompatible stored-value changes shoul
 increment it and list the old shape under `acceptedVersions` so the runtime can
 surface migration-required entries.
 
+Unversioned entries from earlier app versions remain readable when the current
+schema accepts them. If the current schema rejects an unversioned value, Trellis
+tries the declared `acceptedVersions`; a match is surfaced as
+`migrationRequired` so the app or device can rewrite the value with the current
+shape.
+
 ## 2. Read and write state from the client
 
 After your app has an authenticated Trellis client, use the generated
@@ -92,10 +98,11 @@ contract does not see these entries.
 
 ## 3. Handle state migrations
 
-When a stored entry was written under an accepted older state version, `get`,
-`list`, or a failed conditional `put` can return `migrationRequired` instead of a
-current typed entry. Trellis validates the old value against the declared older
-schema but does not run app migration code server-side.
+When a stored entry was written under an accepted older state version, or an
+unversioned entry only matches an accepted older schema, `get`, `list`, or a
+failed conditional `put` can return `migrationRequired` instead of a current
+typed entry. Trellis validates the old value against the declared older schema
+but does not run app migration code server-side.
 
 ```ts
 const prefs = await trellis.state.preferences.get().orThrow();
@@ -192,6 +199,8 @@ Expired entries behave like missing keys.
 - store only JSON values; encode unusual payloads yourself when needed
 - use `expectedRevision` when multiple app instances may write the same key
 - keep `stateVersion` stable across compatible additive schema changes
+- rely on the current schema for compatible unversioned entries; declare
+  `acceptedVersions` only when older stored values need migration
 - write migration code in the app or device runtime when you declare
   `acceptedVersions`
 

@@ -29,9 +29,6 @@ export type DeviceRuntimeAccess = {
 type ContractAnalysis = NonNullable<ContractRecord["analysis"]>;
 type RpcMethod = ContractAnalysis["rpc"]["methods"][number];
 type EventEntry = ContractAnalysis["events"]["events"][number];
-type SubjectEntry = NonNullable<
-  ContractAnalysis["subjects"]
->["subjects"][number];
 type NatsRule = ContractAnalysis["nats"]["publish"][number];
 const TRANSFER_UPLOAD_SUBJECT = "transfer.v1.upload.*.*";
 const TRANSFER_DOWNLOAD_SUBJECT = "transfer.v1.download.*.*";
@@ -84,10 +81,6 @@ export function deriveDeviceRuntimeAccess(
     ...analysis.events.events.flatMap((event: EventEntry) => [
       ...event.publishCapabilities,
       ...event.subscribeCapabilities,
-    ]),
-    ...(analysis.subjects?.subjects ?? []).flatMap((subject: SubjectEntry) => [
-      ...subject.publishCapabilities,
-      ...subject.subscribeCapabilities,
     ]),
     ...analysis.nats.publish.flatMap((rule: NatsRule) =>
       rule.requiredCapabilities
@@ -148,20 +141,6 @@ export function deriveDeviceRuntimeAccess(
     for (const event of uses.eventSubscribes) {
       subscribeSubjects.add(templateToWildcard(event.event.subject));
       for (const capability of event.event.capabilities?.subscribe ?? []) {
-        capabilities.push(capability);
-      }
-    }
-
-    for (const subject of uses.subjectPublishes) {
-      publishSubjects.add(subject.subject.subject);
-      for (const capability of subject.subject.capabilities?.publish ?? []) {
-        capabilities.push(capability);
-      }
-    }
-
-    for (const subject of uses.subjectSubscribes) {
-      subscribeSubjects.add(subject.subject.subject);
-      for (const capability of subject.subject.capabilities?.subscribe ?? []) {
         capabilities.push(capability);
       }
     }

@@ -145,7 +145,7 @@ async fn adapter_fetch_installed_contract_maps_non_not_found_error() {
 }
 
 #[test]
-fn installed_contract_types_deserialize_stream_bindings_and_summary_counts() {
+fn installed_contract_types_deserialize_jobs_bindings_and_summary_counts() {
     let response: trellis_sdk_auth::types::AuthGetInstalledContractResponse =
         serde_json::from_value(json!({
             "contract": {
@@ -161,15 +161,17 @@ fn installed_contract_types_deserialize_stream_bindings_and_summary_counts() {
                     "jobsQueues": 1,
                     "kvResources": 2,
                     "storeResources": 0,
-                    "streamResources": 3,
                     "namespaces": ["jobs"],
                     "natsPublish": 4,
                     "natsSubscribe": 5,
+                    "operationControls": 0,
+                    "operations": 0,
                     "rpcMethods": 6
                 },
                 "resourceBindings": {
                     "jobs": {
                         "namespace": "jobs",
+                        "workStream": "JOBS_WORK",
                         "queues": {
                             "document-process": {
                                 "queueType": "document-process",
@@ -192,19 +194,6 @@ fn installed_contract_types_deserialize_stream_bindings_and_summary_counts() {
                             "bucket": "trellis_jobs",
                             "history": 1,
                             "ttlMs": 0
-                        }
-                    },
-                    "streams": {
-                        "jobsWork": {
-                            "name": "JOBS_WORK",
-                            "subjects": ["trellis.work.>"],
-                            "retention": "workqueue",
-                            "sources": [
-                                {
-                                    "fromAlias": "jobs",
-                                    "streamName": "JOBS"
-                                }
-                            ]
                         }
                     }
                 },
@@ -230,31 +219,18 @@ fn installed_contract_types_deserialize_stream_bindings_and_summary_counts() {
                             "history": 1,
                             "ttlMs": 0
                         }
-                    },
-                    "streams": {
-                        "jobsWork": {
-                            "purpose": "Store sourced work queue messages",
-                            "subjects": ["trellis.work.>"],
-                            "retention": "workqueue",
-                            "sources": [
-                                {
-                                    "fromAlias": "jobs",
-                                    "filterSubject": "trellis.jobs.*.*.*.created",
-                                    "subjectTransformDest": "trellis.work.$1.$2"
-                                }
-                            ]
-                        }
                     }
                 }
             }
         }))
-        .expect("deserialize installed contract response with streams");
+        .expect("deserialize installed contract response without stream resources");
 
     let summary = response
         .contract
         .analysis_summary
         .expect("analysis summary");
-    assert_eq!(summary.stream_resources, 3.0);
+    assert_eq!(summary.jobs_queues, 1.0);
+    assert_eq!(summary.kv_resources, 2.0);
 
     let resources = response.contract.resources.expect("resources");
     assert_eq!(
@@ -267,13 +243,6 @@ fn installed_contract_types_deserialize_stream_bindings_and_summary_counts() {
             .purpose,
         "Projected job state"
     );
-    let jobs_work = resources
-        .streams
-        .expect("streams")
-        .get("jobsWork")
-        .expect("jobsWork resource")
-        .clone();
-    assert_eq!(jobs_work.retention.as_deref(), Some("workqueue"));
 }
 
 #[test]
@@ -292,6 +261,7 @@ fn install_service_response_deserializes_typed_resource_bindings() {
                 "resourceBindings": {
                     "jobs": {
                         "namespace": "jobs",
+                        "workStream": "JOBS_WORK",
                         "queues": {
                             "document-process": {
                                 "queueType": "document-process",
@@ -315,13 +285,6 @@ fn install_service_response_deserializes_typed_resource_bindings() {
                             "history": 1,
                             "ttlMs": 0
                         }
-                    },
-                    "streams": {
-                        "jobsWork": {
-                            "name": "JOBS_WORK",
-                            "subjects": ["trellis.work.>"],
-                            "retention": "workqueue"
-                        }
                     }
                 }
             }
@@ -333,6 +296,7 @@ fn install_service_response_deserializes_typed_resource_bindings() {
         .resource_bindings
         .expect("resource bindings");
     let jobs = resource_bindings.jobs.expect("jobs bindings");
+    assert_eq!(jobs.work_stream.as_deref(), Some("JOBS_WORK"));
     assert_eq!(
         jobs.queues
             .get("document-process")
@@ -348,14 +312,5 @@ fn install_service_response_deserializes_typed_resource_bindings() {
             .expect("jobsState")
             .bucket,
         "trellis_jobs"
-    );
-    assert_eq!(
-        resource_bindings
-            .streams
-            .expect("stream bindings")
-            .get("jobsWork")
-            .expect("jobsWork binding")
-            .name,
-        "JOBS_WORK"
     );
 }

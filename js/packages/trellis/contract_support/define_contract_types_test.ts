@@ -122,6 +122,9 @@ type AuthUseArg = Parameters<typeof auth.use>[0];
 type AuthUseRpcCall = NonNullable<
   NonNullable<AuthUseArg["rpc"]>["call"]
 >[number];
+type _AuthUseDoesNotExposeRawSubjects = Assert<
+  Not<HasKey<AuthUseArg, "subjects">>
+>;
 type _AuthUseDoesNotAcceptTrellisCatalog = Assert<
   Not<HasMember<AuthUseRpcCall, "Trellis.Catalog">>
 >;
@@ -597,6 +600,28 @@ if (false) {
       id: "trellis.invalid-device-exports@v1",
       displayName: "Invalid Device Exports",
       description: "Should fail type checking.",
+    }),
+  );
+
+  auth.use({
+    // @ts-expect-error raw subject dependencies are not contract authoring API
+    subjects: { subscribe: ["Audit"] },
+  });
+
+  defineServiceContract(
+    {
+      schemas: {
+        Empty: EmptySchema,
+      },
+    },
+    () => ({
+      id: "trellis.invalid-raw-subjects@v1",
+      displayName: "Invalid Raw Subjects",
+      description: "Should fail type checking.",
+      // @ts-expect-error raw subject ownership is not contract authoring API
+      subjects: {
+        Audit: { subject: "audit.raw" },
+      },
     }),
   );
 

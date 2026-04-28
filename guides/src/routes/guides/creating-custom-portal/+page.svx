@@ -22,7 +22,10 @@ For device onboarding, the portal may need to do more than show login screens. F
 
 Some flows may also pause for administrative review before the final step is allowed. That review might be done manually by an admin user or by a local Trellis service that checks some outside condition first.
 
-Trellis trusts a portal because a Trellis admin registered its URL. If the portal also talks to Trellis after login, it does so as the logged-in user through a normal browser app contract, not as a service.
+Trellis trusts a portal because a Trellis admin registered its URL. A portal
+record is routing configuration, not a `portal` contract kind. If the portal also
+talks to Trellis after login, it does so as the logged-in user through a normal
+browser `app` contract, not as a service.
 
 ## 1. Create the project
 

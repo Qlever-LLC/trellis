@@ -22,7 +22,7 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["service", "app", "portal", "device", "agent"]
+      "enum": ["service", "app", "device", "agent"]
     },
     "schemas": {
       "$ref": "#/$defs/schemas"
@@ -63,16 +63,7 @@
         "$ref": "#/$defs/event"
       }
     },
-    "subjects": {
-      "type": "object",
-      "propertyNames": {
-        "type": "string",
-        "minLength": 1
-      },
-      "additionalProperties": {
-        "$ref": "#/$defs/subject"
-      }
-    },
+    "subjects": false,
     "errors": {
       "type": "object",
       "propertyNames": {
@@ -218,9 +209,6 @@
           "$ref": "#/$defs/useOperation"
         },
         "events": {
-          "$ref": "#/$defs/usePubSub"
-        },
-        "subjects": {
           "$ref": "#/$defs/usePubSub"
         }
       }
@@ -491,32 +479,6 @@
           }
         },
         "event": {
-          "$ref": "#/$defs/schemaRef"
-        },
-        "capabilities": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "publish": {
-              "$ref": "#/$defs/capabilities"
-            },
-            "subscribe": {
-              "$ref": "#/$defs/capabilities"
-            }
-          }
-        }
-      }
-    },
-    "subject": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["subject"],
-      "properties": {
-        "subject": {
-          "type": "string",
-          "minLength": 1
-        },
-        "message": {
           "$ref": "#/$defs/schemaRef"
         },
         "capabilities": {

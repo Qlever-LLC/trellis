@@ -5,7 +5,7 @@ import type { Session } from "../auth/schemas.ts";
 import type { StoredStateEntry } from "./model.ts";
 
 type StoredCell = {
-  value: StoredStateEntry;
+  value: unknown;
   revision: number;
 };
 
@@ -14,6 +14,12 @@ export class FakeStateKV {
   #nextRevision = 1;
 
   seed(key: string, value: StoredStateEntry): number {
+    const revision = this.#nextRevision++;
+    this.#values.set(key, { value, revision });
+    return revision;
+  }
+
+  seedRaw(key: string, value: unknown): number {
     const revision = this.#nextRevision++;
     this.#values.set(key, { value, revision });
     return revision;
@@ -35,7 +41,7 @@ export class FakeStateKV {
       }
 
       this.#values.set(key, {
-        value: value as StoredStateEntry,
+        value,
         revision: this.#nextRevision++,
       });
       return Result.ok(undefined);
@@ -45,7 +51,7 @@ export class FakeStateKV {
   put(key: string, value: unknown) {
     return AsyncResult.from((async () => {
       this.#values.set(key, {
-        value: value as StoredStateEntry,
+        value,
         revision: this.#nextRevision++,
       });
       return Result.ok(undefined);
@@ -89,7 +95,7 @@ export class FakeStateKV {
               );
             }
             store.#values.set(key, {
-              value: value as StoredStateEntry,
+              value,
               revision: store.#nextRevision++,
             });
             return Result.ok(undefined);

@@ -1,4 +1,8 @@
-import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
+import {
+  AuthError,
+  UnexpectedError,
+  ValidationError,
+} from "@qlever-llc/trellis";
 import {
   type AsyncResult,
   type BaseError,
@@ -6,66 +10,47 @@ import {
   Result,
 } from "@qlever-llc/result";
 
-import { type AuthRuntimeDeps, authRuntimeDeps } from "../runtime_deps.ts";
-import type { Connection } from "../schemas.ts";
+import type { AuthRuntimeDeps } from "../runtime_deps.ts";
+import { type Connection, ServiceInstanceSchema } from "../schemas.ts";
 import type { SqlSessionRepository } from "../storage.ts";
+import type { StaticDecode } from "typebox";
 import { connectionFilterForSession } from "../session/connections.ts";
 import { createAuthApplyServiceDeploymentContractHandler as createAuthApplyServiceDeploymentContractHandlerBase } from "./service_deployment_apply.ts";
 import {
   normalizeAppliedContracts,
   type ServiceDeployment,
-  type ServiceInstance,
   validateServiceDeploymentRequest,
   validateServiceProvisionRequest,
 } from "./shared.ts";
 
-type RpcUser = { type: string; id?: string };
+type ServiceInstance = StaticDecode<typeof ServiceInstanceSchema>;
 
-type ServiceDeploymentStorage = Pick<
-  AuthRuntimeDeps["serviceDeploymentStorage"],
-  "get" | "put" | "delete" | "list"
->;
-type ServiceInstanceStorage = Pick<
-  AuthRuntimeDeps["serviceInstanceStorage"],
-  | "get"
-  | "getByInstanceKey"
-  | "put"
-  | "delete"
-  | "list"
-  | "listByDeployment"
->;
+type RpcUser = { type: string; id?: string; capabilities?: string[] };
+
+type ServiceDeploymentStorage = {
+  get(deploymentId: string): Promise<ServiceDeployment | undefined>;
+  put(record: ServiceDeployment): Promise<void>;
+  delete(deploymentId: string): Promise<void>;
+  list(): Promise<ServiceDeployment[]>;
+};
+type ServiceInstanceStorage = {
+  get(instanceId: string): Promise<ServiceInstance | undefined>;
+  getByInstanceKey(instanceKey: string): Promise<ServiceInstance | undefined>;
+  put(record: ServiceInstance): Promise<void>;
+  delete(instanceId: string): Promise<void>;
+  list(): Promise<ServiceInstance[]>;
+  listByDeployment(deploymentId: string): Promise<ServiceInstance[]>;
+};
 type RuntimeKickDeps = {
-  connectionsKV?: KVLike<Connection>;
-  sessionStorage?: Pick<SqlSessionRepository, "deleteByInstanceKey">;
+  connectionsKV: KVLike<Connection>;
+  sessionStorage: Pick<SqlSessionRepository, "deleteByInstanceKey">;
 };
 
-function serviceRpcDeps(): {
+export type ServiceAdminRpcDeps = {
   logger: Pick<AuthRuntimeDeps["logger"], "trace">;
   serviceDeploymentStorage: ServiceDeploymentStorage;
   serviceInstanceStorage: ServiceInstanceStorage;
-} {
-  const deps = authRuntimeDeps();
-  return {
-    logger: deps.logger,
-    serviceDeploymentStorage: {
-      get: (deploymentId) => deps.serviceDeploymentStorage.get(deploymentId),
-      put: (record) => deps.serviceDeploymentStorage.put(record),
-      delete: (deploymentId) =>
-        deps.serviceDeploymentStorage.delete(deploymentId),
-      list: () => deps.serviceDeploymentStorage.list(),
-    },
-    serviceInstanceStorage: {
-      get: (instanceId) => deps.serviceInstanceStorage.get(instanceId),
-      getByInstanceKey: (instanceKey) =>
-        deps.serviceInstanceStorage.getByInstanceKey(instanceKey),
-      put: (record) => deps.serviceInstanceStorage.put(record),
-      delete: (instanceId) => deps.serviceInstanceStorage.delete(instanceId),
-      list: () => deps.serviceInstanceStorage.list(),
-      listByDeployment: (deploymentId) =>
-        deps.serviceInstanceStorage.listByDeployment(deploymentId),
-    },
-  };
-}
+};
 
 type KVLike<V> = {
   get: (
@@ -96,37 +81,41 @@ function invalid(
   );
 }
 
+function isAdmin(user: RpcUser): boolean {
+  return user.capabilities?.includes("admin") ?? false;
+}
+
+function insufficientPermissions() {
+  return Result.err(new AuthError({ reason: "insufficient_permissions" }));
+}
+
 async function kickInstanceRuntimeAccess(args: {
   instanceKey: string;
-  connectionsKV?: KVLike<Connection>;
-  sessionStorage?: Pick<SqlSessionRepository, "deleteByInstanceKey">;
+  connectionsKV: KVLike<Connection>;
+  sessionStorage: Pick<SqlSessionRepository, "deleteByInstanceKey">;
   kick: (serverId: string, clientId: number) => Promise<void>;
 }): Promise<void> {
-  const runtime = authRuntimeDeps();
-  const connectionStore = args.connectionsKV ?? runtime.connectionsKV;
-  const sessionStore = args.sessionStorage ?? runtime.sessionStorage;
-
-  const connectionKeys = await connectionStore.keys(
+  const connectionKeys = await args.connectionsKV.keys(
     connectionFilterForSession(args.instanceKey),
   )
     .take();
   if (!isErr(connectionKeys)) {
     for await (const key of connectionKeys) {
-      const entry = await connectionStore.get(key).take();
+      const entry = await args.connectionsKV.get(key).take();
       if (!isErr(entry)) {
         const connection = entry.value;
         await args.kick(connection.serverId, connection.clientId);
       }
-      await connectionStore.delete(key);
+      await args.connectionsKV.delete(key);
     }
   }
 
-  await sessionStore.deleteByInstanceKey(args.instanceKey);
+  await args.sessionStorage.deleteByInstanceKey(args.instanceKey);
 }
 
 async function instancesForDeployment(
   deploymentId: string,
-  store: ServiceInstanceStorage = serviceRpcDeps().serviceInstanceStorage,
+  store: ServiceInstanceStorage,
 ): Promise<ServiceInstance[]> {
   return await store.listByDeployment(deploymentId);
 }
@@ -146,22 +135,34 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-export const authListServiceDeploymentsHandler = async (
-  { input: req }: { input: { disabled?: boolean } },
-): Promise<Result<{ deployments: ServiceDeployment[] }, UnexpectedError>> => {
-  const { logger, serviceDeploymentStorage } = serviceRpcDeps();
-  logger.trace({ rpc: "Auth.ListServiceDeployments" }, "RPC request");
-  try {
-    const deployments = (await serviceDeploymentStorage.list()).filter((
-      deployment,
-    ) => req.disabled === undefined || deployment.disabled === req.disabled);
-    return Result.ok({ deployments });
-  } catch (error) {
-    return Result.err(new UnexpectedError({ cause: toError(error) }));
-  }
-};
+export function createAuthListServiceDeploymentsHandler(
+  serviceDeps: ServiceAdminRpcDeps,
+) {
+  return async (
+    { input: req, context: { caller } }: {
+      input: { disabled?: boolean };
+      context: { caller: RpcUser };
+    },
+  ): Promise<
+    Result<{ deployments: ServiceDeployment[] }, AuthError | UnexpectedError>
+  > => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const { logger, serviceDeploymentStorage } = serviceDeps;
+    logger.trace({ rpc: "Auth.ListServiceDeployments", caller }, "RPC request");
+    try {
+      const deployments = (await serviceDeploymentStorage.list()).filter((
+        deployment,
+      ) => req.disabled === undefined || deployment.disabled === req.disabled);
+      return Result.ok({ deployments });
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+  };
+}
 
-export function createAuthCreateServiceDeploymentHandler() {
+export function createAuthCreateServiceDeploymentHandler(
+  serviceDeps: ServiceAdminRpcDeps,
+) {
   return async (
     {
       input: req,
@@ -171,8 +172,8 @@ export function createAuthCreateServiceDeploymentHandler() {
       context: { caller: RpcUser };
     },
   ) => {
-    const { logger, serviceDeploymentStorage, serviceInstanceStorage } =
-      serviceRpcDeps();
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const { logger, serviceDeploymentStorage } = serviceDeps;
     logger.trace({
       rpc: "Auth.CreateServiceDeployment",
       caller,
@@ -209,17 +210,18 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
     usedNamespaces: string[];
   }>;
   refreshActiveContracts: () => Promise<void>;
+  serviceDeploymentStorage: ServiceDeploymentStorage;
+  logger: Pick<AuthRuntimeDeps["logger"], "trace">;
 }) {
-  const { logger, serviceDeploymentStorage } = serviceRpcDeps();
   const handler = createAuthApplyServiceDeploymentContractHandlerBase({
     ...deps,
-    serviceDeploymentStorage,
   });
   return async (args: {
     input: { deploymentId: string; contract: unknown };
     context: { caller: RpcUser };
   }) => {
-    logger.trace({
+    if (!isAdmin(args.context.caller)) return insufficientPermissions();
+    deps.logger.trace({
       rpc: "Auth.ApplyServiceDeploymentContract",
       caller: args.context.caller,
       deploymentId: args.input.deploymentId,
@@ -232,6 +234,9 @@ export function createAuthUnapplyServiceDeploymentContractHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
+    logger: Pick<AuthRuntimeDeps["logger"], "trace">;
+    serviceDeploymentStorage: ServiceDeploymentStorage;
+    serviceInstanceStorage: ServiceInstanceStorage;
   } & RuntimeKickDeps,
 ) {
   return async (
@@ -243,8 +248,8 @@ export function createAuthUnapplyServiceDeploymentContractHandler(
       context: { caller: RpcUser };
     },
   ) => {
-    const { logger, serviceDeploymentStorage, serviceInstanceStorage } =
-      serviceRpcDeps();
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const { logger, serviceDeploymentStorage, serviceInstanceStorage } = deps;
     logger.trace({
       rpc: "Auth.UnapplyServiceDeploymentContract",
       caller,
@@ -315,11 +320,16 @@ export function createAuthDisableServiceDeploymentHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
+    serviceDeploymentStorage: ServiceDeploymentStorage;
+    serviceInstanceStorage: ServiceInstanceStorage;
   } & RuntimeKickDeps,
 ) {
-  return async ({ input: req }: { input: { deploymentId: string } }) => {
-    const { serviceDeploymentStorage, serviceInstanceStorage } =
-      serviceRpcDeps();
+  return async ({ input: req, context: { caller } }: {
+    input: { deploymentId: string };
+    context: { caller: RpcUser };
+  }) => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const { serviceDeploymentStorage, serviceInstanceStorage } = deps;
     const deployment = await serviceDeploymentStorage.get(req.deploymentId);
     if (!deployment) {
       return invalid("/deploymentId", "service deployment not found", {
@@ -353,13 +363,21 @@ export function createAuthDisableServiceDeploymentHandler(
 
 export function createAuthEnableServiceDeploymentHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
+  serviceDeploymentStorage: ServiceDeploymentStorage;
 }) {
   return async (
-    { input: req }: { input: { deploymentId: string } },
+    { input: req, context: { caller } }: {
+      input: { deploymentId: string };
+      context: { caller: RpcUser };
+    },
   ): Promise<
-    Result<{ deployment: ServiceDeployment }, ValidationError | UnexpectedError>
+    Result<
+      { deployment: ServiceDeployment },
+      AuthError | ValidationError | UnexpectedError
+    >
   > => {
-    const { serviceDeploymentStorage } = serviceRpcDeps();
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const { serviceDeploymentStorage } = deps;
     const deployment = await serviceDeploymentStorage.get(req.deploymentId);
     if (!deployment) {
       return invalid("/deploymentId", "service deployment not found", {
@@ -380,14 +398,19 @@ export function createAuthEnableServiceDeploymentHandler(deps: {
 
 export function createAuthRemoveServiceDeploymentHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
+  serviceDeploymentStorage: ServiceDeploymentStorage;
+  serviceInstanceStorage: ServiceInstanceStorage;
 }) {
   return async (
-    { input: req }: { input: { deploymentId: string } },
+    { input: req, context: { caller } }: {
+      input: { deploymentId: string };
+      context: { caller: RpcUser };
+    },
   ): Promise<
-    Result<{ success: boolean }, ValidationError | UnexpectedError>
+    Result<{ success: boolean }, AuthError | ValidationError | UnexpectedError>
   > => {
-    const { serviceDeploymentStorage, serviceInstanceStorage } =
-      serviceRpcDeps();
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const { serviceDeploymentStorage, serviceInstanceStorage } = deps;
     const instances = await instancesForDeployment(
       req.deploymentId,
       serviceInstanceStorage,
@@ -418,7 +441,9 @@ export function createAuthRemoveServiceDeploymentHandler(deps: {
   };
 }
 
-export function createAuthProvisionServiceInstanceHandler() {
+export function createAuthProvisionServiceInstanceHandler(
+  serviceDeps: ServiceAdminRpcDeps,
+) {
   return async (
     {
       input: req,
@@ -428,8 +453,9 @@ export function createAuthProvisionServiceInstanceHandler() {
       context: { caller: RpcUser };
     },
   ) => {
+    if (!isAdmin(caller)) return insufficientPermissions();
     const { logger, serviceDeploymentStorage, serviceInstanceStorage } =
-      serviceRpcDeps();
+      serviceDeps;
     logger.trace({
       rpc: "Auth.ProvisionServiceInstance",
       caller,
@@ -467,23 +493,33 @@ export function createAuthProvisionServiceInstanceHandler() {
   };
 }
 
-export const authListServiceInstancesHandler = async (
-  { input: req }: { input: { deploymentId?: string; disabled?: boolean } },
-): Promise<Result<{ instances: ServiceInstance[] }, UnexpectedError>> => {
-  const { logger, serviceInstanceStorage } = serviceRpcDeps();
-  logger.trace({ rpc: "Auth.ListServiceInstances" }, "RPC request");
-  try {
-    const instances = (req.deploymentId === undefined
-      ? await serviceInstanceStorage.list()
-      : await serviceInstanceStorage.listByDeployment(req.deploymentId))
-      .filter((instance) =>
-        req.disabled === undefined || instance.disabled === req.disabled
-      );
-    return Result.ok({ instances });
-  } catch (error) {
-    return Result.err(new UnexpectedError({ cause: toError(error) }));
-  }
-};
+export function createAuthListServiceInstancesHandler(
+  serviceDeps: ServiceAdminRpcDeps,
+) {
+  return async (
+    { input: req, context: { caller } }: {
+      input: { deploymentId?: string; disabled?: boolean };
+      context: { caller: RpcUser };
+    },
+  ): Promise<
+    Result<{ instances: ServiceInstance[] }, AuthError | UnexpectedError>
+  > => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const { logger, serviceInstanceStorage } = serviceDeps;
+    logger.trace({ rpc: "Auth.ListServiceInstances", caller }, "RPC request");
+    try {
+      const instances = (req.deploymentId === undefined
+        ? await serviceInstanceStorage.list()
+        : await serviceInstanceStorage.listByDeployment(req.deploymentId))
+        .filter((instance) =>
+          req.disabled === undefined || instance.disabled === req.disabled
+        );
+      return Result.ok({ instances });
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+  };
+}
 
 async function setInstanceDisabled(
   args: {
@@ -491,11 +527,12 @@ async function setInstanceDisabled(
     disabled: boolean;
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
+    serviceInstanceStorage: ServiceInstanceStorage;
   } & RuntimeKickDeps,
 ): Promise<
   Result<{ instance: ServiceInstance }, ValidationError | UnexpectedError>
 > {
-  const { serviceInstanceStorage } = serviceRpcDeps();
+  const { serviceInstanceStorage } = args;
   const instance = await serviceInstanceStorage.get(args.instanceId);
   if (!instance) {
     return invalid("/instanceId", "service instance not found", {
@@ -523,44 +560,63 @@ export function createAuthDisableServiceInstanceHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
+    serviceInstanceStorage: ServiceInstanceStorage;
   } & RuntimeKickDeps,
 ) {
-  return async ({ input: req }: { input: { instanceId: string } }) =>
-    await setInstanceDisabled({
+  return async ({ input: req, context: { caller } }: {
+    input: { instanceId: string };
+    context: { caller: RpcUser };
+  }) => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    return await setInstanceDisabled({
       ...req,
       disabled: true,
       kick: deps.kick,
       refreshActiveContracts: deps.refreshActiveContracts,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
+      serviceInstanceStorage: deps.serviceInstanceStorage,
     });
+  };
 }
 
 export function createAuthEnableServiceInstanceHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
+    serviceInstanceStorage: ServiceInstanceStorage;
   } & RuntimeKickDeps,
 ) {
-  return async ({ input: req }: { input: { instanceId: string } }) =>
-    await setInstanceDisabled({
+  return async ({ input: req, context: { caller } }: {
+    input: { instanceId: string };
+    context: { caller: RpcUser };
+  }) => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    return await setInstanceDisabled({
       ...req,
       disabled: false,
       kick: deps.kick,
       refreshActiveContracts: deps.refreshActiveContracts,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
+      serviceInstanceStorage: deps.serviceInstanceStorage,
     });
+  };
 }
 
 export function createAuthRemoveServiceInstanceHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
+    serviceInstanceStorage: ServiceInstanceStorage;
   } & RuntimeKickDeps,
 ) {
-  return async ({ input: req }: { input: { instanceId: string } }) => {
-    const { serviceInstanceStorage } = serviceRpcDeps();
+  return async ({ input: req, context: { caller } }: {
+    input: { instanceId: string };
+    context: { caller: RpcUser };
+  }) => {
+    if (!isAdmin(caller)) return insufficientPermissions();
+    const { serviceInstanceStorage } = deps;
     const instance = await serviceInstanceStorage.get(req.instanceId);
     if (!instance) {
       return invalid("/instanceId", "service instance not found", {

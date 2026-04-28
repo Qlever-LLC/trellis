@@ -19,7 +19,6 @@ pub fn parse_manifest(value: Value) -> Result<ContractManifest, ContractsError> 
     validate_manifest(&value)?;
     let manifest: ContractManifest = serde_json::from_value(value)?;
     validate_schema_refs(&manifest)?;
-    validate_stream_sources(&manifest)?;
     Ok(manifest)
 }
 
@@ -107,12 +106,6 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
         assert_schema_ref_exists(manifest, &event.event.schema, &format!("event '{name}'"))?;
     }
 
-    for (name, subject) in &manifest.subjects {
-        if let Some(message) = &subject.message {
-            assert_schema_ref_exists(manifest, &message.schema, &format!("subject '{name}'"))?;
-        }
-    }
-
     for (name, error) in &manifest.errors {
         if let Some(schema) = &error.schema {
             assert_schema_ref_exists(manifest, &schema.schema, &format!("error '{name}'"))?;
@@ -140,28 +133,6 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
             &kv.schema.schema,
             &format!("resources.kv.{alias}"),
         )?;
-    }
-
-    Ok(())
-}
-
-fn validate_stream_sources(manifest: &ContractManifest) -> Result<(), ContractsError> {
-    for (stream_alias, stream) in &manifest.resources.streams {
-        let Some(sources) = &stream.sources else {
-            continue;
-        };
-        for (index, source) in sources.iter().enumerate() {
-            if manifest.resources.streams.contains_key(&source.from_alias) {
-                continue;
-            }
-            return Err(ContractsError::SchemaValidation {
-                kind: "contract",
-                details: format!(
-                    "resources.streams.{stream_alias}.sources[{index}].fromAlias: unknown stream alias '{}'",
-                    source.from_alias
-                ),
-            });
-        }
     }
 
     Ok(())

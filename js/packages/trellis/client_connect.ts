@@ -84,6 +84,7 @@ function createConnectedClient(args: {
     noResponderRetry: ClientOpts["noResponderRetry"];
     api: TrellisAPI;
     state: TrellisOpts<TrellisAPI>["state"];
+    onSessionNotFound?: TrellisOpts<TrellisAPI>["onSessionNotFound"];
   };
 }): Trellis<TrellisAPI, "client", RuntimeStateStores> {
   const trellis = new Trellis<TrellisAPI, "client", RuntimeStateStores>(
@@ -1022,6 +1023,25 @@ export async function connectClientWithDeps<
       runtimeState.sentinel = resolvedBootstrap.connectInfo.transport.sentinel;
     }
     : undefined;
+  const handleSessionNotFound = identity.mode === "browser"
+    ? async () => {
+      const latestCurrentUrl = resolveCurrentUrl(browserAuth);
+      try {
+        await resolveAuthRequired(
+          args,
+          identity,
+          latestCurrentUrl,
+          deps,
+          offsetState,
+        );
+      } catch (error) {
+        if (error instanceof ClientAuthHandledError) {
+          return;
+        }
+        throw error;
+      }
+    }
+    : undefined;
   const runtimeAuth = await createRuntimeUserAuthenticator({
     identity,
     deps,
@@ -1092,6 +1112,7 @@ export async function connectClientWithDeps<
       noResponderRetry: clientOpts.noResponderRetry,
       api,
       state,
+      onSessionNotFound: handleSessionNotFound,
     },
   });
 }

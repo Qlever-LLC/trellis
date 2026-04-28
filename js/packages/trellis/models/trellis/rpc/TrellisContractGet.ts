@@ -21,7 +21,6 @@ export const TrellisContractSchema = Type.Object({
   kind: Type.Union([
     Type.Literal("service"),
     Type.Literal("app"),
-    Type.Literal("portal"),
     Type.Literal("device"),
     Type.Literal("agent"),
   ]),
@@ -42,9 +41,6 @@ export const TrellisContractSchema = Type.Object({
     Type.Record(Type.String({ minLength: 1 }), OpenValueSchema),
   ),
   events: Type.Optional(
-    Type.Record(Type.String({ minLength: 1 }), OpenValueSchema),
-  ),
-  subjects: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), OpenValueSchema),
   ),
   errors: Type.Optional(

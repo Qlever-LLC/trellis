@@ -43,7 +43,7 @@ Does not own NATS transport connection behavior.
 Owns:
 
 - authenticated outbound Trellis session/client primitives
-- generic operation, RPC, event, and raw subject client primitives
+- generic operation, RPC, event, and derived runtime-subject client primitives
 - operation-native transfer execution helpers for send/receive runtime behavior
 - descriptor traits required by generated outbound code
 
@@ -56,7 +56,7 @@ Owns:
 - authenticated service-side runtime primitives
 - handler registration for owned operations and RPCs
 - owned event publish helpers
-- owned raw subject helpers
+- operation control, reply, and transfer subject helpers derived from owned surfaces
 - descriptor traits required by generated inbound code
 
 Does not own manifest parsing or contract selection logic.
@@ -70,7 +70,7 @@ Each generated SDK crate must export:
 - `CONTRACT_JSON`
 - `contract_manifest()` or equivalent manifest access
 - owned request, response, event, and message types
-- owned operation, RPC, event, and raw subject descriptor types
+- owned operation, RPC, and event descriptor types
 - thin client helper modules for the owned outbound surface
 - thin server helper modules for the owned inbound surface
 
@@ -82,7 +82,6 @@ pub mod types;
 pub mod operations;
 pub mod rpc;
 pub mod events;
-pub mod subjects;
 pub mod client;
 pub mod server;
 
@@ -175,7 +174,7 @@ Rules:
 Rules:
 
 - if a `uses` alias is not declared, there is no corresponding facade accessor
-- if a remote operation, RPC, event, or subject is not selected in the local manifest `uses`, there is no generated Rust method for it
+- if a remote operation, RPC, or event is not selected in the local manifest `uses`, there is no generated Rust method for it
 - if a dependency mapping points an alias to the wrong SDK crate, generation fails
 - if the mapped SDK crate does not own the referenced API, generation fails
 - if a local participant is used as a dependency mapping target, generation uses its owned contract-module-compatible view rather than any used alias facades
@@ -188,15 +187,13 @@ The Rust outbound runtime must support at least:
 - typed RPC requests
 - typed event publishing
 - typed event subscriptions
-- typed raw subject publishing
-- typed raw subject subscriptions
+- typed operation reply, transfer, and other runtime-subject helpers derived from contract surfaces
 
 The Rust service runtime must support at least:
 
 - owned operation handler registration
 - owned RPC handler registration
 - owned event publish helpers
-- owned raw subject helpers
 - outbound calls to used aliases through the same participant contract facade
 
 Rules:
@@ -214,14 +211,12 @@ Required descriptor categories:
 - `OperationDescriptor`
 - `RpcDescriptor`
 - `EventDescriptor`
-- `SubjectDescriptor`
 
 Required descriptor semantics:
 
 - operation descriptors expose logical key, invoke subject, derived control subject, input type, progress type if any, output type, declared capability requirements, and enough metadata to drive typed operation helpers
 - RPC descriptors expose logical key, concrete subject, request type, response type, declared caller capabilities, and declared known errors
 - event descriptors expose logical key, event type, subject template metadata, wildcard subscribe subject metadata, and enough logic to derive a concrete publish subject from an event value when the subject is templated
-- subject descriptors expose logical key, subject or subject pattern, message type if any, and capability metadata
 
 ## Connection Helpers
 

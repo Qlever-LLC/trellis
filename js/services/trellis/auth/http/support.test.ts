@@ -502,9 +502,12 @@ Deno.test("getApprovalResolution uses injected loaders", async () => {
       displayName: "Console",
       description: "Admin",
       kind: "app",
-      subjects: {
-        audit: {
+      schemas: { AuditEvent: { type: "object" } },
+      events: {
+        "Audit.Recorded": {
+          version: "v1",
           subject: "trellis.console.audit",
+          event: { schema: "AuditEvent" },
           capabilities: {
             publish: ["audit"],
           },
@@ -576,9 +579,12 @@ Deno.test("getApprovalResolution prefers matching instance grant policy over sto
       displayName: "Console",
       description: "Admin",
       kind: "app",
-      subjects: {
-        audit: {
+      schemas: { AuditEvent: { type: "object" } },
+      events: {
+        "Audit.Recorded": {
+          version: "v1",
           subject: "trellis.console.audit",
+          event: { schema: "AuditEvent" },
           capabilities: {
             publish: ["audit"],
           },
@@ -654,7 +660,6 @@ Deno.test("getApprovalResolution prefers persisted app identity over redirect-de
       displayName: "Console",
       description: "Admin",
       kind: "app",
-      subjects: {},
     },
     createdAt: new Date(),
   };

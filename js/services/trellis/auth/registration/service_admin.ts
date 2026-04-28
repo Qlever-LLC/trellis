@@ -1,45 +1,64 @@
-import { kick } from "../callout/kick.ts";
+import { createKick } from "../callout/kick.ts";
 import {
-  authListServiceDeploymentsHandler,
-  authListServiceInstancesHandler,
   createAuthApplyServiceDeploymentContractHandler,
   createAuthCreateServiceDeploymentHandler,
   createAuthDisableServiceDeploymentHandler,
   createAuthDisableServiceInstanceHandler,
   createAuthEnableServiceDeploymentHandler,
   createAuthEnableServiceInstanceHandler,
+  createAuthListServiceDeploymentsHandler,
+  createAuthListServiceInstancesHandler,
   createAuthProvisionServiceInstanceHandler,
   createAuthRemoveServiceDeploymentHandler,
   createAuthRemoveServiceInstanceHandler,
   createAuthUnapplyServiceDeploymentContractHandler,
 } from "../admin/service_rpc.ts";
 import type { AuthContractsRuntime, RpcRegistrar } from "./types.ts";
-import type { RuntimeKV } from "../runtime_deps.ts";
+import type { AuthRuntimeDeps, RuntimeKV } from "../runtime_deps.ts";
 import type { Connection } from "../schemas.ts";
-import type { SqlSessionRepository } from "../storage.ts";
+import type {
+  SqlServiceDeploymentRepository,
+  SqlServiceInstanceRepository,
+  SqlSessionRepository,
+} from "../storage.ts";
 
 export async function registerServiceAdminRpcs(deps: {
   trellis: RpcRegistrar;
   connectionsKV: RuntimeKV<Connection>;
   sessionStorage: SqlSessionRepository;
+  serviceDeploymentStorage: SqlServiceDeploymentRepository;
+  serviceInstanceStorage: SqlServiceInstanceRepository;
+  natsAuth: {
+    request(subject: string, payload?: string): Promise<unknown>;
+  };
+  logger: Pick<AuthRuntimeDeps["logger"], "debug" | "trace" | "warn">;
   contracts: Pick<
     AuthContractsRuntime,
     "installServiceContract" | "refreshActiveContracts"
   >;
 }): Promise<void> {
+  const kick = createKick({ logger: deps.logger, natsAuth: deps.natsAuth });
+  const serviceAdminDeps = {
+    logger: deps.logger,
+    serviceDeploymentStorage: deps.serviceDeploymentStorage,
+    serviceInstanceStorage: deps.serviceInstanceStorage,
+  };
+
   await deps.trellis.mount(
     "Auth.CreateServiceDeployment",
-    createAuthCreateServiceDeploymentHandler(),
+    createAuthCreateServiceDeploymentHandler(serviceAdminDeps),
   );
   await deps.trellis.mount(
     "Auth.ListServiceDeployments",
-    authListServiceDeploymentsHandler,
+    createAuthListServiceDeploymentsHandler(serviceAdminDeps),
   );
   await deps.trellis.mount(
     "Auth.ApplyServiceDeploymentContract",
     createAuthApplyServiceDeploymentContractHandler({
       installServiceContract: deps.contracts.installServiceContract,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      serviceDeploymentStorage: deps.serviceDeploymentStorage,
+      logger: deps.logger,
     }),
   );
   await deps.trellis.mount(
@@ -49,6 +68,9 @@ export async function registerServiceAdminRpcs(deps: {
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
+      logger: deps.logger,
+      serviceDeploymentStorage: deps.serviceDeploymentStorage,
+      serviceInstanceStorage: deps.serviceInstanceStorage,
     }),
   );
   await deps.trellis.mount(
@@ -58,27 +80,32 @@ export async function registerServiceAdminRpcs(deps: {
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
+      serviceDeploymentStorage: deps.serviceDeploymentStorage,
+      serviceInstanceStorage: deps.serviceInstanceStorage,
     }),
   );
   await deps.trellis.mount(
     "Auth.EnableServiceDeployment",
     createAuthEnableServiceDeploymentHandler({
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      serviceDeploymentStorage: deps.serviceDeploymentStorage,
     }),
   );
   await deps.trellis.mount(
     "Auth.RemoveServiceDeployment",
     createAuthRemoveServiceDeploymentHandler({
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      serviceDeploymentStorage: deps.serviceDeploymentStorage,
+      serviceInstanceStorage: deps.serviceInstanceStorage,
     }),
   );
   await deps.trellis.mount(
     "Auth.ProvisionServiceInstance",
-    createAuthProvisionServiceInstanceHandler(),
+    createAuthProvisionServiceInstanceHandler(serviceAdminDeps),
   );
   await deps.trellis.mount(
     "Auth.ListServiceInstances",
-    authListServiceInstancesHandler,
+    createAuthListServiceInstancesHandler(serviceAdminDeps),
   );
   await deps.trellis.mount(
     "Auth.DisableServiceInstance",
@@ -87,6 +114,7 @@ export async function registerServiceAdminRpcs(deps: {
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
+      serviceInstanceStorage: deps.serviceInstanceStorage,
     }),
   );
   await deps.trellis.mount(
@@ -96,6 +124,7 @@ export async function registerServiceAdminRpcs(deps: {
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
+      serviceInstanceStorage: deps.serviceInstanceStorage,
     }),
   );
   await deps.trellis.mount(
@@ -105,6 +134,7 @@ export async function registerServiceAdminRpcs(deps: {
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
+      serviceInstanceStorage: deps.serviceInstanceStorage,
     }),
   );
 }

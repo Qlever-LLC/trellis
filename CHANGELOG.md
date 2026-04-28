@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Changed
 
+- Removed raw subject declarations and service-declared stream resource requests
+  from the documented v1 contract surface, aligned guides/portal docs/console
+  copy with app-based portal contracts, and clarified that unversioned Trellis
+  State entries remain readable when the current schema accepts them.
 - Documented and surfaced the Trellis service v1 cleanup across design docs,
   guides, login portal docs, and console admin views, including canonical device
   connect-info, deployment-derived device digests, optional KV/store resources,

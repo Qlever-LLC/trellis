@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
+import { isErr } from "@qlever-llc/result";
 import Value from "typebox/value";
 import {
   AuthListConnectionsResponseSchema,
@@ -24,6 +25,74 @@ import {
   validatePortalRequest,
   validateServiceDeploymentRequest,
 } from "./shared.ts";
+import {
+  createAuthApplyServiceDeploymentContractHandler,
+  createAuthCreateServiceDeploymentHandler,
+  createAuthDisableServiceDeploymentHandler,
+  createAuthDisableServiceInstanceHandler,
+  createAuthEnableServiceDeploymentHandler,
+  createAuthEnableServiceInstanceHandler,
+  createAuthListServiceDeploymentsHandler,
+  createAuthListServiceInstancesHandler,
+  createAuthProvisionServiceInstanceHandler,
+  createAuthRemoveServiceDeploymentHandler,
+  createAuthRemoveServiceInstanceHandler,
+  createAuthUnapplyServiceDeploymentContractHandler,
+  type ServiceAdminRpcDeps,
+} from "./service_rpc.ts";
+
+function throwingStoreAccess(): never {
+  throw new Error("service admin storage should not be touched");
+}
+
+function throwingKvAccess(): never {
+  throw new Error("service admin connection KV should not be touched");
+}
+
+function serviceAdminDeps(): ServiceAdminRpcDeps {
+  return {
+    logger: { trace: () => {} },
+    serviceDeploymentStorage: {
+      get: async () => throwingStoreAccess(),
+      put: async () => throwingStoreAccess(),
+      delete: async () => throwingStoreAccess(),
+      list: async () => throwingStoreAccess(),
+    },
+    serviceInstanceStorage: {
+      get: async () => throwingStoreAccess(),
+      getByInstanceKey: async () => throwingStoreAccess(),
+      put: async () => throwingStoreAccess(),
+      delete: async () => throwingStoreAccess(),
+      list: async () => throwingStoreAccess(),
+      listByDeployment: async () => throwingStoreAccess(),
+    },
+  };
+}
+
+function kickDeps(serviceDeps: ServiceAdminRpcDeps) {
+  return {
+    ...serviceDeps,
+    kick: async () => {},
+    refreshActiveContracts: async () => {},
+    connectionsKV: {
+      get: () => throwingKvAccess(),
+      put: () => throwingKvAccess(),
+      create: () => throwingKvAccess(),
+      delete: () => throwingKvAccess(),
+      keys: () => throwingKvAccess(),
+    },
+    sessionStorage: {
+      deleteByInstanceKey: async () => throwingStoreAccess(),
+    },
+  };
+}
+
+async function assertInsufficientPermissions(action: () => Promise<unknown>) {
+  const result = await action();
+  assert(isErr(result));
+  assert("reason" in result.error);
+  assertEquals(result.error.reason, "insufficient_permissions");
+}
 
 Deno.test("normalizeDigestList preserves order and removes duplicates", () => {
   assertEquals(normalizeDigestList(["b", "a", "b", "c", "a"]), ["b", "a", "c"]);
@@ -89,6 +158,92 @@ Deno.test("auth contract exposes service, portal, and device admin RPCs", () => 
 
   const operations = Object.keys(TRELLIS_AUTH_OPERATIONS);
   assertEquals(operations, ["Auth.ActivateDevice"]);
+});
+
+Deno.test("service admin RPC handlers require admin before touching dependencies", async () => {
+  const serviceDeps = serviceAdminDeps();
+  const runtimeDeps = kickDeps(serviceDeps);
+  const caller = { type: "user", id: "not-admin", capabilities: [] };
+  const context = { caller };
+
+  const actions: Array<() => Promise<unknown>> = [
+    () =>
+      createAuthCreateServiceDeploymentHandler(serviceDeps)({
+        input: { deploymentId: "billing.default", namespaces: ["billing"] },
+        context,
+      }),
+    () =>
+      createAuthListServiceDeploymentsHandler(serviceDeps)({
+        input: {},
+        context,
+      }),
+    () =>
+      createAuthApplyServiceDeploymentContractHandler({
+        installServiceContract: async () => throwingStoreAccess(),
+        refreshActiveContracts: async () => throwingStoreAccess(),
+        serviceDeploymentStorage: serviceDeps.serviceDeploymentStorage,
+        logger: serviceDeps.logger,
+      })({
+        input: { deploymentId: "billing.default", contract: {} },
+        context,
+      }),
+    () =>
+      createAuthUnapplyServiceDeploymentContractHandler(runtimeDeps)({
+        input: { deploymentId: "billing.default", contractId: "billing@v1" },
+        context,
+      }),
+    () =>
+      createAuthDisableServiceDeploymentHandler(runtimeDeps)({
+        input: { deploymentId: "billing.default" },
+        context,
+      }),
+    () =>
+      createAuthEnableServiceDeploymentHandler({
+        refreshActiveContracts: async () => throwingStoreAccess(),
+        serviceDeploymentStorage: serviceDeps.serviceDeploymentStorage,
+      })({
+        input: { deploymentId: "billing.default" },
+        context,
+      }),
+    () =>
+      createAuthRemoveServiceDeploymentHandler({
+        refreshActiveContracts: async () => throwingStoreAccess(),
+        serviceDeploymentStorage: serviceDeps.serviceDeploymentStorage,
+        serviceInstanceStorage: serviceDeps.serviceInstanceStorage,
+      })({
+        input: { deploymentId: "billing.default" },
+        context,
+      }),
+    () =>
+      createAuthProvisionServiceInstanceHandler(serviceDeps)({
+        input: { deploymentId: "billing.default", instanceKey: "instance-key" },
+        context,
+      }),
+    () =>
+      createAuthListServiceInstancesHandler(serviceDeps)({
+        input: {},
+        context,
+      }),
+    () =>
+      createAuthDisableServiceInstanceHandler(runtimeDeps)({
+        input: { instanceId: "svc_123" },
+        context,
+      }),
+    () =>
+      createAuthEnableServiceInstanceHandler(runtimeDeps)({
+        input: { instanceId: "svc_123" },
+        context,
+      }),
+    () =>
+      createAuthRemoveServiceInstanceHandler(runtimeDeps)({
+        input: { instanceId: "svc_123" },
+        context,
+      }),
+  ];
+
+  for (const action of actions) {
+    await assertInsufficientPermissions(action);
+  }
 });
 
 Deno.test("session and connection admin schemas expose explicit participant metadata", () => {

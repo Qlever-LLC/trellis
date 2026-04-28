@@ -175,8 +175,7 @@ fn packing_catalog_includes_manifest_metadata() {
             "description": "Example contract used in catalog tests.",
             "kind": "service",
             "rpc": {},
-            "events": {},
-            "subjects": {}
+            "events": {}
         }))
         .expect("serialize manifest"),
     )
@@ -319,8 +318,8 @@ fn manifest_validation_rejects_unknown_kv_schema_refs() {
 }
 
 #[test]
-fn manifest_parses_stream_resources() {
-    let manifest = parse_manifest(json!({
+fn manifest_validation_rejects_stream_resources() {
+    let error = parse_manifest(json!({
         "format": "trellis.contract.v1",
         "id": "example.streams@v1",
         "displayName": "Example Streams",
@@ -336,19 +335,13 @@ fn manifest_parses_stream_resources() {
             }
         }
     }))
-    .expect("manifest with streams should parse");
+    .expect_err("manifest with stream resources should fail");
 
-    let streams = &manifest.resources.streams;
-    assert_eq!(streams.len(), 1);
-    let activity = streams.get("activity").expect("activity stream resource");
-    assert_eq!(activity.purpose, "Persist activity events");
-    assert_eq!(activity.required, Some(true));
-    assert_eq!(
-        activity.subjects,
-        vec!["events.v1.Activity.Recorded".to_string()]
-    );
-    assert!(activity.retention.is_none());
-    assert!(activity.sources.is_none());
+    let ContractsError::SchemaValidation { details, .. } = error else {
+        panic!("expected schema validation error");
+    };
+    assert!(details.contains("resources"));
+    assert!(details.contains("streams"));
 }
 
 #[test]
@@ -638,132 +631,23 @@ fn manifest_validation_rejects_missing_kind() {
 }
 
 #[test]
-fn manifest_parses_rich_stream_resources_with_sources() {
-    let manifest = parse_manifest(json!({
-        "format": "trellis.contract.v1",
-        "id": "example.streams@v1",
-        "displayName": "Example Streams",
-        "description": "Expose stream resources",
-        "kind": "service",
-        "resources": {
-            "streams": {
-                "jobs": {
-                    "purpose": "Store append-only job lifecycle events",
-                    "required": true,
-                    "subjects": ["trellis.jobs.>"],
-                    "retention": "limits",
-                    "storage": "file",
-                    "numReplicas": 3,
-                    "discard": "old",
-                    "maxMsgs": -1,
-                    "maxBytes": -1,
-                    "maxAgeMs": 0
-                },
-                "jobsWork": {
-                    "purpose": "Store sourced work-queue messages",
-                    "required": true,
-                    "subjects": ["trellis.work.>"],
-                    "retention": "workqueue",
-                    "storage": "file",
-                    "numReplicas": 3,
-                    "sources": [
-                        {
-                            "fromAlias": "jobs",
-                            "filterSubject": "trellis.jobs.*.*.*.created",
-                            "subjectTransformDest": "trellis.work.$1.$2"
-                        }
-                    ]
-                }
-            }
-        }
-    }))
-    .expect("manifest with rich streams should parse");
-
-    let jobs = manifest
-        .resources
-        .streams
-        .get("jobs")
-        .expect("jobs stream resource");
-    assert_eq!(jobs.retention.as_deref(), Some("limits"));
-    assert_eq!(jobs.storage.as_deref(), Some("file"));
-    assert_eq!(jobs.num_replicas, Some(3));
-    assert_eq!(jobs.discard.as_deref(), Some("old"));
-    assert_eq!(jobs.max_msgs, Some(-1));
-    assert_eq!(jobs.max_bytes, Some(-1));
-    assert_eq!(jobs.max_age_ms, Some(0));
-
-    let jobs_work = manifest
-        .resources
-        .streams
-        .get("jobsWork")
-        .expect("jobsWork stream resource");
-    let sources = jobs_work.sources.as_ref().expect("jobsWork sources");
-    assert_eq!(sources.len(), 1);
-    assert_eq!(sources[0].from_alias, "jobs");
-    assert_eq!(
-        sources[0].filter_subject.as_deref(),
-        Some("trellis.jobs.*.*.*.created")
-    );
-    assert_eq!(
-        sources[0].subject_transform_dest.as_deref(),
-        Some("trellis.work.$1.$2")
-    );
-}
-
-#[test]
-fn manifest_validation_rejects_empty_stream_subjects() {
+fn manifest_validation_rejects_raw_subjects() {
     let error = parse_manifest(json!({
         "format": "trellis.contract.v1",
-        "id": "example.streams@v1",
-        "displayName": "Example Streams",
-        "description": "Expose stream resources",
+        "id": "example.subjects@v1",
+        "displayName": "Example Subjects",
+        "description": "Expose raw subjects",
         "kind": "service",
-        "resources": {
-            "streams": {
-                "activity": {
-                    "purpose": "Persist activity events",
-                    "subjects": []
-                }
+        "subjects": {
+            "Activity.Raw": {
+                "subject": "activity.raw"
             }
         }
     }))
-    .expect_err("manifest with empty stream subjects should fail");
+    .expect_err("manifest with raw subjects should fail");
 
     let ContractsError::SchemaValidation { details, .. } = error else {
         panic!("expected schema validation error");
     };
     assert!(details.contains("subjects"));
-}
-
-#[test]
-fn manifest_validation_rejects_unknown_stream_source_alias() {
-    let error = parse_manifest(json!({
-        "format": "trellis.contract.v1",
-        "id": "example.streams@v1",
-        "displayName": "Example Streams",
-        "description": "Expose stream resources",
-        "kind": "service",
-        "resources": {
-            "streams": {
-                "jobsWork": {
-                    "purpose": "Store sourced work-queue messages",
-                    "subjects": ["trellis.work.>"],
-                    "sources": [
-                        {
-                            "fromAlias": "jobs",
-                            "filterSubject": "trellis.jobs.*.*.*.created",
-                            "subjectTransformDest": "trellis.work.$1.$2"
-                        }
-                    ]
-                }
-            }
-        }
-    }))
-    .expect_err("manifest with unknown stream source alias should fail");
-
-    let ContractsError::SchemaValidation { details, .. } = error else {
-        panic!("expected schema validation error");
-    };
-    assert!(details.contains("fromAlias"));
-    assert!(details.contains("jobs"));
 }

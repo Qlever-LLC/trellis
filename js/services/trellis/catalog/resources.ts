@@ -357,10 +357,6 @@ function buildResourceName(
   return `svc_${service}_${contract}_${logical}_${hash}`;
 }
 
-function addSubjects(target: Set<string>, subjects: Iterable<string>): void {
-  for (const subject of subjects) target.add(subject);
-}
-
 export function getKvResourceRequests(
   contract: TrellisContractV1,
 ): KvResourceRequest[] {
@@ -456,22 +452,6 @@ export function getContractResourceSummary(
   };
 }
 
-function buildKvBucketName(
-  serviceDeploymentId: string,
-  contractId: string,
-  alias: string,
-): string {
-  return buildResourceName(serviceDeploymentId, contractId, alias);
-}
-
-function buildStoreName(
-  serviceDeploymentId: string,
-  contractId: string,
-  alias: string,
-): string {
-  return buildResourceName(serviceDeploymentId, contractId, alias);
-}
-
 function buildJobsNamespace(
   serviceDeploymentId: string,
   contractId: string,
@@ -507,7 +487,7 @@ export async function provisionContractResourceBindings(
     }
     for (const request of requests) {
       if (!nats) continue;
-      const bucket = buildKvBucketName(
+      const bucket = buildResourceName(
         serviceDeploymentId,
         contract.id,
         request.alias,
@@ -544,7 +524,7 @@ export async function provisionContractResourceBindings(
     const storeBindings: NonNullable<ContractResourceBindings["store"]> = {};
     if (nats) {
       for (const store of stores) {
-        const name = buildStoreName(
+        const name = buildResourceName(
           serviceDeploymentId,
           contract.id,
           store.alias,
@@ -624,8 +604,8 @@ export function getResourcePermissionGrants(
 
   for (const kvBinding of Object.values(bindings?.kv ?? {})) {
     const grants = getKvPermissionGrants(kvBinding.bucket);
-    addSubjects(publish, grants.publish);
-    addSubjects(subscribe, grants.subscribe);
+    for (const subject of grants.publish) publish.add(subject);
+    for (const subject of grants.subscribe) subscribe.add(subject);
   }
 
   for (const storeBinding of Object.values(bindings?.store ?? {})) {

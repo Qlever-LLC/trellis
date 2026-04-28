@@ -211,7 +211,7 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         format!("export const CONTRACT = {} as TrellisContractV1;", loaded.canonical),
         String::new(),
         "function assertSelectedKeysExist(".to_string(),
-        "  kind: \"rpc\" | \"operations\" | \"events\" | \"subjects\",".to_string(),
+        "  kind: \"rpc\" | \"operations\" | \"events\",".to_string(),
         "  keys: readonly string[] | undefined,".to_string(),
         "  api: Record<string, unknown>,".to_string(),
         ") {".to_string(),
@@ -231,8 +231,6 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         "  assertSelectedKeysExist(\"operations\", spec.operations?.call, API.owned.operations);".to_string(),
         "  assertSelectedKeysExist(\"events\", spec.events?.publish, API.owned.events);".to_string(),
         "  assertSelectedKeysExist(\"events\", spec.events?.subscribe, API.owned.events);".to_string(),
-        "  assertSelectedKeysExist(\"subjects\", spec.subjects?.publish, API.owned.subjects);".to_string(),
-        "  assertSelectedKeysExist(\"subjects\", spec.subjects?.subscribe, API.owned.subjects);".to_string(),
         "}".to_string(),
     ];
 
@@ -347,14 +345,6 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         "          events: {".to_string(),
         "            ...(spec.events.publish ? { publish: [...spec.events.publish] } : {}),".to_string(),
         "            ...(spec.events.subscribe ? { subscribe: [...spec.events.subscribe] } : {}),".to_string(),
-        "          },".to_string(),
-        "        }".to_string(),
-        "        : {}),".to_string(),
-        "      ...((spec.subjects?.publish || spec.subjects?.subscribe)".to_string(),
-        "        ? {".to_string(),
-        "          subjects: {".to_string(),
-        "            ...(spec.subjects.publish ? { publish: [...spec.subjects.publish] } : {}),".to_string(),
-        "            ...(spec.subjects.subscribe ? { subscribe: [...spec.subjects.subscribe] } : {}),".to_string(),
         "          },".to_string(),
         "        }".to_string(),
         "        : {}),".to_string(),
@@ -614,21 +604,6 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         lines.push(String::new());
     }
 
-    for (key, subject) in &loaded.manifest.subjects {
-        if let Some(message) = &subject.message {
-            let base = key_to_pascal(key);
-            lines.push(format!(
-                "export type {base}Message = {};",
-                schema_to_ts_with_aliases(
-                    resolve_schema_ref(loaded, &message.schema),
-                    &schema_type_aliases,
-                    None,
-                )
-            ));
-            lines.push(String::new());
-        }
-    }
-
     for (_key, error) in &loaded.manifest.errors {
         let base = key_to_pascal(&error.error_type);
         let data_type = format!("{base}Data");
@@ -715,17 +690,6 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
     lines.push(String::new());
 
     lines.push("export interface SubjectMap {".to_string());
-    for (key, subject) in &loaded.manifest.subjects {
-        let message_type = if subject.message.is_some() {
-            format!("{}Message", key_to_pascal(key))
-        } else {
-            "unknown".to_string()
-        };
-        lines.push(format!(
-            "  {}: {{ message: {message_type}; }};",
-            js_string(key)
-        ));
-    }
     lines.push("}".to_string());
     lines.push(String::new());
 
@@ -793,11 +757,6 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     }
     for event in loaded.manifest.events.values() {
         api_schema_imports.insert(event.event.schema.as_str());
-    }
-    for subject in loaded.manifest.subjects.values() {
-        if let Some(message) = &subject.message {
-            api_schema_imports.insert(message.schema.as_str());
-        }
     }
     for error in loaded.manifest.errors.values() {
         if let Some(schema) = &error.schema {
@@ -1088,45 +1047,6 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
 
     lines.push("  },".to_string());
     lines.push("  subjects: {".to_string());
-    for (key, subject) in &loaded.manifest.subjects {
-        let base = key_to_pascal(key);
-        lines.push(format!("    {}: {{", js_string(key)));
-        lines.push(format!("      subject: {},", js_string(&subject.subject)));
-        if subject.message.is_some() {
-            lines.push(format!(
-                "      schema: schema<Types.{base}Message>({}),",
-                schema_const_names
-                    .get(
-                        subject
-                            .message
-                            .as_ref()
-                            .expect("checked above")
-                            .schema
-                            .as_str(),
-                    )
-                    .expect("missing public schema export for subject schema")
-            ));
-        }
-        let publish = subject
-            .capabilities
-            .as_ref()
-            .and_then(|caps| caps.publish.clone())
-            .unwrap_or_default();
-        let subscribe = subject
-            .capabilities
-            .as_ref()
-            .and_then(|caps| caps.subscribe.clone())
-            .unwrap_or_default();
-        lines.push(format!(
-            "      publishCapabilities: {},",
-            serde_json::to_string(&publish).unwrap()
-        ));
-        lines.push(format!(
-            "      subscribeCapabilities: {},",
-            serde_json::to_string(&subscribe).unwrap()
-        ));
-        lines.push("    },".to_string());
-    }
     lines.push("  },".to_string());
     lines.push("} satisfies TrellisAPI;".to_string());
     lines.push(String::new());
@@ -1178,7 +1098,7 @@ fn render_used_api_ts(uses: &[ClientUseDependency]) -> Vec<String> {
         ("rpc", UsedApiSelectors::RpcCall),
         ("operations", UsedApiSelectors::OperationCall),
         ("events", UsedApiSelectors::Events),
-        ("subjects", UsedApiSelectors::Subjects),
+        ("subjects", UsedApiSelectors::Empty),
     ] {
         lines.push(format!("  {field}: {{"));
         for use_dep in uses {
@@ -1203,7 +1123,7 @@ enum UsedApiSelectors {
     RpcCall,
     OperationCall,
     Events,
-    Subjects,
+    Empty,
 }
 
 fn selected_used_api_keys(use_dep: &ClientUseDependency, selectors: UsedApiSelectors) -> Vec<&str> {
@@ -1214,10 +1134,7 @@ fn selected_used_api_keys(use_dep: &ClientUseDependency, selectors: UsedApiSelec
         UsedApiSelectors::Events => {
             vec![use_dep.event_publish_keys(), use_dep.event_subscribe_keys()]
         }
-        UsedApiSelectors::Subjects => vec![
-            use_dep.subject_publish_keys(),
-            use_dep.subject_subscribe_keys(),
-        ],
+        UsedApiSelectors::Empty => Vec::new(),
     };
     for selected_keys in selected {
         for key in selected_keys {
@@ -1227,7 +1144,7 @@ fn selected_used_api_keys(use_dep: &ClientUseDependency, selectors: UsedApiSelec
                     use_dep.manifest.manifest.operations.contains_key(key)
                 }
                 UsedApiSelectors::Events => use_dep.manifest.manifest.events.contains_key(key),
-                UsedApiSelectors::Subjects => use_dep.manifest.manifest.subjects.contains_key(key),
+                UsedApiSelectors::Empty => false,
             };
             if is_declared {
                 keys.insert(key.as_str());
@@ -1278,22 +1195,6 @@ impl ClientUseDependency {
             .events
             .as_ref()
             .and_then(|events| events.subscribe.as_deref())
-            .unwrap_or(&[])
-    }
-
-    fn subject_publish_keys(&self) -> &[String] {
-        self.use_ref
-            .subjects
-            .as_ref()
-            .and_then(|subjects| subjects.publish.as_deref())
-            .unwrap_or(&[])
-    }
-
-    fn subject_subscribe_keys(&self) -> &[String] {
-        self.use_ref
-            .subjects
-            .as_ref()
-            .and_then(|subjects| subjects.subscribe.as_deref())
             .unwrap_or(&[])
     }
 }
@@ -1943,14 +1844,6 @@ fn example_use_block(module_export: &str, loaded: &LoadedManifest) -> String {
         );
     }
 
-    if let Some(key) = loaded.manifest.subjects.keys().next() {
-        return format!(
-            "    dependency: {}.use({{\n      subjects: {{ subscribe: [{}] }},\n    }}),",
-            module_export,
-            js_string(key),
-        );
-    }
-
     format!("    dependency: {}.use({{}}),", module_export)
 }
 
@@ -2256,12 +2149,6 @@ fn public_schema_keys(loaded: &LoadedManifest) -> BTreeSet<String> {
         keys.insert(event.event.schema.clone());
     }
 
-    for subject in loaded.manifest.subjects.values() {
-        if let Some(message) = &subject.message {
-            keys.insert(message.schema.clone());
-        }
-    }
-
     if let Some(state) = loaded.value.get("state").and_then(Value::as_object) {
         for store in state.values() {
             if let Some(schema_name) = store
@@ -2309,10 +2196,6 @@ fn generated_type_names(loaded: &LoadedManifest) -> BTreeSet<String> {
 
     for key in loaded.manifest.events.keys() {
         names.insert(format!("{}Event", key_to_pascal(key)));
-    }
-
-    for key in loaded.manifest.subjects.keys() {
-        names.insert(format!("{}Message", key_to_pascal(key)));
     }
 
     for error in loaded.manifest.errors.values() {
@@ -2374,8 +2257,7 @@ mod tests {
             "schemas": {},
             "rpc": {},
             "operations": {},
-            "events": {},
-            "subjects": {}
+            "events": {}
         })
     }
 
@@ -2456,8 +2338,7 @@ mod tests {
                         "cancel": true
                     }
                 },
-                "events": {},
-                "subjects": {}
+                "events": {}
             }))
             .unwrap(),
         )
@@ -2624,6 +2505,7 @@ mod tests {
         assert!(api.contains("export const USED_API = {"));
         assert!(api.contains("used: USED_API"));
         assert!(api.contains("rpc: { ...OWNED_API.rpc, ...USED_API.rpc }"));
+        assert!(api.contains("subjects: { ...OWNED_API.subjects, ...USED_API.subjects }"));
         assert!(api.contains("operations: {"));
         assert!(api.contains("\"Example.Process\": {"));
         assert!(api.contains("callerCapabilities: [\"service\"]"));
@@ -2657,6 +2539,8 @@ mod tests {
         ));
         assert!(contract.contains("export const use = core.use;"));
         assert!(contract.contains("spec.operations?.call"));
+        assert!(!contract.contains("assertSelectedKeysExist(\"subjects\""));
+        assert!(!contract.contains("spec.subjects"));
         assert!(contract.contains("does not expose ${kind} key '${key}'"));
         assert!(mod_ts.contains(
             "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, core } from \"./contract.ts\";"
@@ -2768,8 +2652,7 @@ mod tests {
                         "subject": "events.v1.Jobs.Updated",
                         "event": { "schema": "JobStatus" }
                     }
-                },
-                "subjects": {}
+                }
             }))
             .unwrap(),
         )
@@ -2796,7 +2679,6 @@ mod tests {
                 "rpc": {},
                 "operations": {},
                 "events": {},
-                "subjects": {},
                 "state": {
                     "settings": {
                         "kind": "value",
@@ -2937,8 +2819,7 @@ mod tests {
                         "subject": "events.v1.Kv.Updated",
                         "event": { "schema": "JobStatus" }
                     }
-                },
-                "subjects": {}
+                }
             }))
             .unwrap(),
         )
@@ -2957,7 +2838,6 @@ mod tests {
                 "rpc": {},
                 "operations": {},
                 "events": {},
-                "subjects": {},
                 "uses": {
                     "kvDemo": {
                         "contract": "trellis.demo-kv-service@v1",
@@ -3091,7 +2971,6 @@ mod tests {
                 },
                 "operations": {},
                 "events": {},
-                "subjects": {},
                 "jobs": {
                     "exampleJob": {
                         "payload": { "schema": "JobPayload" },
@@ -3190,8 +3069,7 @@ mod tests {
                         "result": { "schema": "EmailResult" }
                     }
                 },
-                "events": {},
-                "subjects": {}
+                "events": {}
             }"#,
         )
         .unwrap();
@@ -3306,8 +3184,7 @@ mod tests {
                         "output": { "schema": "BindingsGetOutput" }
                     }
                 },
-                "events": {},
-                "subjects": {}
+                "events": {}
             }"#,
         )
         .unwrap();
@@ -3404,8 +3281,7 @@ mod tests {
                         ]
                     }
                 },
-                "events": {},
-                "subjects": {}
+                "events": {}
             }"#,
         )
         .unwrap();
@@ -3558,8 +3434,7 @@ mod tests {
                         "output": { "schema": "PingOutput" }
                     }
                 },
-                "events": {},
-                "subjects": {}
+                "events": {}
             }))
             .unwrap(),
         )

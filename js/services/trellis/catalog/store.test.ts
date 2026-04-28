@@ -406,6 +406,59 @@ Deno.test("contract store rejects legacy resources.jobs contracts", async () => 
   );
 });
 
+Deno.test("contract store rejects raw subject declarations", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      store.validate({
+        ...makeContract("subjects@v1", "rpc.v1.Subjects.Ping", "subjects"),
+        subjects: {
+          Audit: { subject: "nats.audit" },
+        },
+      }),
+    Error,
+    "Contract subjects are not supported in v1",
+  );
+});
+
+Deno.test("contract store rejects raw subject uses", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      store.validate({
+        ...makeContract("subject-uses@v1", "rpc.v1.SubjectUses.Ping", "uses"),
+        uses: {
+          audit: {
+            contract: "audit@v1",
+            subjects: { publish: ["Audit"] },
+          },
+        },
+      }),
+    Error,
+    "Contract uses 'audit' declares unsupported subjects",
+  );
+});
+
+Deno.test("contract store rejects stream resources", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      store.validate({
+        ...makeContract("streams@v1", "rpc.v1.Streams.Ping", "streams"),
+        resources: {
+          stream: {
+            audit: { subjects: ["events.v1.Audit.>"] },
+          },
+        },
+      }),
+    Error,
+    "/resources/stream",
+  );
+});
+
 Deno.test("contract store preserves store resources when validating contracts", async () => {
   const store = new ContractStore();
 

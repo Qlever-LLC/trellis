@@ -37,9 +37,6 @@ pub enum CodegenRustError {
     #[error("participant mapping alias '{alias}' does not expose event '{key}'")]
     MissingMappedEvent { alias: String, key: String },
 
-    #[error("participant mapping alias '{alias}' does not expose subject '{key}'")]
-    MissingMappedSubject { alias: String, key: String },
-
     #[error("workspace does not declare package '{package_name}'")]
     MissingWorkspacePackage { package_name: String },
 
@@ -208,10 +205,6 @@ pub fn generate_rust_sdk(opts: &GenerateRustSdkOpts) -> Result<(), CodegenRustEr
     write_if_changed(
         &opts.out_dir.join("src").join("events.rs"),
         &render_events_rs(&loaded),
-    )?;
-    write_if_changed(
-        &opts.out_dir.join("src").join("subjects.rs"),
-        &render_subjects_rs(&loaded),
     )?;
     write_if_changed(
         &opts.out_dir.join("src").join("client.rs"),
@@ -452,25 +445,6 @@ fn validate_participant_mappings(
                 }
             }
         }
-        if let Some(subjects) = &use_ref.subjects {
-            for key in subjects.publish.as_deref().unwrap_or(&[]) {
-                if !manifest.manifest.subjects.contains_key(key) {
-                    return Err(CodegenRustError::MissingMappedSubject {
-                        alias: alias.clone(),
-                        key: key.clone(),
-                    });
-                }
-            }
-            for key in subjects.subscribe.as_deref().unwrap_or(&[]) {
-                if !manifest.manifest.subjects.contains_key(key) {
-                    return Err(CodegenRustError::MissingMappedSubject {
-                        alias: alias.clone(),
-                        key: key.clone(),
-                    });
-                }
-            }
-        }
-
         validated.push(ValidatedParticipantAlias {
             alias: alias.clone(),
             alias_ident: rust_ident(&key_to_snake(alias)),
@@ -903,26 +877,6 @@ fn render_participant_use_alias_rs(mapping: &ValidatedParticipantAlias) -> Strin
     }
     lines.push("}".to_string());
 
-    if let Some(subjects) = &mapping.use_ref.subjects {
-        let selected = subjects
-            .publish
-            .as_deref()
-            .unwrap_or(&[])
-            .iter()
-            .chain(subjects.subscribe.as_deref().unwrap_or(&[]).iter())
-            .cloned()
-            .collect::<Vec<_>>();
-        if !selected.is_empty() {
-            lines.push(String::new());
-            lines.push("pub mod subjects {".to_string());
-            lines.push("    use super::sdk;".to_string());
-            for key in selected {
-                lines.push(format!("    pub use sdk::{}Subject;", key_to_pascal(&key)));
-            }
-            lines.push("}".to_string());
-        }
-    }
-
     lines.push(String::new());
     format!("{}\n", lines.join("\n"))
 }
@@ -1057,16 +1011,6 @@ fn render_types_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             &format!("{base}Event"),
             resolve_schema_ref(loaded, &loaded.manifest.events[key].event.schema),
         );
-    }
-
-    for key in loaded.manifest.subjects.keys() {
-        let base = key_to_pascal(key);
-        if let Some(message) = &loaded.manifest.subjects[key].message {
-            renderer.render_named_type(
-                &format!("{base}Message"),
-                resolve_schema_ref(loaded, &message.schema),
-            );
-        }
     }
 
     let rendered = renderer.finish();
@@ -1207,33 +1151,6 @@ fn render_events_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         lines.push(format!(
             "    const SUBJECT: &'static str = {};",
             string_literal(&event.subject)
-        ));
-        lines.push("}".to_string());
-        lines.push(String::new());
-    }
-
-    format!("{}\n", lines.join("\n"))
-}
-
-fn render_subjects_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
-    let mut lines = vec![
-        format!("//! Raw subject metadata for `{}`.", loaded.manifest.id),
-        String::new(),
-    ];
-
-    for (key, subject) in &loaded.manifest.subjects {
-        let base = key_to_pascal(key);
-        lines.push(format!("/// Metadata for the `{key}` subject."));
-        lines.push(format!("pub struct {base}Subject;"));
-        lines.push(String::new());
-        lines.push(format!("impl {base}Subject {{"));
-        lines.push(format!(
-            "    pub const KEY: &'static str = {};",
-            string_literal(key)
-        ));
-        lines.push(format!(
-            "    pub const SUBJECT: &'static str = {};",
-            string_literal(&subject.subject)
         ));
         lines.push("}".to_string());
         lines.push(String::new());
@@ -1908,13 +1825,8 @@ fn render_lib_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     } else {
         "pub use events::*;\n".to_string()
     };
-    let subjects_reexport = if loaded.manifest.subjects.is_empty() {
-        String::new()
-    } else {
-        "pub use subjects::*;\n".to_string()
-    };
     format!(
-        "//! Generated Rust SDK crate for one Trellis contract.\n\npub mod client;\npub mod contract;\npub mod events;\npub mod operations;\npub mod rpc;\npub mod server;\npub mod subjects;\npub mod types;\n\npub use client::{client_name};\npub use contract::{{contract_manifest, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON, CONTRACT_NAME}};\n{events_reexport}{operations_reexport}pub use rpc::*;\n{subjects_reexport}pub use types::*;\n"
+        "//! Generated Rust SDK crate for one Trellis contract.\n\npub mod client;\npub mod contract;\npub mod events;\npub mod operations;\npub mod rpc;\npub mod server;\npub mod types;\n\npub use client::{client_name};\npub use contract::{{contract_manifest, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON, CONTRACT_NAME}};\n{events_reexport}{operations_reexport}pub use rpc::*;\npub use types::*;\n"
     )
 }
 
@@ -1986,14 +1898,6 @@ mod tests {
                     },
                     "required": ["status"],
                     "additionalProperties": false
-                },
-                "AuditRawMessage": {
-                    "type": "object",
-                    "properties": {
-                        "value": { "type": "string" }
-                    },
-                    "required": ["value"],
-                    "additionalProperties": false
                 }
             },
                 "rpc": {
@@ -2024,12 +1928,6 @@ mod tests {
                         "version": "v1",
                         "subject": "events.v1.Auth.Changed",
                         "event": { "schema": "AuthChangedEvent" }
-                }
-            },
-            "subjects": {
-                "Audit.Raw": {
-                    "subject": "subjects.v1.Audit.Raw",
-                    "message": { "schema": "AuditRawMessage" }
                 }
             }
         });
@@ -2276,14 +2174,13 @@ mod tests {
         let operations_rs =
             fs::read_to_string(out_dir.join("generated/src/operations.rs")).unwrap();
         let events_rs = fs::read_to_string(out_dir.join("generated/src/events.rs")).unwrap();
-        let subjects_rs = fs::read_to_string(out_dir.join("generated/src/subjects.rs")).unwrap();
         let client_rs = fs::read_to_string(out_dir.join("generated/src/client.rs")).unwrap();
         let server_rs = fs::read_to_string(out_dir.join("generated/src/server.rs")).unwrap();
 
         assert!(lib_rs.contains("pub mod rpc;"));
         assert!(lib_rs.contains("pub mod operations;"));
         assert!(lib_rs.contains("pub mod events;"));
-        assert!(lib_rs.contains("pub mod subjects;"));
+        assert!(!lib_rs.contains("pub mod subjects;"));
         assert!(contract_rs.contains("pub const CONTRACT_NAME: &str = \"Trellis Core\";"));
         assert!(types_rs.contains("pub struct TrellisCatalogResponse {"));
         assert!(types_rs.contains("pub struct TrellisProcessInput {"));
@@ -2302,7 +2199,6 @@ mod tests {
             operations_rs.contains("impl ServerOperationDescriptor for TrellisProcessOperation")
         );
         assert!(events_rs.contains("pub struct AuthChangedEventDescriptor;"));
-        assert!(subjects_rs.contains("pub struct AuditRawSubject;"));
         assert!(client_rs.contains("pub struct CoreClient<'a>"));
         assert!(client_rs.contains("pub async fn trellis_catalog(&self)"));
         assert!(client_rs.contains("pub fn trellis_process(&self) -> trellis_client::OperationInvoker<'a, trellis_client::TrellisClient, crate::operations::TrellisProcessOperation>"));

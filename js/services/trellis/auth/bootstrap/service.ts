@@ -112,23 +112,8 @@ function getRequiredServiceCapabilities(
       capabilities?: { publish?: string[] };
     }>
     | undefined;
-  const subjects = contract.subjects as
-    | Record<string, {
-      capabilities?: { publish?: string[]; subscribe?: string[] };
-    }>
-    | undefined;
-
   for (const event of Object.values(events ?? {})) {
     for (const capability of event.capabilities?.publish ?? []) {
-      capabilities.add(capability);
-    }
-  }
-
-  for (const subject of Object.values(subjects ?? {})) {
-    for (const capability of subject.capabilities?.publish ?? []) {
-      capabilities.add(capability);
-    }
-    for (const capability of subject.capabilities?.subscribe ?? []) {
       capabilities.add(capability);
     }
   }
@@ -153,17 +138,6 @@ function getRequiredServiceCapabilities(
       capabilities.add(capability);
     }
   }
-  for (const subject of uses.subjectPublishes) {
-    for (const capability of subject.subject.capabilities?.publish ?? []) {
-      capabilities.add(capability);
-    }
-  }
-  for (const subject of uses.subjectSubscribes) {
-    for (const capability of subject.subject.capabilities?.subscribe ?? []) {
-      capabilities.add(capability);
-    }
-  }
-
   return [...capabilities].sort((left, right) => left.localeCompare(right));
 }
 

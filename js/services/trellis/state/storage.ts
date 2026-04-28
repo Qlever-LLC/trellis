@@ -152,9 +152,7 @@ export class StateStore {
   ): Promise<Result<StateGetResponse, ValidationError | UnexpectedError>> {
     const keyResult = this.#resolveKey(target, address.key);
     if (isErr(keyResult)) return keyResult;
-    const key = keyResult.unwrapOrElse(() => {
-      throw new Error("state key resolution unexpectedly failed");
-    });
+    const key = keyResult.orThrow();
 
     const loaded = await this.#loadLiveEntry(target, key);
     if (loaded.isErr()) return Result.err(loaded.error);
@@ -174,18 +172,14 @@ export class StateStore {
   ): Promise<Result<StatePutResponse, ValidationError | UnexpectedError>> {
     const keyResult = this.#resolveKey(target, write.key);
     if (isErr(keyResult)) return keyResult;
-    const key = keyResult.unwrapOrElse(() => {
-      throw new Error("state key resolution unexpectedly failed");
-    });
+    const key = keyResult.orThrow();
 
     const valid = this.#validateWrite(key, write.value);
     if (isErr(valid)) return valid;
 
     const parsedValue = this.#validateStoreValue(target, write.value);
     if (parsedValue.isErr()) return Result.err(parsedValue.error);
-    const value = parsedValue.unwrapOrElse(() => {
-      throw new Error("state value validation unexpectedly failed");
-    });
+    const value = parsedValue.orThrow();
 
     const currentResult = await this.#loadLiveEntry(target, key);
     if (currentResult.isErr()) return Result.err(currentResult.error);
@@ -206,9 +200,7 @@ export class StateStore {
         applied: true,
         entry: this.#toPublicEntry(
           target,
-          refreshed.unwrapOrElse(() => {
-            throw new Error("state KV refresh unexpectedly failed");
-          }),
+          refreshed.orThrow(),
           key,
         ),
       };
@@ -250,9 +242,7 @@ export class StateStore {
         applied: true,
         entry: this.#toPublicEntry(
           target,
-          created.unwrapOrElse(() => {
-            throw new Error("state KV create unexpectedly failed");
-          }),
+          created.orThrow(),
           key,
         ),
       };
@@ -296,9 +286,7 @@ export class StateStore {
       applied: true,
       entry: this.#toPublicEntry(
         target,
-        updated.unwrapOrElse(() => {
-          throw new Error("state KV update unexpectedly failed");
-        }),
+        updated.orThrow(),
         key,
       ),
     };
@@ -311,9 +299,7 @@ export class StateStore {
   ): Promise<Result<StateDeleteResponse, ValidationError | UnexpectedError>> {
     const keyResult = this.#resolveKey(target, input.key);
     if (isErr(keyResult)) return keyResult;
-    const key = keyResult.unwrapOrElse(() => {
-      throw new Error("state key resolution unexpectedly failed");
-    });
+    const key = keyResult.orThrow();
 
     const currentResult = await this.#loadLiveEntry(target, key);
     if (currentResult.isErr()) return Result.err(currentResult.error);
@@ -353,9 +339,7 @@ export class StateStore {
 
     const entries: ListedStateEntry[] = [];
     for await (
-      const storageKey of keys.unwrapOrElse(() => {
-        throw new Error("state KV keys unexpectedly failed");
-      })
+      const storageKey of keys.orThrow()
     ) {
       if (!storageKey.startsWith(`${namespacePrefix}.`)) continue;
       const encodedKey = storageKey.slice(namespacePrefix.length + 1);
@@ -415,20 +399,14 @@ export class StateStore {
       return Result.err(new UnexpectedError({ cause: entry.error }));
     }
 
-    const loaded = entry.unwrapOrElse(() => {
-      throw new Error("state KV get unexpectedly failed");
-    });
+    const loaded = entry.orThrow();
     const parsedEntry = this.#parseStoredEntry(loaded.value);
     if (parsedEntry.isErr()) return Result.err(parsedEntry.error);
-    const storedEntry = parsedEntry.unwrapOrElse(() => {
-      throw new Error("state KV entry validation unexpectedly failed");
-    });
+    const storedEntry = parsedEntry.orThrow();
 
     const parsedValue = this.#validateStoredValue(target, storedEntry);
     if (parsedValue.isErr()) return Result.err(parsedValue.error);
-    const validation = parsedValue.unwrapOrElse(() => {
-      throw new Error("state value validation unexpectedly failed");
-    });
+    const validation = parsedValue.orThrow();
     const liveEntry: LiveStateKvEntry = {
       key: loaded.key,
       value: {
@@ -589,9 +567,7 @@ export class StateStore {
   ): Result<JsonValue, ValidationError | UnexpectedError> {
     const parsed = parseUnknownSchema(target.schema, value);
     if (parsed.isErr()) return Result.err(parsed.error);
-    return Result.ok(parsed.unwrapOrElse(() => {
-      throw new Error("state value validation unexpectedly failed");
-    }) as JsonValue);
+    return Result.ok(parsed.orThrow() as JsonValue);
   }
 
   #parseStoredEntry(
@@ -628,7 +604,7 @@ export class StateStore {
     }
     if (
       record.stateVersion !== undefined &&
-      typeof record.stateVersion !== "string"
+      (typeof record.stateVersion !== "string" || record.stateVersion === "")
     ) {
       return Result.err(
         new ValidationError({
@@ -641,7 +617,8 @@ export class StateStore {
     }
     if (
       record.writerContractDigest !== undefined &&
-      typeof record.writerContractDigest !== "string"
+      (typeof record.writerContractDigest !== "string" ||
+        record.writerContractDigest === "")
     ) {
       return Result.err(
         new ValidationError({
@@ -670,9 +647,7 @@ export class StateStore {
   ): Result<StoreValueValidation, ValidationError | UnexpectedError> {
     if (!entry.stateVersion) {
       const current = this.#validateStoreValue(target, entry.value);
-      if (current.isOk()) {
-        return current.map((value) => ({ value }));
-      }
+      if (current.isOk()) return current.map((value) => ({ value }));
 
       for (
         const [acceptedVersion, acceptedSchema] of Object.entries(
@@ -682,9 +657,7 @@ export class StateStore {
         const parsed = parseUnknownSchema(acceptedSchema, entry.value);
         if (parsed.isOk()) {
           return Result.ok({
-            value: parsed.unwrapOrElse(() => {
-              throw new Error("state value validation unexpectedly failed");
-            }) as JsonValue,
+            value: parsed.orThrow() as JsonValue,
             migration: {
               stateVersion: acceptedVersion,
               writerContractDigest: target.contractDigest,
@@ -719,14 +692,7 @@ export class StateStore {
     const parsed = parseUnknownSchema(schema, entry.value);
     if (parsed.isErr()) return Result.err(parsed.error);
     return Result.ok({
-      value: parsed.unwrapOrElse(() => {
-        throw new Error("state value validation unexpectedly failed");
-      }) as JsonValue,
-      migration: {
-        stateVersion,
-        writerContractDigest: entry.writerContractDigest ??
-          target.contractDigest,
-      },
+      value: parsed.orThrow() as JsonValue,
     });
   }
 

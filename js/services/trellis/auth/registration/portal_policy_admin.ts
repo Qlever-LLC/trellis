@@ -18,15 +18,56 @@ import {
   authUpsertInstanceGrantPolicyHandler,
   createAuthCreatePortalHandler,
   createAuthSetPortalProfileHandler,
+  setAdminRpcDeps,
 } from "../admin/rpc.ts";
+import { createKick } from "../callout/kick.ts";
+import { createEffectiveGrantPolicyLoader } from "../grants/store.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
+import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type { AuthContractsRuntime, RpcRegistrar } from "./types.ts";
 
-export async function registerPortalPolicyAdminRpcs(deps: {
-  trellis: RpcRegistrar;
-  contractStorage: SqlContractStorageRepository;
-  contracts: Pick<AuthContractsRuntime, "contractStore">;
-}): Promise<void> {
+export async function registerPortalPolicyAdminRpcs(
+  deps:
+    & {
+      trellis: RpcRegistrar;
+      contractStorage: SqlContractStorageRepository;
+      contracts: Pick<AuthContractsRuntime, "contractStore">;
+      publishSessionRevoked: (
+        event: {
+          origin: string;
+          id: string;
+          sessionKey: string;
+          revokedBy: string;
+        },
+      ) => Promise<void>;
+    }
+    & Pick<
+      AuthRuntimeDeps,
+      | "browserFlowsKV"
+      | "connectionsKV"
+      | "contractApprovalStorage"
+      | "deviceActivationReviewStorage"
+      | "deviceActivationStorage"
+      | "deviceDeploymentStorage"
+      | "deviceInstanceStorage"
+      | "devicePortalSelectionStorage"
+      | "deviceProvisioningSecretStorage"
+      | "instanceGrantPolicyStorage"
+      | "logger"
+      | "loginPortalSelectionStorage"
+      | "natsAuth"
+      | "portalDefaultStorage"
+      | "portalProfileStorage"
+      | "portalStorage"
+      | "sessionStorage"
+      | "userStorage"
+    >,
+): Promise<void> {
+  setAdminRpcDeps({
+    ...deps,
+    kick: createKick(deps),
+    loadEffectiveGrantPolicies: createEffectiveGrantPolicyLoader(deps),
+  });
   await deps.trellis.mount(
     "Auth.CreatePortal",
     createAuthCreatePortalHandler(),

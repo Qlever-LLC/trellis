@@ -4,10 +4,9 @@ use crate::{
     parse_manifest, ContractErrorRef, ContractExports, ContractJobQueueResource, ContractKind,
     ContractKvResource, ContractManifest, ContractOperation, ContractOperationTransfer,
     ContractOperationTransferDirection, ContractResources, ContractRpcMethod, ContractRpcTransfer,
-    ContractRpcTransferDirection, ContractSchemaRef, ContractStoreResource, ContractStreamResource,
-    ContractStreamSource, ContractSubject, ContractUseOperation, ContractUsePubSub, ContractUseRef,
-    ContractUseRpc, ContractsError, OperationCapabilities, PubSubCapabilities, RpcCapabilities,
-    CONTRACT_FORMAT_V1,
+    ContractRpcTransferDirection, ContractSchemaRef, ContractStoreResource, ContractUseOperation,
+    ContractUsePubSub, ContractUseRef, ContractUseRpc, ContractsError, OperationCapabilities,
+    RpcCapabilities, CONTRACT_FORMAT_V1,
 };
 
 /// Thin builder over `ContractManifest` for Rust-authored contracts.
@@ -35,7 +34,6 @@ impl ContractManifestBuilder {
                 rpc: Default::default(),
                 operations: Default::default(),
                 events: Default::default(),
-                subjects: Default::default(),
                 errors: Default::default(),
                 jobs: Default::default(),
                 resources: ContractResources::default(),
@@ -63,22 +61,8 @@ impl ContractManifestBuilder {
         self
     }
 
-    pub fn subject(mut self, name: impl Into<String>, subject: ContractSubject) -> Self {
-        self.manifest.subjects.insert(name.into(), subject);
-        self
-    }
-
     pub fn kv_resource(mut self, name: impl Into<String>, kv: ContractKvResource) -> Self {
         self.manifest.resources.kv.insert(name.into(), kv);
-        self
-    }
-
-    pub fn stream_resource(
-        mut self,
-        name: impl Into<String>,
-        stream: ContractStreamResource,
-    ) -> Self {
-        self.manifest.resources.streams.insert(name.into(), stream);
         self
     }
 
@@ -154,7 +138,6 @@ pub fn use_contract(contract: impl Into<String>) -> ContractUseRef {
         rpc: None,
         operations: None,
         events: None,
-        subjects: None,
     }
 }
 
@@ -176,41 +159,6 @@ pub fn store(purpose: impl Into<String>) -> ContractStoreResource {
         ttl_ms: None,
         max_object_bytes: None,
         max_total_bytes: None,
-    }
-}
-
-pub fn stream(
-    purpose: impl Into<String>,
-    subjects: impl IntoIterator<Item = impl Into<String>>,
-) -> ContractStreamResource {
-    ContractStreamResource {
-        purpose: purpose.into(),
-        required: None,
-        subjects: subjects.into_iter().map(Into::into).collect(),
-        retention: None,
-        storage: None,
-        num_replicas: None,
-        discard: None,
-        max_msgs: None,
-        max_bytes: None,
-        max_age_ms: None,
-        sources: None,
-    }
-}
-
-pub fn stream_source(from_alias: impl Into<String>) -> ContractStreamSource {
-    ContractStreamSource {
-        from_alias: from_alias.into(),
-        filter_subject: None,
-        subject_transform_dest: None,
-    }
-}
-
-pub fn subject(value: impl Into<String>) -> ContractSubject {
-    ContractSubject {
-        subject: value.into(),
-        message: None,
-        capabilities: None,
     }
 }
 
@@ -403,93 +351,6 @@ impl ContractStoreResource {
 
     pub fn max_total_bytes(mut self, max_total_bytes: i64) -> Self {
         self.max_total_bytes = Some(max_total_bytes);
-        self
-    }
-}
-
-impl ContractStreamResource {
-    pub fn required(mut self, required: bool) -> Self {
-        self.required = Some(required);
-        self
-    }
-
-    pub fn retention(mut self, retention: impl Into<String>) -> Self {
-        self.retention = Some(retention.into());
-        self
-    }
-
-    pub fn storage(mut self, storage: impl Into<String>) -> Self {
-        self.storage = Some(storage.into());
-        self
-    }
-
-    pub fn num_replicas(mut self, num_replicas: i64) -> Self {
-        self.num_replicas = Some(num_replicas);
-        self
-    }
-
-    pub fn discard(mut self, discard: impl Into<String>) -> Self {
-        self.discard = Some(discard.into());
-        self
-    }
-
-    pub fn max_msgs(mut self, max_msgs: i64) -> Self {
-        self.max_msgs = Some(max_msgs);
-        self
-    }
-
-    pub fn max_bytes(mut self, max_bytes: i64) -> Self {
-        self.max_bytes = Some(max_bytes);
-        self
-    }
-
-    pub fn max_age_ms(mut self, max_age_ms: i64) -> Self {
-        self.max_age_ms = Some(max_age_ms);
-        self
-    }
-
-    pub fn source(mut self, source: ContractStreamSource) -> Self {
-        self.sources.get_or_insert_with(Vec::new).push(source);
-        self
-    }
-}
-
-impl ContractStreamSource {
-    pub fn filter_subject(mut self, filter_subject: impl Into<String>) -> Self {
-        self.filter_subject = Some(filter_subject.into());
-        self
-    }
-
-    pub fn subject_transform_dest(mut self, subject_transform_dest: impl Into<String>) -> Self {
-        self.subject_transform_dest = Some(subject_transform_dest.into());
-        self
-    }
-}
-
-impl ContractSubject {
-    pub fn with_publish_capabilities(
-        mut self,
-        publish: impl IntoIterator<Item = impl Into<String>>,
-    ) -> Self {
-        let publish = Some(publish.into_iter().map(Into::into).collect());
-        let subscribe = self
-            .capabilities
-            .as_ref()
-            .and_then(|capabilities| capabilities.subscribe.clone());
-        self.capabilities = Some(PubSubCapabilities { publish, subscribe });
-        self
-    }
-
-    pub fn with_subscribe_capabilities(
-        mut self,
-        subscribe: impl IntoIterator<Item = impl Into<String>>,
-    ) -> Self {
-        let subscribe = Some(subscribe.into_iter().map(Into::into).collect());
-        let publish = self
-            .capabilities
-            .as_ref()
-            .and_then(|capabilities| capabilities.publish.clone());
-        self.capabilities = Some(PubSubCapabilities { publish, subscribe });
         self
     }
 }

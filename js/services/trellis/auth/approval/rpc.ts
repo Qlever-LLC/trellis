@@ -7,7 +7,7 @@ import {
 } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
-import { type AuthLogger, authRuntimeDeps } from "../runtime_deps.ts";
+import type { AuthLogger } from "../runtime_deps.ts";
 import type {
   Connection,
   ContractApprovalRecord,
@@ -183,6 +183,7 @@ async function revokeApprovalSessions(
 /** Creates the Auth.ListApprovals RPC handler backed by SQL approval storage. */
 export function createAuthListApprovalsHandler(deps: {
   contractApprovalStorage: SqlContractApprovalRepository;
+  logger: Pick<AuthLogger, "trace">;
 }) {
   return async (
     {
@@ -202,8 +203,7 @@ export function createAuthListApprovalsHandler(deps: {
     },
   ) => {
     const user = requireUserCaller(caller);
-    const { logger } = authRuntimeDeps();
-    logger.trace(
+    deps.logger.trace(
       {
         rpc: "Auth.ListApprovals",
         user: req.user,
@@ -304,8 +304,17 @@ async function listApprovalsForRequest(args: {
 
 /** Creates the Auth.RevokeApproval RPC handler backed by SQL approval storage. */
 export function createAuthRevokeApprovalHandler(opts: {
+  connectionsKV: KVLike<Connection>;
   contractApprovalStorage: SqlContractApprovalRepository;
   kick: (serverId: string, clientId: number) => Promise<void>;
+  logger: Pick<AuthLogger, "trace" | "warn">;
+  publishSessionRevoked: (event: {
+    origin: string;
+    id: string;
+    sessionKey: string;
+    revokedBy: string;
+  }) => Promise<void>;
+  sessionStorage: SessionStore;
 }) {
   return async (
     {
@@ -325,9 +334,7 @@ export function createAuthRevokeApprovalHandler(opts: {
     },
   ) => {
     const user = requireUserCaller(caller);
-    const { connectionsKV, logger, sessionStorage, trellis } =
-      authRuntimeDeps();
-    logger.trace({
+    opts.logger.trace({
       rpc: "Auth.RevokeApproval",
       user: req.user,
       contractDigest: req.contractDigest,
@@ -357,15 +364,10 @@ export function createAuthRevokeApprovalHandler(opts: {
         target.trellisId,
         req.contractDigest,
         {
-          sessionStorage,
-          connectionsKV,
+          sessionStorage: opts.sessionStorage,
+          connectionsKV: opts.connectionsKV,
           kick: opts.kick,
-          publishSessionRevoked: async (event) => {
-            (await trellis.publish("Auth.SessionRevoked", event)).inspectErr(
-              (error) =>
-                logger.warn({ error }, "Failed to publish Auth.SessionRevoked"),
-            );
-          },
+          publishSessionRevoked: opts.publishSessionRevoked,
           revokedBy: formatOriginId(user.origin, user.id),
         },
       );

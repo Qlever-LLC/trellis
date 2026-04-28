@@ -15,7 +15,7 @@ Rust services in Trellis use a **generated local participant facade** as the pri
 - owned RPC handler registration
 - owned event publisher methods
 - `uses` aliases for calling peer services
-- typed resource binding handles (KV, streams, jobs)
+- typed resource binding handles (KV, stores, jobs)
 
 You do not depend on `trellis-client` or `trellis-server` directly in your service crate — those are generator targets. The facade brings them in transitively.
 

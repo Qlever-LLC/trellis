@@ -146,6 +146,18 @@ async function startTrellisService() {
       contractStorage,
       userStorage,
       contractApprovalStorage,
+      deviceActivationStorage,
+      deviceDeploymentStorage,
+      instanceGrantPolicyStorage,
+      serviceDeploymentStorage,
+      serviceInstanceStorage,
+      portalProfileStorage,
+      portalStorage,
+      connectionsKV,
+      logger,
+      natsAuth,
+      sessionStorage,
+      trellis,
       contractStore: contracts.contractStore,
     });
 

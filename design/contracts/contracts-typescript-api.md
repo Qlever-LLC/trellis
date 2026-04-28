@@ -73,6 +73,7 @@ type TrellisApiLike = {
   operations: Record<string, unknown>;
   rpc: Record<string, unknown>;
   events: Record<string, unknown>;
+  // Reserved as an empty compatibility slot; v1 authoring does not expose raw subjects.
   subjects: Record<string, unknown>;
 };
 
@@ -104,10 +105,6 @@ type UseSpec<TApi extends TrellisApiLike> = {
     publish?: readonly (keyof TApi["events"] & string)[];
     subscribe?: readonly (keyof TApi["events"] & string)[];
   };
-  subjects?: {
-    publish?: readonly (keyof TApi["subjects"] & string)[];
-    subscribe?: readonly (keyof TApi["subjects"] & string)[];
-  };
 };
 
 type ContractDependencyUse<
@@ -120,10 +117,6 @@ type ContractDependencyUse<
   events?: {
     publish?: readonly (keyof TApi["events"] & string)[];
     subscribe?: readonly (keyof TApi["events"] & string)[];
-  };
-  subjects?: {
-    publish?: readonly (keyof TApi["subjects"] & string)[];
-    subscribe?: readonly (keyof TApi["subjects"] & string)[];
   };
 };
 
@@ -300,8 +293,8 @@ Rules:
 - contract source examples should export the specialized helper result directly
   and use that object for `contract.API`, `contract.use(...)`, and runtime
   bootstrap
-- local `operations`, `rpc`, `events`, `subjects`, `state`, `errors`, and
-  `resources` remain the source for emitted owned contract content
+- local `operations`, `rpc`, `events`, `state`, `errors`, and `resources` remain
+  the source for emitted owned contract content
 - emitted manifest fields such as `exports` are authored in the callback body
   alongside owned surfaces, not in the local registry argument
 - service contract modules declare reusable schemas in a top-level `schemas` map
@@ -316,7 +309,7 @@ Rules:
   entries created with `defineError(...)`
 - RPC `errors: [...]` entries should usually use `ref.error(...)` for both local
   declarations and built-in Trellis RPC errors
-- a participant MAY have no owned `operations`, `rpc`, `events`, or `subjects`
+- a participant MAY have no owned `operations`, `rpc`, or `events`
 - a participant MAY have no `uses`
 - the defined contract computes and exposes `CONTRACT_DIGEST` from the emitted
   canonical manifest
@@ -434,8 +427,8 @@ Rules:
   types from the generated SDK instead of redefining those shapes locally
 - generated TypeScript SDKs export aliases for schemas listed in
   `exports.schemas`
-- generated RPC, operation, event, and subject types should reuse exported
-  schema aliases when their nested wire shapes match those exported schemas
+- generated RPC, operation, event, and job types should reuse exported schema
+  aliases when their nested wire shapes match those exported schemas
 
 ## Derived API Views
 
@@ -456,8 +449,8 @@ Rules:
 
 ## Typing Rules
 
-- a referenced remote operation, RPC, event, or subject must exist on the
-  imported SDK module
+- a referenced remote operation, RPC, or event must exist on the imported SDK
+  module
 - a participant may only invoke, call, publish, or subscribe to remote APIs
   explicitly declared in local `uses`
 - omitted `uses` entries remove the corresponding generated runtime methods

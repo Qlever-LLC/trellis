@@ -6,6 +6,7 @@ import { Type } from "typebox";
 
 import { createClient } from "../client.ts";
 import { defineServiceContract } from "../contract.ts";
+import { AuthError } from "../errors/index.ts";
 import { Trellis, type TrellisAuth } from "../trellis.ts";
 
 function createMockAuth(token = "test-token"): TrellisAuth {
@@ -69,6 +70,27 @@ function createMockNatsConnection(): NatsConnection {
     rtt,
     reconnect,
   };
+
+  return connection;
+}
+
+function createErrorResponseConnection(error: AuthError): NatsConnection {
+  const connection = createMockNatsConnection() as NatsConnection & {
+    request: NatsConnection["request"];
+  };
+  const headers = {
+    get: (name: string) => name === "status" ? "error" : undefined,
+  } as Msg["headers"];
+
+  connection.request = async () => ({
+    subject: "rpc.v1.Test.Probe",
+    sid: 1,
+    data: new TextEncoder().encode(JSON.stringify(error.toSerializable())),
+    headers,
+    respond: () => true,
+    json: <T>() => error.toSerializable() as T,
+    string: () => JSON.stringify(error.toSerializable()),
+  });
 
   return connection;
 }
@@ -174,6 +196,27 @@ const eventTestContract = defineServiceContract(
   }),
 );
 
+const rpcTestContract = defineServiceContract(
+  {
+    schemas: {
+      Empty: Type.Object({}),
+    },
+  },
+  (ref) => ({
+    id: "trellis.client.rpc-guard-test@v1",
+    displayName: "RPC Guard Test",
+    description: "Covers RPC client guard behavior.",
+    rpc: {
+      "Test.Probe": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("Empty"),
+        errors: ["AuthError"],
+      },
+    },
+  }),
+);
+
 Deno.test("Trellis explains how to provide an API surface when none was configured", async () => {
   const trellis = new Trellis(
     "test-client",
@@ -190,6 +233,31 @@ Deno.test("Trellis explains how to provide an API surface when none was configur
     "No API surface was provided",
   );
   assertStringIncludes(value.error.cause.message, "createCoreClient(...)");
+});
+
+Deno.test("Trellis invokes session recovery for session_not_found RPC errors", async () => {
+  let recoveries = 0;
+  const trellis = new Trellis(
+    "test-client",
+    createErrorResponseConnection(
+      new AuthError({ reason: "session_not_found" }),
+    ),
+    createMockAuth(),
+    {
+      api: rpcTestContract.API.owned,
+      onSessionNotFound: () => {
+        recoveries += 1;
+      },
+    },
+  );
+
+  const result = await trellis.request("Test.Probe", {});
+  const value = result.take();
+
+  assert(isErr(value));
+  assert(value.error instanceof AuthError);
+  assertEquals(value.error.reason, "session_not_found");
+  assertEquals(recoveries, 1);
 });
 
 Deno.test("Trellis ephemeral event subscriptions avoid JetStream manager requests", async () => {

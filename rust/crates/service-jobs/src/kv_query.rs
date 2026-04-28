@@ -56,12 +56,8 @@ pub enum JobsQueryError {
     MissingBinding,
     #[error("missing resources.kv map in binding")]
     MissingKvResources,
-    #[error("missing resources.streams map in binding")]
-    MissingStreamResources,
     #[error("missing required kv alias '{0}' in binding")]
     MissingKvAlias(String),
-    #[error("missing required stream alias '{0}' in binding")]
-    MissingStreamAlias(String),
     #[error("invalid kv alias '{0}': expected object with non-empty 'bucket'")]
     InvalidKvAliasShape(String),
     #[error("failed to open kv bucket '{bucket}': {details}")]
@@ -557,8 +553,7 @@ mod tests {
     use trellis_sdk_core::types::{
         TrellisBindingsGetRequest, TrellisBindingsGetResponse, TrellisBindingsGetResponseBinding,
         TrellisBindingsGetResponseBindingResources,
-        TrellisBindingsGetResponseBindingResourcesKvValue,
-        TrellisBindingsGetResponseBindingResourcesStreamsValue, TrellisCatalogResponse,
+        TrellisBindingsGetResponseBindingResourcesKvValue, TrellisCatalogResponse,
     };
 
     use crate::contract::expected_contract;
@@ -616,7 +611,6 @@ mod tests {
 
     fn sample_binding_with_resources(
         kv: Option<BTreeMap<String, TrellisBindingsGetResponseBindingResourcesKvValue>>,
-        streams: Option<BTreeMap<String, TrellisBindingsGetResponseBindingResourcesStreamsValue>>,
     ) -> TrellisBindingsGetResponseBinding {
         let expected = expected_contract();
         TrellisBindingsGetResponseBinding {
@@ -626,55 +620,16 @@ mod tests {
                 jobs: None,
                 kv,
                 store: None,
-                streams,
             },
         }
-    }
-
-    fn sample_streams() -> BTreeMap<String, TrellisBindingsGetResponseBindingResourcesStreamsValue>
-    {
-        BTreeMap::from([
-            (
-                "jobs".to_string(),
-                TrellisBindingsGetResponseBindingResourcesStreamsValue {
-                    discard: None,
-                    max_age_ms: None,
-                    max_bytes: None,
-                    max_msgs: None,
-                    name: "JOBS".to_string(),
-                    num_replicas: Some(3),
-                    retention: Some("limits".to_string()),
-                    sources: None,
-                    storage: Some("file".to_string()),
-                    subjects: vec!["trellis.jobs.>".to_string()],
-                },
-            ),
-            (
-                "jobsAdvisories".to_string(),
-                TrellisBindingsGetResponseBindingResourcesStreamsValue {
-                    discard: None,
-                    max_age_ms: None,
-                    max_bytes: None,
-                    max_msgs: None,
-                    name: "JOBS_ADVISORIES".to_string(),
-                    num_replicas: Some(1),
-                    retention: Some("limits".to_string()),
-                    sources: None,
-                    storage: Some("file".to_string()),
-                    subjects: vec![
-                        "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.JOBS_WORK.>".to_string()
-                    ],
-                },
-            ),
-        ])
     }
 
     #[tokio::test]
     async fn resolve_jobs_kv_buckets_reads_expected_aliases_and_request_fields() {
         let expected = expected_contract();
         let (core_client, seen_requests) =
-            core_client_with_binding(Some(sample_binding_with_resources(
-                Some(BTreeMap::from([(
+            core_client_with_binding(Some(sample_binding_with_resources(Some(BTreeMap::from([
+                (
                     "jobsState".to_string(),
                     TrellisBindingsGetResponseBindingResourcesKvValue {
                         bucket: "jobs_state_bucket".to_string(),
@@ -682,9 +637,8 @@ mod tests {
                         max_value_bytes: None,
                         ttl_ms: 0,
                     },
-                )])),
-                Some(sample_streams()),
-            )));
+                ),
+            ])))));
 
         let buckets = resolve_jobs_kv_buckets(&core_client, &expected)
             .await
@@ -715,8 +669,7 @@ mod tests {
     #[tokio::test]
     async fn resolve_jobs_kv_buckets_errors_when_kv_map_missing() {
         let expected = expected_contract();
-        let (core_client, _) =
-            core_client_with_binding(Some(sample_binding_with_resources(None, None)));
+        let (core_client, _) = core_client_with_binding(Some(sample_binding_with_resources(None)));
 
         let error = resolve_jobs_kv_buckets(&core_client, &expected)
             .await
@@ -726,43 +679,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_jobs_kv_buckets_errors_when_alias_missing() {
+    async fn resolve_jobs_kv_buckets_uses_builtin_worker_presence_without_stream_resources() {
         let expected = expected_contract();
-        let (core_client, _) = core_client_with_binding(Some(sample_binding_with_resources(
-            Some(BTreeMap::from([(
-                "jobsState".to_string(),
-                TrellisBindingsGetResponseBindingResourcesKvValue {
-                    bucket: "jobs_state_bucket".to_string(),
-                    history: 1,
-                    max_value_bytes: None,
-                    ttl_ms: 0,
-                },
-            )])),
-            None,
-        )));
+        let (core_client, _) =
+            core_client_with_binding(Some(sample_binding_with_resources(Some(BTreeMap::from([
+                (
+                    "jobsState".to_string(),
+                    TrellisBindingsGetResponseBindingResourcesKvValue {
+                        bucket: "jobs_state_bucket".to_string(),
+                        history: 1,
+                        max_value_bytes: None,
+                        ttl_ms: 0,
+                    },
+                ),
+            ])))));
 
-        let error = resolve_jobs_kv_buckets(&core_client, &expected)
+        let buckets = resolve_jobs_kv_buckets(&core_client, &expected)
             .await
-            .expect_err("missing streams should fail");
+            .expect("bucket resolution should not require stream resources");
 
-        assert!(matches!(error, JobsQueryError::MissingStreamResources));
+        assert_eq!(buckets.jobs_state_bucket, "jobs_state_bucket");
+        assert_eq!(buckets.worker_presence_bucket, "JOBS_WORKER_PRESENCE");
+        assert_eq!(buckets.worker_presence_replicas, 3);
     }
 
     #[tokio::test]
     async fn resolve_jobs_kv_buckets_errors_when_alias_shape_invalid() {
         let expected = expected_contract();
-        let (core_client, _) = core_client_with_binding(Some(sample_binding_with_resources(
-            Some(BTreeMap::from([(
-                "jobsState".to_string(),
-                TrellisBindingsGetResponseBindingResourcesKvValue {
-                    bucket: "".to_string(),
-                    history: 1,
-                    max_value_bytes: None,
-                    ttl_ms: 0,
-                },
-            )])),
-            Some(sample_streams()),
-        )));
+        let (core_client, _) =
+            core_client_with_binding(Some(sample_binding_with_resources(Some(BTreeMap::from([
+                (
+                    "jobsState".to_string(),
+                    TrellisBindingsGetResponseBindingResourcesKvValue {
+                        bucket: "".to_string(),
+                        history: 1,
+                        max_value_bytes: None,
+                        ttl_ms: 0,
+                    },
+                ),
+            ])))));
 
         let error = resolve_jobs_kv_buckets(&core_client, &expected)
             .await
@@ -792,20 +747,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_jobs_admin_resources_reads_stream_names_and_kv_aliases() {
+    async fn resolve_jobs_admin_resources_reads_kv_and_uses_builtin_stream_names() {
         let expected = expected_contract();
-        let (core_client, _) = core_client_with_binding(Some(sample_binding_with_resources(
-            Some(BTreeMap::from([(
-                "jobsState".to_string(),
-                TrellisBindingsGetResponseBindingResourcesKvValue {
-                    bucket: "jobs_state_bucket".to_string(),
-                    history: 1,
-                    max_value_bytes: None,
-                    ttl_ms: 0,
-                },
-            )])),
-            Some(sample_streams()),
-        )));
+        let (core_client, _) =
+            core_client_with_binding(Some(sample_binding_with_resources(Some(BTreeMap::from([
+                (
+                    "jobsState".to_string(),
+                    TrellisBindingsGetResponseBindingResourcesKvValue {
+                        bucket: "jobs_state_bucket".to_string(),
+                        history: 1,
+                        max_value_bytes: None,
+                        ttl_ms: 0,
+                    },
+                ),
+            ])))));
 
         let resources = resolve_jobs_admin_resources(&core_client, &expected)
             .await
@@ -819,9 +774,9 @@ mod tests {
     }
 
     #[test]
-    fn jobs_admin_resources_from_binding_requires_stream_aliases() {
-        let error = jobs_admin_resources_from_binding(&sample_binding_with_resources(
-            Some(BTreeMap::from([(
+    fn jobs_admin_resources_from_binding_uses_builtin_stream_names() {
+        let resources = jobs_admin_resources_from_binding(&sample_binding_with_resources(Some(
+            BTreeMap::from([(
                 "jobsState".to_string(),
                 TrellisBindingsGetResponseBindingResourcesKvValue {
                     bucket: "jobs_state_bucket".to_string(),
@@ -829,11 +784,14 @@ mod tests {
                     max_value_bytes: None,
                     ttl_ms: 0,
                 },
-            )])),
-            None,
-        ))
-        .expect_err("missing streams should fail");
+            )]),
+        )))
+        .expect("admin resources should not require stream aliases");
 
-        assert!(matches!(error, JobsQueryError::MissingStreamResources));
+        assert_eq!(resources.jobs_state_bucket, "jobs_state_bucket");
+        assert_eq!(resources.worker_presence_bucket, "JOBS_WORKER_PRESENCE");
+        assert_eq!(resources.worker_presence_replicas, 3);
+        assert_eq!(resources.jobs_stream, "JOBS");
+        assert_eq!(resources.jobs_advisories_stream, "JOBS_ADVISORIES");
     }
 }

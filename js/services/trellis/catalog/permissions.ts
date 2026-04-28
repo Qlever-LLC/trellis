@@ -1,7 +1,6 @@
 import type {
   ContractOperation,
   ContractRpcMethod,
-  ContractSubject,
 } from "@qlever-llc/trellis/contracts";
 
 import {
@@ -119,20 +118,11 @@ function ownedPublishRules(entries: ContractEntry[]): PermissionRule[] {
       subject: templateToWildcard(event.subject),
       requiredCapabilities: event.capabilities?.publish ?? [],
     })),
-    ...Object.values(entry.contract.subjects ?? {}).map((subject) => ({
-      subject: subject.subject,
-      requiredCapabilities: subject.capabilities?.publish ?? [],
-    })),
   ]);
 }
 
-function ownedSubscribeRules(entries: ContractEntry[]): PermissionRule[] {
-  return entries.flatMap((entry) =>
-    Object.values(entry.contract.subjects ?? {}).map((subject) => ({
-      subject: subject.subject,
-      requiredCapabilities: subject.capabilities?.subscribe ?? [],
-    }))
-  );
+function ownedSubscribeRules(_entries: ContractEntry[]): PermissionRule[] {
+  return [];
 }
 
 function usedPublishRules(entries: ContractEntry[]): PermissionRule[] {
@@ -172,10 +162,6 @@ function usedPublishRules(entries: ContractEntry[]): PermissionRule[] {
         subject: templateToWildcard(event.event.subject),
         requiredCapabilities: event.event.capabilities?.publish ?? [],
       })),
-      ...uses.subjectPublishes.map((subject) => ({
-        subject: subject.subject.subject,
-        requiredCapabilities: subject.subject.capabilities?.publish ?? [],
-      })),
     ];
   });
 }
@@ -193,10 +179,6 @@ function usedSubscribeRules(entries: ContractEntry[]): PermissionRule[] {
       ...uses.eventSubscribes.map((event) => ({
         subject: templateToWildcard(event.event.subject),
         requiredCapabilities: event.event.capabilities?.subscribe ?? [],
-      })),
-      ...uses.subjectSubscribes.map((subject) => ({
-        subject: subject.subject.subject,
-        requiredCapabilities: subject.subject.capabilities?.subscribe ?? [],
       })),
     ];
   });

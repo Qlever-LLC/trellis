@@ -63,13 +63,14 @@ function makeOperationContract(
   id: string,
   subject: string,
   version: `v${number}` = "v1",
+  kind: TrellisContractV1["kind"] = "service",
 ): TrellisContractV1 {
   return {
     format: "trellis.contract.v1",
     id,
     displayName: id,
     description: `${id} test contract`,
-    kind: "service",
+    kind,
     schemas: {
       Input: { type: "object" },
       Progress: { type: "object" },
@@ -126,6 +127,41 @@ Deno.test("contracts runtime rejects operation subject version mismatches", asyn
   });
 });
 
+Deno.test("contracts runtime rejects non-service service installs", async () => {
+  await withContractsModule(async (module, contractStorage) => {
+    await assertRejects(
+      () =>
+        module.installServiceContract(
+          makeOperationContract("app@v1", "operations.v1.App.Run", "v1", "app"),
+        ),
+      Error,
+      "service contract install requires kind 'service', got 'app'",
+    );
+
+    assertEquals(await contractStorage.list(), []);
+  });
+});
+
+Deno.test("contracts runtime rejects non-device device installs", async () => {
+  await withContractsModule(async (module, contractStorage) => {
+    await assertRejects(
+      () =>
+        module.installDeviceContract(
+          makeOperationContract(
+            "service@v1",
+            "operations.v1.Service.Run",
+            "v1",
+            "service",
+          ),
+        ),
+      Error,
+      "device contract install requires kind 'device', got 'service'",
+    );
+
+    assertEquals(await contractStorage.list(), []);
+  });
+});
+
 Deno.test("contracts runtime rejects uses dependencies before persistence", async () => {
   await withContractsModule(async (module, contractStorage) => {
     const consumer = {
@@ -133,7 +169,7 @@ Deno.test("contracts runtime rejects uses dependencies before persistence", asyn
       id: "portal@v1",
       displayName: "Portal",
       description: "Calls billing operations.",
-      kind: "app",
+      kind: "service",
       uses: {
         billing: {
           contract: "billing@v1",
@@ -163,7 +199,7 @@ Deno.test("contracts runtime validates uses against known persisted contracts", 
       id: "portal@v1",
       displayName: "Portal",
       description: "Calls billing operations.",
-      kind: "app",
+      kind: "service",
       uses: {
         billing: {
           contract: "billing@v1",
@@ -391,7 +427,12 @@ Deno.test("contracts runtime activates service current digests and enabled devic
       makeOperationContract("service@v1", "operations.v1.Service.Run"),
     );
     const device = await module.installDeviceContract(
-      makeOperationContract("device@v1", "operations.v1.Device.Run"),
+      makeOperationContract(
+        "device@v1",
+        "operations.v1.Device.Run",
+        "v1",
+        "device",
+      ),
     );
     const now = "2026-01-01T00:00:00.000Z";
     await serviceInstanceStorage.put({
@@ -467,7 +508,12 @@ Deno.test("contracts runtime excludes current digests for disabled parent deploy
       makeOperationContract("disabled-service@v1", "operations.v1.Service.Off"),
     );
     const device = await module.installDeviceContract(
-      makeOperationContract("disabled-device@v1", "operations.v1.Device.Off"),
+      makeOperationContract(
+        "disabled-device@v1",
+        "operations.v1.Device.Off",
+        "v1",
+        "device",
+      ),
     );
     const now = "2026-01-01T00:00:00.000Z";
     await serviceDeploymentStorage.put({

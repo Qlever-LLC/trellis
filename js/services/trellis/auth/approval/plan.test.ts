@@ -16,7 +16,6 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
       DownloadRequest: { type: "object" },
       DownloadResponse: { type: "object" },
       AuthConnectEvent: { type: "object" },
-      AuthAuditMessage: { type: "object" },
       EvidenceUploadRequest: {
         type: "object",
         properties: {
@@ -49,13 +48,6 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
         version: "v1",
         subject: "events.v1.example.Auth.Connect",
         event: { schema: "AuthConnectEvent" },
-        capabilities: { publish: ["audit:write"], subscribe: ["audit:read"] },
-      },
-    },
-    subjects: {
-      AuthAudit: {
-        subject: "nats.example.audit",
-        message: { schema: "AuthAuditMessage" },
         capabilities: { publish: ["audit:write"], subscribe: ["audit:read"] },
       },
     },
@@ -93,7 +85,6 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
         rpc: { call: ["Auth.Me", "Evidence.Download"] },
         operations: { call: ["Evidence.Upload"] },
         events: { subscribe: ["Auth.Connect"] },
-        subjects: { subscribe: ["AuthAudit"] },
       },
     },
   });
@@ -114,9 +105,51 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
   ]);
   assertEquals(plan.subscribeSubjects, [
     "events.v1.example.Auth.Connect",
-    "nats.example.audit",
     "transfer.v1.download.*.*",
   ]);
+});
+
+Deno.test("planUserContractApproval rejects app contracts with raw subjects", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      planUserContractApproval(store, {
+        format: "trellis.contract.v1",
+        id: "example.console@v1",
+        displayName: "Example Console",
+        description: "Browser app",
+        kind: "app",
+        subjects: {
+          Audit: { subject: "nats.example.audit" },
+        },
+      }),
+    Error,
+    "Contract subjects are not supported in v1",
+  );
+});
+
+Deno.test("planUserContractApproval rejects app contracts with raw subject uses", async () => {
+  const store = new ContractStore();
+
+  await assertRejects(
+    () =>
+      planUserContractApproval(store, {
+        format: "trellis.contract.v1",
+        id: "example.console@v1",
+        displayName: "Example Console",
+        description: "Browser app",
+        kind: "app",
+        uses: {
+          audit: {
+            contract: "example.audit@v1",
+            subjects: { subscribe: ["Audit"] },
+          },
+        },
+      }),
+    Error,
+    "Contract uses 'audit' declares unsupported subjects",
+  );
 });
 
 Deno.test("planUserContractApproval maps explicit transfer declarations by direction", async () => {

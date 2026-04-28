@@ -18,9 +18,8 @@ order: 10
 Trellis needs one contract model that works for five different concerns at the
 same time:
 
-- service authors need a local way to define operations, RPCs, events, raw
-  pub/sub subjects, schemas, authorization requirements, and cloud resource
-  requests
+- service authors need a local way to define operations, RPCs, events, jobs,
+  schemas, authorization requirements, and cloud resource requests
 - the `trellis` runtime must derive runtime NATS permissions from the APIs that
   are actually active in a deployment
 - clients and peer services need typed SDKs
@@ -38,7 +37,7 @@ Those needs apply across multiple repos and multiple implementation languages.
 - Make cloud-provided service resources explicit and reviewable at contract
   install or upgrade time.
 - Support generated SDKs and docs from the same source of truth.
-- Support operations, RPC, domain events, and raw subject spaces.
+- Support operations, RPC, domain events, jobs, and contract-owned state.
 - Support declarative resource requests with cloud-assigned physical bindings.
 - Support Trellis-owned contracts and cloud/domain service contracts with the
   same mechanism.
@@ -140,7 +139,6 @@ A `trellis.contract.v1` manifest has this top-level structure:
   "operations": {},
   "rpc": {},
   "events": {},
-  "subjects": {},
   "state": {},
   "resources": {
     "kv": {
@@ -168,12 +166,11 @@ Top-level fields:
 | `kind`        | yes      | string | Contract role such as `service`, `app`, `agent`, or `device`       |
 | `schemas`     | no       | object | Reusable self-contained JSON Schema values keyed by schema name    |
 | `exports`     | no       | object | Canonical public exports made available to dependent contracts     |
-| `uses`        | no       | object | Explicit cross-contract operation/RPC/event/subject dependencies   |
+| `uses`        | no       | object | Explicit cross-contract operation/RPC/event dependencies           |
 | `jobs`        | no       | object | Map of first-class service-private job queue descriptors           |
 | `operations`  | no       | object | Map of logical operation names to operation descriptors            |
 | `rpc`         | no       | object | Map of logical RPC names to RPC operation descriptors              |
 | `events`      | no       | object | Map of logical event names to event descriptors                    |
-| `subjects`    | no       | object | Map of logical raw-subject names to subject descriptors            |
 | `state`       | no       | object | Map of named Trellis-managed state stores                          |
 | `resources`   | no       | object | Map of declarative cloud resource requests                         |
 | `errors`      | no       | object | Map of declared error types to error descriptors                   |
@@ -233,8 +230,8 @@ to different digests within one device lineage.
 Concurrent-digest compatibility within one lineage is defined by the owned
 communication surface:
 
-- `rpc`, `operations`, `events`, and owned `subjects` MUST evolve additively
-  while multiple digests in the same lineage are active
+- `rpc`, `operations`, `events`, and `jobs` MUST evolve additively while
+  multiple digests in the same lineage are active
 - `uses`, metadata, and other non-owned sections MAY vary by digest as long as
   the exact digest being installed still validates successfully and dependency
   resolution against active catalogs stays unambiguous
@@ -247,13 +244,13 @@ communication surface:
 
 Additive-only means:
 
-- a new digest MAY add owned RPCs, operations, events, and raw subjects
+- a new digest MAY add owned RPCs, operations, events, and job queues
 - a new digest MAY add optional fields to existing request, response, progress,
   and event payload schemas
 - a new digest MAY add new declared errors or new capabilities for newly added
   owned surfaces
 - a new digest MUST NOT remove or rename an existing owned RPC, operation,
-  event, or subject while old and new digests coexist
+  event, or job queue while old and new digests coexist
 - a new digest MUST NOT move an existing owned surface to a different subject
   while old and new digests coexist
 - a new digest MUST NOT change an existing schema in a breaking way while old
@@ -277,7 +274,7 @@ Breaking schema changes include:
 - narrowing allowed enum values or formats in a way that rejects payloads
   accepted by the older digest
 - changing payload semantics incompatibly while keeping the same field names and
-  subjects
+  operation/RPC/event subjects
 
 If a rollout needs one of those breaking changes, it MUST use a new contract
 `id` / major version rather than a second active digest in the same lineage.
@@ -316,18 +313,18 @@ Example:
 Rules:
 
 - dependencies are declared by logical contract `id` plus logical
-  operation/RPC/event/subject names, not by raw capability strings
+  operation/RPC/event names, not by raw capability strings
 - a service contract MUST NOT receive cross-contract runtime permissions unless
   that access is declared in `uses`
 - validation, install, or upgrade MUST fail if a referenced contract is
-  unavailable or if any referenced operation, RPC, event, or subject name does
-  not exist on that contract
+  unavailable or if any referenced operation, RPC, or event name does not exist
+  on that contract
 - validation happens when resolving dependencies against active catalogs: if a
   `uses` entry targets a contract with multiple active compatible digests,
   Trellis projects the active surfaces together
 - that active-compatible-digest projection MAY merge additive identical logical
   surface descriptors, but MUST reject divergent duplicate descriptors for the
-  same operation, RPC, event, or subject name
+  same operation, RPC, or event name
 - higher-level consent scopes for user-facing applications MAY be derived from
   `uses`, but runtime enforcement remains operation-level
 - any user approval or consent record for a client contract MUST be bound to the
@@ -477,44 +474,18 @@ Example wildcard derivation:
 - template: `events.v1.Partner.Changed.{/partner/id/origin}.{/partner/id/id}`
 - wildcard: `events.v1.Partner.Changed.*.*`
 
-### 9) Raw subject descriptor
+### 9) No raw subject descriptor
 
-Each `subjects` entry describes a raw NATS subject space that is part of the
-contract but is not modeled as a domain event.
+The v1 contract model does not expose a top-level `subjects` map or
+`uses.*.subjects` declarations. Public and cross-contract communication must be
+modeled as RPCs, operations, or events so Trellis can derive typed SDKs,
+capabilities, and active-catalog compatibility from the same surface.
 
-Example:
-
-```json
-{
-  "Jobs.Stream": {
-    "subject": "trellis.jobs.>",
-    "capabilities": {
-      "subscribe": ["jobs.admin.stream"]
-    }
-  }
-}
-```
-
-Fields:
-
-| Field                    | Required | Meaning                                          |
-| ------------------------ | -------- | ------------------------------------------------ |
-| `subject`                | yes      | Subject or subject pattern                       |
-| `schema`                 | no       | JSON Schema for the payload if Trellis wants one |
-| `capabilities.publish`   | no       | Capabilities required to publish                 |
-| `capabilities.subscribe` | no       | Capabilities required to subscribe               |
-
-Rules:
-
-- raw subjects are used for transport surfaces such as Jobs streams, work
-  queues, advisories, or other Trellis-native subject spaces
-- unlike events, a raw subject descriptor may legitimately contain NATS
-  wildcards such as `*` or `>`
-- if a payload schema matters for clients or tooling, it SHOULD be declared in
-  `schema`
-- some raw subject permissions may be derived from installed resource bindings
-  and service identity rather than from caller-claimable generic capabilities;
-  Jobs service-local publish/consume subjects are the motivating example
+Subsystem-owned raw NATS subjects may still exist behind those contract-owned
+APIs. Jobs work subjects, advisories, operation reply subjects, and transfer
+chunk subjects are runtime protocol details derived from jobs, operations,
+transfer declarations, or installed bindings rather than caller-authored raw
+subject entries.
 
 ### 10) Cloud resource requests
 
@@ -748,7 +719,7 @@ Digest rules for v1:
 - algorithm: SHA-256 over the canonical JSON string for the digest projection
 - encoding: base64url without padding
 - the digest projection includes runtime identity and behavior: `format`, `id`,
-  `kind`, `state`, `uses`, `rpc`, `operations`, `events`, `subjects`, `jobs`,
+  `kind`, `state`, `uses`, `rpc`, `operations`, `events`, `jobs`,
   `resources.kv`, `resources.store`, reachable schemas, and RPC-declared
   reachable errors
 - resource `required` flags participate in the digest because they change
@@ -815,8 +786,8 @@ and console review without reimplementing catalog analysis in each client:
 - `analysis.operations.control[]` includes `key`, `action`, `subject`,
   `wildcardSubject`, and `requiredCapabilities`
 - NATS analysis rule `kind` values include operation call, operation handle, and
-  operation control rules in addition to RPC, event, raw-subject, and resource
-  rules
+  operation control rules in addition to RPC, event, transfer, jobs, and
+  resource rules
 
 Repository-layout clarification:
 
@@ -884,13 +855,9 @@ Binding rules:
   needed by the service runtime
 - store bindings expose the resolved physical store `name` plus effective
   retention and size limits needed by the service runtime
-- stream bindings expose the resolved physical stream `name` plus the installed
-  stream config needed for operations such as consumer creation and inspection
-- stream source bindings include both the logical `fromAlias` and the resolved
-  upstream `streamName`
-- jobs bindings expose a service namespace plus resolved queue bindings
-  (`publishPrefix`, `workSubject`, `consumerName`) and effective per-queue
-  runtime settings
+- jobs bindings expose a service namespace, the built-in jobs work stream, plus
+  resolved queue bindings (`publishPrefix`, `workSubject`, `consumerName`) and
+  effective per-queue runtime settings
 - jobs bindings do not expose admin projection storage such as durable
   worker-presence buckets; services discover queue/runtime settings only
 - services discover concrete resources through bindings rather than through
@@ -910,8 +877,7 @@ The `trellis` runtime service MUST:
 - compute canonical digests
 - store installed contracts by digest
 - maintain the active contract set for the deployment
-- reject active subject collisions across operations, RPCs, events, and raw
-  subjects
+- reject active subject collisions across operations, RPCs, and events
 - provision or bind required cloud resources before install or upgrade succeeds
 - persist resource bindings so installed services can resolve them at runtime
 - bind each installed contract digest to the service principal public key that
@@ -944,8 +910,8 @@ Install or upgrade validation MUST also:
 
 Operationally, install or upgrade fails if any of these conditions is true:
 
-- any operation, RPC, event, or raw-subject string is already owned by a
-  different active contract `id`
+- any operation, RPC, or event subject string is already owned by a different
+  active contract `id`
 - any required resource request cannot be provisioned or bound according to
   platform policy
 - optional KV or store resources that cannot be provisioned are skipped and do
@@ -964,8 +930,8 @@ Subject collision rule:
 
 - if two active contracts declare the same subject string, activation MUST fail
   unless they belong to the same contract `id` lineage
-- overlapping subjects across different digests in the same lineage are allowed
-  so rolling upgrades do not break mixed-version deployments
+- overlapping operation/RPC/event subjects across different digests in the same
+  lineage are allowed so rolling upgrades do not break mixed-version deployments
 
 This keeps routing, discovery, and permission derivation unambiguous.
 
@@ -981,11 +947,9 @@ For each active contract:
 - RPCs contribute publish permissions for callers via `capabilities.call`
 - events contribute publish permissions via `capabilities.publish`
 - events contribute subscribe permissions via `capabilities.subscribe`
-- raw subjects contribute publish permissions via `capabilities.publish`
-- raw subjects contribute subscribe permissions via `capabilities.subscribe`
-- `uses` contributes the exact cross-contract operation/RPC/event/subject
-  permissions the owning service may exercise at runtime after dependency
-  resolution validates the referenced active catalog surfaces
+- `uses` contributes the exact cross-contract operation/RPC/event permissions
+  the owning service may exercise at runtime after dependency resolution
+  validates the referenced active catalog surfaces
 - operation uses that declare `transfer: { direction: "send", ... }` and grant
   `capabilities.call` contribute caller publish access to
   `transfer.v1.upload.*.*`
@@ -1018,8 +982,6 @@ Rules:
   require additional capability grants
 - templated event subjects are authorized using wildcard subjects derived by
   replacing each template token with `*`
-- raw subject entries are authorized using their declared subject or subject
-  pattern directly
 - service sessions receive cross-contract permissions only from explicit `uses`
   plus installed resource bindings; raw capability grants alone are not
   sufficient
@@ -1073,7 +1035,7 @@ language-specific generators or native runtime helpers.
 The minimum required property is consistent semantics across languages:
 
 - the same logical operation names
-- the same subjects
+- the same operation, RPC, and event subjects
 - the same schemas
 - the same declared capability requirements
 
@@ -1115,7 +1077,7 @@ representation of:
 - operation workflows
 - RPC operations
 - capability requirements
-- raw subject spaces
+- subsystem-owned runtime subject spaces behind contract-owned APIs
 - activation and catalog semantics
 
 ## Notes

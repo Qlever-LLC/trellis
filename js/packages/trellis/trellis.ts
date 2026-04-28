@@ -875,6 +875,7 @@ export type TrellisOpts<TA extends AnyTrellisAPI> = {
   state?: RuntimeStateStores;
   connection?: TrellisConnection;
   authBypassMethods?: string[];
+  onSessionNotFound?: () => MaybePromise<void>;
 };
 
 export type RequestOpts = {
@@ -1470,6 +1471,7 @@ export class Trellis<
   #noResponderMaxRetries: number;
   #noResponderRetryMs: number;
   #authBypassMethods: Set<string>;
+  #onSessionNotFound?: () => MaybePromise<void>;
   #operationStore?: Promise<TypedKV<typeof DurableOperationRecordSchema>>;
 
   constructor(
@@ -1494,6 +1496,7 @@ export class Trellis<
     this.#noResponderRetryMs = opts?.noResponderRetry?.baseDelayMs ??
       DEFAULT_NO_RESPONDER_RETRY_MS;
     this.#authBypassMethods = new Set(opts?.authBypassMethods ?? []);
+    this.#onSessionNotFound = opts?.onSessionNotFound;
     this.connection = opts?.connection ??
       new TrellisConnection({ kind: "client" });
 
@@ -1864,10 +1867,13 @@ export class Trellis<
             json,
           );
           if (reconstructed) {
+            await this.#handleSessionNotFound(reconstructed);
             return err(reconstructed);
           }
 
-          return err(new RemoteError({ error: errorData }));
+          const remoteError = new RemoteError({ error: errorData });
+          await this.#handleSessionNotFound(remoteError);
+          return err(remoteError);
         }
 
         const json = safeJson(response).take();
@@ -1919,6 +1925,16 @@ export class Trellis<
         }
       });
     })());
+  }
+
+  async #handleSessionNotFound(error: unknown): Promise<void> {
+    if (
+      !this.#onSessionNotFound || !isTransientAuthValidateSessionError(error)
+    ) {
+      return;
+    }
+
+    await this.#onSessionNotFound();
   }
 
   operation<O extends OperationsOf<TA>>(

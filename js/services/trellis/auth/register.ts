@@ -83,7 +83,7 @@ export async function registerAuth(deps: AuthRegistrationDeps): Promise<void> {
   await registerServiceAdminRpcs(deps);
   await registerSessionRpcs(deps);
   await registerApprovalAndUserRpcs({ ...deps, publishSessionRevoked });
-  await registerPortalPolicyAdminRpcs(deps);
-  await registerDeviceAdminAndActivation(deps);
+  await registerPortalPolicyAdminRpcs({ ...deps, publishSessionRevoked });
+  await registerDeviceAdminAndActivation({ ...deps, publishSessionRevoked });
   registerAuthHttpRoutes(deps);
 }

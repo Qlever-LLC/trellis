@@ -66,21 +66,12 @@ export type ContractAnalysis = {
       subscribeCapabilities: string[];
     }>;
   };
-  subjects: {
-    subjects: Array<{
-      key: string;
-      subject: string;
-      publishCapabilities: string[];
-      subscribeCapabilities: string[];
-    }>;
-  };
   nats: {
     publish: Array<{
       kind:
         | "rpc:call"
         | "operation:call"
-        | "event:publish"
-        | "subject:publish";
+        | "event:publish";
       subject: string;
       wildcardSubject: string;
       requiredCapabilities: string[];
@@ -90,8 +81,7 @@ export type ContractAnalysis = {
         | "rpc:handle"
         | "operation:handle"
         | "operation:control"
-        | "event:subscribe"
-        | "subject:subscribe";
+        | "event:subscribe";
       subject: string;
       wildcardSubject: string;
       requiredCapabilities: string[];
@@ -151,7 +141,6 @@ export function analyzeContract(contract: TrellisContractV1): {
   const operations: ContractAnalysis["operations"]["operations"] = [];
   const operationControls: ContractAnalysis["operations"]["control"] = [];
   const events: ContractAnalysis["events"]["events"] = [];
-  const subjects: ContractAnalysis["subjects"]["subjects"] = [];
   const namespaces = new Set<string>();
 
   for (
@@ -247,27 +236,12 @@ export function analyzeContract(contract: TrellisContractV1): {
     if (ns) namespaces.add(ns);
   }
 
-  for (
-    const [key, s] of Object.entries(contract.subjects ?? {}) as Array<
-      [string, NonNullable<TrellisContractV1["subjects"]>[string]]
-    >
-  ) {
-    subjects.push({
-      key,
-      subject: s.subject,
-      publishCapabilities: s.capabilities?.publish ?? [],
-      subscribeCapabilities: s.capabilities?.subscribe ?? [],
-    });
-  }
-
   rpcMethods.sort((a, b) => a.subject.localeCompare(b.subject));
   operations.sort((a, b) => a.subject.localeCompare(b.subject));
   operationControls.sort((a, b) =>
     a.subject.localeCompare(b.subject) || a.action.localeCompare(b.action)
   );
   events.sort((a, b) => a.subject.localeCompare(b.subject));
-  subjects.sort((a, b) => a.subject.localeCompare(b.subject));
-
   const publish: ContractAnalysis["nats"]["publish"] = [];
   const subscribe: ContractAnalysis["nats"]["subscribe"] = [];
 
@@ -327,21 +301,6 @@ export function analyzeContract(contract: TrellisContractV1): {
     });
   }
 
-  for (const s of subjects) {
-    publish.push({
-      kind: "subject:publish",
-      subject: s.subject,
-      wildcardSubject: s.subject,
-      requiredCapabilities: s.publishCapabilities,
-    });
-    subscribe.push({
-      kind: "subject:subscribe",
-      subject: s.subject,
-      wildcardSubject: s.subject,
-      requiredCapabilities: s.subscribeCapabilities,
-    });
-  }
-
   const namespacesList = [...namespaces].sort((a, b) => a.localeCompare(b));
   const resourceAnalysis = getContractResourceAnalysis(contract);
   const resourceSummary = getContractResourceSummary(contract);
@@ -351,7 +310,6 @@ export function analyzeContract(contract: TrellisContractV1): {
     rpc: { methods: rpcMethods },
     operations: { operations, control: operationControls },
     events: { events },
-    subjects: { subjects },
     nats: { publish, subscribe },
     resources: resourceAnalysis,
   };

@@ -30,6 +30,23 @@ function assertObject(
   }
 }
 
+function assertNoUnsupportedSubjects(raw: Record<string, unknown>): void {
+  if (Object.hasOwn(raw, "subjects")) {
+    throw new Error("Contract subjects are not supported in v1");
+  }
+
+  const uses = raw.uses;
+  if (!uses || typeof uses !== "object" || Array.isArray(uses)) return;
+  for (const [alias, use] of Object.entries(uses)) {
+    if (!use || typeof use !== "object" || Array.isArray(use)) continue;
+    if (Object.hasOwn(use, "subjects")) {
+      throw new Error(
+        `Contract uses '${alias}' declares unsupported subjects`,
+      );
+    }
+  }
+}
+
 function assertValidContractValue(
   value: JsonValue,
 ): asserts value is TrellisContractV1 {
@@ -50,7 +67,6 @@ function normalizeContract(contract: TrellisContractV1): TrellisContractV1 {
     ...(contract.rpc ? { rpc: contract.rpc } : {}),
     ...(contract.operations ? { operations: contract.operations } : {}),
     ...(contract.events ? { events: contract.events } : {}),
-    ...(contract.subjects ? { subjects: contract.subjects } : {}),
     ...(contract.jobs ? { jobs: contract.jobs } : {}),
     ...(contract.resources ? { resources: contract.resources } : {}),
     ...(contract.errors ? { errors: contract.errors } : {}),
@@ -150,20 +166,6 @@ function validateSchemaRefs(contract: TrellisContractV1) {
     >
   ) {
     assertSchemaRefExists(contract, event.event.schema, `event '${name}'`);
-  }
-
-  for (
-    const [name, subject] of Object.entries(contract.subjects ?? {}) as Array<
-      [string, NonNullable<TrellisContractV1["subjects"]>[string]]
-    >
-  ) {
-    if (subject.message) {
-      assertSchemaRefExists(
-        contract,
-        subject.message.schema,
-        `subject '${name}'`,
-      );
-    }
   }
 
   for (
@@ -291,13 +293,6 @@ export class ContractStore {
       ) {
         this.#indexActiveSubject(digest, contract, e.subject);
       }
-      for (
-        const s of Object.values(contract.subjects ?? {}) as Array<
-          NonNullable<TrellisContractV1["subjects"]>[string]
-        >
-      ) {
-        this.#indexActiveSubject(digest, contract, s.subject);
-      }
     }
   }
 
@@ -411,6 +406,7 @@ export class ContractStore {
     if (!isJsonValue(raw)) {
       throw new Error("Contract must be a pure JSON value");
     }
+    assertNoUnsupportedSubjects(raw);
 
     const { valid, errors } = this.#validator.validate(raw);
     if (!valid) {

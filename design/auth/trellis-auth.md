@@ -308,15 +308,16 @@ Authorization is derived from:
 
 - the active contract set
 - the caller's grants and approvals
-- declared `operations`, `rpc`, `events`, `subjects`, and `uses`
+- declared `operations`, `rpc`, `events`, and `uses`
 - installed resource bindings
 
 Rules:
 
 - Trellis MUST derive permissions from contracts rather than from a parallel
   scope system
-- operation, RPC, event, and subject access are all contract-level authorization
-  concerns
+- operation, RPC, and event access are contract-level authorization concerns;
+  runtime subject permissions are derived from those surfaces, transfer
+  declarations, and installed resource bindings
 - transfer permissions MUST be derived from explicit contract transfer
   declarations rather than broad transfer or download subject grants
 - operations that declare `transfer: { direction: "send", ... }` authorize

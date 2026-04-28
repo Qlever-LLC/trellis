@@ -108,16 +108,9 @@ export type OperationDesc<
   cancel?: boolean;
 };
 
-export type SubjectDesc<S extends SchemaLike = SchemaLike> = {
-  subject: string;
-  schema?: S;
-  publishCapabilities: readonly string[];
-  subscribeCapabilities: readonly string[];
-};
-
 export type TrellisAPI = {
   rpc: Record<string, RPCDesc>;
   operations: Record<string, OperationDesc>;
   events: Record<string, EventDesc>;
-  subjects: Record<string, SubjectDesc>;
+  subjects: Record<string, unknown>;
 };

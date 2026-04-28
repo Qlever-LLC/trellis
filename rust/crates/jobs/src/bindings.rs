@@ -58,7 +58,7 @@ pub struct JobsQueueBinding {
 pub enum JobsBindingError {
     #[error("bindings response is missing resources.jobs")]
     MissingJobsResource,
-    #[error("bindings response is missing resources.streams.jobsWork")]
+    #[error("bindings response is missing resources.jobs.workStream")]
     MissingWorkStream,
     #[error("invalid jobs queue binding for queue type '{queue_type}': {details}")]
     InvalidQueueBinding { queue_type: String, details: String },
@@ -122,12 +122,9 @@ impl TryFrom<&TrellisBindingsGetResponseBinding> for JobsRuntimeBinding {
             .map(|(queue_type, queue)| normalize_core_queue_binding(queue_type, queue))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let work_stream = binding
-            .resources
-            .streams
-            .as_ref()
-            .and_then(|streams| streams.get("jobsWork"))
-            .map(|stream| stream.name.clone())
+        let work_stream = jobs
+            .work_stream
+            .clone()
             .ok_or(JobsBindingError::MissingWorkStream)?;
 
         Ok(Self {

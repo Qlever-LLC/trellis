@@ -42,8 +42,7 @@ use trellis_sdk_core::types::{
     TrellisBindingsGetResponseBindingResources, TrellisBindingsGetResponseBindingResourcesJobs,
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValue,
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValuePayload,
-    TrellisBindingsGetResponseBindingResourcesKvValue,
-    TrellisBindingsGetResponseBindingResourcesStreamsValue, TrellisCatalogResponse,
+    TrellisBindingsGetResponseBindingResourcesKvValue, TrellisCatalogResponse,
     TrellisCatalogResponseCatalog, TrellisCatalogResponseCatalogContractsItem,
 };
 use trellis_server::RpcDescriptor;
@@ -62,6 +61,7 @@ impl FakeCoreClient {
             resources: TrellisBindingsGetResponseBindingResources {
                 jobs: Some(TrellisBindingsGetResponseBindingResourcesJobs {
                     namespace: "documents".to_string(),
+                    work_stream: Some("JOBS_WORK".to_string()),
                     queues: BTreeMap::from([(
                         "document-process".to_string(),
                         TrellisBindingsGetResponseBindingResourcesJobsQueuesValue {
@@ -95,56 +95,6 @@ impl FakeCoreClient {
                     },
                 )])),
                 store: None,
-                streams: Some(BTreeMap::from([
-                    (
-                        "jobs".to_string(),
-                        TrellisBindingsGetResponseBindingResourcesStreamsValue {
-                            discard: Some("old".to_string()),
-                            max_age_ms: Some(0),
-                            max_bytes: Some(-1),
-                            max_msgs: Some(-1),
-                            name: "JOBS".to_string(),
-                            num_replicas: Some(3),
-                            retention: Some("limits".to_string()),
-                            sources: None,
-                            storage: Some("file".to_string()),
-                            subjects: vec!["trellis.jobs.>".to_string()],
-                        },
-                    ),
-                    (
-                        "jobsWork".to_string(),
-                        TrellisBindingsGetResponseBindingResourcesStreamsValue {
-                            discard: None,
-                            max_age_ms: None,
-                            max_bytes: None,
-                            max_msgs: None,
-                            name: "JOBS_WORK".to_string(),
-                            num_replicas: Some(3),
-                            retention: Some("workqueue".to_string()),
-                            sources: None,
-                            storage: Some("file".to_string()),
-                            subjects: vec!["trellis.work.>".to_string()],
-                        },
-                    ),
-                    (
-                        "jobsAdvisories".to_string(),
-                        TrellisBindingsGetResponseBindingResourcesStreamsValue {
-                            discard: None,
-                            max_age_ms: Some(604_800_000),
-                            max_bytes: None,
-                            max_msgs: None,
-                            name: "JOBS_ADVISORIES".to_string(),
-                            num_replicas: Some(1),
-                            retention: Some("limits".to_string()),
-                            sources: None,
-                            storage: Some("file".to_string()),
-                            subjects: vec![
-                                "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.JOBS_WORK.>"
-                                    .to_string(),
-                            ],
-                        },
-                    ),
-                ])),
             },
         }
     }

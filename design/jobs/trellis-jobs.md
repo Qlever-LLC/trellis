@@ -259,9 +259,11 @@ requiring a separate manual jobs install step.
   `service.jobs.<queue>.handle(...)`, `service.wait()`, and `JobRef` helpers
   rather than runtime stream bindings directly
 
-This document depends on the contract resource model in
-`../contracts/trellis-contracts-catalog.md` supporting JetStream streams, stream
-source transforms, and binding-driven resource access.
+This document depends on the contract model in
+`../contracts/trellis-contracts-catalog.md` supporting top-level jobs,
+binding-driven resource access, and runtime-owned JetStream infrastructure. Jobs
+streams and stream source transforms are Trellis-owned runtime details, not
+service-declared contract resources.
 
 Normal consuming service contracts should declare top-level `jobs`. The JSON
 examples below show the resolved JetStream or KV configuration the jobs runtime

@@ -9,7 +9,7 @@ A contract declares:
 - **RPCs** the service handles (request/reply operations)
 - **operations** the service exposes as caller-visible async workflows
 - **events** the service publishes or subscribes to
-- **resources** the service needs Trellis to provision (KV buckets, stores, streams)
+- **resources** the service needs Trellis to provision (KV buckets, stores, and job queues)
 - **dependencies** on other contracts via `uses`
 - **capabilities** required to call each operation
 
@@ -21,11 +21,10 @@ Contracts are the source of truth for authorization. Trellis derives NATS subjec
 | --- | --- |
 | `service` | A backend process connected to NATS with a session key |
 | `app` | A browser client that connects via websocket |
-| `portal` | A browser portal flow participant used during login or device activation |
 | `device` | An activated device participant provisioned through Trellis |
 | `cli` | A command-line tool |
 
-Activated devices use the same contract format as other Trellis participants. Provisioning mode lives in Trellis device deployments and instance records rather than in a special contract field.
+Portals are deployment-owned browser routing records, not a contract kind. A custom portal that calls Trellis after login uses a normal `app` contract. Activated devices use the same contract format as other Trellis participants. Provisioning mode lives in Trellis device deployments and instance records rather than in a special contract field.
 
 ### Contract identity
 
@@ -156,8 +155,8 @@ Capabilities use the pattern `<domain>.<action>` (e.g., `users.read`, `partners.
 They are similar to OAuth scopes, but they are intentionally different:
 
 - OAuth scopes belong to the external provider login flow.
-- Trellis capabilities belong to Trellis and gate RPCs, operations, events,
-  subjects, and other runtime permissions derived from contracts.
+- Trellis capabilities belong to Trellis and gate RPCs, operations, events, and
+  other runtime permissions derived from contracts.
 
 Trellis keeps its own capabilities because the same authorization model has to
 work across browser apps, CLIs, backend services, activated devices, and NATS
@@ -227,9 +226,12 @@ OAuth scope, or capability to pick a state partition.
 
 Use `State` for things like saved filters, drafts, UI preferences, and app memory that should follow the same user or device across machines. Use `resources.kv` when the state is owned by a service implementation instead of by an app or device participant.
 
-### Streams
+### Runtime streams
 
-JetStream streams for event-driven architectures, work queues, and audit trails. Like KV, stream names in the contract are logical aliases resolved at install time.
+Services do not declare arbitrary stream resources in v1 contracts. Trellis-owned
+features such as jobs, operations, events, and transfers still use JetStream
+internally, but those streams are derived from first-class contract surfaces and
+installed bindings rather than from `resources.streams` entries.
 
 ## Jobs
 

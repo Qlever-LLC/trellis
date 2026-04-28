@@ -6,35 +6,33 @@ Before starting, complete [Write a Rust service](/guides/writing-rust-services).
 
 Jobs are **service-private** background work units. For caller-visible async workflows, see [Operations: Rust](/guides/using-operations-rust).
 
-## 1. Add `resources.jobs` to the contract manifest
+## 1. Add top-level `jobs` to the contract manifest
 
-Update `contracts/orders_service.manifest.json` to add a `jobs` resource with the three fulfillment queue types:
+Update `contracts/orders_service.manifest.json` to add a top-level `jobs` map with the three fulfillment queue types:
 
 ```json
 "resources": {
   "kv": {
     "orders": { "purpose": "Store order records", "history": 1, "ttlMs": 0 }
+  }
+},
+"jobs": {
+  "reserve-inventory": {
+    "payload": { "schema": "ReserveInventoryPayload" },
+    "result": { "schema": "ReserveInventoryResult" },
+    "maxDeliver": 5,
+    "backoffMs": [5000, 30000, 120000]
   },
-  "jobs": {
-    "queues": {
-      "reserve-inventory": {
-        "payload": { "schema": { "$ref": "ReserveInventoryPayload" } },
-        "result": { "schema": { "$ref": "ReserveInventoryResult" } },
-        "maxDeliver": 5,
-        "backoffMs": [5000, 30000, 120000]
-      },
-      "charge-payment": {
-        "payload": { "schema": { "$ref": "ChargePaymentPayload" } },
-        "result": { "schema": { "$ref": "ChargePaymentResult" } },
-        "maxDeliver": 5,
-        "ackWaitMs": 600000
-      },
-      "notify-warehouse": {
-        "payload": { "schema": { "$ref": "NotifyWarehousePayload" } },
-        "result": { "schema": { "$ref": "NotifyWarehouseResult" } },
-        "maxDeliver": 3
-      }
-    }
+  "charge-payment": {
+    "payload": { "schema": "ChargePaymentPayload" },
+    "result": { "schema": "ChargePaymentResult" },
+    "maxDeliver": 5,
+    "ackWaitMs": 600000
+  },
+  "notify-warehouse": {
+    "payload": { "schema": "NotifyWarehousePayload" },
+    "result": { "schema": "NotifyWarehouseResult" },
+    "maxDeliver": 3
   }
 }
 ```

@@ -13,6 +13,50 @@ async function activateContract(
   return validated.digest;
 }
 
+async function activateAuditDependency(store: ContractStore): Promise<void> {
+  await activateContract(store, {
+    format: "trellis.contract.v1",
+    id: "trellis.audit@v1",
+    displayName: "Audit",
+    description: "Audit events",
+    kind: "service",
+    schemas: { AuditEvent: { type: "object" } },
+    events: {
+      "Audit.Recorded": {
+        version: "v1",
+        subject: "trellis.console.audit",
+        event: { schema: "AuditEvent" },
+        capabilities: { subscribe: ["audit"] },
+      },
+    },
+  });
+}
+
+function consoleAppContract(): Record<string, unknown> {
+  return {
+    format: "trellis.contract.v1",
+    id: "trellis.console@v1",
+    displayName: "Console",
+    description: "Admin app",
+    kind: "app",
+    schemas: { AuditEvent: { type: "object" } },
+    events: {
+      "Audit.Recorded": {
+        version: "v1",
+        subject: "trellis.console.audit.publish",
+        event: { schema: "AuditEvent" },
+        capabilities: { publish: ["audit"] },
+      },
+    },
+    uses: {
+      audit: {
+        contract: "trellis.audit@v1",
+        events: { subscribe: ["Audit.Recorded"] },
+      },
+    },
+  };
+}
+
 function createSession(overrides: Partial<UserSession> = {}): UserSession {
   return {
     type: "user",
@@ -63,19 +107,8 @@ function createStoredApproval(digest: string): ContractApprovalRecord {
 
 Deno.test("resolveUserReconnectSession refreshes delegated envelope from the presented digest", async () => {
   const store = new ContractStore();
-  const digest = await activateContract(store, {
-    format: "trellis.contract.v1",
-    id: "trellis.console@v1",
-    displayName: "Console",
-    description: "Admin app",
-    kind: "app",
-    subjects: {
-      audit: {
-        subject: "trellis.console.audit",
-        capabilities: { publish: ["audit"] },
-      },
-    },
-  });
+  await activateAuditDependency(store);
+  const digest = await activateContract(store, consoleAppContract());
 
   const result = await resolveUserReconnectSession({
     session: createSession(),
@@ -107,7 +140,7 @@ Deno.test("resolveUserReconnectSession refreshes delegated envelope from the pre
   assertEquals(result.session.approvalSource, "admin_policy");
   assertEquals(result.session.delegatedCapabilities, ["audit"]);
   assertEquals(result.session.delegatedPublishSubjects, [
-    "trellis.console.audit",
+    "trellis.console.audit.publish",
   ]);
   assertEquals(result.session.delegatedSubscribeSubjects, [
     "trellis.console.audit",
@@ -116,19 +149,8 @@ Deno.test("resolveUserReconnectSession refreshes delegated envelope from the pre
 
 Deno.test("resolveUserReconnectSession returns approval_required when current approval no longer applies", async () => {
   const store = new ContractStore();
-  const digest = await activateContract(store, {
-    format: "trellis.contract.v1",
-    id: "trellis.console@v1",
-    displayName: "Console",
-    description: "Admin app",
-    kind: "app",
-    subjects: {
-      audit: {
-        subject: "trellis.console.audit",
-        capabilities: { publish: ["audit"] },
-      },
-    },
-  });
+  await activateAuditDependency(store);
+  const digest = await activateContract(store, consoleAppContract());
 
   const result = await resolveUserReconnectSession({
     session: createSession(),
@@ -232,19 +254,8 @@ Deno.test("resolveUserReconnectSession returns user_not_found when the bound use
 
 Deno.test("resolveUserReconnectSession returns insufficient_permissions when approval remains but capabilities no longer do", async () => {
   const store = new ContractStore();
-  const digest = await activateContract(store, {
-    format: "trellis.contract.v1",
-    id: "trellis.console@v1",
-    displayName: "Console",
-    description: "Admin app",
-    kind: "app",
-    subjects: {
-      audit: {
-        subject: "trellis.console.audit",
-        capabilities: { publish: ["audit"] },
-      },
-    },
-  });
+  await activateAuditDependency(store);
+  const digest = await activateContract(store, consoleAppContract());
 
   const result = await resolveUserReconnectSession({
     session: createSession(),

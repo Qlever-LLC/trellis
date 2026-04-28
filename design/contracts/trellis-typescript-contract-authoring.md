@@ -252,10 +252,9 @@ The `use(...)` helper:
 
 - fills in the target `contract` id automatically from the SDK
 - restricts `rpc.call` to keys from that SDK's owned RPC surface
+- restricts `operations.call` to keys from that SDK's owned operation surface
 - restricts `events.publish` and `events.subscribe` to keys from that SDK's
   owned event surface
-- restricts `subjects.publish` and `subjects.subscribe` to keys from that SDK's
-  owned raw subject surface
 
 This makes imported SDK modules the source of truth for remote dependency names
 in TypeScript authoring.
@@ -321,8 +320,8 @@ Rules:
 
 The TypeScript type system must enforce both of these rules:
 
-- a referenced remote operation, RPC, event, or subject must exist on the
-  imported SDK module
+- a referenced remote operation, RPC, or event must exist on the imported SDK
+  module
 - a participant may only invoke, call, publish, or subscribe to remote
   operations that are explicitly declared in its local contract `uses`
 
@@ -339,7 +338,7 @@ contract object itself defines the allowed TypeScript runtime surface.
 
 The contract definition produces three distinct projected API views:
 
-- `API.owned` - the operations, RPCs, events, and subjects owned by the local
+- `API.owned` - the operations, RPCs, and events owned by the local
   participant and therefore mountable or publishable as owner behavior
 - `API.used` - the subset of remote SDK APIs explicitly permitted by `uses`
 - `API.trellis` - the merged runtime surface used for outbound
@@ -348,8 +347,8 @@ The contract definition produces three distinct projected API views:
 
 Rules:
 
-- `API.owned` derives only from the local contract's `operations`, `rpc`,
-  `events`, and `subjects`
+- `API.owned` derives only from the local contract's `operations`, `rpc`, and
+  `events`
 - `API.used` derives only from the remote SDK operations explicitly selected
   through `use(...)`
 - `API.trellis` is the only general outbound runtime API surface

@@ -119,7 +119,7 @@
 </script>
 
 <section class="space-y-4">
-  <PageToolbar title="Contracts" description="Installed contract surfaces, resource bindings, and capability requirements.">
+  <PageToolbar title="Contracts" description="Installed v1 contracts, resource bindings, and capability requirements.">
     {#snippet actions()}
       <input class="input input-bordered input-sm w-64" placeholder="Search contracts…" bind:value={search} />
       <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
@@ -372,16 +372,17 @@
               {/if}
 
               <div class="collapse collapse-arrow bg-base-200 rounded-lg">
-                <input type="checkbox" />
-                <div class="collapse-title text-xs font-semibold uppercase text-base-content/50">Raw Contract</div>
-                <div class="collapse-content">
-                   <pre class="max-h-80 overflow-auto text-xs font-mono">{JSON.stringify(detail.contract, null, 2)}</pre>
-                </div>
-              </div>
+                 <input type="checkbox" />
+                 <div class="collapse-title text-xs font-semibold uppercase text-base-content/50">Raw Contract</div>
+                 <div class="collapse-content">
+                   <p class="mb-2 text-xs text-base-content/50">v1 contracts support KV, store, and jobs resources; raw subject declarations and stream resource requests are not accepted.</p>
+                    <pre class="max-h-80 overflow-auto text-xs font-mono">{JSON.stringify(detail.contract, null, 2)}</pre>
+                 </div>
+               </div>
         {:else if selectedDigest}
           <EmptyState title="Contract detail unavailable" description="Select the contract again or refresh the contract list." />
         {:else}
-          <EmptyState title="Select a contract" description="Choose an installed contract from the list to inspect RPC methods, events, KV resources, pub/sub surfaces, and capabilities." />
+          <EmptyState title="Select a contract" description="Choose an installed contract from the list to inspect RPC methods, events, v1 resources, and capabilities." />
         {/if}
       </Panel>
     </div>
