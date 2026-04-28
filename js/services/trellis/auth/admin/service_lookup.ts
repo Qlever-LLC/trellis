@@ -1,4 +1,3 @@
-import { type AuthRuntimeDeps, authRuntimeDeps } from "../runtime_deps.ts";
 import type {
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
@@ -33,16 +32,4 @@ export function createServiceLookup(deps: ServiceLookupDeps): ServiceLookup {
       return await deps.serviceDeploymentStorage.get(deploymentId) ?? null;
     },
   };
-}
-
-function runtimeServiceLookupDeps(deps: AuthRuntimeDeps): ServiceLookupDeps {
-  return {
-    serviceDeploymentStorage: deps.serviceDeploymentStorage,
-    serviceInstanceStorage: deps.serviceInstanceStorage,
-  };
-}
-
-/** Loads service lookup helpers from configured auth runtime dependencies. */
-export function runtimeServiceLookup(): ServiceLookup {
-  return createServiceLookup(runtimeServiceLookupDeps(authRuntimeDeps()));
 }

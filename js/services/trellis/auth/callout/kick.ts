@@ -1,6 +1,6 @@
 import { AsyncResult } from "@qlever-llc/result";
 
-import { type AuthRuntimeDeps, authRuntimeDeps } from "../runtime_deps.ts";
+import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 
 type KickDeps = {
   logger: Pick<AuthRuntimeDeps["logger"], "debug" | "warn">;
@@ -26,8 +26,4 @@ export function createKick(deps: KickDeps) {
       deps.logger.debug({ serverId, clientId }, "Connection kicked");
     }
   };
-}
-
-export async function kick(serverId: string, clientId: number): Promise<void> {
-  return await createKick(authRuntimeDeps())(serverId, clientId);
 }

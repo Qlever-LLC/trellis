@@ -113,6 +113,7 @@ async function startTrellisService() {
 
     await registerAuth({
       app,
+      config,
       trellis,
       contracts,
       contractStorage,
@@ -159,6 +160,7 @@ async function startTrellisService() {
       sessionStorage,
       trellis,
       contractStore: contracts.contractStore,
+      config,
     });
 
     serverAbort = new AbortController();
@@ -173,16 +175,37 @@ async function startTrellisService() {
     return { backgroundTasks, logger, server, serverAbort };
   } catch (error) {
     serverAbort?.abort();
-    const cleanupResults = await Promise.allSettled([
-      server ? waitForServerDrain(server) : Promise.resolve(),
-      backgroundTasks?.stop() ?? Promise.resolve(),
-      runtime.shutdownGlobals(),
-    ]);
     const cleanupFailures: unknown[] = [];
-    for (const result of cleanupResults) {
-      if (result.status !== "rejected") continue;
-      cleanupFailures.push(result.reason);
-      logger.error({ error: result.reason }, "Trellis startup cleanup failed");
+    if (server) {
+      try {
+        await waitForServerDrain(server);
+      } catch (cleanupError) {
+        cleanupFailures.push(cleanupError);
+        logger.error(
+          { error: cleanupError },
+          "Trellis startup server drain failed",
+        );
+      }
+    }
+    if (backgroundTasks) {
+      try {
+        await backgroundTasks.stop();
+      } catch (cleanupError) {
+        cleanupFailures.push(cleanupError);
+        logger.error(
+          { error: cleanupError },
+          "Trellis startup background cleanup failed",
+        );
+      }
+    }
+    try {
+      await runtime.shutdownGlobals();
+    } catch (cleanupError) {
+      cleanupFailures.push(cleanupError);
+      logger.error(
+        { error: cleanupError },
+        "Trellis startup runtime cleanup failed",
+      );
     }
     throw aggregateStartupFailure(error, cleanupFailures);
   }
@@ -201,18 +224,32 @@ function shutdown(signal: string): Promise<void> {
   shuttingDown = (async () => {
     logger.info({ signal }, "Shutting down Trellis service");
     serverAbort.abort();
-    const cleanupResults = await Promise.allSettled([
-      waitForServerDrain(server),
-      backgroundTasks.stop(),
-      runtime.shutdownGlobals(),
-    ]);
     const failures: unknown[] = [];
-    for (const result of cleanupResults) {
-      if (result.status !== "rejected") continue;
-      failures.push(result.reason);
+    try {
+      await waitForServerDrain(server);
+    } catch (error) {
+      failures.push(error);
       logger.error(
-        { error: result.reason, signal },
-        "Trellis shutdown cleanup step failed",
+        { error, signal },
+        "Trellis shutdown server drain failed",
+      );
+    }
+    try {
+      await backgroundTasks.stop();
+    } catch (error) {
+      failures.push(error);
+      logger.error(
+        { error, signal },
+        "Trellis shutdown background cleanup failed",
+      );
+    }
+    try {
+      await runtime.shutdownGlobals();
+    } catch (error) {
+      failures.push(error);
+      logger.error(
+        { error, signal },
+        "Trellis shutdown runtime cleanup failed",
       );
     }
     if (failures.length > 0) {

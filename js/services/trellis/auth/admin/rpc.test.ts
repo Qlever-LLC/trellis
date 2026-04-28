@@ -160,6 +160,22 @@ Deno.test("auth contract exposes service, portal, and device admin RPCs", () => 
   assertEquals(operations, ["Auth.ActivateDevice"]);
 });
 
+Deno.test("production auth registration does not configure mutable auth/admin globals", async () => {
+  const [registerSource, portalSource, deviceSource] = await Promise.all([
+    Deno.readTextFile(new URL("../register.ts", import.meta.url)),
+    Deno.readTextFile(
+      new URL("../registration/portal_policy_admin.ts", import.meta.url),
+    ),
+    Deno.readTextFile(
+      new URL("../registration/device_admin_activation.ts", import.meta.url),
+    ),
+  ]);
+
+  assert(!registerSource.includes("setAuthRuntimeDeps("));
+  assert(!portalSource.includes("setAdminRpcDeps("));
+  assert(!deviceSource.includes("setAdminRpcDeps("));
+});
+
 Deno.test("service admin RPC handlers require admin before touching dependencies", async () => {
   const serviceDeps = serviceAdminDeps();
   const runtimeDeps = kickDeps(serviceDeps);

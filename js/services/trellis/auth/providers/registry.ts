@@ -12,6 +12,7 @@ export function createProviders(config: Config): Record<string, Provider> {
           new GitHub(
             provider.clientId,
             provider.clientSecret,
+            config.oauth.redirectBase,
             provider.displayName,
           ),
         ];
@@ -25,6 +26,7 @@ export function createProviders(config: Config): Record<string, Provider> {
           issuer: provider.issuer,
           clientId: provider.clientId,
           clientSecret: provider.clientSecret,
+          redirectBase: config.oauth.redirectBase,
           scopes: provider.scopes,
         }),
       ];

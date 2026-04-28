@@ -142,16 +142,3 @@ export const ContractRecordSchema = Type.Object({
   resources: Type.Optional(ContractResourcesSchema),
 }, { additionalProperties: false });
 export type ContractRecord = StaticDecode<typeof ContractRecordSchema>;
-
-export const ServiceRegistrySchema = Type.Object({
-  displayName: Type.String({ minLength: 1 }),
-  active: Type.Boolean(),
-  capabilities: Type.Array(Type.String()),
-  namespaces: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
-  description: Type.String({ minLength: 1 }),
-  contractId: Type.Optional(Type.String({ minLength: 1 })),
-  contractDigest: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]+$" })),
-  resourceBindings: Type.Optional(ContractResourceBindingsSchema),
-  createdAt: IsoDateSchema,
-}, { additionalProperties: false });
-export type ServiceRegistryEntry = StaticDecode<typeof ServiceRegistrySchema>;

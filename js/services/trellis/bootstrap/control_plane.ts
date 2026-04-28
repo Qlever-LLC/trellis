@@ -24,6 +24,7 @@ import type {
 import type { AuthRuntimeDeps } from "../auth/runtime_deps.ts";
 import { createServiceLookup } from "../auth/admin/service_lookup.ts";
 import { createEffectiveGrantPolicyLoader } from "../auth/grants/store.ts";
+import type { Config } from "../config.ts";
 
 type BuiltinContract = { digest: string; contract: TrellisContractV1 };
 
@@ -65,6 +66,7 @@ export function startControlPlaneBackgroundTasks(opts: {
   sessionStorage: SqlSessionRepository;
   trellis: AuthRuntimeDeps["trellis"];
   contractStore?: ContractStore;
+  config: Config;
 }) {
   const serviceLookup = createServiceLookup(opts);
   const loadInstanceGrantPolicies = createEffectiveGrantPolicyLoader(opts);
@@ -76,6 +78,7 @@ export function startControlPlaneBackgroundTasks(opts: {
     trellis: opts.trellis,
   });
   const authCallout = startAuthCallout({
+    config: opts.config,
     contractStorage: opts.contractStorage,
     userStorage: opts.userStorage,
     contractApprovalStorage: opts.contractApprovalStorage,
@@ -94,10 +97,19 @@ export function startControlPlaneBackgroundTasks(opts: {
 
   return {
     async stop() {
-      await Promise.all([
+      const results = await Promise.allSettled([
         disconnectCleanup.stop(),
         authCallout.stop(),
       ]);
+      const failures = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : []
+      );
+      if (failures.length > 0) {
+        throw new AggregateError(
+          failures,
+          `Failed to stop ${failures.length} Trellis background task(s)`,
+        );
+      }
     },
   };
 }

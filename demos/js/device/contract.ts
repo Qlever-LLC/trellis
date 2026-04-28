@@ -29,6 +29,8 @@ const fieldOps = trellisDemoService.use({
   },
   operations: {
     call: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
+    read: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
+    cancel: ["Reports.Generate"],
   },
   events: {
     subscribe: [
@@ -37,16 +39,6 @@ const fieldOps = trellisDemoService.use({
       "Evidence.Uploaded",
       "Sites.Refreshed",
     ],
-  },
-});
-
-// The generated use helper currently models operation calls only. Keep the
-// manifest permission declaration explicit for operation read and cancel.
-Object.assign(fieldOps, {
-  operations: {
-    call: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
-    read: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
-    cancel: ["Reports.Generate"],
   },
 });
 

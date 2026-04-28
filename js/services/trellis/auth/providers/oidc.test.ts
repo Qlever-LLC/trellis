@@ -9,6 +9,7 @@ Deno.test("OIDC provider maps userinfo claims using sub as stable id", async () 
     issuer: "https://tenant.example.auth0.com/",
     clientId: "client-id",
     clientSecret: "client-secret",
+    redirectBase: "https://trellis.example/auth/callback",
     scopes: ["openid", "deployment", "email"],
   });
 

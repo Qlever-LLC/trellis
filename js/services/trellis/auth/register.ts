@@ -1,6 +1,7 @@
 import type { Hono } from "@hono/hono";
 import type { SqlContractStorageRepository } from "../catalog/storage.ts";
-import { type AuthRuntimeDeps, setAuthRuntimeDeps } from "./runtime_deps.ts";
+import type { Config } from "../config.ts";
+import type { AuthRuntimeDeps } from "./runtime_deps.ts";
 import { registerApprovalAndUserRpcs } from "./registration/approval_users.ts";
 import { registerDeviceAdminAndActivation } from "./registration/device_admin_activation.ts";
 import { registerAuthHttpRoutes } from "./registration/http_routes.ts";
@@ -30,6 +31,7 @@ import type {
 type AuthRegistrationDeps =
   & {
     app: Hono;
+    config: Config;
     trellis: AuthRuntime;
     contracts: AuthContractsRuntime;
     contractStorage: SqlContractStorageRepository;
@@ -67,7 +69,6 @@ type AuthRegistrationDeps =
  * Registers auth RPCs, operations, and HTTP routes.
  */
 export async function registerAuth(deps: AuthRegistrationDeps): Promise<void> {
-  setAuthRuntimeDeps(deps);
   const publishSessionRevoked = async (event: {
     origin: string;
     id: string;

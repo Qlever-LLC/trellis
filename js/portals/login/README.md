@@ -9,6 +9,9 @@ The app has two distinct roles:
 - `/_trellis/portal/users/login` renders Trellis-owned browser auth flow state.
   Approval actions use the shared portal helpers and submit the auth endpoint's
   canonical `approved: boolean` request body.
+- Provider choice and OAuth/OIDC redirect handling stay server-owned. The portal
+  renders provider options from `GET /auth/flow/:flowId`; it does not carry
+  provider secrets, redirect-base config, or auth runtime dependency wiring.
 - Browser apps should return to their app-local login route when an active
   session is revoked or missing. The built-in portal remains the provider and
   approval UX that app-local login routes start or resume.
@@ -55,7 +58,9 @@ served separately by `POST /auth/devices/connect-info`.
 
 For device activation to succeed, the portal contract digest must be allowed on
 the relevant device deployment through `appliedContracts[].allowedDigests` or an
-empty allowed-digest lineage entry.
+empty allowed-digest lineage entry. Trellis validates the selected digest against
+the active catalog and fails the activation path instead of substituting another
+digest when the presented digest is not active or not allowed.
 
 If a custom portal needs to call Trellis after login, model that follow-on
 access with a normal `app` contract and a portal profile. Passive portals that

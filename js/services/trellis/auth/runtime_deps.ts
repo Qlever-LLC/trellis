@@ -79,23 +79,3 @@ export type AuthRuntimeDeps = {
   sessionStorage: SqlSessionRepository;
   userStorage: SqlUserProjectionRepository;
 };
-
-let runtimeDeps: AuthRuntimeDeps | undefined;
-
-/** Configures auth runtime dependencies from service startup wiring. */
-export function setAuthRuntimeDeps(deps: AuthRuntimeDeps): void {
-  runtimeDeps = deps;
-}
-
-/** Returns auth runtime dependencies configured by `registerAuth`. */
-export function authRuntimeDeps(): AuthRuntimeDeps {
-  if (!runtimeDeps) {
-    throw new Error("Auth runtime dependencies have not been configured");
-  }
-  return runtimeDeps;
-}
-
-/** Returns configured auth runtime dependencies when startup wiring is active. */
-export function maybeAuthRuntimeDeps(): AuthRuntimeDeps | undefined {
-  return runtimeDeps;
-}

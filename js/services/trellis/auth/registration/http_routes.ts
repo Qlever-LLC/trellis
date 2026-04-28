@@ -2,8 +2,11 @@ import type { Hono } from "@hono/hono";
 import type { AuthContractsRuntime } from "./types.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
+import type { Config } from "../../config.ts";
 import { registerBuiltinPortalStaticRoutes } from "../http/builtin_portal.ts";
 import { registerHttpRoutes } from "../http/routes.ts";
+import { createKick } from "../callout/kick.ts";
+import { createEffectiveGrantPolicyLoader } from "../grants/store.ts";
 import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
@@ -24,6 +27,7 @@ export function registerAuthHttpRoutes(
   deps:
     & {
       app: Hono;
+      config: Config;
       contracts: Pick<
         AuthContractsRuntime,
         "contractStore" | "refreshActiveContracts"
@@ -48,11 +52,14 @@ export function registerAuthHttpRoutes(
       | "browserFlowsKV"
       | "connectionsKV"
       | "logger"
+      | "natsAuth"
       | "natsTrellis"
       | "oauthStateKV"
       | "pendingAuthKV"
       | "sentinelCreds"
       | "sessionStorage"
+      | "instanceGrantPolicyStorage"
+      | "portalProfileStorage"
     >,
 ): void {
   registerBuiltinPortalStaticRoutes(deps.app);
@@ -71,8 +78,11 @@ export function registerAuthHttpRoutes(
     deviceProvisioningSecretStorage: deps.deviceProvisioningSecretStorage,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     serviceInstanceStorage: deps.serviceInstanceStorage,
+    config: deps.config,
     contractStore: deps.contracts.contractStore,
     refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    kick: createKick(deps),
+    loadEffectiveGrantPolicies: createEffectiveGrantPolicyLoader(deps),
     runtimeDeps: deps,
   });
 }

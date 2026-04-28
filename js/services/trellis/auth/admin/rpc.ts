@@ -1,5 +1,6 @@
 import { AuthError, UnexpectedError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import type { AuthLogger, RuntimeKV } from "../runtime_deps.ts";
 import {
@@ -161,18 +162,21 @@ export type AdminRpcDeps = {
   userStorage: SqlUserProjectionRepository;
 };
 
-let configuredAdminRpcDeps: AdminRpcDeps | undefined;
-
-/** Sets explicit dependencies used by admin RPC handlers registered by auth. */
-export function setAdminRpcDeps(deps: AdminRpcDeps): void {
-  configuredAdminRpcDeps = deps;
-}
+const invocationAdminRpcDeps = new AsyncLocalStorage<AdminRpcDeps>();
 
 function adminRpcDeps(): AdminRpcDeps {
-  if (!configuredAdminRpcDeps) {
-    throw new Error("auth admin RPC dependencies have not been configured");
-  }
-  return configuredAdminRpcDeps;
+  const invocationDeps = invocationAdminRpcDeps.getStore();
+  if (invocationDeps) return invocationDeps;
+  throw new Error("auth admin RPC dependencies have not been configured");
+}
+
+type AdminRpcHandler<Args, Response> = (args: Args) => Promise<Response>;
+
+function bindAdminRpcHandler<Args, Response>(
+  deps: AdminRpcDeps,
+  handler: AdminRpcHandler<Args, Response>,
+): AdminRpcHandler<Args, Response> {
+  return (args) => invocationAdminRpcDeps.run(deps, () => handler(args));
 }
 
 const LOGIN_DEFAULT_KEY = "login.default";
@@ -1675,3 +1679,172 @@ export const authDecideDeviceActivationReviewHandler = async (
     ...(confirmationCode ? { confirmationCode } : {}),
   });
 };
+
+/** Creates portal and policy admin handlers bound to explicit runtime deps. */
+export function createPortalPolicyAdminHandlers(
+  deps: AdminRpcDeps & {
+    contractStorage: SqlContractStorageRepository;
+    contractStore: ContractStore;
+  },
+) {
+  return {
+    createPortal: bindAdminRpcHandler(deps, createAuthCreatePortalHandler()),
+    listPortals: bindAdminRpcHandler(deps, authListPortalsHandler),
+    disablePortal: bindAdminRpcHandler(deps, authDisablePortalHandler),
+    listPortalProfiles: bindAdminRpcHandler(
+      deps,
+      authListPortalProfilesHandler,
+    ),
+    setPortalProfile: bindAdminRpcHandler(
+      deps,
+      createAuthSetPortalProfileHandler({
+        contractStorage: deps.contractStorage,
+        contractStore: deps.contractStore,
+      }),
+    ),
+    disablePortalProfile: bindAdminRpcHandler(
+      deps,
+      authDisablePortalProfileHandler,
+    ),
+    getLoginPortalDefault: bindAdminRpcHandler(
+      deps,
+      authGetLoginPortalDefaultHandler,
+    ),
+    listInstanceGrantPolicies: bindAdminRpcHandler(
+      deps,
+      authListInstanceGrantPoliciesHandler,
+    ),
+    upsertInstanceGrantPolicy: bindAdminRpcHandler(
+      deps,
+      authUpsertInstanceGrantPolicyHandler,
+    ),
+    disableInstanceGrantPolicy: bindAdminRpcHandler(
+      deps,
+      authDisableInstanceGrantPolicyHandler,
+    ),
+    setLoginPortalDefault: bindAdminRpcHandler(
+      deps,
+      authSetLoginPortalDefaultHandler,
+    ),
+    listLoginPortalSelections: bindAdminRpcHandler(
+      deps,
+      authListLoginPortalSelectionsHandler,
+    ),
+    setLoginPortalSelection: bindAdminRpcHandler(
+      deps,
+      authSetLoginPortalSelectionHandler,
+    ),
+    clearLoginPortalSelection: bindAdminRpcHandler(
+      deps,
+      authClearLoginPortalSelectionHandler,
+    ),
+    getDevicePortalDefault: bindAdminRpcHandler(
+      deps,
+      authGetDevicePortalDefaultHandler,
+    ),
+    setDevicePortalDefault: bindAdminRpcHandler(
+      deps,
+      authSetDevicePortalDefaultHandler,
+    ),
+    listDevicePortalSelections: bindAdminRpcHandler(
+      deps,
+      authListDevicePortalSelectionsHandler,
+    ),
+    setDevicePortalSelection: bindAdminRpcHandler(
+      deps,
+      authSetDevicePortalSelectionHandler,
+    ),
+    clearDevicePortalSelection: bindAdminRpcHandler(
+      deps,
+      authClearDevicePortalSelectionHandler,
+    ),
+  };
+}
+
+/** Creates device admin handlers bound to explicit runtime deps. */
+export function createDeviceAdminHandlers(
+  deps: AdminRpcDeps & {
+    installDeviceContract: (
+      contract: unknown,
+    ) => Promise<
+      { id: string; digest: string; displayName: string; description: string }
+    >;
+    refreshActiveContracts: () => Promise<void>;
+  },
+) {
+  const activeContractsDeps = {
+    refreshActiveContracts: deps.refreshActiveContracts,
+  };
+  return {
+    createDeviceDeployment: bindAdminRpcHandler(
+      deps,
+      createAuthCreateDeviceDeploymentHandler({
+        installDeviceContract: deps.installDeviceContract,
+        refreshActiveContracts: deps.refreshActiveContracts,
+      }),
+    ),
+    applyDeviceDeploymentContract: bindAdminRpcHandler(
+      deps,
+      createAuthApplyDeviceDeploymentContractHandler({
+        installDeviceContract: deps.installDeviceContract,
+        refreshActiveContracts: deps.refreshActiveContracts,
+      }),
+    ),
+    unapplyDeviceDeploymentContract: bindAdminRpcHandler(
+      deps,
+      createAuthUnapplyDeviceDeploymentContractHandler(activeContractsDeps),
+    ),
+    listDeviceDeployments: bindAdminRpcHandler(
+      deps,
+      authListDeviceDeploymentsHandler,
+    ),
+    disableDeviceDeployment: bindAdminRpcHandler(
+      deps,
+      createAuthDisableDeviceDeploymentHandler(activeContractsDeps),
+    ),
+    enableDeviceDeployment: bindAdminRpcHandler(
+      deps,
+      createAuthEnableDeviceDeploymentHandler(activeContractsDeps),
+    ),
+    removeDeviceDeployment: bindAdminRpcHandler(
+      deps,
+      createAuthRemoveDeviceDeploymentHandler(activeContractsDeps),
+    ),
+    provisionDeviceInstance: bindAdminRpcHandler(
+      deps,
+      createAuthProvisionDeviceInstanceHandler(),
+    ),
+    listDeviceInstances: bindAdminRpcHandler(
+      deps,
+      authListDeviceInstancesHandler,
+    ),
+    disableDeviceInstance: bindAdminRpcHandler(
+      deps,
+      createAuthDisableDeviceInstanceHandler(activeContractsDeps),
+    ),
+    enableDeviceInstance: bindAdminRpcHandler(
+      deps,
+      createAuthEnableDeviceInstanceHandler(activeContractsDeps),
+    ),
+    removeDeviceInstance: bindAdminRpcHandler(
+      deps,
+      createAuthRemoveDeviceInstanceHandler(activeContractsDeps),
+    ),
+    listDeviceActivations: bindAdminRpcHandler(
+      deps,
+      authListDeviceActivationsHandler,
+    ),
+    revokeDeviceActivation: bindAdminRpcHandler(
+      deps,
+      authRevokeDeviceActivationHandler,
+    ),
+    listDeviceActivationReviews: bindAdminRpcHandler(
+      deps,
+      authListDeviceActivationReviewsHandler,
+    ),
+    decideDeviceActivationReview: bindAdminRpcHandler(
+      deps,
+      authDecideDeviceActivationReviewHandler,
+    ),
+  };
+}

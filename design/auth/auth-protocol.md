@@ -194,6 +194,12 @@ Rules:
 - inbox subscribe permission always includes `${inboxPrefix}.>`
 - services receive only the resource-derived publish/subscribe permissions
   appropriate to their installed bindings
+- operation-control publish permissions are derived only from operation
+  `read`/`cancel` capabilities; `call` authorizes starting an operation but does
+  not authorize publishing to its control subject
+- auth-callout denial paths return explicit deny responses and MUST NOT mint a
+  partially scoped user JWT when the active catalog, session, deployment, or
+  resource state needed for permission derivation is unavailable
 - operation streaming replies use `jwt.resp.max = OPERATION_RESPONSE_MAX`
 - `OPERATION_RESPONSE_MAX` MUST be greater than `1` and SHOULD default to
   `65535`

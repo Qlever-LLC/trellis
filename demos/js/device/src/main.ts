@@ -137,6 +137,10 @@ async function listAssignments(device: Device): Promise<void> {
 async function viewSelectedSite(device: Device): Promise<void> {
   console.log(chalk.green.bold("== Selected Site"));
   const selected = await device.state.selectedSite.get().orThrow();
+  if ("migrationRequired" in selected) {
+    console.info("Selected site state needs migration before it can be read.");
+    return;
+  }
   if (!selected.found) {
     console.info("No selected site saved. Use option 7 to save one.");
     return;

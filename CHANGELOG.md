@@ -30,6 +30,9 @@ and this project adheres to
   transfer-derived permissions.
 - Aligned outward-facing auth, catalog, app, and guide docs with the Trellis v1
   runtime/control-plane cleanup and active-compatible-digest `uses` validation.
+- Documented fail-closed active catalog refresh, explicit auth-callout denial,
+  read/cancel-only operation-control grants, and strict device allowed-digest
+  validation across design docs, guides, the built-in portal README, and demos.
 - Tightened Trellis service v1 behavior by validating contract `uses` before
   persistence, scoping operation control permissions to read/cancel grants,
   keeping jobs projection buckets runtime-owned, requiring NATS for jobs

@@ -12,7 +12,7 @@ import { Value } from "typebox/value";
 import { verifyDomainSig } from "../crypto.ts";
 import { CalloutLimiter } from "./limiter.ts";
 import { buildAuthCalloutPermissions } from "./permissions.ts";
-import { getConfig } from "../../config.ts";
+import type { Config } from "../../config.ts";
 import { getResourcePermissionGrants } from "../../catalog/resources.ts";
 import type { ContractStore } from "../../catalog/store.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
@@ -24,6 +24,8 @@ import {
 } from "../../catalog/permissions.ts";
 import {
   deriveDeviceRuntimeAccess,
+  type DeviceRuntimeAccess,
+  type DeviceRuntimeAccessDenialReason,
   resolveDeviceContractDigest,
 } from "../device_activation/runtime_access.ts";
 import type {
@@ -79,6 +81,7 @@ type AuthCalloutDenialCode =
   | "device_deployment_not_found"
   | "device_deployment_disabled"
   | "device_contract_not_found"
+  | DeviceRuntimeAccessDenialReason
   | "session_not_found"
   | "contract_changed"
   | "approval_required"
@@ -116,41 +119,32 @@ function stageDeny<T>(
   return { ok: false, denial };
 }
 
-function isAuthCalloutDenialCode(
-  value: string,
-): value is AuthCalloutDenialCode {
-  switch (value) {
-    case "auth_token_required":
-    case "invalid_auth_token":
-    case "unsupported_protocol_version":
-    case "missing_session_key":
-    case "missing_sig":
-    case "iat_out_of_range":
-    case "invalid_signature":
-    case "unknown_service":
-    case "service_disabled":
-    case "unknown_device":
-    case "device_activation_revoked":
-    case "device_deployment_not_found":
-    case "device_deployment_disabled":
-    case "device_contract_not_found":
-    case "session_not_found":
-    case "contract_changed":
-    case "approval_required":
-    case "user_not_found":
-    case "user_inactive":
-    case "insufficient_permissions":
-    case "service_role_on_user":
-      return true;
-    default:
-      return false;
-  }
-}
+const AUTH_CALLOUT_DRAIN_TIMEOUT_MS = 5_000;
 
-const config = getConfig();
 export type BackgroundTaskHandle = {
   stop: () => Promise<void>;
 };
+
+async function waitForInFlightHandlers(
+  inFlight: Set<Promise<void>>,
+  timeoutMs: number,
+): Promise<"drained" | "timed_out"> {
+  if (inFlight.size === 0) return "drained";
+
+  let timeoutId: number | undefined;
+  try {
+    return await Promise.race([
+      Promise.allSettled([...inFlight]).then(() => "drained" as const),
+      new Promise<"timed_out">((resolve) => {
+        timeoutId = setTimeout(() => resolve("timed_out"), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
 
 function extractClientIp(natsReq: NatsAuthRequest): string | undefined {
   const clientInfo = natsReq.client_info;
@@ -165,7 +159,7 @@ function extractClientIp(natsReq: NatsAuthRequest): string | undefined {
   return undefined;
 }
 
-type DeviceRuntimeGrant = ReturnType<typeof deriveDeviceRuntimeAccess> & {
+type DeviceRuntimeGrant = DeviceRuntimeAccess & {
   activation: {
     instanceId: string;
     publicIdentityKey: string;
@@ -213,37 +207,39 @@ async function resolveDeviceRuntimeGrant(
   contractStorage: SqlContractStorageRepository,
   contractDigest?: string,
   contractStore?: ContractStore,
-): Promise<DeviceRuntimeGrant> {
+): Promise<AuthCalloutStageResult<DeviceRuntimeGrant>> {
   const activation = await findDeviceActivationByIdentityKey(
     deps,
     publicIdentityKey,
   );
-  if (!activation) throw new Error("unknown_device");
+  if (!activation) return stageDeny("unknown_device");
   if (activation.state !== "activated" || activation.revokedAt !== null) {
-    throw new Error("device_activation_revoked");
+    return stageDeny("device_activation_revoked");
   }
 
   const deployment = await deps.deviceDeploymentStorage.get(
     activation.deploymentId,
   );
-  if (!deployment) throw new Error("device_deployment_not_found");
-  if (deployment.disabled) throw new Error("device_deployment_disabled");
+  if (!deployment) return stageDeny("device_deployment_not_found");
+  if (deployment.disabled) return stageDeny("device_deployment_disabled");
 
-  const effectiveContractDigest = resolveDeviceContractDigest(
+  const digestResult = resolveDeviceContractDigest(
     deployment,
     contractDigest,
   );
+  if (!digestResult.ok) return stageDeny(digestResult.reason);
   const activationActor = (activation as DeviceActivationRecord).activatedBy;
 
-  const contractRecord = await contractStorage.get(effectiveContractDigest);
-  if (!contractRecord) throw new Error("device_contract_not_found");
-  const access = deriveDeviceRuntimeAccess(
+  const contractRecord = await contractStorage.get(digestResult.value);
+  if (!contractRecord) return stageDeny("device_contract_not_found");
+  const accessResult = deriveDeviceRuntimeAccess(
     deployment,
     contractRecord,
     contractStore,
   );
-  return {
-    ...access,
+  if (!accessResult.ok) return stageDeny(accessResult.reason);
+  return stageOk({
+    ...accessResult.value,
     activation: {
       instanceId: activation.instanceId,
       publicIdentityKey: activation.publicIdentityKey,
@@ -254,7 +250,7 @@ async function resolveDeviceRuntimeGrant(
       revokedAt: activation.revokedAt,
     },
     deployment,
-  };
+  });
 }
 
 export function startDisconnectCleanup(deps: {
@@ -364,9 +360,11 @@ export function startAuthCallout(
     loadInstanceGrantPolicies:
       ServiceRuntimeLoaders["loadInstanceGrantPolicies"];
     contractStore?: ContractStore;
+    config: Config;
   },
 ): BackgroundTaskHandle {
   const {
+    config,
     connectionsKV,
     deviceActivationStorage,
     deviceDeploymentStorage,
@@ -516,23 +514,15 @@ export function startAuthCallout(
           lastAuth: now,
         });
       } else {
-        let deviceGrant: DeviceRuntimeGrant;
-        try {
-          deviceGrant = await resolveDeviceRuntimeGrant(
-            { deviceActivationStorage, deviceDeploymentStorage },
-            sessionKey,
-            opts.contractStorage,
-            authToken.contractDigest,
-            opts.contractStore,
-          );
-        } catch (error) {
-          if (
-            error instanceof Error && isAuthCalloutDenialCode(error.message)
-          ) {
-            return stageDeny(error.message);
-          }
-          throw error;
-        }
+        const deviceGrantResult = await resolveDeviceRuntimeGrant(
+          { deviceActivationStorage, deviceDeploymentStorage },
+          sessionKey,
+          opts.contractStorage,
+          authToken.contractDigest,
+          opts.contractStore,
+        );
+        if (!deviceGrantResult.ok) return deviceGrantResult;
+        const deviceGrant = deviceGrantResult.value;
         // The first successful runtime auth marks when an approved device was
         // actually used, which is distinct from the earlier review timestamp.
         await sessionStorage.put(sessionKey, {
@@ -561,21 +551,15 @@ export function startAuthCallout(
     if (!session) return stageDeny("session_not_found");
 
     if (session.type === "device") {
-      let currentGrant: DeviceRuntimeGrant;
-      try {
-        currentGrant = await resolveDeviceRuntimeGrant(
-          { deviceActivationStorage, deviceDeploymentStorage },
-          sessionKey,
-          opts.contractStorage,
-          authToken.contractDigest,
-          opts.contractStore,
-        );
-      } catch (error) {
-        if (error instanceof Error && isAuthCalloutDenialCode(error.message)) {
-          return stageDeny(error.message);
-        }
-        throw error;
-      }
+      const currentGrantResult = await resolveDeviceRuntimeGrant(
+        { deviceActivationStorage, deviceDeploymentStorage },
+        sessionKey,
+        opts.contractStorage,
+        authToken.contractDigest,
+        opts.contractStore,
+      );
+      if (!currentGrantResult.ok) return currentGrantResult;
+      const currentGrant = currentGrantResult.value;
       let activatedAt = currentGrant.activation.activatedAt
         ? new Date(currentGrant.activation.activatedAt)
         : null;
@@ -917,10 +901,23 @@ export function startAuthCallout(
   }
 
   let stopping = false;
+  const inFlight = new Set<Promise<void>>();
+
+  function trackAuthCallout(message: Msg): void {
+    const handler = handleAuthCallout(message)
+      .catch((error) => {
+        logger.error({ error }, "Auth callout handler failed unexpectedly");
+      })
+      .finally(() => {
+        inFlight.delete(handler);
+      });
+    inFlight.add(handler);
+  }
+
   const task = (async () => {
     try {
       for await (const message of sub) {
-        void handleAuthCallout(message);
+        trackAuthCallout(message);
       }
     } catch (error) {
       if (!stopping) {
@@ -934,6 +931,21 @@ export function startAuthCallout(
       stopping = true;
       sub.unsubscribe();
       await task;
+      const pendingCount = inFlight.size;
+      const drainResult = await waitForInFlightHandlers(
+        inFlight,
+        AUTH_CALLOUT_DRAIN_TIMEOUT_MS,
+      );
+      if (drainResult === "timed_out") {
+        logger.warn(
+          { pendingCount, timeoutMs: AUTH_CALLOUT_DRAIN_TIMEOUT_MS },
+          "Timed out waiting for auth callout handlers to finish",
+        );
+      }
     },
   };
 }
+
+export const __testing__ = {
+  waitForInFlightHandlers,
+};

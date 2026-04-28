@@ -770,6 +770,10 @@ Catalog rules:
 - active catalog refresh is fail-closed: failure to list installed contracts or
   hydrate required active contract state MUST fail startup or refresh rather
   than publishing a partial active catalog
+- refresh MUST validate every proposed active digest before replacing the
+  in-memory catalog; unknown digests or divergent duplicate active surfaces keep
+  the previous catalog unavailable rather than falling back to built-in manifests
+  or a partial catalog
 - active device digests are derived from enabled device deployments'
   `appliedContracts[].allowedDigests`, not from per-device current-contract
   fields
@@ -978,6 +982,9 @@ Rules:
 - operation control publish grants use `capabilities.read` and
   `capabilities.cancel` as applicable; holding only `capabilities.call` does not
   grant broad control-subject access
+- when an operation has no `read` capability grant and is not cancellable, callers
+  receive no control-subject publish permission even if they may start the
+  operation
 - if a capability list is empty or omitted, that specific action does not
   require additional capability grants
 - templated event subjects are authorized using wildcard subjects derived by

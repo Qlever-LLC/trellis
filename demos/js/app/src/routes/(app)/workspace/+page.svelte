@@ -14,13 +14,14 @@
 
   type AppStateListResult = Awaited<ReturnType<ReturnType<typeof workspaceContextStore.list>["orThrow"]>>;
   type AppStateEntry = AppStateListResult["entries"][number];
+  type ReadableAppStateEntry = Exclude<AppStateEntry, { migrationRequired: true }>;
   type AppStatePutResult = Awaited<ReturnType<ReturnType<typeof workspaceContextStore.put>["orThrow"]>>;
   type AppStatePutEntry = Extract<AppStatePutResult, { applied: true }>["entry"];
 
   let key = $state("demo.selected-site");
   let siteId = $state("site-west-yard");
   let note = $state("Prioritize the west-yard follow-up during the next browser session.");
-  let entries = $state<AppStateEntry[]>([]);
+  let entries = $state<ReadableAppStateEntry[]>([]);
   let latestPut = $state<AppStatePutEntry | null>(null);
   let loading = $state(true);
   let saving = $state(false);
@@ -32,7 +33,7 @@
 
     try {
       const response = await workspaceContextStore.prefix("demo.").list({ offset: 0, limit: 12 }).orThrow();
-      entries = response.entries;
+      entries = response.entries.filter((entry): entry is ReadableAppStateEntry => !("migrationRequired" in entry));
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {

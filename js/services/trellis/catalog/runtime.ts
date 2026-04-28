@@ -14,7 +14,7 @@ import { analyzeContract } from "./analysis.ts";
 import { setContracts as setPermissionContracts } from "./permissions.ts";
 import { ContractStore } from "./store.ts";
 import {
-  resolveContractUsesFromKnownStore,
+  createActiveContractLookup,
   resolveContractUsesFromStore,
 } from "./uses.ts";
 import type { SqlContractStorageRepository } from "./storage.ts";
@@ -122,6 +122,28 @@ async function hydrateStoredContract(args: {
       err: error instanceof Error ? error : undefined,
       errorMessage: getErrorMessage(error),
     }, args.message);
+  }
+}
+
+async function loadStoredContractOrThrow(args: {
+  contractStore: ContractStore;
+  record: InstalledContractRecord;
+  message: string;
+}): Promise<void> {
+  try {
+    const parsed = JSON.parse(args.record.contract);
+    if (!isJsonValue(parsed)) {
+      throw new Error("stored contract is not valid JSON value");
+    }
+    const validated = await args.contractStore.validate(parsed);
+    if (validated.digest !== args.record.digest) {
+      throw new Error("stored contract digest does not match persisted digest");
+    }
+    args.contractStore.add(validated.digest, validated.contract);
+  } catch (error) {
+    throw new Error(`${args.message} '${args.record.digest}'`, {
+      cause: error,
+    });
   }
 }
 
@@ -234,7 +256,7 @@ export function createContractsModule(opts: {
 
     await loadPersistedContractsIntoStore();
     const validated = await contractStore.validate(args.contract);
-    resolveContractUsesFromKnownStore(contractStore, validated.contract);
+    resolveContractUsesFromStore(contractStore, validated.contract);
 
     const usedNamespaces = new Set<string>();
     for (const method of Object.values(validated.contract.rpc ?? {})) {
@@ -378,14 +400,6 @@ export function createContractsModule(opts: {
     const installedContracts = await collectInstalledContractRecords(
       opts.contractStorage,
     );
-    for (const installed of installedContracts.byDigest.values()) {
-      await hydrateStoredContract({
-        contractStore,
-        logger,
-        record: installed,
-        message: "Failed to hydrate persisted contract",
-      });
-    }
 
     const serviceDeployments = new Map(
       (await opts.serviceDeploymentStorage.list()).map((deployment) => [
@@ -420,27 +434,35 @@ export function createContractsModule(opts: {
       if (contractStore.getContract(digest, { includeInactive: true })) {
         continue;
       }
-      const entry = await opts.contractStorage.get(digest);
-      if (!entry) continue;
-      await hydrateStoredContract({
+      const entry = installedContracts.byDigest.get(digest) ??
+        await opts.contractStorage.get(digest);
+      if (!entry) {
+        throw new Error(`Unknown active contract digest '${digest}'`);
+      }
+      await loadStoredContractOrThrow({
         contractStore,
-        logger,
         record: {
           digest: entry.digest,
           id: entry.id,
           contract: entry.contract,
         },
-        message: "Failed to load installed contract",
+        message: "Failed to load active contract",
       });
     }
 
-    try {
-      contractStore.setActiveDigests(active);
-    } catch (error) {
-      logger.error({ error }, "Failed to activate installed contracts");
-      contractStore.setActiveDigests(contractStore.getBuiltinDigests());
-    }
-    setPermissionContracts(contractStore.getActiveEntries());
+    const activeEntries = [...active].map((digest) => {
+      const contract = contractStore.getContract(digest, {
+        includeInactive: true,
+      });
+      if (!contract) {
+        throw new Error(`Unknown active contract digest '${digest}'`);
+      }
+      return { digest, contract };
+    });
+    createActiveContractLookup(activeEntries);
+
+    contractStore.setActiveDigests(active);
+    setPermissionContracts(activeEntries);
   }
 
   return {

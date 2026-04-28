@@ -8,13 +8,12 @@ import { Value } from "typebox/value";
 
 import { hashKey, randomToken, verifyDomainSig } from "../crypto.ts";
 import { ensureBoundUserSession } from "../session/bind.ts";
-import { getConfig } from "../../config.ts";
+import type { Config } from "../../config.ts";
 import type { ContractStore } from "../../catalog/store.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
-import { type AuthRuntimeDeps, authRuntimeDeps } from "../runtime_deps.ts";
+import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
-import { loadEffectiveGrantPolicies } from "../grants/store.ts";
 import {
   applyApprovalDecision,
   buildAppIdentity,
@@ -34,13 +33,13 @@ import { buildPortalFlowState } from "./portal_flow.ts";
 import { createServiceBootstrapHandler } from "../bootstrap/service.ts";
 import { createClientBootstrapHandler } from "../bootstrap/client.ts";
 import { registerDeviceActivationHttpRoutes } from "../device_activation/http.ts";
-import { kick } from "../callout/kick.ts";
 import { buildClientTransports } from "../transports.ts";
 import { OAuth2CodeRequest, OAuth2CodeResponse } from "../oauth.ts";
 import type { Provider } from "../providers/index.ts";
 import { createProviders } from "../providers/registry.ts";
 import { resolveCorsOrigin, validateRedirectTo } from "../redirect.ts";
 import {
+  type InstanceGrantPolicy,
   type PendingAuth,
   type Session,
   type SessionApprovalSource,
@@ -116,13 +115,18 @@ export function registerHttpRoutes(
     deviceActivationStorage: SqlDeviceActivationRepository;
     deviceActivationReviewStorage: SqlDeviceActivationReviewRepository;
     deviceProvisioningSecretStorage: SqlDeviceProvisioningSecretRepository;
+    config: Config;
+    kick: (serverId: string, clientId: number) => Promise<void>;
+    loadEffectiveGrantPolicies: (
+      contractId: string,
+    ) => Promise<InstanceGrantPolicy[]>;
     contractStore: ContractStore;
     refreshActiveContracts?: () => Promise<void>;
     providers?: Record<string, Provider>;
-    runtimeDeps?: HttpRouteRuntimeDeps;
+    runtimeDeps: HttpRouteRuntimeDeps;
   },
 ): void {
-  const config = getConfig();
+  const { config } = opts;
   const {
     browserFlowsKV,
     connectionsKV,
@@ -132,7 +136,7 @@ export function registerHttpRoutes(
     pendingAuthKV,
     sentinelCreds,
     sessionStorage,
-  } = opts.runtimeDeps ?? authRuntimeDeps();
+  } = opts.runtimeDeps;
   const providers = opts.providers ?? createProviders(config);
   const approvalResolutionDeps = {
     loadStoredApproval: async (key: string) => {
@@ -147,7 +151,7 @@ export function registerHttpRoutes(
       return await opts.userStorage.get(trellisId) ?? null;
     },
     loadInstanceGrantPolicies: async (contractId: string) => {
-      return await loadEffectiveGrantPolicies(contractId);
+      return await opts.loadEffectiveGrantPolicies(contractId);
     },
   };
 
@@ -325,7 +329,7 @@ export function registerHttpRoutes(
     const sessionEnsured = await ensureBoundUserSession({
       sessionStorage,
       connectionsKV,
-      kick,
+      kick: opts.kick,
       now,
       sessionKey: args.pendingValue.sessionKey,
       trellisId,
@@ -547,7 +551,7 @@ export function registerHttpRoutes(
         ) ?? null;
       },
       loadInstanceGrantPolicies: async (contractId: string) => {
-        return await loadEffectiveGrantPolicies(contractId);
+        return await opts.loadEffectiveGrantPolicies(contractId);
       },
       verifyIdentityProof: ({ sessionKey, iat, sig }) =>
         verifyDomainSig(sessionKey, "bootstrap-client", String(iat), sig),
@@ -1025,6 +1029,7 @@ export function registerHttpRoutes(
     deviceProvisioningSecretStorage: opts.deviceProvisioningSecretStorage,
     logger,
     sentinelCreds,
+    config,
   });
 
   app.post("/auth/flow/:flowId/bind", async (c) => {

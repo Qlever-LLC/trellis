@@ -81,6 +81,11 @@ async function registerTestRoutes(): Promise<Hono> {
     deviceDeploymentStorage: storage,
     deviceInstanceStorage: storage,
     deviceActivationStorage: storage,
+    deviceActivationReviewStorage: storage,
+    deviceProvisioningSecretStorage: storage,
+    config,
+    kick: async () => {},
+    loadEffectiveGrantPolicies: () => Promise.resolve([]),
     contractStore: { getContract: () => undefined },
     providers: {},
     runtimeDeps: {

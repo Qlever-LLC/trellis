@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 import {
@@ -181,16 +181,16 @@ Deno.test("contracts runtime rejects uses dependencies before persistence", asyn
     await assertRejects(
       () => module.installServiceContract(consumer),
       Error,
-      "unknown contract 'billing@v1'",
+      "inactive contract 'billing@v1'",
     );
 
     assertEquals(await contractStorage.list(), []);
   });
 });
 
-Deno.test("contracts runtime validates uses against known persisted contracts", async () => {
+Deno.test("contracts runtime validates uses against active contracts", async () => {
   await withContractsModule(async (module, contractStorage) => {
-    await module.installServiceContract(
+    const billing = await module.installServiceContract(
       makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
     );
 
@@ -207,6 +207,14 @@ Deno.test("contracts runtime validates uses against known persisted contracts", 
         },
       },
     } satisfies TrellisContractV1;
+
+    await assertRejects(
+      () => module.installServiceContract(badConsumer),
+      Error,
+      "inactive contract 'billing@v1'",
+    );
+
+    module.contractStore.activateDigest(billing.digest);
 
     await assertRejects(
       () => module.installServiceContract(badConsumer),
@@ -234,6 +242,221 @@ Deno.test("contracts runtime validates uses against known persisted contracts", 
       ],
     );
   });
+});
+
+Deno.test("contracts runtime fails closed when an active digest is missing", async () => {
+  await withContractsModule(async (module) => {
+    await module.refreshActiveContracts();
+    assertThrows(
+      () => module.contractStore.setActiveDigests(["missing-digest"]),
+      Error,
+      "Unknown active contract digest 'missing-digest'",
+    );
+  });
+});
+
+Deno.test("contracts runtime refresh fails closed for unknown service current digest", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-catalog-runtime-missing-active-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    const { createContractsModule } = await import("./runtime.ts");
+    await initializeTrellisStorageSchema(storage);
+    const contractStorage = new SqlContractStorageRepository(storage.db);
+    const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
+    const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
+      storage.db,
+    );
+    const module = createContractsModule({
+      builtinContracts: [],
+      contractStorage,
+      serviceInstanceStorage,
+      serviceDeploymentStorage,
+      deviceDeploymentStorage,
+      deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
+    });
+    await serviceDeploymentStorage.put({
+      deploymentId: "service.default",
+      namespaces: ["Service"],
+      disabled: false,
+      appliedContracts: [{
+        contractId: "service@v1",
+        allowedDigests: ["missing-digest"],
+      }],
+    });
+    await serviceInstanceStorage.put({
+      instanceId: "svc_1",
+      deploymentId: "service.default",
+      instanceKey: "session-key",
+      disabled: false,
+      currentContractId: "service@v1",
+      currentContractDigest: "missing-digest",
+      capabilities: ["service"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await assertRejects(
+      () => module.refreshActiveContracts(),
+      Error,
+      "Unknown active contract digest 'missing-digest'",
+    );
+    assertEquals(module.contractStore.getActiveCatalog().contracts, []);
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
+Deno.test("contracts runtime refresh fails closed when an active contract cannot hydrate", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-catalog-runtime-bad-active-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    const { createContractsModule } = await import("./runtime.ts");
+    await initializeTrellisStorageSchema(storage);
+    const contractStorage = new SqlContractStorageRepository(storage.db);
+    const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
+    const module = createContractsModule({
+      builtinContracts: [],
+      contractStorage,
+      serviceInstanceStorage,
+      serviceDeploymentStorage,
+      deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
+      deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
+    });
+    await contractStorage.put({
+      digest: "bad-digest",
+      id: "service@v1",
+      displayName: "Service",
+      description: "Bad stored contract",
+      installedAt: new Date(),
+      contract: "{not json",
+    });
+    await serviceDeploymentStorage.put({
+      deploymentId: "service.default",
+      namespaces: ["Service"],
+      disabled: false,
+      appliedContracts: [{
+        contractId: "service@v1",
+        allowedDigests: ["bad-digest"],
+      }],
+    });
+    await serviceInstanceStorage.put({
+      instanceId: "svc_1",
+      deploymentId: "service.default",
+      instanceKey: "session-key",
+      disabled: false,
+      currentContractId: "service@v1",
+      currentContractDigest: "bad-digest",
+      capabilities: ["service"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await assertRejects(
+      () => module.refreshActiveContracts(),
+      Error,
+      "Failed to load active contract 'bad-digest'",
+    );
+    assertEquals(module.contractStore.getActiveCatalog().contracts, []);
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
+Deno.test("contracts runtime refresh fails closed before activating divergent compatible digests", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-catalog-runtime-divergent-active-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    const { createContractsModule } = await import("./runtime.ts");
+    await initializeTrellisStorageSchema(storage);
+    const contractStorage = new SqlContractStorageRepository(storage.db);
+    const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
+    const module = createContractsModule({
+      builtinContracts: [],
+      contractStorage,
+      serviceInstanceStorage,
+      serviceDeploymentStorage,
+      deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
+      deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
+    });
+    const first = makeOperationContract(
+      "billing@v1",
+      "operations.v1.Billing.Refund",
+    );
+    first.operations!.Refund!.capabilities = { call: ["billing.refund"] };
+    const second = makeOperationContract(
+      "billing@v1",
+      "operations.v1.Billing.Refund",
+    );
+    second.operations!.Refund!.capabilities = {
+      call: ["billing.refund.v2"],
+    };
+    const firstInstalled = await module.installServiceContract(first);
+    const secondInstalled = await module.installServiceContract(second);
+
+    await serviceDeploymentStorage.put({
+      deploymentId: "service.default",
+      namespaces: ["Billing"],
+      disabled: false,
+      appliedContracts: [{
+        contractId: "billing@v1",
+        allowedDigests: [firstInstalled.digest, secondInstalled.digest],
+      }],
+    });
+    await serviceInstanceStorage.put({
+      instanceId: "svc_1",
+      deploymentId: "service.default",
+      instanceKey: "session-key-1",
+      disabled: false,
+      currentContractId: "billing@v1",
+      currentContractDigest: firstInstalled.digest,
+      capabilities: ["service"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    await serviceInstanceStorage.put({
+      instanceId: "svc_2",
+      deploymentId: "service.default",
+      instanceKey: "session-key-2",
+      disabled: false,
+      currentContractId: "billing@v1",
+      currentContractDigest: secondInstalled.digest,
+      capabilities: ["service"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await assertRejects(
+      () => module.refreshActiveContracts(),
+      Error,
+      "different capabilities",
+    );
+    assertEquals(module.contractStore.getActiveCatalog().contracts, []);
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
 });
 
 Deno.test("contracts runtime fails closed when persisted contract context cannot be loaded", async () => {

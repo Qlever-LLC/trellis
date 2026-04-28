@@ -26,14 +26,12 @@ import type {
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
-import { type AuthRuntimeDeps, maybeAuthRuntimeDeps } from "../runtime_deps.ts";
+import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import { parseContractApprovalKey } from "../http/support.ts";
 
 const logger = {
-  trace: (fields: Record<string, unknown>, message: string) =>
-    maybeAuthRuntimeDeps()?.logger.trace(fields, message),
-  warn: (fields: Record<string, unknown>, message: string) =>
-    maybeAuthRuntimeDeps()?.logger.warn(fields, message),
+  trace: (_fields: Record<string, unknown>, _message: string) => {},
+  warn: (_fields: Record<string, unknown>, _message: string) => {},
 };
 
 type AuthenticatedUser = {

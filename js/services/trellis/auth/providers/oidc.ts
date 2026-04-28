@@ -56,9 +56,10 @@ export class OIDC extends OIDCProvider {
     issuer: string;
     clientId: string;
     clientSecret: string;
+    redirectBase: string;
     scopes: string[];
   }) {
-    super(opts.clientId, opts.clientSecret);
+    super(opts.clientId, opts.clientSecret, opts.redirectBase);
     this.name = opts.name;
     this.displayName = opts.displayName;
     this.issuer = opts.issuer;

@@ -1,4 +1,3 @@
-import { authRuntimeDeps } from "../runtime_deps.ts";
 import type { InstanceGrantPolicy, PortalProfile } from "../schemas.ts";
 import type {
   SqlInstanceGrantPolicyRepository,
@@ -42,16 +41,4 @@ export function createEffectiveGrantPolicyLoader(
 
     return policies;
   };
-}
-
-export async function loadEffectiveGrantPolicies(
-  contractId: string,
-): Promise<InstanceGrantPolicy[]> {
-  const { instanceGrantPolicyStorage, portalProfileStorage, portalStorage } =
-    authRuntimeDeps();
-  return await createEffectiveGrantPolicyLoader({
-    instanceGrantPolicyStorage,
-    portalProfileStorage,
-    portalStorage,
-  })(contractId);
 }

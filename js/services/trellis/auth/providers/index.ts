@@ -1,4 +1,3 @@
-import { getConfig } from "../../config.ts";
 import type { OAuth2User } from "./oauth2_user.ts";
 
 export abstract class Provider {
@@ -13,15 +12,16 @@ export abstract class Provider {
 
   clientId: string;
   clientSecret: string;
+  redirectBase: string;
 
-  constructor(clientId: string, clientSecret: string) {
+  constructor(clientId: string, clientSecret: string, redirectBase: string) {
     this.clientId = clientId;
     this.clientSecret = clientSecret;
+    this.redirectBase = redirectBase;
   }
 
   getRedirectUri(): string {
-    const config = getConfig();
-    return `${config.oauth.redirectBase}/${this.name}`;
+    return `${this.redirectBase}/${this.name}`;
   }
 
   getUserInfo(token: string): Promise<OAuth2User> {

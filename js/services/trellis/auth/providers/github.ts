@@ -30,8 +30,13 @@ export class GitHub extends OAuth2Provider {
   override supportsDiscovery = false;
   override supportsPKCE = true;
 
-  constructor(clientId: string, clientSecret: string, displayName = "GitHub") {
-    super(clientId, clientSecret);
+  constructor(
+    clientId: string,
+    clientSecret: string,
+    redirectBase: string,
+    displayName = "GitHub",
+  ) {
+    super(clientId, clientSecret, redirectBase);
     this.displayName = displayName;
   }
 

@@ -1,6 +1,6 @@
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { digestContractManifest } from "@qlever-llc/trellis/contracts";
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 
 import { ContractStore } from "./store.ts";
 
@@ -178,6 +178,25 @@ Deno.test("contract store allows two active digests for one contract id during r
     contract1,
     contract2,
   ]);
+});
+
+Deno.test("contract store rejects unknown active digests", () => {
+  const store = new ContractStore();
+  const contract = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
+
+  store.activate("known-digest", contract);
+
+  assertThrows(
+    () => store.setActiveDigests(["known-digest", "missing-digest"]),
+    Error,
+    "Unknown active contract digest 'missing-digest'",
+  );
+  assertEquals(
+    store.getActiveCatalog().contracts.map((entry) => entry.digest),
+    [
+      "known-digest",
+    ],
+  );
 });
 
 Deno.test("contract store rejects activating duplicate subjects", async () => {

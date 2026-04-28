@@ -60,6 +60,7 @@ Deno.test("contract analysis includes operation subjects and control metadata", 
 
   assertEquals(analyzed.summary.operations, 1);
   assertEquals(analyzed.summary.operationControls, 4);
+  assertEquals(analyzed.summary.natsPublish, 5);
   assertEquals(analyzed.summary.namespaces, ["Billing"]);
   assertEquals(analyzed.analysis.operations.operations, [{
     key: "Refund",
@@ -84,12 +85,38 @@ Deno.test("contract analysis includes operation subjects and control metadata", 
       { action: "watch", requiredCapabilities: ["billing.refund.read"] },
     ],
   );
-  assertEquals(analyzed.analysis.nats.publish, [{
-    kind: "operation:call",
-    subject: "operations.v1.Billing.Refund",
-    wildcardSubject: "operations.v1.Billing.Refund",
-    requiredCapabilities: ["billing.refund"],
-  }]);
+  assertEquals(analyzed.analysis.nats.publish, [
+    {
+      kind: "operation:call",
+      subject: "operations.v1.Billing.Refund",
+      wildcardSubject: "operations.v1.Billing.Refund",
+      requiredCapabilities: ["billing.refund"],
+    },
+    {
+      kind: "operation:control",
+      subject: "operations.v1.Billing.Refund.control",
+      wildcardSubject: "operations.v1.Billing.Refund.control",
+      requiredCapabilities: ["billing.refund.read"],
+    },
+    {
+      kind: "operation:control",
+      subject: "operations.v1.Billing.Refund.control",
+      wildcardSubject: "operations.v1.Billing.Refund.control",
+      requiredCapabilities: ["billing.refund.read"],
+    },
+    {
+      kind: "operation:control",
+      subject: "operations.v1.Billing.Refund.control",
+      wildcardSubject: "operations.v1.Billing.Refund.control",
+      requiredCapabilities: ["billing.refund.read"],
+    },
+    {
+      kind: "operation:control",
+      subject: "operations.v1.Billing.Refund.control",
+      wildcardSubject: "operations.v1.Billing.Refund.control",
+      requiredCapabilities: ["billing.refund.cancel"],
+    },
+  ]);
   assertEquals(analyzed.analysis.nats.subscribe, [
     {
       kind: "operation:handle",
@@ -104,4 +131,42 @@ Deno.test("contract analysis includes operation subjects and control metadata", 
       requiredCapabilities: ["service"],
     },
   ]);
+});
+
+Deno.test("contract analysis does not grant operation control from call alone", () => {
+  const contract: TrellisContractV1 = {
+    format: "trellis.contract.v1",
+    id: "jobs@v1",
+    displayName: "Jobs",
+    description: "Jobs test contract",
+    kind: "service",
+    schemas: {
+      Input: { type: "object" },
+    },
+    operations: {
+      Run: {
+        version: "v1",
+        subject: "operations.v1.Jobs.Run",
+        input: { schema: "Input" },
+        capabilities: {
+          call: ["jobs.run"],
+        },
+      },
+    },
+  };
+
+  const analyzed = analyzeContract(contract);
+
+  assertEquals(
+    analyzed.analysis.operations.control.map((control) =>
+      control.requiredCapabilities
+    ),
+    [[], [], []],
+  );
+  assertEquals(analyzed.analysis.nats.publish, [{
+    kind: "operation:call",
+    subject: "operations.v1.Jobs.Run",
+    wildcardSubject: "operations.v1.Jobs.Run",
+    requiredCapabilities: ["jobs.run"],
+  }]);
 });

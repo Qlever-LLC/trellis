@@ -173,7 +173,7 @@ The default table shows `name`, `serial`, and `model` when present. `--show-meta
 trellis deploy apply dev/my-device.standard --source ./contracts/my_device.ts
 ```
 
-When a deployment needs to allow multiple active digests for one contract lineage during rollout, Trellis stores those in `allowedDigests` behind the device deployment.
+When a deployment needs to allow multiple active digests for one contract lineage during rollout, Trellis stores those in `allowedDigests` behind the device deployment. Each listed digest must still be active for that lineage; Trellis rejects unknown or retired digests instead of silently choosing another allowed digest.
 
 Use `trellis deploy apply` to allow a new digest and `trellis deploy unapply` to retire old digests only after deployed device runtimes no longer present that digest. Trellis does not track this through per-instance current contract fields.
 

@@ -1,25 +1,4 @@
-import {
-  authClearDevicePortalSelectionHandler,
-  authClearLoginPortalSelectionHandler,
-  authDisableInstanceGrantPolicyHandler,
-  authDisablePortalHandler,
-  authDisablePortalProfileHandler,
-  authGetDevicePortalDefaultHandler,
-  authGetLoginPortalDefaultHandler,
-  authListDevicePortalSelectionsHandler,
-  authListInstanceGrantPoliciesHandler,
-  authListLoginPortalSelectionsHandler,
-  authListPortalProfilesHandler,
-  authListPortalsHandler,
-  authSetDevicePortalDefaultHandler,
-  authSetDevicePortalSelectionHandler,
-  authSetLoginPortalDefaultHandler,
-  authSetLoginPortalSelectionHandler,
-  authUpsertInstanceGrantPolicyHandler,
-  createAuthCreatePortalHandler,
-  createAuthSetPortalProfileHandler,
-  setAdminRpcDeps,
-} from "../admin/rpc.ts";
+import { createPortalPolicyAdminHandlers } from "../admin/rpc.ts";
 import { createKick } from "../callout/kick.ts";
 import { createEffectiveGrantPolicyLoader } from "../grants/store.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
@@ -63,82 +42,80 @@ export async function registerPortalPolicyAdminRpcs(
       | "userStorage"
     >,
 ): Promise<void> {
-  setAdminRpcDeps({
+  const handlers = createPortalPolicyAdminHandlers({
     ...deps,
     kick: createKick(deps),
     loadEffectiveGrantPolicies: createEffectiveGrantPolicyLoader(deps),
+    contractStore: deps.contracts.contractStore,
   });
   await deps.trellis.mount(
     "Auth.CreatePortal",
-    createAuthCreatePortalHandler(),
+    handlers.createPortal,
   );
-  await deps.trellis.mount("Auth.ListPortals", authListPortalsHandler);
-  await deps.trellis.mount("Auth.DisablePortal", authDisablePortalHandler);
+  await deps.trellis.mount("Auth.ListPortals", handlers.listPortals);
+  await deps.trellis.mount("Auth.DisablePortal", handlers.disablePortal);
   await deps.trellis.mount(
     "Auth.ListPortalProfiles",
-    authListPortalProfilesHandler,
+    handlers.listPortalProfiles,
   );
   await deps.trellis.mount(
     "Auth.SetPortalProfile",
-    createAuthSetPortalProfileHandler({
-      contractStorage: deps.contractStorage,
-      contractStore: deps.contracts.contractStore,
-    }),
+    handlers.setPortalProfile,
   );
   await deps.trellis.mount(
     "Auth.DisablePortalProfile",
-    authDisablePortalProfileHandler,
+    handlers.disablePortalProfile,
   );
   await deps.trellis.mount(
     "Auth.GetLoginPortalDefault",
-    authGetLoginPortalDefaultHandler,
+    handlers.getLoginPortalDefault,
   );
   await deps.trellis.mount(
     "Auth.ListInstanceGrantPolicies",
-    authListInstanceGrantPoliciesHandler,
+    handlers.listInstanceGrantPolicies,
   );
   await deps.trellis.mount(
     "Auth.UpsertInstanceGrantPolicy",
-    authUpsertInstanceGrantPolicyHandler,
+    handlers.upsertInstanceGrantPolicy,
   );
   await deps.trellis.mount(
     "Auth.DisableInstanceGrantPolicy",
-    authDisableInstanceGrantPolicyHandler,
+    handlers.disableInstanceGrantPolicy,
   );
   await deps.trellis.mount(
     "Auth.SetLoginPortalDefault",
-    authSetLoginPortalDefaultHandler,
+    handlers.setLoginPortalDefault,
   );
   await deps.trellis.mount(
     "Auth.ListLoginPortalSelections",
-    authListLoginPortalSelectionsHandler,
+    handlers.listLoginPortalSelections,
   );
   await deps.trellis.mount(
     "Auth.SetLoginPortalSelection",
-    authSetLoginPortalSelectionHandler,
+    handlers.setLoginPortalSelection,
   );
   await deps.trellis.mount(
     "Auth.ClearLoginPortalSelection",
-    authClearLoginPortalSelectionHandler,
+    handlers.clearLoginPortalSelection,
   );
   await deps.trellis.mount(
     "Auth.GetDevicePortalDefault",
-    authGetDevicePortalDefaultHandler,
+    handlers.getDevicePortalDefault,
   );
   await deps.trellis.mount(
     "Auth.SetDevicePortalDefault",
-    authSetDevicePortalDefaultHandler,
+    handlers.setDevicePortalDefault,
   );
   await deps.trellis.mount(
     "Auth.ListDevicePortalSelections",
-    authListDevicePortalSelectionsHandler,
+    handlers.listDevicePortalSelections,
   );
   await deps.trellis.mount(
     "Auth.SetDevicePortalSelection",
-    authSetDevicePortalSelectionHandler,
+    handlers.setDevicePortalSelection,
   );
   await deps.trellis.mount(
     "Auth.ClearDevicePortalSelection",
-    authClearDevicePortalSelectionHandler,
+    handlers.clearDevicePortalSelection,
   );
 }

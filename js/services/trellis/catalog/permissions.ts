@@ -63,7 +63,7 @@ let state = createPermissionState([
   { digest: trellisStateContract.id, contract: trellisStateContract },
 ]);
 
-function hasRequiredCapabilities(
+export function hasRequiredCapabilities(
   grantedCapabilities: string[],
   requiredCapabilities: string[],
 ): boolean {
@@ -77,11 +77,13 @@ function dedupe(subjects: Iterable<string>): string[] {
   return [...new Set(subjects)];
 }
 
-function operationControlCapabilityRules(
+export function operationControlCapabilityRules(
   operation: ContractOperation,
 ): string[][] {
   return [
-    operation.capabilities?.read ?? operation.capabilities?.call ?? [],
+    ...(operation.capabilities?.read !== undefined
+      ? [operation.capabilities.read]
+      : []),
     ...(operation.cancel && operation.capabilities?.cancel !== undefined
       ? [operation.capabilities.cancel]
       : []),

@@ -290,6 +290,29 @@ Deno.test("auth config defaults web origins to wildcard", async () => {
   );
 });
 
+Deno.test("auth lifecycle modules do not read config during import", async () => {
+  const previousConfigPath = Deno.env.get("TRELLIS_CONFIG");
+  Deno.env.set(
+    "TRELLIS_CONFIG",
+    "/tmp/trellis-import-time-config-must-not-exist.jsonc",
+  );
+  __testing__.resetConfig();
+
+  try {
+    const suffix = `?importTimeConfigTest=${crypto.randomUUID()}`;
+    await import(`./auth/callout/callout.ts${suffix}`);
+    await import(`./auth/device_activation/http.ts${suffix}`);
+    await import(`./auth/device_activation/operation.ts${suffix}`);
+  } finally {
+    __testing__.resetConfig();
+    if (previousConfigPath === undefined) {
+      Deno.env.delete("TRELLIS_CONFIG");
+    } else {
+      Deno.env.set("TRELLIS_CONFIG", previousConfigPath);
+    }
+  }
+});
+
 Deno.test("auth config loads explicit insecure origin allowlist", async () => {
   await withTempConfig(
     `{

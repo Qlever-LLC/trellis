@@ -1,17 +1,13 @@
 import { AuthError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
 
-import {
-  type AuthLogger,
-  type AuthRuntimeDeps,
-  authRuntimeDeps,
-} from "../runtime_deps.ts";
+import { type AuthLogger, type AuthRuntimeDeps } from "../runtime_deps.ts";
 import { randomToken } from "../crypto.ts";
 import {
   deriveDeviceConfirmationCode,
   verifyDeviceWaitSignature,
 } from "@qlever-llc/trellis/auth";
-import { getConfig } from "../../config.ts";
+import type { Config } from "../../config.ts";
 import { buildClientTransports } from "../transports.ts";
 import { isDeviceProofIatFresh } from "./shared.ts";
 import { resolveDeviceConnectInfo } from "../bootstrap/device.ts";
@@ -88,21 +84,22 @@ type DeviceActivationReviewRecord = {
   reason?: string;
 };
 
-const config = getConfig();
 const REVIEW_POLL_INTERVAL_MS = 1_000;
 
-type DeviceActivationOperationDeps = Pick<
-  AuthRuntimeDeps,
-  | "browserFlowsKV"
-  | "deviceActivationReviewStorage"
-  | "deviceActivationStorage"
-  | "deviceDeploymentStorage"
-  | "deviceInstanceStorage"
-  | "deviceProvisioningSecretStorage"
-  | "logger"
-  | "sentinelCreds"
-  | "trellis"
->;
+type DeviceActivationOperationDeps =
+  & Pick<
+    AuthRuntimeDeps,
+    | "browserFlowsKV"
+    | "deviceActivationReviewStorage"
+    | "deviceActivationStorage"
+    | "deviceDeploymentStorage"
+    | "deviceInstanceStorage"
+    | "deviceProvisioningSecretStorage"
+    | "logger"
+    | "sentinelCreds"
+    | "trellis"
+  >
+  & { config: Config };
 
 function activationFailure(
   logger: AuthLogger,
@@ -393,7 +390,7 @@ async function waitForTerminalActivationStatus(
 }
 
 export function createActivateDeviceHandler(
-  deps: DeviceActivationOperationDeps = authRuntimeDeps(),
+  deps: DeviceActivationOperationDeps,
 ) {
   return async (
     { input, caller, op }: {
@@ -520,7 +517,7 @@ export function createActivateDeviceHandler(
 }
 
 export function createGetDeviceConnectInfoHandler(
-  deps: DeviceActivationOperationDeps = authRuntimeDeps(),
+  deps: DeviceActivationOperationDeps,
 ) {
   return async ({
     input: req,
@@ -554,7 +551,7 @@ export function createGetDeviceConnectInfoHandler(
     }
 
     const result = await resolveDeviceConnectInfo({
-      transports: buildClientTransports(config),
+      transports: buildClientTransports(deps.config),
       sentinel: sentinelCreds,
       loadDeviceInstance: (instanceId) => loadDeviceInstance(deps, instanceId),
       loadDeviceActivation: (instanceId) =>

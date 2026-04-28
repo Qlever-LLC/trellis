@@ -12,8 +12,8 @@ import {
   verifyDeviceConnectInfoIdentityProof,
 } from "../bootstrap/device.ts";
 import { buildClientTransports } from "../transports.ts";
-import { getConfig } from "../../config.ts";
-import { type AuthRuntimeDeps, authRuntimeDeps } from "../runtime_deps.ts";
+import type { Config } from "../../config.ts";
+import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type {
   SqlDevicePortalSelectionRepository,
   SqlPortalDefaultRepository,
@@ -23,8 +23,6 @@ import { randomToken } from "../crypto.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
 import { resolveDevicePortal } from "../http/support.ts";
 import { isDeviceProofIatFresh } from "./shared.ts";
-
-const config = getConfig();
 
 type DeviceActivationFlow = {
   flowId: string;
@@ -112,7 +110,8 @@ type DeviceActivationHttpDeps =
     | "deviceProvisioningSecretStorage"
     | "logger"
     | "sentinelCreds"
-  >;
+  >
+  & { config: Config };
 
 async function loadDeviceInstance(
   deps: DeviceActivationHttpDeps,
@@ -239,7 +238,7 @@ async function loadDevicePortalDefaultId(
 
 function deviceBootstrapDeps(deps: DeviceActivationHttpDeps) {
   return {
-    transports: buildClientTransports(config),
+    transports: buildClientTransports(deps.config),
     sentinel: deps.sentinelCreds,
     loadDeviceInstance: (instanceId: string) =>
       loadDeviceInstance(deps, instanceId),
@@ -267,7 +266,7 @@ async function confirmationCodeForActivation(
   });
 }
 
-function builtinPortalEntryUrl(): string {
+function builtinPortalEntryUrl(config: Config): string {
   const base = config.web.publicOrigin ?? config.oauth.redirectBase;
   return new URL("/_trellis/portal/devices/activate", base).toString();
 }
@@ -313,7 +312,7 @@ async function createDeviceActivationRequest(
       qrMac: payload.qrMac,
     },
     createdAt: now,
-    expiresAt: new Date(now.getTime() + config.ttlMs.deviceFlow),
+    expiresAt: new Date(now.getTime() + deps.config.ttlMs.deviceFlow),
   }).take();
   if (isErr(putResult)) {
     deps.logger.error(
@@ -331,7 +330,7 @@ async function createDeviceActivationRequest(
   });
   const portalEntryUrl = portalResolution.kind === "custom"
     ? portalResolution.portal.entryUrl
-    : builtinPortalEntryUrl();
+    : builtinPortalEntryUrl(deps.config);
   const portalUrl = new URL(portalEntryUrl);
   portalUrl.searchParams.set("flowId", flowId);
   return {
@@ -344,13 +343,7 @@ async function createDeviceActivationRequest(
 
 export function registerDeviceActivationHttpRoutes(
   app: Pick<Hono, "post">,
-  deps: DeviceActivationHttpDeps = {
-    ...authRuntimeDeps(),
-    portalStorage: authRuntimeDeps().portalStorage,
-    portalDefaultStorage: authRuntimeDeps().portalDefaultStorage,
-    devicePortalSelectionStorage:
-      authRuntimeDeps().devicePortalSelectionStorage,
-  },
+  deps: DeviceActivationHttpDeps,
 ): void {
   app.post("/auth/devices/activate/requests", async (c: Context) => {
     const bodyResult = await AsyncResult.try(() => c.req.json());

@@ -117,6 +117,11 @@ The device TUI exposes the same concepts as menu actions: list assignments, view
 the selected site, refresh a site, generate a report, upload evidence, watch
 activity events briefly, and save or list draft state.
 
+Both the browser app and activated device declare `read` for operations they
+watch and `cancel` only for `Reports.Generate`. This mirrors runtime permission
+derivation: `call` starts an operation, but it does not grant operation-control
+subjects by itself.
+
 ## Jobs Are Private Implementation
 
 Jobs are demonstrated behind the `Sites.Refresh` operation. The caller starts

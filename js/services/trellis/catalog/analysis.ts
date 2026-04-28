@@ -24,7 +24,7 @@ function subjectNamespace(subject: string): string | null {
 function operationReadCapabilities(operation: {
   capabilities?: { call?: string[]; read?: string[] };
 }): string[] {
-  return operation.capabilities?.read ?? operation.capabilities?.call ?? [];
+  return operation.capabilities?.read ?? [];
 }
 
 export type ContractAnalysis = {
@@ -71,6 +71,7 @@ export type ContractAnalysis = {
       kind:
         | "rpc:call"
         | "operation:call"
+        | "operation:control"
         | "event:publish";
       subject: string;
       wildcardSubject: string;
@@ -270,6 +271,24 @@ export function analyzeContract(contract: TrellisContractV1): {
       wildcardSubject: operation.wildcardSubject,
       requiredCapabilities: operation.callCapabilities,
     });
+    if (operation.readCapabilities.length > 0) {
+      for (const _ of ["get", "wait", "watch"]) {
+        publish.push({
+          kind: "operation:control",
+          subject: operation.controlSubject,
+          wildcardSubject: operation.wildcardControlSubject,
+          requiredCapabilities: operation.readCapabilities,
+        });
+      }
+    }
+    if (operation.cancel && operation.cancelCapabilities.length > 0) {
+      publish.push({
+        kind: "operation:control",
+        subject: operation.controlSubject,
+        wildcardSubject: operation.wildcardControlSubject,
+        requiredCapabilities: operation.cancelCapabilities,
+      });
+    }
     subscribe.push(
       {
         kind: "operation:handle",

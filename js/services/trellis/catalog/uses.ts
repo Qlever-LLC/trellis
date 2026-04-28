@@ -45,14 +45,6 @@ export type ResolvedContractUses = {
   eventSubscribes: ResolvedEventUse[];
 };
 
-function unionCapabilities(
-  left: string[] | undefined,
-  right: string[] | undefined,
-): string[] | undefined {
-  const merged = sortUniqueStrings([...(left ?? []), ...(right ?? [])]);
-  return merged.length === 0 ? undefined : merged;
-}
-
 function requireSameSubject(
   key: string,
   left: string,
@@ -102,16 +94,17 @@ function mergeRpcMethod(
   requireSameJsonField(key, "output", left.output, right.output);
   requireSameJsonField(key, "transfer", left.transfer, right.transfer);
   requireSameJsonField(key, "errors", left.errors, right.errors);
-  const call = unionCapabilities(
-    left.capabilities?.call,
-    right.capabilities?.call,
+  requireSameJsonField(
+    key,
+    "capabilities",
+    left.capabilities,
+    right.capabilities,
   );
   return {
     ...left,
     ...(left.transfer ?? right.transfer
       ? { transfer: left.transfer ?? right.transfer }
       : {}),
-    ...(call ? { capabilities: { call } } : {}),
   };
 }
 
@@ -127,17 +120,11 @@ function mergeOperation(
   requireSameJsonField(key, "output", left.output, right.output);
   requireSameJsonField(key, "transfer", left.transfer, right.transfer);
   requireSameJsonField(key, "cancel", left.cancel, right.cancel);
-  const call = unionCapabilities(
-    left.capabilities?.call,
-    right.capabilities?.call,
-  );
-  const read = unionCapabilities(
-    left.capabilities?.read,
-    right.capabilities?.read,
-  );
-  const cancel = unionCapabilities(
-    left.capabilities?.cancel,
-    right.capabilities?.cancel,
+  requireSameJsonField(
+    key,
+    "capabilities",
+    left.capabilities,
+    right.capabilities,
   );
   return {
     ...left,
@@ -145,15 +132,6 @@ function mergeOperation(
       ? { transfer: left.transfer ?? right.transfer }
       : {}),
     ...(left.cancel || right.cancel ? { cancel: true } : {}),
-    ...(call || read || cancel
-      ? {
-        capabilities: {
-          ...(call ? { call } : {}),
-          ...(read ? { read } : {}),
-          ...(cancel ? { cancel } : {}),
-        },
-      }
-      : {}),
   };
 }
 
@@ -166,24 +144,14 @@ function mergeEvent(
   requireSameJsonField(key, "version", left.version, right.version);
   requireSameJsonField(key, "params", left.params, right.params);
   requireSameJsonField(key, "event", left.event, right.event);
-  const publish = unionCapabilities(
-    left.capabilities?.publish,
-    right.capabilities?.publish,
-  );
-  const subscribe = unionCapabilities(
-    left.capabilities?.subscribe,
-    right.capabilities?.subscribe,
+  requireSameJsonField(
+    key,
+    "capabilities",
+    left.capabilities,
+    right.capabilities,
   );
   return {
     ...left,
-    ...(publish || subscribe
-      ? {
-        capabilities: {
-          ...(publish ? { publish } : {}),
-          ...(subscribe ? { subscribe } : {}),
-        },
-      }
-      : {}),
   };
 }
 

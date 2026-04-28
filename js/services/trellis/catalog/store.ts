@@ -238,61 +238,101 @@ export class ContractStore {
     this.#contractsByDigest.set(digest, contract);
   }
 
-  #indexActiveId(digest: string, contract: TrellisContractV1): void {
-    const digests = this.#activeDigestsById.get(contract.id) ??
+  #indexActiveId(
+    index: Map<string, Set<string>>,
+    digest: string,
+    contract: TrellisContractV1,
+  ): void {
+    const digests = index.get(contract.id) ??
       new Set<string>();
     digests.add(digest);
-    this.#activeDigestsById.set(contract.id, digests);
+    index.set(contract.id, digests);
   }
 
   #indexActiveSubject(
+    index: Map<string, ActiveSubjectOwner>,
     digest: string,
     contract: TrellisContractV1,
     subject: string,
   ) {
-    const prev = this.#activeSubjectIndex.get(subject);
+    const prev = index.get(subject);
     if (prev && prev.digest !== digest && prev.contractId !== contract.id) {
       throw new Error(
         `Subject '${subject}' already registered by '${prev.displayName}' (${prev.contractId})`,
       );
     }
-    this.#activeSubjectIndex.set(subject, {
+    index.set(subject, {
       digest,
       contractId: contract.id,
       displayName: contract.displayName,
     });
   }
 
-  #rebuildActiveSubjectIndex(): void {
-    this.#activeDigestsById.clear();
-    this.#activeSubjectIndex.clear();
-    for (const digest of this.#activeDigests) {
+  #buildActiveIndexes(activeDigests: Iterable<string>): {
+    activeDigestsById: Map<string, Set<string>>;
+    activeSubjectIndex: Map<string, ActiveSubjectOwner>;
+  } {
+    const activeDigestsById = new Map<string, Set<string>>();
+    const activeSubjectIndex = new Map<string, ActiveSubjectOwner>();
+    for (const digest of activeDigests) {
       const contract = this.#contractsByDigest.get(digest);
-      if (!contract) continue;
+      if (!contract) {
+        throw new Error(`Unknown active contract digest '${digest}'`);
+      }
 
-      this.#indexActiveId(digest, contract);
+      this.#indexActiveId(activeDigestsById, digest, contract);
 
       for (
         const m of Object.values(contract.rpc ?? {}) as Array<
           NonNullable<TrellisContractV1["rpc"]>[string]
         >
       ) {
-        this.#indexActiveSubject(digest, contract, m.subject);
+        this.#indexActiveSubject(
+          activeSubjectIndex,
+          digest,
+          contract,
+          m.subject,
+        );
       }
       for (
         const o of Object.values(contract.operations ?? {}) as Array<
           NonNullable<TrellisContractV1["operations"]>[string]
         >
       ) {
-        this.#indexActiveSubject(digest, contract, o.subject);
+        this.#indexActiveSubject(
+          activeSubjectIndex,
+          digest,
+          contract,
+          o.subject,
+        );
       }
       for (
         const e of Object.values(contract.events ?? {}) as Array<
           NonNullable<TrellisContractV1["events"]>[string]
         >
       ) {
-        this.#indexActiveSubject(digest, contract, e.subject);
+        this.#indexActiveSubject(
+          activeSubjectIndex,
+          digest,
+          contract,
+          e.subject,
+        );
       }
+    }
+    return { activeDigestsById, activeSubjectIndex };
+  }
+
+  #rebuildActiveSubjectIndex(): void {
+    const { activeDigestsById, activeSubjectIndex } = this.#buildActiveIndexes(
+      this.#activeDigests,
+    );
+    this.#activeDigestsById.clear();
+    this.#activeSubjectIndex.clear();
+    for (const [id, digests] of activeDigestsById) {
+      this.#activeDigestsById.set(id, digests);
+    }
+    for (const [subject, owner] of activeSubjectIndex) {
+      this.#activeSubjectIndex.set(subject, owner);
     }
   }
 
@@ -338,13 +378,29 @@ export class ContractStore {
   }
 
   setActiveDigests(digests: Iterable<string>): void {
-    this.#activeDigests.clear();
-    for (const d of digests) {
-      if (this.#contractsByDigest.has(d)) {
-        this.#activeDigests.add(d);
+    const nextActiveDigests = new Set<string>();
+    for (const digest of digests) {
+      if (!this.#contractsByDigest.has(digest)) {
+        throw new Error(`Unknown active contract digest '${digest}'`);
       }
+      nextActiveDigests.add(digest);
     }
-    this.#rebuildActiveSubjectIndex();
+    const { activeDigestsById, activeSubjectIndex } = this.#buildActiveIndexes(
+      nextActiveDigests,
+    );
+
+    this.#activeDigests.clear();
+    for (const digest of nextActiveDigests) {
+      this.#activeDigests.add(digest);
+    }
+    this.#activeDigestsById.clear();
+    for (const [id, activeIdDigests] of activeDigestsById) {
+      this.#activeDigestsById.set(id, activeIdDigests);
+    }
+    this.#activeSubjectIndex.clear();
+    for (const [subject, owner] of activeSubjectIndex) {
+      this.#activeSubjectIndex.set(subject, owner);
+    }
   }
 
   getBuiltinDigests(): string[] {

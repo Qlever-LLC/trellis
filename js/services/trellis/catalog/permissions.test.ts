@@ -312,7 +312,7 @@ Deno.test("user uses resolution allows multiple active compatible digests", () =
   });
 });
 
-Deno.test("user uses resolution merges duplicate active surface capabilities conservatively", () => {
+Deno.test("user uses resolution rejects duplicate active surface capability divergence", () => {
   const stricterGraph = {
     digest: "graph-stricter-digest",
     contract: {
@@ -330,19 +330,17 @@ Deno.test("user uses resolution merges duplicate active surface capabilities con
     },
   } satisfies { digest: string; contract: TrellisContractV1 };
 
-  withContracts([...TEST_CONTRACTS, stricterGraph], () => {
-    const readOnly = getUserPublishSubjects(
-      ["partners:read"],
-      { contractDigest: "portal-digest" },
-    );
-    assertEquals(readOnly.includes("rpc.v1.Partner.List"), false);
-
-    const fullAccess = getUserPublishSubjects(
-      ["partners:read", "partners:sensitive"],
-      { contractDigest: "portal-digest" },
-    );
-    assertEquals(fullAccess.includes("rpc.v1.Partner.List"), true);
-  });
+  assertThrows(
+    () => {
+      withContracts([...TEST_CONTRACTS, stricterGraph], () => {
+        getUserPublishSubjects(["partners:read", "partners:sensitive"], {
+          contractDigest: "portal-digest",
+        });
+      });
+    },
+    Error,
+    "Active compatible digests define 'Partner.List' with different capabilities",
+  );
 });
 
 Deno.test("user uses resolution rejects divergent duplicate active surfaces", () => {

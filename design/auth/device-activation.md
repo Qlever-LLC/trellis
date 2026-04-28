@@ -138,6 +138,9 @@ Rules:
   during rollout
 - activated devices present an exact `contractDigest`; auth checks that digest
   against one applied contract's `allowedDigests`
+- each allowed digest must resolve to an active catalog entry for the same
+  contract lineage; unknown or inactive digests are rejected instead of falling
+  back to another digest in the deployment
 - `reviewMode: "required"` means portal completion creates or resumes a pending
   review rather than activating immediately
 - there is no separate rollout-target digest field

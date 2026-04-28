@@ -1,4 +1,4 @@
-import { kick } from "../callout/kick.ts";
+import { createKick } from "../callout/kick.ts";
 import { createServiceLookup } from "../admin/service_lookup.ts";
 import { createEffectiveGrantPolicyLoader } from "../grants/store.ts";
 import {
@@ -48,6 +48,7 @@ export async function registerSessionRpcs(deps: {
   natsAuth: AuthRuntimeDeps["natsAuth"];
   logger: AuthRuntimeDeps["logger"];
 }): Promise<void> {
+  const kick = createKick({ logger: deps.logger, natsAuth: deps.natsAuth });
   const serviceLookup = createServiceLookup(deps);
   const loadInstanceGrantPolicies = createEffectiveGrantPolicyLoader(deps);
   const revokeSessionHandler = createAuthRevokeSessionHandler({
