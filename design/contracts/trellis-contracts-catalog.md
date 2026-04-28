@@ -246,7 +246,8 @@ Additive-only means:
 
 - a new digest MAY add owned RPCs, operations, events, and job queues
 - a new digest MAY add optional fields to existing request, response, progress,
-  and event payload schemas
+  event, and job payload/result schemas when those payload objects remain open to
+  unknown fields
 - a new digest MAY add new declared errors or new capabilities for newly added
   owned surfaces
 - a new digest MUST NOT remove or rename an existing owned RPC, operation,
@@ -255,6 +256,14 @@ Additive-only means:
   while old and new digests coexist
 - a new digest MUST NOT change an existing schema in a breaking way while old
   and new digests coexist
+
+Active-compatible projection verifies duplicate same-lineage surfaces by
+resolving their schema refs against each digest's `schemas` map. Projection MAY
+accept canonically equal resolved schemas, and MAY accept optional additive
+fields on open object schemas when required fields and existing property schemas
+remain compatible. Projection MUST fail closed for closed-object property-set
+divergence, unresolved refs, and any non-identical schema construct whose wire
+compatibility is not proven by the supported v1 verifier.
 
 Authoring note:
 
@@ -325,6 +334,10 @@ Rules:
 - that active-compatible-digest projection MAY merge additive identical logical
   surface descriptors, but MUST reject divergent duplicate descriptors for the
   same operation, RPC, or event name
+- duplicate surface descriptors are compared after resolving schema refs; same
+  ref names are not sufficient, and different ref names are acceptable only when
+  the resolved schemas are canonically equal or proven compatible by the
+  same-lineage schema verifier
 - higher-level consent scopes for user-facing applications MAY be derived from
   `uses`, but runtime enforcement remains operation-level
 - any user approval or consent record for a client contract MUST be bound to the

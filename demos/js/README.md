@@ -40,6 +40,13 @@ approval identity from the normalized contract interface: editing display-only
 metadata such as `displayName` or `description` updates portal/catalog copy but
 does not force a new browser, CLI, or device approval digest.
 
+When evolving the demo service during a rollout, keep duplicate RPC, operation,
+event, and job payload schemas wire-compatible. The demo schemas intentionally
+use normal open TypeBox objects, so adding optional fields is the safe additive
+path. Adding required fields, closing objects with `additionalProperties: false`,
+or changing field types requires retiring the old digest first or moving to a new
+contract lineage.
+
 ## Create And Start The Service
 
 Create one service deployment from `demos/js/service/contract.ts`, provision one

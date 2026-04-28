@@ -350,7 +350,7 @@ Deno.test("user uses resolution rejects divergent duplicate active surfaces", ()
       ...TEST_CONTRACTS[2].contract,
       schemas: {
         ...TEST_CONTRACTS[2].contract.schemas,
-        OtherOutput: { type: "object" },
+        OtherOutput: { type: "string" },
       },
       rpc: {
         "Partner.List": {
@@ -358,6 +358,7 @@ Deno.test("user uses resolution rejects divergent duplicate active surfaces", ()
           subject: "rpc.v1.Partner.List",
           input: { schema: "EmptyInput" },
           output: { schema: "OtherOutput" },
+          transfer: { direction: "receive" },
           capabilities: { call: ["partners:read"] },
         },
       },
@@ -373,7 +374,7 @@ Deno.test("user uses resolution rejects divergent duplicate active surfaces", ()
       });
     },
     Error,
-    "Active compatible digests define 'Partner.List' with different output",
+    "Active compatible digests define 'Partner.List' with incompatible output",
   );
 });
 

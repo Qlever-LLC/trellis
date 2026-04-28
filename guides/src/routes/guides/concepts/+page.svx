@@ -29,7 +29,7 @@ Portals are deployment-owned browser routing records, not a contract kind. A cus
 ### Contract identity
 
 Each contract has a stable `id` like `graph@v1` or `trellis.auth@v1`. The `@vN` suffix is a major version — breaking changes require a new version. Within one lineage, multiple active digests may coexist during rollout as long as they remain semantically compatible.
-Cross-contract `uses` validation must resolve to compatible active surfaces, so additive rollout is allowed but divergent active definitions for the same logical surface are rejected.
+Cross-contract `uses` validation must resolve to compatible active surfaces, so additive rollout is allowed but divergent active definitions for the same logical surface are rejected. Trellis compares resolved schema definitions, not only schema ref names: canonically equal schemas and optional additive fields on open object payloads can coexist, while closed-object additions, required-field changes, and unproven schema changes fail closed.
 
 Contracts are content-addressed by a SHA-256 digest of a normalized runtime/interface projection derived from their canonical JSON form. Human-facing metadata such as `displayName`, `description`, exported-only schemas, and unused local schemas do not change the digest; callable surfaces, authorization requirements, resources, and reachable schemas do.
 
@@ -86,7 +86,7 @@ uses: {
 ```
 
 If a dependency is not declared in `uses`, Trellis will not grant that cross-contract access at install time.
-When a dependency resolves to multiple active digests in the same contract lineage, Trellis only merges additive compatible surfaces. Divergent duplicate RPC, operation, or event descriptors fail validation instead of producing ambiguous permissions.
+When a dependency resolves to multiple active digests in the same contract lineage, Trellis only merges additive compatible surfaces. Divergent duplicate RPC, operation, event, or job descriptors fail validation instead of producing ambiguous permissions.
 
 ## Authentication and authorization
 

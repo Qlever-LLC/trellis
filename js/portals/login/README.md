@@ -69,3 +69,9 @@ only render flow state do not need their own Trellis contract.
 Approval decisions are keyed by the normalized contract identity digest. Portal
 copy may show `displayName` and `description`, but edits to that display metadata
 alone do not require users to approve a new app or agent identity.
+
+Schema-affecting app changes are different: Trellis accepts same-lineage active
+digests only when duplicate surfaces resolve to compatible schemas. Optional
+additive fields on open object payloads can roll out together, but closed-object
+additions or required-field changes produce a new digest that must be handled as
+an incompatible contract change.

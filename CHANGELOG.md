@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Changed
 
+- Changed same-lineage active digest projection to verify duplicate RPC,
+  operation, event, and job schema refs by resolved schema compatibility instead
+  of ref-name equality: canonically equal schemas and optional additive fields on
+  open objects are accepted, while closed-object property-set divergence and
+  unproven non-identical schema constructs fail closed.
 - Changed Rust CLI agent login and reauth to use the same normalized contract
   identity digest as the TypeScript catalog, so display-only metadata changes no
   longer cause `contract_changed` reconnect denials, and generic NATS
