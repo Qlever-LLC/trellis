@@ -58,6 +58,8 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord {
     analysisSummary: {
       namespaces: ["graph"],
       rpcMethods: 1,
+      operations: 1,
+      operationControls: 3,
       events: 1,
       natsPublish: 1,
       natsSubscribe: 1,
@@ -73,6 +75,38 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord {
           subject: "rpc.v1.Graph.Query",
           wildcardSubject: "rpc.v1.Graph.Query",
           callerCapabilities: ["graph.query"],
+        }],
+      },
+      operations: {
+        operations: [{
+          key: "Graph.Rebuild",
+          subject: "operations.v1.Graph.Rebuild",
+          wildcardSubject: "operations.v1.Graph.Rebuild",
+          controlSubject: "operations.v1.Graph.Rebuild.control",
+          wildcardControlSubject: "operations.v1.Graph.Rebuild.control",
+          callCapabilities: ["graph.rebuild"],
+          readCapabilities: ["graph.rebuild"],
+          cancelCapabilities: [],
+          cancel: false,
+        }],
+        control: [{
+          key: "Graph.Rebuild",
+          action: "get",
+          subject: "operations.v1.Graph.Rebuild.control",
+          wildcardSubject: "operations.v1.Graph.Rebuild.control",
+          requiredCapabilities: ["graph.rebuild"],
+        }, {
+          key: "Graph.Rebuild",
+          action: "wait",
+          subject: "operations.v1.Graph.Rebuild.control",
+          wildcardSubject: "operations.v1.Graph.Rebuild.control",
+          requiredCapabilities: ["graph.rebuild"],
+        }, {
+          key: "Graph.Rebuild",
+          action: "watch",
+          subject: "operations.v1.Graph.Rebuild.control",
+          wildcardSubject: "operations.v1.Graph.Rebuild.control",
+          requiredCapabilities: ["graph.rebuild"],
         }],
       },
       events: {

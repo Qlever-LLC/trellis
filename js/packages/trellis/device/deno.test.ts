@@ -32,7 +32,7 @@ Deno.test("checkDeviceActivation starts activation and persists pending state wh
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         bootstrapCalls += 1;
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
@@ -104,7 +104,7 @@ Deno.test("checkDeviceActivation treats rate-limited pending waits as still pend
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
             status: 200,
@@ -180,7 +180,7 @@ Deno.test("checkDeviceActivation retries bootstrap once on iat_out_of_range usin
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         bootstrapCalls += 1;
         if (bootstrapCalls === 1) {
           return Promise.resolve(
@@ -252,7 +252,7 @@ Deno.test("checkDeviceActivation resumes persisted pending activation and saves 
   try {
     globalThis.fetch = ((input: URL | Request | string, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
             status: 200,
@@ -348,7 +348,7 @@ Deno.test("checkDeviceActivation retries pending activation status once on iat_o
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
             status: 200,
@@ -435,7 +435,7 @@ Deno.test("checkDeviceActivation waits for online approval and persists activate
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
             status: 200,
@@ -543,7 +543,7 @@ Deno.test("checkDeviceActivation rejects ready bootstrap responses for a differe
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
@@ -603,7 +603,7 @@ Deno.test("checkDeviceActivation returns activated on repeated completion action
   try {
     globalThis.fetch = ((input: URL | Request | string, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
             status: 200,
@@ -687,7 +687,7 @@ Deno.test("checkDeviceActivation does not report activated if persistence fails 
   try {
     globalThis.fetch = ((input: URL | Request | string, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
             status: 200,
@@ -793,7 +793,7 @@ Deno.test("checkDeviceActivation rejects online activation completion for a diff
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
             status: 200,
@@ -886,7 +886,7 @@ Deno.test("checkDeviceActivation returns activated for ready devices and upgrade
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(
             JSON.stringify(
@@ -981,7 +981,7 @@ Deno.test("checkDeviceActivation refreshes stale pending activation when the sav
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
             status: 200,
@@ -1067,7 +1067,7 @@ Deno.test("checkDeviceActivation preserves bootstrap not_ready responses", async
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ status: "not_ready", reason: "review_pending" }),
@@ -1101,7 +1101,7 @@ Deno.test("checkDeviceActivation surfaces pending activation contract digest cha
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
             status: 200,
@@ -1176,7 +1176,7 @@ Deno.test("checkDeviceActivation keys state files by deployment origin and devic
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
             status: 200,
@@ -1215,7 +1215,7 @@ Deno.test("checkDeviceActivation keys state files by deployment origin and devic
     }) as typeof fetch;
 
     await checkDeviceActivation({
-      trellisUrl: "https://trellis.example.com/bootstrap/device",
+      trellisUrl: "https://trellis.example.com/auth/devices/connect-info",
       contract: deviceContract,
       rootSecret: rootSecretA,
       stateDir,
@@ -1261,7 +1261,7 @@ Deno.test("checkDeviceActivation rejects overridden statePath data for a differe
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
             status: 200,
@@ -1322,7 +1322,7 @@ Deno.test("checkDeviceActivation rejects overridden statePath data for a differe
   try {
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
-      if (url.endsWith("/bootstrap/device")) {
+      if (url.endsWith("/auth/devices/connect-info")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "activation_required" }), {
             status: 200,

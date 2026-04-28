@@ -6,8 +6,8 @@ import {
 } from "@qlever-llc/trellis/auth";
 
 import {
-  createDeviceBootstrapHandler,
-  verifyDeviceBootstrapIdentityProof,
+  createDeviceConnectInfoHandler,
+  verifyDeviceConnectInfoIdentityProof,
 } from "./device.ts";
 
 const TEST_IAT = 1_700_000_000;
@@ -41,8 +41,8 @@ function createApp(args: {
 }) {
   const app = new Hono();
   app.post(
-    "/bootstrap/device",
-    createDeviceBootstrapHandler({
+    "/auth/devices/connect-info",
+    createDeviceConnectInfoHandler({
       transports: {
         native: { natsServers: ["nats://127.0.0.1:4222"] },
         websocket: { natsServers: ["ws://localhost:8080"] },
@@ -51,9 +51,7 @@ function createApp(args: {
       loadDeviceInstance: async () => args.instance ?? null,
       loadDeviceActivation: async () => args.activation ?? null,
       loadDeviceDeployment: async () => args.deployment ?? null,
-      saveDeviceInstance: async () => {},
-      refreshActiveContracts: async () => {},
-      verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
+      verifyIdentityProof: verifyDeviceConnectInfoIdentityProof,
       nowSeconds: () => args.nowSeconds ?? TEST_IAT,
     }),
   );
@@ -77,7 +75,7 @@ async function createSignedRequest(contractDigest: string) {
   };
 }
 
-Deno.test("POST /bootstrap/device returns runtime connect info when device is activated", async () => {
+Deno.test("POST /auth/devices/connect-info returns runtime connect info when device is activated", async () => {
   const request = await createSignedRequest("digest-a");
   const app = createApp({
     instance: {
@@ -107,11 +105,14 @@ Deno.test("POST /bootstrap/device returns runtime connect info when device is ac
     },
   });
 
-  const response = await app.request("http://trellis/bootstrap/device", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
 
   assertEquals(response.status, 200);
   assertEquals(await response.json(), {
@@ -136,7 +137,7 @@ Deno.test("POST /bootstrap/device returns runtime connect info when device is ac
   });
 });
 
-Deno.test("POST /bootstrap/device returns activation_required when activation is missing", async () => {
+Deno.test("POST /auth/devices/connect-info returns 404 when activation is missing", async () => {
   const request = await createSignedRequest("digest-a");
   const app = createApp({
     instance: {
@@ -159,17 +160,20 @@ Deno.test("POST /bootstrap/device returns activation_required when activation is
     },
   });
 
-  const response = await app.request("http://trellis/bootstrap/device", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
 
-  assertEquals(response.status, 200);
-  assertEquals(await response.json(), { status: "activation_required" });
+  assertEquals(response.status, 404);
+  assertEquals(await response.json(), { reason: "unknown_device" });
 });
 
-Deno.test("POST /bootstrap/device returns not_ready for revoked activations", async () => {
+Deno.test("POST /auth/devices/connect-info returns 404 for revoked activations", async () => {
   const request = await createSignedRequest("digest-a");
   const app = createApp({
     instance: {
@@ -199,42 +203,45 @@ Deno.test("POST /bootstrap/device returns not_ready for revoked activations", as
     },
   });
 
-  const response = await app.request("http://trellis/bootstrap/device", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
 
-  assertEquals(response.status, 200);
-  assertEquals(await response.json(), {
-    status: "not_ready",
-    reason: "device_activation_revoked",
-  });
+  assertEquals(response.status, 404);
+  assertEquals(await response.json(), { reason: "unknown_device" });
 });
 
-Deno.test("POST /bootstrap/device rejects invalid signatures", async () => {
+Deno.test("POST /auth/devices/connect-info rejects invalid signatures", async () => {
   const app = createApp({
     instance: null,
     activation: null,
     deployment: null,
   });
 
-  const response = await app.request("http://trellis/bootstrap/device", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      publicIdentityKey: TEST_INVALID_PUBLIC_IDENTITY_KEY,
-      contractDigest: "digest-a",
-      iat: TEST_IAT,
-      sig: "A".repeat(86),
-    }),
-  });
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        publicIdentityKey: TEST_INVALID_PUBLIC_IDENTITY_KEY,
+        contractDigest: "digest-a",
+        iat: TEST_IAT,
+        sig: "A".repeat(86),
+      }),
+    },
+  );
 
   assertEquals(response.status, 400);
   assertEquals(await response.json(), { reason: "invalid_signature" });
 });
 
-Deno.test("POST /bootstrap/device returns serverNow when bootstrap proof iat is out of range", async () => {
+Deno.test("POST /auth/devices/connect-info returns serverNow when proof iat is out of range", async () => {
   const request = await createSignedRequest("digest-a");
   const app = createApp({
     instance: null,
@@ -243,11 +250,14 @@ Deno.test("POST /bootstrap/device returns serverNow when bootstrap proof iat is 
     nowSeconds: TEST_IAT + 31,
   });
 
-  const response = await app.request("http://trellis/bootstrap/device", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
 
   assertEquals(response.status, 400);
   assertEquals(await response.json(), {

@@ -222,6 +222,8 @@ export const AuthRemoveServiceInstanceResponseSchema = Type.Object({
 export const ContractAnalysisSummarySchema = Type.Object({
   namespaces: Type.Array(Type.String()),
   rpcMethods: Type.Number(),
+  operations: Type.Number(),
+  operationControls: Type.Number(),
   events: Type.Number(),
   natsPublish: Type.Number(),
   natsSubscribe: Type.Number(),
@@ -271,6 +273,31 @@ export const ContractAnalysisRpcMethodSchema = Type.Object({
   callerCapabilities: Type.Array(Type.String()),
 });
 
+export const ContractAnalysisOperationSchema = Type.Object({
+  key: Type.String(),
+  subject: Type.String(),
+  wildcardSubject: Type.String(),
+  controlSubject: Type.String(),
+  wildcardControlSubject: Type.String(),
+  callCapabilities: Type.Array(Type.String()),
+  readCapabilities: Type.Array(Type.String()),
+  cancelCapabilities: Type.Array(Type.String()),
+  cancel: Type.Boolean(),
+});
+
+export const ContractAnalysisOperationControlSchema = Type.Object({
+  key: Type.String(),
+  action: Type.Union([
+    Type.Literal("get"),
+    Type.Literal("wait"),
+    Type.Literal("watch"),
+    Type.Literal("cancel"),
+  ]),
+  subject: Type.String(),
+  wildcardSubject: Type.String(),
+  requiredCapabilities: Type.Array(Type.String()),
+});
+
 export const ContractAnalysisEventSchema = Type.Object({
   key: Type.String(),
   subject: Type.String(),
@@ -296,6 +323,10 @@ export const ContractAnalysisNatsRuleSchema = Type.Object({
 export const ContractAnalysisSchema = Type.Object({
   namespaces: Type.Array(Type.String()),
   rpc: Type.Object({ methods: Type.Array(ContractAnalysisRpcMethodSchema) }),
+  operations: Type.Object({
+    operations: Type.Array(ContractAnalysisOperationSchema),
+    control: Type.Array(ContractAnalysisOperationControlSchema),
+  }),
   events: Type.Object({ events: Type.Array(ContractAnalysisEventSchema) }),
   subjects: Type.Optional(
     Type.Object({ subjects: Type.Array(ContractAnalysisSubjectSchema) }),

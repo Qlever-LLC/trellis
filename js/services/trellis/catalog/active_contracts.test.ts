@@ -1,6 +1,9 @@
 import { assertEquals } from "@std/assert";
 
-import { addCurrentContractDigests } from "./active_contracts.ts";
+import {
+  addCurrentContractDigests,
+  addDeploymentAllowedDigests,
+} from "./active_contracts.ts";
 
 Deno.test("addCurrentContractDigests includes concrete active instance digests", () => {
   const active = new Set<string>(["builtin"]);
@@ -20,5 +23,35 @@ Deno.test("addCurrentContractDigests includes concrete active instance digests",
     "builtin",
     "digest-a",
     "digest-b",
+  ]);
+});
+
+Deno.test("addDeploymentAllowedDigests includes every active deployment digest", () => {
+  const active = new Set<string>(["builtin"]);
+
+  addDeploymentAllowedDigests(
+    active,
+    [
+      {
+        disabled: false,
+        appliedContracts: [
+          { allowedDigests: ["digest-a", "digest-b"] },
+          { allowedDigests: ["digest-c"] },
+        ],
+      },
+      {
+        disabled: true,
+        appliedContracts: [{ allowedDigests: ["digest-d"] }],
+      },
+      { disabled: false, appliedContracts: [] },
+    ],
+    (deployment) => !deployment.disabled,
+  );
+
+  assertEquals([...active].sort(), [
+    "builtin",
+    "digest-a",
+    "digest-b",
+    "digest-c",
   ]);
 });

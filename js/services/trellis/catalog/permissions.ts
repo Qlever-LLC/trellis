@@ -44,10 +44,8 @@ const JETSTREAM_EVENT_CONTROL_SUBJECTS = [
 
 const AUTH_VALIDATE_SUBJECT = trellisAuthContract.rpc?.["Auth.ValidateRequest"]
   ?.subject;
-const TRANSFER_SUBJECT_PREFIXES = [
-  "transfer.v1.upload",
-  "transfer.v1.download",
-] as const;
+const TRANSFER_UPLOAD_SUBJECT_PREFIX = "transfer.v1.upload";
+const TRANSFER_DOWNLOAD_SUBJECT_PREFIX = "transfer.v1.download";
 
 function operationStoreBucket(sessionKey: string): string {
   return `trellis_operations_${sessionKey.slice(0, 16)}`;
@@ -162,6 +160,14 @@ function usedPublishRules(entries: ContractEntry[]): PermissionRule[] {
           ),
         ];
       }),
+      ...uses.operationCalls
+        .filter((operation) =>
+          operation.operation.transfer?.direction === "send"
+        )
+        .map((operation) => ({
+          subject: `${TRANSFER_UPLOAD_SUBJECT_PREFIX}.*.*`,
+          requiredCapabilities: operation.operation.capabilities?.call ?? [],
+        })),
       ...uses.eventPublishes.map((event) => ({
         subject: templateToWildcard(event.event.subject),
         requiredCapabilities: event.event.capabilities?.publish ?? [],
@@ -178,6 +184,12 @@ function usedSubscribeRules(entries: ContractEntry[]): PermissionRule[] {
   return entries.flatMap((entry) => {
     const uses = resolvedUses(entry);
     return [
+      ...uses.rpcCalls
+        .filter((method) => method.method.transfer?.direction === "receive")
+        .map((method) => ({
+          subject: `${TRANSFER_DOWNLOAD_SUBJECT_PREFIX}.*.*`,
+          requiredCapabilities: method.method.capabilities?.call ?? [],
+        })),
       ...uses.eventSubscribes.map((event) => ({
         subject: templateToWildcard(event.event.subject),
         requiredCapabilities: event.event.capabilities?.subscribe ?? [],
@@ -207,6 +219,18 @@ function handledOperationSubjects(service: ServiceDescriptor): string[] {
       templateToWildcard(`${operation.subject}.control`),
     ])
   );
+}
+
+function handledTransferSubjects(service: ServiceDescriptor): string[] {
+  const sessionPrefix = service.sessionKey.slice(0, 16);
+  return implementedContracts(service).flatMap((entry) => [
+    ...Object.values<ContractOperation>(entry.contract.operations ?? {})
+      .filter((operation) => operation.transfer?.direction === "send")
+      .map(() => `${TRANSFER_UPLOAD_SUBJECT_PREFIX}.${sessionPrefix}.*`),
+    ...Object.values<ContractRpcMethod>(entry.contract.rpc ?? {})
+      .filter((method) => method.transfer?.direction === "receive")
+      .map(() => `${TRANSFER_DOWNLOAD_SUBJECT_PREFIX}.${sessionPrefix}.*`),
+  ]);
 }
 
 function hasDeclaredEventSubscriptions(
@@ -242,7 +266,6 @@ export function getUserPublishSubjects(
   const rules = usedPublishRules(entries);
 
   return dedupe([
-    ...TRANSFER_SUBJECT_PREFIXES.map((prefix) => `${prefix}.*.*`),
     ...rules
       .filter((rule) =>
         hasRequiredCapabilities(capabilities, rule.requiredCapabilities)
@@ -313,15 +336,14 @@ export function getServiceSubscribeSubjects(
   const operationSubjects = hasRequiredCapabilities(capabilities, ["service"])
     ? handledOperationSubjects(service)
     : [];
+  const transferSubjects = hasRequiredCapabilities(capabilities, ["service"])
+    ? handledTransferSubjects(service)
+    : [];
 
   return dedupe([
     ...rpcSubjects,
     ...operationSubjects,
-    ...(hasRequiredCapabilities(capabilities, ["service"])
-      ? TRANSFER_SUBJECT_PREFIXES.map((prefix) =>
-        `${prefix}.${service.sessionKey.slice(0, 16)}.*`
-      )
-      : []),
+    ...transferSubjects,
     ...rules
       .filter((rule) =>
         hasRequiredCapabilities(capabilities, rule.requiredCapabilities)

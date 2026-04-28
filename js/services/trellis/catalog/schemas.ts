@@ -22,6 +22,8 @@ export const ContractRecordSchema = Type.Object({
   analysisSummary: Type.Optional(Type.Object({
     namespaces: Type.Array(Type.String()),
     rpcMethods: Type.Number(),
+    operations: Type.Number({ default: 0 }),
+    operationControls: Type.Number({ default: 0 }),
     events: Type.Number(),
     natsPublish: Type.Number(),
     natsSubscribe: Type.Number(),
@@ -37,6 +39,31 @@ export const ContractRecordSchema = Type.Object({
         subject: Type.String(),
         wildcardSubject: Type.String(),
         callerCapabilities: Type.Array(Type.String()),
+      }, { additionalProperties: false })),
+    }, { additionalProperties: false }),
+    operations: Type.Object({
+      operations: Type.Array(Type.Object({
+        key: Type.String(),
+        subject: Type.String(),
+        wildcardSubject: Type.String(),
+        controlSubject: Type.String(),
+        wildcardControlSubject: Type.String(),
+        callCapabilities: Type.Array(Type.String()),
+        readCapabilities: Type.Array(Type.String()),
+        cancelCapabilities: Type.Array(Type.String()),
+        cancel: Type.Boolean(),
+      }, { additionalProperties: false })),
+      control: Type.Array(Type.Object({
+        key: Type.String(),
+        action: Type.Union([
+          Type.Literal("get"),
+          Type.Literal("wait"),
+          Type.Literal("watch"),
+          Type.Literal("cancel"),
+        ]),
+        subject: Type.String(),
+        wildcardSubject: Type.String(),
+        requiredCapabilities: Type.Array(Type.String()),
       }, { additionalProperties: false })),
     }, { additionalProperties: false }),
     events: Type.Object({

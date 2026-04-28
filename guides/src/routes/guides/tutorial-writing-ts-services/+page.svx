@@ -144,7 +144,7 @@ export const OrderSchema = Type.Object({
 export type Order = Static<typeof OrderSchema>;
 ```
 
-Next, open `contracts/orders_service.ts` and update the `resources` section to request a bucket named `orders`:
+Next, open `contracts/orders_service.ts` and update the `resources` section to request a bucket named `orders`. This uses the default `required: true`, so deploy fails if Trellis cannot provision or bind the bucket:
 
 ```ts
   resources: {
@@ -174,7 +174,7 @@ const ordersKV = kvResult.take();
 
 > The `isErr` / `.take()` pattern shows up throughout Trellis. Rather than throwing exceptions, Trellis returns `Result<T, E>` values. Check `isErr(result)` first; only call `result.take()` once you know it succeeded.
 
-Because we changed the contract, apply it again so Trellis provisions the new bucket:
+Because we changed the contract, apply it again so Trellis provisions the required new bucket:
 
 ```sh
 trellis deploy apply svc/orders-service --source ./contracts/orders_service.ts

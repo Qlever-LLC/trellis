@@ -146,7 +146,10 @@
                 {:else}
                   <div class="flex flex-col gap-1">
                     {#each deployment.appliedContracts as applied (applied.contractId)}
-                      <span>{applied.contractId}</span>
+                      <span class="flex items-center gap-1">
+                        <span>{applied.contractId}</span>
+                        <span class="badge badge-ghost badge-xs">{applied.allowedDigests.length}</span>
+                      </span>
                     {/each}
                   </div>
                 {/if}
@@ -157,9 +160,13 @@
                 {:else}
                   <div class="flex flex-wrap gap-1">
                     {#each deployment.appliedContracts as applied (applied.contractId)}
-                      {#each applied.allowedDigests as digest (digest)}
-                        <span class="badge badge-outline badge-xs font-mono">{digest}</span>
-                      {/each}
+                      {#if applied.allowedDigests.length === 0}
+                        <span class="badge badge-ghost badge-xs">Lineage allowed</span>
+                      {:else}
+                        {#each applied.allowedDigests as digest (digest)}
+                          <span class="badge badge-outline badge-xs font-mono">{digest}</span>
+                        {/each}
+                      {/if}
                     {/each}
                   </div>
                 {/if}

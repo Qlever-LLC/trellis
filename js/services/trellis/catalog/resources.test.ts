@@ -96,6 +96,68 @@ Deno.test("store resources require NATS during provisioning", async () => {
   );
 });
 
+Deno.test("optional resources do not require NATS and do not create bindings", async () => {
+  const contract = {
+    ...CONTRACT,
+    resources: {
+      kv: {
+        activity: {
+          purpose: "Store activity entries",
+          schema: { schema: "ActivityEntry" },
+          required: false,
+        },
+      },
+      store: {
+        uploads: {
+          purpose: "Temporary uploaded files awaiting processing",
+          required: false,
+        },
+      },
+    },
+  } as TrellisContractV1;
+
+  assertEquals(
+    await provisionContractResourceBindings(
+      undefined,
+      contract,
+      "activity.default",
+    ),
+    {},
+  );
+});
+
+Deno.test("required resources still require NATS when optional resources are present", async () => {
+  const contract = {
+    ...CONTRACT,
+    resources: {
+      kv: {
+        activity: {
+          purpose: "Store activity entries",
+          schema: { schema: "ActivityEntry" },
+          required: false,
+        },
+      },
+      store: {
+        uploads: {
+          purpose: "Temporary uploaded files awaiting processing",
+          required: true,
+        },
+      },
+    },
+  } as TrellisContractV1;
+
+  await assertRejects(
+    () =>
+      provisionContractResourceBindings(
+        undefined,
+        contract,
+        "activity.default",
+      ),
+    Error,
+    "NATS connection is required to provision store resources",
+  );
+});
+
 Deno.test("resource permission grants include only bound KV usage subjects", () => {
   const grants = getResourcePermissionGrants({
     kv: {

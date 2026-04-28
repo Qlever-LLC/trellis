@@ -329,13 +329,26 @@
               {:else}
                 <div class="overflow-x-auto">
                   <table class="table table-sm trellis-table">
-                    <thead><tr><th>Instance ID</th><th>Status</th><th>Contract</th><th>Capabilities</th><th>Created</th></tr></thead>
+                    <thead><tr><th>Instance ID</th><th>Status</th><th>Contract</th><th>Resources</th><th>Capabilities</th><th>Created</th></tr></thead>
                     <tbody>
                       {#each selectedInstances as instance (instance.instanceId)}
                         <tr>
                           <td><div class="trellis-identifier font-medium">{instance.instanceId}</div><div class="trellis-identifier text-base-content/60">{instance.instanceKey}</div></td>
                           <td>{#if instance.disabled}<StatusBadge label="Disabled" status="offline" />{:else}<StatusBadge label="Active" status="healthy" />{/if}</td>
                           <td><div class="trellis-identifier">{instance.currentContractId ?? "—"}</div><div class="trellis-identifier text-base-content/60">{instance.currentContractDigest ?? "—"}</div></td>
+                          <td>
+                            <div class="flex max-w-64 flex-wrap gap-1">
+                              {#each Object.entries(instance.resourceBindings?.kv ?? {}) as [alias, binding] (alias)}
+                                <span class="badge badge-outline badge-xs">kv:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.bucket}</span></span>
+                              {/each}
+                              {#each Object.entries(instance.resourceBindings?.store ?? {}) as [alias, binding] (alias)}
+                                <span class="badge badge-outline badge-xs">store:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.name}</span></span>
+                              {/each}
+                              {#if !instance.resourceBindings?.kv && !instance.resourceBindings?.store}
+                                <span class="text-base-content/60">—</span>
+                              {/if}
+                            </div>
+                          </td>
                           <td><div class="flex flex-wrap gap-1">{#each instance.capabilities as capability (capability)}<span class="badge badge-outline badge-xs">{capability}</span>{:else}<span class="text-base-content/60">—</span>{/each}</div></td>
                           <td class="text-base-content/60">{formatMaybeDate(instance.createdAt)}</td>
                         </tr>

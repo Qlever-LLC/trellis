@@ -410,30 +410,6 @@ function deviceCallerFields(caller: SessionContext["caller"]): {
   };
 }
 
-function deviceResponseFromCaller(
-  caller: SessionContext["caller"],
-): AuthMeResponse | null {
-  const deviceCaller = deviceCallerFields(caller);
-  if (deviceCaller) {
-    return {
-      participantKind: "device",
-      user: null,
-      device: {
-        type: "device",
-        deviceId: deviceCaller.deviceId,
-        deviceType: deviceTypeFromDeploymentId(deviceCaller.deploymentId),
-        runtimePublicKey: deviceCaller.runtimePublicKey,
-        deploymentId: deviceCaller.deploymentId,
-        active: deviceCaller.active,
-        capabilities: deviceCaller.capabilities,
-      },
-      service: null,
-    };
-  }
-
-  return null;
-}
-
 async function responseFromDeviceCaller(args: {
   caller: SessionContext["caller"];
   userStorage: UserProjectionStorage;

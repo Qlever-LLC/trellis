@@ -16,7 +16,6 @@ import {
   DeviceDeploymentSchema,
   DevicePortalDefaultSchema,
   DevicePortalSelectionSchema,
-  DeviceSchema,
   InstanceGrantPolicySchema,
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,
@@ -33,7 +32,26 @@ export const UserParticipantKindSchema = Type.Union([
   Type.Literal("agent"),
 ]);
 
+const DurableIsoDateStringSchema = Type.String({ format: "date-time" });
+
 export type { BindResponse, SentinelCreds };
+export const DeviceSchema = Type.Object({
+  instanceId: Type.String({ minLength: 1 }),
+  publicIdentityKey: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
+  metadata: Type.Optional(
+    Type.Record(Type.String({ minLength: 1 }), Type.String({ minLength: 1 })),
+  ),
+  state: Type.Union([
+    Type.Literal("registered"),
+    Type.Literal("activated"),
+    Type.Literal("revoked"),
+    Type.Literal("disabled"),
+  ]),
+  createdAt: DurableIsoDateStringSchema,
+  activatedAt: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
+  revokedAt: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
+});
 export {
   ApprovalDecisionSchema,
   BindResponseSchema,
@@ -45,7 +63,6 @@ export {
   DeviceDeploymentSchema,
   DevicePortalDefaultSchema,
   DevicePortalSelectionSchema,
-  DeviceSchema,
   InstanceGrantPolicySchema,
   LoginPortalDefaultSchema,
   LoginPortalSelectionSchema,

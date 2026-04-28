@@ -34,6 +34,10 @@ function makeContractRecord(digest: string): ContractRecord {
           callerCapabilities: ["reader.call"],
         }],
       },
+      operations: {
+        operations: [],
+        control: [],
+      },
       events: {
         events: [],
       },
@@ -112,6 +116,18 @@ Deno.test("deriveDeviceRuntimeAccess preserves the caller-selected digest", () =
   assertEquals(access.contractDigest, "digest-b");
   assertEquals(access.contractId, "acme.reader@v1");
   assertEquals(access.capabilities, ["reader.call"]);
+  assertEquals(
+    access.publishSubjects.includes("transfer.v1.upload.*.*"),
+    false,
+  );
+  assertEquals(
+    access.publishSubjects.includes("transfer.v1.download.*.*"),
+    false,
+  );
+  assertEquals(
+    access.subscribeSubjects.includes("transfer.v1.download.*.*"),
+    false,
+  );
 });
 
 Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract uses", () => {
@@ -126,6 +142,7 @@ Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract use
             "Auth.Me": {
               subject: "rpc.v1.Auth.Me",
               version: "v1",
+              transfer: { direction: "receive" },
               capabilities: { call: [] },
               request: { schema: "object" },
               response: { schema: "object" },
@@ -142,6 +159,11 @@ Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract use
             "Billing.Refund": {
               subject: "operations.v1.Billing.Refund",
               version: "v1",
+              transfer: {
+                direction: "send",
+                store: "uploads",
+                key: "/key",
+              },
               capabilities: { call: ["billing.refund"] },
               input: { schema: "object" },
               output: { schema: "object" },
@@ -166,6 +188,15 @@ Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract use
   );
   assertEquals(
     access.publishSubjects.includes("operations.v1.Billing.Refund.control"),
+    true,
+  );
+  assertEquals(access.publishSubjects.includes("transfer.v1.upload.*.*"), true);
+  assertEquals(
+    access.publishSubjects.includes("transfer.v1.download.*.*"),
+    false,
+  );
+  assertEquals(
+    access.subscribeSubjects.includes("transfer.v1.download.*.*"),
     true,
   );
   assertEquals(access.capabilities.includes("billing.refund"), true);

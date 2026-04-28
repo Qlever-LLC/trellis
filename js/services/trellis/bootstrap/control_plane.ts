@@ -20,7 +20,7 @@ import type {
 
 type BuiltinContract = { digest: string; contract: TrellisContractV1 };
 
-export async function resolveBuiltinContracts(): Promise<BuiltinContract[]> {
+export function resolveBuiltinContracts(): BuiltinContract[] {
   return [
     {
       digest: digestContractManifest(trellisCoreContract),

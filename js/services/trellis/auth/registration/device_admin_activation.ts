@@ -20,15 +20,30 @@ import {
   createActivateDeviceHandler,
   createGetDeviceConnectInfoHandler,
 } from "../device_activation/operation.ts";
+import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type { AuthContractsRuntime, AuthRuntime } from "./types.ts";
 
-export async function registerDeviceAdminAndActivation(deps: {
-  trellis: AuthRuntime;
-  contracts: Pick<
-    AuthContractsRuntime,
-    "installDeviceContract" | "refreshActiveContracts"
-  >;
-}): Promise<void> {
+export async function registerDeviceAdminAndActivation(
+  deps:
+    & {
+      trellis: AuthRuntime;
+      contracts: Pick<
+        AuthContractsRuntime,
+        "installDeviceContract" | "refreshActiveContracts"
+      >;
+    }
+    & Pick<
+      AuthRuntimeDeps,
+      | "browserFlowsKV"
+      | "deviceActivationReviewStorage"
+      | "deviceActivationStorage"
+      | "deviceDeploymentStorage"
+      | "deviceInstanceStorage"
+      | "deviceProvisioningSecretStorage"
+      | "logger"
+      | "sentinelCreds"
+    >,
+): Promise<void> {
   await deps.trellis.mount(
     "Auth.CreateDeviceDeployment",
     createAuthCreateDeviceDeploymentHandler({
@@ -106,13 +121,11 @@ export async function registerDeviceAdminAndActivation(deps: {
     authRevokeDeviceActivationHandler,
   );
   await deps.trellis.operation("Auth.ActivateDevice").handle(
-    createActivateDeviceHandler(),
+    createActivateDeviceHandler(deps),
   );
   await deps.trellis.mount(
     "Auth.GetDeviceConnectInfo",
-    createGetDeviceConnectInfoHandler({
-      refreshActiveContracts: deps.contracts.refreshActiveContracts,
-    }),
+    createGetDeviceConnectInfoHandler(deps),
   );
   await deps.trellis.mount(
     "Auth.ListDeviceActivationReviews",

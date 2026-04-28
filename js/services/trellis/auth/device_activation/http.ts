@@ -1,6 +1,5 @@
 import type { Context, Hono } from "@hono/hono";
 import { AsyncResult, isErr } from "@qlever-llc/result";
-import { Value } from "typebox/value";
 
 import {
   deriveDeviceConfirmationCode,
@@ -8,13 +7,13 @@ import {
   verifyDeviceWaitSignature,
 } from "@qlever-llc/trellis/auth";
 import {
-  DeviceBootstrapRequestSchema,
-  resolveDeviceBootstrap,
-  verifyDeviceBootstrapIdentityProof,
+  createDeviceConnectInfoHandler,
+  resolveDeviceConnectInfo,
+  verifyDeviceConnectInfoIdentityProof,
 } from "../bootstrap/device.ts";
 import { buildClientTransports } from "../transports.ts";
 import { getConfig } from "../../config.ts";
-import { authRuntimeDeps } from "../runtime_deps.ts";
+import { type AuthRuntimeDeps, authRuntimeDeps } from "../runtime_deps.ts";
 import type {
   SqlDevicePortalSelectionRepository,
   SqlPortalDefaultRepository,
@@ -101,37 +100,53 @@ type DeviceActivationPortalDeps = {
   devicePortalSelectionStorage: SqlDevicePortalSelectionRepository;
 };
 
+type DeviceActivationHttpDeps =
+  & DeviceActivationPortalDeps
+  & Pick<
+    AuthRuntimeDeps,
+    | "browserFlowsKV"
+    | "deviceActivationReviewStorage"
+    | "deviceActivationStorage"
+    | "deviceDeploymentStorage"
+    | "deviceInstanceStorage"
+    | "deviceProvisioningSecretStorage"
+    | "logger"
+    | "sentinelCreds"
+  >;
+
 async function loadDeviceInstance(
+  deps: DeviceActivationHttpDeps,
   instanceId: string,
 ): Promise<DeviceInstance | null> {
-  const { deviceInstanceStorage } = authRuntimeDeps();
-  return await deviceInstanceStorage.get(instanceId) ?? null;
+  return await deps.deviceInstanceStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceDeployment(
+  deps: DeviceActivationHttpDeps,
   deploymentId: string,
 ): Promise<DeviceDeployment | null> {
-  const { deviceDeploymentStorage } = authRuntimeDeps();
-  return await deviceDeploymentStorage.get(deploymentId) ?? null;
+  return await deps.deviceDeploymentStorage.get(deploymentId) ?? null;
 }
 
-async function loadDeviceActivation(instanceId: string) {
-  const { deviceActivationStorage } = authRuntimeDeps();
-  return await deviceActivationStorage.get(instanceId) ?? null;
+async function loadDeviceActivation(
+  deps: DeviceActivationHttpDeps,
+  instanceId: string,
+) {
+  return await deps.deviceActivationStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceProvisioningSecret(
+  deps: DeviceActivationHttpDeps,
   instanceId: string,
 ): Promise<DeviceProvisioningSecret | null> {
-  const { deviceProvisioningSecretStorage } = authRuntimeDeps();
-  return await deviceProvisioningSecretStorage.get(instanceId) ?? null;
+  return await deps.deviceProvisioningSecretStorage.get(instanceId) ?? null;
 }
 
 async function findDeviceActivationReviewByFlowId(
+  deps: DeviceActivationHttpDeps,
   flowId: string,
 ): Promise<DeviceActivationReview | null> {
-  const { deviceActivationReviewStorage } = authRuntimeDeps();
-  return await deviceActivationReviewStorage.getByFlowId(flowId) ?? null;
+  return await deps.deviceActivationReviewStorage.getByFlowId(flowId) ?? null;
 }
 
 function toDeviceActivationFlow(value: {
@@ -167,14 +182,14 @@ function toDeviceActivationFlow(value: {
 }
 
 async function findDeviceActivationFlow(input: {
+  deps: DeviceActivationHttpDeps;
   publicIdentityKey: string;
   nonce: string;
 }): Promise<DeviceActivationFlow | null> {
-  const { browserFlowsKV } = authRuntimeDeps();
-  const iter = await browserFlowsKV.keys(">").take();
+  const iter = await input.deps.browserFlowsKV.keys(">").take();
   if (isErr(iter)) return null;
   for await (const key of iter) {
-    const entry = await browserFlowsKV.get(key).take();
+    const entry = await input.deps.browserFlowsKV.get(key).take();
     if (isErr(entry)) continue;
     const flow = toDeviceActivationFlow(
       entry.value as {
@@ -222,26 +237,26 @@ async function loadDevicePortalDefaultId(
   return (await deps.portalDefaultStorage.getDevice())?.portalId;
 }
 
-function deviceBootstrapDeps() {
-  const { deviceInstanceStorage, sentinelCreds } = authRuntimeDeps();
+function deviceBootstrapDeps(deps: DeviceActivationHttpDeps) {
   return {
     transports: buildClientTransports(config),
-    sentinel: sentinelCreds,
-    loadDeviceInstance,
-    loadDeviceActivation,
-    loadDeviceDeployment,
-    saveDeviceInstance: async (instance: DeviceInstance) => {
-      await deviceInstanceStorage.put(instance);
-    },
-    refreshActiveContracts: async () => {},
-    verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
+    sentinel: deps.sentinelCreds,
+    loadDeviceInstance: (instanceId: string) =>
+      loadDeviceInstance(deps, instanceId),
+    loadDeviceActivation: (instanceId: string) =>
+      loadDeviceActivation(deps, instanceId),
+    loadDeviceDeployment: (deploymentId: string) =>
+      loadDeviceDeployment(deps, deploymentId),
+    verifyIdentityProof: verifyDeviceConnectInfoIdentityProof,
   };
 }
 
 async function confirmationCodeForActivation(
+  deps: DeviceActivationHttpDeps,
   args: { instanceId: string; publicIdentityKey: string; nonce: string },
 ): Promise<string | undefined> {
   const provisioningSecret = await loadDeviceProvisioningSecret(
+    deps,
     args.instanceId,
   );
   if (!provisioningSecret) return undefined;
@@ -258,17 +273,19 @@ function builtinPortalEntryUrl(): string {
 }
 
 async function createDeviceActivationRequest(
-  deps: DeviceActivationPortalDeps,
+  deps: DeviceActivationHttpDeps,
   payload: { publicIdentityKey: string; nonce: string; qrMac: string },
 ): Promise<DeviceActivationRequestResponse> {
-  const { browserFlowsKV, logger } = authRuntimeDeps();
   const instanceId = deviceInstanceId(payload.publicIdentityKey);
-  const instance = await loadDeviceInstance(instanceId);
+  const instance = await loadDeviceInstance(deps, instanceId);
   if (!instance) throw new Error("Unknown device");
   if (instance.state === "disabled" || instance.state === "revoked") {
     throw new Error("Unknown device");
   }
-  const provisioningSecret = await loadDeviceProvisioningSecret(instanceId);
+  const provisioningSecret = await loadDeviceProvisioningSecret(
+    deps,
+    instanceId,
+  );
   if (!provisioningSecret) throw new Error("Unknown device");
   const expectedQrMac = await deriveDeviceQrMac({
     activationKey: provisioningSecret.activationKey,
@@ -278,14 +295,14 @@ async function createDeviceActivationRequest(
   if (expectedQrMac !== payload.qrMac) {
     throw new Error("Invalid device activation payload");
   }
-  const deployment = await loadDeviceDeployment(instance.deploymentId);
+  const deployment = await loadDeviceDeployment(deps, instance.deploymentId);
   if (!deployment || deployment.disabled) {
     throw new Error("Device deployment not found");
   }
 
   const now = new Date();
   const flowId = randomToken(16);
-  const putResult = await browserFlowsKV.put(flowId, {
+  const putResult = await deps.browserFlowsKV.put(flowId, {
     flowId,
     kind: "device_activation",
     deviceActivation: {
@@ -299,7 +316,7 @@ async function createDeviceActivationRequest(
     expiresAt: new Date(now.getTime() + config.ttlMs.deviceFlow),
   }).take();
   if (isErr(putResult)) {
-    logger.error(
+    deps.logger.error(
       { error: putResult.error, flowId },
       "Failed to store device activation flow",
     );
@@ -327,7 +344,13 @@ async function createDeviceActivationRequest(
 
 export function registerDeviceActivationHttpRoutes(
   app: Pick<Hono, "post">,
-  deps: DeviceActivationPortalDeps,
+  deps: DeviceActivationHttpDeps = {
+    ...authRuntimeDeps(),
+    portalStorage: authRuntimeDeps().portalStorage,
+    portalDefaultStorage: authRuntimeDeps().portalDefaultStorage,
+    devicePortalSelectionStorage:
+      authRuntimeDeps().devicePortalSelectionStorage,
+  },
 ): void {
   app.post("/auth/devices/activate/requests", async (c: Context) => {
     const bodyResult = await AsyncResult.try(() => c.req.json());
@@ -392,7 +415,11 @@ export function registerDeviceActivationHttpRoutes(
     if (!proofOk) {
       return c.json({ reason: "invalid_signature" }, 400);
     }
-    const flow = await findDeviceActivationFlow({ publicIdentityKey, nonce });
+    const flow = await findDeviceActivationFlow({
+      deps,
+      publicIdentityKey,
+      nonce,
+    });
     if (!flow) {
       return c.json({
         status: "rejected",
@@ -402,12 +429,12 @@ export function registerDeviceActivationHttpRoutes(
     if (new Date(flow.expiresAt).getTime() <= Date.now()) {
       return c.json({ status: "rejected", reason: "device_flow_expired" });
     }
-    const instance = await loadDeviceInstance(flow.instanceId);
+    const instance = await loadDeviceInstance(deps, flow.instanceId);
     if (!instance || instance.state === "disabled") {
       return c.json({ reason: "unknown_device" }, 404);
     }
-    const activation = await loadDeviceActivation(flow.instanceId);
-    const review = await findDeviceActivationReviewByFlowId(flow.flowId);
+    const activation = await loadDeviceActivation(deps, flow.instanceId);
+    const review = await findDeviceActivationReviewByFlowId(deps, flow.flowId);
     if (!activation) {
       if (review?.state === "rejected") {
         return c.json({
@@ -423,24 +450,30 @@ export function registerDeviceActivationHttpRoutes(
         reason: "device_activation_revoked",
       });
     }
-    const deployment = await loadDeviceDeployment(activation.deploymentId);
+    const deployment = await loadDeviceDeployment(
+      deps,
+      activation.deploymentId,
+    );
     if (!deployment || deployment.disabled) {
       return c.json({
         status: "rejected",
         reason: "device_deployment_not_found",
       });
     }
-    const bootstrap = await resolveDeviceBootstrap(deviceBootstrapDeps(), {
-      publicIdentityKey,
-      contractDigest,
-    });
+    const bootstrap = await resolveDeviceConnectInfo(
+      deviceBootstrapDeps(deps),
+      {
+        publicIdentityKey,
+        contractDigest,
+      },
+    );
     if (bootstrap.status !== "ready") {
       return c.json({ reason: "contract_digest_not_allowed" }, 403);
     }
     return c.json({
       status: "activated",
       activatedAt: activation.activatedAt,
-      confirmationCode: await confirmationCodeForActivation({
+      confirmationCode: await confirmationCodeForActivation(deps, {
         instanceId: activation.instanceId,
         publicIdentityKey: activation.publicIdentityKey,
         nonce: flow.nonce,
@@ -449,35 +482,10 @@ export function registerDeviceActivationHttpRoutes(
     });
   });
 
-  app.post("/auth/devices/connect-info", async (c: Context) => {
-    const bodyResult = await AsyncResult.try(() => c.req.json());
-    if (bodyResult.isErr()) return c.json({ error: "Invalid JSON body" }, 400);
-    const body = bodyResult.take();
-    const nowSeconds = Math.floor(Date.now() / 1_000);
-    if (!Value.Check(DeviceBootstrapRequestSchema, body)) {
-      return c.json({ reason: "invalid_request" }, 400);
-    }
-    const request = body;
-    if (!isDeviceProofIatFresh(request.iat)) {
-      return c.json({ reason: "iat_out_of_range", serverNow: nowSeconds }, 400);
-    }
-    const proofOk = await verifyDeviceBootstrapIdentityProof(request);
-    if (!proofOk) {
-      return c.json({ reason: "invalid_signature" }, 400);
-    }
-    const result = await resolveDeviceBootstrap(deviceBootstrapDeps(), request);
-    if (result.status === "activation_required") {
-      return c.json({ reason: "unknown_device" }, 404);
-    }
-    if (result.status === "not_ready") {
-      if (result.reason === "contract_digest_not_allowed") {
-        return c.json({ reason: result.reason }, 403);
-      }
-      if (result.reason === "device_deployment_not_found") {
-        return c.json({ reason: result.reason }, 404);
-      }
-      return c.json({ reason: "unknown_device" }, 404);
-    }
-    return c.json(result);
-  });
+  app.post(
+    "/auth/devices/connect-info",
+    createDeviceConnectInfoHandler(
+      deviceBootstrapDeps(deps),
+    ),
+  );
 }

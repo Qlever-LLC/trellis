@@ -18,113 +18,21 @@ initTracing("trellis");
 const config = getConfig();
 const app = new Hono();
 const runtime = await createRuntimeGlobals(config);
-const {
-  browserFlowsKV,
-  connectionsKV,
-  contractApprovalStorage,
-  contractStorage,
-  deviceActivationReviewStorage,
-  deviceActivationStorage,
-  deviceDeploymentStorage,
-  deviceInstanceStorage,
-  devicePortalSelectionStorage,
-  deviceProvisioningSecretStorage,
-  instanceGrantPolicyStorage,
-  logger,
-  loginPortalSelectionStorage,
-  natsAuth,
-  natsTrellis,
-  oauthStateKV,
-  pendingAuthKV,
-  portalDefaultStorage,
-  portalProfileStorage,
-  portalStorage,
-  sentinelCreds,
-  serviceDeploymentStorage,
-  serviceInstanceStorage,
-  sessionStorage,
-  shutdownGlobals,
-  stateKV,
-  trellis,
-  userStorage,
-} = runtime;
-
-const contracts = createContractsModule({
-  builtinContracts: await resolveBuiltinContracts(),
-  contractStorage,
-  deviceDeploymentStorage,
-  deviceInstanceStorage,
-  logger,
-  serviceInstanceStorage,
-  serviceDeploymentStorage,
-});
-
-const stateHandlers = createStateHandlers({
-  sessionStorage,
-  state: new StateStore({ kv: stateKV }),
-  contractStore: contracts.contractStore,
-});
-
-await registerCatalog({
-  trellis,
-  contracts,
-  serviceInstanceStorage,
-  logger,
-});
-
-await registerState({ trellis, stateHandlers });
-
-await registerAuth({
-  app,
-  trellis,
-  contracts,
-  contractStorage,
-  userStorage,
-  contractApprovalStorage,
-  portalStorage,
-  portalDefaultStorage,
-  loginPortalSelectionStorage,
-  devicePortalSelectionStorage,
-  deviceDeploymentStorage,
-  deviceInstanceStorage,
-  deviceActivationStorage,
-  deviceActivationReviewStorage,
-  deviceProvisioningSecretStorage,
-  instanceGrantPolicyStorage,
-  portalProfileStorage,
-  serviceDeploymentStorage,
-  serviceInstanceStorage,
-  sessionStorage,
-  browserFlowsKV,
-  connectionsKV,
-  logger,
-  natsAuth,
-  natsTrellis,
-  oauthStateKV,
-  pendingAuthKV,
-  sentinelCreds,
-});
-
-const backgroundTasks = startControlPlaneBackgroundTasks({
-  contractStorage,
-  userStorage,
-  contractApprovalStorage,
-  contractStore: contracts.contractStore,
-});
-
-const serverAbort = new AbortController();
-const server = Deno.serve(
-  {
-    port: config.port,
-    signal: serverAbort.signal,
-  },
-  app.fetch,
-);
 
 const SERVER_DRAIN_TIMEOUT_MS = 5_000;
 const PROCESS_SHUTDOWN_TIMEOUT_MS = 10_000;
 
-async function waitForServerDrain(): Promise<void> {
+function aggregateStartupFailure(error: unknown, cleanupResults: unknown[]) {
+  if (cleanupResults.length === 0) return error;
+  return new AggregateError(
+    [error, ...cleanupResults],
+    "Trellis startup failed and cleanup was incomplete",
+  );
+}
+
+async function waitForServerDrain(
+  server: ReturnType<typeof Deno.serve>,
+): Promise<void> {
   let timeoutId: number | undefined;
 
   try {
@@ -141,6 +49,136 @@ async function waitForServerDrain(): Promise<void> {
   }
 }
 
+async function startTrellisService() {
+  const {
+    browserFlowsKV,
+    connectionsKV,
+    contractApprovalStorage,
+    contractStorage,
+    deviceActivationReviewStorage,
+    deviceActivationStorage,
+    deviceDeploymentStorage,
+    deviceInstanceStorage,
+    devicePortalSelectionStorage,
+    deviceProvisioningSecretStorage,
+    instanceGrantPolicyStorage,
+    logger,
+    loginPortalSelectionStorage,
+    natsAuth,
+    natsTrellis,
+    oauthStateKV,
+    pendingAuthKV,
+    portalDefaultStorage,
+    portalProfileStorage,
+    portalStorage,
+    sentinelCreds,
+    serviceDeploymentStorage,
+    serviceInstanceStorage,
+    sessionStorage,
+    stateKV,
+    trellis,
+    userStorage,
+  } = runtime;
+  let backgroundTasks:
+    | ReturnType<typeof startControlPlaneBackgroundTasks>
+    | undefined;
+  let serverAbort: AbortController | undefined;
+  let server: ReturnType<typeof Deno.serve> | undefined;
+
+  try {
+    const contracts = createContractsModule({
+      builtinContracts: resolveBuiltinContracts(),
+      contractStorage,
+      deviceDeploymentStorage,
+      deviceInstanceStorage,
+      logger,
+      serviceInstanceStorage,
+      serviceDeploymentStorage,
+    });
+
+    const stateHandlers = createStateHandlers({
+      sessionStorage,
+      state: new StateStore({ kv: stateKV }),
+      contractStore: contracts.contractStore,
+    });
+
+    await registerCatalog({
+      trellis,
+      contracts,
+      serviceInstanceStorage,
+      logger,
+    });
+
+    await registerState({ trellis, stateHandlers });
+
+    await registerAuth({
+      app,
+      trellis,
+      contracts,
+      contractStorage,
+      userStorage,
+      contractApprovalStorage,
+      portalStorage,
+      portalDefaultStorage,
+      loginPortalSelectionStorage,
+      devicePortalSelectionStorage,
+      deviceDeploymentStorage,
+      deviceInstanceStorage,
+      deviceActivationStorage,
+      deviceActivationReviewStorage,
+      deviceProvisioningSecretStorage,
+      instanceGrantPolicyStorage,
+      portalProfileStorage,
+      serviceDeploymentStorage,
+      serviceInstanceStorage,
+      sessionStorage,
+      browserFlowsKV,
+      connectionsKV,
+      logger,
+      natsAuth,
+      natsTrellis,
+      oauthStateKV,
+      pendingAuthKV,
+      sentinelCreds,
+    });
+
+    backgroundTasks = startControlPlaneBackgroundTasks({
+      contractStorage,
+      userStorage,
+      contractApprovalStorage,
+      contractStore: contracts.contractStore,
+    });
+
+    serverAbort = new AbortController();
+    server = Deno.serve(
+      {
+        port: config.port,
+        signal: serverAbort.signal,
+      },
+      app.fetch,
+    );
+
+    return { backgroundTasks, logger, server, serverAbort };
+  } catch (error) {
+    serverAbort?.abort();
+    const cleanupResults = await Promise.allSettled([
+      server ? waitForServerDrain(server) : Promise.resolve(),
+      backgroundTasks?.stop() ?? Promise.resolve(),
+      runtime.shutdownGlobals(),
+    ]);
+    const cleanupFailures: unknown[] = [];
+    for (const result of cleanupResults) {
+      if (result.status !== "rejected") continue;
+      cleanupFailures.push(result.reason);
+      logger.error({ error: result.reason }, "Trellis startup cleanup failed");
+    }
+    throw aggregateStartupFailure(error, cleanupFailures);
+  }
+}
+
+const { backgroundTasks, logger, server, serverAbort } =
+  await startTrellisService();
+
 let shuttingDown: Promise<void> | null = null;
 
 function shutdown(signal: string): Promise<void> {
@@ -152,9 +190,9 @@ function shutdown(signal: string): Promise<void> {
     logger.info({ signal }, "Shutting down Trellis service");
     serverAbort.abort();
     const cleanupResults = await Promise.allSettled([
-      waitForServerDrain(),
+      waitForServerDrain(server),
       backgroundTasks.stop(),
-      shutdownGlobals(),
+      runtime.shutdownGlobals(),
     ]);
     const failures: unknown[] = [];
     for (const result of cleanupResults) {

@@ -33,10 +33,8 @@ type SubjectEntry = NonNullable<
   ContractAnalysis["subjects"]
 >["subjects"][number];
 type NatsRule = ContractAnalysis["nats"]["publish"][number];
-const TRANSFER_SUBJECT_PREFIXES = [
-  "transfer.v1.upload",
-  "transfer.v1.download",
-] as const;
+const TRANSFER_UPLOAD_SUBJECT = "transfer.v1.upload.*.*";
+const TRANSFER_DOWNLOAD_SUBJECT = "transfer.v1.download.*.*";
 
 export function resolveDeviceContractDigest(
   deployment: DeviceDeployment,
@@ -104,9 +102,6 @@ export function deriveDeviceRuntimeAccess(
       rule.wildcardSubject || rule.subject
     ),
   );
-  for (const prefix of TRANSFER_SUBJECT_PREFIXES) {
-    publishSubjects.add(`${prefix}.*.*`);
-  }
   const subscribeSubjects = new Set<string>(
     analysis.nats.subscribe.map((rule: NatsRule) =>
       rule.wildcardSubject || rule.subject
@@ -129,8 +124,17 @@ export function deriveDeviceRuntimeAccess(
       publishSubjects.add(
         templateToWildcard(`${operation.operation.subject}.control`),
       );
+      if (operation.operation.transfer?.direction === "send") {
+        publishSubjects.add(TRANSFER_UPLOAD_SUBJECT);
+      }
       for (const capability of operation.operation.capabilities?.call ?? []) {
         capabilities.push(capability);
+      }
+    }
+
+    for (const method of uses.rpcCalls) {
+      if (method.method.transfer?.direction === "receive") {
+        subscribeSubjects.add(TRANSFER_DOWNLOAD_SUBJECT);
       }
     }
 

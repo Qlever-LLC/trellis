@@ -1,4 +1,5 @@
 import type { ContractsModule } from "../../catalog/runtime.ts";
+import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 
 export type AuthRpcMethod =
   | "Auth.ListInstalledContracts"
@@ -79,7 +80,10 @@ export type OperationRegistrar = {
   };
 };
 
-export type AuthRuntime = RpcRegistrar & OperationRegistrar;
+export type AuthRuntime =
+  & RpcRegistrar
+  & OperationRegistrar
+  & AuthRuntimeDeps["trellis"];
 
 export type AuthContractsRuntime = Pick<
   ContractsModule,

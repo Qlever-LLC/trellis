@@ -33,7 +33,8 @@ model.
 Key decisions:
 
 - `device` is the primary architecture term for this activation model
-- activated devices are preregistered against deployment-owned device deployments
+- activated devices are preregistered against deployment-owned device
+  deployments
 - the client does not choose a flow type or deployment during normal activation
 - Trellis resolves the device instance, device deployment, and activation portal
   policy from preregistered records
@@ -109,8 +110,8 @@ Rules:
 
 ### 3) Device deployments define rollout and review policy
 
-`DeviceDeployment` is a deployment-owned record used during activation and online
-auth.
+`DeviceDeployment` is a deployment-owned record used during activation and
+online auth.
 
 ```json
 {
@@ -264,6 +265,9 @@ Rules:
 - Trellis understands `name`, `serialNumber`, and `modelNumber` for default
   admin display, but the map may also include deployment-specific opaque keys
 - auth, activation, and connect-info decisions do not depend on this metadata
+- device instances do not store a current contract id or digest; connect-info
+  and runtime auth resolve the presented digest against the enabled device
+  deployment's applied contract digest set
 
 `DeviceProvisioningSecret` is the auth-owned activation secret material keyed by
 `instanceId`.
@@ -409,6 +413,9 @@ type DeviceConnectInfo = {
 Rules:
 
 - Trellis returns `natsServers` and sentinel credentials from deployment state
+- connect info is served by `POST /auth/devices/connect-info` and the matching
+  `Auth.GetDeviceConnectInfo` RPC wrapper, not by bootstrap-route state cached
+  on the device
 - devices should refresh connect info on startup rather than treating cached
   transport data as a permanent source of truth
 - reboot-safe storage should keep the root secret, not connect info, sentinel
@@ -430,7 +437,9 @@ Auth validates:
 1. the known device instance by public identity key
 2. activation state is `activated`
 3. the device deployment is present and enabled
-4. `contractDigest` is included in `deployment.allowedDigests`
+4. `contractDigest` is included in one
+   `deployment.appliedContracts[].allowedDigests` entry, and that entry supplies
+   the matching `contractId` for connect info
 
 This lets old and new device digests coexist during rollout while keeping
 validation explicit.

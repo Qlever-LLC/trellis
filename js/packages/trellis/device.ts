@@ -616,7 +616,7 @@ async function fetchDeviceBootstrap(args: {
       sig: request.sig,
     };
     const response = await fetch(
-      new URL("/bootstrap/device", args.trellisUrl),
+      new URL("/auth/devices/connect-info", args.trellisUrl),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

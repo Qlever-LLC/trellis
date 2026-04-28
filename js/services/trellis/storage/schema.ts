@@ -171,8 +171,6 @@ export const deviceInstances = sqliteTable(
     deploymentId: text("deployment_id").notNull(),
     metadata: text("metadata"),
     state: text("state").notNull(),
-    currentContractId: text("current_contract_id"),
-    currentContractDigest: text("current_contract_digest"),
     createdAt: text("created_at").notNull(),
     activatedAt: text("activated_at"),
     revokedAt: text("revoked_at"),

@@ -45,15 +45,17 @@ export const documentsService = defineContract({
 Fields:
 
 - `purpose` explains why the service needs the store
+- `required` defaults to `true`; set it to `false` only when the service can run
+  without this store binding
 - `ttlMs` is optional; omit it or set it to `0` when the store should not request automatic expiry
 - `maxObjectBytes` limits one stored object
 - `maxTotalBytes` limits the whole store
 
-Like `resources.kv`, the key under `store` (`uploads`) is only a logical alias. Trellis assigns the physical store identity at install time.
+Like `resources.kv`, the key under `store` (`uploads`) is only a logical alias. Trellis assigns the physical store identity at install time. Optional stores may be omitted from runtime bindings when provisioning fails or object-store support is unavailable.
 
 ## 2. Connect the service and open the store
 
-The intended runtime shape mirrors the KV handle pattern:
+The intended runtime shape mirrors the KV handle pattern. This example assumes the default required binding, so `service.store.uploads` is present after a successful connect:
 
 ```ts
 import { isErr } from "@qlever-llc/trellis";

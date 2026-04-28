@@ -68,20 +68,20 @@ function serviceRpcDeps(): {
 }
 
 type KVLike<V> = {
-  get: (key: string) => AsyncResult<{ value: V } | V | unknown, BaseError>;
-  put: (key: string, value: V) => AsyncResult<void | unknown, BaseError>;
-  delete: (key: string) => AsyncResult<void | unknown, BaseError>;
+  get: (
+    key: string,
+  ) => AsyncResult<{ value: V } | Result<never, BaseError>, BaseError>;
+  put: (
+    key: string,
+    value: V,
+  ) => AsyncResult<void | Result<never, BaseError>, BaseError>;
+  delete: (
+    key: string,
+  ) => AsyncResult<void | Result<never, BaseError>, BaseError>;
   keys: (
     filter: string,
-  ) => AsyncResult<AsyncIterable<string> | unknown, BaseError>;
+  ) => AsyncResult<AsyncIterable<string> | Result<never, BaseError>, BaseError>;
 };
-
-function unwrapValue<V>(entry: { value: V } | V | unknown): V {
-  if (entry && typeof entry === "object" && "value" in entry) {
-    return (entry as { value: V }).value;
-  }
-  return entry as V;
-}
 
 function invalid(
   path: string,
@@ -111,10 +111,10 @@ async function kickInstanceRuntimeAccess(args: {
   )
     .take();
   if (!isErr(connectionKeys)) {
-    for await (const key of connectionKeys as AsyncIterable<string>) {
+    for await (const key of connectionKeys) {
       const entry = await connectionStore.get(key).take();
       if (!isErr(entry)) {
-        const connection = unwrapValue<Connection>(entry);
+        const connection = entry.value;
         await args.kick(connection.serverId, connection.clientId);
       }
       await connectionStore.delete(key);
@@ -311,13 +311,6 @@ export function createAuthUnapplyServiceDeploymentContractHandler(
   };
 }
 
-function toggleDeploymentDisabled(
-  deployment: ServiceDeployment,
-  disabled: boolean,
-): ServiceDeployment {
-  return { ...deployment, disabled };
-}
-
 export function createAuthDisableServiceDeploymentHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
@@ -333,10 +326,7 @@ export function createAuthDisableServiceDeploymentHandler(
         deploymentId: req.deploymentId,
       });
     }
-    const nextDeployment = toggleDeploymentDisabled(
-      deployment,
-      true,
-    );
+    const nextDeployment = { ...deployment, disabled: true };
     try {
       await serviceDeploymentStorage.put(nextDeployment);
     } catch (error) {
@@ -376,10 +366,7 @@ export function createAuthEnableServiceDeploymentHandler(deps: {
         deploymentId: req.deploymentId,
       });
     }
-    const nextDeployment = toggleDeploymentDisabled(
-      deployment,
-      false,
-    );
+    const nextDeployment = { ...deployment, disabled: false };
     try {
       await serviceDeploymentStorage.put(nextDeployment);
     } catch (error) {

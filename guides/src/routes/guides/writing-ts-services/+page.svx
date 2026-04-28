@@ -216,7 +216,7 @@ const service = await TrellisService.connect({
 });
 ```
 
-`TrellisService.connect(...)` automatically verifies that the contract is active in the Trellis catalog and resolves all resource bindings declared in the contract. If the contract is not installed, it throws with a clear error message.
+`TrellisService.connect(...)` automatically verifies that the contract is active in the Trellis catalog and resolves required resource bindings plus any optional bindings that were successfully provisioned. If the contract is not installed, it throws with a clear error message.
 
 For Node, change the import to `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
 
@@ -234,6 +234,8 @@ if (isErr(ordersKV)) throw ordersKV.error;
 ```
 
 No need to know bucket names or configure history/TTL — those come from the installed contract binding.
+
+This example uses the default `required: true`. If you declare `required: false`, check that the binding exists before opening it.
 
 For larger unstructured blobs, the separate `resources.store` design follows the same handle-first pattern and is covered in [Store resources: TypeScript](/guides/using-store-resources-ts).
 

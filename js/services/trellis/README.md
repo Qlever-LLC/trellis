@@ -41,8 +41,8 @@ js/services/trellis/
 
 ### `bootstrap/`
 
-- `control_plane.ts` registers builtin contracts, RPC handlers, and background
-  loops.
+- `control_plane.ts` resolves builtin contracts and starts control-plane
+  background tasks.
 - `control_plane_api.ts` merges the owned APIs from `trellis.core`,
   `trellis.auth`, `trellis.state`, and `trellis.health`.
 - `globals.ts` exposes `createRuntimeGlobals(config)`, which creates the logger,
@@ -137,11 +137,13 @@ Trellis State API.
 
 1. `main.ts` initializes tracing, loads config, creates runtime globals, and
    creates the Hono app.
-2. `bootstrap/control_plane.ts` registers builtin contracts and RPC handlers.
-3. The control plane refreshes the active contract catalog and publishes the
+2. `bootstrap/control_plane.ts` resolves builtin contracts for the catalog.
+3. `catalog/`, `state/`, and `auth/registration/` register the control-plane RPC
+   and operation handlers.
+4. The control plane refreshes the active contract catalog and publishes the
    permission model used by the auth callout.
-4. HTTP auth routes are mounted.
-5. Background tasks start for the NATS auth callout and disconnect cleanup.
+5. HTTP auth routes are mounted.
+6. Background tasks start for the NATS auth callout and disconnect cleanup.
 
 ### Browser login and bind flow
 

@@ -462,8 +462,6 @@ function decodeDeviceInstanceRow(row: DeviceInstanceRow): DeviceInstance {
       ? undefined
       : parseJsonField("device instance metadata", row.metadata),
     state: row.state,
-    currentContractId: row.currentContractId ?? undefined,
-    currentContractDigest: row.currentContractDigest ?? undefined,
     createdAt: row.createdAt,
     activatedAt: row.activatedAt,
     revokedAt: row.revokedAt,
@@ -481,8 +479,6 @@ function encodeDeviceInstanceRecord(
       ? null
       : JSON.stringify(record.metadata),
     state: record.state,
-    currentContractId: record.currentContractId ?? null,
-    currentContractDigest: record.currentContractDigest ?? null,
     createdAt: record.createdAt,
     activatedAt: record.activatedAt,
     revokedAt: record.revokedAt,
@@ -1445,8 +1441,6 @@ export class SqlDeviceInstanceRepository {
         deploymentId: row.deploymentId,
         metadata: row.metadata,
         state: row.state,
-        currentContractId: row.currentContractId,
-        currentContractDigest: row.currentContractDigest,
         createdAt: row.createdAt,
         activatedAt: row.activatedAt,
         revokedAt: row.revokedAt,

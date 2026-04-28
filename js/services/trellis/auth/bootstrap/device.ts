@@ -17,7 +17,7 @@ const ClientTransportsSchema = Type.Object({
   websocket: Type.Optional(ClientTransportEndpointsSchema),
 }, { additionalProperties: false });
 
-export const DeviceBootstrapRequestSchema = Type.Object({
+export const DeviceConnectInfoRequestSchema = Type.Object({
   publicIdentityKey: Type.String({ minLength: 1 }),
   contractDigest: DigestSchema,
   iat: Type.Number(),
@@ -30,8 +30,6 @@ type DeviceInstance = {
   deploymentId: string;
   metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
-  currentContractId?: string;
-  currentContractDigest?: string;
   createdAt: string | Date;
   activatedAt: string | Date | null;
   revokedAt: string | Date | null;
@@ -74,12 +72,12 @@ type DeviceConnectInfo = {
   };
 };
 
-export type DeviceBootstrapResult =
+export type DeviceConnectInfoResult =
   | { status: "ready"; connectInfo: DeviceConnectInfo }
   | { status: "activation_required" }
   | { status: "not_ready"; reason: string };
 
-export type DeviceBootstrapDeps = {
+export type DeviceConnectInfoResolverDeps = {
   transports: {
     native?: { natsServers: string[] };
     websocket?: { natsServers: string[] };
@@ -93,8 +91,9 @@ export type DeviceBootstrapDeps = {
     instanceId: string,
   ): Promise<DeviceActivation | null>;
   loadDeviceDeployment(deploymentId: string): Promise<DeviceDeployment | null>;
-  saveDeviceInstance(instance: DeviceInstance): Promise<void>;
-  refreshActiveContracts(): Promise<void>;
+};
+
+export type DeviceConnectInfoDeps = DeviceConnectInfoResolverDeps & {
   verifyIdentityProof(input: {
     publicIdentityKey: string;
     contractDigest: string;
@@ -140,10 +139,10 @@ function buildDeviceConnectInfo(args: {
   };
 }
 
-export async function resolveDeviceBootstrap(
-  deps: DeviceBootstrapDeps,
+export async function resolveDeviceConnectInfo(
+  deps: DeviceConnectInfoResolverDeps,
   input: { publicIdentityKey: string; contractDigest: string },
-): Promise<DeviceBootstrapResult> {
+): Promise<DeviceConnectInfoResult> {
   const instanceId = deviceInstanceId(input.publicIdentityKey);
   const instance = await deps.loadDeviceInstance(instanceId);
   if (!instance) {
@@ -177,25 +176,13 @@ export async function resolveDeviceBootstrap(
     return { status: "not_ready", reason: "contract_digest_not_allowed" };
   }
 
-  if (
-    instance.currentContractId !== connectInfo.contractId ||
-    instance.currentContractDigest !== connectInfo.contractDigest
-  ) {
-    await deps.saveDeviceInstance({
-      ...instance,
-      currentContractId: connectInfo.contractId,
-      currentContractDigest: connectInfo.contractDigest,
-    });
-    await deps.refreshActiveContracts();
-  }
-
   return {
     status: "ready",
     connectInfo,
   };
 }
 
-export function createDeviceBootstrapHandler(deps: DeviceBootstrapDeps) {
+export function createDeviceConnectInfoHandler(deps: DeviceConnectInfoDeps) {
   return async (c: Context) => {
     const bodyResult = await AsyncResult.try(() => c.req.json());
     if (bodyResult.isErr()) {
@@ -203,7 +190,7 @@ export function createDeviceBootstrapHandler(deps: DeviceBootstrapDeps) {
     }
 
     const body = bodyResult.take();
-    if (!Value.Check(DeviceBootstrapRequestSchema, body)) {
+    if (!Value.Check(DeviceConnectInfoRequestSchema, body)) {
       return c.json({ reason: "invalid_request" }, 400);
     }
 
@@ -223,11 +210,24 @@ export function createDeviceBootstrapHandler(deps: DeviceBootstrapDeps) {
       return c.json({ reason: "invalid_signature" }, 400);
     }
 
-    return c.json(await resolveDeviceBootstrap(deps, request));
+    const result = await resolveDeviceConnectInfo(deps, request);
+    if (result.status === "activation_required") {
+      return c.json({ reason: "unknown_device" }, 404);
+    }
+    if (result.status === "not_ready") {
+      if (result.reason === "contract_digest_not_allowed") {
+        return c.json({ reason: result.reason }, 403);
+      }
+      if (result.reason === "device_deployment_not_found") {
+        return c.json({ reason: result.reason }, 404);
+      }
+      return c.json({ reason: "unknown_device" }, 404);
+    }
+    return c.json(result);
   };
 }
 
-export async function verifyDeviceBootstrapIdentityProof(input: {
+export async function verifyDeviceConnectInfoIdentityProof(input: {
   publicIdentityKey: string;
   contractDigest: string;
   iat: number;

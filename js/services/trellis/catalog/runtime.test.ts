@@ -359,7 +359,7 @@ Deno.test("contracts runtime does not activate service deployment allowed digest
   }
 });
 
-Deno.test("contracts runtime activates enabled service and activated device current digests", async () => {
+Deno.test("contracts runtime activates service current digests and enabled device deployment digests", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-instances-",
@@ -418,21 +418,9 @@ Deno.test("contracts runtime activates enabled service and activated device curr
       disabled: false,
       appliedContracts: [{
         contractId: device.id,
-        allowedDigests: [device.digest],
+        allowedDigests: [device.digest, device.digest],
       }],
     });
-    await deviceInstanceStorage.put({
-      instanceId: "dev_1",
-      publicIdentityKey: "public-key",
-      deploymentId: "device.default",
-      state: "activated",
-      currentContractId: device.id,
-      currentContractDigest: device.digest,
-      createdAt: now,
-      activatedAt: now,
-      revokedAt: null,
-    });
-
     await module.refreshActiveContracts();
 
     assertEquals(
@@ -514,8 +502,6 @@ Deno.test("contracts runtime excludes current digests for disabled parent deploy
       publicIdentityKey: "public-key",
       deploymentId: "device.disabled",
       state: "activated",
-      currentContractId: device.id,
-      currentContractDigest: device.digest,
       createdAt: now,
       activatedAt: now,
       revokedAt: null,

@@ -362,13 +362,7 @@ function parseAuthConfig(configPath: string, text: string): Config {
   return normalizeConfig(configPath, raw);
 }
 
-export async function loadAuthConfigFromFile(
-  configPath: string,
-): Promise<Config> {
-  return loadAuthConfigFromFileSync(configPath);
-}
-
-export function loadAuthConfigFromFileSync(configPath: string): Config {
+export function loadAuthConfigFromFile(configPath: string): Config {
   return parseAuthConfig(configPath, Deno.readTextFileSync(configPath));
 }
 
@@ -382,7 +376,7 @@ let cachedConfig: Config | undefined;
 
 export function getConfig(): Config {
   if (cachedConfig) return cachedConfig;
-  cachedConfig = loadAuthConfigFromFileSync(resolveConfigPath(env));
+  cachedConfig = loadAuthConfigFromFile(resolveConfigPath(env));
   return cachedConfig;
 }
 

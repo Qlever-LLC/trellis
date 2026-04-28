@@ -139,8 +139,6 @@ CREATE TABLE `device_instances` (
 	`deployment_id` text NOT NULL,
 	`metadata` text,
 	`state` text NOT NULL,
-	`current_contract_id` text,
-	`current_contract_digest` text,
 	`created_at` text NOT NULL,
 	`activated_at` text,
 	`revoked_at` text

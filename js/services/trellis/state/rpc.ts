@@ -1,20 +1,43 @@
 import type { JsonValue } from "@qlever-llc/trellis/contracts";
 import { isJsonValue } from "@qlever-llc/trellis/contracts";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
-import { AuthError, ValidationError } from "@qlever-llc/trellis";
-import { type BaseError, Result } from "@qlever-llc/result";
+import {
+  AuthError,
+  UnexpectedError,
+  ValidationError,
+} from "@qlever-llc/trellis";
+import { isErr, Result } from "@qlever-llc/result";
 import type { parseUnknownSchema } from "../../../packages/trellis/codec.ts";
 import type { SchemaLike } from "../../../packages/trellis/contracts.ts";
 
 import type {
   StateAdminDeleteInput,
+  StateAdminDeleteResponse,
 } from "../../../packages/trellis/models/trellis/rpc/StateAdminDelete.ts";
-import type { StateAdminGetInput } from "../../../packages/trellis/models/trellis/rpc/StateAdminGet.ts";
-import type { StateAdminListInput } from "../../../packages/trellis/models/trellis/rpc/StateAdminList.ts";
-import type { StateDeleteInput } from "../../../packages/trellis/models/trellis/rpc/StateDelete.ts";
-import type { StateGetInput } from "../../../packages/trellis/models/trellis/rpc/StateGet.ts";
-import type { StateListInput } from "../../../packages/trellis/models/trellis/rpc/StateList.ts";
-import type { StatePutInput } from "../../../packages/trellis/models/trellis/rpc/StatePut.ts";
+import type {
+  StateAdminGetInput,
+  StateAdminGetResponse,
+} from "../../../packages/trellis/models/trellis/rpc/StateAdminGet.ts";
+import type {
+  StateAdminListInput,
+  StateAdminListResponse,
+} from "../../../packages/trellis/models/trellis/rpc/StateAdminList.ts";
+import type {
+  StateDeleteInput,
+  StateDeleteResponse,
+} from "../../../packages/trellis/models/trellis/rpc/StateDelete.ts";
+import type {
+  StateGetInput,
+  StateGetResponse,
+} from "../../../packages/trellis/models/trellis/rpc/StateGet.ts";
+import type {
+  StateListInput,
+  StateListResponse,
+} from "../../../packages/trellis/models/trellis/rpc/StateList.ts";
+import type {
+  StatePutInput,
+  StatePutResponse,
+} from "../../../packages/trellis/models/trellis/rpc/StatePut.ts";
 import type { StateStoreKind } from "../../../packages/trellis/models/trellis/State.ts";
 import type { Session } from "../auth/schemas.ts";
 import type { ResolvedStateStore } from "./model.ts";
@@ -58,17 +81,21 @@ type RpcDeps = {
   contractStore: ContractStoreLike;
 };
 
+type StateRpcError = AuthError | UnexpectedError | ValidationError;
+
 async function loadSessionBySessionKey(
   sessionKey: string,
   sessionStore: SessionLike,
-): Promise<Session | null> {
+): Promise<Result<Session | null, AuthError>> {
   try {
-    return await sessionStore.getOneBySessionKey(sessionKey) ?? null;
+    return Result.ok(await sessionStore.getOneBySessionKey(sessionKey) ?? null);
   } catch {
-    throw new AuthError({
-      reason: "session_corrupted",
-      context: { sessionKey },
-    });
+    return Result.err(
+      new AuthError({
+        reason: "session_corrupted",
+        context: { sessionKey },
+      }),
+    );
   }
 }
 
@@ -76,56 +103,40 @@ function isAdmin(caller: Caller): boolean {
   return caller.capabilities?.includes("admin") ?? false;
 }
 
-function requireAdmin(caller: Caller): void {
+function requireAdmin(caller: Caller): Result<void, AuthError> {
   if (!isAdmin(caller)) {
-    throw new AuthError({ reason: "insufficient_permissions" });
+    return Result.err(new AuthError({ reason: "insufficient_permissions" }));
   }
+  return Result.ok(undefined);
 }
 
-function requireJsonValue(value: unknown): JsonValue {
+function requireJsonValue(value: unknown): Result<JsonValue, ValidationError> {
   if (!isJsonValue(value)) {
-    throw new ValidationError({
-      errors: [{ path: "/value", message: "state value must be valid JSON" }],
-    });
+    return Result.err(
+      new ValidationError({
+        errors: [{ path: "/value", message: "state value must be valid JSON" }],
+      }),
+    );
   }
-  return value;
-}
-
-function expectedStateRpcError(
-  error: unknown,
-): AuthError | ValidationError | undefined {
-  if (error instanceof AuthError || error instanceof ValidationError) {
-    return error;
-  }
-  return undefined;
-}
-
-async function runStateRpc<T, E extends BaseError>(
-  operation: () => Promise<Result<T, E>>,
-): Promise<Result<T, E | AuthError | ValidationError>> {
-  try {
-    return await operation();
-  } catch (error) {
-    const expected = expectedStateRpcError(error);
-    if (expected) return Result.err(expected);
-    throw error;
-  }
+  return Result.ok(value);
 }
 
 function requireStoreDefinition(
   contract: StateContractLike | undefined,
   store: string,
-): ContractStateStore {
+): Result<ContractStateStore, ValidationError> {
   const definition = contract?.state?.[store];
   if (!definition) {
-    throw new ValidationError({
-      errors: [{
-        path: "/store",
-        message: `state store '${store}' is not declared by the contract`,
-      }],
-    });
+    return Result.err(
+      new ValidationError({
+        errors: [{
+          path: "/store",
+          message: `state store '${store}' is not declared by the contract`,
+        }],
+      }),
+    );
   }
-  return definition;
+  return Result.ok(definition);
 }
 
 function isSchemaLike(
@@ -139,75 +150,96 @@ function requireStoreSchema(
   contract: StateContractLike | undefined,
   definition: ContractStateStore,
   store: string,
-): Parameters<typeof parseUnknownSchema>[0] {
+): Result<Parameters<typeof parseUnknownSchema>[0], ValidationError> {
   const schema = contract?.schemas?.[definition.schema.schema];
   if (!isSchemaLike(schema)) {
-    throw new ValidationError({
-      errors: [{
-        path: "/store",
-        message: `state store '${store}' schema is not available`,
-      }],
-    });
+    return Result.err(
+      new ValidationError({
+        errors: [{
+          path: "/store",
+          message: `state store '${store}' schema is not available`,
+        }],
+      }),
+    );
   }
-  return schema;
+  return Result.ok(schema);
 }
 
 function requireAcceptedVersionSchemas(
   contract: StateContractLike | undefined,
   definition: ContractStateStore,
   store: string,
-): Record<string, Parameters<typeof parseUnknownSchema>[0]> {
+): Result<
+  Record<string, Parameters<typeof parseUnknownSchema>[0]>,
+  ValidationError
+> {
   const schemas: Record<string, Parameters<typeof parseUnknownSchema>[0]> = {};
   for (
     const [version, ref] of Object.entries(definition.acceptedVersions ?? {})
   ) {
     const schema = contract?.schemas?.[ref.schema];
     if (!isSchemaLike(schema)) {
-      throw new ValidationError({
-        errors: [{
-          path: "/store",
-          message:
-            `state store '${store}' accepted version '${version}' schema is not available`,
-        }],
-      });
+      return Result.err(
+        new ValidationError({
+          errors: [{
+            path: "/store",
+            message:
+              `state store '${store}' accepted version '${version}' schema is not available`,
+          }],
+        }),
+      );
     }
     schemas[version] = schema;
   }
-  return schemas;
+  return Result.ok(schemas);
+}
+
+function unwrapChecked<T>(result: Result<T, AuthError | ValidationError>): T {
+  return result.unwrapOrElse(() => {
+    throw new Error("checked state RPC result unexpectedly failed");
+  });
 }
 
 async function resolveCallerStore(
   store: string,
   ctx: { caller: Caller; sessionKey: string },
   deps: RpcDeps,
-): Promise<ResolvedStateStore> {
-  const session = await loadSessionBySessionKey(
+): Promise<Result<ResolvedStateStore, AuthError | ValidationError>> {
+  const sessionResult = await loadSessionBySessionKey(
     ctx.sessionKey,
     deps.sessionStorage,
   );
+  if (isErr(sessionResult)) return sessionResult;
+  const session = unwrapChecked(sessionResult);
   if (!session) {
-    throw new AuthError({ reason: "insufficient_permissions" });
+    return Result.err(new AuthError({ reason: "insufficient_permissions" }));
   }
 
   if (ctx.caller.type !== session.type) {
-    throw new AuthError({ reason: "insufficient_permissions" });
+    return Result.err(new AuthError({ reason: "insufficient_permissions" }));
   }
 
   if (session.type !== "user" && session.type !== "device") {
-    throw new AuthError({ reason: "insufficient_permissions" });
+    return Result.err(new AuthError({ reason: "insufficient_permissions" }));
   }
 
   const contract = deps.contractStore.getContract(session.contractDigest, {
     includeInactive: true,
   });
-  const definition = requireStoreDefinition(contract, store);
-  const schema = requireStoreSchema(contract, definition, store);
-  const acceptedVersions = requireAcceptedVersionSchemas(
+  const definitionResult = requireStoreDefinition(contract, store);
+  if (isErr(definitionResult)) return definitionResult;
+  const definition = unwrapChecked(definitionResult);
+  const schemaResult = requireStoreSchema(contract, definition, store);
+  if (isErr(schemaResult)) return schemaResult;
+  const schema = unwrapChecked(schemaResult);
+  const acceptedVersionsResult = requireAcceptedVersionSchemas(
     contract,
     definition,
     store,
   );
-  return {
+  if (isErr(acceptedVersionsResult)) return acceptedVersionsResult;
+  const acceptedVersions = unwrapChecked(acceptedVersionsResult);
+  return Result.ok({
     ownerType: session.type,
     contractId: session.contractId,
     contractDigest: session.contractDigest,
@@ -217,33 +249,41 @@ async function resolveCallerStore(
     schema,
     stateVersion: definition.stateVersion ?? "v1",
     acceptedVersions,
-  };
+  });
 }
 
 async function resolveAdminStore(
   req: StateAdminGetInput | StateAdminListInput | StateAdminDeleteInput,
   deps: RpcDeps,
-): Promise<ResolvedStateStore> {
+): Promise<Result<ResolvedStateStore, ValidationError>> {
   const contract = deps.contractStore.getContract(req.contractDigest, {
     includeInactive: true,
   });
   if (contract && contract.id !== req.contractId) {
-    throw new ValidationError({
-      errors: [{
-        path: "/contractId",
-        message: "contractId does not match contractDigest",
-      }],
-    });
+    return Result.err(
+      new ValidationError({
+        errors: [{
+          path: "/contractId",
+          message: "contractId does not match contractDigest",
+        }],
+      }),
+    );
   }
-  const definition = requireStoreDefinition(contract, req.store);
-  const schema = requireStoreSchema(contract, definition, req.store);
-  const acceptedVersions = requireAcceptedVersionSchemas(
+  const definitionResult = requireStoreDefinition(contract, req.store);
+  if (isErr(definitionResult)) return definitionResult;
+  const definition = unwrapChecked(definitionResult);
+  const schemaResult = requireStoreSchema(contract, definition, req.store);
+  if (isErr(schemaResult)) return schemaResult;
+  const schema = unwrapChecked(schemaResult);
+  const acceptedVersionsResult = requireAcceptedVersionSchemas(
     contract,
     definition,
     req.store,
   );
+  if (isErr(acceptedVersionsResult)) return acceptedVersionsResult;
+  const acceptedVersions = unwrapChecked(acceptedVersionsResult);
   if (req.scope === "userApp") {
-    return {
+    return Result.ok({
       ownerType: "user",
       contractId: req.contractId,
       contractDigest: req.contractDigest,
@@ -253,10 +293,10 @@ async function resolveAdminStore(
       schema,
       stateVersion: definition.stateVersion ?? "v1",
       acceptedVersions,
-    };
+    });
   }
 
-  return {
+  return Result.ok({
     ownerType: "device",
     contractId: req.contractId,
     contractDigest: req.contractDigest,
@@ -266,18 +306,17 @@ async function resolveAdminStore(
     schema,
     stateVersion: definition.stateVersion ?? "v1",
     acceptedVersions,
-  };
+  });
 }
 
 export function createStateGetHandler(deps: RpcDeps) {
   return async (
     req: StateGetInput,
     ctx: { caller: Caller; sessionKey: string },
-  ) => {
-    return await runStateRpc(async () => {
-      const target = await resolveCallerStore(req.store, ctx, deps);
-      return await deps.state.get(target, { key: req.key });
-    });
+  ): Promise<Result<StateGetResponse, StateRpcError>> => {
+    const target = await resolveCallerStore(req.store, ctx, deps);
+    if (isErr(target)) return target;
+    return await deps.state.get(unwrapChecked(target), { key: req.key });
   };
 }
 
@@ -285,15 +324,16 @@ export function createStatePutHandler(deps: RpcDeps) {
   return async (
     req: StatePutInput,
     ctx: { caller: Caller; sessionKey: string },
-  ) => {
-    return await runStateRpc(async () => {
-      const target = await resolveCallerStore(req.store, ctx, deps);
-      return await deps.state.put(target, {
-        key: req.key,
-        expectedRevision: req.expectedRevision,
-        value: requireJsonValue(req.value),
-        ttlMs: req.ttlMs,
-      });
+  ): Promise<Result<StatePutResponse, StateRpcError>> => {
+    const target = await resolveCallerStore(req.store, ctx, deps);
+    if (isErr(target)) return target;
+    const value = requireJsonValue(req.value);
+    if (isErr(value)) return value;
+    return await deps.state.put(unwrapChecked(target), {
+      key: req.key,
+      expectedRevision: req.expectedRevision,
+      value: unwrapChecked(value),
+      ttlMs: req.ttlMs,
     });
   };
 }
@@ -302,13 +342,12 @@ export function createStateDeleteHandler(deps: RpcDeps) {
   return async (
     req: StateDeleteInput,
     ctx: { caller: Caller; sessionKey: string },
-  ) => {
-    return await runStateRpc(async () => {
-      const target = await resolveCallerStore(req.store, ctx, deps);
-      return await deps.state.delete(target, {
-        key: req.key,
-        expectedRevision: req.expectedRevision,
-      });
+  ): Promise<Result<StateDeleteResponse, StateRpcError>> => {
+    const target = await resolveCallerStore(req.store, ctx, deps);
+    if (isErr(target)) return target;
+    return await deps.state.delete(unwrapChecked(target), {
+      key: req.key,
+      expectedRevision: req.expectedRevision,
     });
   };
 }
@@ -317,51 +356,59 @@ export function createStateListHandler(deps: RpcDeps) {
   return async (
     req: StateListInput,
     ctx: { caller: Caller; sessionKey: string },
-  ) => {
-    return await runStateRpc(async () => {
-      const target = await resolveCallerStore(req.store, ctx, deps);
-      return await deps.state.list(target, {
-        prefix: req.prefix,
-        offset: req.offset,
-        limit: req.limit,
-      });
+  ): Promise<Result<StateListResponse, StateRpcError>> => {
+    const target = await resolveCallerStore(req.store, ctx, deps);
+    if (isErr(target)) return target;
+    return await deps.state.list(unwrapChecked(target), {
+      prefix: req.prefix,
+      offset: req.offset,
+      limit: req.limit,
     });
   };
 }
 
 export function createStateAdminGetHandler(deps: RpcDeps) {
-  return async (req: StateAdminGetInput, ctx: { caller: Caller }) => {
-    return await runStateRpc(async () => {
-      requireAdmin(ctx.caller);
-      const target = await resolveAdminStore(req, deps);
-      return await deps.state.get(target, { key: req.key });
-    });
+  return async (
+    req: StateAdminGetInput,
+    ctx: { caller: Caller },
+  ): Promise<Result<StateAdminGetResponse, StateRpcError>> => {
+    const admin = requireAdmin(ctx.caller);
+    if (isErr(admin)) return admin;
+    const target = await resolveAdminStore(req, deps);
+    if (isErr(target)) return target;
+    return await deps.state.get(unwrapChecked(target), { key: req.key });
   };
 }
 
 export function createStateAdminListHandler(deps: RpcDeps) {
-  return async (req: StateAdminListInput, ctx: { caller: Caller }) => {
-    return await runStateRpc(async () => {
-      requireAdmin(ctx.caller);
-      const target = await resolveAdminStore(req, deps);
-      return await deps.state.list(target, {
-        prefix: req.prefix,
-        offset: req.offset,
-        limit: req.limit,
-      });
+  return async (
+    req: StateAdminListInput,
+    ctx: { caller: Caller },
+  ): Promise<Result<StateAdminListResponse, StateRpcError>> => {
+    const admin = requireAdmin(ctx.caller);
+    if (isErr(admin)) return admin;
+    const target = await resolveAdminStore(req, deps);
+    if (isErr(target)) return target;
+    return await deps.state.list(unwrapChecked(target), {
+      prefix: req.prefix,
+      offset: req.offset,
+      limit: req.limit,
     });
   };
 }
 
 export function createStateAdminDeleteHandler(deps: RpcDeps) {
-  return async (req: StateAdminDeleteInput, ctx: { caller: Caller }) => {
-    return await runStateRpc(async () => {
-      requireAdmin(ctx.caller);
-      const target = await resolveAdminStore(req, deps);
-      return await deps.state.delete(target, {
-        key: req.key,
-        expectedRevision: req.expectedRevision,
-      });
+  return async (
+    req: StateAdminDeleteInput,
+    ctx: { caller: Caller },
+  ): Promise<Result<StateAdminDeleteResponse, StateRpcError>> => {
+    const admin = requireAdmin(ctx.caller);
+    if (isErr(admin)) return admin;
+    const target = await resolveAdminStore(req, deps);
+    if (isErr(target)) return target;
+    return await deps.state.delete(unwrapChecked(target), {
+      key: req.key,
+      expectedRevision: req.expectedRevision,
     });
   };
 }

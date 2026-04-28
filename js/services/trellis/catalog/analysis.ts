@@ -12,9 +12,19 @@ function templateToWildcard(subject: string): string {
 function subjectNamespace(subject: string): string | null {
   const parts = subject.split(".");
   if (parts.length < 3) return null;
-  if (parts[0] !== "rpc" && parts[0] !== "events") return null;
+  if (
+    parts[0] !== "rpc" && parts[0] !== "events" && parts[0] !== "operations"
+  ) {
+    return null;
+  }
   if (!parts[1]?.startsWith("v")) return null;
   return parts[2] ?? null;
+}
+
+function operationReadCapabilities(operation: {
+  capabilities?: { call?: string[]; read?: string[] };
+}): string[] {
+  return operation.capabilities?.read ?? operation.capabilities?.call ?? [];
 }
 
 export type ContractAnalysis = {
@@ -25,6 +35,26 @@ export type ContractAnalysis = {
       subject: string;
       wildcardSubject: string;
       callerCapabilities: string[];
+    }>;
+  };
+  operations: {
+    operations: Array<{
+      key: string;
+      subject: string;
+      wildcardSubject: string;
+      controlSubject: string;
+      wildcardControlSubject: string;
+      callCapabilities: string[];
+      readCapabilities: string[];
+      cancelCapabilities: string[];
+      cancel: boolean;
+    }>;
+    control: Array<{
+      key: string;
+      action: "get" | "wait" | "watch" | "cancel";
+      subject: string;
+      wildcardSubject: string;
+      requiredCapabilities: string[];
     }>;
   };
   events: {
@@ -46,13 +76,22 @@ export type ContractAnalysis = {
   };
   nats: {
     publish: Array<{
-      kind: "rpc:call" | "event:publish" | "subject:publish";
+      kind:
+        | "rpc:call"
+        | "operation:call"
+        | "event:publish"
+        | "subject:publish";
       subject: string;
       wildcardSubject: string;
       requiredCapabilities: string[];
     }>;
     subscribe: Array<{
-      kind: "rpc:handle" | "event:subscribe" | "subject:subscribe";
+      kind:
+        | "rpc:handle"
+        | "operation:handle"
+        | "operation:control"
+        | "event:subscribe"
+        | "subject:subscribe";
       subject: string;
       wildcardSubject: string;
       requiredCapabilities: string[];
@@ -94,6 +133,8 @@ export type ContractAnalysis = {
 export type ContractAnalysisSummary = {
   namespaces: string[];
   rpcMethods: number;
+  operations: number;
+  operationControls: number;
   events: number;
   natsPublish: number;
   natsSubscribe: number;
@@ -107,6 +148,8 @@ export function analyzeContract(contract: TrellisContractV1): {
   summary: ContractAnalysisSummary;
 } {
   const rpcMethods: ContractAnalysis["rpc"]["methods"] = [];
+  const operations: ContractAnalysis["operations"]["operations"] = [];
+  const operationControls: ContractAnalysis["operations"]["control"] = [];
   const events: ContractAnalysis["events"]["events"] = [];
   const subjects: ContractAnalysis["subjects"]["subjects"] = [];
   const namespaces = new Set<string>();
@@ -124,6 +167,66 @@ export function analyzeContract(contract: TrellisContractV1): {
       callerCapabilities: m.capabilities?.call ?? [],
     });
     const ns = subjectNamespace(m.subject);
+    if (ns) namespaces.add(ns);
+  }
+
+  for (
+    const [key, operation] of Object.entries(
+      contract.operations ?? {},
+    ) as Array<
+      [string, NonNullable<TrellisContractV1["operations"]>[string]]
+    >
+  ) {
+    const wildcardSubject = templateToWildcard(operation.subject);
+    const controlSubject = `${operation.subject}.control`;
+    const wildcardControlSubject = templateToWildcard(controlSubject);
+    const callCapabilities = operation.capabilities?.call ?? [];
+    const readCapabilities = operationReadCapabilities(operation);
+    const cancelCapabilities = operation.capabilities?.cancel ?? [];
+    operations.push({
+      key,
+      subject: operation.subject,
+      wildcardSubject,
+      controlSubject,
+      wildcardControlSubject,
+      callCapabilities,
+      readCapabilities,
+      cancelCapabilities,
+      cancel: operation.cancel ?? false,
+    });
+    operationControls.push(
+      {
+        key,
+        action: "get",
+        subject: controlSubject,
+        wildcardSubject: wildcardControlSubject,
+        requiredCapabilities: readCapabilities,
+      },
+      {
+        key,
+        action: "wait",
+        subject: controlSubject,
+        wildcardSubject: wildcardControlSubject,
+        requiredCapabilities: readCapabilities,
+      },
+      {
+        key,
+        action: "watch",
+        subject: controlSubject,
+        wildcardSubject: wildcardControlSubject,
+        requiredCapabilities: readCapabilities,
+      },
+    );
+    if (operation.cancel) {
+      operationControls.push({
+        key,
+        action: "cancel",
+        subject: controlSubject,
+        wildcardSubject: wildcardControlSubject,
+        requiredCapabilities: cancelCapabilities,
+      });
+    }
+    const ns = subjectNamespace(operation.subject);
     if (ns) namespaces.add(ns);
   }
 
@@ -158,6 +261,10 @@ export function analyzeContract(contract: TrellisContractV1): {
   }
 
   rpcMethods.sort((a, b) => a.subject.localeCompare(b.subject));
+  operations.sort((a, b) => a.subject.localeCompare(b.subject));
+  operationControls.sort((a, b) =>
+    a.subject.localeCompare(b.subject) || a.action.localeCompare(b.action)
+  );
   events.sort((a, b) => a.subject.localeCompare(b.subject));
   subjects.sort((a, b) => a.subject.localeCompare(b.subject));
 
@@ -180,6 +287,29 @@ export function analyzeContract(contract: TrellisContractV1): {
       wildcardSubject: m.wildcardSubject,
       requiredCapabilities: ["service"],
     });
+  }
+
+  for (const operation of operations) {
+    publish.push({
+      kind: "operation:call",
+      subject: operation.subject,
+      wildcardSubject: operation.wildcardSubject,
+      requiredCapabilities: operation.callCapabilities,
+    });
+    subscribe.push(
+      {
+        kind: "operation:handle",
+        subject: operation.subject,
+        wildcardSubject: operation.wildcardSubject,
+        requiredCapabilities: ["service"],
+      },
+      {
+        kind: "operation:control",
+        subject: operation.controlSubject,
+        wildcardSubject: operation.wildcardControlSubject,
+        requiredCapabilities: ["service"],
+      },
+    );
   }
 
   for (const e of events) {
@@ -219,6 +349,7 @@ export function analyzeContract(contract: TrellisContractV1): {
   const analysis: ContractAnalysis = {
     namespaces: namespacesList,
     rpc: { methods: rpcMethods },
+    operations: { operations, control: operationControls },
     events: { events },
     subjects: { subjects },
     nats: { publish, subscribe },
@@ -228,6 +359,8 @@ export function analyzeContract(contract: TrellisContractV1): {
   const summary: ContractAnalysisSummary = {
     namespaces: namespacesList,
     rpcMethods: rpcMethods.length,
+    operations: operations.length,
+    operationControls: operationControls.length,
     events: events.length,
     natsPublish: publish.length,
     natsSubscribe: subscribe.length,

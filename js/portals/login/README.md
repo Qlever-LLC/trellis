@@ -5,10 +5,9 @@ activation route.
 
 The app has two distinct roles:
 
-- `/_trellis/portal/users/login` renders Trellis-owned browser auth/bootstrap
-  flow state.
+- `/_trellis/portal/users/login` renders Trellis-owned browser auth flow state.
 - `/_trellis/portal/devices/activate` resumes a preserved `flowId` after sign-in
-  and starts `Auth.ActivateDevice` over the Trellis runtime.
+  and starts the `Auth.ActivateDevice` operation over the Trellis runtime.
 - SvelteKit runtime assets are served under `/_trellis/assets/*` to keep the
   built-in portal's asset namespace inside the Trellis-owned prefix.
 
@@ -40,5 +39,10 @@ PUBLIC_TRELLIS_URL=http://localhost:3000 deno task build
 ```
 
 NATS WebSocket still defaults to `ws://localhost:8080`. NATS is required for
-`/_trellis/portal/devices/activate` because that route starts the device
-activation RPC over the Trellis runtime.
+`/_trellis/portal/devices/activate` because that route starts and watches the
+`Auth.ActivateDevice` operation over the Trellis runtime. Device connect info is
+served separately by `POST /auth/devices/connect-info`.
+
+For device activation to succeed, the portal contract digest must be allowed on
+the relevant device deployment through `appliedContracts[].allowedDigests` or an
+empty allowed-digest lineage entry.

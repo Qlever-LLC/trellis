@@ -120,8 +120,6 @@ export type DeviceInstance = {
   deploymentId: string;
   metadata?: DeviceMetadata;
   state: "registered" | "activated" | "revoked" | "disabled";
-  currentContractId?: string;
-  currentContractDigest?: string;
   createdAt: string;
   activatedAt: string | null;
   revokedAt: string | null;
@@ -481,8 +479,6 @@ export function validateDeviceProvisionRequest(
       deploymentId: req.deploymentId,
       ...(req.metadata ? { metadata: { ...req.metadata } } : {}),
       state: "registered",
-      currentContractId: undefined,
-      currentContractDigest: undefined,
       createdAt: now,
       activatedAt: null,
       revokedAt: null,

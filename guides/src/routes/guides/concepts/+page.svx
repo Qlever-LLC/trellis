@@ -188,7 +188,7 @@ resources: {
 },
 ```
 
-The key (`items`) is a logical alias. Trellis assigns the physical bucket name at install time. `TrellisService.connect(...)` resolves bindings automatically and exposes them as `service.kv.items`, which can be opened directly with a schema.
+The key (`items`) is a logical alias. Trellis assigns the physical bucket name at install time when the resource is provisioned. `TrellisService.connect(...)` resolves required bindings, plus any optional bindings that were successfully provisioned, and exposes them as `service.kv.items`, which can be opened directly with a schema.
 
 ### Store resources
 
@@ -206,7 +206,9 @@ resources: {
 },
 ```
 
-Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical store identity at install time. The intended service runtime shape mirrors KV closely: `service.store.uploads.open()` resolves a higher-level store object, and its failable methods return `Result` values.
+Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical store identity at install time when the resource is provisioned. The intended service runtime shape mirrors KV closely: `service.store.uploads.open()` resolves a higher-level store object, and its failable methods return `Result` values.
+
+These examples use the default `required: true`. Optional KV and store resources may not appear in runtime bindings if provisioning is unavailable or fails.
 
 ### Public app state
 

@@ -1,5 +1,7 @@
 import type {
   ContractEvent,
+  ContractOperation,
+  ContractRpcMethod,
   ContractSubject,
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
@@ -68,7 +70,7 @@ export async function planUserContractApproval(
   for (const method of uses.rpcCalls) {
     publishSubjects.add(templateToWildcard(method.method.subject));
     if (method.method.transfer?.direction === "receive") {
-      publishSubjects.add(TRANSFER_DOWNLOAD_SUBJECT);
+      subscribeSubjects.add(TRANSFER_DOWNLOAD_SUBJECT);
     }
     for (const capability of method.method.capabilities?.call ?? []) {
       capabilities.add(capability);
@@ -85,6 +87,26 @@ export async function planUserContractApproval(
     }
     for (const capability of operation.operation.capabilities?.call ?? []) {
       capabilities.add(capability);
+    }
+  }
+
+  for (
+    const method of Object.values<ContractRpcMethod>(
+      validated.contract.rpc ?? {},
+    )
+  ) {
+    if (method.transfer?.direction === "receive") {
+      subscribeSubjects.add(TRANSFER_DOWNLOAD_SUBJECT);
+    }
+  }
+
+  for (
+    const operation of Object.values<ContractOperation>(
+      validated.contract.operations ?? {},
+    )
+  ) {
+    if (operation.transfer?.direction === "send") {
+      publishSubjects.add(TRANSFER_UPLOAD_SUBJECT);
     }
   }
 

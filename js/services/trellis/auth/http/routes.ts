@@ -33,10 +33,6 @@ import {
 import { buildPortalFlowState } from "./portal_flow.ts";
 import { createServiceBootstrapHandler } from "../bootstrap/service.ts";
 import { createClientBootstrapHandler } from "../bootstrap/client.ts";
-import {
-  createDeviceBootstrapHandler,
-  verifyDeviceBootstrapIdentityProof,
-} from "../bootstrap/device.ts";
 import { registerDeviceActivationHttpRoutes } from "../device_activation/http.ts";
 import { kick } from "../callout/kick.ts";
 import { buildClientTransports } from "../transports.ts";
@@ -54,9 +50,11 @@ import { upsertUserProjectionInSql } from "../session/projection.ts";
 import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
+  SqlDeviceActivationReviewRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlDevicePortalSelectionRepository,
+  SqlDeviceProvisioningSecretRepository,
   SqlLoginPortalSelectionRepository,
   SqlPortalDefaultRepository,
   SqlPortalRepository,
@@ -116,6 +114,8 @@ export function registerHttpRoutes(
     deviceDeploymentStorage: SqlDeviceDeploymentRepository;
     deviceInstanceStorage: SqlDeviceInstanceRepository;
     deviceActivationStorage: SqlDeviceActivationRepository;
+    deviceActivationReviewStorage: SqlDeviceActivationReviewRepository;
+    deviceProvisioningSecretStorage: SqlDeviceProvisioningSecretRepository;
     contractStore: ContractStore;
     refreshActiveContracts?: () => Promise<void>;
     providers?: Record<string, Provider>;
@@ -584,39 +584,6 @@ export function registerHttpRoutes(
     }),
   );
 
-  app.post(
-    "/bootstrap/device",
-    createDeviceBootstrapHandler({
-      transports: buildClientTransports(config),
-      sentinel: sentinelCreds,
-      loadDeviceInstance: async (instanceId) => {
-        return await opts.deviceInstanceStorage.get(instanceId) ?? null;
-      },
-      loadDeviceActivation: async (instanceId) => {
-        return await opts.deviceActivationStorage.get(instanceId) ?? null;
-      },
-      loadDeviceDeployment: async (deploymentId) => {
-        return await opts.deviceDeploymentStorage.get(deploymentId) ?? null;
-      },
-      saveDeviceInstance: async (instance) => {
-        await opts.deviceInstanceStorage.put({
-          ...instance,
-          createdAt: instance.createdAt instanceof Date
-            ? instance.createdAt.toISOString()
-            : instance.createdAt,
-          activatedAt: instance.activatedAt instanceof Date
-            ? instance.activatedAt.toISOString()
-            : instance.activatedAt,
-          revokedAt: instance.revokedAt instanceof Date
-            ? instance.revokedAt.toISOString()
-            : instance.revokedAt,
-        });
-      },
-      refreshActiveContracts: opts.refreshActiveContracts ?? (async () => {}),
-      verifyIdentityProof: verifyDeviceBootstrapIdentityProof,
-    }),
-  );
-
   const authStartRequestHandler = createAuthStartRequestHandler({
     verifyInitRequest: async (req) => {
       return verifyDomainSig(
@@ -1050,6 +1017,14 @@ export function registerHttpRoutes(
     portalStorage: opts.portalStorage,
     portalDefaultStorage: opts.portalDefaultStorage,
     devicePortalSelectionStorage: opts.devicePortalSelectionStorage,
+    browserFlowsKV,
+    deviceActivationReviewStorage: opts.deviceActivationReviewStorage,
+    deviceActivationStorage: opts.deviceActivationStorage,
+    deviceDeploymentStorage: opts.deviceDeploymentStorage,
+    deviceInstanceStorage: opts.deviceInstanceStorage,
+    deviceProvisioningSecretStorage: opts.deviceProvisioningSecretStorage,
+    logger,
+    sentinelCreds,
   });
 
   app.post("/auth/flow/:flowId/bind", async (c) => {

@@ -1215,11 +1215,6 @@ export function createAuthUnapplyDeviceDeploymentContractHandler(
       instance.deploymentId === deployment.deploymentId
     );
     for (const instance of instances) {
-      if (instance.currentContractId !== req.contractId) continue;
-      if (
-        removeDigests.size > 0 && instance.currentContractDigest &&
-        !removeDigests.has(instance.currentContractDigest)
-      ) continue;
       await kickInstanceRuntimeAccess(instance.publicIdentityKey);
     }
     return Result.ok({ deployment: nextDeployment });

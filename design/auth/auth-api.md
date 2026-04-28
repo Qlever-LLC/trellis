@@ -700,8 +700,6 @@ type DeviceInstance = {
   deploymentId: string;
   metadata?: Record<string, string>;
   state: "registered" | "activated" | "revoked" | "disabled";
-  currentContractId?: string;
-  currentContractDigest?: string;
   createdAt: string;
   activatedAt: string | null;
   revokedAt: string | null;
@@ -736,8 +734,11 @@ type DeviceConnectInfo = {
   deploymentId: string;
   contractId: string;
   contractDigest: string;
+  transports: {
+    native?: { natsServers: string[] };
+    websocket?: { natsServers: string[] };
+  };
   transport: {
-    natsServers: string[];
     sentinel: {
       jwt: string;
       seed: string;

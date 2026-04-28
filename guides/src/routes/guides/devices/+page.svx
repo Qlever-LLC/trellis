@@ -175,7 +175,7 @@ trellis deploy apply dev/my-device.standard --source ./contracts/my_device.ts
 
 When a deployment needs to allow multiple active digests for one contract lineage during rollout, Trellis stores those in `allowedDigests` behind the device deployment.
 
-Use `trellis deploy apply` to allow a new digest and `trellis deploy unapply` to retire old digests after no instances depend on them.
+Use `trellis deploy apply` to allow a new digest and `trellis deploy unapply` to retire old digests only after deployed device runtimes no longer present that digest. Trellis does not track this through per-instance current contract fields.
 
 If the device contract has not been installed yet, use the same contract source path with `trellis deploy apply`; Trellis will store the digest in the catalog as part of application.
 

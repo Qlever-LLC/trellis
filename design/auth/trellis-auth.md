@@ -33,8 +33,8 @@ must preserve Trellis's contract-driven permission model.
 
 ### 0) Auth state has explicit persistence boundaries
 
-Trellis auth separates durable authorization/control-plane records from short-lived
-flow and presence state.
+Trellis auth separates durable authorization/control-plane records from
+short-lived flow and presence state.
 
 Durable SQL-backed records:
 
@@ -42,8 +42,8 @@ Durable SQL-backed records:
 - contract approval decisions and deployment-wide grant policies
 - portal routes, portal profiles, portal defaults, and portal selections
 - service deployments and service instances
-- device deployments, device instances, provisioning secrets, activations, and review
-  records
+- device deployments, device instances, provisioning secrets, activations, and
+  review records
 - installed contract records and resource bindings
 - sessions bound to a principal, session key, contract context, and `lastAuth`
 
@@ -57,8 +57,8 @@ KV-backed runtime records:
 
 Rules:
 
-- durable auth and catalog records are owned by the Trellis runtime/control-plane
-  service storage layer
+- durable auth and catalog records are owned by the Trellis
+  runtime/control-plane service storage layer
 - KV flow records are scratch state and must be safe to expire
 - connection records describe live transport presence and are not durable
   authority
@@ -110,15 +110,18 @@ Rules:
 
 ### 3) Identity binding differs by principal class
 
-| Principal Class | Identity Source                            | Binding Mechanism                                                        |
-| --------------- | ------------------------------------------ | ------------------------------------------------------------------------ |
-| Users           | External IdP                               | Portal-mediated browser auth flow binds user identity to session key     |
-| Installed devices | Trellis device install registry      | Admin install binds device public key to an exact digest and session key |
-| Activated devices | Preregistered device instance registry | Activation binds device public identity key to a device principal    |
+| Principal Class   | Identity Source                        | Binding Mechanism                                                        |
+| ----------------- | -------------------------------------- | ------------------------------------------------------------------------ |
+| Users             | External IdP                           | Portal-mediated browser auth flow binds user identity to session key     |
+| Installed devices | Trellis device install registry        | Admin install binds device public key to an exact digest and session key |
+| Activated devices | Preregistered device instance registry | Activation binds device public identity key to a device principal        |
 
-The identity source is pluggable. The core requirement is that Trellis can bind a stable identity to a session key before allowing authenticated access.
+The identity source is pluggable. The core requirement is that Trellis can bind
+a stable identity to a session key before allowing authenticated access.
 
-For activated devices, the public identity key is the durable principal identity. That identity is not allowed online until the preregistered device instance has been activated.
+For activated devices, the public identity key is the durable principal
+identity. That identity is not allowed online until the preregistered device
+instance has been activated.
 
 ### 4) Session keys are the long-lived application identity
 
@@ -187,8 +190,7 @@ Rules:
   selectively
 - a portal is a browser web app registered by deployment-owned portal records;
   it is never a service-authenticated principal
-- portal records are routing config only: `portalId`, `entryUrl`, and
-  `disabled`
+- portal records are routing config only: `portalId`, `entryUrl`, and `disabled`
 - deployments MAY also configure portal profiles keyed by `portalId`; portal
   profiles bind one browser app contract lineage and optional origin
   restrictions to one routed portal entry point and imply approval plus
@@ -198,7 +200,8 @@ Rules:
 - a portal MAY also act later as a normal user-authenticated browser app, but
   any such authority is delegated from the logged-in user rather than from a
   service deployment record
-- browser apps MAY attach opaque portal context to login initiation so custom portals can coordinate UX without introducing portal-specific app APIs
+- browser apps MAY attach opaque portal context to login initiation so custom
+  portals can coordinate UX without introducing portal-specific app APIs
 - the approval key is `user <-> contractDigest`, not merely
   `user <-> contractId`
 - contract changes create a new digest and therefore require a fresh approval
@@ -229,24 +232,42 @@ Rules:
 - after any successful rebind or digest change, callers MUST reconnect NATS
   before using the new rights because transport JWTs are issued per connection
 
-### 8) Provider-capable devices are installed, not self-registering
+### 8) Activated devices are deployment-owned
 
-Provider-capable devices are bound by installation through Trellis-admin flows.
+Activated devices are preregistered through Trellis-admin flows and bound to a
+deployment-owned device deployment. The device identity is durable; allowed
+contract digests live on the deployment, and the device presents one exact
+digest at runtime.
 
 Rules:
 
-- the installed device public key is the device identity
-- installation records the exact contract digest and any resource bindings
+- the preregistered public key is the device identity
+- allowed runtime digests are stored in
+  `DeviceDeployment.appliedContracts[].allowedDigests`
+- individual device instances do not persist current contract id or digest state
 - the private device seed never crosses the network to the Trellis runtime
 - key rotation is a separate explicit administrative operation
 
 ### 9) Auth remains unified after binding
 
-After identity binding, users and devices share the same auth-callout-based NATS connection model.
+After identity binding, users and devices share the same auth-callout-based NATS
+connection model.
 
-Activated devices join that same runtime model after activation is complete. Before that point, device setup uses Trellis-owned browser auth/bootstrap flows with `kind: "device_activation"`, the `Auth.ActivateDevice` operation, and pre-auth wait surfaces defined in [device-activation.md](./device-activation.md). Browser auth UX runs through portals selected by explicit login and device portal-selection state; callers do not choose portals directly in the normal path. Normal auth redirects only need to preserve `flowId`; they do not need to carry `trellisUrl` in the default per-instance portal model because the portal deployment already knows which Trellis instance it targets. A portal may later continue as a user-authenticated browser app for onboarding or activation work, but that remains user-delegated app authority rather than service authority.
+Activated devices join that same runtime model after activation is complete.
+Before that point, device setup uses Trellis-owned browser auth/bootstrap flows
+with `kind: "device_activation"`, the `Auth.ActivateDevice` operation, and
+pre-auth wait surfaces defined in
+[device-activation.md](./device-activation.md). Browser auth UX runs through
+portals selected by explicit login and device portal-selection state; callers do
+not choose portals directly in the normal path. Normal auth redirects only need
+to preserve `flowId`; they do not need to carry `trellisUrl` in the default
+per-instance portal model because the portal deployment already knows which
+Trellis instance it targets. A portal may later continue as a user-authenticated
+browser app for onboarding or activation work, but that remains user-delegated
+app authority rather than service authority.
 
-The important distinction is that installed and activated devices differ in auth establishment, not in the basic runtime treatment after auth succeeds.
+The important distinction is that installed and activated devices differ in auth
+establishment, not in the basic runtime treatment after auth succeeds.
 
 Conceptually:
 
@@ -270,9 +291,13 @@ type ActivatedDeviceSession = {
 
 Rules:
 
-- users and devices all prove long-lived key ownership before receiving authenticated runtime access
-- users and devices all receive transport permissions derived from current grants and active contracts
-- activated devices do not use browser bind or user session flows; they establish their session from activation state plus identity-key proof and exact digest presentation
+- users and devices all prove long-lived key ownership before receiving
+  authenticated runtime access
+- users and devices all receive transport permissions derived from current
+  grants and active contracts
+- activated devices do not use browser bind or user session flows; they
+  establish their session from activation state plus identity-key proof and
+  exact digest presentation
 - installed device resource permissions may be augmented from installed bindings
 - higher-level runtimes should resolve bindings eagerly and expose typed
   resource handles rather than raw connect details
@@ -294,13 +319,15 @@ Rules:
   concerns
 - transfer permissions MUST be derived from explicit contract transfer
   declarations rather than broad transfer or download subject grants
-- operations that declare `transfer: { direction: "send", ... }` authorize the
-  runtime subjects needed for the caller to send bytes to the service-owned
-  transfer endpoint
-- RPCs that declare `transfer: { direction: "receive" }` authorize the runtime
-  subjects needed for a caller to consume the specific receive transfer grant
-  issued by that RPC
-- devices may subscribe to auth events only when their contracts explicitly declare them in `uses`
+- operations that declare `transfer: { direction: "send", ... }` authorize
+  caller upload subjects only when the operation use also grants
+  `capabilities.call`
+- RPCs that declare `transfer: { direction: "receive" }` authorize caller
+  download subjects only when the RPC use also grants `capabilities.call`
+- Trellis MUST NOT grant unconditional broad transfer upload or download subject
+  access
+- devices may subscribe to auth events only when their contracts explicitly
+  declare them in `uses`
 
 ### 11) Reply subjects and operation streams are part of the auth model
 
@@ -317,7 +344,8 @@ Rules:
 
 ### 12) Trellis maintains runtime-local auth state for fast authorization
 
-The Trellis runtime/control-plane service maintains Trellis-local auth state such as:
+The Trellis runtime/control-plane service maintains Trellis-local auth state
+such as:
 
 - sessions
 - user projections

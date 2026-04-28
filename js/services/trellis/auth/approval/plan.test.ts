@@ -110,13 +110,77 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     "operations.v1.example.Evidence.Upload.control",
     "rpc.v1.example.Auth.Me",
     "rpc.v1.example.Evidence.Download",
-    "transfer.v1.download.*.*",
     "transfer.v1.upload.*.*",
   ]);
   assertEquals(plan.subscribeSubjects, [
     "events.v1.example.Auth.Connect",
     "nats.example.audit",
+    "transfer.v1.download.*.*",
   ]);
+});
+
+Deno.test("planUserContractApproval maps explicit transfer declarations by direction", async () => {
+  const dependency: TrellisContractV1 = {
+    format: "trellis.contract.v1",
+    id: "example.files@v1",
+    displayName: "Example Files",
+    description: "File API",
+    kind: "service",
+    schemas: {
+      Empty: { type: "object" },
+    },
+    rpc: {
+      Download: {
+        version: "v1",
+        subject: "rpc.v1.example.files.Download",
+        input: { schema: "Empty" },
+        output: { schema: "Empty" },
+        transfer: { direction: "receive" },
+      },
+    },
+    operations: {
+      Upload: {
+        version: "v1",
+        subject: "operations.v1.example.files.Upload",
+        input: { schema: "Empty" },
+        output: { schema: "Empty" },
+        transfer: { direction: "send", store: "uploads", key: "/key" },
+      },
+    },
+  };
+
+  const store = new ContractStore([{
+    digest: "dep-digest",
+    contract: dependency,
+  }]);
+  const plan = await planUserContractApproval(store, {
+    format: "trellis.contract.v1",
+    id: "example.console@v1",
+    displayName: "Example Console",
+    description: "Browser app",
+    kind: "app",
+    uses: {
+      files: {
+        contract: "example.files@v1",
+        rpc: { call: ["Download"] },
+        operations: { call: ["Upload"] },
+      },
+    },
+  });
+
+  assertEquals(plan.publishSubjects.includes("transfer.v1.upload.*.*"), true);
+  assertEquals(
+    plan.publishSubjects.includes("transfer.v1.download.*.*"),
+    false,
+  );
+  assertEquals(
+    plan.subscribeSubjects.includes("transfer.v1.download.*.*"),
+    true,
+  );
+  assertEquals(
+    plan.subscribeSubjects.includes("transfer.v1.upload.*.*"),
+    false,
+  );
 });
 
 Deno.test("planUserContractApproval skips inactive dependencies for app login", async () => {

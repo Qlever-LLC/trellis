@@ -8,7 +8,8 @@ order: 40
 
 ## Prerequisites
 
-- [trellis-patterns.md](./trellis-patterns.md) - Trellis architecture and communication model
+- [trellis-patterns.md](./trellis-patterns.md) - Trellis architecture and
+  communication model
 
 ## Scope
 
@@ -32,6 +33,7 @@ resources: {
     activity: {
       purpose: "Store normalized activity entries",
       schema: ref.schema("ActivityEntry"),
+      required: true,
       history: 1,
       ttlMs: 0,
     },
@@ -43,6 +45,11 @@ Rules:
 
 - each `resources.kv.<alias>` entry must declare `schema: ref.schema("...")`
 - the referenced schema must exist in the contract's top-level `schemas` map
+- `required` defaults to `true`; required KV resources fail installation when
+  Trellis cannot provision or bind them
+- optional KV resources (`required: false`) may be absent from bindings if
+  provisioning is unavailable or fails, so service code must treat the binding
+  as optional
 - service bootstrap resolves `service.kv.<alias>` and injected handler
   `trellis.kv.<alias>` as direct typed KV stores; service code does not call
   `.open(schema)`
@@ -80,28 +87,29 @@ Examples:
 
 Design keys for expected query patterns:
 
-| Query need | Key pattern | Lookup |
-| --- | --- | --- |
-| By ID only | `<id>` | direct get |
-| By owner + ID | `<owner>.<id>` | `keys("<owner>.*")` |
+| Query need               | Key pattern          | Lookup                    |
+| ------------------------ | -------------------- | ------------------------- |
+| By ID only               | `<id>`               | direct get                |
+| By owner + ID            | `<owner>.<id>`       | `keys("<owner>.*")`       |
 | By category + owner + ID | `<cat>.<owner>.<id>` | `keys("<cat>.<owner>.*")` |
-| By ID with qualifiers | `<cat>.<owner>.<id>` | `keys("*.*.<id>")` |
+| By ID with qualifiers    | `<cat>.<owner>.<id>` | `keys("*.*.<id>")`        |
 
 ### TTL Tiers
 
-| Tier | TTL | Use case |
-| --- | --- | --- |
+| Tier      | TTL     | Use case                                                      |
+| --------- | ------- | ------------------------------------------------------------- |
 | Ephemeral | minutes | OAuth state, pending auth, browser flows, short-lived indexes |
-| Presence | hours | Active connection or worker presence records |
-| Permanent | None | Reference data or derived views that are refreshed explicitly |
+| Presence  | hours   | Active connection or worker presence records                  |
+| Permanent | None    | Reference data or derived views that are refreshed explicitly |
 
-Set `max_age` at bucket creation and rewrite the full value on update when the TTL must refresh.
+Set `max_age` at bucket creation and rewrite the full value on update when the
+TTL must refresh.
 
 ### Projections
 
-| Pattern | Use when |
-| --- | --- |
-| Direct write | Simple CRUD, no audit trail needed |
+| Pattern           | Use when                                                |
+| ----------------- | ------------------------------------------------------- |
+| Direct write      | Simple CRUD, no audit trail needed                      |
 | Stream projection | Need event history, replay, or cross-service visibility |
 
 Projection rule:

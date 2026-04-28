@@ -98,6 +98,7 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           subject: "rpc.v1.Partner.List",
           input: { schema: "EmptyInput" },
           output: { schema: "EmptyOutput" },
+          transfer: { direction: "receive" },
           capabilities: { call: ["partners:read"] },
         },
       },
@@ -107,6 +108,11 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           subject: "operations.v1.Partner.Sync",
           input: { schema: "EmptyInput" },
           output: { schema: "EmptyOutput" },
+          transfer: {
+            direction: "send",
+            store: "uploads",
+            key: "/key",
+          },
           capabilities: {
             call: ["partners:write"],
             read: ["partners:read"],
@@ -239,12 +245,29 @@ Deno.test("user permissions include event and raw subject capabilities", () => {
       false,
     );
     assertEquals(publishSubjects.includes("transfer.v1.upload.*.*"), true);
-    assertEquals(publishSubjects.includes("transfer.v1.download.*.*"), true);
+    assertEquals(publishSubjects.includes("transfer.v1.download.*.*"), false);
     assertEquals(
       subscribeSubjects.includes("events.v1.Partner.Changed.*.*"),
       true,
     );
+    assertEquals(subscribeSubjects.includes("transfer.v1.download.*.*"), true);
     assertEquals(subscribeSubjects.includes("trellis.jobs.>"), true);
+  });
+});
+
+Deno.test("user permissions omit transfer subjects without explicit transfer uses", () => {
+  withContracts(TEST_CONTRACTS, () => {
+    const caller = { contractDigest: "portal-digest" };
+    const publishSubjects = getUserPublishSubjects(["jobs.publish"], caller);
+    const subscribeSubjects = getUserSubscribeSubjects(
+      ["jobs.subscribe"],
+      caller,
+    );
+
+    assertEquals(publishSubjects.includes("transfer.v1.upload.*.*"), false);
+    assertEquals(publishSubjects.includes("transfer.v1.download.*.*"), false);
+    assertEquals(subscribeSubjects.includes("transfer.v1.upload.*.*"), false);
+    assertEquals(subscribeSubjects.includes("transfer.v1.download.*.*"), false);
   });
 });
 
@@ -317,6 +340,7 @@ Deno.test("user uses resolution merges duplicate active surface capabilities con
           subject: "rpc.v1.Partner.List",
           input: { schema: "EmptyInput" },
           output: { schema: "EmptyOutput" },
+          transfer: { direction: "receive" },
           capabilities: { call: ["partners:read", "partners:sensitive"] },
         },
       },

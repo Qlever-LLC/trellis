@@ -14,43 +14,53 @@
 
   const trellis = getTrellis();
 
-  type ContractSummary = {
-    digest: string;
-    id: string;
-    displayName: string;
-    description: string;
-    installedAt: string;
-    analysisSummary?: {
-      events: number;
-      kvResources: number;
-      namespaces: string[];
-      natsPublish: number;
-      natsSubscribe: number;
-      rpcMethods: number;
-    };
-    resourceBindings?: { kv?: Record<string, { bucket: string; history: number; ttlMs: number }> };
+  type ContractSummary = AuthListInstalledContractsOutput["contracts"][number];
+  type ContractDetail = AuthGetInstalledContractOutput["contract"];
+  type ServiceV1AnalysisSummary = NonNullable<ContractDetail["analysisSummary"]> & {
+    operations?: number;
+    operationControls?: number;
   };
-
-  type AnalysisDetail = {
-    rpc: { methods: { key: string; subject: string; callerCapabilities: string[] }[] };
-    events: { events: { key: string; subject: string; publishCapabilities: string[]; subscribeCapabilities: string[] }[] };
-    nats: {
-      publish: { kind: string; subject: string; requiredCapabilities: string[] }[];
-      subscribe: { kind: string; subject: string; requiredCapabilities: string[] }[];
+  type ServiceV1Analysis = NonNullable<ContractDetail["analysis"]> & {
+    operations?: {
+      operations: {
+        callCapabilities: string[];
+        cancel: boolean;
+        cancelCapabilities: string[];
+        controlSubject: string;
+        key: string;
+        readCapabilities: string[];
+        subject: string;
+      }[];
+      control: {
+        action: string;
+        key: string;
+        requiredCapabilities: string[];
+        subject: string;
+      }[];
     };
-    resources: { kv: { alias: string; purpose: string; required: boolean; history?: number; ttlMs?: number }[] };
-  };
-
-  type ContractDetail = ContractSummary & {
-    resources?: { kv?: Record<string, { purpose: string; required?: boolean; history?: number; ttlMs?: number }> };
-    analysis?: AnalysisDetail;
-    contract: Record<string, unknown>;
   };
 
   let analysisSection = $state<string | null>(null);
 
   function toggleAnalysis(section: string) {
     analysisSection = analysisSection === section ? null : section;
+  }
+
+  function formatTtl(ttlMs?: number): string {
+    if (ttlMs === undefined) return "—";
+    return ttlMs === 0 ? "None" : `${ttlMs}ms`;
+  }
+
+  function analysisCount(value?: number): number {
+    return value ?? 0;
+  }
+
+  function serviceV1Summary(summary?: ContractDetail["analysisSummary"]): ServiceV1AnalysisSummary | undefined {
+    return summary as ServiceV1AnalysisSummary | undefined;
+  }
+
+  function serviceV1Analysis(analysis?: ContractDetail["analysis"]): ServiceV1Analysis | undefined {
+    return analysis as ServiceV1Analysis | undefined;
   }
 
   let loading = $state(true);
@@ -130,6 +140,7 @@
         {:else}
           <ul class="space-y-1 overflow-y-auto lg:max-h-[70vh]">
             {#each filtered as contract (contract.digest)}
+              {@const summary = serviceV1Summary(contract.analysisSummary)}
               <li>
                 <button
                   class={[
@@ -141,8 +152,10 @@
                   <p class="font-medium text-sm">{contract.displayName || contract.id}</p>
                   <div class="mt-1 flex gap-2">
                     <span class="trellis-identifier text-base-content/50">{contract.digest.slice(0, 12)}…</span>
-                    <span class="badge badge-outline badge-xs">{contract.analysisSummary?.rpcMethods ?? 0} RPC</span>
-                    <span class="badge badge-outline badge-xs">{contract.analysisSummary?.events ?? 0} Events</span>
+                    <span class="badge badge-outline badge-xs">{analysisCount(contract.analysisSummary?.rpcMethods)} RPC</span>
+                    <span class="badge badge-outline badge-xs">{analysisCount(summary?.operations)} Ops</span>
+                    <span class="badge badge-outline badge-xs">{analysisCount(summary?.storeResources)} Store</span>
+                    <span class="badge badge-outline badge-xs">{analysisCount(summary?.jobsQueues)} Jobs</span>
                   </div>
                 </button>
               </li>
@@ -169,18 +182,22 @@
               </div>
 
               {#if detail.analysisSummary}
+                {@const summary = serviceV1Summary(detail.analysisSummary)}
                 <div>
                   <h4 class="text-xs font-semibold uppercase text-base-content/50 mb-2">Analysis</h4>
                   <div class="flex flex-wrap gap-2">
                     <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "rpc" }]} onclick={() => toggleAnalysis("rpc")}>{detail.analysisSummary.rpcMethods} RPCs</button>
+                    <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "operations" }]} onclick={() => toggleAnalysis("operations")}>{analysisCount(summary?.operations)} Ops</button>
+                    <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "controls" }]} onclick={() => toggleAnalysis("controls")}>{analysisCount(summary?.operationControls)} Controls</button>
                     <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "events" }]} onclick={() => toggleAnalysis("events")}>{detail.analysisSummary.events} Events</button>
-                    <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "kv" }]} onclick={() => toggleAnalysis("kv")}>{detail.analysisSummary.kvResources} KV</button>
+                    <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "resources" }]} onclick={() => toggleAnalysis("resources")}>{detail.analysisSummary.kvResources} KV · {detail.analysisSummary.storeResources} Store · {detail.analysisSummary.jobsQueues} Jobs</button>
                     <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "pub" }]} onclick={() => toggleAnalysis("pub")}>{detail.analysisSummary.natsPublish} Pub</button>
                     <button class={["badge badge-outline badge-sm cursor-pointer", { "badge-primary": analysisSection === "sub" }]} onclick={() => toggleAnalysis("sub")}>{detail.analysisSummary.natsSubscribe} Sub</button>
                   </div>
                 </div>
 
                 {#if analysisSection && detail.analysis}
+                  {@const analysis = serviceV1Analysis(detail.analysis)}
                   <div class="bg-base-200 rounded-lg p-3">
                     {#if analysisSection === "rpc" && detail.analysis.rpc?.methods?.length}
                       <table class="table table-xs trellis-table">
@@ -209,21 +226,87 @@
                           {/each}
                         </tbody>
                       </table>
-                    {:else if analysisSection === "kv" && detail.analysis.resources?.kv?.length}
+                    {:else if analysisSection === "operations" && analysis?.operations?.operations?.length}
                       <table class="table table-xs trellis-table">
-                        <thead><tr><th>Alias</th><th>Purpose</th><th>History</th><th>TTL</th><th>Required</th></tr></thead>
+                        <thead><tr><th>Operation</th><th>Subject</th><th>Control</th><th>Capabilities</th></tr></thead>
                         <tbody>
-                          {#each detail.analysis.resources.kv as r (r.alias)}
+                          {#each analysis.operations.operations as operation (operation.key)}
                             <tr>
-                              <td class="font-medium">{r.alias}</td>
-                              <td class="text-base-content/60">{r.purpose}</td>
-                              <td>{r.history ?? "—"}</td>
-                              <td>{r.ttlMs ? `${r.ttlMs}ms` : "None"}</td>
-                              <td>{r.required ? "Yes" : "No"}</td>
+                              <td class="font-medium">{operation.key}</td>
+                              <td class="trellis-identifier text-base-content/60">{operation.subject}</td>
+                              <td class="trellis-identifier text-base-content/60">{operation.controlSubject}</td>
+                              <td class="text-xs">Call {operation.callCapabilities.join(", ") || "—"} · Read {operation.readCapabilities.join(", ") || "—"} · Cancel {operation.cancel ? (operation.cancelCapabilities.join(", ") || "open") : "disabled"}</td>
                             </tr>
                           {/each}
                         </tbody>
                       </table>
+                    {:else if analysisSection === "controls" && analysis?.operations?.control?.length}
+                      <table class="table table-xs trellis-table">
+                        <thead><tr><th>Operation</th><th>Action</th><th>Subject</th><th>Capabilities</th></tr></thead>
+                        <tbody>
+                          {#each analysis.operations.control as control (`${control.key}:${control.action}:${control.subject}`)}
+                            <tr>
+                              <td class="font-medium">{control.key}</td>
+                              <td>{control.action}</td>
+                              <td class="trellis-identifier text-base-content/60">{control.subject}</td>
+                              <td class="text-xs">{control.requiredCapabilities.join(", ") || "—"}</td>
+                            </tr>
+                          {/each}
+                        </tbody>
+                      </table>
+                    {:else if analysisSection === "resources" && (detail.analysis.resources.kv.length || detail.analysis.resources.store.length || detail.analysis.resources.jobs.length)}
+                      <div class="space-y-3">
+                        {#if detail.analysis.resources.kv.length}
+                          <table class="table table-xs trellis-table">
+                            <thead><tr><th>KV alias</th><th>Purpose</th><th>History</th><th>TTL</th><th>Required</th></tr></thead>
+                            <tbody>
+                              {#each detail.analysis.resources.kv as r (r.alias)}
+                                <tr>
+                                  <td class="font-medium">{r.alias}</td>
+                                  <td class="text-base-content/60">{r.purpose}</td>
+                                  <td>{r.history}</td>
+                                  <td>{formatTtl(r.ttlMs)}</td>
+                                  <td>{r.required ? "Yes" : "No"}</td>
+                                </tr>
+                              {/each}
+                            </tbody>
+                          </table>
+                        {/if}
+
+                        {#if detail.analysis.resources.store.length}
+                          <table class="table table-xs trellis-table">
+                            <thead><tr><th>Store alias</th><th>Purpose</th><th>TTL</th><th>Max object</th><th>Required</th></tr></thead>
+                            <tbody>
+                              {#each detail.analysis.resources.store as r (r.alias)}
+                                <tr>
+                                  <td class="font-medium">{r.alias}</td>
+                                  <td class="text-base-content/60">{r.purpose}</td>
+                                  <td>{formatTtl(r.ttlMs)}</td>
+                                  <td>{r.maxObjectBytes ?? "—"}</td>
+                                  <td>{r.required ? "Yes" : "No"}</td>
+                                </tr>
+                              {/each}
+                            </tbody>
+                          </table>
+                        {/if}
+
+                        {#if detail.analysis.resources.jobs.length}
+                          <table class="table table-xs trellis-table">
+                            <thead><tr><th>Queue</th><th>Payload</th><th>Result</th><th>Deliveries</th><th>Features</th></tr></thead>
+                            <tbody>
+                              {#each detail.analysis.resources.jobs as queue (queue.queueType)}
+                                <tr>
+                                  <td class="font-medium">{queue.queueType}</td>
+                                  <td class="trellis-identifier text-base-content/60">{queue.payload.schema}</td>
+                                  <td class="trellis-identifier text-base-content/60">{queue.result?.schema ?? "—"}</td>
+                                  <td>{queue.maxDeliver}</td>
+                                  <td class="text-xs">{queue.progress ? "progress" : ""} {queue.logs ? "logs" : ""} {queue.dlq ? "dlq" : ""}</td>
+                                </tr>
+                              {/each}
+                            </tbody>
+                          </table>
+                        {/if}
+                      </div>
                     {:else if analysisSection === "pub" && detail.analysis.nats?.publish?.length}
                       <table class="table table-xs trellis-table">
                         <thead><tr><th>Kind</th><th>Subject</th><th>Capabilities</th></tr></thead>
@@ -257,16 +340,33 @@
                 {/if}
               {/if}
 
-              {#if detail.resourceBindings?.kv}
+              {#if detail.resources?.kv || detail.resources?.store}
                 <div>
-                  <h4 class="text-xs font-semibold uppercase text-base-content/50 mb-2">KV Bindings</h4>
-                  <div class="space-y-1">
-                    {#each Object.entries(detail.resourceBindings.kv) as [alias, binding] (alias)}
-                      <div class="flex justify-between text-sm p-2 bg-base-200 rounded">
-                        <span class="font-medium">{alias}</span>
-                         <span class="trellis-identifier text-base-content/60">{binding.bucket}</span>
-                      </div>
-                    {/each}
+                  <h4 class="text-xs font-semibold uppercase text-base-content/50 mb-2">Requested Resources</h4>
+                  <div class="overflow-x-auto rounded-box bg-base-200">
+                    <table class="table table-xs trellis-table">
+                      <thead><tr><th>Kind</th><th>Alias</th><th>Purpose</th><th>Required</th><th>TTL</th></tr></thead>
+                      <tbody>
+                        {#each Object.entries(detail.resources.kv ?? {}) as [alias, resource] (alias)}
+                          <tr>
+                            <td>KV</td>
+                            <td class="font-medium">{alias}</td>
+                            <td class="text-base-content/60">{resource.purpose}</td>
+                            <td>{resource.required ?? true ? "Yes" : "No"}</td>
+                            <td>{formatTtl(resource.ttlMs)}</td>
+                          </tr>
+                        {/each}
+                        {#each Object.entries(detail.resources.store ?? {}) as [alias, resource] (alias)}
+                          <tr>
+                            <td>Store</td>
+                            <td class="font-medium">{alias}</td>
+                            <td class="text-base-content/60">{resource.purpose}</td>
+                            <td>{resource.required ?? true ? "Yes" : "No"}</td>
+                            <td>{formatTtl(resource.ttlMs)}</td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               {/if}

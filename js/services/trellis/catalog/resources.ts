@@ -206,12 +206,20 @@ async function ensureStoreResource(
   store: StoreResourceRequest,
 ): Promise<void> {
   const objm = new Objm(nats);
-  const objectStore = await objm.create(name, {
-    ...(store.ttlMs > 0 ? { ttl: store.ttlMs * 1_000_000 } : {}),
-    ...(store.maxTotalBytes !== undefined
-      ? { max_bytes: store.maxTotalBytes }
-      : {}),
-  });
+  let objectStore;
+  try {
+    objectStore = await objm.create(name, {
+      ...(store.ttlMs > 0 ? { ttl: store.ttlMs * 1_000_000 } : {}),
+      ...(store.maxTotalBytes !== undefined
+        ? { max_bytes: store.maxTotalBytes }
+        : {}),
+    });
+  } catch (error) {
+    if (!isObjectStoreAlreadyExistsError(error)) {
+      throw error;
+    }
+    objectStore = await objm.open(name);
+  }
   const status = await objectStore.status();
   const maxAge = store.ttlMs > 0 ? store.ttlMs * 1_000_000 : 0;
   if (
@@ -230,6 +238,14 @@ async function ensureStoreResource(
       ? { max_bytes: store.maxTotalBytes }
       : {}),
   });
+}
+
+function isObjectStoreAlreadyExistsError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.message.includes("bucket already exists") ||
+    error.message.includes("object store already exists") ||
+    error.message.includes("stream name already in use")
+  );
 }
 
 async function ensureStreamResource(
@@ -348,25 +364,7 @@ function addSubjects(target: Set<string>, subjects: Iterable<string>): void {
 export function getKvResourceRequests(
   contract: TrellisContractV1,
 ): KvResourceRequest[] {
-  const resources = (contract as TrellisContractV1 & {
-    resources?: {
-      kv?: Record<string, {
-        purpose: string;
-        required?: boolean;
-        history?: number;
-        ttlMs?: number;
-        maxValueBytes?: number;
-      }>;
-    };
-  }).resources;
-  const entries = Object.entries(resources?.kv ?? {}) as Array<[string, {
-    purpose: string;
-    required?: boolean;
-    history?: number;
-    ttlMs?: number;
-    maxValueBytes?: number;
-  }]>;
-  return entries
+  return Object.entries(contract.resources?.kv ?? {})
     .map(([alias, resource]) => ({
       alias,
       purpose: resource.purpose,
@@ -418,26 +416,7 @@ export function getJobsQueueRequests(
 export function getStoreResourceRequests(
   contract: TrellisContractV1,
 ): StoreResourceRequest[] {
-  const resources = (contract as TrellisContractV1 & {
-    resources?: {
-      store?: Record<string, {
-        purpose: string;
-        required?: boolean;
-        ttlMs?: number;
-        maxObjectBytes?: number;
-        maxTotalBytes?: number;
-      }>;
-    };
-  }).resources;
-  const entries = Object.entries(resources?.store ?? {}) as Array<[string, {
-    purpose: string;
-    required?: boolean;
-    ttlMs?: number;
-    maxObjectBytes?: number;
-    maxTotalBytes?: number;
-  }]>;
-
-  return entries
+  return Object.entries(contract.resources?.store ?? {})
     .map(([alias, resource]) => ({
       alias,
       purpose: resource.purpose,
@@ -523,16 +502,22 @@ export async function provisionContractResourceBindings(
   const kvBindings: NonNullable<ContractResourceBindings["kv"]> = {};
 
   if (requests.length > 0) {
-    if (!nats) {
+    if (!nats && requests.some((request) => request.required)) {
       throw new Error("NATS connection is required to provision KV resources");
     }
     for (const request of requests) {
+      if (!nats) continue;
       const bucket = buildKvBucketName(
         serviceDeploymentId,
         contract.id,
         request.alias,
       );
-      await ensureKvResource(nats, bucket, request);
+      try {
+        await ensureKvResource(nats, bucket, request);
+      } catch (error) {
+        if (!request.required) continue;
+        throw error;
+      }
       kvBindings[request.alias] = {
         bucket,
         history: request.history,
@@ -550,22 +535,28 @@ export async function provisionContractResourceBindings(
   }
 
   if (stores.length > 0) {
-    if (!nats) {
+    if (!nats && stores.some((store) => store.required)) {
       throw new Error(
         "NATS connection is required to provision store resources",
       );
     }
 
-    bindings.store = Object.fromEntries(
-      await Promise.all(stores.map(async (store) => {
+    const storeBindings: NonNullable<ContractResourceBindings["store"]> = {};
+    if (nats) {
+      for (const store of stores) {
         const name = buildStoreName(
           serviceDeploymentId,
           contract.id,
           store.alias,
         );
-        await ensureStoreResource(nats, name, store);
+        try {
+          await ensureStoreResource(nats, name, store);
+        } catch (error) {
+          if (!store.required) continue;
+          throw error;
+        }
 
-        return [store.alias, {
+        storeBindings[store.alias] = {
           name,
           ttlMs: store.ttlMs,
           ...(store.maxObjectBytes !== undefined
@@ -574,9 +565,12 @@ export async function provisionContractResourceBindings(
           ...(store.maxTotalBytes !== undefined
             ? { maxTotalBytes: store.maxTotalBytes }
             : {}),
-        }];
-      })),
-    );
+        };
+      }
+    }
+    if (Object.keys(storeBindings).length > 0) {
+      bindings.store = storeBindings;
+    }
   }
 
   if (jobs.length > 0) {

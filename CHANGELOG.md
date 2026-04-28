@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Changed
 
+- Documented and surfaced the Trellis service v1 cleanup across design docs,
+  guides, login portal docs, and console admin views, including canonical device
+  connect-info, deployment-derived device digests, optional KV/store resources,
+  operation analysis metadata, fail-closed catalog refresh, and explicit
+  transfer-derived permissions.
 - Aligned outward-facing auth, catalog, app, and guide docs with the Trellis v1
   runtime/control-plane cleanup and active-compatible-digest `uses` validation.
 - Tightened Trellis service v1 behavior by validating contract `uses` before

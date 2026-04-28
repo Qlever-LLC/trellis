@@ -23,6 +23,8 @@ Deno.test("trellis storage opens file-backed SQLite and persists contracts", asy
     const analysisSummary = {
       namespaces: ["graph"],
       rpcMethods: 1,
+      operations: 1,
+      operationControls: 3,
       events: 1,
       natsPublish: 1,
       natsSubscribe: 1,
@@ -38,6 +40,38 @@ Deno.test("trellis storage opens file-backed SQLite and persists contracts", asy
           subject: "rpc.v1.Graph.query",
           wildcardSubject: "rpc.v1.Graph.query",
           callerCapabilities: ["graph.query"],
+        }],
+      },
+      operations: {
+        operations: [{
+          key: "Graph.rebuild",
+          subject: "operations.v1.Graph.rebuild",
+          wildcardSubject: "operations.v1.Graph.rebuild",
+          controlSubject: "operations.v1.Graph.rebuild.control",
+          wildcardControlSubject: "operations.v1.Graph.rebuild.control",
+          callCapabilities: ["graph.rebuild"],
+          readCapabilities: ["graph.rebuild"],
+          cancelCapabilities: [],
+          cancel: false,
+        }],
+        control: [{
+          key: "Graph.rebuild",
+          action: "get",
+          subject: "operations.v1.Graph.rebuild.control",
+          wildcardSubject: "operations.v1.Graph.rebuild.control",
+          requiredCapabilities: ["graph.rebuild"],
+        }, {
+          key: "Graph.rebuild",
+          action: "wait",
+          subject: "operations.v1.Graph.rebuild.control",
+          wildcardSubject: "operations.v1.Graph.rebuild.control",
+          requiredCapabilities: ["graph.rebuild"],
+        }, {
+          key: "Graph.rebuild",
+          action: "watch",
+          subject: "operations.v1.Graph.rebuild.control",
+          wildcardSubject: "operations.v1.Graph.rebuild.control",
+          requiredCapabilities: ["graph.rebuild"],
         }],
       },
       events: {

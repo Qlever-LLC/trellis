@@ -577,6 +577,11 @@ Rules:
   - `maxTotalBytes`: optional desired total-store maximum in bytes
 - install or upgrade approves the requested alias/type/spec, not general
   infrastructure-management credentials for the service
+- required resources fail install or upgrade if Trellis cannot provision or bind
+  them
+- optional resources (`required: false`) may be omitted from installed bindings
+  if provisioning is unavailable or fails; service code must treat those aliases
+  as optional at runtime
 
 ### 10a) First-class jobs
 
@@ -746,6 +751,8 @@ Digest rules for v1:
   `kind`, `state`, `uses`, `rpc`, `operations`, `events`, `subjects`, `jobs`,
   `resources.kv`, `resources.store`, reachable schemas, and RPC-declared
   reachable errors
+- resource `required` flags participate in the digest because they change
+  install, activation, and binding behavior
 - the digest projection excludes `displayName`, `description`, `exports`, unused
   schemas, and unused error declarations
 - set-like arrays such as capabilities, `uses.*` logical-name lists, and RPC
@@ -789,6 +796,27 @@ Catalog rules:
   a separate active contract record
 - catalog ordering is not semantically significant, but implementations SHOULD
   return a stable order for diffability and testing
+- active catalog refresh is fail-closed: failure to list installed contracts or
+  hydrate required active contract state MUST fail startup or refresh rather
+  than publishing a partial active catalog
+- active device digests are derived from enabled device deployments'
+  `appliedContracts[].allowedDigests`, not from per-device current-contract
+  fields
+
+Admin contract analysis records SHOULD expose enough derived metadata for CLI
+and console review without reimplementing catalog analysis in each client:
+
+- `analysisSummary` includes counts for RPCs, operations, operation controls,
+  events, NATS publish/subscribe rules, KV resources, store resources, and jobs
+  queues
+- `analysis.operations.operations[]` includes `key`, `subject`,
+  `wildcardSubject`, `controlSubject`, `wildcardControlSubject`,
+  `callCapabilities`, `readCapabilities`, `cancelCapabilities`, and `cancel`
+- `analysis.operations.control[]` includes `key`, `action`, `subject`,
+  `wildcardSubject`, and `requiredCapabilities`
+- NATS analysis rule `kind` values include operation call, operation handle, and
+  operation control rules in addition to RPC, event, raw-subject, and resource
+  rules
 
 Repository-layout clarification:
 
@@ -920,6 +948,8 @@ Operationally, install or upgrade fails if any of these conditions is true:
   different active contract `id`
 - any required resource request cannot be provisioned or bound according to
   platform policy
+- optional KV or store resources that cannot be provisioned are skipped and do
+  not appear in installed bindings
 
 Upgrade rule:
 
@@ -956,6 +986,12 @@ For each active contract:
 - `uses` contributes the exact cross-contract operation/RPC/event/subject
   permissions the owning service may exercise at runtime after dependency
   resolution validates the referenced active catalog surfaces
+- operation uses that declare `transfer: { direction: "send", ... }` and grant
+  `capabilities.call` contribute caller publish access to
+  `transfer.v1.upload.*.*`
+- RPC uses that declare `transfer: { direction: "receive" }` and grant
+  `capabilities.call` contribute caller subscribe access to
+  `transfer.v1.download.*.*`
 
 For each installed resource binding:
 
@@ -987,6 +1023,9 @@ Rules:
 - service sessions receive cross-contract permissions only from explicit `uses`
   plus installed resource bindings; raw capability grants alone are not
   sufficient
+- service-side transfer subscriptions are scoped to contracts installed on that
+  service principal and to the service session prefix, not broad global transfer
+  prefixes
 
 Service-side RPC handling rule:
 

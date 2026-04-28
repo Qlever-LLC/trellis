@@ -251,8 +251,6 @@ function makeDeviceInstance(
     deploymentId: "dev-deployment-a",
     metadata: { label: "Kitchen display" },
     state: "registered",
-    currentContractId: undefined,
-    currentContractDigest: undefined,
     createdAt: "2026-04-26T00:00:00.000Z",
     activatedAt: null,
     revokedAt: null,
@@ -1039,8 +1037,6 @@ Deno.test("device instance storage upserts, deletes, and alternate lookups", asy
     const updated = makeDeviceInstance({
       instanceId: "dev_instance_b",
       state: "activated",
-      currentContractId: "device.reader@v1",
-      currentContractDigest: "sha256-device-a",
       activatedAt: "2026-04-26T00:00:02.000Z",
     });
     await instances.put(updated);

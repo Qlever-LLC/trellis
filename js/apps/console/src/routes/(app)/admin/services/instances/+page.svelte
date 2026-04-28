@@ -211,6 +211,7 @@
             <th>Instance</th>
             <th>Deployment</th>
             <th>Contract</th>
+            <th>Resources</th>
             <th>Capabilities</th>
             <th>Status</th>
             <th>Created</th>
@@ -228,6 +229,19 @@
               <td>
                 <div class="trellis-identifier text-base-content/80">{instance.currentContractId ?? "—"}</div>
                 <div class="trellis-identifier text-base-content/60">{instance.currentContractDigest ?? "—"}</div>
+              </td>
+              <td>
+                <div class="flex max-w-72 flex-wrap gap-1">
+                  {#each Object.entries(instance.resourceBindings?.kv ?? {}) as [alias, binding] (alias)}
+                    <span class="badge badge-outline badge-xs">kv:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.bucket}</span></span>
+                  {/each}
+                  {#each Object.entries(instance.resourceBindings?.store ?? {}) as [alias, binding] (alias)}
+                    <span class="badge badge-outline badge-xs">store:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.name}</span></span>
+                  {/each}
+                  {#if !instance.resourceBindings?.kv && !instance.resourceBindings?.store}
+                    <span class="text-base-content/60">—</span>
+                  {/if}
+                </div>
               </td>
               <td>
                 <div class="flex flex-wrap gap-1">
