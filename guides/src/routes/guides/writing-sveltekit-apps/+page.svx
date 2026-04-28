@@ -244,7 +244,7 @@ After that point, pages do not need to recreate auth state. They read the live r
 
 There are also optional callbacks:
 
-- `onAuthRequired` fires whenever `trellis-svelte` decides a new authentication flow is needed to continue. If you do not provide `onAuthRequired`, the core browser client redirects to the Trellis login URL.
+- `onAuthRequired` fires whenever `trellis-svelte` decides a new authentication flow is needed to continue, including when a previously valid browser session was revoked and Trellis returns `session_not_found`. If you do not provide `onAuthRequired`, the core browser client redirects to the Trellis login URL.
 - `error(error)` renders unexpected connection failures.
 
 `TrellisProvider` is the primary Svelte integration surface. It calls `TrellisClient.connect(...)` and fills the app-owned Trellis and connection contexts. It does not expose raw NATS handles; use your app-local `getTrellis()` for Trellis calls and `getConnection()` for connection status.

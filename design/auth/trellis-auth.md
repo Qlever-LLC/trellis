@@ -298,6 +298,9 @@ Rules:
 - activated devices do not use browser bind or user session flows; they
   establish their session from activation state plus identity-key proof and
   exact digest presentation
+- browser sessions that are revoked or otherwise missing during runtime RPCs
+  surface as `session_not_found` and should re-enter the browser login flow
+  rather than displaying a terminal application error
 - installed device resource permissions may be augmented from installed bindings
 - higher-level runtimes should resolve bindings eagerly and expose typed
   resource handles rather than raw connect details

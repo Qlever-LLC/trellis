@@ -9,6 +9,9 @@ The app has two distinct roles:
 - `/_trellis/portal/users/login` renders Trellis-owned browser auth flow state.
   Approval actions use the shared portal helpers and submit the auth endpoint's
   canonical `approved: boolean` request body.
+- Browser apps should return to their app-local login route when an active
+  session is revoked or missing. The built-in portal remains the provider and
+  approval UX that app-local login routes start or resume.
 - `/_trellis/portal/devices/activate` resumes a preserved `flowId` after sign-in
   and starts the `Auth.ActivateDevice` operation over the Trellis runtime.
 - SvelteKit runtime assets are served under `/_trellis/assets/*` to keep the

@@ -387,6 +387,12 @@ All auth errors use `AuthError` with a `reason` code.
 Detailed errors are acceptable because callers only reach them after passing
 connection-level auth.
 
+Browser clients treat `session_not_found` as an authentication-required state,
+not as a page-local application error. A revoked browser session therefore
+re-enters the normal login redirect flow so the app can preserve its current
+return path and show sign-in UX. Non-browser clients may surface the same
+`AuthError` directly.
+
 ## Internal State Model
 
 ## Browser Flow Protocol

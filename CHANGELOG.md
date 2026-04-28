@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Changed
 
+- Browser Trellis clients now treat revoked or missing sessions
+  (`session_not_found`) as auth-required, allowing Svelte apps such as the
+  console to redirect back through their login page with the current return
+  path.
 - Removed raw subject declarations and service-declared stream resource requests
   from the documented v1 contract surface, aligned guides/portal docs/console
   copy with app-based portal contracts, and clarified that unversioned Trellis

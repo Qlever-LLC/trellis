@@ -117,6 +117,8 @@ Every client has a local Ed25519 session key. The private seed never leaves the 
 
 Browser login flows route through a Trellis **portal**. A portal is a browser web app that owns the provider-selection and contract-approval UX for one or more browser contracts. Trellis ships a built-in portal that handles both login and generic device onboarding, and may also redirect into deployment-registered custom portals when configured.
 
+If a browser session is revoked while an app is open, subsequent Trellis calls return `session_not_found`. Browser integrations treat that as auth-required and send the user back through login, preserving the app's current return URL.
+
 The flow:
 
 1. An app sends a signed `POST /auth/requests` request with its session key, contract, redirect target, and optional portal context
