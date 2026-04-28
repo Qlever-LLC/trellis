@@ -79,7 +79,7 @@ For a permanent deployment, create a Quadlet unit for the service similar to the
 trellis deploy apply svc/my-service --image ghcr.io/my-org/my-service:1.2.4
 ```
 
-Applying the new image provisions any required resource changes before allowing the new digest and keeps service instance keys the same. Restart the container with the new image tag after applying it.
+Applying the new image validates the new digest against the proposed active catalog, provisions any required resource changes before allowing the new digest, and keeps service instance keys the same. Restart the container with the new image tag after applying it. If the old container reconnects with a retired digest after unapply, Trellis rejects that exact digest rather than granting a stale runtime JWT.
 
 ## What install actually grants
 
@@ -107,6 +107,6 @@ Trellis derives service access from:
 4. start the container with the right env
 5. confirm the expected RPCs, events, and bindings work
 
-Deployment apply and instance provisioning should happen before the container starts serving traffic. Service resource provisioning happens during apply/install/upgrade; service bootstrap only consumes the persisted bindings.
+Deployment apply and instance provisioning should happen before the container starts serving traffic. Service resource provisioning happens during apply/install/upgrade; service bootstrap validates the staged instance state and only consumes the persisted bindings. If active-catalog refresh fails, Trellis rolls back the deployment or instance record instead of leaving a partial apply visible to runtimes.
 
 If you are building service images, include the generated contract artifact at `/trellis/contract.json`. If the image uses a different path, add an OCI label such as `io.trellis.contract.path=/path/to/contract.json` so the CLI can discover it automatically.

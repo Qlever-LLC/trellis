@@ -35,11 +35,26 @@ export type TrellisAuth = {
     contract?: Record<string, unknown>,
   ) => Promise<string>;
   bindFlowSig: (flowId: string) => Promise<string>;
-  natsConnectSigForIat: (iat: number) => Promise<string>;
+  natsConnectSigForIat: (
+    iat: number,
+    contractDigest: string,
+  ) => Promise<string>;
 
   createProof: (subject: string, payloadHash: Uint8Array) => Promise<string>;
-  natsConnectOptions: () => Promise<NatsConnectOptions>;
+  natsConnectOptions: (
+    opts: { contractDigest: string },
+  ) => Promise<NatsConnectOptions>;
 };
+
+/**
+ * Builds the canonical value signed for NATS runtime-auth tokens.
+ */
+export function buildNatsConnectSignaturePayload(
+  iat: number,
+  contractDigest: string,
+): string {
+  return `${iat}:${contractDigest}`;
+}
 
 export async function createAuth(
   opts: { sessionKeySeed: string },
@@ -84,13 +99,24 @@ export async function createAuth(
     return await signDomainHash("oauth-init", payload);
   };
 
-  const buildServiceNatsAuthToken = (iat: number): NatsAuthTokenV1 => {
+  const buildServiceNatsAuthToken = (
+    iat: number,
+    contractDigest: string,
+  ): NatsAuthTokenV1 => {
     return {
       v: 1,
       sessionKey,
       iat,
+      contractDigest,
       sig: base64urlEncode(
-        signEd25519SeedSha256(seed, utf8(`nats-connect:${iat}`)),
+        signEd25519SeedSha256(
+          seed,
+          utf8(
+            `nats-connect:${
+              buildNatsConnectSignaturePayload(iat, contractDigest)
+            }`,
+          ),
+        ),
       ),
     };
   };
@@ -107,13 +133,20 @@ export async function createAuth(
     },
     oauthInitSig: signOauthInit,
     bindFlowSig: (flowId) => signDomainHash("bind-flow", flowId),
-    natsConnectSigForIat: (iat) => signDomainHash("nats-connect", String(iat)),
+    natsConnectSigForIat: (iat, contractDigest) =>
+      signDomainHash(
+        "nats-connect",
+        buildNatsConnectSignaturePayload(iat, contractDigest),
+      ),
     createProof: (subject, payloadHash) =>
       createProof(privateKey, { sessionKey, subject, payloadHash }),
-    natsConnectOptions: async () => {
+    natsConnectOptions: async (options) => {
       return {
         authenticator: () => {
-          const authToken = buildServiceNatsAuthToken(currentIat());
+          const authToken = buildServiceNatsAuthToken(
+            currentIat(),
+            options.contractDigest,
+          );
           return { auth_token: JSON.stringify(authToken) };
         },
         inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,

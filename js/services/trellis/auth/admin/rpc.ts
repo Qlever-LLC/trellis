@@ -1,6 +1,5 @@
 import { AuthError, UnexpectedError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
-import { AsyncLocalStorage } from "node:async_hooks";
 
 import type { AuthLogger, RuntimeKV } from "../runtime_deps.ts";
 import {
@@ -15,7 +14,7 @@ import {
   type InstanceGrantPolicyActor,
   type LoginPortalSelection,
   type LoginPortalSelectionRequest,
-  normalizeAppliedContracts,
+  normalizeDeviceAppliedContracts,
   type Portal,
   type PortalDefault,
   type PortalDefaultRequest,
@@ -104,11 +103,15 @@ type DeviceActivationReviewRecord = {
   };
 };
 type ActiveContractsDeps = { refreshActiveContracts: () => Promise<void> };
+type ActiveCatalogValidator = (opts: {
+  stagedDeviceDeployments?: Iterable<DeviceDeployment>;
+  stagedDeviceInstances?: Iterable<DeviceInstance>;
+}) => Promise<unknown>;
 
 export type AdminRpcDeps = {
   browserFlowsKV: RuntimeKV<unknown>;
   connectionsKV: RuntimeKV<Connection>;
-  contractApprovalStorage: SqlContractApprovalRepository;
+  contractApprovalStorage: Pick<SqlContractApprovalRepository, "get">;
   deviceActivationReviewStorage: {
     get(reviewId: string): Promise<DeviceActivationReviewRecord | undefined>;
     getByFlowId(
@@ -123,7 +126,10 @@ export type AdminRpcDeps = {
     delete(instanceId: string): Promise<void>;
     list(): Promise<DeviceActivation[]>;
   };
-  deviceDeploymentStorage: SqlDeviceDeploymentRepository;
+  deviceDeploymentStorage: Pick<
+    SqlDeviceDeploymentRepository,
+    "get" | "put" | "delete" | "list"
+  >;
   deviceInstanceStorage: {
     get(instanceId: string): Promise<DeviceInstance | undefined>;
     put(record: DeviceInstance): Promise<void>;
@@ -136,17 +142,32 @@ export type AdminRpcDeps = {
     delete(deploymentId: string): Promise<void>;
     list(): Promise<DevicePortalSelection[]>;
   };
-  deviceProvisioningSecretStorage: SqlDeviceProvisioningSecretRepository;
-  instanceGrantPolicyStorage: SqlInstanceGrantPolicyRepository;
+  deviceProvisioningSecretStorage: Pick<
+    SqlDeviceProvisioningSecretRepository,
+    "get" | "put" | "delete"
+  >;
+  instanceGrantPolicyStorage: Pick<
+    SqlInstanceGrantPolicyRepository,
+    "get" | "put" | "list"
+  >;
   kick: (serverId: string, clientId: number) => Promise<void>;
   loadEffectiveGrantPolicies: (
     contractId: string,
   ) => Promise<InstanceGrantPolicy[]>;
   logger: Pick<AuthLogger, "trace" | "warn">;
-  loginPortalSelectionStorage: SqlLoginPortalSelectionRepository;
-  portalDefaultStorage: SqlPortalDefaultRepository;
-  portalProfileStorage: SqlPortalProfileRepository;
-  portalStorage: SqlPortalRepository;
+  loginPortalSelectionStorage: Pick<
+    SqlLoginPortalSelectionRepository,
+    "get" | "put" | "delete" | "list"
+  >;
+  portalDefaultStorage: Pick<
+    SqlPortalDefaultRepository,
+    "getLogin" | "getDevice" | "putLogin" | "putDevice"
+  >;
+  portalProfileStorage: Pick<
+    SqlPortalProfileRepository,
+    "get" | "put" | "list"
+  >;
+  portalStorage: Pick<SqlPortalRepository, "get" | "put" | "list">;
   publishSessionRevoked: (
     event: {
       origin: string;
@@ -161,150 +182,25 @@ export type AdminRpcDeps = {
     | "deleteBySessionKey"
     | "listEntries"
   >;
-  userStorage: SqlUserProjectionRepository;
+  userStorage: Pick<SqlUserProjectionRepository, "get">;
 };
 
-const invocationAdminRpcDeps = new AsyncLocalStorage<AdminRpcDeps>();
+type AdminRpcContext = AdminRpcDeps;
 
-function adminRpcDeps(): AdminRpcDeps {
-  const invocationDeps = invocationAdminRpcDeps.getStore();
-  if (invocationDeps) return invocationDeps;
-  throw new Error("auth admin RPC dependencies have not been configured");
-}
-
-type AdminRpcHandler<Args, Response> = (args: Args) => Promise<Response>;
+type AdminRpcHandler<Args, Response> = (
+  args: Args,
+  ctx: AdminRpcContext,
+) => Promise<Response>;
 
 function bindAdminRpcHandler<Args, Response>(
   deps: AdminRpcDeps,
   handler: AdminRpcHandler<Args, Response>,
-): AdminRpcHandler<Args, Response> {
-  return (args) => invocationAdminRpcDeps.run(deps, () => handler(args));
+): (args: Args) => Promise<Response> {
+  return (args) => handler(args, deps);
 }
 
 const LOGIN_DEFAULT_KEY = "login.default";
 const DEVICE_DEFAULT_KEY = "device.default";
-
-const logger = {
-  trace: (fields: Record<string, unknown>, message: string) =>
-    adminRpcDeps().logger.trace(fields, message),
-  warn: (fields: Record<string, unknown>, message: string) =>
-    adminRpcDeps().logger.warn(fields, message),
-};
-
-const browserFlowsKV = {
-  get: (key: string) => adminRpcDeps().browserFlowsKV.get(key),
-};
-const connectionsKV = {
-  get: (key: string) => adminRpcDeps().connectionsKV.get(key),
-  delete: (key: string) => adminRpcDeps().connectionsKV.delete(key),
-  keys: (filter: string | string[]) =>
-    adminRpcDeps().connectionsKV.keys(filter),
-};
-const contractApprovalStorage = {
-  get: (userTrellisId: string, contractDigest: string) =>
-    adminRpcDeps().contractApprovalStorage.get(
-      userTrellisId,
-      contractDigest,
-    ),
-};
-const portalStorage = {
-  get: (portalId: string) => adminRpcDeps().portalStorage.get(portalId),
-  put: (record: Portal) => adminRpcDeps().portalStorage.put(record),
-  list: () => adminRpcDeps().portalStorage.list(),
-};
-const portalProfileStorage = {
-  get: (portalId: string) => adminRpcDeps().portalProfileStorage.get(portalId),
-  put: (record: PortalProfile) =>
-    adminRpcDeps().portalProfileStorage.put(record),
-  list: () => adminRpcDeps().portalProfileStorage.list(),
-};
-const instanceGrantPolicyStorage = {
-  get: (contractId: string) =>
-    adminRpcDeps().instanceGrantPolicyStorage.get(contractId),
-  put: (record: InstanceGrantPolicy) =>
-    adminRpcDeps().instanceGrantPolicyStorage.put(record),
-  list: () => adminRpcDeps().instanceGrantPolicyStorage.list(),
-};
-const deviceDeploymentStorage = {
-  get: (deploymentId: string) =>
-    adminRpcDeps().deviceDeploymentStorage.get(deploymentId),
-  put: (record: DeviceDeployment) =>
-    adminRpcDeps().deviceDeploymentStorage.put(record),
-  delete: (deploymentId: string) =>
-    adminRpcDeps().deviceDeploymentStorage.delete(deploymentId),
-  list: () => adminRpcDeps().deviceDeploymentStorage.list(),
-};
-const deviceInstanceStorage = {
-  get: (instanceId: string) =>
-    adminRpcDeps().deviceInstanceStorage.get(instanceId),
-  put: (record: DeviceInstance) =>
-    adminRpcDeps().deviceInstanceStorage.put(record),
-  delete: (instanceId: string) =>
-    adminRpcDeps().deviceInstanceStorage.delete(instanceId),
-  list: () => adminRpcDeps().deviceInstanceStorage.list(),
-};
-const deviceProvisioningSecretStorage = {
-  get: (instanceId: string) =>
-    adminRpcDeps().deviceProvisioningSecretStorage.get(instanceId),
-  put: (record: DeviceProvisioningSecret) =>
-    adminRpcDeps().deviceProvisioningSecretStorage.put(record),
-  delete: (instanceId: string) =>
-    adminRpcDeps().deviceProvisioningSecretStorage.delete(instanceId),
-};
-const deviceActivationReviewStorage = {
-  get: (reviewId: string) =>
-    adminRpcDeps().deviceActivationReviewStorage.get(reviewId),
-  getByFlowId: (flowId: string) =>
-    adminRpcDeps().deviceActivationReviewStorage.getByFlowId(flowId),
-  put: (record: DeviceActivationReviewRecord) =>
-    adminRpcDeps().deviceActivationReviewStorage.put(record),
-  list: () => adminRpcDeps().deviceActivationReviewStorage.list(),
-};
-const deviceActivationStorage = {
-  get: (instanceId: string) =>
-    adminRpcDeps().deviceActivationStorage.get(instanceId),
-  put: (record: DeviceActivation) =>
-    adminRpcDeps().deviceActivationStorage.put(record),
-  delete: (instanceId: string) =>
-    adminRpcDeps().deviceActivationStorage.delete(instanceId),
-  list: () => adminRpcDeps().deviceActivationStorage.list(),
-};
-const portalDefaultStorage = {
-  getLogin: () => adminRpcDeps().portalDefaultStorage.getLogin(),
-  getDevice: () => adminRpcDeps().portalDefaultStorage.getDevice(),
-  putLogin: (record: PortalDefault) =>
-    adminRpcDeps().portalDefaultStorage.putLogin(record),
-  putDevice: (record: PortalDefault) =>
-    adminRpcDeps().portalDefaultStorage.putDevice(record),
-};
-const loginPortalSelectionStorage = {
-  get: (contractId: string) =>
-    adminRpcDeps().loginPortalSelectionStorage.get(contractId),
-  put: (record: LoginPortalSelection) =>
-    adminRpcDeps().loginPortalSelectionStorage.put(record),
-  delete: (contractId: string) =>
-    adminRpcDeps().loginPortalSelectionStorage.delete(contractId),
-  list: () => adminRpcDeps().loginPortalSelectionStorage.list(),
-};
-const devicePortalSelectionStorage = {
-  get: (deploymentId: string) =>
-    adminRpcDeps().devicePortalSelectionStorage.get(deploymentId),
-  put: (record: DevicePortalSelection) =>
-    adminRpcDeps().devicePortalSelectionStorage.put(record),
-  delete: (deploymentId: string) =>
-    adminRpcDeps().devicePortalSelectionStorage.delete(deploymentId),
-  list: () => adminRpcDeps().devicePortalSelectionStorage.list(),
-};
-const userStorage = {
-  get: (trellisId: string) => adminRpcDeps().userStorage.get(trellisId),
-};
-const sessionStorage = {
-  deleteBySessionKey: (sessionKey: string) =>
-    adminRpcDeps().sessionStorage.deleteBySessionKey(sessionKey),
-  deleteByPublicIdentityKey: (publicIdentityKey: string) =>
-    adminRpcDeps().sessionStorage.deleteByPublicIdentityKey(publicIdentityKey),
-  listEntries: () => adminRpcDeps().sessionStorage.listEntries(),
-};
 
 function isAdmin(user: RpcUser): boolean {
   return user.capabilities?.includes("admin") ?? false;
@@ -372,50 +268,60 @@ async function refreshActiveContracts(deps: ActiveContractsDeps) {
   }
 }
 
-async function loadPortal(portalId: string): Promise<Portal | null> {
-  return await portalStorage.get(portalId) ?? null;
+async function loadPortal(
+  ctx: AdminRpcContext,
+  portalId: string,
+): Promise<Portal | null> {
+  return await ctx.portalStorage.get(portalId) ?? null;
 }
 
 async function loadInstanceGrantPolicy(
+  ctx: AdminRpcContext,
   contractId: string,
 ): Promise<InstanceGrantPolicy | null> {
-  return await instanceGrantPolicyStorage.get(contractId) ?? null;
+  return await ctx.instanceGrantPolicyStorage.get(contractId) ?? null;
 }
 
 async function loadPortalProfile(
+  ctx: AdminRpcContext,
   portalId: string,
 ): Promise<PortalProfile | null> {
-  return await portalProfileStorage.get(portalId) ?? null;
+  return await ctx.portalProfileStorage.get(portalId) ?? null;
 }
 
 async function loadDeviceDeployment(
+  ctx: AdminRpcContext,
   deploymentId: string,
 ): Promise<DeviceDeployment | null> {
-  return await deviceDeploymentStorage.get(deploymentId) ?? null;
+  return await ctx.deviceDeploymentStorage.get(deploymentId) ?? null;
 }
 
 async function loadDeviceInstance(
+  ctx: AdminRpcContext,
   instanceId: string,
 ): Promise<DeviceInstance | null> {
-  return await deviceInstanceStorage.get(instanceId) ?? null;
+  return await ctx.deviceInstanceStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceProvisioningSecret(
+  ctx: AdminRpcContext,
   instanceId: string,
 ): Promise<DeviceProvisioningSecret | null> {
-  return await deviceProvisioningSecretStorage.get(instanceId) ?? null;
+  return await ctx.deviceProvisioningSecretStorage.get(instanceId) ?? null;
 }
 
 async function loadDeviceActivationReview(
+  ctx: AdminRpcContext,
   reviewId: string,
 ): Promise<DeviceActivationReviewRecord | null> {
-  return await deviceActivationReviewStorage.get(reviewId) ?? null;
+  return await ctx.deviceActivationReviewStorage.get(reviewId) ?? null;
 }
 
 async function loadDeviceActivationFlow(
+  ctx: AdminRpcContext,
   flowId: string,
 ): Promise<DeviceActivationFlow | null> {
-  const entry = await browserFlowsKV.get(flowId).take();
+  const entry = await ctx.browserFlowsKV.get(flowId).take();
   if (isErr(entry)) return null;
   const flow = entry.value as {
     flowId?: string;
@@ -448,66 +354,86 @@ async function loadDeviceActivationFlow(
 }
 
 async function loadDeviceActivation(
+  ctx: AdminRpcContext,
   instanceId: string,
 ): Promise<DeviceActivation | null> {
-  return await deviceActivationStorage.get(instanceId) ?? null;
+  return await ctx.deviceActivationStorage.get(instanceId) ?? null;
 }
 
-async function loadPortalDefault(key: string): Promise<PortalDefault | null> {
+async function loadPortalDefault(
+  ctx: AdminRpcContext,
+  key: string,
+): Promise<PortalDefault | null> {
   const defaultPortal = key === "login.default"
-    ? await portalDefaultStorage.getLogin()
-    : await portalDefaultStorage.getDevice();
+    ? await ctx.portalDefaultStorage.getLogin()
+    : await ctx.portalDefaultStorage.getDevice();
   return defaultPortal ?? null;
 }
 
 async function loadLoginPortalSelection(
+  ctx: AdminRpcContext,
   contractId: string,
 ): Promise<LoginPortalSelection | null> {
-  return await loginPortalSelectionStorage.get(contractId) ?? null;
+  return await ctx.loginPortalSelectionStorage.get(contractId) ?? null;
 }
 
 async function loadDevicePortalSelection(
+  ctx: AdminRpcContext,
   deploymentId: string,
 ): Promise<DevicePortalSelection | null> {
-  return await devicePortalSelectionStorage.get(deploymentId) ?? null;
+  return await ctx.devicePortalSelectionStorage.get(deploymentId) ?? null;
 }
 
-async function listPortals(): Promise<Portal[]> {
-  return await portalStorage.list();
+async function listPortals(ctx: AdminRpcContext): Promise<Portal[]> {
+  return await ctx.portalStorage.list();
 }
 
-async function listPortalProfiles(): Promise<PortalProfile[]> {
-  return await portalProfileStorage.list();
+async function listPortalProfiles(
+  ctx: AdminRpcContext,
+): Promise<PortalProfile[]> {
+  return await ctx.portalProfileStorage.list();
 }
 
-async function listInstanceGrantPolicies(): Promise<InstanceGrantPolicy[]> {
-  return await instanceGrantPolicyStorage.list();
+async function listInstanceGrantPolicies(
+  ctx: AdminRpcContext,
+): Promise<InstanceGrantPolicy[]> {
+  return await ctx.instanceGrantPolicyStorage.list();
 }
 
-async function listLoginPortalSelections(): Promise<LoginPortalSelection[]> {
-  return await loginPortalSelectionStorage.list();
+async function listLoginPortalSelections(
+  ctx: AdminRpcContext,
+): Promise<LoginPortalSelection[]> {
+  return await ctx.loginPortalSelectionStorage.list();
 }
 
-async function listDevicePortalSelections(): Promise<DevicePortalSelection[]> {
-  return await devicePortalSelectionStorage.list();
+async function listDevicePortalSelections(
+  ctx: AdminRpcContext,
+): Promise<DevicePortalSelection[]> {
+  return await ctx.devicePortalSelectionStorage.list();
 }
 
-async function listDeviceDeployments(): Promise<DeviceDeployment[]> {
-  return await deviceDeploymentStorage.list();
+async function listDeviceDeployments(
+  ctx: AdminRpcContext,
+): Promise<DeviceDeployment[]> {
+  return await ctx.deviceDeploymentStorage.list();
 }
 
-async function listDeviceInstances(): Promise<DeviceInstance[]> {
-  return await deviceInstanceStorage.list();
+async function listDeviceInstances(
+  ctx: AdminRpcContext,
+): Promise<DeviceInstance[]> {
+  return await ctx.deviceInstanceStorage.list();
 }
 
-async function listDeviceActivations(): Promise<DeviceActivation[]> {
-  return await deviceActivationStorage.list();
+async function listDeviceActivations(
+  ctx: AdminRpcContext,
+): Promise<DeviceActivation[]> {
+  return await ctx.deviceActivationStorage.list();
 }
 
-async function listDeviceActivationReviews(): Promise<
+async function listDeviceActivationReviews(ctx: AdminRpcContext): Promise<
   DeviceActivationReviewRecord[]
 > {
-  return await deviceActivationReviewStorage.list();
+  return await ctx.deviceActivationReviewStorage.list();
 }
 
 function toPublicReview(
@@ -535,17 +461,19 @@ function policyActor(caller: RpcUser): InstanceGrantPolicyActor | undefined {
 }
 
 async function loadUserProjection(
+  ctx: AdminRpcContext,
   trellisId: string,
 ): Promise<UserProjectionEntry | null> {
-  return await userStorage.get(trellisId) ?? null;
+  return await ctx.userStorage.get(trellisId) ?? null;
 }
 
 async function revokeUserSessionByKey(
+  ctx: AdminRpcContext,
   sessionKey: string,
   session: Extract<Session, { type: "user" }>,
   revokedBy?: string,
 ): Promise<void> {
-  const connIter = await connectionsKV.keys(
+  const connIter = await ctx.connectionsKV.keys(
     connectionFilterForSession(sessionKey),
   )
     .take();
@@ -553,63 +481,65 @@ async function revokeUserSessionByKey(
     for await (const connKey of connIter) {
       const parsedKey = parseConnectionKey(connKey);
       if (!parsedKey || parsedKey.scopeId !== session.trellisId) continue;
-      const entry = await connectionsKV.get(connKey).take();
+      const entry = await ctx.connectionsKV.get(connKey).take();
       if (!isErr(entry)) {
         const connection = unwrapConnection(entry);
         if (connection) {
-          await adminRpcDeps().kick(connection.serverId, connection.clientId);
+          await ctx.kick(connection.serverId, connection.clientId);
         }
       }
-      await connectionsKV.delete(connKey);
+      await ctx.connectionsKV.delete(connKey);
     }
   }
 
   if (revokedBy) {
-    await adminRpcDeps().publishSessionRevoked({
+    await ctx.publishSessionRevoked({
       origin: session.origin,
       id: session.id,
       sessionKey,
       revokedBy,
     });
   }
-  await sessionStorage.deleteBySessionKey(sessionKey);
+  await ctx.sessionStorage.deleteBySessionKey(sessionKey);
 }
 
 async function kickDeviceRuntimeAccess(
+  ctx: AdminRpcContext,
   publicIdentityKey: string,
 ): Promise<void> {
-  const connIter = await connectionsKV.keys(
+  const connIter = await ctx.connectionsKV.keys(
     connectionFilterForSession(publicIdentityKey),
   )
     .take();
   if (!isErr(connIter)) {
     for await (const connKey of connIter) {
-      const entry = await connectionsKV.get(connKey).take();
+      const entry = await ctx.connectionsKV.get(connKey).take();
       if (!isErr(entry)) {
         const connection = unwrapConnection(entry);
         if (connection) {
-          await adminRpcDeps().kick(connection.serverId, connection.clientId);
+          await ctx.kick(connection.serverId, connection.clientId);
         }
       }
-      await connectionsKV.delete(connKey);
+      await ctx.connectionsKV.delete(connKey);
     }
   }
 
-  await sessionStorage.deleteByPublicIdentityKey(publicIdentityKey);
+  await ctx.sessionStorage.deleteByPublicIdentityKey(publicIdentityKey);
 }
 
 async function revokeInvalidatedInstanceGrantSessions(args: {
+  ctx: AdminRpcContext;
   contractId: string;
   policies: InstanceGrantPolicy[];
   revokedBy?: string;
 }): Promise<void> {
-  for (const entry of await sessionStorage.listEntries()) {
+  for (const entry of await args.ctx.sessionStorage.listEntries()) {
     const session = entry.session;
     if (session.type !== "user") continue;
     if (session.contractId !== args.contractId) continue;
 
-    const projection = await loadUserProjection(session.trellisId);
-    const storedApproval = await contractApprovalStorage.get(
+    const projection = await loadUserProjection(args.ctx, session.trellisId);
+    const storedApproval = await args.ctx.contractApprovalStorage.get(
       session.trellisId,
       session.contractDigest,
     ) ?? null;
@@ -629,6 +559,7 @@ async function revokeInvalidatedInstanceGrantSessions(args: {
     if (sessionAllowed) continue;
 
     await revokeUserSessionByKey(
+      args.ctx,
       entry.sessionKey,
       session,
       args.revokedBy,
@@ -637,10 +568,12 @@ async function revokeInvalidatedInstanceGrantSessions(args: {
 }
 
 async function confirmationCodeForReview(
+  ctx: AdminRpcContext,
   review: DeviceActivationReviewRecord,
 ): Promise<string | null> {
-  const flow = await loadDeviceActivationFlow(review.flowId);
+  const flow = await loadDeviceActivationFlow(ctx, review.flowId);
   const provisioningSecret = await loadDeviceProvisioningSecret(
+    ctx,
     review.instanceId,
   );
   if (!flow || !provisioningSecret) return null;
@@ -651,9 +584,12 @@ async function confirmationCodeForReview(
   });
 }
 
-async function ensurePortalReference(portalId: string | null) {
+async function ensurePortalReference(
+  ctx: AdminRpcContext,
+  portalId: string | null,
+) {
   if (portalId === null) return Result.ok(undefined);
-  const portal = await loadPortal(portalId);
+  const portal = await loadPortal(ctx, portalId);
   if (!portal || portal.disabled) {
     return invalidRequest({ portalId, reason: "portal_not_found" });
   }
@@ -750,12 +686,14 @@ function adminPolicyActors(policy: InstanceGrantPolicy | null | undefined): {
 }
 
 async function revokeInvalidatedEffectiveGrantSessions(args: {
+  ctx: AdminRpcContext;
   contractId: string;
   revokedBy?: string;
 }): Promise<void> {
   await revokeInvalidatedInstanceGrantSessions({
+    ctx: args.ctx,
     contractId: args.contractId,
-    policies: await adminRpcDeps().loadEffectiveGrantPolicies(args.contractId),
+    policies: await args.ctx.loadEffectiveGrantPolicies(args.contractId),
     revokedBy: args.revokedBy,
   });
 }
@@ -769,8 +707,9 @@ export function createAuthCreatePortalHandler() {
       input: CreatePortalRequest;
       context: { caller: RpcUser };
     },
+    ctx: AdminRpcContext,
   ) => {
-    logger.trace(
+    ctx.logger.trace(
       { rpc: "Auth.CreatePortal", portalId: req.portalId },
       "RPC request",
     );
@@ -778,16 +717,17 @@ export function createAuthCreatePortalHandler() {
     const validation = validatePortalRequest(req);
     if (validation.isErr()) return validation;
     const { portal } = validation.take() as { portal: Portal };
-    await portalStorage.put(portal);
+    await ctx.portalStorage.put(portal);
     return Result.ok({ portal });
   };
 }
 
 export const authListPortalsHandler = async (
   { context: { caller } }: { context: { caller: RpcUser } },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  return Result.ok({ portals: await listPortals() });
+  return Result.ok({ portals: await listPortals(ctx) });
 };
 
 export const authDisablePortalHandler = async (
@@ -795,20 +735,22 @@ export const authDisablePortalHandler = async (
     input: { portalId: string };
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const portal = await loadPortal(req.portalId);
+  const portal = await loadPortal(ctx, req.portalId);
   if (!portal) return Result.ok({ success: false });
-  await portalStorage.put({ ...portal, disabled: true });
+  await ctx.portalStorage.put({ ...portal, disabled: true });
 
-  const profile = await loadPortalProfile(req.portalId);
+  const profile = await loadPortalProfile(ctx, req.portalId);
   if (profile && !profile.disabled) {
-    await portalProfileStorage.put({
+    await ctx.portalProfileStorage.put({
       ...profile,
       disabled: true,
       updatedAt: new Date().toISOString(),
     });
     await revokeInvalidatedEffectiveGrantSessions({
+      ctx,
       contractId: profile.contractId,
       revokedBy: caller.origin && caller.id
         ? `${caller.origin}.${caller.id}`
@@ -820,9 +762,10 @@ export const authDisablePortalHandler = async (
 
 export const authListPortalProfilesHandler = async (
   { context: { caller } }: { context: { caller: RpcUser } },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  return Result.ok({ profiles: await listPortalProfiles() });
+  return Result.ok({ profiles: await listPortalProfiles(ctx) });
 };
 
 export function createAuthSetPortalProfileHandler(deps: {
@@ -837,6 +780,7 @@ export function createAuthSetPortalProfileHandler(deps: {
       input: SetPortalProfileRequest;
       context: { caller: RpcUser };
     },
+    ctx: AdminRpcContext,
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const validation = validatePortalProfileRequest(req);
@@ -857,7 +801,7 @@ export function createAuthSetPortalProfileHandler(deps: {
       impliedCapabilities: string[];
     };
 
-    const existing = await loadPortalProfile(normalizedProfile.portalId);
+    const existing = await loadPortalProfile(ctx, normalizedProfile.portalId);
     const now = new Date().toISOString();
     const profile: PortalProfile = {
       portalId: normalizedProfile.portalId,
@@ -871,9 +815,9 @@ export function createAuthSetPortalProfileHandler(deps: {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    const existingPortal = await loadPortal(profile.portalId);
-    await portalProfileStorage.put(profile);
-    await portalStorage.put({
+    const existingPortal = await loadPortal(ctx, profile.portalId);
+    await ctx.portalProfileStorage.put(profile);
+    await ctx.portalStorage.put({
       portalId: profile.portalId,
       entryUrl: profile.entryUrl,
       disabled: existingPortal?.disabled ?? false,
@@ -887,7 +831,11 @@ export function createAuthSetPortalProfileHandler(deps: {
       ...(existing ? [existing.contractId] : []),
     ]);
     for (const contractId of affectedContractIds) {
-      await revokeInvalidatedEffectiveGrantSessions({ contractId, revokedBy });
+      await revokeInvalidatedEffectiveGrantSessions({
+        ctx,
+        contractId,
+        revokedBy,
+      });
     }
     return Result.ok({ profile });
   };
@@ -898,9 +846,10 @@ export const authDisablePortalProfileHandler = async (
     input: { portalId: string };
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const existing = await loadPortalProfile(req.portalId);
+  const existing = await loadPortalProfile(ctx, req.portalId);
   if (!existing) {
     return invalidRequest({
       portalId: req.portalId,
@@ -912,9 +861,10 @@ export const authDisablePortalProfileHandler = async (
     disabled: true,
     updatedAt: new Date().toISOString(),
   };
-  await portalProfileStorage.put(profile);
+  await ctx.portalProfileStorage.put(profile);
 
   await revokeInvalidatedEffectiveGrantSessions({
+    ctx,
     contractId: profile.contractId,
     revokedBy: caller.origin && caller.id
       ? `${caller.origin}.${caller.id}`
@@ -925,19 +875,21 @@ export const authDisablePortalProfileHandler = async (
 
 export const authGetLoginPortalDefaultHandler = async (
   { context: { caller } }: { context: { caller: RpcUser } },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   return Result.ok({
-    defaultPortal: (await loadPortalDefault(LOGIN_DEFAULT_KEY)) ??
+    defaultPortal: (await loadPortalDefault(ctx, LOGIN_DEFAULT_KEY)) ??
       { portalId: null },
   });
 };
 
 export const authListInstanceGrantPoliciesHandler = async (
   { context: { caller } }: { context: { caller: RpcUser } },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  return Result.ok({ policies: await listInstanceGrantPolicies() });
+  return Result.ok({ policies: await listInstanceGrantPolicies(ctx) });
 };
 
 export const authUpsertInstanceGrantPolicyHandler = async (
@@ -948,6 +900,7 @@ export const authUpsertInstanceGrantPolicyHandler = async (
     input: UpsertInstanceGrantPolicyRequest;
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validateInstanceGrantPolicyRequest(req);
@@ -958,7 +911,10 @@ export const authUpsertInstanceGrantPolicyHandler = async (
       "contractId" | "allowedOrigins" | "impliedCapabilities"
     >;
   };
-  const existing = await loadInstanceGrantPolicy(normalizedPolicy.contractId);
+  const existing = await loadInstanceGrantPolicy(
+    ctx,
+    normalizedPolicy.contractId,
+  );
   const now = new Date().toISOString();
   const actor = policyActor(caller);
   const existingActors = adminPolicyActors(existing);
@@ -983,8 +939,9 @@ export const authUpsertInstanceGrantPolicyHandler = async (
         : {}),
     },
   };
-  await instanceGrantPolicyStorage.put(policy);
+  await ctx.instanceGrantPolicyStorage.put(policy);
   await revokeInvalidatedEffectiveGrantSessions({
+    ctx,
     contractId: policy.contractId,
     revokedBy: actor ? `${actor.origin}.${actor.id}` : undefined,
   });
@@ -996,10 +953,11 @@ export const authDisableInstanceGrantPolicyHandler = async (
     input: { contractId: string };
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   if (!req.contractId) return invalidRequest({ contractId: req.contractId });
-  const existing = await loadInstanceGrantPolicy(req.contractId);
+  const existing = await loadInstanceGrantPolicy(ctx, req.contractId);
   if (!existing) {
     return invalidRequest({
       contractId: req.contractId,
@@ -1017,8 +975,9 @@ export const authDisableInstanceGrantPolicyHandler = async (
       ...(actor ? { updatedBy: actor } : {}),
     },
   };
-  await instanceGrantPolicyStorage.put(policy);
+  await ctx.instanceGrantPolicyStorage.put(policy);
   await revokeInvalidatedEffectiveGrantSessions({
+    ctx,
     contractId: policy.contractId,
     revokedBy: actor ? `${actor.origin}.${actor.id}` : undefined,
   });
@@ -1030,6 +989,7 @@ export const authSetLoginPortalDefaultHandler = async (
     input: PortalDefaultRequest;
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validatePortalDefaultRequest(req);
@@ -1037,17 +997,21 @@ export const authSetLoginPortalDefaultHandler = async (
   const { defaultPortal } = validation.take() as {
     defaultPortal: PortalDefault;
   };
-  const referenceCheck = await ensurePortalReference(defaultPortal.portalId);
+  const referenceCheck = await ensurePortalReference(
+    ctx,
+    defaultPortal.portalId,
+  );
   if (referenceCheck.isErr()) return referenceCheck;
-  await portalDefaultStorage.putLogin(defaultPortal);
+  await ctx.portalDefaultStorage.putLogin(defaultPortal);
   return Result.ok({ defaultPortal });
 };
 
 export const authListLoginPortalSelectionsHandler = async (
   { context: { caller } }: { context: { caller: RpcUser } },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  return Result.ok({ selections: await listLoginPortalSelections() });
+  return Result.ok({ selections: await listLoginPortalSelections(ctx) });
 };
 
 export const authSetLoginPortalSelectionHandler = async (
@@ -1055,6 +1019,7 @@ export const authSetLoginPortalSelectionHandler = async (
     input: LoginPortalSelectionRequest;
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validateLoginPortalSelectionRequest(req);
@@ -1062,9 +1027,9 @@ export const authSetLoginPortalSelectionHandler = async (
   const { selection } = validation.take() as {
     selection: LoginPortalSelection;
   };
-  const referenceCheck = await ensurePortalReference(selection.portalId);
+  const referenceCheck = await ensurePortalReference(ctx, selection.portalId);
   if (referenceCheck.isErr()) return referenceCheck;
-  await loginPortalSelectionStorage.put(selection);
+  await ctx.loginPortalSelectionStorage.put(selection);
   return Result.ok({ selection });
 };
 
@@ -1073,20 +1038,22 @@ export const authClearLoginPortalSelectionHandler = async (
     input: { contractId: string };
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const selection = await loadLoginPortalSelection(req.contractId);
+  const selection = await loadLoginPortalSelection(ctx, req.contractId);
   if (!selection) return Result.ok({ success: false });
-  await loginPortalSelectionStorage.delete(req.contractId);
+  await ctx.loginPortalSelectionStorage.delete(req.contractId);
   return Result.ok({ success: true });
 };
 
 export const authGetDevicePortalDefaultHandler = async (
   { context: { caller } }: { context: { caller: RpcUser } },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   return Result.ok({
-    defaultPortal: (await loadPortalDefault(DEVICE_DEFAULT_KEY)) ??
+    defaultPortal: (await loadPortalDefault(ctx, DEVICE_DEFAULT_KEY)) ??
       { portalId: null },
   });
 };
@@ -1096,6 +1063,7 @@ export const authSetDevicePortalDefaultHandler = async (
     input: PortalDefaultRequest;
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validatePortalDefaultRequest(req);
@@ -1103,17 +1071,21 @@ export const authSetDevicePortalDefaultHandler = async (
   const { defaultPortal } = validation.take() as {
     defaultPortal: PortalDefault;
   };
-  const referenceCheck = await ensurePortalReference(defaultPortal.portalId);
+  const referenceCheck = await ensurePortalReference(
+    ctx,
+    defaultPortal.portalId,
+  );
   if (referenceCheck.isErr()) return referenceCheck;
-  await portalDefaultStorage.putDevice(defaultPortal);
+  await ctx.portalDefaultStorage.putDevice(defaultPortal);
   return Result.ok({ defaultPortal });
 };
 
 export const authListDevicePortalSelectionsHandler = async (
   { context: { caller } }: { context: { caller: RpcUser } },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  return Result.ok({ selections: await listDevicePortalSelections() });
+  return Result.ok({ selections: await listDevicePortalSelections(ctx) });
 };
 
 export const authSetDevicePortalSelectionHandler = async (
@@ -1121,6 +1093,7 @@ export const authSetDevicePortalSelectionHandler = async (
     input: DevicePortalSelectionRequest;
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
   const validation = validateDevicePortalSelectionRequest(req);
@@ -1128,16 +1101,16 @@ export const authSetDevicePortalSelectionHandler = async (
   const { selection } = validation.take() as {
     selection: DevicePortalSelection;
   };
-  const deployment = await loadDeviceDeployment(selection.deploymentId);
+  const deployment = await loadDeviceDeployment(ctx, selection.deploymentId);
   if (!deployment || deployment.disabled) {
     return invalidRequest({
       deploymentId: selection.deploymentId,
       reason: "device_deployment_not_found",
     });
   }
-  const referenceCheck = await ensurePortalReference(selection.portalId);
+  const referenceCheck = await ensurePortalReference(ctx, selection.portalId);
   if (referenceCheck.isErr()) return referenceCheck;
-  await devicePortalSelectionStorage.put(selection);
+  await ctx.devicePortalSelectionStorage.put(selection);
   return Result.ok({ selection });
 };
 
@@ -1146,11 +1119,12 @@ export const authClearDevicePortalSelectionHandler = async (
     input: { deploymentId: string };
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const selection = await loadDevicePortalSelection(req.deploymentId);
+  const selection = await loadDevicePortalSelection(ctx, req.deploymentId);
   if (!selection) return Result.ok({ success: false });
-  await devicePortalSelectionStorage.delete(req.deploymentId);
+  await ctx.devicePortalSelectionStorage.delete(req.deploymentId);
   return Result.ok({ success: true });
 };
 
@@ -1163,6 +1137,7 @@ export function createAuthCreateDeviceDeploymentHandler() {
       input: Parameters<typeof validateDeviceDeploymentRequest>[0];
       context: { caller: RpcUser };
     },
+    ctx: AdminRpcContext,
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const validation = validateDeviceDeploymentRequest(req);
@@ -1170,7 +1145,7 @@ export function createAuthCreateDeviceDeploymentHandler() {
     const { deployment } = validation.take() as {
       deployment: DeviceDeployment;
     };
-    await deviceDeploymentStorage.put(deployment);
+    await ctx.deviceDeploymentStorage.put(deployment);
     return Result.ok({ deployment });
   };
 }
@@ -1180,9 +1155,10 @@ export const authListDeviceDeploymentsHandler = async (
     input: { disabled?: boolean };
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  let deployments = await listDeviceDeployments();
+  let deployments = await listDeviceDeployments(ctx);
   if (req.disabled !== undefined) {
     deployments = deployments.filter((deployment) =>
       deployment.disabled === req.disabled
@@ -1198,6 +1174,7 @@ export function createAuthApplyDeviceDeploymentContractHandler(deps: {
     { id: string; digest: string; displayName: string; description: string }
   >;
   refreshActiveContracts: () => Promise<void>;
+  validateActiveCatalog: ActiveCatalogValidator;
 }) {
   return async (
     {
@@ -1207,9 +1184,10 @@ export function createAuthApplyDeviceDeploymentContractHandler(deps: {
       input: { deploymentId: string; contract: unknown };
       context: { caller: RpcUser };
     },
+    ctx: AdminRpcContext,
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const deployment = await loadDeviceDeployment(req.deploymentId);
+    const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
     if (!deployment) {
       return invalidRequest({
         deploymentId: req.deploymentId,
@@ -1227,14 +1205,34 @@ export function createAuthApplyDeviceDeploymentContractHandler(deps: {
     }
     const nextDeployment: DeviceDeployment = {
       ...deployment,
-      appliedContracts: normalizeAppliedContracts([
+      appliedContracts: normalizeDeviceAppliedContracts([
         ...deployment.appliedContracts,
         { contractId: installed.id, allowedDigests: [installed.digest] },
       ]),
     };
-    await deviceDeploymentStorage.put(nextDeployment);
+    try {
+      await deps.validateActiveCatalog({
+        stagedDeviceDeployments: [nextDeployment],
+      });
+    } catch (error) {
+      return Result.err(
+        new UnexpectedError({
+          cause: error instanceof Error ? error : new Error(String(error)),
+        }),
+      );
+    }
+    await ctx.deviceDeploymentStorage.put(nextDeployment);
     const refreshed = await refreshActiveContracts(deps);
-    if (isErr(refreshed)) return refreshed;
+    if (isErr(refreshed)) {
+      await ctx.deviceDeploymentStorage.put(deployment);
+      return refreshed;
+    }
+    const instances = (await listDeviceInstances(ctx)).filter((instance) =>
+      instance.deploymentId === deployment.deploymentId
+    );
+    for (const instance of instances) {
+      await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
+    }
     return Result.ok({
       deployment: nextDeployment,
       contract: {
@@ -1249,7 +1247,7 @@ export function createAuthApplyDeviceDeploymentContractHandler(deps: {
 }
 
 export function createAuthUnapplyDeviceDeploymentContractHandler(
-  deps: ActiveContractsDeps,
+  deps: ActiveContractsDeps & { validateActiveCatalog: ActiveCatalogValidator },
 ) {
   return async (
     {
@@ -1259,9 +1257,10 @@ export function createAuthUnapplyDeviceDeploymentContractHandler(
       input: { deploymentId: string; contractId: string; digests?: string[] };
       context: { caller: RpcUser };
     },
+    ctx: AdminRpcContext,
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const deployment = await loadDeviceDeployment(req.deploymentId);
+    const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
     if (!deployment) {
       return invalidRequest({
         deploymentId: req.deploymentId,
@@ -1271,7 +1270,7 @@ export function createAuthUnapplyDeviceDeploymentContractHandler(
     const removeDigests = new Set(req.digests ?? []);
     const nextDeployment: DeviceDeployment = {
       ...deployment,
-      appliedContracts: normalizeAppliedContracts(
+      appliedContracts: normalizeDeviceAppliedContracts(
         deployment.appliedContracts
           .map((applied) => {
             if (applied.contractId !== req.contractId) return applied;
@@ -1288,14 +1287,28 @@ export function createAuthUnapplyDeviceDeploymentContractHandler(
           ),
       ),
     };
-    await deviceDeploymentStorage.put(nextDeployment);
+    try {
+      await deps.validateActiveCatalog({
+        stagedDeviceDeployments: [nextDeployment],
+      });
+    } catch (error) {
+      return Result.err(
+        new UnexpectedError({
+          cause: error instanceof Error ? error : new Error(String(error)),
+        }),
+      );
+    }
+    await ctx.deviceDeploymentStorage.put(nextDeployment);
     const refreshed = await refreshActiveContracts(deps);
-    if (isErr(refreshed)) return refreshed;
-    const instances = (await listDeviceInstances()).filter((instance) =>
+    if (isErr(refreshed)) {
+      await ctx.deviceDeploymentStorage.put(deployment);
+      return refreshed;
+    }
+    const instances = (await listDeviceInstances(ctx)).filter((instance) =>
       instance.deploymentId === deployment.deploymentId
     );
     for (const instance of instances) {
-      await kickDeviceRuntimeAccess(instance.publicIdentityKey);
+      await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
     }
     return Result.ok({ deployment: nextDeployment });
   };
@@ -1307,9 +1320,9 @@ export function createAuthDisableDeviceDeploymentHandler(
   return async ({ input: req, context: { caller } }: {
     input: { deploymentId: string };
     context: { caller: RpcUser };
-  }) => {
+  }, ctx: AdminRpcContext) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const deployment = await loadDeviceDeployment(req.deploymentId);
+    const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
     if (!deployment) {
       return invalidRequest({
         deploymentId: req.deploymentId,
@@ -1317,15 +1330,15 @@ export function createAuthDisableDeviceDeploymentHandler(
       });
     }
     const nextDeployment = { ...deployment, disabled: true };
-    await deviceDeploymentStorage.put(nextDeployment);
+    await ctx.deviceDeploymentStorage.put(nextDeployment);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) return refreshed;
     for (
-      const instance of (await listDeviceInstances()).filter((entry) =>
+      const instance of (await listDeviceInstances(ctx)).filter((entry) =>
         entry.deploymentId === req.deploymentId
       )
     ) {
-      await kickDeviceRuntimeAccess(instance.publicIdentityKey);
+      await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
     }
     return Result.ok({ deployment: nextDeployment });
   };
@@ -1337,9 +1350,9 @@ export function createAuthEnableDeviceDeploymentHandler(
   return async ({ input: req, context: { caller } }: {
     input: { deploymentId: string };
     context: { caller: RpcUser };
-  }) => {
+  }, ctx: AdminRpcContext) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const deployment = await loadDeviceDeployment(req.deploymentId);
+    const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
     if (!deployment) {
       return invalidRequest({
         deploymentId: req.deploymentId,
@@ -1347,7 +1360,7 @@ export function createAuthEnableDeviceDeploymentHandler(
       });
     }
     const nextDeployment = { ...deployment, disabled: false };
-    await deviceDeploymentStorage.put(nextDeployment);
+    await ctx.deviceDeploymentStorage.put(nextDeployment);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) return refreshed;
     return Result.ok({ deployment: nextDeployment });
@@ -1360,9 +1373,9 @@ export function createAuthRemoveDeviceDeploymentHandler(
   return async ({ input: req, context: { caller } }: {
     input: { deploymentId: string };
     context: { caller: RpcUser };
-  }) => {
+  }, ctx: AdminRpcContext) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const inUse = (await listDeviceInstances()).some((instance) =>
+    const inUse = (await listDeviceInstances(ctx)).some((instance) =>
       instance.deploymentId === req.deploymentId
     );
     if (inUse) {
@@ -1371,7 +1384,7 @@ export function createAuthRemoveDeviceDeploymentHandler(
         reason: "device_deployment_in_use",
       });
     }
-    await deviceDeploymentStorage.delete(req.deploymentId);
+    await ctx.deviceDeploymentStorage.delete(req.deploymentId);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) return refreshed;
     return Result.ok({ success: true });
@@ -1387,6 +1400,7 @@ export function createAuthProvisionDeviceInstanceHandler() {
       input: ProvisionDeviceInstanceRequest;
       context: { caller: RpcUser };
     },
+    ctx: AdminRpcContext,
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const validation = validateDeviceProvisionRequest(req);
@@ -1395,15 +1409,15 @@ export function createAuthProvisionDeviceInstanceHandler() {
       instance: DeviceInstance;
       provisioningSecret: DeviceProvisioningSecret;
     };
-    const deployment = await loadDeviceDeployment(instance.deploymentId);
+    const deployment = await loadDeviceDeployment(ctx, instance.deploymentId);
     if (!deployment || deployment.disabled) {
       return invalidRequest({
         deploymentId: instance.deploymentId,
         reason: "device_deployment_not_found",
       });
     }
-    await deviceInstanceStorage.put(instance);
-    await deviceProvisioningSecretStorage.put(provisioningSecret);
+    await ctx.deviceInstanceStorage.put(instance);
+    await ctx.deviceProvisioningSecretStorage.put(provisioningSecret);
     return Result.ok({ instance });
   };
 }
@@ -1413,9 +1427,10 @@ export const authListDeviceInstancesHandler = async (
     input: { deploymentId?: string; state?: string };
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  let instances = await listDeviceInstances();
+  let instances = await listDeviceInstances(ctx);
   if (req.deploymentId) {
     instances = instances.filter((instance) =>
       instance.deploymentId === req.deploymentId
@@ -1433,9 +1448,9 @@ export function createAuthDisableDeviceInstanceHandler(
   return async ({ input: req, context: { caller } }: {
     input: { instanceId: string };
     context: { caller: RpcUser };
-  }) => {
+  }, ctx: AdminRpcContext) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const instance = await loadDeviceInstance(req.instanceId);
+    const instance = await loadDeviceInstance(ctx, req.instanceId);
     if (!instance) {
       return invalidRequest({
         instanceId: req.instanceId,
@@ -1443,10 +1458,10 @@ export function createAuthDisableDeviceInstanceHandler(
       });
     }
     const nextInstance = { ...instance, state: "disabled" as const };
-    await deviceInstanceStorage.put(nextInstance);
+    await ctx.deviceInstanceStorage.put(nextInstance);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) return refreshed;
-    await kickDeviceRuntimeAccess(instance.publicIdentityKey);
+    await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
     return Result.ok({ instance: nextInstance });
   };
 }
@@ -1457,23 +1472,23 @@ export function createAuthEnableDeviceInstanceHandler(
   return async ({ input: req, context: { caller } }: {
     input: { instanceId: string };
     context: { caller: RpcUser };
-  }) => {
+  }, ctx: AdminRpcContext) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const instance = await loadDeviceInstance(req.instanceId);
+    const instance = await loadDeviceInstance(ctx, req.instanceId);
     if (!instance) {
       return invalidRequest({
         instanceId: req.instanceId,
         reason: "unknown_device",
       });
     }
-    const activation = await loadDeviceActivation(req.instanceId);
+    const activation = await loadDeviceActivation(ctx, req.instanceId);
     const nextState: DeviceInstance["state"] =
       activation && activation.state === "activated" &&
         activation.revokedAt === null
         ? "activated"
         : "registered";
     const nextInstance = { ...instance, state: nextState };
-    await deviceInstanceStorage.put(nextInstance);
+    await ctx.deviceInstanceStorage.put(nextInstance);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) return refreshed;
     return Result.ok({ instance: nextInstance });
@@ -1486,19 +1501,19 @@ export function createAuthRemoveDeviceInstanceHandler(
   return async ({ input: req, context: { caller } }: {
     input: { instanceId: string };
     context: { caller: RpcUser };
-  }) => {
+  }, ctx: AdminRpcContext) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const instance = await loadDeviceInstance(req.instanceId);
+    const instance = await loadDeviceInstance(ctx, req.instanceId);
     if (!instance) {
       return invalidRequest({
         instanceId: req.instanceId,
         reason: "unknown_device",
       });
     }
-    await kickDeviceRuntimeAccess(instance.publicIdentityKey);
-    await deviceInstanceStorage.delete(req.instanceId);
-    await deviceProvisioningSecretStorage.delete(req.instanceId);
-    await deviceActivationStorage.delete(req.instanceId);
+    await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
+    await ctx.deviceInstanceStorage.delete(req.instanceId);
+    await ctx.deviceProvisioningSecretStorage.delete(req.instanceId);
+    await ctx.deviceActivationStorage.delete(req.instanceId);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) return refreshed;
     return Result.ok({ success: true });
@@ -1510,9 +1525,10 @@ export const authListDeviceActivationsHandler = async (
     input: { instanceId?: string; deploymentId?: string; state?: string };
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  let activations = await listDeviceActivations();
+  let activations = await listDeviceActivations(ctx);
   if (req.instanceId) {
     activations = activations.filter((activation) =>
       activation.instanceId === req.instanceId
@@ -1536,17 +1552,18 @@ export const authRevokeDeviceActivationHandler = async (
     input: { instanceId: string };
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  const activation = await deviceActivationStorage.get(req.instanceId);
+  const activation = await ctx.deviceActivationStorage.get(req.instanceId);
   if (!activation) return Result.ok({ success: false });
   const nextActivation = {
     ...activation,
     state: "revoked" as const,
     revokedAt: new Date().toISOString(),
   };
-  await deviceActivationStorage.put(nextActivation);
-  await kickDeviceRuntimeAccess(nextActivation.publicIdentityKey);
+  await ctx.deviceActivationStorage.put(nextActivation);
+  await kickDeviceRuntimeAccess(ctx, nextActivation.publicIdentityKey);
   return Result.ok({ success: true });
 };
 
@@ -1555,6 +1572,7 @@ export const authListDeviceActivationReviewsHandler = async (
     input: { instanceId?: string; deploymentId?: string; state?: string };
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
   if (!canReview(caller)) return insufficientPermissions();
   const allowedDeployments = reviewableDeployments(caller);
@@ -1564,7 +1582,7 @@ export const authListDeviceActivationReviewsHandler = async (
   ) {
     return insufficientPermissions();
   }
-  let reviews = await listDeviceActivationReviews();
+  let reviews = await listDeviceActivationReviews(ctx);
   if (req.instanceId) {
     reviews = reviews.filter((review) => review.instanceId === req.instanceId);
   }
@@ -1596,8 +1614,9 @@ export const authDecideDeviceActivationReviewHandler = async (
     };
     context: { caller: RpcUser };
   },
+  ctx: AdminRpcContext,
 ) => {
-  const review = await loadDeviceActivationReview(req.reviewId);
+  const review = await loadDeviceActivationReview(ctx, req.reviewId);
   if (!review) {
     return invalidRequest({
       reviewId: req.reviewId,
@@ -1610,10 +1629,10 @@ export const authDecideDeviceActivationReviewHandler = async (
 
   if (review.state !== "pending") {
     const activation = review.state === "approved"
-      ? await loadDeviceActivation(review.instanceId)
+      ? await loadDeviceActivation(ctx, review.instanceId)
       : null;
     const confirmationCode = review.state === "approved"
-      ? await confirmationCodeForReview(review)
+      ? await confirmationCodeForReview(ctx, review)
       : null;
     return Result.ok({
       review: toPublicReview(review),
@@ -1632,12 +1651,12 @@ export const authDecideDeviceActivationReviewHandler = async (
   };
 
   if (req.decision === "reject") {
-    await deviceActivationReviewStorage.put(updatedReview);
+    await ctx.deviceActivationReviewStorage.put(updatedReview);
     return Result.ok({ review: toPublicReview(updatedReview) });
   }
 
-  const instance = await loadDeviceInstance(review.instanceId);
-  const deployment = await loadDeviceDeployment(review.deploymentId);
+  const instance = await loadDeviceInstance(ctx, review.instanceId);
+  const deployment = await loadDeviceDeployment(ctx, review.deploymentId);
   if (!instance || instance.state === "disabled") {
     return invalidRequest({
       instanceId: review.instanceId,
@@ -1661,15 +1680,15 @@ export const authDecideDeviceActivationReviewHandler = async (
     activatedAt,
     revokedAt: null,
   };
-  await deviceActivationStorage.put(activation);
-  await deviceInstanceStorage.put({
+  await ctx.deviceActivationStorage.put(activation);
+  await ctx.deviceInstanceStorage.put({
     ...instance,
     state: "activated",
     activatedAt,
     revokedAt: null,
   });
-  await deviceActivationReviewStorage.put(updatedReview);
-  const confirmationCode = await confirmationCodeForReview(updatedReview);
+  await ctx.deviceActivationReviewStorage.put(updatedReview);
+  const confirmationCode = await confirmationCodeForReview(ctx, updatedReview);
   return Result.ok({
     review: toPublicReview(updatedReview),
     activation,
@@ -1767,10 +1786,12 @@ export function createDeviceAdminHandlers(
       { id: string; digest: string; displayName: string; description: string }
     >;
     refreshActiveContracts: () => Promise<void>;
+    validateActiveCatalog: ActiveCatalogValidator;
   },
 ) {
   const activeContractsDeps = {
     refreshActiveContracts: deps.refreshActiveContracts,
+    validateActiveCatalog: deps.validateActiveCatalog,
   };
   return {
     createDeviceDeployment: bindAdminRpcHandler(
@@ -1782,6 +1803,7 @@ export function createDeviceAdminHandlers(
       createAuthApplyDeviceDeploymentContractHandler({
         installDeviceContract: deps.installDeviceContract,
         refreshActiveContracts: deps.refreshActiveContracts,
+        validateActiveCatalog: deps.validateActiveCatalog,
       }),
     ),
     unapplyDeviceDeploymentContract: bindAdminRpcHandler(

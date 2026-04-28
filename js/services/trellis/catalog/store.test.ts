@@ -206,6 +206,38 @@ Deno.test("contract store rejects same-lineage subject collisions across logical
   assertEquals(store.getActiveContractsById("graph@v1"), [contract1]);
 });
 
+Deno.test("contract store validates proposed active digests without mutating active state", async () => {
+  const store = new ContractStore();
+  const contract1 = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
+  const contract2 = {
+    ...makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph"),
+    rpc: {
+      Pong: {
+        ...contract1.rpc!.Ping!,
+        subject: "rpc.v1.Graph.Ping",
+      },
+    },
+  } satisfies TrellisContractV1;
+  const digest1 = await digestContract(contract1);
+  const digest2 = await digestContract(contract2);
+
+  store.activate(digest1, contract1);
+  store.add(digest2, contract2);
+
+  assertThrows(
+    () => store.validateActiveDigests([digest1, digest2]),
+    Error,
+    "already registered by",
+  );
+  assertEquals(
+    store.getActiveCatalog().contracts.map((entry) => entry.digest),
+    [
+      digest1,
+    ],
+  );
+  assertEquals(store.getActiveContractsById("graph@v1"), [contract1]);
+});
+
 Deno.test("contract store rejects unknown active digests", () => {
   const store = new ContractStore();
   const contract = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
@@ -332,6 +364,28 @@ Deno.test("contract store preserves operations when validating contracts", async
   assertEquals(
     validated.contract.operations?.Refund?.output?.schema,
     "RefundOutput",
+  );
+});
+
+Deno.test("contract store rejects operation descriptors without output", async () => {
+  const store = new ContractStore();
+  const contract = makeOperationContract(
+    "billing@v1",
+    "operations.v1.Billing.Refund",
+  );
+  const { output: _output, ...operationWithoutOutput } = contract.operations!
+    .Refund!;
+
+  await assertRejects(
+    () =>
+      store.validate({
+        ...contract,
+        operations: {
+          Refund: operationWithoutOutput,
+        },
+      }),
+    Error,
+    "#/operations/Refund: The required property `output` is missing",
   );
 });
 

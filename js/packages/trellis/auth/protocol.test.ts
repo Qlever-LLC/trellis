@@ -83,11 +83,13 @@ import {
   AuthValidateRequestResponseSchema,
   ContractApprovalSchema,
   DeviceConnectInfoSchema,
+  DeviceDeploymentSchema,
   DeviceSchema,
   InstanceGrantPolicySchema,
   NatsAuthTokenV1Schema,
   PortalFlowStateSchema,
   PortalProfileSchema,
+  ServiceDeploymentSchema,
 } from "./mod.ts";
 
 const now = new Date().toISOString();
@@ -141,6 +143,40 @@ Deno.test("auth schemas keep contractDigest consistently typed", () => {
     iat: 1,
     contractDigest: "digest with spaces",
   }));
+});
+
+Deno.test("deployment schemas split service resource bindings from device contracts", () => {
+  const serviceDeployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: "billing@v1",
+      allowedDigests: ["digest-a"],
+      resourceBindingsByDigest: {
+        "digest-a": {
+          kv: { cache: { bucket: "billing-cache", history: 1, ttlMs: 0 } },
+        },
+      },
+    }],
+  };
+  const deviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "none",
+    disabled: false,
+    appliedContracts: [{
+      contractId: "reader@v1",
+      allowedDigests: ["digest-a"],
+      resourceBindingsByDigest: {
+        "digest-a": {
+          kv: { cache: { bucket: "reader-cache", history: 1, ttlMs: 0 } },
+        },
+      },
+    }],
+  };
+
+  assert(Value.Check(ServiceDeploymentSchema, serviceDeployment));
+  assertFalse(Value.Check(DeviceDeploymentSchema, deviceDeployment));
 });
 
 Deno.test("PortalFlowStateSchema accepts returnLocation for restartable portal states", () => {

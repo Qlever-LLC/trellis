@@ -41,6 +41,33 @@ function makeSchemaRpcContract(options: {
   };
 }
 
+function makeOperationContract(options?: {
+  omitOutput?: boolean;
+}): Parameters<typeof createActiveContractLookup>[0][number]["contract"] {
+  const operation = {
+    version: "v1" as const,
+    subject: "operations.v1.Billing.Refund",
+    input: { schema: "RefundInput" },
+    progress: { schema: "RefundProgress" },
+    ...(options?.omitOutput ? {} : { output: { schema: "RefundOutput" } }),
+  };
+  return {
+    format: "trellis.contract.v1",
+    id: "billing@v1",
+    displayName: "Billing",
+    description: "Billing test contract",
+    kind: "service",
+    schemas: {
+      RefundInput: { type: "object" },
+      RefundProgress: { type: "object" },
+      RefundOutput: { type: "object" },
+    },
+    operations: {
+      Refund: operation,
+    },
+  };
+}
+
 Deno.test("active compatible projection rejects divergent RPC capabilities", () => {
   assertThrows(
     () =>
@@ -53,6 +80,21 @@ Deno.test("active compatible projection rejects divergent RPC capabilities", () 
       ]),
     Error,
     "different capabilities",
+  );
+});
+
+Deno.test("active compatible projection rejects operation without output", () => {
+  assertThrows(
+    () =>
+      createActiveContractLookup([
+        { digest: "billing-a", contract: makeOperationContract() },
+        {
+          digest: "billing-b",
+          contract: makeOperationContract({ omitOutput: true }),
+        },
+      ]),
+    Error,
+    "missing output",
   );
 });
 
@@ -149,6 +191,66 @@ Deno.test("active compatible projection allows optional additive field on open o
 
   assertEquals(lookup.size, 1);
   assert(lookup.has("graph@v1"));
+  assertEquals(
+    lookup.get("graph@v1")?.schemas?.Input,
+    {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        displayName: { type: "string" },
+      },
+      required: ["id"],
+    },
+  );
+});
+
+Deno.test("active compatible projection exposes optional additive operation output fields", () => {
+  const base = makeOperationContract();
+  const lookup = createActiveContractLookup([
+    {
+      digest: "billing-a",
+      contract: {
+        ...base,
+        schemas: {
+          ...base.schemas,
+          RefundOutput: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            required: ["id"],
+          },
+        },
+      },
+    },
+    {
+      digest: "billing-b",
+      contract: {
+        ...base,
+        schemas: {
+          ...base.schemas,
+          RefundOutput: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              receiptUrl: { type: "string" },
+            },
+            required: ["id"],
+          },
+        },
+      },
+    },
+  ]);
+
+  assertEquals(
+    lookup.get("billing@v1")?.schemas?.RefundOutput,
+    {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        receiptUrl: { type: "string" },
+      },
+      required: ["id"],
+    },
+  );
 });
 
 Deno.test("active compatible projection rejects conflicting optional additions across active digests", () => {

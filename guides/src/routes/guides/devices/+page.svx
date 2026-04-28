@@ -175,6 +175,8 @@ trellis deploy apply dev/my-device.standard --source ./contracts/my_device.ts
 
 When a deployment needs to allow multiple digests for one contract lineage during rollout, Trellis stores those rollout allow-list entries in `allowedDigests` behind the device deployment. A presented digest must be known for that lineage and allowed by the deployment; Trellis rejects unknown or retired digests instead of silently choosing another allowed digest. The allow-list is deployment rollout state, not a claim that every listed digest is currently projected as active catalog status.
 
+The same exact-digest rule applies to services: a service process reconnecting to NATS must present the digest currently persisted on its service instance, and that digest must still be allowed by the parent deployment. This keeps mixed device and service rollouts explicit and prevents stale binaries from inheriting permissions for a newer digest.
+
 Same-lineage device rollouts must keep duplicate RPC, operation, event, and job surfaces schema-compatible. Optional additive fields are safe only for open object payloads; required-field changes, closed object additions, and unsupported non-identical schema constructs are rejected before Trellis projects the active catalog.
 
 Use `trellis deploy apply` to allow a new digest and `trellis deploy unapply` to retire old digests only after deployed device runtimes no longer present that digest. Trellis does not track this through per-instance current contract fields.

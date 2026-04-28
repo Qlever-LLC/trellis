@@ -805,6 +805,10 @@ Catalog rules:
   in-memory catalog; unknown digests or divergent duplicate active surfaces keep
   the previous catalog unavailable rather than falling back to built-in
   manifests or a partial catalog
+- admin apply/unapply and service-bootstrap flows MUST use the same validation
+  in dry-run mode against staged deployment or instance records before mutating
+  the durable active set, so incompatible digests fail before partial catalog
+  state is persisted or exposed to callers
 - active device digests are derived from enabled device deployments'
   `appliedContracts[].allowedDigests`, not from per-device current-contract
   fields
@@ -932,6 +936,8 @@ The `trellis` runtime service MUST:
 Install or upgrade validation MUST also:
 
 - reject impossible or unsafe resource combinations before provisioning begins
+- validate newly installed service digests against the proposed active catalog
+  before external resource provisioning begins
 - validate the exact `resources` requested by the digest being installed, even
   when other digests in the same lineage remain active
 - preserve physical resource identity across compatible digest changes for the

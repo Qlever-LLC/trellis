@@ -107,6 +107,11 @@ export async function connectTrellisServiceInternal<
       "TrellisService.connect requires either opts.auth or opts.sessionKeySeed",
     );
   }
+  if (!opts.contractDigest) {
+    throw new Error(
+      "TrellisService.connect requires opts.contractDigest for NATS runtime auth",
+    );
+  }
 
   const authenticator = opts.nats.authenticator ??
     (() => {
@@ -132,7 +137,7 @@ export async function connectTrellisServiceInternal<
     })();
 
   const { authenticator: authTokenAuthenticator, inboxPrefix } = await auth
-    .natsConnectOptions();
+    .natsConnectOptions({ contractDigest: opts.contractDigest });
 
   const nc = await connectFn({
     servers: opts.nats.servers,

@@ -72,7 +72,7 @@ User/session-key runtime auth:
   sessionKey: string,
   contractDigest: string,
   iat: number,
-  sig: string, // sign(hash("nats-connect:" + iat))
+  sig: string, // sign(hash("nats-connect:" + iat + ":" + contractDigest))
 }
 ```
 
@@ -82,15 +82,18 @@ Service/session-key runtime auth:
 {
   v: 1,
   sessionKey: string,
+  contractDigest: string,
   iat: number,
-  sig: string, // sign(hash("nats-connect:" + iat))
+  sig: string, // sign(hash("nats-connect:" + iat + ":" + contractDigest))
 }
 ```
 
 Rules:
 
 - `v` is mandatory and unknown versions are rejected
-- contract-bearing user runtimes MUST send `contractDigest`
+- user, device, and service runtimes MUST send `contractDigest`
+- verifiers MUST reject signatures if the presented `contractDigest` differs
+  from the digest used to produce the signature
 - reconnect uses freshly generated `iat`-based proofs rather than renewable
   binding tokens
 - clients with unstable local clocks SHOULD derive `iat` from server-relative
@@ -103,9 +106,8 @@ When NATS calls `$SYS.REQ.USER.AUTH`:
 1. Decode the encrypted request by requiring `Nats-Server-Xkey`, decrypting the
    payload, and extracting `user_nkey` plus `connect_opts.auth_token`.
 2. Validate the connect token by parsing
-   `{ v, sessionKey, sig, iat,
-   contractDigest? }`, checking token version and
-   proof freshness, and verifying the signed proof.
+   `{ v, sessionKey, sig, iat, contractDigest }`, checking token version and
+   proof freshness, and verifying the signed proof against the presented digest.
 3. Resolve the session and principal from the session key, presented proof
    shape, and explicit runtime repositories for users, services, or devices.
 4. Derive permissions from current grants, the resolved principal's contract
@@ -123,7 +125,7 @@ Detailed behavior:
 ```text
 CASE: USER CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - reject if abs(now - iat) > 30s
-- verify sig = sign(hash("nats-connect:" + iat))
+- verify sig = sign(hash("nats-connect:" + iat + ":" + contractDigest))
 - lookup the session keyed by `sessionKey`
 - verify the bound session is still valid for the same app identity
 - verify user active
@@ -132,18 +134,22 @@ CASE: USER CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - derive permissions and issue JWT
 - update session liveness and active-connection tracking
 
-CASE: SERVICE CONNECT / RECONNECT (iat)
+CASE: SERVICE CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - reject if abs(now - iat) > 30s
-- verify sig = sign(hash("nats-connect:" + iat))
-- lookup the session keyed by `sessionKey`
-- if existing session: verify service still active
-- if no session: create service session from registry policy
+- verify sig = sign(hash("nats-connect:" + iat + ":" + contractDigest))
+- lookup the service instance keyed by `sessionKey`
+- reject if the service instance is disabled or its deployment is missing/disabled
+- reject if the service instance has no current contract digest, if the presented
+  digest differs from `service.currentContractDigest`, or if that current digest
+  is no longer allowed by the deployment's matching applied-contract lineage
+- lookup or create the session keyed by `sessionKey` only after the exact digest
+  authorization succeeds
 - compute inboxPrefix
-- derive permissions and issue JWT
+- derive permissions from the exact current service contract state and issue JWT
 
-CASE: ACTIVATED DEVICE CONNECT / RECONNECT (iat)
+CASE: ACTIVATED DEVICE CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - reject if abs(now - iat) > 30s
-- verify sig = sign(hash("nats-connect:" + iat))
+- verify sig = sign(hash("nats-connect:" + iat + ":" + contractDigest))
 - if sessionKey matches an installed device, follow the installed-device path instead
 - otherwise resolve the activated device instance by public identity key
 - require the presented `contractDigest` to match an allowed digest on the device deployment

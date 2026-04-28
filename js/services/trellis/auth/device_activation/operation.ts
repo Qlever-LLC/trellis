@@ -86,23 +86,54 @@ type DeviceActivationReviewRecord = {
 
 const REVIEW_POLL_INTERVAL_MS = 1_000;
 
-type DeviceActivationOperationDeps =
-  & Pick<
-    AuthRuntimeDeps,
-    | "browserFlowsKV"
-    | "deviceActivationReviewStorage"
-    | "deviceActivationStorage"
-    | "deviceDeploymentStorage"
-    | "deviceInstanceStorage"
-    | "deviceProvisioningSecretStorage"
-    | "logger"
-    | "sentinelCreds"
-    | "trellis"
-  >
-  & { config: Config };
+type ReviewWaitTiming = {
+  now(): number;
+  sleep(ms: number): Promise<void>;
+  pollIntervalMs: number;
+};
+
+type DeviceActivationOperationDeps = {
+  browserFlowsKV: Pick<AuthRuntimeDeps["browserFlowsKV"], "get">;
+  deviceActivationReviewStorage: {
+    getByFlowId(
+      flowId: string,
+    ): Promise<DeviceActivationReviewRecord | undefined>;
+    put(record: DeviceActivationReviewRecord): Promise<void>;
+  };
+  deviceActivationStorage: {
+    get(instanceId: string): Promise<DeviceActivationRecord | undefined>;
+    put(record: DeviceActivationRecord): Promise<void>;
+  };
+  deviceDeploymentStorage: {
+    get(deploymentId: string): Promise<DeviceDeployment | undefined>;
+  };
+  deviceInstanceStorage: {
+    get(instanceId: string): Promise<DeviceInstance | undefined>;
+    put(record: DeviceInstance): Promise<void>;
+  };
+  deviceProvisioningSecretStorage: {
+    get(instanceId: string): Promise<DeviceProvisioningSecret | undefined>;
+  };
+  logger: Pick<AuthLogger, "trace" | "warn">;
+  sentinelCreds: AuthRuntimeDeps["sentinelCreds"];
+  trellis: AuthRuntimeDeps["trellis"];
+  config: Config;
+  reviewWaitTiming?: Partial<ReviewWaitTiming>;
+};
+
+function reviewWaitTiming(
+  deps: DeviceActivationOperationDeps,
+): ReviewWaitTiming {
+  return {
+    now: deps.reviewWaitTiming?.now ?? Date.now,
+    sleep: deps.reviewWaitTiming?.sleep ?? sleep,
+    pollIntervalMs: deps.reviewWaitTiming?.pollIntervalMs ??
+      REVIEW_POLL_INTERVAL_MS,
+  };
+}
 
 function activationFailure(
-  logger: AuthLogger,
+  logger: Pick<AuthLogger, "warn">,
   reason: AuthError["reason"],
   context?: Record<string, unknown>,
 ) {
@@ -359,6 +390,13 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function remainingFlowLifetimeMs(
+  flow: DeviceActivationFlow,
+  nowMs: number,
+): number {
+  return Math.max(0, new Date(isoString(flow.expiresAt)).getTime() - nowMs);
+}
+
 async function waitForTerminalActivationStatus(
   deps: DeviceActivationOperationDeps,
   flow: DeviceActivationFlow,
@@ -372,20 +410,24 @@ async function waitForTerminalActivationStatus(
   }
   | { status: "rejected"; reason?: string }
 > {
+  const timing = reviewWaitTiming(deps);
   while (true) {
     const status = await currentActivationStatus(deps, flow);
     if (status && status.status !== "pending_review") {
       return status;
     }
 
-    if (new Date(isoString(flow.expiresAt)).getTime() <= Date.now()) {
+    const remainingMs = remainingFlowLifetimeMs(flow, timing.now());
+    if (remainingMs <= 0) {
       return {
         status: "rejected",
         reason: "device_flow_expired",
       };
     }
 
-    await sleep(REVIEW_POLL_INTERVAL_MS);
+    // Operation handlers cannot currently be completed by the review-decision
+    // RPC, so the fallback poll path is bounded by the existing flow expiry.
+    await timing.sleep(Math.min(timing.pollIntervalMs, remainingMs));
   }
 }
 
@@ -422,7 +464,7 @@ export function createActivateDeviceHandler(
         flowId: input.flowId,
       });
     }
-    if (new Date(isoString(flow.expiresAt)).getTime() <= Date.now()) {
+    if (remainingFlowLifetimeMs(flow, reviewWaitTiming(deps).now()) <= 0) {
       return activationFailure(logger, "device_activation_flow_expired", {
         flowId: input.flowId,
       });

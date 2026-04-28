@@ -169,7 +169,7 @@ work across browser apps, CLIs, backend services, activated devices, and NATS
 subject permissions. That is broader than a normal OAuth client-to-API scope
 check.
 
-Capabilities are assigned to users and devices at the deployment level. Authorization changes take effect immediately because Trellis derives NATS permissions from the relevant deployment catalog entries, known approved app/agent contracts, and current grants.
+Capabilities are assigned to users and devices at the deployment level. Authorization changes take effect immediately because Trellis derives NATS permissions from the relevant deployment catalog entries, known approved app/agent contracts, and current grants. Service and device runtimes must also present the exact contract digest they are allowed to run; Trellis rejects stale or retired digests during NATS auth instead of substituting another allowed digest.
 
 For browser-app sessions, Trellis may also apply deployment-owned implied capabilities from a matching instance grant policy. Those implied capabilities are session-time policy, not user-owned grants.
 

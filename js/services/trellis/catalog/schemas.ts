@@ -6,12 +6,6 @@ import {
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
 
-export const ContractMetadataSchema = Type.Object({
-  displayName: Type.String({ minLength: 1 }),
-  description: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
-export type ContractMetadata = StaticDecode<typeof ContractMetadataSchema>;
-
 export const ContractRecordSchema = Type.Object({
   digest: Type.String({ pattern: "^[A-Za-z0-9_-]+$" }),
   id: Type.String({ minLength: 1 }),
@@ -107,7 +101,6 @@ export const ContractRecordSchema = Type.Object({
           purpose: Type.String({ minLength: 1 }),
           required: Type.Boolean(),
           ttlMs: Type.Number(),
-          maxObjectBytes: Type.Optional(Type.Number()),
           maxTotalBytes: Type.Optional(Type.Number()),
         }, { additionalProperties: false }),
         { default: [] },

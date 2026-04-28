@@ -6,6 +6,7 @@ import { Value } from "typebox/value";
 import type { Config } from "../config.ts";
 import { trellisControlPlaneApi } from "./control_plane_api.ts";
 import { createStorage } from "./storage.ts";
+import { CONTRACT_DIGEST as TRELLIS_CORE_CONTRACT_DIGEST } from "../contracts/trellis_core.ts";
 import {
   AuthBrowserFlowSchema,
   ConnectionSchema,
@@ -190,6 +191,7 @@ export async function createRuntimeGlobals(config: Config) {
       "trellis",
       {
         auth,
+        contractDigest: TRELLIS_CORE_CONTRACT_DIGEST,
         nats: {
           servers: config.nats.servers,
           authenticator: credsAuthenticator(

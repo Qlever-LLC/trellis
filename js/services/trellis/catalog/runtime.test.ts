@@ -459,6 +459,99 @@ Deno.test("contracts runtime refresh fails closed before activating divergent co
   }
 });
 
+Deno.test("contracts runtime dry-run rejects incompatible staged active digests without mutating active state", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-catalog-runtime-dry-run-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    const { createContractsModule } = await import("./runtime.ts");
+    await initializeTrellisStorageSchema(storage);
+    const contractStorage = new SqlContractStorageRepository(storage.db);
+    const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
+    const module = createContractsModule({
+      builtinContracts: [],
+      contractStorage,
+      serviceInstanceStorage,
+      serviceDeploymentStorage,
+      deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
+      deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
+    });
+    const first = makeOperationContract(
+      "billing@v1",
+      "operations.v1.Billing.Refund",
+    );
+    first.operations!.Refund!.capabilities = { call: ["billing.refund"] };
+    const second = makeOperationContract(
+      "billing@v1",
+      "operations.v1.Billing.Refund",
+    );
+    second.operations!.Refund!.capabilities = {
+      call: ["billing.refund.v2"],
+    };
+    const firstInstalled = await module.installServiceContract(first);
+    const secondInstalled = await module.installServiceContract(second);
+    module.contractStore.activateDigest(firstInstalled.digest);
+
+    await assertRejects(
+      () =>
+        module.validateActiveCatalog({
+          stagedServiceDeployments: [{
+            deploymentId: "service.default",
+            namespaces: ["Billing"],
+            disabled: false,
+            appliedContracts: [{
+              contractId: "billing@v1",
+              allowedDigests: [firstInstalled.digest, secondInstalled.digest],
+            }],
+          }],
+          stagedServiceInstances: [
+            {
+              instanceId: "svc_1",
+              deploymentId: "service.default",
+              instanceKey: "session-key-1",
+              disabled: false,
+              currentContractId: "billing@v1",
+              currentContractDigest: firstInstalled.digest,
+              capabilities: ["service"],
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+            {
+              instanceId: "svc_2",
+              deploymentId: "service.default",
+              instanceKey: "session-key-2",
+              disabled: false,
+              currentContractId: "billing@v1",
+              currentContractDigest: secondInstalled.digest,
+              capabilities: ["service"],
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+          ],
+        }),
+      Error,
+      "different capabilities",
+    );
+
+    assertEquals(
+      module.contractStore.getActiveCatalog().contracts.map((entry) =>
+        entry.digest
+      ),
+      [firstInstalled.digest],
+    );
+    assertEquals(await serviceDeploymentStorage.list(), []);
+    assertEquals(await serviceInstanceStorage.list(), []);
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
 Deno.test("contracts runtime fails closed when persisted contract context cannot be loaded", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",

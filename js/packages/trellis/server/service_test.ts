@@ -584,6 +584,7 @@ Deno.test("internal service connect uses a reconnect-safe auth token authenticat
       () =>
         connectTrellisServiceInternal("svc", {
           sessionKeySeed: TEST_SEED,
+          contractDigest: core.CONTRACT_DIGEST,
           nats: {
             servers: "nats://127.0.0.1:4222",
             authenticator: () => ({ jwt: "sentinel-jwt" }),
@@ -616,17 +617,21 @@ Deno.test("internal service connect uses a reconnect-safe auth token authenticat
 
     const first = JSON.parse(firstToken) as {
       sessionKey: string;
+      contractDigest: string;
       iat: number;
       sig: string;
     };
     const second = JSON.parse(secondToken) as {
       sessionKey: string;
+      contractDigest: string;
       iat: number;
       sig: string;
     };
 
     assertEquals(authenticatorCount, 2);
     assertEquals(first.sessionKey, second.sessionKey);
+    assertEquals(first.contractDigest, core.CONTRACT_DIGEST);
+    assertEquals(second.contractDigest, core.CONTRACT_DIGEST);
     assertEquals(second.iat - first.iat, 31);
     assertNotEquals(first.sig, second.sig);
     assertEquals(maxReconnectAttempts, -1);
@@ -642,6 +647,7 @@ Deno.test("internal service connect preserves explicit reconnect attempt overrid
     () =>
       connectTrellisServiceInternal("svc", {
         sessionKeySeed: TEST_SEED,
+        contractDigest: core.CONTRACT_DIGEST,
         nats: {
           servers: "nats://127.0.0.1:4222",
           authenticator: {},
@@ -709,6 +715,7 @@ Deno.test("TrellisService.connect surfaces bootstrap failure reasons", async () 
 Deno.test("internal service connect accepts log false", async () => {
   const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
+    contractDigest: core.CONTRACT_DIGEST,
     nats: {
       servers: "nats://127.0.0.1:4222",
       authenticator: {},
@@ -730,6 +737,7 @@ Deno.test("internal service connect uses the provided logger", async () => {
 
   const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
+    contractDigest: core.CONTRACT_DIGEST,
     nats: {
       servers: "nats://127.0.0.1:4222",
       authenticator: {},
@@ -752,6 +760,7 @@ Deno.test("internal service connect logs explicit service NATS lifecycle events"
 
   const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
+    contractDigest: core.CONTRACT_DIGEST,
     nats: {
       servers: "nats://127.0.0.1:4222",
       authenticator: {},
@@ -832,6 +841,7 @@ Deno.test("internal service connect logs service NATS errors at error severity",
 
   const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
+    contractDigest: core.CONTRACT_DIGEST,
     nats: {
       servers: "nats://127.0.0.1:4222",
       authenticator: {},
@@ -888,6 +898,7 @@ Deno.test("internal service connect keeps final closed logging explicit", async 
 
   const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
+    contractDigest: core.CONTRACT_DIGEST,
     nats: {
       servers: "nats://127.0.0.1:4222",
       authenticator: {},
@@ -942,6 +953,7 @@ Deno.test("service heartbeat publishing stops after terminal NATS close", async 
 
   const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
+    contractDigest: heartbeatTestContract.CONTRACT_DIGEST,
     nats: {
       servers: "nats://127.0.0.1:4222",
       authenticator: {},
@@ -1021,6 +1033,7 @@ Deno.test({
   async fn() {
     const service = await connectTrellisServiceInternal("svc", {
       sessionKeySeed: TEST_SEED,
+      contractDigest: core.CONTRACT_DIGEST,
       nats: {
         servers: "nats://127.0.0.1:4222",
         authenticator: {},
@@ -1044,6 +1057,7 @@ Deno.test({
 Deno.test("TrellisService mount passes kv and store to handlers", async () => {
   const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,
+    contractDigest: handlerSurfaceTestContract.CONTRACT_DIGEST,
     nats: {
       servers: "nats://127.0.0.1:4222",
       authenticator: {},

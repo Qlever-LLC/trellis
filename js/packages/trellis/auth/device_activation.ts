@@ -30,6 +30,7 @@ import {
   toArrayBuffer,
   utf8,
 } from "./utils.ts";
+import { buildNatsConnectSignaturePayload } from "./session_auth.ts";
 
 const DEVICE_IDENTITY_HKDF_INFO = "trellis/device-identity/v1";
 const DEVICE_ACTIVATION_HKDF_INFO = "trellis/device-activate/v1";
@@ -532,7 +533,13 @@ export async function createDeviceNatsAuthToken(args: {
   const iat = args.iat ?? Math.floor(Date.now() / 1_000);
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    toArrayBuffer(utf8(`nats-connect:${iat}`)),
+    toArrayBuffer(
+      utf8(
+        `nats-connect:${
+          buildNatsConnectSignaturePayload(iat, args.contractDigest)
+        }`,
+      ),
+    ),
   );
   const signature = new Uint8Array(
     await crypto.subtle.sign("Ed25519", identityPrivateKey, digest),

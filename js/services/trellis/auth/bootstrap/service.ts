@@ -22,6 +22,22 @@ export function isServiceBootstrapProofIatFresh(
 
 const DigestSchema = Type.String({ pattern: "^[A-Za-z0-9_-]+$" });
 
+type ServiceBootstrapInstance = {
+  instanceId: string;
+  deploymentId: string;
+  instanceKey: string;
+  disabled: boolean;
+  currentContractId?: string;
+  currentContractDigest?: string;
+  capabilities: string[];
+  resourceBindings?: Record<string, unknown>;
+  createdAt: string | Date;
+};
+
+type CatalogServiceInstance = Omit<ServiceBootstrapInstance, "createdAt"> & {
+  createdAt: string;
+};
+
 export const ServiceBootstrapRequestSchema = Type.Object({
   sessionKey: SessionKeySchema,
   contractId: Type.String({ minLength: 1 }),
@@ -37,30 +53,10 @@ export type ServiceBootstrapDeps = {
     websocket?: { natsServers: string[] };
   };
   sentinel: SentinelCreds;
-  loadServiceInstance(instanceKey: string): Promise<
-    {
-      instanceId: string;
-      deploymentId: string;
-      instanceKey: string;
-      disabled: boolean;
-      currentContractId?: string;
-      currentContractDigest?: string;
-      capabilities: string[];
-      resourceBindings?: Record<string, unknown>;
-      createdAt: string | Date;
-    } | null
-  >;
-  saveServiceInstance(instance: {
-    instanceId: string;
-    deploymentId: string;
-    instanceKey: string;
-    disabled: boolean;
-    currentContractId?: string;
-    currentContractDigest?: string;
-    capabilities: string[];
-    resourceBindings?: Record<string, unknown>;
-    createdAt: string | Date;
-  }): Promise<void>;
+  loadServiceInstance(
+    instanceKey: string,
+  ): Promise<ServiceBootstrapInstance | null>;
+  saveServiceInstance(instance: ServiceBootstrapInstance): Promise<void>;
   loadServiceDeployment(deploymentId: string): Promise<
     {
       deploymentId: string;
@@ -72,10 +68,14 @@ export type ServiceBootstrapDeps = {
       }>;
     } | null
   >;
+  validateActiveCatalog?(opts: {
+    stagedServiceInstances?: Iterable<CatalogServiceInstance>;
+  }): Promise<unknown>;
   refreshActiveContracts(): Promise<void>;
   verifyIdentityProof(input: {
     sessionKey: string;
     iat: number;
+    contractDigest: string;
     sig: string;
   }): Promise<boolean>;
   nowSeconds?(): number;
@@ -154,6 +154,17 @@ function hasDeclaredResourcesOrJobs(contract: TrellisContractV1): boolean {
     analysis.jobs.length > 0;
 }
 
+function toCatalogServiceInstance(
+  instance: ServiceBootstrapInstance,
+): CatalogServiceInstance {
+  return {
+    ...instance,
+    createdAt: instance.createdAt instanceof Date
+      ? instance.createdAt.toISOString()
+      : instance.createdAt,
+  };
+}
+
 export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
   return async (c: Context) => {
     const bodyResult = await AsyncResult.try(() => c.req.json());
@@ -175,6 +186,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
     const proofOk = await deps.verifyIdentityProof({
       sessionKey: request.sessionKey,
       iat: request.iat,
+      contractDigest: request.contractDigest,
       sig: request.sig,
     });
     if (!proofOk) {
@@ -310,8 +322,32 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         capabilities,
         resourceBindings: resourceBindings ?? {},
       };
+      try {
+        await deps.validateActiveCatalog?.({
+          stagedServiceInstances: [toCatalogServiceInstance(nextService)],
+        });
+      } catch (error) {
+        return c.json(
+          bootstrapFailure(
+            "service_contract_mismatch",
+            error instanceof Error ? error.message : String(error),
+            {
+              instanceId: service.instanceId,
+              deploymentId: deployment.deploymentId,
+              expectedContractId: request.contractId,
+              expectedContractDigest: request.contractDigest,
+            },
+          ),
+          409,
+        );
+      }
       await deps.saveServiceInstance(nextService);
-      await deps.refreshActiveContracts();
+      try {
+        await deps.refreshActiveContracts();
+      } catch (error) {
+        await deps.saveServiceInstance(service);
+        throw error;
+      }
     }
 
     return c.json({

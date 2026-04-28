@@ -6,6 +6,7 @@ import {
   utf8,
 } from "../utils.ts";
 import { createProof } from "../proof.ts";
+import { buildNatsConnectSignaturePayload } from "../session_auth.ts";
 import {
   deleteKeyPair,
   hasKeyPair,
@@ -105,8 +106,13 @@ export async function bindFlowSig(
 export async function natsConnectSigForIat(
   handle: SessionKeyHandle,
   iat: number,
+  contractDigest: string,
 ): Promise<string> {
-  const digest = await sha256(utf8(`nats-connect:${String(iat)}`));
+  const digest = await sha256(
+    utf8(
+      `nats-connect:${buildNatsConnectSignaturePayload(iat, contractDigest)}`,
+    ),
+  );
   const sig = await signBytes(handle, digest);
   return base64urlEncode(sig);
 }

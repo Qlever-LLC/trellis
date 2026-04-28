@@ -56,6 +56,13 @@ NATS WebSocket still defaults to `ws://localhost:8080`. NATS is required for
 `Auth.ActivateDevice` operation over the Trellis runtime. Device connect info is
 served separately by `POST /auth/devices/connect-info`.
 
+Portal approval and activation copy should describe exact-digest authorization.
+User approvals are for the delegated app or agent contract digest shown in the
+flow state, not just for the display name. Device activation is bound to the
+device deployment and the presented device contract digest; Trellis will not
+pick another digest from the deployment allow-list if the device presents a
+retired or unknown digest.
+
 For device activation to succeed, the portal contract digest must be allowed on
 the relevant device deployment through `appliedContracts[].allowedDigests` or an
 empty allowed-digest lineage entry. Trellis treats `allowedDigests` as a rollout

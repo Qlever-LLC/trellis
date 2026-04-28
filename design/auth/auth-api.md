@@ -629,13 +629,15 @@ type ServiceDeployment = {
     resourceBindingsByDigest?: Record<string, Record<string, unknown>>;
   }>;
 };
+```
 
 `resourceBindingsByDigest` is keyed by the exact contract digest that produced
 the binding. Physical resource identity remains scoped to the deployment lineage
-and profile/resource alias rather than to the digest, so re-applying a new digest
-for the same lineage updates the existing physical resource when the underlying
-resource API supports the requested setting change.
+and profile/resource alias rather than to the digest, so re-applying a new
+digest for the same lineage updates the existing physical resource when the
+underlying resource API supports the requested setting change.
 
+```ts
 type ServiceInstance = {
   instanceId: string;
   deploymentId: string;
@@ -670,7 +672,27 @@ type ApplyServiceDeploymentContractResponse = {
     installedAt: string;
   };
 };
+```
 
+Apply and unapply are command-style control-plane mutations. They are not
+long-running operations, but they must behave as all-or-nothing updates for the
+durable deployment record:
+
+- `Auth.ApplyServiceDeploymentContract` validates the newly installed digest
+  against the proposed active catalog before provisioning external resources,
+  preflights same-lineage resource compatibility, provisions bindings, validates
+  the staged deployment record, then persists and refreshes the active catalog.
+- `Auth.UnapplyServiceDeploymentContract` validates the staged deployment before
+  persistence, then refreshes the active catalog before kicking affected runtime
+  connections.
+- if active-catalog refresh fails after persistence, auth rolls the deployment
+  record back; if rollback also fails, the RPC returns an unexpected aggregate
+  failure rather than reporting a successful apply or unapply.
+- service bootstrap validates the staged service instance before persisting a
+  new `currentContractDigest` or resource binding state, and rolls the instance
+  back if active-catalog refresh fails after the save.
+
+```ts
 type UnapplyServiceDeploymentContractRequest = {
   deploymentId: string;
   contractId: string;

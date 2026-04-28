@@ -216,7 +216,7 @@ const service = await TrellisService.connect({
 });
 ```
 
-`TrellisService.connect(...)` automatically verifies that the contract is active in the Trellis service catalog and resolves required resource bindings plus any optional bindings that were successfully provisioned during deployment apply/install/upgrade. If the contract is not installed, it throws with a clear error message.
+`TrellisService.connect(...)` automatically verifies that the exact contract digest is installed, currently assigned to the service instance, and still allowed by the service deployment before it resolves required resource bindings plus any optional bindings that were successfully provisioned during deployment apply/install/upgrade. If the contract is not installed or the running binary presents a stale digest, startup fails with a clear error message.
 
 For Node, change the import to `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
 
@@ -233,7 +233,7 @@ const ordersKV = result.take();
 if (isErr(ordersKV)) throw ordersKV.error;
 ```
 
-No need to know bucket names or configure history/TTL — those come from the installed contract binding.
+No need to know bucket names or configure history/TTL — those come from the installed contract binding. Bootstrap never provisions resources itself; apply/install/upgrade creates or updates bindings first, then service startup consumes the persisted exact-digest binding.
 
 This example uses the default `required: true`. If you declare `required: false`, check that the binding exists before opening it.
 

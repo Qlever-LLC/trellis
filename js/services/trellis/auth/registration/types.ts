@@ -91,4 +91,5 @@ export type AuthContractsRuntime = Pick<
   | "installDeviceContract"
   | "installServiceContract"
   | "refreshActiveContracts"
+  | "validateActiveCatalog"
 >;

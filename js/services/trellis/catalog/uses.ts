@@ -4,14 +4,31 @@ import type {
   ContractOperation,
   ContractRpcMethod,
   ContractSchemaRef,
+  ContractSchemas,
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
 import { canonicalizeJson, isJsonValue } from "@qlever-llc/trellis/contracts";
 
-import { areSchemaRefsCompatible } from "./schema_compatibility.ts";
+import {
+  mergeCompatibleSchemaRefs,
+  mergeCompatibleSchemas,
+} from "./schema_compatibility.ts";
 import type { ContractStore } from "./store.ts";
 
+type ActiveCompatibleOperation = Omit<ContractOperation, "output"> & {
+  output?: ContractSchemaRef;
+};
+
+type ActiveCompatibleContract = Omit<TrellisContractV1, "operations"> & {
+  operations?: Record<string, ActiveCompatibleOperation>;
+};
+
 export type ContractEntry = { digest: string; contract: TrellisContractV1 };
+
+type ActiveCompatibleContractEntry = {
+  digest: string;
+  contract: ActiveCompatibleContract;
+};
 
 type SubjectSurface = {
   kind: "rpc" | "operations" | "events";
@@ -88,7 +105,7 @@ function requireSameSubjectSurface(
 
 function validateConcreteSubjectSurfaces(
   contractId: string,
-  contracts: TrellisContractV1[],
+  contracts: ActiveCompatibleContract[],
 ): void {
   const registrations = new Map<string, SubjectRegistration>();
   for (const contract of contracts) {
@@ -128,6 +145,18 @@ function validateConcreteSubjectSurfaces(
   }
 }
 
+function requireOperationOutputs(
+  contract: ActiveCompatibleContract,
+): asserts contract is TrellisContractV1 {
+  for (const [key, operation] of Object.entries(contract.operations ?? {})) {
+    if (!operation.output) {
+      throw new Error(
+        `Active compatible digests define operation '${key}' with missing output`,
+      );
+    }
+  }
+}
+
 function requireSameJsonField(
   key: string,
   field: string,
@@ -154,32 +183,34 @@ function requireSameJsonField(
   }
 }
 
-function requireCompatibleSchemaField(
+function projectCompatibleSchemaField(
   key: string,
   field: string,
   left: ContractSchemaRef | undefined,
   leftContract: TrellisContractV1,
   right: ContractSchemaRef | undefined,
   rightContract: TrellisContractV1,
-): void {
-  if (left === undefined && right === undefined) return;
+  projectedSchemas: ContractSchemas,
+): ContractSchemaRef | undefined {
+  if (left === undefined && right === undefined) return undefined;
   if (left === undefined || right === undefined) {
     throw new Error(
       `Active compatible digests define '${key}' with different ${field}`,
     );
   }
-  if (
-    !areSchemaRefsCompatible(
-      left,
-      leftContract.schemas,
-      right,
-      rightContract.schemas,
-    )
-  ) {
+  const mergedSchema = mergeCompatibleSchemaRefs(
+    left,
+    leftContract.schemas,
+    right,
+    rightContract.schemas,
+  );
+  if (mergedSchema === null) {
     throw new Error(
       `Active compatible digests define '${key}' with incompatible ${field}`,
     );
   }
+  projectedSchemas[left.schema] = mergedSchema;
+  return left;
 }
 
 function mergeRpcMethod(
@@ -188,24 +219,27 @@ function mergeRpcMethod(
   leftContract: TrellisContractV1,
   right: ContractRpcMethod,
   rightContract: TrellisContractV1,
+  projectedSchemas: ContractSchemas,
 ): ContractRpcMethod {
   requireSameSubject(key, left.subject, right.subject);
   requireSameJsonField(key, "version", left.version, right.version);
-  requireCompatibleSchemaField(
+  const input = projectCompatibleSchemaField(
     key,
     "input",
     left.input,
     leftContract,
     right.input,
     rightContract,
+    projectedSchemas,
   );
-  requireCompatibleSchemaField(
+  const output = projectCompatibleSchemaField(
     key,
     "output",
     left.output,
     leftContract,
     right.output,
     rightContract,
+    projectedSchemas,
   );
   requireSameJsonField(key, "transfer", left.transfer, right.transfer);
   requireSameJsonField(key, "errors", left.errors, right.errors);
@@ -217,6 +251,8 @@ function mergeRpcMethod(
   );
   return {
     ...left,
+    ...(input ? { input } : {}),
+    ...(output ? { output } : {}),
     ...(left.transfer ?? right.transfer
       ? { transfer: left.transfer ?? right.transfer }
       : {}),
@@ -229,32 +265,36 @@ function mergeOperation(
   leftContract: TrellisContractV1,
   right: ContractOperation,
   rightContract: TrellisContractV1,
+  projectedSchemas: ContractSchemas,
 ): ContractOperation {
   requireSameSubject(key, left.subject, right.subject);
   requireSameJsonField(key, "version", left.version, right.version);
-  requireCompatibleSchemaField(
+  const input = projectCompatibleSchemaField(
     key,
     "input",
     left.input,
     leftContract,
     right.input,
     rightContract,
+    projectedSchemas,
   );
-  requireCompatibleSchemaField(
+  const progress = projectCompatibleSchemaField(
     key,
     "progress",
     left.progress,
     leftContract,
     right.progress,
     rightContract,
+    projectedSchemas,
   );
-  requireCompatibleSchemaField(
+  const output = projectCompatibleSchemaField(
     key,
     "output",
     left.output,
     leftContract,
     right.output,
     rightContract,
+    projectedSchemas,
   );
   requireSameJsonField(key, "transfer", left.transfer, right.transfer);
   requireSameJsonField(key, "cancel", left.cancel, right.cancel);
@@ -266,6 +306,9 @@ function mergeOperation(
   );
   return {
     ...left,
+    ...(input ? { input } : {}),
+    ...(progress ? { progress } : {}),
+    ...(output ? { output } : {}),
     ...(left.transfer ?? right.transfer
       ? { transfer: left.transfer ?? right.transfer }
       : {}),
@@ -279,17 +322,19 @@ function mergeEvent(
   leftContract: TrellisContractV1,
   right: ContractEvent,
   rightContract: TrellisContractV1,
+  projectedSchemas: ContractSchemas,
 ): ContractEvent {
   requireSameSubject(key, left.subject, right.subject);
   requireSameJsonField(key, "version", left.version, right.version);
   requireSameJsonField(key, "params", left.params, right.params);
-  requireCompatibleSchemaField(
+  const event = projectCompatibleSchemaField(
     key,
     "event",
     left.event,
     leftContract,
     right.event,
     rightContract,
+    projectedSchemas,
   );
   requireSameJsonField(
     key,
@@ -299,6 +344,7 @@ function mergeEvent(
   );
   return {
     ...left,
+    ...(event ? { event } : {}),
   };
 }
 
@@ -308,22 +354,25 @@ function mergeJobQueue(
   leftContract: TrellisContractV1,
   right: ContractJobQueue,
   rightContract: TrellisContractV1,
+  projectedSchemas: ContractSchemas,
 ): ContractJobQueue {
-  requireCompatibleSchemaField(
+  const payload = projectCompatibleSchemaField(
     key,
     "payload",
     left.payload,
     leftContract,
     right.payload,
     rightContract,
+    projectedSchemas,
   );
-  requireCompatibleSchemaField(
+  const result = projectCompatibleSchemaField(
     key,
     "result",
     left.result,
     leftContract,
     right.result,
     rightContract,
+    projectedSchemas,
   );
   requireSameJsonField(key, "maxDeliver", left.maxDeliver, right.maxDeliver);
   requireSameJsonField(key, "backoffMs", left.backoffMs, right.backoffMs);
@@ -338,7 +387,11 @@ function mergeJobQueue(
   requireSameJsonField(key, "logs", left.logs, right.logs);
   requireSameJsonField(key, "dlq", left.dlq, right.dlq);
   requireSameJsonField(key, "concurrency", left.concurrency, right.concurrency);
-  return { ...left };
+  return {
+    ...left,
+    ...(payload ? { payload } : {}),
+    ...(result ? { result } : {}),
+  };
 }
 
 function mergeRecords<T>(
@@ -386,33 +439,60 @@ function mergeRecords<T>(
     : undefined;
 }
 
+function mergeContractSchemas(contracts: TrellisContractV1[]): ContractSchemas {
+  const schemas: ContractSchemas = {};
+  for (const contract of contracts) {
+    for (const [name, schema] of Object.entries(contract.schemas ?? {})) {
+      const existing = schemas[name];
+      if (existing === undefined) {
+        schemas[name] = schema;
+        continue;
+      }
+      const mergedSchema = mergeCompatibleSchemas(existing, schema);
+      if (mergedSchema === null) {
+        throw new Error(
+          `Active compatible digests define schema '${name}' incompatibly`,
+        );
+      }
+      schemas[name] = mergedSchema;
+    }
+  }
+  return schemas;
+}
+
 function mergeCompatibleContractSurfaces(
   contracts: TrellisContractV1[],
 ): TrellisContractV1 | undefined {
   const first = contracts[0];
   if (!first) return undefined;
+  const schemas = mergeContractSchemas(contracts);
   const rpc = mergeRecords(
     contracts,
     (contract) => contract.rpc,
-    mergeRpcMethod,
+    (key, left, leftContract, right, rightContract) =>
+      mergeRpcMethod(key, left, leftContract, right, rightContract, schemas),
   );
   const operations = mergeRecords(
     contracts,
     (contract) => contract.operations,
-    mergeOperation,
+    (key, left, leftContract, right, rightContract) =>
+      mergeOperation(key, left, leftContract, right, rightContract, schemas),
   );
   const events = mergeRecords(
     contracts,
     (contract) => contract.events,
-    mergeEvent,
+    (key, left, leftContract, right, rightContract) =>
+      mergeEvent(key, left, leftContract, right, rightContract, schemas),
   );
   const jobs = mergeRecords(
     contracts,
     (contract) => contract.jobs,
-    mergeJobQueue,
+    (key, left, leftContract, right, rightContract) =>
+      mergeJobQueue(key, left, leftContract, right, rightContract, schemas),
   );
   return {
     ...first,
+    schemas,
     ...(rpc ? { rpc } : {}),
     ...(operations ? { operations } : {}),
     ...(events ? { events } : {}),
@@ -557,9 +637,9 @@ export function resolveContractUsesFromKnownStore(
 }
 
 export function createActiveContractLookup(
-  entries: ContractEntry[],
+  entries: ActiveCompatibleContractEntry[],
 ): Map<string, TrellisContractV1> {
-  const entriesById = new Map<string, TrellisContractV1[]>();
+  const entriesById = new Map<string, ActiveCompatibleContract[]>();
   for (const entry of entries) {
     const contracts = entriesById.get(entry.contract.id) ?? [];
     contracts.push(entry.contract);
@@ -569,7 +649,12 @@ export function createActiveContractLookup(
   const lookup = new Map<string, TrellisContractV1>();
   for (const [id, contracts] of entriesById) {
     validateConcreteSubjectSurfaces(id, contracts);
-    const merged = mergeCompatibleContractSurfaces(contracts);
+    const validatedContracts: TrellisContractV1[] = [];
+    for (const contract of contracts) {
+      requireOperationOutputs(contract);
+      validatedContracts.push(contract);
+    }
+    const merged = mergeCompatibleContractSurfaces(validatedContracts);
     if (merged) lookup.set(id, merged);
   }
   return lookup;
@@ -577,7 +662,7 @@ export function createActiveContractLookup(
 
 /** Validates that concurrently active digests remain compatible by lineage. */
 export function validateActiveContractCompatibility(
-  entries: ContractEntry[],
+  entries: ActiveCompatibleContractEntry[],
 ): void {
   createActiveContractLookup(entries);
 }

@@ -56,12 +56,14 @@
             {#if controller.view?.mode === "sign_in_required"}
               Sign in to approve this device.
             {:else if controller.view?.mode === "ready"}
-              You are signed in and can approve this device now.
+              You are signed in and can approve this exact device deployment and
+              contract digest now.
             {:else if controller.view?.mode === "pending_review"}
               A reviewer still needs to approve this device before setup can
               continue.
             {:else if controller.view?.mode === "activated"}
-              This device has been approved and can finish setup.
+              This exact device deployment and contract digest have been
+              approved and can finish setup.
             {:else if controller.view?.mode === "rejected"}
               This device was not approved.
             {:else if controller.view?.mode === "expired"}
@@ -99,7 +101,7 @@
             <p
               class="text-xs font-bold uppercase tracking-widest text-base-content/45"
             >
-              Request details
+              Exact deployment and contract digest
             </p>
             <p class="mono mt-2 break-all text-sm text-base-content">
               {controller.view.deploymentId}
@@ -108,6 +110,10 @@
               Device <span class="mono break-all"
                 >{controller.view.instanceId}</span
               >
+            </p>
+            <p class="mt-3 text-xs text-base-content/55">
+              Activation is bound to this deployment request. Trellis will not
+              choose another allowed contract digest during approval.
             </p>
           </div>
         {:else if controller.view?.mode === "activated"}
@@ -136,7 +142,7 @@
             <p
               class="text-xs font-bold uppercase tracking-widest text-base-content/45"
             >
-              Deployment
+              Exact deployment and contract digest
             </p>
             <p class="mono mt-2 break-all text-sm text-base-content">
               {controller.view.deploymentId}
@@ -148,6 +154,10 @@
             </p>
             <p class="mono mt-1 break-all text-xs text-base-content/50">
               {controller.view.instanceId}
+            </p>
+            <p class="mt-3 text-xs text-base-content/55">
+              Approval was bound to this deployment request; no alternate
+              allowed digest was selected.
             </p>
           </div>
         {:else if controller.view?.mode === "rejected"}

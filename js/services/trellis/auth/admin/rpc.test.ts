@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import { isErr } from "@qlever-llc/result";
+import { AsyncResult, isErr, Result } from "@qlever-llc/result";
 import Value from "typebox/value";
 import {
   AuthListConnectionsResponseSchema,
@@ -14,6 +14,8 @@ import {
 } from "../../contracts/trellis_auth.ts";
 
 import {
+  type DeviceDeployment,
+  type DeviceInstance,
   normalizeDigestList,
   type ServiceDeployment,
   validateDeviceDeploymentRequest,
@@ -26,6 +28,7 @@ import {
   validatePortalRequest,
   validateServiceDeploymentRequest,
 } from "./shared.ts";
+import { type AdminRpcDeps, createDeviceAdminHandlers } from "./rpc.ts";
 import {
   createAuthApplyServiceDeploymentContractHandler,
   createAuthCreateServiceDeploymentHandler,
@@ -41,6 +44,8 @@ import {
   createAuthUnapplyServiceDeploymentContractHandler,
   type ServiceAdminRpcDeps,
 } from "./service_rpc.ts";
+
+async function* emptyKeys(): AsyncIterable<string> {}
 
 function throwingStoreAccess(): never {
   throw new Error("service admin storage should not be touched");
@@ -75,6 +80,7 @@ function kickDeps(serviceDeps: ServiceAdminRpcDeps) {
     ...serviceDeps,
     kick: async () => {},
     refreshActiveContracts: async () => {},
+    validateActiveCatalog: async () => {},
     connectionsKV: {
       get: () => throwingKvAccess(),
       put: () => throwingKvAccess(),
@@ -162,16 +168,19 @@ Deno.test("auth contract exposes service, portal, and device admin RPCs", () => 
 });
 
 Deno.test("production auth registration does not configure mutable auth/admin globals", async () => {
-  const [registerSource, portalSource, deviceSource] = await Promise.all([
-    Deno.readTextFile(new URL("../register.ts", import.meta.url)),
-    Deno.readTextFile(
-      new URL("../registration/portal_policy_admin.ts", import.meta.url),
-    ),
-    Deno.readTextFile(
-      new URL("../registration/device_admin_activation.ts", import.meta.url),
-    ),
-  ]);
+  const [rpcSource, registerSource, portalSource, deviceSource] = await Promise
+    .all([
+      Deno.readTextFile(new URL("./rpc.ts", import.meta.url)),
+      Deno.readTextFile(new URL("../register.ts", import.meta.url)),
+      Deno.readTextFile(
+        new URL("../registration/portal_policy_admin.ts", import.meta.url),
+      ),
+      Deno.readTextFile(
+        new URL("../registration/device_admin_activation.ts", import.meta.url),
+      ),
+    ]);
 
+  assert(!rpcSource.includes("AsyncLocalStorage"));
   assert(!registerSource.includes("setAuthRuntimeDeps("));
   assert(!portalSource.includes("setAdminRpcDeps("));
   assert(!deviceSource.includes("setAdminRpcDeps("));
@@ -340,8 +349,12 @@ Deno.test("Auth.UnapplyServiceDeploymentContract removes only bindings for remov
       contractId: "billing@v1",
       allowedDigests: ["digest-a", "digest-b"],
       resourceBindingsByDigest: {
-        "digest-a": { kv: { cache: { bucket: "cache-a", history: 1, ttlMs: 0 } } },
-        "digest-b": { kv: { cache: { bucket: "cache-b", history: 2, ttlMs: 0 } } },
+        "digest-a": {
+          kv: { cache: { bucket: "cache-a", history: 1, ttlMs: 0 } },
+        },
+        "digest-b": {
+          kv: { cache: { bucket: "cache-b", history: 2, ttlMs: 0 } },
+        },
       },
     }],
   };
@@ -381,9 +394,488 @@ Deno.test("Auth.UnapplyServiceDeploymentContract removes only bindings for remov
     contractId: "billing@v1",
     allowedDigests: ["digest-b"],
     resourceBindingsByDigest: {
-      "digest-b": { kv: { cache: { bucket: "cache-b", history: 2, ttlMs: 0 } } },
+      "digest-b": {
+        kv: { cache: { bucket: "cache-b", history: 2, ttlMs: 0 } },
+      },
     },
   }]);
+});
+
+Deno.test("Auth.UnapplyServiceDeploymentContract validates staged deployment before persisting or kicking", async () => {
+  const original: ServiceDeployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: "billing@v1",
+      allowedDigests: ["digest-a", "digest-b"],
+      resourceBindingsByDigest: {
+        "digest-a": {
+          kv: { cache: { bucket: "cache-a", history: 1, ttlMs: 0 } },
+        },
+        "digest-b": {
+          kv: { cache: { bucket: "cache-b", history: 2, ttlMs: 0 } },
+        },
+      },
+    }],
+  };
+  let stored = original;
+  let putCount = 0;
+  let refreshCount = 0;
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
+  const serviceDeps: ServiceAdminRpcDeps = {
+    logger: { trace: () => {} },
+    serviceDeploymentStorage: {
+      get: async () => stored,
+      put: async (deployment) => {
+        putCount += 1;
+        stored = deployment;
+      },
+      delete: async () => throwingStoreAccess(),
+      list: async () => throwingStoreAccess(),
+    },
+    serviceInstanceStorage: {
+      get: async () => throwingStoreAccess(),
+      getByInstanceKey: async () => throwingStoreAccess(),
+      put: async () => throwingStoreAccess(),
+      delete: async () => throwingStoreAccess(),
+      list: async () => throwingStoreAccess(),
+      listByDeployment: async () => [{
+        instanceId: "svc_1",
+        deploymentId: "billing.default",
+        instanceKey: "session-key-1",
+        disabled: false,
+        currentContractId: "billing@v1",
+        currentContractDigest: "digest-a",
+        capabilities: ["service"],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }],
+    },
+  };
+
+  const result = await createAuthUnapplyServiceDeploymentContractHandler({
+    ...kickDeps(serviceDeps),
+    kick: async (serverId, clientId) => {
+      kicked.push({ serverId, clientId });
+    },
+    validateActiveCatalog: async () => {
+      throw new Error("incompatible staged active catalog");
+    },
+    refreshActiveContracts: async () => {
+      refreshCount += 1;
+    },
+  })({
+    input: {
+      deploymentId: "billing.default",
+      contractId: "billing@v1",
+      digests: ["digest-a"],
+    },
+    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(result.isErr());
+  assertEquals(putCount, 0);
+  assertEquals(refreshCount, 0);
+  assertEquals(kicked, []);
+  assertEquals(stored, original);
+});
+
+Deno.test("Auth.UnapplyServiceDeploymentContract rolls back deployment and does not kick when refresh fails", async () => {
+  const original: ServiceDeployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: "billing@v1",
+      allowedDigests: ["digest-a", "digest-b"],
+      resourceBindingsByDigest: {
+        "digest-a": {
+          kv: { cache: { bucket: "cache-a", history: 1, ttlMs: 0 } },
+        },
+        "digest-b": {
+          kv: { cache: { bucket: "cache-b", history: 2, ttlMs: 0 } },
+        },
+      },
+    }],
+  };
+  let stored = original;
+  const putDeployments: ServiceDeployment[] = [];
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
+  const serviceDeps: ServiceAdminRpcDeps = {
+    logger: { trace: () => {} },
+    serviceDeploymentStorage: {
+      get: async () => stored,
+      put: async (deployment) => {
+        putDeployments.push(deployment);
+        stored = deployment;
+      },
+      delete: async () => throwingStoreAccess(),
+      list: async () => throwingStoreAccess(),
+    },
+    serviceInstanceStorage: {
+      get: async () => throwingStoreAccess(),
+      getByInstanceKey: async () => throwingStoreAccess(),
+      put: async () => throwingStoreAccess(),
+      delete: async () => throwingStoreAccess(),
+      list: async () => throwingStoreAccess(),
+      listByDeployment: async () => [{
+        instanceId: "svc_1",
+        deploymentId: "billing.default",
+        instanceKey: "session-key-1",
+        disabled: false,
+        currentContractId: "billing@v1",
+        currentContractDigest: "digest-a",
+        capabilities: ["service"],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }],
+    },
+  };
+
+  const result = await createAuthUnapplyServiceDeploymentContractHandler({
+    ...kickDeps(serviceDeps),
+    kick: async (serverId, clientId) => {
+      kicked.push({ serverId, clientId });
+    },
+    refreshActiveContracts: async () => {
+      throw new Error("refresh failed");
+    },
+  })({
+    input: {
+      deploymentId: "billing.default",
+      contractId: "billing@v1",
+      digests: ["digest-a"],
+    },
+    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(result.isErr());
+  assertEquals(putDeployments.length, 2);
+  assertEquals(putDeployments[1], original);
+  assertEquals(kicked, []);
+  assertEquals(stored, original);
+});
+
+function deviceAdminDeps(args: {
+  deployment: DeviceDeployment;
+  putDeployments?: DeviceDeployment[];
+  instances?: DeviceInstance[];
+  kicked?: Array<{ serverId: string; clientId: number }>;
+  installDeviceContract?: (contract: unknown) => Promise<{
+    id: string;
+    digest: string;
+    displayName: string;
+    description: string;
+  }>;
+  refreshActiveContracts?: () => Promise<void>;
+  validateActiveCatalog?: (opts: {
+    stagedDeviceDeployments?: Iterable<DeviceDeployment>;
+    stagedDeviceInstances?: Iterable<DeviceInstance>;
+  }) => Promise<unknown>;
+}) {
+  let stored = args.deployment;
+  const kv = {
+    get: () =>
+      AsyncResult.ok({
+        value: {
+          serverId: "server-1",
+          clientId: 1,
+          connectedAt: new Date("2026-01-01T00:00:00.000Z"),
+        },
+      }),
+    put: () => AsyncResult.ok(undefined),
+    create: () => AsyncResult.ok(undefined),
+    delete: () => AsyncResult.ok(undefined),
+    keys: () => AsyncResult.ok(emptyKeys()),
+  };
+  const deps: AdminRpcDeps & {
+    installDeviceContract: (contract: unknown) => Promise<{
+      id: string;
+      digest: string;
+      displayName: string;
+      description: string;
+    }>;
+    refreshActiveContracts: () => Promise<void>;
+    validateActiveCatalog: (opts: {
+      stagedDeviceDeployments?: Iterable<DeviceDeployment>;
+      stagedDeviceInstances?: Iterable<DeviceInstance>;
+    }) => Promise<unknown>;
+  } = {
+    browserFlowsKV: kv,
+    connectionsKV: kv,
+    contractApprovalStorage: { get: async () => undefined },
+    deviceActivationReviewStorage: {
+      get: async () => undefined,
+      getByFlowId: async () => undefined,
+      put: async () => throwingStoreAccess(),
+      list: async () => [],
+    },
+    deviceActivationStorage: {
+      get: async () => undefined,
+      put: async () => throwingStoreAccess(),
+      delete: async () => throwingStoreAccess(),
+      list: async () => [],
+    },
+    deviceDeploymentStorage: {
+      get: async () => stored,
+      put: async (deployment) => {
+        args.putDeployments?.push(deployment);
+        stored = deployment;
+      },
+      delete: async () => throwingStoreAccess(),
+      list: async () => [stored],
+    },
+    deviceInstanceStorage: {
+      get: async () => undefined,
+      put: async () => throwingStoreAccess(),
+      delete: async () => throwingStoreAccess(),
+      list: async () => args.instances ?? [],
+    },
+    devicePortalSelectionStorage: {
+      get: async () => undefined,
+      put: async () => throwingStoreAccess(),
+      delete: async () => throwingStoreAccess(),
+      list: async () => [],
+    },
+    deviceProvisioningSecretStorage: {
+      get: async () => undefined,
+      put: async () => throwingStoreAccess(),
+      delete: async () => throwingStoreAccess(),
+    },
+    instanceGrantPolicyStorage: {
+      get: async () => undefined,
+      put: async () => throwingStoreAccess(),
+      list: async () => [],
+    },
+    kick: async (serverId, clientId) => {
+      args.kicked?.push({ serverId, clientId });
+    },
+    loadEffectiveGrantPolicies: async () => [],
+    logger: { trace: () => {}, warn: () => {} },
+    loginPortalSelectionStorage: {
+      get: async () => undefined,
+      put: async () => throwingStoreAccess(),
+      delete: async () => throwingStoreAccess(),
+      list: async () => [],
+    },
+    portalDefaultStorage: {
+      getLogin: async () => undefined,
+      getDevice: async () => undefined,
+      putLogin: async () => throwingStoreAccess(),
+      putDevice: async () => throwingStoreAccess(),
+    },
+    portalProfileStorage: {
+      get: async () => undefined,
+      put: async () => throwingStoreAccess(),
+      list: async () => [],
+    },
+    portalStorage: {
+      get: async () => undefined,
+      put: async () => throwingStoreAccess(),
+      list: async () => [],
+    },
+    publishSessionRevoked: async () => {},
+    sessionStorage: {
+      deleteByPublicIdentityKey: async () => {},
+      deleteBySessionKey: async () => {},
+      listEntries: async () => [],
+    },
+    userStorage: { get: async () => undefined },
+    installDeviceContract: args.installDeviceContract ?? (async () => ({
+      id: "reader@v1",
+      digest: "digest-b",
+      displayName: "Reader",
+      description: "Reader device",
+    })),
+    refreshActiveContracts: args.refreshActiveContracts ?? (async () => {}),
+    validateActiveCatalog: args.validateActiveCatalog ?? (async () => {}),
+  };
+  return { deps, getStored: () => stored };
+}
+
+Deno.test("Auth.ApplyDeviceDeploymentContract validates staged deployment before persisting", async () => {
+  const original: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "none",
+    disabled: false,
+    appliedContracts: [{
+      contractId: "reader@v1",
+      allowedDigests: ["digest-a"],
+    }],
+  };
+  const putDeployments: DeviceDeployment[] = [];
+  let refreshCount = 0;
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
+  const { deps, getStored } = deviceAdminDeps({
+    deployment: original,
+    putDeployments,
+    kicked,
+    validateActiveCatalog: async ({ stagedDeviceDeployments }) => {
+      assertEquals([...stagedDeviceDeployments ?? []], [{
+        ...original,
+        appliedContracts: [{
+          contractId: "reader@v1",
+          allowedDigests: ["digest-a", "digest-b"],
+        }],
+      }]);
+      throw new Error("incompatible staged active catalog");
+    },
+    refreshActiveContracts: async () => {
+      refreshCount += 1;
+    },
+  });
+
+  const result = await createDeviceAdminHandlers(deps)
+    .applyDeviceDeploymentContract({
+      input: { deploymentId: "reader.default", contract: {} },
+      context: { caller: { id: "admin", capabilities: ["admin"] } },
+    });
+
+  assert(result.isErr());
+  assertEquals(putDeployments, []);
+  assertEquals(refreshCount, 0);
+  assertEquals(kicked, []);
+  assertEquals(getStored(), original);
+});
+
+Deno.test("Auth.ApplyDeviceDeploymentContract rolls back deployment and does not kick when refresh fails", async () => {
+  const original: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "none",
+    disabled: false,
+    appliedContracts: [{
+      contractId: "reader@v1",
+      allowedDigests: ["digest-a"],
+    }],
+  };
+  const putDeployments: DeviceDeployment[] = [];
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
+  const { deps, getStored } = deviceAdminDeps({
+    deployment: original,
+    putDeployments,
+    kicked,
+    refreshActiveContracts: async () => {
+      throw new Error("refresh failed");
+    },
+  });
+
+  const result = await createDeviceAdminHandlers(deps)
+    .applyDeviceDeploymentContract({
+      input: { deploymentId: "reader.default", contract: {} },
+      context: { caller: { id: "admin", capabilities: ["admin"] } },
+    });
+
+  assert(result.isErr());
+  assertEquals(putDeployments.length, 2);
+  assertEquals(putDeployments[1], original);
+  assertEquals(kicked, []);
+  assertEquals(getStored(), original);
+});
+
+Deno.test("Auth.UnapplyDeviceDeploymentContract validates staged deployment before persisting or kicking", async () => {
+  const original: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "none",
+    disabled: false,
+    appliedContracts: [{
+      contractId: "reader@v1",
+      allowedDigests: ["digest-a", "digest-b"],
+    }],
+  };
+  const instance: DeviceInstance = {
+    instanceId: "device_1",
+    publicIdentityKey: "session-key-1",
+    deploymentId: "reader.default",
+    state: "activated",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    activatedAt: "2026-01-01T00:00:00.000Z",
+    revokedAt: null,
+  };
+  const putDeployments: DeviceDeployment[] = [];
+  let refreshCount = 0;
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
+  const { deps, getStored } = deviceAdminDeps({
+    deployment: original,
+    instances: [instance],
+    putDeployments,
+    kicked,
+    validateActiveCatalog: async ({ stagedDeviceDeployments }) => {
+      assertEquals([...stagedDeviceDeployments ?? []], [{
+        ...original,
+        appliedContracts: [{
+          contractId: "reader@v1",
+          allowedDigests: ["digest-b"],
+        }],
+      }]);
+      throw new Error("incompatible staged active catalog");
+    },
+    refreshActiveContracts: async () => {
+      refreshCount += 1;
+    },
+  });
+
+  const result = await createDeviceAdminHandlers(deps)
+    .unapplyDeviceDeploymentContract({
+      input: {
+        deploymentId: "reader.default",
+        contractId: "reader@v1",
+        digests: ["digest-a"],
+      },
+      context: { caller: { id: "admin", capabilities: ["admin"] } },
+    });
+
+  assert(result.isErr());
+  assertEquals(putDeployments, []);
+  assertEquals(refreshCount, 0);
+  assertEquals(kicked, []);
+  assertEquals(getStored(), original);
+});
+
+Deno.test("Auth.UnapplyDeviceDeploymentContract rolls back deployment and does not kick when refresh fails", async () => {
+  const original: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "none",
+    disabled: false,
+    appliedContracts: [{
+      contractId: "reader@v1",
+      allowedDigests: ["digest-a", "digest-b"],
+    }],
+  };
+  const instance: DeviceInstance = {
+    instanceId: "device_1",
+    publicIdentityKey: "session-key-1",
+    deploymentId: "reader.default",
+    state: "activated",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    activatedAt: "2026-01-01T00:00:00.000Z",
+    revokedAt: null,
+  };
+  const putDeployments: DeviceDeployment[] = [];
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
+  const { deps, getStored } = deviceAdminDeps({
+    deployment: original,
+    instances: [instance],
+    putDeployments,
+    kicked,
+    refreshActiveContracts: async () => {
+      throw new Error("refresh failed");
+    },
+  });
+
+  const result = await createDeviceAdminHandlers(deps)
+    .unapplyDeviceDeploymentContract({
+      input: {
+        deploymentId: "reader.default",
+        contractId: "reader@v1",
+        digests: ["digest-a"],
+      },
+      context: { caller: { id: "admin", capabilities: ["admin"] } },
+    });
+
+  assert(result.isErr());
+  assertEquals(putDeployments.length, 2);
+  assertEquals(putDeployments[1], original);
+  assertEquals(kicked, []);
+  assertEquals(getStored(), original);
 });
 
 Deno.test("auth review event is templated by deployment", () => {

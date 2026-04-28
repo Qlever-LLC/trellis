@@ -152,13 +152,11 @@ function validateSchemaRefs(contract: TrellisContractV1) {
         `operation '${name}' progress`,
       );
     }
-    if (operation.output) {
-      assertSchemaRefExists(
-        contract,
-        operation.output.schema,
-        `operation '${name}' output`,
-      );
-    }
+    assertSchemaRefExists(
+      contract,
+      operation.output.schema,
+      `operation '${name}' output`,
+    );
   }
 
   for (
@@ -407,6 +405,32 @@ export class ContractStore {
     for (const [subject, owner] of activeSubjectIndex) {
       this.#activeSubjectIndex.set(subject, owner);
     }
+  }
+
+  /**
+   * Validate a proposed active digest set without changing active catalog state.
+   */
+  validateActiveDigests(
+    digests: Iterable<string>,
+  ): Array<{ digest: string; contract: TrellisContractV1 }> {
+    const proposedDigests = new Set<string>();
+    for (const digest of digests) {
+      if (!this.#contractsByDigest.has(digest)) {
+        throw new Error(`Unknown active contract digest '${digest}'`);
+      }
+      proposedDigests.add(digest);
+    }
+    this.#buildActiveIndexes(proposedDigests);
+
+    const entries: Array<{ digest: string; contract: TrellisContractV1 }> = [];
+    for (const digest of proposedDigests) {
+      const contract = this.#contractsByDigest.get(digest);
+      if (!contract) {
+        throw new Error(`Unknown active contract digest '${digest}'`);
+      }
+      entries.push({ digest, contract });
+    }
+    return entries;
   }
 
   getBuiltinDigests(): string[] {

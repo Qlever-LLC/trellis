@@ -35,6 +35,7 @@ import {
   correctedIatSeconds,
   estimateMidpointClockOffsetMs,
 } from "./auth/time.ts";
+import { buildNatsConnectSignaturePayload } from "./auth/session_auth.ts";
 import type { TrellisAPI } from "./contracts.ts";
 import {
   DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
@@ -329,7 +330,11 @@ function createDeviceNatsAuthTokenAuthenticator(args: {
     );
     const sig = signEd25519SeedSha256(
       args.identitySeed,
-      new TextEncoder().encode(`nats-connect:${iat}`),
+      new TextEncoder().encode(
+        `nats-connect:${
+          buildNatsConnectSignaturePayload(iat, args.contractDigest)
+        }`,
+      ),
     );
     return {
       auth_token: JSON.stringify({

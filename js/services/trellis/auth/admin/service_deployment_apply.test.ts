@@ -204,6 +204,180 @@ Deno.test("Auth.ApplyServiceDeploymentContract preserves bindings for multiple s
   );
 });
 
+Deno.test("Auth.ApplyServiceDeploymentContract does not mutate deployment when active catalog validation fails", async () => {
+  const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
+  const deployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [],
+  };
+  serviceDeploymentStorage.seed(deployment);
+  let refreshed = false;
+  let provisioned = false;
+  let validationCalls = 0;
+
+  const handler = createAuthApplyServiceDeploymentContractHandler({
+    serviceDeploymentStorage,
+    installServiceContract: async () => ({
+      id: contract.id,
+      digest: "digest-a",
+      displayName: contract.displayName,
+      description: contract.description,
+      contract,
+      usedNamespaces: ["billing"],
+    }),
+    provisionResourceBindings: async () => {
+      provisioned = true;
+      return {};
+    },
+    validateActiveCatalog: async (
+      { extraActiveDigests, stagedServiceDeployments },
+    ) => {
+      validationCalls += 1;
+      if (extraActiveDigests) {
+        assertEquals([...extraActiveDigests], ["digest-a"]);
+        return;
+      }
+      assertEquals([...stagedServiceDeployments ?? []], [{
+        deploymentId: "billing.default",
+        namespaces: ["billing"],
+        disabled: false,
+        appliedContracts: [{
+          contractId: contract.id,
+          allowedDigests: ["digest-a"],
+          resourceBindingsByDigest: { "digest-a": {} },
+        }],
+      }]);
+      throw new Error("incompatible active catalog");
+    },
+    refreshActiveContracts: async () => {
+      refreshed = true;
+    },
+  });
+
+  const result = await handler({
+    input: { deploymentId: "billing.default", contract: {} },
+    context: { caller: { type: "user", id: "admin" } },
+  });
+
+  assert(result.isErr());
+  assertEquals(validationCalls, 2);
+  assertEquals(provisioned, true);
+  assertEquals(refreshed, false);
+  assertEquals(serviceDeploymentStorage.putCount, 0);
+  assertEquals(
+    serviceDeploymentStorage.getValue("billing.default"),
+    deployment,
+  );
+});
+
+Deno.test("Auth.ApplyServiceDeploymentContract restores deployment when active refresh fails", async () => {
+  const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
+  const deployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [],
+  };
+  serviceDeploymentStorage.seed(deployment);
+
+  const handler = createAuthApplyServiceDeploymentContractHandler({
+    serviceDeploymentStorage,
+    installServiceContract: async () => ({
+      id: contract.id,
+      digest: "digest-a",
+      displayName: contract.displayName,
+      description: contract.description,
+      contract,
+      usedNamespaces: ["billing"],
+    }),
+    provisionResourceBindings: async () => ({}),
+    validateActiveCatalog: async () => {},
+    refreshActiveContracts: async () => {
+      throw new Error("refresh failed");
+    },
+  });
+
+  const result = await handler({
+    input: { deploymentId: "billing.default", contract: {} },
+    context: { caller: { type: "user", id: "admin" } },
+  });
+
+  assert(result.isErr());
+  assertEquals(
+    serviceDeploymentStorage.getValue("billing.default"),
+    deployment,
+  );
+});
+
+Deno.test("Auth.ApplyServiceDeploymentContract does not provision or mutate when resource preflight fails", async () => {
+  const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
+  const deployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: contract.id,
+      allowedDigests: ["digest-a"],
+      resourceBindingsByDigest: {
+        "digest-a": {
+          kv: {
+            cache: { bucket: "svc_billing_cache", history: 1, ttlMs: 0 },
+          },
+        },
+      },
+    }],
+  };
+  serviceDeploymentStorage.seed(deployment);
+  let provisioned = false;
+
+  const handler = createAuthApplyServiceDeploymentContractHandler({
+    serviceDeploymentStorage,
+    installServiceContract: async () => ({
+      id: contract.id,
+      digest: "digest-b",
+      displayName: contract.displayName,
+      description: contract.description,
+      contract: {
+        ...contract,
+        schemas: { CacheEntry: { type: "object" } },
+        resources: {
+          kv: {
+            cache: {
+              purpose: "Cache billing data",
+              schema: { schema: "CacheEntry" },
+              required: true,
+              history: 2,
+              ttlMs: 0,
+            },
+          },
+        },
+      },
+      usedNamespaces: ["billing"],
+    }),
+    provisionResourceBindings: async () => {
+      provisioned = true;
+      return {};
+    },
+    validateActiveCatalog: async () => {},
+    refreshActiveContracts: async () => {},
+  });
+
+  const result = await handler({
+    input: { deploymentId: "billing.default", contract: {} },
+    context: { caller: { type: "user", id: "admin" } },
+  });
+
+  assert(result.isErr());
+  assertEquals(provisioned, false);
+  assertEquals(serviceDeploymentStorage.putCount, 0);
+  assertEquals(
+    serviceDeploymentStorage.getValue("billing.default"),
+    deployment,
+  );
+});
+
 Deno.test("Auth.ApplyServiceDeploymentContract does not mutate deployment when resource provisioning fails", async () => {
   const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
   const deployment = {

@@ -7,8 +7,8 @@ import type {
   SqlServiceInstanceRepository,
 } from "../auth/storage.ts";
 import {
-  addCurrentContractDigests,
-  addDeploymentAllowedDigests,
+  collectActiveContractDigests,
+  overlayStagedRecords,
 } from "./active_contracts.ts";
 import { analyzeContract } from "./analysis.ts";
 import { setContracts as setPermissionContracts } from "./permissions.ts";
@@ -33,6 +33,28 @@ type InstalledContractRecord = {
   digest: string;
   id: string;
   contract: string;
+};
+
+type ServiceDeploymentRecord = Awaited<
+  ReturnType<SqlServiceDeploymentRepository["list"]>
+>[number];
+type ServiceInstanceRecord = Awaited<
+  ReturnType<SqlServiceInstanceRepository["list"]>
+>[number];
+type DeviceDeploymentRecord = Awaited<
+  ReturnType<SqlDeviceDeploymentRepository["list"]>
+>[number];
+type DeviceInstanceRecord = Awaited<
+  ReturnType<SqlDeviceInstanceRepository["list"]>
+>[number];
+
+type ActiveCatalogValidationOptions = {
+  proposedDigests?: Iterable<string>;
+  extraActiveDigests?: Iterable<string>;
+  stagedServiceDeployments?: Iterable<ServiceDeploymentRecord>;
+  stagedServiceInstances?: Iterable<ServiceInstanceRecord>;
+  stagedDeviceDeployments?: Iterable<DeviceDeploymentRecord>;
+  stagedDeviceInstances?: Iterable<DeviceInstanceRecord>;
 };
 
 function describeContract(
@@ -396,42 +418,20 @@ export function createContractsModule(opts: {
     return await persistContract(contract, { device: true });
   }
 
-  async function refreshActiveContracts(): Promise<void> {
-    const active = new Set<string>();
-    for (const digest of contractStore.getBuiltinDigests()) active.add(digest);
-
+  async function collectProposedActiveDigests(
+    validationOpts?: ActiveCatalogValidationOptions,
+  ): Promise<Set<string>> {
     const installedContracts = await collectInstalledContractRecords(
       opts.contractStorage,
     );
 
-    const serviceDeployments = new Map(
-      (await opts.serviceDeploymentStorage.list()).map((deployment) => [
-        deployment.deploymentId,
-        deployment,
-      ]),
-    );
+    const active = validationOpts?.proposedDigests
+      ? new Set(validationOpts.proposedDigests)
+      : await collectProposedActiveDigestsFromRecords(validationOpts);
 
-    const activeServiceInstances = (await opts.serviceInstanceStorage.list())
-      .filter((instance) =>
-        !instance.disabled &&
-        serviceDeployments.get(instance.deploymentId)?.disabled !== true
-      );
-    addCurrentContractDigests(active, activeServiceInstances, () => true);
-
-    const deviceDeployments = new Map(
-      (await opts.deviceDeploymentStorage.list()).map((deployment) => [
-        deployment.deploymentId,
-        deployment,
-      ]),
-    );
-
-    addDeploymentAllowedDigests(
-      active,
-      deviceDeployments.values(),
-      (deployment) =>
-        !deployment.disabled &&
-        deployment.appliedContracts.length > 0,
-    );
+    for (const digest of validationOpts?.extraActiveDigests ?? []) {
+      active.add(digest);
+    }
 
     for (const digest of active) {
       if (contractStore.getContract(digest, { includeInactive: true })) {
@@ -453,18 +453,56 @@ export function createContractsModule(opts: {
       });
     }
 
-    const activeEntries = [...active].map((digest) => {
-      const contract = contractStore.getContract(digest, {
-        includeInactive: true,
-      });
-      if (!contract) {
-        throw new Error(`Unknown active contract digest '${digest}'`);
-      }
-      return { digest, contract };
-    });
-    validateActiveContractCompatibility(activeEntries);
+    return active;
+  }
 
-    contractStore.setActiveDigests(active);
+  async function collectProposedActiveDigestsFromRecords(
+    validationOpts?: ActiveCatalogValidationOptions,
+  ): Promise<Set<string>> {
+    const serviceDeployments = overlayStagedRecords(
+      await opts.serviceDeploymentStorage.list(),
+      validationOpts?.stagedServiceDeployments,
+      (deployment) => deployment.deploymentId,
+    );
+    const serviceInstances = overlayStagedRecords(
+      await opts.serviceInstanceStorage.list(),
+      validationOpts?.stagedServiceInstances,
+      (instance) => instance.instanceId,
+    );
+    const deviceDeployments = overlayStagedRecords(
+      await opts.deviceDeploymentStorage.list(),
+      validationOpts?.stagedDeviceDeployments,
+      (deployment) => deployment.deploymentId,
+    );
+    const deviceInstances = overlayStagedRecords(
+      await opts.deviceInstanceStorage.list(),
+      validationOpts?.stagedDeviceInstances,
+      (instance) => instance.instanceId,
+    );
+
+    const active = collectActiveContractDigests({
+      builtinDigests: contractStore.getBuiltinDigests(),
+      serviceDeployments,
+      serviceInstances,
+      deviceDeployments,
+      deviceInstances,
+    });
+    return active;
+  }
+
+  async function validateActiveCatalog(
+    validationOpts?: ActiveCatalogValidationOptions,
+  ): Promise<Array<{ digest: string; contract: TrellisContractV1 }>> {
+    const active = await collectProposedActiveDigests(validationOpts);
+    const activeEntries = contractStore.validateActiveDigests(active);
+    validateActiveContractCompatibility(activeEntries);
+    return activeEntries;
+  }
+
+  async function refreshActiveContracts(): Promise<void> {
+    const activeEntries = await validateActiveCatalog();
+
+    contractStore.setActiveDigests(activeEntries.map((entry) => entry.digest));
     setPermissionContracts(activeEntries);
   }
 
@@ -473,6 +511,7 @@ export function createContractsModule(opts: {
     installDeviceContract,
     installServiceContract,
     refreshActiveContracts,
+    validateActiveCatalog,
   };
 }
 

@@ -101,7 +101,7 @@ When you change the contract, apply the new digest to the service deployment:
 trellis deploy apply svc/my-service --source ./contracts/my_service.ts
 ```
 
-Applying a new digest provisions any required resource changes before updating the deployment record and keeps the service instance key the same. Restart the service process after applying the updated contract.
+Applying a new digest validates the new contract against the proposed active catalog, provisions any required resource changes before updating the deployment record, and keeps the service instance key the same. Restart the service process after applying the updated contract. A process that reconnects with a retired digest after unapply is rejected during NATS auth instead of receiving stale service permissions.
 
 ## What install actually grants
 
@@ -128,3 +128,5 @@ Trellis derives service access from:
 3. `trellis deploy apply svc/my-service --source ./contracts/my_service.ts`
 4. restart the service
 5. confirm the expected RPCs, events, and bindings work
+
+If apply or the following active-catalog refresh fails, Trellis rolls the durable deployment record back. Service bootstrap uses the same staged active-catalog validation before persisting a new current digest, so failed upgrades do not leave a service instance pinned to an incompatible digest.

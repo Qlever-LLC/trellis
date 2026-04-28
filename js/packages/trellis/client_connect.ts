@@ -25,6 +25,7 @@ import {
   correctedIatSeconds,
   estimateMidpointClockOffsetMs,
 } from "./auth/time.ts";
+import { buildNatsConnectSignaturePayload } from "./auth/session_auth.ts";
 import { canonicalizeJsonValue } from "./auth/utils.ts";
 import {
   importEd25519PrivateKeyFromSeedBase64url,
@@ -193,7 +194,7 @@ type ClientRuntimeIdentity = {
     provider?: string,
     contract?: Record<string, unknown>,
   ): Promise<string>;
-  natsConnectSigForIat(iat: number): Promise<string>;
+  natsConnectSigForIat(iat: number, contractDigest: string): Promise<string>;
   bootstrapSig(iat: number): Promise<string>;
   bindFlowSig(flowId: string): Promise<string>;
   buildRuntimeAuthTokenSync?(iat: number, contractDigest: string): string;
@@ -424,13 +425,24 @@ async function createSessionKeyRuntimeIdentity(
             canonicalizeJsonValue(contract)
           }:${canonicalizeJsonValue(context ?? null)}`,
       ),
-    natsConnectSigForIat: (iat) =>
-      signDomainValue(sign, "nats-connect", String(iat)),
+    natsConnectSigForIat: (iat, contractDigest) =>
+      signDomainValue(
+        sign,
+        "nats-connect",
+        buildNatsConnectSignaturePayload(iat, contractDigest),
+      ),
     bootstrapSig: (iat) =>
       signDomainValue(sign, "bootstrap-client", String(iat)),
     bindFlowSig: (flowId) => signDomainValue(sign, "bind-flow", flowId),
     buildRuntimeAuthTokenSync: (iat, contractDigest) => {
-      const sig = signEd25519SeedSha256(seed, utf8(`nats-connect:${iat}`));
+      const sig = signEd25519SeedSha256(
+        seed,
+        utf8(
+          `nats-connect:${
+            buildNatsConnectSignaturePayload(iat, contractDigest)
+          }`,
+        ),
+      );
       return JSON.stringify({
         v: 1,
         sessionKey,
@@ -456,7 +468,8 @@ async function resolveClientIdentity(
     sign: (data) => signBytes(handle, data),
     oauthInitSig: (redirectTo, context, provider, contract) =>
       oauthInitSig(handle, redirectTo, context, provider, contract),
-    natsConnectSigForIat: (iat) => natsConnectSigForIat(handle, iat),
+    natsConnectSigForIat: (iat, contractDigest) =>
+      natsConnectSigForIat(handle, iat, contractDigest),
     bootstrapSig: (iat) =>
       signDomainValue(
         (data) => signBytes(handle, data),
@@ -687,7 +700,10 @@ async function createRuntimeUserAuthenticator(args: {
       sessionKey: args.identity.sessionKey,
       iat,
       contractDigest: args.getContractDigest(),
-      sig: await args.identity.natsConnectSigForIat(iat),
+      sig: await args.identity.natsConnectSigForIat(
+        iat,
+        args.getContractDigest(),
+      ),
     });
   };
 

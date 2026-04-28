@@ -1,30 +1,10 @@
 import { assertEquals } from "@std/assert";
 
 import {
-  addCurrentContractDigests,
   addDeploymentAllowedDigests,
+  collectActiveContractDigests,
+  overlayStagedRecords,
 } from "./active_contracts.ts";
-
-Deno.test("addCurrentContractDigests includes concrete active instance digests", () => {
-  const active = new Set<string>(["builtin"]);
-
-  addCurrentContractDigests(
-    active,
-    [
-      { disabled: false, currentContractDigest: "digest-a" },
-      { disabled: false, currentContractDigest: "digest-b" },
-      { disabled: true, currentContractDigest: "digest-c" },
-      { disabled: false },
-    ],
-    (instance) => !instance.disabled,
-  );
-
-  assertEquals([...active].sort(), [
-    "builtin",
-    "digest-a",
-    "digest-b",
-  ]);
-});
 
 Deno.test("addDeploymentAllowedDigests includes every active deployment digest", () => {
   const active = new Set<string>(["builtin"]);
@@ -53,5 +33,68 @@ Deno.test("addDeploymentAllowedDigests includes every active deployment digest",
     "digest-a",
     "digest-b",
     "digest-c",
+  ]);
+});
+
+Deno.test("overlayStagedRecords replaces persisted records by key", () => {
+  const records = overlayStagedRecords(
+    [
+      { id: "a", value: "persisted-a" },
+      { id: "b", value: "persisted-b" },
+    ],
+    [
+      { id: "b", value: "staged-b" },
+      { id: "c", value: "staged-c" },
+    ],
+    (record) => record.id,
+  );
+
+  assertEquals(records, [
+    { id: "a", value: "persisted-a" },
+    { id: "b", value: "staged-b" },
+    { id: "c", value: "staged-c" },
+  ]);
+});
+
+Deno.test("collectActiveContractDigests builds candidate active set", () => {
+  const active = collectActiveContractDigests({
+    builtinDigests: ["builtin"],
+    serviceDeployments: [
+      {
+        deploymentId: "service.enabled",
+        disabled: false,
+        appliedContracts: [],
+      },
+      {
+        deploymentId: "service.disabled",
+        disabled: true,
+        appliedContracts: [],
+      },
+    ],
+    serviceInstances: [
+      {
+        deploymentId: "service.enabled",
+        disabled: false,
+        currentContractDigest: "service-digest",
+      },
+      {
+        deploymentId: "service.disabled",
+        disabled: false,
+        currentContractDigest: "disabled-parent-digest",
+      },
+    ],
+    deviceDeployments: [
+      {
+        deploymentId: "device.enabled",
+        disabled: false,
+        appliedContracts: [{ allowedDigests: ["device-digest"] }],
+      },
+    ],
+  });
+
+  assertEquals([...active].sort(), [
+    "builtin",
+    "device-digest",
+    "service-digest",
   ]);
 });

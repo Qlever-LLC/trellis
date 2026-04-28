@@ -221,6 +221,9 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
   ) => Promise<ContractResourceBindings>;
   refreshActiveContracts: () => Promise<void>;
   serviceDeploymentStorage: ServiceDeploymentStorage;
+  validateActiveCatalog?: (opts: {
+    stagedServiceDeployments?: Iterable<ServiceDeployment>;
+  }) => Promise<unknown>;
   logger: Pick<AuthRuntimeDeps["logger"], "trace">;
 }) {
   const handler = createAuthApplyServiceDeploymentContractHandlerBase({
@@ -244,6 +247,10 @@ export function createAuthUnapplyServiceDeploymentContractHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
+    validateActiveCatalog: (validationOpts?: {
+      stagedServiceDeployments?: Iterable<ServiceDeployment>;
+      stagedServiceInstances?: Iterable<ServiceInstance>;
+    }) => Promise<unknown>;
     logger: Pick<AuthRuntimeDeps["logger"], "trace">;
     serviceDeploymentStorage: ServiceDeploymentStorage;
     serviceInstanceStorage: ServiceInstanceStorage;
@@ -302,6 +309,15 @@ export function createAuthUnapplyServiceDeploymentContractHandler(
       ...deployment,
       appliedContracts: normalizeAppliedContracts(nextContracts),
     };
+
+    try {
+      await deps.validateActiveCatalog({
+        stagedServiceDeployments: [nextDeployment],
+      });
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+
     try {
       await serviceDeploymentStorage.put(nextDeployment);
     } catch (error) {
@@ -309,7 +325,14 @@ export function createAuthUnapplyServiceDeploymentContractHandler(
     }
 
     const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
-    if (isErr(refreshed)) return refreshed;
+    if (isErr(refreshed)) {
+      try {
+        await serviceDeploymentStorage.put(deployment);
+      } catch (error) {
+        return Result.err(new UnexpectedError({ cause: toError(error) }));
+      }
+      return refreshed;
+    }
 
     for (
       const instance of await instancesForDeployment(

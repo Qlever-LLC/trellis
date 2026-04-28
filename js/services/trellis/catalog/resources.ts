@@ -105,6 +105,14 @@ export type InstalledServiceContractBinding = {
   resources: ContractResourceBindings;
 };
 
+export type ResourceCompatibilityPreflightInput = {
+  serviceDeploymentId: string;
+  contractId: string;
+  proposedDigest: string;
+  proposed: Partial<Pick<ContractResourceAnalysis, "kv" | "store">>;
+  existingBindingsByDigest?: Record<string, ContractResourceBindings>;
+};
+
 export function getKvPermissionGrants(
   bucket: string,
   options: { allowCreate?: boolean } = {},
@@ -407,6 +415,67 @@ function buildResourceName(
   const logical = sanitizeToken(alias).slice(0, 20);
   const hash = stableResourceHash([serviceDeploymentId, contractId, alias]);
   return `svc_${service}_${contract}_${logical}_${hash}`;
+}
+
+/**
+ * Validates that a new same-lineage resource request is compatible with already
+ * allowed digests before any physical resource provisioning is attempted.
+ */
+export function preflightContractResourceCompatibility(
+  input: ResourceCompatibilityPreflightInput,
+): void {
+  for (const request of input.proposed.kv ?? []) {
+    const bucket = buildResourceName(
+      input.serviceDeploymentId,
+      input.contractId,
+      request.alias,
+    );
+    for (
+      const [digest, bindings] of Object.entries(
+        input.existingBindingsByDigest ?? {},
+      )
+    ) {
+      if (digest === input.proposedDigest) continue;
+      const existing = bindings.kv?.[request.alias];
+      if (!existing) continue;
+      if (
+        existing.history === request.history &&
+        existing.ttlMs === request.ttlMs &&
+        existing.maxValueBytes === request.maxValueBytes
+      ) {
+        continue;
+      }
+      throw new Error(
+        `incompatible KV resource settings for ${input.contractId} ${request.alias} (${bucket}) between ${digest} and ${input.proposedDigest}`,
+      );
+    }
+  }
+
+  for (const request of input.proposed.store ?? []) {
+    const name = buildResourceName(
+      input.serviceDeploymentId,
+      input.contractId,
+      request.alias,
+    );
+    for (
+      const [digest, bindings] of Object.entries(
+        input.existingBindingsByDigest ?? {},
+      )
+    ) {
+      if (digest === input.proposedDigest) continue;
+      const existing = bindings.store?.[request.alias];
+      if (!existing) continue;
+      if (
+        existing.ttlMs === request.ttlMs &&
+        existing.maxTotalBytes === request.maxTotalBytes
+      ) {
+        continue;
+      }
+      throw new Error(
+        `incompatible store resource settings for ${input.contractId} ${request.alias} (${name}) between ${digest} and ${input.proposedDigest}`,
+      );
+    }
+  }
 }
 
 export function getKvResourceRequests(

@@ -123,7 +123,8 @@
           <p class="mt-1 text-sm text-base-content/60">
             Confirm access for <strong class="font-semibold text-base-content"
               >{flow.state.approval.displayName}</strong
-            >
+            >. Approval is bound to the exact contract digest and delegated app
+            identity in this request, not just the app name.
           </p>
         </div>
         <div class="rounded-box border border-base-300 bg-base-100 p-4">
@@ -207,7 +208,8 @@
         <div>
           <h1 class="text-lg font-bold text-base-content">Access denied</h1>
           <p class="mt-1 text-sm text-base-content/60">
-            You denied access to {flow.state.approval.displayName}.
+            You denied access to the exact contract digest and delegated app
+            identity for {flow.state.approval.displayName}.
             {#if !shouldShowReturnToAppLink()}
               Return to the CLI to finish sign-in or close this page.
             {/if}

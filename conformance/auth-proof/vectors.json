@@ -14,8 +14,8 @@
     "natsConnect": {
       "contractDigest": "digest-alpha",
       "iat": 1735689600,
-      "iatSig": "gi641PQZTV6SqalXlWtakgl_hF-PLbM13NC_VTeRer7pprLCD5m9lGruiQ827g5vnKqmcnAIL0-eB8L9AOiDAg",
-      "runtimeToken": "{\"contractDigest\":\"digest-alpha\",\"iat\":1735689600,\"sessionKey\":\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\",\"sig\":\"gi641PQZTV6SqalXlWtakgl_hF-PLbM13NC_VTeRer7pprLCD5m9lGruiQ827g5vnKqmcnAIL0-eB8L9AOiDAg\",\"v\":1}"
+      "iatSig": "ozEDPb29KBrlEZh4iOsSNUL1yjyUA-1rgy8VOZD4UIbE5LpCtj7OYqAG5SzeBdFBYOkEz5mCgLzaNk-AhwjABg",
+      "runtimeToken": "{\"contractDigest\":\"digest-alpha\",\"iat\":1735689600,\"sessionKey\":\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\",\"sig\":\"ozEDPb29KBrlEZh4iOsSNUL1yjyUA-1rgy8VOZD4UIbE5LpCtj7OYqAG5SzeBdFBYOkEz5mCgLzaNk-AhwjABg\",\"v\":1}"
     },
     "rpcProof": {
       "subject": "rpc.v1.Trellis.Catalog",
@@ -41,8 +41,8 @@
     "natsConnect": {
       "contractDigest": "digest-local",
       "iat": 1735689660,
-      "iatSig": "BrZhllDQAioUt0NIyP74ZwXyx4-or_CgXJ5889TIv3yM60c2McMOJuaJpyyRqrUwDD_S_4AMXwiaZV6WVpacAw",
-      "runtimeToken": "{\"contractDigest\":\"digest-local\",\"iat\":1735689660,\"sessionKey\":\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\",\"sig\":\"BrZhllDQAioUt0NIyP74ZwXyx4-or_CgXJ5889TIv3yM60c2McMOJuaJpyyRqrUwDD_S_4AMXwiaZV6WVpacAw\",\"v\":1}"
+      "iatSig": "UZEWSICO4A7IhhTm0Leai1ARxWjil19m7eAYESK-QGpstUtxXq2ltAD3wJqIXdP-gKvOvmsCExyahuOTXOvcDQ",
+      "runtimeToken": "{\"contractDigest\":\"digest-local\",\"iat\":1735689660,\"sessionKey\":\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\",\"sig\":\"UZEWSICO4A7IhhTm0Leai1ARxWjil19m7eAYESK-QGpstUtxXq2ltAD3wJqIXdP-gKvOvmsCExyahuOTXOvcDQ\",\"v\":1}"
     },
     "rpcProof": {
       "subject": "rpc.v1.Auth.ValidateRequest",

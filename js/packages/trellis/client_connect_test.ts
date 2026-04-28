@@ -234,12 +234,18 @@ Deno.test("connectClientWithDeps uses reconnect-safe iat auth payloads for runti
     assertEquals(firstToken.bindingToken, undefined);
     assertEquals(
       firstToken.sig,
-      await auth.natsConnectSigForIat(firstToken.iat),
+      await auth.natsConnectSigForIat(
+        firstToken.iat,
+        firstToken.contractDigest,
+      ),
     );
     assert(secondToken.iat > firstToken.iat);
     assertEquals(
       secondToken.sig,
-      await auth.natsConnectSigForIat(secondToken.iat),
+      await auth.natsConnectSigForIat(
+        secondToken.iat,
+        secondToken.contractDigest,
+      ),
     );
   } finally {
     globalThis.fetch = originalFetch;

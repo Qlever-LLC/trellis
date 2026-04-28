@@ -266,6 +266,7 @@ export {
   UserParticipantKindSchema,
 } from "./schemas.ts";
 export {
+  buildNatsConnectSignaturePayload,
   createAuth,
   type NatsConnectOptions,
   type TrellisAuth,

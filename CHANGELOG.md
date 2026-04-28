@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Changed
 
+- Documented and surfaced the final Trellis service hardening pass across design
+  docs, guides, the built-in portal, and console: active-catalog dry-run
+  validation now gates staged apply/bootstrap state, service apply/unapply roll
+  back failed refreshes instead of exposing partial mutations, and service NATS
+  reconnect requires the exact current digest still allowed by the deployment.
 - Aligned Trellis service v1 docs and app surfaces with the latest cleanup:
   optional payload-field removal is documented as compatible when absence
   remains valid, State no longer infers accepted versions for unversioned

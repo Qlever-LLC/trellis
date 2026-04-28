@@ -116,13 +116,16 @@ Deno.test("natsConnectOptions returns a reconnect-safe authenticator with fresh 
     let nowMs = 1_700_000_000_000;
     Date.now = () => nowMs;
 
-    const options = await auth.natsConnectOptions();
+    const options = await auth.natsConnectOptions({
+      contractDigest: "digest-a",
+    });
     const firstToken = JSON.parse(
       authTokenFromAuthenticatorResult(options.authenticator()),
     ) as {
       sessionKey: string;
       iat: number;
       sig: string;
+      contractDigest: string;
     };
 
     nowMs += 31_000;
@@ -133,18 +136,27 @@ Deno.test("natsConnectOptions returns a reconnect-safe authenticator with fresh 
       sessionKey: string;
       iat: number;
       sig: string;
+      contractDigest: string;
     };
 
     assertEquals(options.inboxPrefix, `_INBOX.${auth.sessionKey.slice(0, 16)}`);
     assertEquals(firstToken.sessionKey, auth.sessionKey);
     assertEquals(secondToken.sessionKey, auth.sessionKey);
+    assertEquals(firstToken.contractDigest, "digest-a");
+    assertEquals(secondToken.contractDigest, "digest-a");
     assertEquals(
       firstToken.sig,
-      await auth.natsConnectSigForIat(firstToken.iat),
+      await auth.natsConnectSigForIat(
+        firstToken.iat,
+        firstToken.contractDigest,
+      ),
     );
     assertEquals(
       secondToken.sig,
-      await auth.natsConnectSigForIat(secondToken.iat),
+      await auth.natsConnectSigForIat(
+        secondToken.iat,
+        secondToken.contractDigest,
+      ),
     );
     assertEquals(secondToken.iat - firstToken.iat, 31);
     assertNotEquals(firstToken.sig, secondToken.sig);
@@ -164,16 +176,22 @@ Deno.test("createAuth applies server clock offsets to current iat and reconnect 
 
     assertEquals(auth.currentIat(), correctedIatSeconds(Date.now(), 900));
 
-    const options = await auth.natsConnectOptions();
+    const options = await auth.natsConnectOptions({
+      contractDigest: "digest-a",
+    });
     const token = JSON.parse(
       authTokenFromAuthenticatorResult(options.authenticator()),
     ) as {
       iat: number;
       sig: string;
+      contractDigest: string;
     };
 
     assertEquals(token.iat, 1_700_000_001);
-    assertEquals(token.sig, await auth.natsConnectSigForIat(1_700_000_001));
+    assertEquals(
+      token.sig,
+      await auth.natsConnectSigForIat(1_700_000_001, token.contractDigest),
+    );
   } finally {
     Date.now = originalNow;
   }

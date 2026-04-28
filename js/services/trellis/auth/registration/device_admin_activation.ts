@@ -16,7 +16,9 @@ export async function registerDeviceAdminAndActivation(
       config: Config;
       contracts: Pick<
         AuthContractsRuntime,
-        "installDeviceContract" | "refreshActiveContracts"
+        | "installDeviceContract"
+        | "refreshActiveContracts"
+        | "validateActiveCatalog"
       >;
       publishSessionRevoked: (
         event: {
@@ -56,6 +58,7 @@ export async function registerDeviceAdminAndActivation(
     loadEffectiveGrantPolicies: createEffectiveGrantPolicyLoader(deps),
     installDeviceContract: deps.contracts.installDeviceContract,
     refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    validateActiveCatalog: deps.contracts.validateActiveCatalog,
   });
   await deps.trellis.mount(
     "Auth.CreateDeviceDeployment",

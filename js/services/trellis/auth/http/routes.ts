@@ -3,6 +3,7 @@ import { cors } from "@hono/hono/cors";
 import { HTTPException } from "@hono/hono/http-exception";
 import { rateLimiter } from "@hono-rate-limiter/hono-rate-limiter";
 import { AsyncResult, isErr } from "@qlever-llc/result";
+import { buildNatsConnectSignaturePayload } from "@qlever-llc/trellis/auth";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
@@ -30,7 +31,10 @@ import {
   shouldUseSecureOauthCookie,
 } from "./support.ts";
 import { buildPortalFlowState } from "./portal_flow.ts";
-import { createServiceBootstrapHandler } from "../bootstrap/service.ts";
+import {
+  createServiceBootstrapHandler,
+  type ServiceBootstrapDeps,
+} from "../bootstrap/service.ts";
 import { createClientBootstrapHandler } from "../bootstrap/client.ts";
 import { registerDeviceActivationHttpRoutes } from "../device_activation/http.ts";
 import { buildClientTransports } from "../transports.ts";
@@ -145,6 +149,7 @@ export function registerHttpRoutes(
       contractId: string,
     ) => Promise<InstanceGrantPolicy[]>;
     contractStore: ContractStore;
+    validateActiveCatalog?: ServiceBootstrapDeps["validateActiveCatalog"];
     refreshActiveContracts?: () => Promise<void>;
     providers?: Record<string, Provider>;
     runtimeDeps: HttpRouteRuntimeDeps;
@@ -595,9 +600,15 @@ export function registerHttpRoutes(
       loadServiceDeployment: async (deploymentId) => {
         return await opts.serviceDeploymentStorage.get(deploymentId) ?? null;
       },
+      validateActiveCatalog: opts.validateActiveCatalog,
       refreshActiveContracts: opts.refreshActiveContracts ?? (async () => {}),
-      verifyIdentityProof: ({ sessionKey, iat, sig }) =>
-        verifyDomainSig(sessionKey, "nats-connect", String(iat), sig),
+      verifyIdentityProof: ({ sessionKey, iat, contractDigest, sig }) =>
+        verifyDomainSig(
+          sessionKey,
+          "nats-connect",
+          buildNatsConnectSignaturePayload(iat, contractDigest),
+          sig,
+        ),
     }),
   );
 

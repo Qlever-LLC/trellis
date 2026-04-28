@@ -103,9 +103,13 @@ Rules:
 
 - session-key proof alone is not enough for ordinary user clients
 - contract-bearing clients must present an approved exact `contractDigest`
+- service runtimes must present the exact digest currently persisted on their
+  service instance, and that digest must still be allowed by the parent service
+  deployment; stale service binaries or retired deployment digests are rejected
+  during NATS auth callout rather than receiving a partially scoped JWT
 - permissions are always derived from the caller's contract context plus current
-  grants, never from hard-coded static ACLs; service/device runtime contracts are
-  active deployment contracts, while app/agent contracts are known approved
+  grants, never from hard-coded static ACLs; service/device runtime contracts
+  are active deployment contracts, while app/agent contracts are known approved
   delegated contracts bound to the user session
 - reconnect authorization is re-evaluated against the presented digest and the
   bound app identity

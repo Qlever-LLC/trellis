@@ -941,6 +941,11 @@ Deno.test("service deployment storage upserts, deletes, and lists by deployment 
         appliedContracts: [{
           contractId: "svc.search@v1",
           allowedDigests: ["sha256-service-b", "sha256-service-c"],
+          resourceBindingsByDigest: {
+            "sha256-service-b": {
+              kv: { cache: { bucket: "search-cache", history: 1, ttlMs: 0 } },
+            },
+          },
         }],
       });
       await deployments.put(updated);
@@ -1033,6 +1038,37 @@ Deno.test("device deployment storage upserts, deletes, and lists by deployment i
       assertEquals(await deployments.list(), [second, updated]);
       await deployments.delete("dev-deployment-a");
       assertEquals(await deployments.get("dev-deployment-a"), undefined);
+    },
+  );
+});
+
+Deno.test("device deployment storage omits service-only resource bindings", async () => {
+  await withRepositories(
+    async ({ deviceDeployments: deployments }, storage) => {
+      await storage.db.insert(deviceDeployments).values({
+        deploymentId: "dev-deployment-resource-bound",
+        reviewMode: "none",
+        disabled: false,
+        appliedContracts: JSON.stringify([{
+          contractId: "device.reader@v1",
+          allowedDigests: ["sha256-device-a"],
+          resourceBindingsByDigest: {
+            "sha256-device-a": {
+              kv: { cache: { bucket: "reader-cache", history: 1, ttlMs: 0 } },
+            },
+          },
+        }]),
+      });
+
+      assertEquals(await deployments.get("dev-deployment-resource-bound"), {
+        deploymentId: "dev-deployment-resource-bound",
+        reviewMode: "none",
+        disabled: false,
+        appliedContracts: [{
+          contractId: "device.reader@v1",
+          allowedDigests: ["sha256-device-a"],
+        }],
+      });
     },
   );
 });

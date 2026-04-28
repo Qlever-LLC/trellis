@@ -335,7 +335,7 @@ async function fetchServiceBootstrapInfoOnce(args: {
       contractId: args.contractId,
       contractDigest: args.contractDigest,
       iat,
-      sig: await args.auth.natsConnectSigForIat(iat),
+      sig: await args.auth.natsConnectSigForIat(iat, args.contractDigest),
     }),
   });
   const responseReceivedAtMs = Date.now();
@@ -918,7 +918,7 @@ export type TrellisServiceInternalConnectArgs<
   TKv extends ContractKvMetadata = {},
 > = TrellisServiceRuntimeConnectOpts<TOwnedApi, TTrellisApi> & {
   contractId?: string;
-  contractDigest?: string;
+  contractDigest: string;
   contractKv?: TKv;
 };
 
@@ -1722,7 +1722,9 @@ export class TrellisService<
         });
         const { authenticator: authTokenAuthenticator, inboxPrefix } =
           await auth
-            .natsConnectOptions();
+            .natsConnectOptions({
+              contractDigest: args.contract.CONTRACT_DIGEST,
+            });
 
         let nc: NatsConnection;
         try {

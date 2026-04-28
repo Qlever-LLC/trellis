@@ -62,53 +62,62 @@ function sameStringSet(left: string[], right: string[]): boolean {
   return left.every((value) => rightValues.has(value));
 }
 
-function isResolvedSchemaCompatible(
+function mergeResolvedSchemaCompatible(
   left: JsonSchema,
   right: JsonSchema,
-): boolean {
-  if (canonicalizeJson(left) === canonicalizeJson(right)) return true;
-  if (!isJsonObject(left) || !isJsonObject(right)) return false;
-  if (objectValue(left, "type") !== "object") return false;
-  if (objectValue(right, "type") !== "object") return false;
+): JsonSchema | null {
+  if (canonicalizeJson(left) === canonicalizeJson(right)) return left;
+  if (!isJsonObject(left) || !isJsonObject(right)) return null;
+  if (objectValue(left, "type") !== "object") return null;
+  if (objectValue(right, "type") !== "object") return null;
   if (!hasOnlySupportedObjectKeys(left) || !hasOnlySupportedObjectKeys(right)) {
-    return false;
+    return null;
   }
   if (
     !hasSupportedAdditionalProperties(left) ||
     !hasSupportedAdditionalProperties(right)
-  ) return false;
+  ) return null;
 
   const leftRequired = stringArray(objectValue(left, "required"));
   const rightRequired = stringArray(objectValue(right, "required"));
-  if (!leftRequired || !rightRequired) return false;
-  if (!sameStringSet(leftRequired, rightRequired)) return false;
+  if (!leftRequired || !rightRequired) return null;
+  if (!sameStringSet(leftRequired, rightRequired)) return null;
   const required = new Set(leftRequired);
 
   const leftProperties = propertiesObject(objectValue(left, "properties"));
   const rightProperties = propertiesObject(objectValue(right, "properties"));
-  if (!leftProperties || !rightProperties) return false;
+  if (!leftProperties || !rightProperties) return null;
 
   if (
     (!isOpenObject(left) || !isOpenObject(right)) &&
     !sameStringSet(Object.keys(leftProperties), Object.keys(rightProperties))
-  ) return false;
+  ) return null;
 
+  const properties: JsonObject = {};
   for (const [name, leftProperty] of Object.entries(leftProperties)) {
     const rightProperty = rightProperties[name];
     if (rightProperty === undefined) {
-      if (required.has(name)) return false;
-      if (!isOpenObject(right)) return false;
+      if (required.has(name)) return null;
+      if (!isOpenObject(right)) return null;
+      properties[name] = leftProperty;
       continue;
     }
-    if (!isResolvedSchemaCompatible(leftProperty, rightProperty)) return false;
+    const property = mergeResolvedSchemaCompatible(leftProperty, rightProperty);
+    if (property === null) return null;
+    properties[name] = property;
   }
 
-  for (const name of Object.keys(rightProperties)) {
-    if (leftProperties[name] === undefined && required.has(name)) return false;
-    if (leftProperties[name] === undefined && !isOpenObject(left)) return false;
+  for (const [name, rightProperty] of Object.entries(rightProperties)) {
+    if (leftProperties[name] !== undefined) continue;
+    if (required.has(name)) return null;
+    if (!isOpenObject(left)) return null;
+    properties[name] = rightProperty;
   }
 
-  return true;
+  return {
+    ...left,
+    properties,
+  };
 }
 
 function resolveSchemaRef(
@@ -131,8 +140,37 @@ export function areSchemaRefsCompatible(
   rightRef: ContractSchemaRef,
   rightSchemas: ContractSchemas | undefined,
 ): boolean {
+  return mergeCompatibleSchemaRefs(
+    leftRef,
+    leftSchemas,
+    rightRef,
+    rightSchemas,
+  ) !== null;
+}
+
+/**
+ * Returns the conservative projected schema when two concrete schemas are
+ * active-compatible, or null when Trellis cannot prove compatibility.
+ */
+export function mergeCompatibleSchemas(
+  left: JsonSchema,
+  right: JsonSchema,
+): JsonSchema | null {
+  return mergeResolvedSchemaCompatible(left, right);
+}
+
+/**
+ * Returns the conservative projected schema for compatible schema refs, or null
+ * when Trellis cannot prove the resolved schemas are active-compatible.
+ */
+export function mergeCompatibleSchemaRefs(
+  leftRef: ContractSchemaRef,
+  leftSchemas: ContractSchemas | undefined,
+  rightRef: ContractSchemaRef,
+  rightSchemas: ContractSchemas | undefined,
+): JsonSchema | null {
   const leftSchema = resolveSchemaRef(leftRef, leftSchemas);
   const rightSchema = resolveSchemaRef(rightRef, rightSchemas);
-  if (leftSchema === null || rightSchema === null) return false;
-  return isResolvedSchemaCompatible(leftSchema, rightSchema);
+  if (leftSchema === null || rightSchema === null) return null;
+  return mergeResolvedSchemaCompatible(leftSchema, rightSchema);
 }

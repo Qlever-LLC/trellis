@@ -25,7 +25,7 @@ export const OpenObjectSchema = Type.Unsafe<Record<string, unknown>>({
   type: "object",
 });
 
-export const AppliedDeploymentContractSchema = Type.Object({
+export const ServiceAppliedDeploymentContractSchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
   allowedDigests: Type.Array(DigestSchema),
   resourceBindingsByDigest: Type.Optional(
@@ -33,11 +33,16 @@ export const AppliedDeploymentContractSchema = Type.Object({
   ),
 });
 
+export const DeviceAppliedDeploymentContractSchema = Type.Object({
+  contractId: Type.String({ minLength: 1 }),
+  allowedDigests: Type.Array(DigestSchema),
+}, { additionalProperties: false });
+
 export const ServiceDeploymentSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   namespaces: Type.Array(Type.String({ minLength: 1 })),
   disabled: Type.Boolean(),
-  appliedContracts: Type.Array(AppliedDeploymentContractSchema),
+  appliedContracts: Type.Array(ServiceAppliedDeploymentContractSchema),
 });
 
 export const ServiceInstanceSchema = Type.Object({
@@ -653,7 +658,7 @@ export const DeviceDeploymentSchema = Type.Object({
     Type.Union([Type.Literal("none"), Type.Literal("required")]),
   ),
   disabled: Type.Boolean(),
-  appliedContracts: Type.Array(AppliedDeploymentContractSchema),
+  appliedContracts: Type.Array(DeviceAppliedDeploymentContractSchema),
 });
 
 export const DeviceMetadataSchema = Type.Record(

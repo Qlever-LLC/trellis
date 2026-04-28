@@ -37,7 +37,9 @@ export async function registerServiceAdminRpcs(deps: {
   logger: Pick<AuthRuntimeDeps["logger"], "debug" | "trace" | "warn">;
   contracts: Pick<
     AuthContractsRuntime,
-    "installServiceContract" | "refreshActiveContracts"
+    | "installServiceContract"
+    | "refreshActiveContracts"
+    | "validateActiveCatalog"
   >;
 }): Promise<void> {
   const kick = createKick({ logger: deps.logger, natsAuth: deps.natsAuth });
@@ -62,6 +64,7 @@ export async function registerServiceAdminRpcs(deps: {
       nats: deps.natsTrellis,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
       serviceDeploymentStorage: deps.serviceDeploymentStorage,
+      validateActiveCatalog: deps.contracts.validateActiveCatalog,
       logger: deps.logger,
     }),
   );
@@ -70,6 +73,7 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthUnapplyServiceDeploymentContractHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      validateActiveCatalog: deps.contracts.validateActiveCatalog,
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
       logger: deps.logger,

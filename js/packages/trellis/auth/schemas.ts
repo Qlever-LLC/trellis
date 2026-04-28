@@ -123,7 +123,7 @@ export const NatsAuthTokenV1Schema = Type.Object({
   sessionKey: SessionKeySchema,
   sig: SignatureSchema,
   iat: Type.Integer(),
-  contractDigest: Type.Optional(ContractDigestSchema),
+  contractDigest: ContractDigestSchema,
 }, { additionalProperties: false });
 
 export type NatsAuthTokenV1 = StaticDecode<typeof NatsAuthTokenV1Schema>;

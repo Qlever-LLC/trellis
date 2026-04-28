@@ -385,7 +385,7 @@
     "operation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "subject", "input"],
+      "required": ["version", "subject", "input", "output"],
       "properties": {
         "version": {
           "type": "string",

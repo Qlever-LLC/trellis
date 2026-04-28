@@ -2,6 +2,7 @@ import { decode, encodeAuthorizationResponse, encodeUser } from "@nats-io/jwt";
 import type { Msg } from "@nats-io/nats-core";
 import { fromSeed } from "@nats-io/nkeys";
 import {
+  buildNatsConnectSignaturePayload,
   NatsAuthTokenV1Schema,
   trellisIdFromOriginId,
 } from "@qlever-llc/trellis/auth";
@@ -51,6 +52,10 @@ import {
   parseConnectionKey,
 } from "../session/connections.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
+import type {
+  ServiceDeployment as AdminServiceDeployment,
+  ServiceInstance as AdminServiceInstance,
+} from "../admin/shared.ts";
 import { parseContractApprovalKey } from "../http/support.ts";
 import type {
   SqlContractApprovalRepository,
@@ -177,14 +182,20 @@ type DeviceRuntimeGrant = DeviceRuntimeAccess & {
   };
 };
 
-type ServiceRuntimeLoaders = Required<
-  Pick<
-    Parameters<typeof resolveSessionPrincipal>[2],
-    | "loadServiceInstance"
-    | "loadServiceDeployment"
-    | "loadInstanceGrantPolicies"
-  >
->;
+type ServiceRuntimeLoaders = {
+  loadServiceInstance(
+    instanceKey: string,
+  ): Promise<AdminServiceInstance | null>;
+  loadServiceDeployment(
+    deploymentId: string,
+  ): Promise<AdminServiceDeployment | null>;
+  loadInstanceGrantPolicies: Required<
+    Pick<
+      Parameters<typeof resolveSessionPrincipal>[2],
+      "loadInstanceGrantPolicies"
+    >
+  >["loadInstanceGrantPolicies"];
+};
 
 type DeviceRuntimeGrantDeps = {
   deviceActivationStorage: Pick<SqlDeviceActivationRepository, "get" | "put">;
@@ -252,6 +263,57 @@ async function resolveDeviceRuntimeGrant(
     },
     deployment,
   });
+}
+
+async function verifyRuntimeAuthTokenSignature(input: {
+  sessionKey: string;
+  iat: number;
+  contractDigest: string;
+  sig: string;
+}): Promise<boolean> {
+  return await verifyDomainSig(
+    input.sessionKey,
+    "nats-connect",
+    buildNatsConnectSignaturePayload(input.iat, input.contractDigest),
+    input.sig,
+  );
+}
+
+function validateServiceRuntimeDigest(args: {
+  presentedContractDigest?: string;
+  service: Pick<
+    AdminServiceInstance,
+    "currentContractId" | "currentContractDigest"
+  >;
+  deployment: Pick<AdminServiceDeployment, "appliedContracts">;
+}): AuthCalloutStageResult<void> {
+  if (
+    typeof args.presentedContractDigest !== "string" ||
+    args.presentedContractDigest.length === 0
+  ) {
+    return stageDeny("invalid_auth_token");
+  }
+
+  const currentContractDigest = args.service.currentContractDigest;
+  const currentContractId = args.service.currentContractId;
+  if (
+    typeof currentContractDigest !== "string" ||
+    currentContractDigest.length === 0 ||
+    typeof currentContractId !== "string" ||
+    currentContractId.length === 0 ||
+    args.presentedContractDigest !== currentContractDigest
+  ) {
+    return stageDeny("contract_changed");
+  }
+
+  const appliedContract = args.deployment.appliedContracts.find((entry) =>
+    entry.contractId === currentContractId
+  );
+  if (!appliedContract?.allowedDigests.includes(args.presentedContractDigest)) {
+    return stageDeny("contract_changed");
+  }
+
+  return stageOk(undefined);
 }
 
 export function startDisconnectCleanup(deps: {
@@ -466,12 +528,21 @@ export function startAuthCallout(
 
     const iat = authToken.iat;
     if (typeof iat !== "number") return stageDeny("invalid_auth_token");
+    const contractDigest = authToken.contractDigest;
+    if (typeof contractDigest !== "string" || contractDigest.length === 0) {
+      return stageDeny("invalid_auth_token");
+    }
     const nowSec = Math.floor(now.getTime() / 1000);
     if (Math.abs(nowSec - iat) > 30) {
       return stageDeny("iat_out_of_range");
     }
     if (
-      !(await verifyDomainSig(sessionKey, "nats-connect", String(iat), sig))
+      !await verifyRuntimeAuthTokenSignature({
+        sessionKey,
+        iat,
+        contractDigest,
+        sig,
+      })
     ) {
       return stageDeny("invalid_signature");
     }
@@ -485,20 +556,27 @@ export function startAuthCallout(
   ): Promise<AuthCalloutStageResult<Session>> {
     const { sessionKey, token: authToken } = auth;
     const service = await loadServiceInstanceByKey(sessionKey);
+    let serviceDeployment: AdminServiceDeployment | null = null;
     if (service) {
       if (service.disabled) return stageDeny("service_disabled");
-      const deployment = await loadServiceDeployment(service.deploymentId);
-      if (!deployment || deployment.disabled) {
+      serviceDeployment = await loadServiceDeployment(service.deploymentId);
+      if (!serviceDeployment || serviceDeployment.disabled) {
         return stageDeny("service_disabled");
       }
+      const digestCheck = validateServiceRuntimeDigest({
+        presentedContractDigest: authToken.contractDigest,
+        service,
+        deployment: serviceDeployment,
+      });
+      if (!digestCheck.ok) return digestCheck;
     }
 
     let session = await sessionStorage.getOneBySessionKey(sessionKey);
     if (!session) {
       if (service) {
-        const deployment = await loadServiceDeployment(service.deploymentId);
         const trellisId = await trellisIdFromOriginId("service", sessionKey);
-        const displayName = deployment?.deploymentId ?? service.instanceId;
+        const displayName = serviceDeployment?.deploymentId ??
+          service.instanceId;
         await sessionStorage.put(sessionKey, {
           type: "service",
           trellisId,
@@ -946,5 +1024,7 @@ export function startAuthCallout(
 
 export const __testing__ = {
   AUTH_CALLOUT_INTERNAL_ERROR,
+  validateServiceRuntimeDigest,
+  verifyRuntimeAuthTokenSignature,
   waitForInFlightHandlers,
 };

@@ -3,7 +3,7 @@ import { Kvm } from "@nats-io/kv";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { Objm } from "@nats-io/obj";
 import { TypedStore } from "@qlever-llc/trellis";
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { NatsTest } from "../../../packages/trellis/testing/nats.ts";
 
 import {
@@ -11,6 +11,7 @@ import {
   getKvResourceRequests,
   getResourcePermissionGrants,
   getStoreResourceRequests,
+  preflightContractResourceCompatibility,
   provisionContractResourceBindings,
   reconcileKvResourceConfig,
 } from "./resources.ts";
@@ -293,6 +294,82 @@ Deno.test("KV reconciliation updates existing bucket limits", async () => {
       max_msg_size: 1024,
     },
   }]);
+});
+
+Deno.test("resource preflight rejects conflicting same-lineage KV settings before provisioning", () => {
+  let provisioned = false;
+
+  assertThrows(
+    () => {
+      preflightContractResourceCompatibility({
+        serviceDeploymentId: "activity.default",
+        contractId: "activity@v1",
+        proposedDigest: "digest-b",
+        proposed: {
+          kv: [{
+            alias: "activity",
+            purpose: "Store activity entries",
+            required: true,
+            history: 2,
+            ttlMs: 0,
+          }],
+        },
+        existingBindingsByDigest: {
+          "digest-a": {
+            kv: {
+              activity: {
+                bucket: "svc_activity_def_activity_v1_activity_2ef94497652e",
+                history: 1,
+                ttlMs: 0,
+              },
+            },
+          },
+        },
+      });
+      provisioned = true;
+    },
+    Error,
+    "incompatible KV resource settings",
+  );
+  assertEquals(provisioned, false);
+});
+
+Deno.test("resource preflight rejects conflicting same-lineage store settings before provisioning", () => {
+  let provisioned = false;
+
+  assertThrows(
+    () => {
+      preflightContractResourceCompatibility({
+        serviceDeploymentId: "activity.default",
+        contractId: "activity@v1",
+        proposedDigest: "digest-b",
+        proposed: {
+          store: [{
+            alias: "uploads",
+            purpose: "Temporary uploaded files awaiting processing",
+            required: true,
+            ttlMs: 120_000,
+            maxTotalBytes: 4096,
+          }],
+        },
+        existingBindingsByDigest: {
+          "digest-a": {
+            store: {
+              uploads: {
+                name: "svc_activity_def_activity_v1_uploads_4d0bbccb282e",
+                ttlMs: 60_000,
+                maxTotalBytes: 4096,
+              },
+            },
+          },
+        },
+      });
+      provisioned = true;
+    },
+    Error,
+    "incompatible store resource settings",
+  );
+  assertEquals(provisioned, false);
 });
 
 Deno.test("resource permission grants include store object subjects and subscribe permissions", () => {

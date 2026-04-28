@@ -4,6 +4,7 @@ import { createAuth } from "@qlever-llc/trellis/auth";
 
 import { ContractStore } from "../../catalog/store.ts";
 import { createServiceBootstrapHandler } from "./service.ts";
+import type { ServiceBootstrapDeps } from "./service.ts";
 
 const TEST_SEED = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const TEST_IAT = 1_700_000_000;
@@ -87,6 +88,8 @@ async function createApp(args: {
   appliedResourceBindings?: Record<string, unknown> | null;
   appliedResourceBindingsByDigest?: Record<string, Record<string, unknown>>;
   includeAlternateContract?: boolean;
+  validateActiveCatalog?: ServiceBootstrapDeps["validateActiveCatalog"];
+  refreshActiveContracts?: () => Promise<void>;
 }) {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
   const validated = await createTestContractStore();
@@ -105,6 +108,7 @@ async function createApp(args: {
   const savedServices: Array<{
     resourceBindings?: Record<string, unknown>;
     currentContractDigest?: string;
+    capabilities: string[];
   }> = [];
   const defaultResourceBindings = {
     kv: {
@@ -179,10 +183,11 @@ async function createApp(args: {
             }),
         }],
       }),
-      refreshActiveContracts: async () => {},
-      verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
+      validateActiveCatalog: args.validateActiveCatalog,
+      refreshActiveContracts: args.refreshActiveContracts ?? (async () => {}),
+      verifyIdentityProof: async ({ sessionKey, iat, contractDigest, sig }) =>
         sessionKey === auth.sessionKey &&
-        sig === await auth.natsConnectSigForIat(iat),
+        sig === await auth.natsConnectSigForIat(iat, contractDigest),
       nowSeconds: () => args.nowSeconds ?? TEST_IAT,
     }),
   );
@@ -205,7 +210,7 @@ Deno.test("POST /bootstrap/service returns runtime bootstrap info and bindings",
       contractId: contract.contract.id,
       contractDigest: contract.digest,
       iat: TEST_IAT,
-      sig: await auth.natsConnectSigForIat(TEST_IAT),
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
     }),
   });
 
@@ -285,7 +290,7 @@ Deno.test("POST /bootstrap/service consumes persisted applied-contract bindings"
       contractId: contract.contract.id,
       contractDigest: contract.digest,
       iat: TEST_IAT,
-      sig: await auth.natsConnectSigForIat(TEST_IAT),
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
     }),
   });
 
@@ -294,6 +299,123 @@ Deno.test("POST /bootstrap/service consumes persisted applied-contract bindings"
   assertEquals(body.binding.resources, appliedResourceBindings);
   assertEquals(savedServices.length, 1);
   assertEquals(savedServices[0]?.resourceBindings, appliedResourceBindings);
+});
+
+Deno.test("POST /bootstrap/service validates staged service before persisting", async () => {
+  const appliedResourceBindings = {
+    kv: {
+      cache: {
+        bucket: "applied_cache",
+        history: 3,
+        ttlMs: 60000,
+      },
+    },
+  };
+  const validationCalls: Array<{
+    currentContractDigest?: string;
+    resourceBindings?: Record<string, unknown>;
+    capabilities: string[];
+  }> = [];
+  const { app, auth, contract, savedServices } = await createApp({
+    service: {
+      displayName: "Example Service",
+      active: true,
+      capabilities: ["service"],
+      description: "Example service",
+      contractDigest: "old_digest",
+      resourceBindings: {
+        kv: { cache: { bucket: "old_cache", history: 1, ttlMs: 0 } },
+      },
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    },
+    appliedResourceBindings,
+    validateActiveCatalog: async ({ stagedServiceInstances }) => {
+      const staged = [...(stagedServiceInstances ?? [])];
+      const service = staged[0];
+      if (service) {
+        validationCalls.push({
+          currentContractDigest: service.currentContractDigest,
+          resourceBindings: service.resourceBindings,
+          capabilities: service.capabilities,
+        });
+      }
+      throw new Error("active catalog invalid");
+    },
+  });
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: contract.digest,
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
+    }),
+  });
+
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    reason: "service_contract_mismatch",
+    message: "active catalog invalid",
+    instanceId: "svc_1",
+    deploymentId: "deployment_1",
+    expectedContractId: contract.contract.id,
+    expectedContractDigest: contract.digest,
+  });
+  assertEquals(validationCalls, [{
+    currentContractDigest: contract.digest,
+    resourceBindings: appliedResourceBindings,
+    capabilities: ["service"],
+  }]);
+  assertEquals(savedServices.length, 0);
+});
+
+Deno.test("POST /bootstrap/service rolls back previous service when refresh fails", async () => {
+  const previousResourceBindings = {
+    kv: { cache: { bucket: "old_cache", history: 1, ttlMs: 0 } },
+  };
+  const nextResourceBindings = {
+    kv: { cache: { bucket: "next_cache", history: 2, ttlMs: 1000 } },
+  };
+  const { app, auth, contract, savedServices } = await createApp({
+    service: {
+      displayName: "Example Service",
+      active: true,
+      capabilities: ["service", "previous.capability"],
+      description: "Example service",
+      contractDigest: "old_digest",
+      resourceBindings: previousResourceBindings,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    },
+    appliedResourceBindings: nextResourceBindings,
+    refreshActiveContracts: async () => {
+      throw new Error("refresh failed");
+    },
+  });
+
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: contract.digest,
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
+    }),
+  });
+
+  assertEquals(response.status, 500);
+  assertEquals(savedServices.length, 2);
+  assertEquals(savedServices[0]?.currentContractDigest, contract.digest);
+  assertEquals(savedServices[0]?.resourceBindings, nextResourceBindings);
+  assertEquals(savedServices[1]?.currentContractDigest, "old_digest");
+  assertEquals(savedServices[1]?.resourceBindings, previousResourceBindings);
+  assertEquals(savedServices[1]?.capabilities, [
+    "service",
+    "previous.capability",
+  ]);
 });
 
 Deno.test("POST /bootstrap/service selects bindings by exact digest", async () => {
@@ -324,7 +446,7 @@ Deno.test("POST /bootstrap/service selects bindings by exact digest", async () =
         contractId: contract.contract.id,
         contractDigest: contract.digest,
         iat: TEST_IAT,
-        sig: await auth.natsConnectSigForIat(TEST_IAT),
+        sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
       }),
     },
   );
@@ -338,7 +460,10 @@ Deno.test("POST /bootstrap/service selects bindings by exact digest", async () =
         contractId: alternateContract.contract.id,
         contractDigest: alternateContract.digest,
         iat: TEST_IAT,
-        sig: await auth.natsConnectSigForIat(TEST_IAT),
+        sig: await auth.natsConnectSigForIat(
+          TEST_IAT,
+          alternateContract.digest,
+        ),
       }),
     },
   );
@@ -361,7 +486,7 @@ Deno.test("POST /bootstrap/service fails clearly when applied resources have no 
       contractId: contract.contract.id,
       contractDigest: contract.digest,
       iat: TEST_IAT,
-      sig: await auth.natsConnectSigForIat(TEST_IAT),
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
     }),
   });
 
@@ -389,7 +514,7 @@ Deno.test("POST /bootstrap/service rejects stale identity proofs", async () => {
       contractId: contract.contract.id,
       contractDigest: contract.digest,
       iat: TEST_IAT,
-      sig: await auth.natsConnectSigForIat(TEST_IAT),
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
     }),
   });
 
@@ -418,6 +543,24 @@ Deno.test("POST /bootstrap/service rejects invalid signatures", async () => {
   assertEquals(await response.json(), { reason: "invalid_signature" });
 });
 
+Deno.test("POST /bootstrap/service rejects contract digest tampering", async () => {
+  const { app, auth, contract } = await createApp({});
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: "other_digest",
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
+    }),
+  });
+
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), { reason: "invalid_signature" });
+});
+
 Deno.test("POST /bootstrap/service rejects unknown services", async () => {
   const { app, auth, contract } = await createApp({ service: null });
   const response = await app.request("http://trellis/bootstrap/service", {
@@ -428,7 +571,7 @@ Deno.test("POST /bootstrap/service rejects unknown services", async () => {
       contractId: contract.contract.id,
       contractDigest: contract.digest,
       iat: TEST_IAT,
-      sig: await auth.natsConnectSigForIat(TEST_IAT),
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
     }),
   });
 
@@ -463,7 +606,7 @@ Deno.test("POST /bootstrap/service rejects disabled services", async () => {
       contractId: contract.contract.id,
       contractDigest: contract.digest,
       iat: TEST_IAT,
-      sig: await auth.natsConnectSigForIat(TEST_IAT),
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
     }),
   });
 
@@ -490,7 +633,7 @@ Deno.test("POST /bootstrap/service bootstraps installed allowed inactive contrac
       contractId: contract.contract.id,
       contractDigest: contract.digest,
       iat: TEST_IAT,
-      sig: await auth.natsConnectSigForIat(TEST_IAT),
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
     }),
   });
 
@@ -510,7 +653,7 @@ Deno.test("POST /bootstrap/service rejects allowed contracts that are not instal
       contractId: contract.contract.id,
       contractDigest: contract.digest,
       iat: TEST_IAT,
-      sig: await auth.natsConnectSigForIat(TEST_IAT),
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
     }),
   });
 
@@ -539,7 +682,7 @@ Deno.test("POST /bootstrap/service accepts contracts that are present but inacti
       contractId: contract.contract.id,
       contractDigest: contract.digest,
       iat: TEST_IAT,
-      sig: await auth.natsConnectSigForIat(TEST_IAT),
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
     }),
   });
 
@@ -556,7 +699,7 @@ Deno.test("POST /bootstrap/service returns actionable mismatch details", async (
       contractId: contract.contract.id,
       contractDigest: "other_digest",
       iat: TEST_IAT,
-      sig: await auth.natsConnectSigForIat(TEST_IAT),
+      sig: await auth.natsConnectSigForIat(TEST_IAT, "other_digest"),
     }),
   });
 

@@ -45,8 +45,8 @@ Rules:
 - a participant with no owned RPCs, operations, events, or resources is normal;
   do not invent owned APIs just to fit a service template
 - only `kind: "service"` participants should use `TrellisService.connect(...)`,
-  service deployment flows, and service-owned runtime handles such as `service.kv`,
-  `service.store`, and `service.jobs`
+  service deployment flows, and service-owned runtime handles such as
+  `service.kv`, `service.store`, and `service.jobs`
 
 ### Directory structure
 
@@ -119,22 +119,22 @@ Rules:
 ### Service-local storage
 
 Most services should keep durable domain storage behind their own service
-boundary and expose behavior through contract-owned RPCs, operations, events, and
-resource declarations. The Trellis control-plane service uses local SQLite for
-its own durable runtime records.
+boundary and expose behavior through contract-owned RPCs, operations, events,
+and resource declarations. The Trellis control-plane service uses local SQLite
+for its own durable runtime records.
 
 Rules:
 
-- service-local storage is an implementation detail unless the contract exposes a
-  public API over it
+- service-local storage is an implementation detail unless the contract exposes
+  a public API over it
 - the Trellis control-plane SQLite database defaults to
   `/var/lib/trellis/trellis.sqlite` and is configurable as `storage.dbPath`
 - Trellis service bootstrap owns opening the database, creating the schema, and
   constructing concrete storage modules
 - prefer concrete storage modules for the service's actual record types rather
   than generic repository abstractions
-- app-generated ULID row primary keys are used for SQL table identity; public and
-  domain identifiers remain separate columns
+- app-generated ULID row primary keys are used for SQL table identity; public
+  and domain identifiers remain separate columns
 
 ### Minimal installable service example
 
@@ -236,6 +236,10 @@ Behavior:
 - `TrellisService.connect(...)` performs bootstrap, auth handshake, contract
   verification, runtime connection setup, and eager binding resolution
 - if the contract is not installed, startup fails immediately
+- service bootstrap is a validation and binding-resolution step, not a resource
+  provisioning step; it validates the exact presented digest against the service
+  instance and parent deployment, stages the instance update for active-catalog
+  validation, and rolls back the instance if refresh fails
 - schema-backed KV handles such as `service.kv.<alias>` resolve during bootstrap
   as direct typed stores, while store handles such as `service.store.<alias>`
   are opened explicitly before use

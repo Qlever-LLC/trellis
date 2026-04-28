@@ -142,12 +142,14 @@ Deno.test("contract analysis does not grant operation control from call alone", 
     kind: "service",
     schemas: {
       Input: { type: "object" },
+      Output: { type: "object" },
     },
     operations: {
       Run: {
         version: "v1",
         subject: "operations.v1.Jobs.Run",
         input: { schema: "Input" },
+        output: { schema: "Output" },
         capabilities: {
           call: ["jobs.run"],
         },

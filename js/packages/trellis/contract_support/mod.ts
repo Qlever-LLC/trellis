@@ -231,7 +231,7 @@ export type ContractOperation = {
   subject: string;
   input: ContractSchemaRef;
   progress?: ContractSchemaRef;
-  output?: ContractSchemaRef;
+  output: ContractSchemaRef;
   transfer?: {
     direction: "send";
     store: string;
@@ -583,7 +583,7 @@ export type ContractSourceOperation<TSchemaName extends string = string> = {
   version: `v${number}`;
   input: ContractSchemaRef<TSchemaName>;
   progress?: ContractSchemaRef<TSchemaName>;
-  output?: ContractSchemaRef<TSchemaName>;
+  output: ContractSchemaRef<TSchemaName>;
   transfer?: {
     direction: "send";
     store: string;
@@ -2305,12 +2305,10 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
           subject: operation.subject ??
             operationSubject(name, operation.version),
           input: { ...operation.input },
+          output: { ...operation.output },
         };
         if (operation.progress) {
           emitted.progress = { ...operation.progress };
-        }
-        if (operation.output) {
-          emitted.output = { ...operation.output };
         }
         if (operation.transfer) {
           emitted.transfer = { ...operation.transfer, direction: "send" };

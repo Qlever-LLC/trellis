@@ -62,17 +62,22 @@ export type DevicePortalSelection = {
   portalId: string | null;
 };
 
-export type AppliedDeploymentContract = {
+export type ServiceAppliedDeploymentContract = {
   contractId: string;
   allowedDigests: string[];
   resourceBindingsByDigest?: Record<string, AppliedResourceBindings>;
+};
+
+export type DeviceAppliedDeploymentContract = {
+  contractId: string;
+  allowedDigests: string[];
 };
 
 export type ServiceDeployment = {
   deploymentId: string;
   namespaces: string[];
   disabled: boolean;
-  appliedContracts: AppliedDeploymentContract[];
+  appliedContracts: ServiceAppliedDeploymentContract[];
 };
 
 export type ServiceInstance = {
@@ -98,7 +103,7 @@ export type DeviceDeployment = {
   deploymentId: string;
   reviewMode?: "none" | "required";
   disabled: boolean;
-  appliedContracts: AppliedDeploymentContract[];
+  appliedContracts: DeviceAppliedDeploymentContract[];
 };
 
 export type DeviceProvisioningSecret = {
@@ -231,8 +236,8 @@ export function normalizeDigestList(values: string[]): string[] {
 }
 
 export function normalizeAppliedContracts(
-  values: AppliedDeploymentContract[],
-): AppliedDeploymentContract[] {
+  values: ServiceAppliedDeploymentContract[],
+): ServiceAppliedDeploymentContract[] {
   const byId = new Map<
     string,
     {
@@ -265,7 +270,7 @@ export function normalizeAppliedContracts(
   return [...byId.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([contractId, entry]) => {
-      const applied: AppliedDeploymentContract = {
+      const applied: ServiceAppliedDeploymentContract = {
         contractId,
         allowedDigests: [...entry.digests].sort((left, right) =>
           left.localeCompare(right)
@@ -282,6 +287,28 @@ export function normalizeAppliedContracts(
       }
       return applied;
     });
+}
+
+export function normalizeDeviceAppliedContracts(
+  values: DeviceAppliedDeploymentContract[],
+): DeviceAppliedDeploymentContract[] {
+  const byId = new Map<string, Set<string>>();
+  for (const value of values) {
+    if (!value.contractId) continue;
+    const digests = byId.get(value.contractId) ?? new Set<string>();
+    for (const digest of normalizeDigestList(value.allowedDigests ?? [])) {
+      digests.add(digest);
+    }
+    byId.set(value.contractId, digests);
+  }
+  return [...byId.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([contractId, digests]) => ({
+      contractId,
+      allowedDigests: [...digests].sort((left, right) =>
+        left.localeCompare(right)
+      ),
+    }));
 }
 
 /** Builds the persisted service deployment state after applying a contract. */
