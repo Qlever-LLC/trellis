@@ -7,7 +7,8 @@ export const contract = defineAppContract(
   () => ({
     id: "trellis.console@v1",
     displayName: "Trellis Console",
-    description: "Drive the Trellis admin console's authenticated RPC access.",
+    description:
+      "Drive the Trellis admin console's contract-declared Auth, Health, and Jobs access.",
     uses: {
       auth: trellisAuth.useDefaults({
         rpc: {

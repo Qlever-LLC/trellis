@@ -120,6 +120,7 @@ function stageDeny<T>(
 }
 
 const AUTH_CALLOUT_DRAIN_TIMEOUT_MS = 5_000;
+const AUTH_CALLOUT_INTERNAL_ERROR = "internal_error";
 
 export type BackgroundTaskHandle = {
   stop: () => Promise<void>;
@@ -861,16 +862,13 @@ export function startAuthCallout(
         xkp.seal(new TextEncoder().encode(issued.value), decoded.serverXkey),
       );
     } catch (error) {
-      const messageText = error instanceof Error
-        ? error.message
-        : "Unknown error";
       logger.error(
         {
-          err: error,
+          error,
           serverName,
           userNkey: userNkey ? `${userNkey.substring(0, 8)}...` : undefined,
         },
-        messageText,
+        "Auth callout failed unexpectedly",
       );
 
       const respondResult = await AsyncResult.try(async () => {
@@ -879,7 +877,7 @@ export function startAuthCallout(
             userNkey,
             serverIdNkey,
             config.nats.authCallout.issuer.signing,
-            { error: messageText },
+            { error: AUTH_CALLOUT_INTERNAL_ERROR },
             { aud: "trellis" },
           );
           message.respond(
@@ -947,5 +945,6 @@ export function startAuthCallout(
 }
 
 export const __testing__ = {
+  AUTH_CALLOUT_INTERNAL_ERROR,
   waitForInFlightHandlers,
 };

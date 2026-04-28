@@ -865,6 +865,13 @@ export class SqlSessionRepository {
     );
   }
 
+  /** Deletes all device sessions for one public identity key. */
+  async deleteByPublicIdentityKey(publicIdentityKey: string): Promise<void> {
+    await this.#db.delete(sessions).where(
+      eq(sessions.publicIdentityKey, publicIdentityKey),
+    );
+  }
+
   /** Returns all sessions ordered by session key and Trellis/session id. */
   async list(): Promise<Session[]> {
     await this.#deleteExpiredSessions();

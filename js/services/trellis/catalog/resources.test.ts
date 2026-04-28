@@ -48,7 +48,7 @@ Deno.test("resource requests apply KV defaults", () => {
   ]);
 });
 
-Deno.test("resource requests apply store defaults", () => {
+Deno.test("resource requests apply store defaults and omit unenforced object limits", () => {
   const contract = {
     ...CONTRACT,
     resources: {
@@ -68,7 +68,6 @@ Deno.test("resource requests apply store defaults", () => {
       purpose: "Temporary uploaded files awaiting processing",
       required: true,
       ttlMs: 0,
-      maxObjectBytes: 100 * 1024 * 1024,
     },
   ]);
 });
@@ -488,7 +487,6 @@ Deno.test({
     assertEquals(bindings.store?.uploads, {
       name: "svc_activity_def_activity_v1_uploads_4d0bbccb282e",
       ttlMs: 60_000,
-      maxObjectBytes: 1024,
       maxTotalBytes: 4096,
     });
 
@@ -498,7 +496,6 @@ Deno.test({
       {
         bindOnly: true,
         ttlMs: bindings.store!.uploads.ttlMs,
-        maxObjectBytes: bindings.store!.uploads.maxObjectBytes,
         maxTotalBytes: bindings.store!.uploads.maxTotalBytes,
       },
     );

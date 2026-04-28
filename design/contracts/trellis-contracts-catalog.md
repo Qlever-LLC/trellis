@@ -246,12 +246,17 @@ communication surface:
   compatibility expectations as other owned contract sections while multiple
   digests in one lineage coexist
 
-Additive-only means:
+Active-compatible evolution means:
 
 - a new digest MAY add owned RPCs, operations, events, and job queues
 - a new digest MAY add optional fields to existing request, response, progress,
-  event, and job payload/result schemas when those payload objects remain open to
-  unknown fields
+  event, and job payload/result schemas when those payload objects remain open
+  to unknown fields
+- a new digest MAY remove an optional field from an existing payload schema when
+  that field is not required by any active digest; because optional fields may
+  be absent on the wire, same-lineage active-compatible validation MUST NOT
+  treat removal as a compatibility failure solely because the optional field is
+  no longer declared
 - a new digest MAY add new declared errors or new capabilities for newly added
   owned surfaces
 - a new digest MUST NOT remove or rename an existing owned RPC, operation,
@@ -263,11 +268,14 @@ Additive-only means:
 
 Active-compatible projection verifies duplicate same-lineage surfaces by
 resolving their schema refs against each digest's `schemas` map. Projection MAY
-accept canonically equal resolved schemas, and MAY accept optional additive
-fields on open object schemas when required fields and existing property schemas
-remain compatible. Projection MUST fail closed for closed-object property-set
-divergence, unresolved refs, and any non-identical schema construct whose wire
-compatibility is not proven by the supported v1 verifier.
+accept canonically equal resolved schemas, MAY accept optional additive fields
+on open object schemas, and MUST tolerate optional field removal when absence is
+valid for consumers. Required fields and declared property schemas that remain
+in the active projection MUST stay compatible. Projection MUST fail closed for
+required-field removal, required/optional-breaking type changes, closed-object
+property-set divergence other than tolerated optional removal, unresolved refs,
+and any non-identical schema construct whose wire compatibility is not proven by
+the supported v1 verifier.
 
 Authoring note:
 
@@ -280,7 +288,8 @@ Authoring note:
 
 Breaking schema changes include:
 
-- removing an existing field that callers or subscribers may still send or read
+- removing an existing required field that callers or subscribers may still send
+  or read
 - changing an optional field to required
 - changing a field type incompatibly, such as `string` to `object` or `number`
   to `string`
@@ -530,7 +539,6 @@ Example:
         "purpose": "Temporary uploaded files awaiting processing",
         "required": true,
         "ttlMs": 86400000,
-        "maxObjectBytes": 104857600,
         "maxTotalBytes": 10737418240
       }
     }
@@ -565,7 +573,6 @@ Rules:
     `true`
   - `ttlMs`: optional desired retention in milliseconds; `0` or omitted means no
     automatic expiry requested
-  - `maxObjectBytes`: optional desired per-object maximum in bytes
   - `maxTotalBytes`: optional desired total-store maximum in bytes
 - install or upgrade approves the requested alias/type/spec, not general
   infrastructure-management credentials for the service
@@ -574,6 +581,9 @@ Rules:
 - optional resources (`required: false`) may be omitted from installed bindings
   if provisioning is unavailable or fails; service code must treat those aliases
   as optional at runtime
+- v1 store bindings expose only effective runtime limits; `maxObjectBytes` is
+  not emitted as an installed binding because Trellis does not enforce
+  per-object object-store limits in the current runtime path
 
 ### 10a) First-class jobs
 
@@ -793,8 +803,8 @@ Catalog rules:
   than publishing a partial active catalog
 - refresh MUST validate every proposed active digest before replacing the
   in-memory catalog; unknown digests or divergent duplicate active surfaces keep
-  the previous catalog unavailable rather than falling back to built-in manifests
-  or a partial catalog
+  the previous catalog unavailable rather than falling back to built-in
+  manifests or a partial catalog
 - active device digests are derived from enabled device deployments'
   `appliedContracts[].allowedDigests`, not from per-device current-contract
   fields
@@ -1007,9 +1017,9 @@ Rules:
 - operation control publish grants use `capabilities.read` and
   `capabilities.cancel` as applicable; holding only `capabilities.call` does not
   grant broad control-subject access
-- when an operation has no `read` capability grant and is not cancellable, callers
-  receive no control-subject publish permission even if they may start the
-  operation
+- when an operation has no `read` capability grant and is not cancellable,
+  callers receive no control-subject publish permission even if they may start
+  the operation
 - if a capability list is empty or omitted, that specific action does not
   require additional capability grants
 - templated event subjects are authorized using wildcard subjects derived by

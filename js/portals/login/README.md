@@ -59,8 +59,8 @@ served separately by `POST /auth/devices/connect-info`.
 For device activation to succeed, the portal contract digest must be allowed on
 the relevant device deployment through `appliedContracts[].allowedDigests` or an
 empty allowed-digest lineage entry. Trellis treats `allowedDigests` as a rollout
-allow-list: the presented digest must be known for the lineage and allowed by the
-deployment, but the list itself is not an active-catalog assertion for every
+allow-list: the presented digest must be known for the lineage and allowed by
+the deployment, but the list itself is not an active-catalog assertion for every
 digest. Trellis fails the activation path instead of substituting another digest
 when the presented digest is unknown, retired, or not allowed.
 
@@ -69,11 +69,11 @@ access with a normal `app` contract and a portal profile. Passive portals that
 only render flow state do not need their own Trellis contract.
 
 Approval decisions are keyed by the normalized contract identity digest. Portal
-copy may show `displayName` and `description`, but edits to that display metadata
-alone do not require users to approve a new app or agent identity.
+copy may show `displayName` and `description`, but edits to that display
+metadata alone do not require users to approve a new app or agent identity.
 
 Schema-affecting app changes are different: Trellis accepts same-lineage active
 digests only when duplicate surfaces resolve to compatible schemas. Optional
-additive fields on open object payloads can roll out together, but closed-object
-additions or required-field changes produce a new digest that must be handled as
-an incompatible contract change.
+fields may be added or removed while absence remains valid for consumers, but
+closed-object additions, required-field removal, or required-field changes
+produce a new digest that must be handled as an incompatible contract change.

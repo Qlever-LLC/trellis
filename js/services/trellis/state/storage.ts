@@ -65,10 +65,6 @@ type ListedStateEntry = StateEntry | StateMigrationRequired;
 
 type StoreValueValidation = {
   value: JsonValue;
-  migration?: {
-    stateVersion: string;
-    writerContractDigest: string;
-  };
 };
 
 function makePaginated(
@@ -131,6 +127,16 @@ function isNotFound(error: unknown): error is KVError {
   return error instanceof KVError && error.getContext().reason === "not found";
 }
 
+function isCreateConflict(error: unknown): error is KVError {
+  return error instanceof KVError && error.operation === "create" &&
+    error.getContext().reason === "exists";
+}
+
+function isRevisionConflict(error: unknown): error is KVError {
+  return error instanceof KVError &&
+    error.getContext().reason === "revision mismatch";
+}
+
 export class StateStore {
   readonly #kv: StateKvLike;
   readonly #now: () => Date;
@@ -181,10 +187,6 @@ export class StateStore {
     if (parsedValue.isErr()) return Result.err(parsedValue.error);
     const value = parsedValue.orThrow();
 
-    const currentResult = await this.#loadLiveEntry(target, key);
-    if (currentResult.isErr()) return Result.err(currentResult.error);
-    const current = currentResult.unwrapOrElse(() => null);
-
     const envelope = this.#createEnvelope(target, value, write.ttlMs);
     if (write.expectedRevision === undefined) {
       const putResult = await this.#kv.put(
@@ -207,6 +209,10 @@ export class StateStore {
       return Result.ok(response);
     }
 
+    const currentResult = await this.#loadLiveEntry(target, key);
+    if (currentResult.isErr()) return Result.err(currentResult.error);
+    const current = currentResult.unwrapOrElse(() => null);
+
     if (write.expectedRevision === null) {
       if (current) {
         const response: StatePutResponse = {
@@ -222,6 +228,9 @@ export class StateStore {
         envelope,
       );
       if (isErr(createResult)) {
+        if (!isCreateConflict(createResult.error)) {
+          return Result.err(new UnexpectedError({ cause: createResult.error }));
+        }
         const latestResult = await this.#loadLiveEntry(target, key);
         if (latestResult.isErr()) return Result.err(latestResult.error);
         const latest = latestResult.unwrapOrElse(() => null);
@@ -265,6 +274,11 @@ export class StateStore {
 
     const putResult = await current.put(envelope, true);
     if (isErr(putResult)) {
+      if (
+        !isRevisionConflict(putResult.error) && !isNotFound(putResult.error)
+      ) {
+        return Result.err(new UnexpectedError({ cause: putResult.error }));
+      }
       const latestResult = await this.#loadLiveEntry(target, key);
       if (latestResult.isErr()) return Result.err(latestResult.error);
       const latest = latestResult.unwrapOrElse(() => null);
@@ -315,6 +329,12 @@ export class StateStore {
 
     const deleteResult = await current.delete(Boolean(input.expectedRevision));
     if (isErr(deleteResult)) {
+      if (input.expectedRevision && isRevisionConflict(deleteResult.error)) {
+        return Result.ok({ deleted: false });
+      }
+      if (isNotFound(deleteResult.error)) {
+        return Result.ok({ deleted: false });
+      }
       return Result.err(new UnexpectedError({ cause: deleteResult.error }));
     }
 
@@ -412,10 +432,9 @@ export class StateStore {
       value: {
         ...storedEntry,
         value: validation.value,
-        stateVersion: storedEntry.stateVersion ??
-          validation.migration?.stateVersion ?? target.stateVersion,
+        stateVersion: storedEntry.stateVersion ?? target.stateVersion,
         writerContractDigest: storedEntry.writerContractDigest ??
-          validation.migration?.writerContractDigest ?? target.contractDigest,
+          target.contractDigest,
       },
       revision: loaded.revision,
       put: (value, vcc) => loaded.put(value, vcc),
@@ -646,27 +665,9 @@ export class StateStore {
     entry: StoredStateEntry,
   ): Result<StoreValueValidation, ValidationError | UnexpectedError> {
     if (!entry.stateVersion) {
-      const current = this.#validateStoreValue(target, entry.value);
-      if (current.isOk()) return current.map((value) => ({ value }));
-
-      for (
-        const [acceptedVersion, acceptedSchema] of Object.entries(
-          target.acceptedVersions,
-        )
-      ) {
-        const parsed = parseUnknownSchema(acceptedSchema, entry.value);
-        if (parsed.isOk()) {
-          return Result.ok({
-            value: parsed.orThrow() as JsonValue,
-            migration: {
-              stateVersion: acceptedVersion,
-              writerContractDigest: target.contractDigest,
-            },
-          });
-        }
-      }
-
-      return current.map((value) => ({ value }));
+      return this.#validateStoreValue(target, entry.value).map((value) => ({
+        value,
+      }));
     }
 
     const stateVersion = entry.stateVersion;

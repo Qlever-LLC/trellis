@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
-import type { BaseError, Result } from "@qlever-llc/result";
+import { AsyncResult, type BaseError, Result } from "@qlever-llc/result";
+import { KVError, UnexpectedError } from "@qlever-llc/trellis";
 import { Type } from "typebox";
 
 import { StateStore } from "./storage.ts";
@@ -69,6 +70,68 @@ function assertRecord(
 ): asserts value is Record<string, unknown> {
   if (value === null || typeof value !== "object") {
     throw new Error("expected record");
+  }
+}
+
+class CountingGetStateKV extends FakeStateKV {
+  getCalls = 0;
+
+  override get(key: string) {
+    this.getCalls += 1;
+    return super.get(key);
+  }
+}
+
+class FailingCreateStateKV extends FakeStateKV {
+  override create(key: string, _value: unknown) {
+    return AsyncResult.err(
+      new KVError({
+        operation: "create",
+        context: { key, reason: "temporarily unavailable" },
+      }),
+    );
+  }
+}
+
+class FailingEntryPutStateKV extends FakeStateKV {
+  override get(key: string) {
+    return AsyncResult.from((async () => {
+      const result = await super.get(key);
+      if (result.isErr()) return result;
+      const entry = result.orThrow();
+      return Result.ok({
+        ...entry,
+        put(_value: unknown, _vcc?: boolean) {
+          return AsyncResult.err(
+            new KVError({
+              operation: "put",
+              context: { key, reason: "temporarily unavailable" },
+            }),
+          );
+        },
+      });
+    })());
+  }
+}
+
+class RevisionConflictDeleteStateKV extends FakeStateKV {
+  override get(key: string) {
+    return AsyncResult.from((async () => {
+      const result = await super.get(key);
+      if (result.isErr()) return result;
+      const entry = result.orThrow();
+      return Result.ok({
+        ...entry,
+        delete(_vcc?: boolean) {
+          return AsyncResult.err(
+            new KVError({
+              operation: "delete",
+              context: { key, reason: "revision mismatch" },
+            }),
+          );
+        },
+      });
+    })());
   }
 }
 
@@ -179,6 +242,39 @@ Deno.test("StateStore put supports conditional writes for value stores", async (
 
   const got = unwrapOk(await store.get(target));
   assertEquals(got, { found: true, entry: updated.entry });
+});
+
+Deno.test("StateStore unconditional put does not load the existing entry before writing", async () => {
+  const kv = new CountingGetStateKV();
+  const store = new StateStore({
+    kv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const target = {
+    ownerType: "user" as const,
+    contractId: "acme.notes@v1",
+    contractDigest: "digest-v1",
+    ownerKey: "user-1",
+    store: "preferences",
+    kind: "value" as const,
+    schema: Type.Object({ theme: Type.String() }),
+    stateVersion: "v1",
+    acceptedVersions: {},
+  };
+
+  kv.seed("user.user-1.acme=2Enotes=40v1.preferences.~value", {
+    value: { theme: "light" },
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    stateVersion: "v1",
+    writerContractDigest: "digest-v1",
+  });
+
+  const written = unwrapOk(
+    await store.put(target, { value: { theme: "dark" } }),
+  );
+
+  assertEquals(written.applied, true);
+  assertEquals(kv.getCalls, 1);
 });
 
 Deno.test("StateStore treats expired entries as absent and supports conditional delete", async () => {
@@ -502,7 +598,7 @@ Deno.test("StateStore surfaces migration metadata on failed conditional put", as
   assertEquals(conflict.entry.currentStateVersion, "draft.v2");
 });
 
-Deno.test("StateStore infers migration for unversioned entries only when current schema fails", async () => {
+Deno.test("StateStore validates unversioned entries only against the current schema", async () => {
   const kv = new FakeStateKV();
   const store = new StateStore({
     kv,
@@ -527,11 +623,8 @@ Deno.test("StateStore infers migration for unversioned entries only when current
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
   });
 
-  const got = unwrapOk(await store.get(currentTarget));
-  if (!isMigrationRequired(got)) throw new Error("expected migration");
-  assertEquals(got.stateVersion, "prefs.v1");
-  assertEquals(got.currentStateVersion, "prefs.v2");
-  assertEquals(got.writerContractDigest, "digest-v2");
+  const got = await store.get(currentTarget);
+  assertEquals(got.isErr(), true);
 
   const compatibleTarget = {
     ...currentTarget,
@@ -542,6 +635,85 @@ Deno.test("StateStore infers migration for unversioned entries only when current
   };
   const compatible = unwrapOk(await store.get(compatibleTarget));
   assertFound(compatible);
+});
+
+Deno.test("StateStore returns unexpected errors for unrecognized create and revision write failures", async () => {
+  const createKv = new FailingCreateStateKV();
+  const createStore = new StateStore({
+    kv: createKv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const target = {
+    ownerType: "user" as const,
+    contractId: "acme.notes@v1",
+    contractDigest: "digest-v1",
+    ownerKey: "user-1",
+    store: "drafts",
+    kind: "map" as const,
+    schema: Type.Object({ label: Type.String() }),
+    stateVersion: "v1",
+    acceptedVersions: {},
+  };
+
+  const createResult = await createStore.put(target, {
+    key: "a",
+    expectedRevision: null,
+    value: { label: "a" },
+  });
+  assertEquals(createResult.isErr(), true);
+  if (!createResult.isErr()) throw new Error("expected create error");
+  assertEquals(createResult.error instanceof UnexpectedError, true);
+
+  const putKv = new FailingEntryPutStateKV();
+  putKv.seed("user.user-1.acme=2Enotes=40v1.drafts.a", {
+    value: { label: "a" },
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    stateVersion: "v1",
+    writerContractDigest: "digest-v1",
+  });
+  const putStore = new StateStore({
+    kv: putKv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const putResult = await putStore.put(target, {
+    key: "a",
+    expectedRevision: "1",
+    value: { label: "b" },
+  });
+  assertEquals(putResult.isErr(), true);
+  if (!putResult.isErr()) throw new Error("expected put error");
+  assertEquals(putResult.error instanceof UnexpectedError, true);
+});
+
+Deno.test("StateStore conditional delete revision races return not deleted", async () => {
+  const kv = new RevisionConflictDeleteStateKV();
+  kv.seed("user.user-1.acme=2Enotes=40v1.drafts.a", {
+    value: { label: "a" },
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    stateVersion: "v1",
+    writerContractDigest: "digest-v1",
+  });
+  const store = new StateStore({
+    kv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const target = {
+    ownerType: "user" as const,
+    contractId: "acme.notes@v1",
+    contractDigest: "digest-v1",
+    ownerKey: "user-1",
+    store: "drafts",
+    kind: "map" as const,
+    schema: Type.Object({ label: Type.String() }),
+    stateVersion: "v1",
+    acceptedVersions: {},
+  };
+
+  const deleted = unwrapOk(
+    await store.delete(target, { key: "a", expectedRevision: "1" }),
+  );
+
+  assertEquals(deleted, { deleted: false });
 });
 
 Deno.test("StateStore returns normal validation errors for unreadable unversioned entries", async () => {

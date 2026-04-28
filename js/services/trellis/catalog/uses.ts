@@ -13,6 +13,16 @@ import type { ContractStore } from "./store.ts";
 
 export type ContractEntry = { digest: string; contract: TrellisContractV1 };
 
+type SubjectSurface = {
+  kind: "rpc" | "operations" | "events";
+  key: string;
+};
+
+type SubjectRegistration = SubjectSurface & {
+  contractId: string;
+  subject: string;
+};
+
 export type ContractUseRef = {
   contract: string;
   rpc?: { call?: string[] };
@@ -57,6 +67,64 @@ function requireSameSubject(
     throw new Error(
       `Active compatible digests define '${key}' with different subjects`,
     );
+  }
+}
+
+function subjectSurfaceLabel(surface: SubjectSurface): string {
+  return `${surface.kind}.${surface.key}`;
+}
+
+function requireSameSubjectSurface(
+  left: SubjectRegistration,
+  right: SubjectRegistration,
+): void {
+  if (left.kind === right.kind && left.key === right.key) return;
+  throw new Error(
+    `Active compatible digests for '${left.contractId}' define subject '${left.subject}' for different logical surfaces '${
+      subjectSurfaceLabel(left)
+    }' and '${subjectSurfaceLabel(right)}'`,
+  );
+}
+
+function validateConcreteSubjectSurfaces(
+  contractId: string,
+  contracts: TrellisContractV1[],
+): void {
+  const registrations = new Map<string, SubjectRegistration>();
+  for (const contract of contracts) {
+    for (const [key, method] of Object.entries(contract.rpc ?? {})) {
+      const registration = {
+        contractId,
+        kind: "rpc" as const,
+        key,
+        subject: method.subject,
+      };
+      const existing = registrations.get(method.subject);
+      if (existing) requireSameSubjectSurface(existing, registration);
+      registrations.set(method.subject, registration);
+    }
+    for (const [key, operation] of Object.entries(contract.operations ?? {})) {
+      const registration = {
+        contractId,
+        kind: "operations" as const,
+        key,
+        subject: operation.subject,
+      };
+      const existing = registrations.get(operation.subject);
+      if (existing) requireSameSubjectSurface(existing, registration);
+      registrations.set(operation.subject, registration);
+    }
+    for (const [key, event] of Object.entries(contract.events ?? {})) {
+      const registration = {
+        contractId,
+        kind: "events" as const,
+        key,
+        subject: event.subject,
+      };
+      const existing = registrations.get(event.subject);
+      if (existing) requireSameSubjectSurface(existing, registration);
+      registrations.set(event.subject, registration);
+    }
   }
 }
 
@@ -500,8 +568,16 @@ export function createActiveContractLookup(
 
   const lookup = new Map<string, TrellisContractV1>();
   for (const [id, contracts] of entriesById) {
+    validateConcreteSubjectSurfaces(id, contracts);
     const merged = mergeCompatibleContractSurfaces(contracts);
     if (merged) lookup.set(id, merged);
   }
   return lookup;
+}
+
+/** Validates that concurrently active digests remain compatible by lineage. */
+export function validateActiveContractCompatibility(
+  entries: ContractEntry[],
+): void {
+  createActiveContractLookup(entries);
 }

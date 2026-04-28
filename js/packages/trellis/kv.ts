@@ -78,6 +78,82 @@ function mergeUnknown(target: unknown, source: unknown): unknown {
   return out;
 }
 
+type KvFailureReason = "exists" | "revision mismatch";
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function collectFailureText(value: unknown, depth = 0): string {
+  if (depth > 2) return "";
+  const parts: string[] = [];
+
+  if (value instanceof Error) {
+    parts.push(value.name, value.message);
+    if (value.cause !== undefined) {
+      parts.push(collectFailureText(value.cause, depth + 1));
+    }
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    parts.push(String(value));
+  }
+
+  const record = asRecord(value);
+  if (record) {
+    for (const key of ["name", "message", "description", "code", "err_code"]) {
+      const field = record[key];
+      if (typeof field === "string" || typeof field === "number") {
+        parts.push(String(field));
+      }
+    }
+    if (record.api_error !== undefined) {
+      parts.push(collectFailureText(record.api_error, depth + 1));
+    }
+    if (record.cause !== undefined) {
+      parts.push(collectFailureText(record.cause, depth + 1));
+    }
+  }
+
+  return parts.join(" ").toLowerCase();
+}
+
+function inferKvFailureReason(
+  operation: "create" | "put" | "delete",
+  cause: unknown,
+): KvFailureReason | undefined {
+  const text = collectFailureText(cause);
+  if (
+    text.includes("wrong last sequence") ||
+    text.includes("revision mismatch") ||
+    text.includes("sequence mismatch")
+  ) {
+    return operation === "create" ? "exists" : "revision mismatch";
+  }
+  if (
+    operation === "create" &&
+    (text.includes("already exists") || text.includes("key exists"))
+  ) {
+    return "exists";
+  }
+  return undefined;
+}
+
+function kvError(
+  operation: "create" | "put" | "delete",
+  key: string,
+  cause: unknown,
+): KVError {
+  const reason = inferKvFailureReason(operation, cause);
+  return new KVError({
+    operation,
+    cause,
+    context: reason === undefined ? { key } : { key, reason },
+  });
+}
+
 /**
  * Represents a watch event emitted when a KV entry changes.
  */
@@ -201,9 +277,7 @@ export class TypedKV<S extends TSchema> {
         await this.kv.create(escapeKvKey(key), this.serialize(value));
         return Result.ok(undefined);
       } catch (cause) {
-        return Result.err(
-          new KVError({ operation: "create", cause, context: { key } }),
-        );
+        return Result.err(kvError("create", key, cause));
       }
     })());
   }
@@ -217,9 +291,7 @@ export class TypedKV<S extends TSchema> {
         await this.kv.put(escapeKvKey(key), this.serialize(value));
         return Result.ok(undefined);
       } catch (cause) {
-        return Result.err(
-          new KVError({ operation: "put", cause, context: { key } }),
-        );
+        return Result.err(kvError("put", key, cause));
       }
     })());
   }
@@ -230,9 +302,7 @@ export class TypedKV<S extends TSchema> {
         await this.kv.delete(escapeKvKey(key));
         return Result.ok(undefined);
       } catch (cause) {
-        return Result.err(
-          new KVError({ operation: "delete", cause, context: { key } }),
-        );
+        return Result.err(kvError("delete", key, cause));
       }
     })());
   }
@@ -401,9 +471,7 @@ export class TypedKVEntry<S extends TSchema> {
         });
         return Result.ok(undefined);
       } catch (cause) {
-        return Result.err(
-          new KVError({ operation: "put", cause, context: { key: this.key } }),
-        );
+        return Result.err(kvError("put", this.key, cause));
       }
     })());
   }
@@ -416,13 +484,7 @@ export class TypedKVEntry<S extends TSchema> {
         });
         return Result.ok(undefined);
       } catch (cause) {
-        return Result.err(
-          new KVError({
-            operation: "delete",
-            cause,
-            context: { key: this.key },
-          }),
-        );
+        return Result.err(kvError("delete", this.key, cause));
       }
     })());
   }

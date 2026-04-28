@@ -102,14 +102,15 @@ When NATS calls `$SYS.REQ.USER.AUTH`:
 
 1. Decode the encrypted request by requiring `Nats-Server-Xkey`, decrypting the
    payload, and extracting `user_nkey` plus `connect_opts.auth_token`.
-2. Validate the connect token by parsing `{ v, sessionKey, sig, iat,
-   contractDigest? }`, checking token version and proof freshness, and verifying
-   the signed proof.
-3. Resolve the session and principal from the session key, presented proof shape,
-   and explicit runtime repositories for users, services, or devices.
+2. Validate the connect token by parsing
+   `{ v, sessionKey, sig, iat,
+   contractDigest? }`, checking token version and
+   proof freshness, and verifying the signed proof.
+3. Resolve the session and principal from the session key, presented proof
+   shape, and explicit runtime repositories for users, services, or devices.
 4. Derive permissions from current grants, the resolved principal's contract
-   context, active service/device contracts, and installed bindings, then issue a
-   NATS JWT for the server-generated `user_nkey`.
+   context, active service/device contracts, and installed bindings, then issue
+   a NATS JWT for the server-generated `user_nkey`.
 5. Update session liveness and active-connection tracking.
 6. Emit `events.v1.Auth.Connect` for user and service sessions.
 
@@ -187,7 +188,7 @@ The auth callout derives permissions from:
 - current session or service policy grants
 - known approved app/agent contracts for user sessions
 - the deployment's active service/device contracts
-- declared `operations`, `rpc`, `events`, `subjects`, and `uses`
+- declared `operations`, `rpc`, `events`, and `uses`
 - installed resource bindings
 
 Rules:
@@ -201,6 +202,8 @@ Rules:
 - auth-callout denial paths return explicit deny responses and MUST NOT mint a
   partially scoped user JWT when the active catalog, session, deployment, or
   resource state needed for permission derivation is unavailable
+- unexpected auth-callout exceptions are logged with internal details but return
+  a stable generic external error such as `internal_error`
 - operation streaming replies use `jwt.resp.max = OPERATION_RESPONSE_MAX`
 - `OPERATION_RESPONSE_MAX` MUST be greater than `1` and SHOULD default to
   `65535`
@@ -407,11 +410,10 @@ return path and show sign-in UX. Non-browser clients may surface the same
 The portal-owned browser login UX uses `flowId` as the browser-visible
 identifier and keeps `authToken` internal to the Trellis runtime service.
 Trellis ships a built-in portal served by the Trellis HTTP server from static
-assets.
-Deployments may register custom portals and assign them to login or device flows
-through deployment-owned selection records. Device activation uses the same
-browser-visible `flowId` concept with `kind: "device_activation"` flow records
-rather than a separate public identifier. Portals are web apps, not
+assets. Deployments may register custom portals and assign them to login or
+device flows through deployment-owned selection records. Device activation uses
+the same browser-visible `flowId` concept with `kind: "device_activation"` flow
+records rather than a separate public identifier. Portals are web apps, not
 service-authenticated principals; if a portal later continues as a Trellis app
 after login, it does so under a normal user session.
 
@@ -435,9 +437,9 @@ When a caller's local contract digest changes, it starts the normal auth request
 flow again with the current contract body. Clients MUST compute that digest from
 the same normalized contract identity projection used by the catalog, not from
 human-facing manifest metadata such as `displayName` or `description`. Auth may
-bind immediately when the requested subjects and capabilities are a strict subset
-of the caller's current delegated envelope for the same app identity and contract
-lineage; otherwise it returns a normal browser flow.
+bind immediately when the requested subjects and capabilities are a strict
+subset of the caller's current delegated envelope for the same app identity and
+contract lineage; otherwise it returns a normal browser flow.
 
 Bind proof rules:
 

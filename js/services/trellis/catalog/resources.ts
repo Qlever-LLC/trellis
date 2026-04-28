@@ -22,7 +22,6 @@ export type StoreResourceRequest = {
   purpose: string;
   required: boolean;
   ttlMs: number;
-  maxObjectBytes?: number;
   maxTotalBytes?: number;
 };
 
@@ -76,7 +75,6 @@ export type ContractResourceBindings = {
   store?: Record<string, {
     name: string;
     ttlMs: number;
-    maxObjectBytes?: number;
     maxTotalBytes?: number;
   }>;
   jobs?: {
@@ -472,9 +470,6 @@ export function getStoreResourceRequests(
       purpose: resource.purpose,
       required: resource.required ?? true,
       ttlMs: resource.ttlMs ?? 0,
-      ...(resource.maxObjectBytes !== undefined
-        ? { maxObjectBytes: resource.maxObjectBytes }
-        : {}),
       ...(resource.maxTotalBytes !== undefined
         ? { maxTotalBytes: resource.maxTotalBytes }
         : {}),
@@ -593,9 +588,6 @@ export async function provisionContractResourceBindings(
         storeBindings[store.alias] = {
           name,
           ttlMs: store.ttlMs,
-          ...(store.maxObjectBytes !== undefined
-            ? { maxObjectBytes: store.maxObjectBytes }
-            : {}),
           ...(store.maxTotalBytes !== undefined
             ? { maxTotalBytes: store.maxTotalBytes }
             : {}),

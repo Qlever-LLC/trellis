@@ -10,6 +10,7 @@ import {
 
 import { __testing__, type Config } from "../../config.ts";
 import { ContractStore } from "../../catalog/store.ts";
+import { authHttpRateLimitKey } from "./routes.ts";
 import { buildAuthStartSignaturePayload } from "./start_request.ts";
 import type { Session } from "../schemas.ts";
 
@@ -47,6 +48,23 @@ const config: Config = {
     providers: {},
   },
 };
+
+Deno.test("auth HTTP rate-limit key ignores spoofable forwarding headers", () => {
+  assertEquals(
+    authHttpRateLimitKey({
+      env: { remoteAddr: { hostname: "203.0.113.10", port: 12345 } },
+      req: { header: () => "198.51.100.20" },
+    }),
+    "203.0.113.10",
+  );
+  assertEquals(
+    authHttpRateLimitKey({
+      env: {},
+      req: { header: () => "198.51.100.20" },
+    }),
+    "trellis-auth-http",
+  );
+});
 
 async function registerTestRoutes(): Promise<Hono> {
   __testing__.setConfig(config);

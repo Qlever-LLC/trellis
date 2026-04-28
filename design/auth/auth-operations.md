@@ -164,7 +164,10 @@ Minimum targets:
 - `/auth/devices/activate/wait`
 - `/auth/devices/connect-info`
 
-Deployments should not go live without configured limits.
+Deployments should not go live without configured limits. HTTP auth limits must
+use an address or edge identity supplied by the trusted runtime/proxy boundary;
+client-controlled forwarding headers such as `x-forwarded-for` are not a safe
+rate-limit identity by themselves.
 
 ## Key Rotation
 

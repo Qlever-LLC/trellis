@@ -194,12 +194,6 @@ function requireAcceptedVersionSchemas(
   return Result.ok(schemas);
 }
 
-function unwrapChecked<T>(result: Result<T, AuthError | ValidationError>): T {
-  return result.unwrapOrElse(() => {
-    throw new Error("checked state RPC result unexpectedly failed");
-  });
-}
-
 async function resolveCallerStore(
   store: string,
   ctx: { caller: Caller; sessionKey: string },
@@ -210,7 +204,7 @@ async function resolveCallerStore(
     deps.sessionStorage,
   );
   if (isErr(sessionResult)) return sessionResult;
-  const session = unwrapChecked(sessionResult);
+  const session = sessionResult.orThrow();
   if (!session) {
     return Result.err(new AuthError({ reason: "insufficient_permissions" }));
   }
@@ -228,17 +222,17 @@ async function resolveCallerStore(
   });
   const definitionResult = requireStoreDefinition(contract, store);
   if (isErr(definitionResult)) return definitionResult;
-  const definition = unwrapChecked(definitionResult);
+  const definition = definitionResult.orThrow();
   const schemaResult = requireStoreSchema(contract, definition, store);
   if (isErr(schemaResult)) return schemaResult;
-  const schema = unwrapChecked(schemaResult);
+  const schema = schemaResult.orThrow();
   const acceptedVersionsResult = requireAcceptedVersionSchemas(
     contract,
     definition,
     store,
   );
   if (isErr(acceptedVersionsResult)) return acceptedVersionsResult;
-  const acceptedVersions = unwrapChecked(acceptedVersionsResult);
+  const acceptedVersions = acceptedVersionsResult.orThrow();
   return Result.ok({
     ownerType: session.type,
     contractId: session.contractId,
@@ -271,17 +265,17 @@ async function resolveAdminStore(
   }
   const definitionResult = requireStoreDefinition(contract, req.store);
   if (isErr(definitionResult)) return definitionResult;
-  const definition = unwrapChecked(definitionResult);
+  const definition = definitionResult.orThrow();
   const schemaResult = requireStoreSchema(contract, definition, req.store);
   if (isErr(schemaResult)) return schemaResult;
-  const schema = unwrapChecked(schemaResult);
+  const schema = schemaResult.orThrow();
   const acceptedVersionsResult = requireAcceptedVersionSchemas(
     contract,
     definition,
     req.store,
   );
   if (isErr(acceptedVersionsResult)) return acceptedVersionsResult;
-  const acceptedVersions = unwrapChecked(acceptedVersionsResult);
+  const acceptedVersions = acceptedVersionsResult.orThrow();
   if (req.scope === "userApp") {
     return Result.ok({
       ownerType: "user",
@@ -316,7 +310,7 @@ export function createStateGetHandler(deps: RpcDeps) {
   ): Promise<Result<StateGetResponse, StateRpcError>> => {
     const target = await resolveCallerStore(req.store, ctx, deps);
     if (isErr(target)) return target;
-    return await deps.state.get(unwrapChecked(target), { key: req.key });
+    return await deps.state.get(target.orThrow(), { key: req.key });
   };
 }
 
@@ -329,10 +323,10 @@ export function createStatePutHandler(deps: RpcDeps) {
     if (isErr(target)) return target;
     const value = requireJsonValue(req.value);
     if (isErr(value)) return value;
-    return await deps.state.put(unwrapChecked(target), {
+    return await deps.state.put(target.orThrow(), {
       key: req.key,
       expectedRevision: req.expectedRevision,
-      value: unwrapChecked(value),
+      value: value.orThrow(),
       ttlMs: req.ttlMs,
     });
   };
@@ -345,7 +339,7 @@ export function createStateDeleteHandler(deps: RpcDeps) {
   ): Promise<Result<StateDeleteResponse, StateRpcError>> => {
     const target = await resolveCallerStore(req.store, ctx, deps);
     if (isErr(target)) return target;
-    return await deps.state.delete(unwrapChecked(target), {
+    return await deps.state.delete(target.orThrow(), {
       key: req.key,
       expectedRevision: req.expectedRevision,
     });
@@ -359,7 +353,7 @@ export function createStateListHandler(deps: RpcDeps) {
   ): Promise<Result<StateListResponse, StateRpcError>> => {
     const target = await resolveCallerStore(req.store, ctx, deps);
     if (isErr(target)) return target;
-    return await deps.state.list(unwrapChecked(target), {
+    return await deps.state.list(target.orThrow(), {
       prefix: req.prefix,
       offset: req.offset,
       limit: req.limit,
@@ -376,7 +370,7 @@ export function createStateAdminGetHandler(deps: RpcDeps) {
     if (isErr(admin)) return admin;
     const target = await resolveAdminStore(req, deps);
     if (isErr(target)) return target;
-    return await deps.state.get(unwrapChecked(target), { key: req.key });
+    return await deps.state.get(target.orThrow(), { key: req.key });
   };
 }
 
@@ -389,7 +383,7 @@ export function createStateAdminListHandler(deps: RpcDeps) {
     if (isErr(admin)) return admin;
     const target = await resolveAdminStore(req, deps);
     if (isErr(target)) return target;
-    return await deps.state.list(unwrapChecked(target), {
+    return await deps.state.list(target.orThrow(), {
       prefix: req.prefix,
       offset: req.offset,
       limit: req.limit,
@@ -406,7 +400,7 @@ export function createStateAdminDeleteHandler(deps: RpcDeps) {
     if (isErr(admin)) return admin;
     const target = await resolveAdminStore(req, deps);
     if (isErr(target)) return target;
-    return await deps.state.delete(unwrapChecked(target), {
+    return await deps.state.delete(target.orThrow(), {
       key: req.key,
       expectedRevision: req.expectedRevision,
     });

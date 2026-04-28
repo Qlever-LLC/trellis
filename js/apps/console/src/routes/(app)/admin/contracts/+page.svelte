@@ -275,14 +275,13 @@
 
                         {#if detail.analysis.resources.store.length}
                           <table class="table table-xs trellis-table">
-                            <thead><tr><th>Store alias</th><th>Purpose</th><th>TTL</th><th>Max object</th><th>Required</th></tr></thead>
+                            <thead><tr><th>Store alias</th><th>Purpose</th><th>TTL</th><th>Required</th></tr></thead>
                             <tbody>
                               {#each detail.analysis.resources.store as r (r.alias)}
                                 <tr>
                                   <td class="font-medium">{r.alias}</td>
                                   <td class="text-base-content/60">{r.purpose}</td>
                                   <td>{formatTtl(r.ttlMs)}</td>
-                                  <td>{r.maxObjectBytes ?? "—"}</td>
                                   <td>{r.required ? "Yes" : "No"}</td>
                                 </tr>
                               {/each}

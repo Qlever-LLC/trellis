@@ -20,6 +20,7 @@ type ActiveSubjectOwner = {
   digest: string;
   contractId: string;
   displayName: string;
+  surface: string;
 };
 
 function assertObject(
@@ -254,9 +255,10 @@ export class ContractStore {
     digest: string,
     contract: TrellisContractV1,
     subject: string,
+    surface: string,
   ) {
     const prev = index.get(subject);
-    if (prev && prev.digest !== digest && prev.contractId !== contract.id) {
+    if (prev && (prev.contractId !== contract.id || prev.surface !== surface)) {
       throw new Error(
         `Subject '${subject}' already registered by '${prev.displayName}' (${prev.contractId})`,
       );
@@ -265,6 +267,7 @@ export class ContractStore {
       digest,
       contractId: contract.id,
       displayName: contract.displayName,
+      surface,
     });
   }
 
@@ -283,8 +286,8 @@ export class ContractStore {
       this.#indexActiveId(activeDigestsById, digest, contract);
 
       for (
-        const m of Object.values(contract.rpc ?? {}) as Array<
-          NonNullable<TrellisContractV1["rpc"]>[string]
+        const [key, m] of Object.entries(contract.rpc ?? {}) as Array<
+          [string, NonNullable<TrellisContractV1["rpc"]>[string]]
         >
       ) {
         this.#indexActiveSubject(
@@ -292,11 +295,12 @@ export class ContractStore {
           digest,
           contract,
           m.subject,
+          `rpc.${key}`,
         );
       }
       for (
-        const o of Object.values(contract.operations ?? {}) as Array<
-          NonNullable<TrellisContractV1["operations"]>[string]
+        const [key, o] of Object.entries(contract.operations ?? {}) as Array<
+          [string, NonNullable<TrellisContractV1["operations"]>[string]]
         >
       ) {
         this.#indexActiveSubject(
@@ -304,11 +308,12 @@ export class ContractStore {
           digest,
           contract,
           o.subject,
+          `operations.${key}`,
         );
       }
       for (
-        const e of Object.values(contract.events ?? {}) as Array<
-          NonNullable<TrellisContractV1["events"]>[string]
+        const [key, e] of Object.entries(contract.events ?? {}) as Array<
+          [string, NonNullable<TrellisContractV1["events"]>[string]]
         >
       ) {
         this.#indexActiveSubject(
@@ -316,6 +321,7 @@ export class ContractStore {
           digest,
           contract,
           e.subject,
+          `events.${key}`,
         );
       }
     }

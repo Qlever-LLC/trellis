@@ -102,7 +102,6 @@ export type ContractAnalysis = {
       purpose: string;
       required: boolean;
       ttlMs: number;
-      maxObjectBytes?: number;
       maxTotalBytes?: number;
     }>;
     jobs: Array<{

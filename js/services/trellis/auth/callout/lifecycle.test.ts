@@ -39,3 +39,7 @@ Deno.test("auth callout drain is bounded", async () => {
     "timed_out",
   );
 });
+
+Deno.test("auth callout internal error code is stable and generic", () => {
+  assertEquals(__testing__.AUTH_CALLOUT_INTERNAL_ERROR, "internal_error");
+});

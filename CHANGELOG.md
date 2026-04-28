@@ -10,17 +10,25 @@ and this project adheres to
 
 ### Changed
 
+- Aligned Trellis service v1 docs and app surfaces with the latest cleanup:
+  optional payload-field removal is documented as compatible when absence
+  remains valid, State no longer infers accepted versions for unversioned
+  entries, State list pagination documents the current NATS KV scan/sort
+  trade-off, auth callout unexpected failures return a stable `internal_error`,
+  auth HTTP rate limiting avoids client-controlled forwarding headers, device
+  runtime cleanup removes durable device sessions by public identity key, and
+  store bindings no longer advertise unenforced per-object limits.
 - Aligned the Trellis service v1 deployment model so required resources are
   provisioned during service deployment apply/install/upgrade before deployment
-  mutation, service bootstrap consumes persisted exact-digest bindings,
-  physical resource names remain deployment/profile/lineage scoped, app/agent
-  contracts are treated as approved-session contracts rather than active catalog
-  entries, baseline `Auth.ValidateRequest` may be auto-granted to service
-  runtimes, and device `allowedDigests` are rollout allow-lists.
+  mutation, service bootstrap consumes persisted exact-digest bindings, physical
+  resource names remain deployment/profile/lineage scoped, app/agent contracts
+  are treated as approved-session contracts rather than active catalog entries,
+  baseline `Auth.ValidateRequest` may be auto-granted to service runtimes, and
+  device `allowedDigests` are rollout allow-lists.
 - Changed same-lineage active digest projection to verify duplicate RPC,
   operation, event, and job schema refs by resolved schema compatibility instead
-  of ref-name equality: canonically equal schemas and optional additive fields on
-  open objects are accepted, while closed-object property-set divergence and
+  of ref-name equality: canonically equal schemas and optional additive fields
+  on open objects are accepted, while closed-object property-set divergence and
   unproven non-identical schema constructs fail closed.
 - Changed Rust CLI agent login and reauth to use the same normalized contract
   identity digest as the TypeScript catalog, so display-only metadata changes no

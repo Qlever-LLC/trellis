@@ -86,6 +86,30 @@ function parseApprovalRequest(value: unknown): boolean | undefined {
   return typeof approved === "boolean" ? approved : undefined;
 }
 
+type RateLimitContext = {
+  env?: unknown;
+  req?: { header: (name: string) => string | undefined };
+};
+
+function remoteAddressFromEnv(env: unknown): string | null {
+  if (!env || typeof env !== "object") return null;
+  if (!("remoteAddr" in env)) return null;
+  const remoteAddr = env.remoteAddr;
+  if (typeof remoteAddr === "string" && remoteAddr.length > 0) {
+    return remoteAddr;
+  }
+  if (!remoteAddr || typeof remoteAddr !== "object") return null;
+  if (!("hostname" in remoteAddr)) return null;
+  return typeof remoteAddr.hostname === "string" &&
+      remoteAddr.hostname.length > 0
+    ? remoteAddr.hostname
+    : null;
+}
+
+export function authHttpRateLimitKey(c: RateLimitContext): string {
+  return remoteAddressFromEnv(c.env) ?? "trellis-auth-http";
+}
+
 type HttpRouteRuntimeDeps = Pick<
   AuthRuntimeDeps,
   | "browserFlowsKV"
@@ -517,16 +541,7 @@ export function registerHttpRoutes(
       rateLimiter({
         windowMs: config.httpRateLimit.windowMs,
         limit: config.httpRateLimit.max,
-        keyGenerator: (c) => {
-          const forwarded = c.req.header("x-forwarded-for");
-          if (forwarded) {
-            const first = forwarded.split(",")[0]?.trim();
-            if (first) return first;
-          }
-          return c.req.header("x-real-ip") ??
-            c.req.header("cf-connecting-ip") ??
-            "unknown";
-        },
+        keyGenerator: authHttpRateLimitKey,
       }),
     );
   }

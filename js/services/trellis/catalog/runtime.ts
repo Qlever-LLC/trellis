@@ -14,8 +14,8 @@ import { analyzeContract } from "./analysis.ts";
 import { setContracts as setPermissionContracts } from "./permissions.ts";
 import { ContractStore } from "./store.ts";
 import {
-  createActiveContractLookup,
   resolveContractUsesFromStore,
+  validateActiveContractCompatibility,
 } from "./uses.ts";
 import type { SqlContractStorageRepository } from "./storage.ts";
 
@@ -462,7 +462,7 @@ export function createContractsModule(opts: {
       }
       return { digest, contract };
     });
-    createActiveContractLookup(activeEntries);
+    validateActiveContractCompatibility(activeEntries);
 
     contractStore.setActiveDigests(active);
     setPermissionContracts(activeEntries);

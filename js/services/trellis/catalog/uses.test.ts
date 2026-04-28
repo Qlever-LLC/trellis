@@ -56,6 +56,26 @@ Deno.test("active compatible projection rejects divergent RPC capabilities", () 
   );
 });
 
+Deno.test("active compatible projection rejects subject reuse across logical surfaces", () => {
+  const first = makeRpcContract(["graph.read"]);
+  const second = {
+    ...makeRpcContract(["graph.read"]),
+    rpc: {
+      Pong: makeRpcContract(["graph.read"]).rpc!.Ping!,
+    },
+  } satisfies TrellisContractV1;
+
+  assertThrows(
+    () =>
+      createActiveContractLookup([
+        { digest: "graph-a", contract: first },
+        { digest: "graph-b", contract: second },
+      ]),
+    Error,
+    "different logical surfaces",
+  );
+});
+
 Deno.test("active compatible projection rejects same schema ref name with changed required field", () => {
   assertThrows(
     () =>

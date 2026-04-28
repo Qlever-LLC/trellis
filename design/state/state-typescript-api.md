@@ -294,6 +294,8 @@ const listed = await drafts.list({ limit: 10 }).orThrow();
 - reads, lists, and failed conditional puts may return `migrationRequired` with
   the old value, old state version, current state version, and internal writer
   digest
+- unversioned entries validate only against the current schema; accepted-version
+  migration metadata requires a stored `stateVersion`
 - migration code runs in the app/device runtime and should write the migrated
   value back with `expectedRevision`
 

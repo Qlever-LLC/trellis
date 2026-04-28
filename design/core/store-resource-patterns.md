@@ -72,7 +72,6 @@ resources: {
       purpose: "Temporary uploaded files awaiting processing",
       required: true,
       ttlMs: 86_400_000,
-      maxObjectBytes: 100 * 1024 * 1024,
       maxTotalBytes: 10 * 1024 * 1024 * 1024,
     },
   },
@@ -90,7 +89,6 @@ Rules:
     `true`
   - `ttlMs`: optional desired retention in milliseconds; `0` or omitted means no
     automatic expiry requested
-  - `maxObjectBytes`: optional desired per-object size limit in bytes
   - `maxTotalBytes`: optional desired total-store size limit in bytes
 - contracts request logical stores; Trellis chooses the concrete physical store
   identity at service apply/install or upgrade time
@@ -113,7 +111,6 @@ Example binding payload:
 type StoreResourceBinding = {
   name: string;
   ttlMs: number;
-  maxObjectBytes?: number;
   maxTotalBytes?: number;
 };
 ```
@@ -127,6 +124,8 @@ Rules:
   `bindings.store`
 - bindings expose only the information the service runtime needs to use the
   resource safely
+- v1 bindings do not expose `maxObjectBytes`; per-object limits are not treated
+  as effective installed limits until a runtime write path enforces them
 - bindings must not expose operator or platform management credentials
 
 ### Runtime API Expectations

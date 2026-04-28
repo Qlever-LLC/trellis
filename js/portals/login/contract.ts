@@ -4,7 +4,8 @@ import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
 export const contract = defineAppContract(() => ({
   id: "portal.trellis.activation@v1",
   displayName: "Trellis Device Activation",
-  description: "Trellis built-in app for authenticated device activation.",
+  description:
+    "Trellis built-in app for authenticated device activation over the Auth.ActivateDevice operation.",
   uses: {
     auth: trellisAuth.use({
       operations: {

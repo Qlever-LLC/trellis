@@ -157,7 +157,9 @@ export type AdminRpcDeps = {
   ) => Promise<void>;
   sessionStorage: Pick<
     SqlSessionRepository,
-    "deleteByInstanceKey" | "deleteBySessionKey" | "listEntries"
+    | "deleteByPublicIdentityKey"
+    | "deleteBySessionKey"
+    | "listEntries"
   >;
   userStorage: SqlUserProjectionRepository;
 };
@@ -299,8 +301,8 @@ const userStorage = {
 const sessionStorage = {
   deleteBySessionKey: (sessionKey: string) =>
     adminRpcDeps().sessionStorage.deleteBySessionKey(sessionKey),
-  deleteByInstanceKey: (instanceKey: string) =>
-    adminRpcDeps().sessionStorage.deleteByInstanceKey(instanceKey),
+  deleteByPublicIdentityKey: (publicIdentityKey: string) =>
+    adminRpcDeps().sessionStorage.deleteByPublicIdentityKey(publicIdentityKey),
   listEntries: () => adminRpcDeps().sessionStorage.listEntries(),
 };
 
@@ -573,9 +575,11 @@ async function revokeUserSessionByKey(
   await sessionStorage.deleteBySessionKey(sessionKey);
 }
 
-async function kickInstanceRuntimeAccess(instanceKey: string): Promise<void> {
+async function kickDeviceRuntimeAccess(
+  publicIdentityKey: string,
+): Promise<void> {
   const connIter = await connectionsKV.keys(
-    connectionFilterForSession(instanceKey),
+    connectionFilterForSession(publicIdentityKey),
   )
     .take();
   if (!isErr(connIter)) {
@@ -591,7 +595,7 @@ async function kickInstanceRuntimeAccess(instanceKey: string): Promise<void> {
     }
   }
 
-  await sessionStorage.deleteByInstanceKey(instanceKey);
+  await sessionStorage.deleteByPublicIdentityKey(publicIdentityKey);
 }
 
 async function revokeInvalidatedInstanceGrantSessions(args: {
@@ -1150,14 +1154,7 @@ export const authClearDevicePortalSelectionHandler = async (
   return Result.ok({ success: true });
 };
 
-export function createAuthCreateDeviceDeploymentHandler(deps: {
-  installDeviceContract: (
-    contract: unknown,
-  ) => Promise<
-    { id: string; digest: string; displayName: string; description: string }
-  >;
-  refreshActiveContracts: () => Promise<void>;
-}) {
+export function createAuthCreateDeviceDeploymentHandler() {
   return async (
     {
       input: req,
@@ -1298,7 +1295,7 @@ export function createAuthUnapplyDeviceDeploymentContractHandler(
       instance.deploymentId === deployment.deploymentId
     );
     for (const instance of instances) {
-      await kickInstanceRuntimeAccess(instance.publicIdentityKey);
+      await kickDeviceRuntimeAccess(instance.publicIdentityKey);
     }
     return Result.ok({ deployment: nextDeployment });
   };
@@ -1328,7 +1325,7 @@ export function createAuthDisableDeviceDeploymentHandler(
         entry.deploymentId === req.deploymentId
       )
     ) {
-      await kickInstanceRuntimeAccess(instance.publicIdentityKey);
+      await kickDeviceRuntimeAccess(instance.publicIdentityKey);
     }
     return Result.ok({ deployment: nextDeployment });
   };
@@ -1449,7 +1446,7 @@ export function createAuthDisableDeviceInstanceHandler(
     await deviceInstanceStorage.put(nextInstance);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) return refreshed;
-    await kickInstanceRuntimeAccess(instance.publicIdentityKey);
+    await kickDeviceRuntimeAccess(instance.publicIdentityKey);
     return Result.ok({ instance: nextInstance });
   };
 }
@@ -1498,7 +1495,7 @@ export function createAuthRemoveDeviceInstanceHandler(
         reason: "unknown_device",
       });
     }
-    await kickInstanceRuntimeAccess(instance.publicIdentityKey);
+    await kickDeviceRuntimeAccess(instance.publicIdentityKey);
     await deviceInstanceStorage.delete(req.instanceId);
     await deviceProvisioningSecretStorage.delete(req.instanceId);
     await deviceActivationStorage.delete(req.instanceId);
@@ -1549,7 +1546,7 @@ export const authRevokeDeviceActivationHandler = async (
     revokedAt: new Date().toISOString(),
   };
   await deviceActivationStorage.put(nextActivation);
-  await kickInstanceRuntimeAccess(nextActivation.publicIdentityKey);
+  await kickDeviceRuntimeAccess(nextActivation.publicIdentityKey);
   return Result.ok({ success: true });
 };
 
@@ -1778,10 +1775,7 @@ export function createDeviceAdminHandlers(
   return {
     createDeviceDeployment: bindAdminRpcHandler(
       deps,
-      createAuthCreateDeviceDeploymentHandler({
-        installDeviceContract: deps.installDeviceContract,
-        refreshActiveContracts: deps.refreshActiveContracts,
-      }),
+      createAuthCreateDeviceDeploymentHandler(),
     ),
     applyDeviceDeploymentContract: bindAdminRpcHandler(
       deps,

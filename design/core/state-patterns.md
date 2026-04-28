@@ -160,8 +160,9 @@ Rules:
   server-side
 - client runtime code is responsible for transforming old values and writing the
   migrated current value back with revision checks
-- unversioned entries are read as current when the current schema accepts them;
-  otherwise Trellis tries the declared `acceptedVersions`
+- unversioned entries are read as current only when the current schema accepts
+  them; Trellis does not infer declared `acceptedVersions` for entries without a
+  stored `stateVersion`
 
 ## Conditional Writes
 
@@ -211,6 +212,14 @@ Map-store entry shape:
 - the current runtime default `limit` is `100`
 - `prefix(path)` composes path prefixes on the client and keeps the same typed
   map-store API
+
+Implementation note: v1 backs map listing with NATS KV wildcard/prefix filtering
+to select entries within a store namespace. NATS KV does not document
+server-side `limit`/`offset` pagination, so Trellis currently scans all matching
+keys in that namespace, sorts them lexicographically, then applies `offset` and
+`limit` in the service. This is accepted for v1. Secondary indexes or other
+large-map listing strategies are deferred unless large matching-key listings
+become a requirement.
 
 Example:
 

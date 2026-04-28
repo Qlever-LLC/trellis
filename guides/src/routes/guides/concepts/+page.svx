@@ -29,7 +29,7 @@ Portals are deployment-owned browser routing records, not a contract kind. A cus
 ### Contract identity
 
 Each contract has a stable `id` like `graph@v1` or `trellis.auth@v1`. The `@vN` suffix is a major version — breaking changes require a new version. Within one lineage, multiple active digests may coexist during rollout as long as they remain semantically compatible.
-Cross-contract `uses` validation must resolve to compatible active surfaces, so additive rollout is allowed but divergent active definitions for the same logical surface are rejected. Trellis compares resolved schema definitions, not only schema ref names: canonically equal schemas and optional additive fields on open object payloads can coexist, while closed-object additions, required-field changes, and unproven schema changes fail closed.
+Cross-contract `uses` validation must resolve to compatible active surfaces, so compatible rollout is allowed but divergent active definitions for the same logical surface are rejected. Trellis compares resolved schema definitions, not only schema ref names: canonically equal schemas and optional fields that remain safely absent on the wire can coexist, while closed-object additions, required-field changes, and unproven schema changes fail closed.
 
 Contracts are content-addressed by a SHA-256 digest of a normalized runtime/interface projection derived from their canonical JSON form. Human-facing metadata such as `displayName`, `description`, exported-only schemas, and unused local schemas do not change the digest; callable surfaces, authorization requirements, resources, and reachable schemas do.
 
@@ -205,13 +205,13 @@ resources: {
     uploads: {
       purpose: "Temporary uploaded files awaiting processing",
       ttlMs: 86_400_000,
-      maxObjectBytes: 100 * 1024 * 1024,
+      maxTotalBytes: 10 * 1024 * 1024 * 1024,
     },
   },
 },
 ```
 
-Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical store identity when the service deployment is applied, installed, or upgraded. The intended service runtime shape mirrors KV closely: `service.store.uploads.open()` resolves a higher-level store object from the persisted binding, and its failable methods return `Result` values.
+Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical store identity when the service deployment is applied, installed, or upgraded. The intended service runtime shape mirrors KV closely: `service.store.uploads.open()` resolves a higher-level store object from the persisted binding, and its failable methods return `Result` values. Store bindings expose effective installed runtime limits; v1 does not advertise per-object limits until the runtime write path enforces them.
 
 These examples use the default `required: true`. Optional KV and store resources may not appear in runtime bindings if provisioning is unavailable or fails.
 

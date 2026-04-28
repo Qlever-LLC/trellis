@@ -180,6 +180,32 @@ Deno.test("contract store allows two active digests for one contract id during r
   ]);
 });
 
+Deno.test("contract store rejects same-lineage subject collisions across logical surfaces", async () => {
+  const store = new ContractStore();
+  const contract1 = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
+  const contract2 = {
+    ...makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph"),
+    rpc: {
+      Pong: {
+        ...contract1.rpc!.Ping!,
+        subject: "rpc.v1.Graph.Ping",
+      },
+    },
+  } satisfies TrellisContractV1;
+  const digest1 = await digestContract(contract1);
+  const digest2 = await digestContract(contract2);
+
+  store.activate(digest1, contract1);
+  store.add(digest2, contract2);
+
+  assertThrows(
+    () => store.setActiveDigests([digest1, digest2]),
+    Error,
+    "already registered by",
+  );
+  assertEquals(store.getActiveContractsById("graph@v1"), [contract1]);
+});
+
 Deno.test("contract store rejects unknown active digests", () => {
   const store = new ContractStore();
   const contract = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");

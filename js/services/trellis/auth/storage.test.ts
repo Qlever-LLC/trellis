@@ -700,6 +700,28 @@ Deno.test("session storage deletes by session key", async () => {
   });
 });
 
+Deno.test("session storage deletes device sessions by public identity key", async () => {
+  await withRepositories(async ({ sessions: sessionRepo }) => {
+    const first = makeDeviceSession({
+      instanceId: "dev_1",
+      publicIdentityKey: "public-identity-key-a",
+    });
+    const second = makeDeviceSession({
+      instanceId: "dev_2",
+      publicIdentityKey: "public-identity-key-b",
+      contractDigest: "sha256-device-contract-b",
+    });
+    const service = makeServiceSession();
+    await sessionRepo.put("public-identity-key-a", first);
+    await sessionRepo.put("public-identity-key-b", second);
+    await sessionRepo.put("service-session-key", service);
+
+    await sessionRepo.deleteByPublicIdentityKey("public-identity-key-a");
+
+    assertEquals(await sessionRepo.list(), [second, service]);
+  });
+});
+
 Deno.test("portal storage upserts, gets, and lists by portal id", async () => {
   await withRepositories(async ({ portals: portalRepo }, storage) => {
     const first = makePortal({ portalId: "portal-b" });
