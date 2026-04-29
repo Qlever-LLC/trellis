@@ -10,6 +10,7 @@ function manualChunks(id) {
 
   if (id.includes("@opentelemetry")) return "vendor-observability";
   if (id.includes("@nats-io")) return "vendor-nats";
+  if (id.includes("sigma") || id.includes("graphology")) return "vendor-graph";
   if (id.includes("typebox") || id.includes("json-schema-library")) {
     return "vendor-schema";
   }

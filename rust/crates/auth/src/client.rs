@@ -1,5 +1,5 @@
 use crate::{
-    AdminSessionState, ApprovalEntryRecord, AuthGetInstalledContractRequest,
+    contract_digest, AdminSessionState, ApprovalEntryRecord, AuthGetInstalledContractRequest,
     AuthGetInstalledContractResponse, AuthValidateRequestRequest, AuthValidateRequestResponse,
     AuthenticatedUser, DisableInstanceGrantPolicyRequest, InstanceGrantPolicyRecord,
     ListApprovalsRequest, RevokeApprovalRequest, TrellisAuthError,
@@ -564,11 +564,13 @@ impl<'a> AuthClient<'a> {
             .await?;
 
         if let Some(contract) = contract {
+            let expected_digest = contract_digest(&serde_json::to_string(&contract)?)?;
             let applied = self
                 .call_rpc::<trellis_sdk_auth::rpc::AuthApplyDeviceDeploymentContractRpc>(
                     &trellis_sdk_auth::AuthApplyDeviceDeploymentContractRequest {
                         deployment_id: deployment_id.to_string(),
                         contract,
+                        expected_digest,
                     },
                 )
                 .await?;

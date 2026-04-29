@@ -576,7 +576,11 @@ export function createAuthApplyDeviceDeploymentContractHandler(deps: {
       input: req,
       context: { caller },
     }: {
-      input: { deploymentId: string; contract: unknown };
+      input: {
+        deploymentId: string;
+        contract: unknown;
+        expectedDigest: string;
+      };
       context: { caller: RpcUser };
     },
     ctx: AdminRpcContext,
@@ -596,6 +600,15 @@ export function createAuthApplyDeviceDeploymentContractHandler(deps: {
       return invalidRequest({
         deploymentId: req.deploymentId,
         message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (req.expectedDigest !== installed.digest) {
+      return invalidRequest({
+        deploymentId: req.deploymentId,
+        reason: "contract_digest_mismatch",
+        expectedDigest: req.expectedDigest,
+        actualDigest: installed.digest,
+        contractId: installed.id,
       });
     }
     const nextDeployment: DeviceDeployment = {

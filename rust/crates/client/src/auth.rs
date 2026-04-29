@@ -50,7 +50,8 @@ impl SessionAuth {
 
     /// Create a user auth-callout token using an `iat` timestamp and contract digest.
     pub fn nats_connect_user_token(&self, iat: u64, contract_digest: &str) -> String {
-        let signature = self.sign_sha256_domain("nats-connect", &iat.to_string());
+        let signature =
+            self.sign_sha256_domain("nats-connect", &format!("{iat}:{contract_digest}"));
         serde_json::to_string(&json!({
           "v": 1,
           "sessionKey": self.session_key,

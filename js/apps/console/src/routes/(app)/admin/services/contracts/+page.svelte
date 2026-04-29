@@ -1,5 +1,6 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
+  import { digestContractManifest, type TrellisContractV1 } from "@qlever-llc/trellis/contracts";
   import type { AuthListServiceDeploymentsOutput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -52,10 +53,11 @@
     applyPending = true;
     error = null;
     try {
-      const contract = JSON.parse(contractJson) as Record<string, unknown>;
+      const contract = JSON.parse(contractJson) as TrellisContractV1;
       const response = await trellis.request("Auth.ApplyServiceDeploymentContract", {
         deploymentId: selectedDeployment.deploymentId,
         contract,
+        expectedDigest: digestContractManifest(contract),
       }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Contract applied to ${selectedDeployment.deploymentId}.`, "Applied");

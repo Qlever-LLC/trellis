@@ -196,6 +196,62 @@ fn packing_catalog_includes_manifest_metadata() {
 }
 
 #[test]
+fn loaded_manifest_digest_uses_contract_identity_projection() {
+    let root = unique_temp_dir("identity-digest");
+    fs::create_dir_all(&root).expect("create temp dir");
+    let manifest_path = root.join("example.contract@v1.json");
+    let mut manifest = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.contract@v1",
+        "displayName": "Example Contract",
+        "description": "Example contract used in digest tests.",
+        "kind": "service",
+        "schemas": {
+            "PingInput": {"type": "object", "properties": {}, "additionalProperties": false},
+            "PingOutput": {"type": "object", "properties": {}, "additionalProperties": false},
+            "Unused": {"type": "object", "properties": {"ignored": {"type": "string"}}, "additionalProperties": false}
+        },
+        "rpc": {
+            "Example.Ping": {
+                "version": "v1",
+                "subject": "rpc.v1.Example.Ping",
+                "input": {"schema": "PingInput"},
+                "output": {"schema": "PingOutput"}
+            }
+        }
+    });
+    fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).expect("write manifest");
+    let digest = load_manifest(&manifest_path).expect("load manifest").digest;
+
+    manifest["displayName"] = json!("Renamed Contract");
+    manifest["description"] = json!("Changed display metadata.");
+    manifest["schemas"]["Unused"] = json!({
+        "type": "object",
+        "properties": {"stillIgnored": {"type": "number"}},
+        "additionalProperties": false
+    });
+    fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).expect("rewrite manifest");
+    let metadata_only_digest = load_manifest(&manifest_path)
+        .expect("load metadata-only manifest")
+        .digest;
+    assert_eq!(metadata_only_digest, digest);
+
+    manifest["schemas"]["PingOutput"] = json!({
+        "type": "object",
+        "required": ["pong"],
+        "properties": {"pong": {"type": "boolean"}},
+        "additionalProperties": false
+    });
+    fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).expect("rewrite manifest");
+    let changed_interface_digest = load_manifest(&manifest_path)
+        .expect("load interface-changed manifest")
+        .digest;
+    assert_ne!(changed_interface_digest, digest);
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[test]
 fn embedded_schemas_match_shared_source_of_truth() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     for schema_name in [

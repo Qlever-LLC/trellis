@@ -394,6 +394,7 @@ const transferContract = defineServiceContract(
       "Demo.Files.Upload": {
         version: "v1",
         input: { schema: "UploadInput" },
+        output: { schema: "UploadInput" },
         transfer: {
           direction: "send",
           store: "uploads",

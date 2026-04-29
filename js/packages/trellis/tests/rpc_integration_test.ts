@@ -182,6 +182,7 @@ const traceContract = defineServiceContract(
 );
 
 const traceRuntimeContract = {
+  CONTRACT: traceContract.CONTRACT,
   API: {
     owned: traceContract.API.trellis,
   },
@@ -248,7 +249,7 @@ Deno.test({
       "Trellis client validates input schema before sending",
       async () => {
         const { auth } = await createTestAuth();
-        const client = createClient<typeof authContract.API.owned>(
+        const client = createClient(
           authContract,
           nats.nc,
           auth,
@@ -269,7 +270,7 @@ Deno.test({
     );
 
     await t.step("Trellis template generates correct subjects", () => {
-      const client = createClient<typeof emptyContract.API.owned>(
+      const client = createClient(
         emptyContract,
         nats.nc,
         { sessionKey: "test", sign: () => new Uint8Array(64) },
@@ -282,7 +283,7 @@ Deno.test({
     });
 
     await t.step("Trellis template escapes special characters", () => {
-      const client = createClient<typeof emptyContract.API.owned>(
+      const client = createClient(
         emptyContract,
         nats.nc,
         { sessionKey: "test", sign: () => new Uint8Array(64) },
@@ -315,7 +316,7 @@ Deno.test({
         }),
       );
 
-      const client = createClient<typeof eventContract.API.owned>(
+      const client = createClient(
         eventContract,
         nats.nc,
         { sessionKey: "test", sign: () => new Uint8Array(64) },
@@ -329,7 +330,7 @@ Deno.test({
     await t.step(
       "declared local RPC errors reconstruct to real runtime classes",
       async () => {
-        const service = createClient<typeof localErrorContract.API.owned>(
+        const service = createClient(
           localErrorContract,
           nats.nc,
           { sessionKey: "local-error-service", sign: () => new Uint8Array(64) },
@@ -340,7 +341,7 @@ Deno.test({
           return err(new NotFoundError({ resource: "Workspace" }));
         });
 
-        const client = createClient<typeof localErrorContract.API.owned>(
+        const client = createClient(
           localErrorContract,
           nats.nc,
           { sessionKey: "local-error-client", sign: () => new Uint8Array(64) },
@@ -360,13 +361,13 @@ Deno.test({
     );
 
     await t.step("trace context propagates across RPC", async () => {
-      const authService = createClient<typeof authContract.API.owned>(
+      const authService = createClient(
         authContract,
         nats.nc,
         { sessionKey: "auth-service", sign: () => new Uint8Array(64) },
         { name: "auth-service" },
       );
-      const traceService = createClient<typeof traceContract.API.trellis>(
+      const traceService = createClient(
         traceRuntimeContract,
         nats.nc,
         { sessionKey: "trace-service", sign: () => new Uint8Array(64) },
@@ -398,7 +399,7 @@ Deno.test({
         servers: `localhost:${info.port}`,
         inboxPrefix,
       });
-      const client = createClient<typeof traceContract.API.owned>(
+      const client = createClient(
         traceContract,
         nc,
         auth,
@@ -422,7 +423,7 @@ Deno.test({
     });
 
     await t.step("AuthValidateRequest RPC round-trip works", async () => {
-      const authService = createClient<typeof authContract.API.owned>(
+      const authService = createClient(
         authContract,
         nats.nc,
         { sessionKey: "auth", sign: () => new Uint8Array(64) },
@@ -447,7 +448,7 @@ Deno.test({
         servers: `localhost:${info.port}`,
         inboxPrefix,
       });
-      const client = createClient<typeof authContract.API.owned>(
+      const client = createClient(
         authContract,
         nc,
         auth,
@@ -495,13 +496,13 @@ Deno.test({
     });
 
     await t.step("Full RPC with auth validation works", async () => {
-      const meService = createClient<typeof authContract.API.owned>(
+      const meService = createClient(
         authContract,
         nats.nc,
         { sessionKey: "service", sign: () => new Uint8Array(64) },
         { name: "me-service" },
       );
-      const authService = createClient<typeof authContract.API.owned>(
+      const authService = createClient(
         authContract,
         nats.nc,
         { sessionKey: "auth", sign: () => new Uint8Array(64) },
@@ -545,7 +546,7 @@ Deno.test({
         servers: `localhost:${info.port}`,
         inboxPrefix,
       });
-      const client = createClient<typeof authContract.API.owned>(
+      const client = createClient(
         authContract,
         nc,
         auth,
@@ -569,13 +570,13 @@ Deno.test({
     await t.step(
       "request().orThrow() unwraps successful RPC responses",
       async () => {
-        const meService = createClient<typeof authContract.API.owned>(
+        const meService = createClient(
           authContract,
           nats.nc,
           { sessionKey: "service-throw", sign: () => new Uint8Array(64) },
           { name: "me-service-throw" },
         );
-        const authService = createClient<typeof authContract.API.owned>(
+        const authService = createClient(
           authContract,
           nats.nc,
           { sessionKey: "auth-throw", sign: () => new Uint8Array(64) },
@@ -619,7 +620,7 @@ Deno.test({
           servers: `localhost:${info.port}`,
           inboxPrefix,
         });
-        const client = createClient<typeof authContract.API.owned>(
+        const client = createClient(
           authContract,
           nc,
           auth,
@@ -647,13 +648,13 @@ Deno.test({
   async fn() {
     await using nats = await NatsTest.start();
 
-    const meService = createClient<typeof authContract.API.owned>(
+    const meService = createClient(
       authContract,
       nats.nc,
       { sessionKey: "service-retry", sign: () => new Uint8Array(64) },
       { name: "me-service-retry" },
     );
-    const authService = createClient<typeof authContract.API.owned>(
+    const authService = createClient(
       authContract,
       nats.nc,
       { sessionKey: "auth-retry", sign: () => new Uint8Array(64) },
@@ -702,7 +703,7 @@ Deno.test({
       servers: `localhost:${info.port}`,
       inboxPrefix,
     });
-    const client = createClient<typeof authContract.API.owned>(
+    const client = createClient(
       authContract,
       nc,
       auth,
@@ -728,7 +729,7 @@ Deno.test({
 });
 
 Deno.test("mount rejects unknown RPC methods with an explicit error", async () => {
-  const service = createClient<typeof emptyContract.API.owned>(
+  const service = createClient(
     emptyContract,
     { options: { inboxPrefix: "_INBOX.test" } } as never,
     { sessionKey: "test", sign: () => new Uint8Array(64) },

@@ -107,7 +107,7 @@ async function typecheckClientConnectRequestSurface() {
   const jobsOutputCheck: number = jobsResult;
 
   const preferences = await connected.state.preferences.get().orThrow();
-  if (preferences.found) {
+  if (!("migrationRequired" in preferences) && preferences.found) {
     const theme: string = preferences.entry.value.theme;
     // @ts-expect-error declared state values must preserve schema-derived fields
     const missingField: number = preferences.entry.value.missingField;
@@ -190,7 +190,7 @@ async function typecheckTrellisClientConnectRequestSurface() {
   const participantKind: "app" | "agent" | "device" | "service" =
     me.participantKind;
   const preferences = await connected.state.preferences.get().orThrow();
-  if (preferences.found) {
+  if (!("migrationRequired" in preferences) && preferences.found) {
     const theme: string = preferences.entry.value.theme;
     // @ts-expect-error declared state values must preserve schema-derived fields
     const missingField: number = preferences.entry.value.missingField;

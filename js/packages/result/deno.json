@@ -5,7 +5,7 @@
   "exports": "./mod.ts",
   "tasks": {
     "build:npm": "deno run -A ./scripts/build_npm.ts",
-    "test": "deno test"
+    "test": "deno test --allow-read"
   },
   "compilerOptions": {
     "verbatimModuleSyntax": true

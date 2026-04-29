@@ -3,6 +3,7 @@
   import { ok } from "@qlever-llc/result";
   import type { HealthHeartbeat } from "@qlever-llc/trellis/health";
   import type {
+    AuthGetInstalledContractOutput,
     AuthListServiceInstancesOutput,
     AuthListServiceDeploymentsOutput,
   } from "@qlever-llc/trellis/sdk/auth";
@@ -12,6 +13,7 @@
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
+  import DeploymentUsesGraph from "$lib/components/DeploymentUsesGraph.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
@@ -28,11 +30,18 @@
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { loadJobsPageData } from "../../../../lib/jobs_page.ts";
   import { getTrellis } from "../../../../lib/trellis";
+  import {
+    getAppliedApiDependencyGraph,
+    getAppliedApiDependencyRows,
+    getAppliedContractApiSummaries,
+    type AppliedApiDependencyRow,
+  } from "$lib/applied_api_discovery";
 
   type Deployment = AuthListServiceDeploymentsOutput["deployments"][number];
   type ServiceInstance = AuthListServiceInstancesOutput["instances"][number];
+  type ContractDetail = AuthGetInstalledContractOutput["contract"];
   type Job = JobsListOutput["jobs"][number];
-  type Tab = "instances" | "jobs" | "contracts" | "events";
+  type Tab = "instances" | "jobs" | "contracts" | "apis" | "events";
 
   const trellis = getTrellis();
   const STALE_REFRESH_MS = 5_000;
@@ -44,6 +53,7 @@
 
   let deployments = $state.raw<Deployment[]>([]);
   let instances = $state.raw<ServiceInstance[]>([]);
+  let contractDetails = $state.raw<ContractDetail[]>([]);
   let jobs = $state.raw<Job[]>([]);
   let recentEvents = $state.raw<HealthFeedEvent[]>([]);
   let healthInstances = $state.raw<Record<string, HealthInstanceView>>({});
@@ -67,6 +77,13 @@
     recentEvents.filter((event) => event.heartbeat.service.name === selectedDeploymentId || selectedInstanceIds.has(event.heartbeat.service.instanceId)),
   );
   const selectedJobs = $derived(jobs.filter((job) => job.service === selectedDeploymentId));
+  const appliedApiSummaries = $derived(getAppliedContractApiSummaries({ deployments }, { instances }, contractDetails));
+  const selectedAppliedApiSummaries = $derived(appliedApiSummaries.filter((summary) => summary.deploymentId === selectedDeploymentId));
+  const dependencyRows = $derived(getAppliedApiDependencyRows({ deployments }, contractDetails));
+  const selectedDependencyRows = $derived(dependencyRows.filter((row) =>
+    row.sourceDeploymentId === selectedDeploymentId || row.targetDeploymentIds.includes(selectedDeploymentId)
+  ));
+  const dependencyGraph = $derived(getAppliedApiDependencyGraph({ deployments }, { instances }, contractDetails));
   const filteredDeployments = $derived.by(() => {
     const term = search.trim().toLowerCase();
     if (!term) return deployments;
@@ -151,6 +168,7 @@
       if (isErr(jobsData)) { error = errorMessage(jobsData); return; }
       deployments = deploymentsRes.deployments ?? [];
       instances = instancesRes.instances ?? [];
+      contractDetails = await loadContractDetails(deployments);
       jobs = jobsData.jobs;
       jobsUnavailableMessage = jobsData.available ? null : jobsData.message ?? "Jobs admin runtime is unavailable.";
       syncSelectedDeployment(deployments);
@@ -159,6 +177,33 @@
     } finally {
       loading = false;
     }
+  }
+
+  async function loadContractDetails(nextDeployments: Deployment[]): Promise<ContractDetail[]> {
+    const digests = [...new Set(nextDeployments.flatMap((deployment) =>
+      deployment.appliedContracts.flatMap((contract) => contract.allowedDigests)
+    ))];
+    const details = await Promise.all(digests.map(async (digest) => {
+      const result = await trellis.request("Auth.GetInstalledContract", { digest }).take();
+      return isErr(result) ? null : result.contract;
+    }));
+    return details.filter((detail): detail is ContractDetail => detail !== null);
+  }
+
+  function dependencyStatusClass(status: AppliedApiDependencyRow["status"]): string {
+    if (status === "resolved") return "badge-success";
+    if (status === "ambiguous") return "badge-warning";
+    return "badge-error";
+  }
+
+  function dependencySurfaceLabel(row: AppliedApiDependencyRow): string {
+    const parts = [
+      row.rpcCalls.length ? `${row.rpcCalls.length} RPC` : "",
+      row.operationCalls.length ? `${row.operationCalls.length} Op` : "",
+      row.eventPublishes.length ? `${row.eventPublishes.length} Pub` : "",
+      row.eventSubscribes.length ? `${row.eventSubscribes.length} Sub` : "",
+    ].filter(Boolean);
+    return parts.join(" / ") || "Declared use";
   }
 
   function ingestHeartbeat(heartbeat: HealthHeartbeat) {
@@ -310,15 +355,25 @@
               <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Version / runtime</dt><dd><div class="font-medium">{selectedHealthService?.version ?? "Not instrumented"}</div><div class="text-xs text-base-content/60">{formatRuntime(selectedHealthService?.runtime, selectedHealthService?.instances[0]?.runtimeVersion)}</div></dd></div>
               <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Instances</dt><dd class="font-medium">{activeInstances.length}/{selectedInstances.length} active / total</dd></div>
               <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Contracts</dt><dd class="font-medium">{selectedDeployment.appliedContracts.length}</dd></div>
+              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Applied APIs</dt><dd class="font-medium">{selectedAppliedApiSummaries.length}</dd></div>
               <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Jobs</dt><dd class="font-medium">{jobsUnavailableMessage ? "Unavailable" : selectedJobs.length}</dd></div>
               <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Capabilities</dt><dd class="font-medium">{new Set(selectedInstances.flatMap((instance) => instance.capabilities)).size}</dd></div>
               <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Telemetry</dt><dd class="font-medium">{selectedHealthService ? "Heartbeat instrumented" : "No heartbeat yet / Not instrumented"}</dd></div>
             </dl>
           </Panel>
 
+          {#if dependencyGraph.nodes.length > 1}
+            <DeploymentUsesGraph
+              nodes={dependencyGraph.nodes}
+              edges={dependencyGraph.edges}
+              title="Applied contract dependencies"
+              description="All service deployments, applied contract digests, and resolved declared uses."
+            />
+          {/if}
+
           <Panel title="Details" eyebrow="Deployment operations" class="min-w-0">
             <div class="tabs tabs-bordered mb-4">
-              {#each ["instances", "jobs", "contracts", "events"] as tab (tab)}
+              {#each ["instances", "jobs", "contracts", "apis", "events"] as tab (tab)}
                 <button class={["tab capitalize", activeTab === tab && "tab-active"]} onclick={() => (activeTab = tab as Tab)}>{tab}</button>
               {/each}
             </div>
@@ -387,6 +442,54 @@
                   {/each}
                 </div>
               {/if}
+            {:else if activeTab === "apis"}
+              <div class="space-y-4">
+                {#if selectedAppliedApiSummaries.length === 0}
+                  <EmptyState title="No applied APIs" description="This deployment has no applied contract digests to inspect." />
+                {:else}
+                  <div class="overflow-x-auto">
+                    <table class="table table-sm trellis-table">
+                      <thead><tr><th>Contract</th><th>Digest</th><th>Surfaces</th><th>Resources</th><th>Instances</th><th>Namespaces</th></tr></thead>
+                      <tbody>
+                        {#each selectedAppliedApiSummaries as summary (summary.id)}
+                          <tr>
+                            <td><div class="font-medium">{summary.displayName ?? summary.contractId}</div><div class="trellis-identifier text-base-content/60">{summary.contractId}</div>{#if summary.description}<div class="mt-1 text-xs text-base-content/55">{summary.description}</div>{/if}</td>
+                            <td class="trellis-identifier text-base-content/70">{summary.digest}</td>
+                            <td><div class="flex flex-wrap gap-1"><span class="badge badge-outline badge-xs">{summary.rpcMethods} RPC</span><span class="badge badge-outline badge-xs">{summary.operations} Ops</span><span class="badge badge-outline badge-xs">{summary.events} Events</span></div></td>
+                            <td><div class="flex flex-wrap gap-1"><span class="badge badge-outline badge-xs">{summary.kvResources} KV</span><span class="badge badge-outline badge-xs">{summary.storeResources} Store</span><span class="badge badge-outline badge-xs">{summary.jobsQueues} Jobs</span></div></td>
+                            <td>{summary.activeInstances} active</td>
+                            <td><div class="flex flex-wrap gap-1">{#each summary.namespaces as namespace (namespace)}<span class="badge badge-ghost badge-xs">{namespace}</span>{:else}<span class="text-base-content/60">—</span>{/each}</div></td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
+                  </div>
+                {/if}
+
+                <div>
+                  <h3 class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-base-content/50">Deployment uses</h3>
+                  {#if selectedDependencyRows.length === 0}
+                    <EmptyState title="No declared uses" description="No applied contract on this deployment declares cross-contract uses." class="py-4" />
+                  {:else}
+                    <div class="overflow-x-auto">
+                      <table class="table table-sm trellis-table">
+                        <thead><tr><th>Source</th><th>Alias</th><th>Target</th><th>Surfaces</th><th>Status</th></tr></thead>
+                        <tbody>
+                          {#each selectedDependencyRows as row (row.id)}
+                            <tr>
+                              <td><div class="trellis-identifier font-medium">{row.sourceDeploymentId}</div><div class="trellis-identifier text-base-content/60">{row.sourceContractId}</div></td>
+                              <td>{row.alias}</td>
+                              <td><div class="trellis-identifier font-medium">{row.targetContractId}</div><div class="mt-1 flex flex-wrap gap-1">{#each row.targetDeploymentIds as deploymentId (deploymentId)}<span class="badge badge-outline badge-xs">{deploymentId}</span>{:else}<span class="text-xs text-base-content/60">No active provider deployment</span>{/each}</div></td>
+                              <td>{dependencySurfaceLabel(row)}</td>
+                              <td><span class={["badge badge-sm", dependencyStatusClass(row.status)]}>{row.status}</span></td>
+                            </tr>
+                          {/each}
+                        </tbody>
+                      </table>
+                    </div>
+                  {/if}
+                </div>
+              </div>
             {:else if selectedEvents.length === 0}
               <EmptyState title="No heartbeat events" description="No live heartbeat events have been received for this deployment yet." />
             {:else}

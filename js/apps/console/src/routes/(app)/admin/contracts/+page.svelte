@@ -9,6 +9,7 @@
   import LoadingState from "../../../../lib/components/LoadingState.svelte";
   import PageToolbar from "../../../../lib/components/PageToolbar.svelte";
   import Panel from "../../../../lib/components/Panel.svelte";
+  import { getAppliedApiSchemaRows, getAppliedApiUseRows } from "../../../../lib/applied_api_discovery";
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { getTrellis } from "../../../../lib/trellis";
 
@@ -337,6 +338,53 @@
                     {/if}
                   </div>
                 {/if}
+              {/if}
+
+              {@const schemaRows = getAppliedApiSchemaRows(detail)}
+              {#if schemaRows.length}
+                <div>
+                  <h4 class="text-xs font-semibold uppercase text-base-content/50 mb-2">Schemas</h4>
+                  <div class="overflow-x-auto rounded-box bg-base-200">
+                    <table class="table table-xs trellis-table">
+                      <thead><tr><th>Name</th><th>Type</th><th>Export</th><th>Documentation</th><th>Schema</th></tr></thead>
+                      <tbody>
+                        {#each schemaRows as schema (schema.name)}
+                          <tr>
+                            <td class="font-medium">{schema.name}</td>
+                            <td><span class="badge badge-outline badge-xs">{schema.type}</span></td>
+                            <td>{#if schema.exported}<span class="badge badge-success badge-xs">exported</span>{:else}<span class="badge badge-ghost badge-xs">internal</span>{/if}</td>
+                            <td><div class="text-sm">{schema.title ?? "—"}</div>{#if schema.description}<div class="mt-1 text-xs text-base-content/60">{schema.description}</div>{/if}</td>
+                            <td><details class="collapse collapse-arrow rounded-box bg-base-100"><summary class="collapse-title min-h-0 py-2 text-xs font-medium">JSON</summary><pre class="collapse-content max-h-72 overflow-auto text-xs font-mono">{JSON.stringify(schema.schema, null, 2)}</pre></details></td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              {/if}
+
+              {@const useRows = getAppliedApiUseRows(detail)}
+              {#if useRows.length}
+                <div>
+                  <h4 class="text-xs font-semibold uppercase text-base-content/50 mb-2">Uses</h4>
+                  <div class="overflow-x-auto rounded-box bg-base-200">
+                    <table class="table table-xs trellis-table">
+                      <thead><tr><th>Alias</th><th>Contract</th><th>RPC calls</th><th>Operations</th><th>Event pub</th><th>Event sub</th></tr></thead>
+                      <tbody>
+                        {#each useRows as use (use.alias)}
+                          <tr>
+                            <td class="font-medium">{use.alias}</td>
+                            <td class="trellis-identifier text-base-content/70">{use.contractId}</td>
+                            <td class="text-xs">{use.rpcCalls.join(", ") || "—"}</td>
+                            <td class="text-xs">{use.operationCalls.join(", ") || "—"}</td>
+                            <td class="text-xs">{use.eventPublishes.join(", ") || "—"}</td>
+                            <td class="text-xs">{use.eventSubscribes.join(", ") || "—"}</td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               {/if}
 
               {#if detail.resources?.kv || detail.resources?.store}

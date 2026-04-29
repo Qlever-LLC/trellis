@@ -125,6 +125,7 @@ For a SvelteKit portal, the target shape is a page like `src/routes/login/+page.
   <h1>Approve {portal.state.approval.displayName}</h1>
   <p>Signed in as {portal.state.user.name ?? portal.state.user.email ?? portal.state.user.id}</p>
   <p>{portal.state.approval.description}</p>
+  <p>Contract digest: {portal.state.approval.contractDigest}</p>
   <ul>
     {#each portal.state.approval.capabilities as cap}
       <li>{cap}</li>
@@ -152,6 +153,11 @@ The helper shown above is the intended public shape. Under the hood it still use
 `portal.state.approval.capabilities` is the Trellis-side capability list that
 the app contract requested. A portal should present it as application access
 inside Trellis, not as provider-owned OAuth scopes.
+
+`portal.state.approval.contractDigest` is the exact reviewed digest being
+approved. Custom portals should show this digest, or at least make clear that the
+decision is digest-specific. Approval is not keyed only by app name or contract
+lineage.
 
 The `portal.state.app.context` payload is optional and app-defined. Portals must validate fields and should only access the fields they define.
 

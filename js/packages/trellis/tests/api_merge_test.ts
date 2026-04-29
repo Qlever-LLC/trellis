@@ -30,6 +30,72 @@ Deno.test("createClient prefers trellis API for app contracts", () => {
   assertEquals(Object.hasOwn(client.api.rpc, "Auth.ListApprovals"), true);
 });
 
+async function typecheckInferredCreateClientSurface(): Promise<void> {
+  const service = defineServiceContract(
+    {
+      schemas: {
+        Empty: Type.Object({}),
+        Pong: Type.Object({ pong: Type.Boolean() }),
+      },
+    },
+    (ref) => ({
+      id: "trellis.service.inference-test@v1",
+      displayName: "Service Inference Test",
+      description: "Exercise inferred createClient service API typing.",
+      rpc: {
+        "Inference.Ping": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("Pong"),
+          errors: [],
+        },
+      },
+    }),
+  );
+  const app = defineAppContract(() => ({
+    id: "trellis.app.inference-test@v1",
+    displayName: "App Inference Test",
+    description: "Exercise inferred createClient app API typing.",
+    uses: {
+      service: service.use({ rpc: { call: ["Inference.Ping"] } }),
+    },
+  }));
+  const nats = { options: { inboxPrefix: "_INBOX.test" } } as never;
+  const trellisAuth = { sessionKey: "test", sign: () => new Uint8Array(64) };
+
+  const serviceClient = createClient(service, nats, trellisAuth);
+  const pong = await serviceClient.request("Inference.Ping", {}).orThrow();
+  const pongValue: boolean = pong.pong;
+  // @ts-expect-error inferred service response must stay concrete, not any.
+  const invalidPong: string = pong.pong;
+  // @ts-expect-error service clients should not infer undeclared app uses.
+  const invalidServiceMethod = serviceClient.request("Auth.Me", {});
+
+  const appClient = createClient(app, nats, trellisAuth);
+  const appPong = await appClient.request("Inference.Ping", {}).orThrow();
+  const appPongValue: boolean = appPong.pong;
+  // @ts-expect-error app client should infer its selected trellis API only.
+  const invalidAppMethod = appClient.request("Inference.Hidden", {});
+
+  const explicitClient = createClient<typeof service.API.owned>(
+    service,
+    nats,
+    trellisAuth,
+  );
+  const explicitPong = await explicitClient.request("Inference.Ping", {})
+    .orThrow();
+  const explicitPongValue: boolean = explicitPong.pong;
+
+  void appPongValue;
+  void explicitPongValue;
+  void invalidAppMethod;
+  void invalidPong;
+  void invalidServiceMethod;
+  void pongValue;
+}
+
+void typecheckInferredCreateClientSurface;
+
 Deno.test("API composition", async (t) => {
   const emptySchema = Type.Object({});
   const catalogContract = defineServiceContract(

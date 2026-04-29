@@ -1021,6 +1021,7 @@ Deno.test("defineServiceContract emits transfer-capable operations", () => {
         "Demo.Files.Upload": {
           version: "v1",
           input: schemaRef<typeof fileSchemas, "UploadInput">("UploadInput"),
+          output: schemaRef<typeof fileSchemas, "UploadInput">("UploadInput"),
           transfer: {
             direction: "send",
             store: "uploads",
@@ -1036,6 +1037,7 @@ Deno.test("defineServiceContract emits transfer-capable operations", () => {
     version: "v1",
     subject: "operations.v1.Demo.Files.Upload",
     input: { schema: "UploadInput" },
+    output: { schema: "UploadInput" },
     transfer: {
       direction: "send",
       store: "uploads",
@@ -1062,6 +1064,7 @@ Deno.test("defineServiceContract rejects duplicate logical keys across used and 
         "Billing.Refund": {
           version: "v1",
           input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+          output: schemaRef<typeof baseSchemas, "Empty">("Empty"),
         },
       },
     }),
@@ -1082,6 +1085,7 @@ Deno.test("defineServiceContract rejects duplicate logical keys across used and 
             "Billing.Refund": {
               version: "v1",
               input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+              output: schemaRef<typeof baseSchemas, "Empty">("Empty"),
             },
           },
         }),
@@ -1102,6 +1106,7 @@ Deno.test("defineServiceContract validates operation use selections at runtime",
         "Billing.Refund": {
           version: "v1",
           input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
+          output: schemaRef<typeof baseSchemas, "Empty">("Empty"),
         },
       },
     }),

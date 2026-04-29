@@ -76,8 +76,7 @@
   --trellis-espresso: #2a2521;
   --trellis-paper: #fffdf9;
   --trellis-shadow:
-    0 1px 1px rgb(16 24 40 / 0.05),
-    0 12px 34px rgb(42 37 33 / 0.08);
+    0 1px 1px rgb(16 24 40 / 0.05), 0 12px 34px rgb(42 37 33 / 0.08);
 }
 
 html,
@@ -90,8 +89,15 @@ body {
   min-height: 100vh;
   color: var(--color-base-content);
   font-family:
-    Inter, "Söhne", "Sohne", ui-sans-serif, system-ui, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", sans-serif;
+    Inter,
+    "Söhne",
+    "Sohne",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   background:
     radial-gradient(
       circle at 0% 0%,
@@ -99,11 +105,11 @@ body {
       transparent 32rem
     ),
     linear-gradient(
-    135deg,
-    #fbfaf7 0%,
-    var(--trellis-warm-gray) 52%,
-    #ece7df 100%
-  );
+      135deg,
+      #fbfaf7 0%,
+      var(--trellis-warm-gray) 52%,
+      #ece7df 100%
+    );
   background-attachment: fixed;
 }
 
@@ -169,8 +175,7 @@ a {
     position: sticky;
     top: 0;
     height: 100vh;
-    border-right: 1px solid
-      color-mix(in oklch, var(--trellis-stone) 72%, white);
+    border-right: 1px solid color-mix(in oklch, var(--trellis-stone) 72%, white);
     border-bottom: 0;
   }
 }
@@ -196,9 +201,9 @@ a {
 
 .trellis-kicker {
   color: var(--trellis-copper);
-  font-size: 0.68rem;
+  font-size: 0.85rem;
   font-weight: 800;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.15em;
   line-height: 1rem;
   text-transform: uppercase;
 }

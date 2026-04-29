@@ -661,6 +661,7 @@ type ListServiceDeploymentsResponse = { deployments: ServiceDeployment[] };
 type ApplyServiceDeploymentContractRequest = {
   deploymentId: string;
   contract: Record<string, unknown>;
+  expectedDigest: string;
 };
 type ApplyServiceDeploymentContractResponse = {
   deployment: ServiceDeployment;
@@ -678,18 +679,24 @@ Apply and unapply are command-style control-plane mutations. They are not
 long-running operations, but they must behave as all-or-nothing updates for the
 durable deployment record:
 
-- `Auth.ApplyServiceDeploymentContract` validates the newly installed digest
-  against the proposed active catalog before provisioning external resources,
-  provisions bindings from the exact digest, validates the staged deployment
-  record, then persists and refreshes the active catalog. Resource declarations
-  are exact-digest install input; Trellis no longer rejects a same-lineage
-  digest solely because its resource settings differ from another active digest.
+- `Auth.ApplyServiceDeploymentContract` requires `expectedDigest`, recomputes
+  the digest from the submitted manifest, and rejects the mutation if the
+  reviewed digest does not match the installed digest. It then validates the
+  newly installed digest against the proposed active catalog before provisioning
+  external resources, provisions bindings from the exact digest, validates the
+  staged deployment record, then persists and refreshes the active catalog.
+  Resource declarations are exact-digest install input; Trellis no longer
+  rejects a same-lineage digest solely because its resource settings differ from
+  another active digest.
 - `Auth.UnapplyServiceDeploymentContract` validates the staged deployment before
   persistence, then refreshes the active catalog before kicking affected runtime
   connections.
 - service and device deployment mutations fail closed when the proposed active
   set has inactive or missing `uses` dependencies; Trellis validates that staged
   catalog state before exposing it to runtime permissions.
+- service and device apply calls are race-safe review submissions: the caller
+  must send the digest that was reviewed locally, and auth must compare it with
+  the digest produced by install before mutating durable deployment state.
 - if active-catalog refresh fails after persistence, auth rolls the deployment
   record back; if rollback also fails, the RPC returns an unexpected aggregate
   failure rather than reporting a successful apply or unapply.
@@ -896,6 +903,7 @@ type ListDeviceDeploymentsResponse = { deployments: DeviceDeployment[] };
 type ApplyDeviceDeploymentContractRequest = {
   deploymentId: string;
   contract: Record<string, unknown>;
+  expectedDigest: string;
 };
 type ApplyDeviceDeploymentContractResponse = {
   deployment: DeviceDeployment;

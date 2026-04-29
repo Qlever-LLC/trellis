@@ -84,7 +84,13 @@ fn auth_proof_matches_shared_conformance_vectors() {
             fixture.flow_bind.sig
         );
         assert_eq!(
-            auth.sign_sha256_domain("nats-connect", &fixture.nats_connect.iat.to_string()),
+            auth.sign_sha256_domain(
+                "nats-connect",
+                &format!(
+                    "{}:{}",
+                    fixture.nats_connect.iat, fixture.nats_connect.contract_digest
+                )
+            ),
             fixture.nats_connect.iat_sig
         );
         assert_eq!(

@@ -58,6 +58,10 @@ The CLI will:
 - infer defaults such as display name, description, and namespaces from the contract
 - show an installation review before sending the request
 
+During apply, the CLI sends the digest shown in that review as `expectedDigest`.
+Trellis recomputes the digest from the submitted manifest and rejects the apply
+if the value changed before any resources or deployment records are mutated.
+
 ## 4. Store the seed immediately
 
 After a successful provision, the CLI prints:
@@ -101,7 +105,7 @@ When you change the contract, apply the new digest to the service deployment:
 trellis deploy apply svc/my-service --source ./contracts/my_service.ts
 ```
 
-Applying a new digest validates the new contract against the proposed active catalog, provisions any required resource changes before updating the deployment record, and keeps the service instance key the same. Restart the service process after applying the updated contract. A process that reconnects with a retired digest after unapply is rejected during NATS auth instead of receiving stale service permissions.
+Applying a new digest validates the reviewed contract digest against the proposed active catalog, provisions any required resource changes before updating the deployment record, and keeps the service instance key the same. Restart the service process after applying the updated contract. A process that reconnects with a retired digest after unapply is rejected during NATS auth instead of receiving stale service permissions.
 
 ## What install actually grants
 

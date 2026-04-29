@@ -119,7 +119,7 @@ async fn show_command(format: OutputFormat, reference: &DeployRef) -> miette::Re
     match reference.kind {
         DeployKind::Service => {
             let deployment = auth_client
-                .list_service_deployments(true)
+                .list_service_deployments(false)
                 .await
                 .into_diagnostic()?
                 .into_iter()
@@ -129,7 +129,7 @@ async fn show_command(format: OutputFormat, reference: &DeployRef) -> miette::Re
         }
         DeployKind::Device => {
             let deployment = auth_client
-                .list_device_deployments(None, true)
+                .list_device_deployments(None, false)
                 .await
                 .into_diagnostic()?
                 .into_iter()
@@ -214,11 +214,19 @@ async fn apply_command(format: OutputFormat, args: &DeployApplyArgs) -> miette::
                     &authlib::AuthApplyServiceDeploymentContractRequest {
                         deployment_id: args.reference.id.clone(),
                         contract,
+                        expected_digest: loaded.digest.clone(),
                     },
                 )
                 .await
                 .into_diagnostic()?;
-            output::print_json(&response)?;
+            if output::is_json(format) {
+                output::print_json(&response)?;
+            } else {
+                output::print_success("service contract applied");
+                println!("deployment={}", ref_label(&args.reference));
+                println!("contract={}", response.contract.id);
+                println!("digest={}", response.contract.digest);
+            }
         }
         DeployKind::Device => {
             let response = auth_client
@@ -226,11 +234,19 @@ async fn apply_command(format: OutputFormat, args: &DeployApplyArgs) -> miette::
                     &authlib::AuthApplyDeviceDeploymentContractRequest {
                         deployment_id: args.reference.id.clone(),
                         contract,
+                        expected_digest: loaded.digest.clone(),
                     },
                 )
                 .await
                 .into_diagnostic()?;
-            output::print_json(&response)?;
+            if output::is_json(format) {
+                output::print_json(&response)?;
+            } else {
+                output::print_success("device contract applied");
+                println!("deployment={}", ref_label(&args.reference));
+                println!("contract={}", response.contract.id);
+                println!("digest={}", response.contract.digest);
+            }
         }
     }
     Ok(())

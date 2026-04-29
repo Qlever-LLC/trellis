@@ -218,6 +218,37 @@ Rules:
 - all concurrently active digests for the same `id` MUST remain semantically
   compatible within that lineage, so mixed-version callers and service instances
   can keep working during rollout
+
+### 6.1) Contract digest projection
+
+The contract digest is computed from the canonical semantic projection of the
+manifest, not from every byte in the submitted JSON document.
+
+The digest projection includes:
+
+- `format`, `id`, and `kind`
+- reachable schemas referenced by state, RPCs, operations, events, jobs,
+  schema-backed KV resources, and declared RPC error schemas
+- state, `uses`, RPCs, operations, events, jobs, declared RPC errors, and
+  KV/store resource requests
+- sorted and deduplicated capability and `uses` selector lists
+
+The digest projection excludes:
+
+- `displayName`, `description`, and other human-facing review metadata
+- `exports` and other code-generation metadata that does not change runtime
+  permissions or wire surfaces
+- unused schemas and undeclared error definitions
+- unknown top-level extension fields that the current runtime ignores
+
+Rules:
+
+- tooling and runtime implementations MUST use the same digest projection before
+  comparing reviewed and installed manifests
+- deployment apply requests MUST carry the locally reviewed `expectedDigest` and
+  auth MUST reject the request if install computes a different digest
+- digest-stable metadata edits may update catalog display information without
+  requiring new runtime permissions or new app approvals
 - multiple active digests for one `id` remain valid only while active compatible
   digest validation can produce an additive, unambiguous surface projection
 - install records bind one exact digest to one service principal public key,
@@ -580,9 +611,9 @@ Rules:
     `true`
   - `ttlMs`: optional desired retention in milliseconds; `0` or omitted means no
     automatic expiry requested
-  - `maxTotalBytes`: optional desired total-store maximum in bytes; omitted means
-    no finite total-size request and reconciles the backing NATS object store to
-    its unlimited `max_bytes` sentinel
+  - `maxTotalBytes`: optional desired total-store maximum in bytes; omitted
+    means no finite total-size request and reconciles the backing NATS object
+    store to its unlimited `max_bytes` sentinel
 - install or upgrade approves the requested alias/type/spec, not general
   infrastructure-management credentials for the service
 - required resources fail install or upgrade if Trellis cannot provision or bind
@@ -948,6 +979,8 @@ Install or upgrade validation MUST also:
 - reject impossible or unsafe resource combinations before provisioning begins
 - validate newly installed service digests against the proposed active catalog
   before external resource provisioning begins
+- reject service or device deployment apply requests when the digest computed
+  during install differs from the caller's reviewed `expectedDigest`
 - validate the exact `resources` requested by the digest being installed, even
   when other digests in the same lineage remain active
 - preserve physical resource identity across compatible digest changes for the
@@ -983,9 +1016,9 @@ Upgrade rule:
 
 Subject collision rule:
 
-- if two active surfaces declare the same effective subject, activation MUST fail
-  unless they are the same operation, RPC, or event surface in the same contract
-  `id` lineage
+- if two active surfaces declare the same effective subject, activation MUST
+  fail unless they are the same operation, RPC, or event surface in the same
+  contract `id` lineage
 - templated event subjects compare by the wildcard subject produced by replacing
   each template token with `*`, not by the literal JSON Pointer tokens in the
   template

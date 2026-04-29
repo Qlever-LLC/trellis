@@ -140,6 +140,20 @@
             {flow.state.user.origin}:{flow.state.user.id}
           </p>
         </div>
+        <div class="rounded-box border border-base-300 bg-base-100 p-4">
+          <p
+            class="text-xs font-bold uppercase tracking-widest text-base-content/45"
+          >
+            Exact contract digest
+          </p>
+          <p class="mono mt-2 break-all text-xs text-base-content/70">
+            {flow.state.approval.contractDigest}
+          </p>
+          <p class="mt-2 text-xs text-base-content/55">
+            Approval applies only to this reviewed digest for
+            {flow.state.approval.contractId}.
+          </p>
+        </div>
         <div class="flex flex-col gap-2">
           <button
             class="btn btn-primary btn-block"

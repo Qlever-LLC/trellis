@@ -44,30 +44,71 @@ type ClientContract<TApi, TContract> = {
   readonly [CONTRACT_STATE_METADATA]?: ContractStateMetadata;
 };
 
+type ClientContractManifest = {
+  state?: Readonly<Record<string, unknown>>;
+  schemas?: Readonly<Record<string, unknown>>;
+};
+
+type ClientContractShape = {
+  CONTRACT: ClientContractManifest;
+  API: {
+    owned?: TrellisAPI;
+    trellis?: TrellisAPI;
+  };
+  readonly [CONTRACT_STATE_METADATA]?: ContractStateMetadata;
+};
+
+type ClientContractForApi<TApi extends TrellisAPI> = ClientContract<
+  TApi,
+  ClientContractManifest
+>;
+
+type ApiForClientContract<TContract extends ClientContractShape> =
+  TContract extends { API: { trellis: infer TApi } }
+    ? TApi extends TrellisAPI ? TApi : never
+    : TContract extends { API: { owned: infer TApi } }
+      ? TApi extends TrellisAPI ? TApi : never
+    : never;
+
 /**
  * Create a Trellis client typed from a contract module's derived outbound surface.
  */
+export function createClient<TContract extends ClientContractShape>(
+  contract: TContract,
+  nats: NatsConnection,
+  auth: TrellisAuth,
+  opts?: ClientOpts,
+): Trellis<
+  ApiForClientContract<TContract>,
+  "client",
+  RuntimeStateStoresForContract<TContract>
+>;
 export function createClient<
   TApi extends TrellisAPI,
-  TContract extends ClientContract<TApi, {
-    state?: Readonly<Record<string, unknown>>;
-    schemas?: Readonly<Record<string, unknown>>;
-  }>,
+  TContract extends ClientContractForApi<TApi> = ClientContractForApi<TApi>,
 >(
   contract: TContract,
   nats: NatsConnection,
   auth: TrellisAuth,
   opts?: ClientOpts,
-): Trellis<TApi, "client", RuntimeStateStoresForContract<TContract>> {
+): Trellis<TApi, "client", RuntimeStateStoresForContract<TContract>>;
+export function createClient<
+  TContract extends ClientContractShape,
+>(
+  contract: TContract,
+  nats: NatsConnection,
+  auth: TrellisAuth,
+  opts?: ClientOpts,
+): unknown {
   const api = contract.API.trellis ?? contract.API.owned;
   if (!api) {
     throw new Error("Contract is missing an owned or trellis API view");
   }
 
   return new Trellis<
-    TApi,
+    TrellisAPI,
     "client",
-    RuntimeStateStoresForContract<TContract>
+    RuntimeStateStoresForContract<ClientContractShape>
   >(
     opts?.name ?? "client",
     nats,

@@ -255,7 +255,7 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
   logger: Pick<AuthRuntimeDeps["logger"], "trace">;
 }) {
   return async (args: {
-    input: { deploymentId: string; contract: unknown };
+    input: { deploymentId: string; contract: unknown; expectedDigest: string };
     context: { caller: RpcUser };
   }) => {
     const { input: req, context: { caller } } = args;
@@ -276,6 +276,17 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
     }
 
     const installed = await deps.installServiceContract(req.contract);
+    if (req.expectedDigest !== installed.digest) {
+      return invalid(
+        "/expectedDigest",
+        "contract digest does not match reviewed digest",
+        {
+          expectedDigest: req.expectedDigest,
+          actualDigest: installed.digest,
+          contractId: installed.id,
+        },
+      );
+    }
 
     if (deps.validateActiveCatalog) {
       const validatedDigest = await validateActiveCatalog(
