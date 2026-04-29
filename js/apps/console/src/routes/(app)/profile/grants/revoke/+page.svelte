@@ -95,7 +95,7 @@
           <div class="rounded-box border border-base-300 p-3 text-sm">
             <div class="font-medium">{summary.title}</div>
             <div class="text-base-content/60">{summary.details}</div>
-            <div class="font-mono text-xs text-base-content/60">{selectedGrant.contractDigest}</div>
+            <div class="trellis-identifier text-base-content/60">{selectedGrant.contractDigest}</div>
             <div class="text-xs text-base-content/60">Granted {formatDate(selectedGrant.grantedAt)}</div>
           </div>
         {/if}

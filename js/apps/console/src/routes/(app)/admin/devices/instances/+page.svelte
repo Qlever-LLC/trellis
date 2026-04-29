@@ -84,7 +84,7 @@
     {#snippet actions()}
       <details class="dropdown dropdown-end">
         <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
           <li><a href={resolve("/admin/devices/instances/provision")}>Provision device instance</a></li>
           <li><a href={resolve("/admin/devices/instances/disable")}>Disable device instance</a></li>
         </ul>
@@ -161,7 +161,7 @@
             <tr>
               <td class="trellis-identifier font-medium">{instance.instanceId}</td>
               <td class="text-base-content/60">{instance.deploymentId}</td>
-              <td class="font-mono text-xs text-base-content/60">{instance.publicIdentityKey}</td>
+              <td class="trellis-identifier text-base-content/60">{instance.publicIdentityKey}</td>
               <td class="text-base-content/60">{understoodMetadataValue(instance, "name") ?? "—"}</td>
               <td class="text-base-content/60">{understoodMetadataValue(instance, "serialNumber") ?? "—"}</td>
               <td class="text-base-content/60">{understoodMetadataValue(instance, "modelNumber") ?? "—"}</td>

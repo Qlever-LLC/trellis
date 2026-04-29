@@ -36,10 +36,34 @@
 }
 
 @plugin "daisyui/theme" {
-  name: "dracula";
+  name: "trellis-dark";
   default: false;
   prefersdark: true;
   color-scheme: dark;
+  --color-base-100: #0d1b27;
+  --color-base-200: #07131f;
+  --color-base-300: #203244;
+  --color-base-content: #e5edf6;
+  --color-primary: #34d399;
+  --color-primary-content: #032218;
+  --color-secondary: #a78bfa;
+  --color-secondary-content: #1f1147;
+  --color-accent: #2dd4bf;
+  --color-accent-content: #042f2e;
+  --color-neutral: #dbeafe;
+  --color-neutral-content: #07131f;
+  --color-info: #60a5fa;
+  --color-info-content: #0b1d35;
+  --color-success: #34d399;
+  --color-success-content: #032218;
+  --color-warning: #fbbf24;
+  --color-warning-content: #2f1f05;
+  --color-error: #f87171;
+  --color-error-content: #350b0b;
+  --radius-selector: 0.75rem;
+  --radius-field: 0.75rem;
+  --radius-box: 1rem;
+  --border: 1px;
 }
 
 a {
@@ -78,6 +102,10 @@ body {
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px rgb(15 23 42 / 0.03);
 }
 
+[data-theme="trellis-dark"] .trellis-card {
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.03), 0 14px 32px rgb(0 0 0 / 0.18);
+}
+
 .trellis-card > .card-body {
   gap: 1rem;
 }
@@ -88,7 +116,7 @@ body {
 }
 
 .trellis-table :where(th) {
-  color: #6b7280;
+  color: color-mix(in oklab, var(--color-base-content) 52%, transparent);
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.035em;
@@ -110,7 +138,11 @@ body {
 }
 
 .trellis-table :where(tbody tr:hover) {
-  background-color: #f8fafc;
+  background-color: color-mix(
+    in oklab,
+    var(--color-base-content) 4%,
+    transparent
+  );
 }
 
 .trellis-identifier {
@@ -122,7 +154,7 @@ body {
 }
 
 .trellis-metadata {
-  color: #6b7280;
+  color: color-mix(in oklab, var(--color-base-content) 56%, transparent);
   font-size: 0.8125rem;
 }
 
@@ -156,20 +188,20 @@ body {
 
 .trellis-badge-soft.badge-success {
   background: rgb(16 185 129 / 0.14);
-  color: #047857;
+  color: var(--color-success);
 }
 
 .trellis-badge-soft.badge-warning {
   background: rgb(245 158 11 / 0.16);
-  color: #b45309;
+  color: var(--color-warning);
 }
 
 .trellis-badge-soft.badge-error {
   background: rgb(239 68 68 / 0.14);
-  color: #dc2626;
+  color: var(--color-error);
 }
 
 .trellis-badge-soft.badge-neutral {
-  background: #e5e7eb;
-  color: #6b7280;
+  background: color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  color: color-mix(in oklab, var(--color-base-content) 64%, transparent);
 }

@@ -823,7 +823,6 @@ Deno.test("login portal selection storage upserts, deletes, and lists by contrac
       eq(loginPortalSelections.contractId, "zeta@v1"),
     );
     assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
-    assertEquals(row.selectionKey, "contract.zeta@v1");
     assertEquals(row.contractId, first.contractId);
 
     const updated: LoginPortalSelection = {
@@ -856,7 +855,6 @@ Deno.test("device portal selection storage upserts, deletes, and lists by deploy
       eq(devicePortalSelections.deploymentId, "deployment-z"),
     );
     assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
-    assertEquals(row.selectionKey, "deployment.deployment-z");
     assertEquals(row.deploymentId, first.deploymentId);
 
     const updated: DevicePortalSelection = {

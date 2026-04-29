@@ -50,7 +50,7 @@
           Actions <Icon name="chevronDown" size={14} />
         </summary>
         <ul
-          class="menu dropdown-content z-10 mt-2 w-64 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
+          class="menu dropdown-content z-10 mt-2 w-64 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm"
         >
           <li>
             <a href={resolve("/admin/apps/revoke")}>Revoke an approval</a>
@@ -120,7 +120,7 @@
                     entry.approval.contractId ??
                     "—"}
                 </td>
-                <td class="font-mono text-xs text-base-content/60">
+                <td class="trellis-identifier text-base-content/60">
                   {entry.approval.contractDigest?.slice(0, 12)}…
                 </td>
                 <td class="text-base-content/60">
@@ -130,7 +130,7 @@
                   <details class="dropdown dropdown-end">
                     <summary class="btn btn-ghost btn-xs">Actions</summary>
                     <ul
-                      class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
+                      class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm"
                     >
                       <li>
                         <a

@@ -78,7 +78,7 @@
     {#snippet actions()}
       <details class="dropdown dropdown-end">
         <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
           <li><a href={resolve("/admin/devices/profiles/new")}>Create device deployment</a></li>
           <li><a href={resolve("/admin/devices/profiles/disable")}>Disable device deployment</a></li>
         </ul>

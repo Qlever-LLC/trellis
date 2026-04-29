@@ -63,7 +63,7 @@
         <button class="btn btn-ghost btn-sm" onclick={loadProfile}>Refresh</button>
         <details class="dropdown dropdown-end">
           <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-          <ul class="menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+          <ul class="menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
             <li><a href={resolve("/profile/grants/revoke")}>Revoke a delegated grant</a></li>
           </ul>
         </details>
@@ -136,8 +136,8 @@
                     </span>
                   </td>
                   <td>
-                    <div class="font-mono text-xs text-base-content/60">{grant.contractId}</div>
-                    <div class="font-mono text-xs text-base-content/40">{grant.contractDigest.slice(0, 12)}…</div>
+                    <div class="trellis-identifier text-base-content/60">{grant.contractId}</div>
+                    <div class="trellis-identifier text-base-content/40">{grant.contractDigest.slice(0, 12)}…</div>
                   </td>
                   <td class="text-xs text-base-content/60">
                     {#if grant.capabilities.length}
@@ -157,7 +157,7 @@
                   <td class="text-right">
                     <details class="dropdown dropdown-end">
                       <summary class="btn btn-ghost btn-xs">Actions</summary>
-                      <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+                      <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
                         <li><a class="text-error" href={resolve(`/profile/grants/revoke?grant=${encodeURIComponent(grant.contractDigest)}`)}>Revoke</a></li>
                       </ul>
                     </details>

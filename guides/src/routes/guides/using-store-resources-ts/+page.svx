@@ -47,11 +47,12 @@ Fields:
 - `required` defaults to `true`; set it to `false` only when the service can run
   without this store binding
 - `ttlMs` is optional; omit it or set it to `0` when the store should not request automatic expiry
-- `maxTotalBytes` requests a total store size limit
+- `maxTotalBytes` requests a finite total store size limit; omit it when the
+  store should use the runtime's unlimited/default object-store size behavior
 
 Trellis v1 does not expose `maxObjectBytes` as an effective installed binding because the current runtime path does not enforce per-object object-store limits. Keep per-object validation in service code until that limit is enforced by the runtime.
 
-Like `resources.kv`, the key under `store` (`uploads`) is only a logical alias. Trellis assigns the physical store identity during service deployment apply/install/upgrade and stores the binding for the exact digest that produced it. Optional stores may be omitted from runtime bindings when provisioning fails or object-store support is unavailable.
+Like `resources.kv`, the key under `store` (`uploads`) is only a logical alias. Trellis assigns the physical store identity during service deployment apply/install/upgrade and stores the binding for the exact digest that produced it. Optional stores may be omitted from runtime bindings when provisioning fails or object-store support is unavailable. If a later compatible digest omits `maxTotalBytes`, Trellis reconciles the backing object store back to the unlimited/default total-size setting instead of preserving an older finite limit.
 
 ## 2. Connect the service and open the store
 

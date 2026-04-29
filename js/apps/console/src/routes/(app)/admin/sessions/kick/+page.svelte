@@ -95,7 +95,7 @@
           <div class="rounded-box border border-base-300 p-3 text-sm">
             <div class="font-medium">{summary.title}</div>
             <div class="text-base-content/60">{participantKindLabel(selectedConnection.participantKind)}</div>
-            <div class="font-mono text-xs text-base-content/60">{selectedConnection.userNkey}</div>
+            <div class="trellis-identifier text-base-content/60">{selectedConnection.userNkey}</div>
             <div class="text-xs text-base-content/60">Connected {formatDate(selectedConnection.connectedAt)}</div>
           </div>
         {/if}

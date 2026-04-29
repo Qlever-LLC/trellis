@@ -980,6 +980,8 @@ Portal selection rules:
 - device activation checks an explicit `deploymentId -> portalId` record first,
   then the deployment device default custom portal, then the built-in Trellis
   device portal
+- selection records are keyed directly by browser app contract id or device
+  deployment id; Trellis does not maintain a separate derived selection key
 - a selection record with `portalId: null` forces the built-in Trellis portal
   for that contract or device deployment, even when a deployment custom default
   exists

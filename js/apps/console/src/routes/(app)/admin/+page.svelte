@@ -5,6 +5,7 @@
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import InlineMetricsStrip from "$lib/components/InlineMetricsStrip.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
@@ -23,7 +24,7 @@
   type OverviewInstance = {
     service: string;
     id: string;
-    status: "Healthy" | "Degraded" | "Offline";
+    status: "Active" | "Disabled";
     version: string;
     seen: string;
     type: "service" | "device" | "portal";
@@ -31,33 +32,12 @@
   type OverviewJob = {
     key: string;
     job: string;
-    state: "Active" | "Retry" | "Pending" | "Completed" | "Failed";
+    state: string;
     count: number;
     oldest: string;
   };
 
   const trellis = getTrellis();
-
-  const healthRows = [
-    { name: "Healthy", count: 26, pct: 68, dot: "bg-success", progress: "progress-success" },
-    { name: "Degraded", count: 8, pct: 21, dot: "bg-warning", progress: "progress-warning" },
-    { name: "Unhealthy", count: 3, pct: 8, dot: "bg-error", progress: "progress-error" },
-    { name: "Offline", count: 1, pct: 3, dot: "bg-base-content/35", progress: "" },
-  ];
-
-  const warnings = [
-    { name: "billing.v1.MissingCapability", message: "Missing capability: billing.write", time: "2m ago" },
-    { name: "trellis.jobs.v1.LegacySubject", message: "Deprecated subject: jobs.v1.legacy.>", time: "15m ago" },
-    { name: "auth.v1.UnscopedPublish", message: "Unscoped publish detected", time: "32m ago" },
-  ];
-
-  const activity = [
-    { id: "auth-7c9d8f6b4f-2k8m9", message: "is healthy", time: "2s ago", dot: "bg-success" },
-    { id: "device-8f3a1b2c", message: "heartbeat OK", time: "5s ago", dot: "bg-success" },
-    { id: "jobs-1a2b3c4d5e-j9k81", message: "picked up 3 tasks", time: "11s ago", dot: "bg-info" },
-    { id: "contract acme.billing@v1", message: "installed", time: "18s ago", dot: "bg-warning" },
-    { id: "portal-0a1b2c3d4e-p9q8", message: "is healthy", time: "24s ago", dot: "bg-secondary" },
-  ];
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -74,7 +54,6 @@
   const disabledTotal = $derived(disabledInstances);
   const activeJobCount = $derived(jobs.filter((job) => job.state === "active").length);
   const totalJobCount = $derived(jobs.length);
-  const warningCount = $derived(warnings.length);
 
   const topology = $derived([
     { icon: "box", label: "Service instances", value: serviceInstanceTotal, detail: `${activeInstances} active / ${disabledTotal} disabled`, tone: "text-success bg-success/10" },
@@ -88,16 +67,16 @@
     { label: "Sessions", value: sessionCount },
     { label: "Connections", value: connectionCount },
     { label: "Jobs", value: totalJobCount, badge: `${activeJobCount} active`, badgeClass: "badge-success" },
-    { label: "Warnings", value: warningCount, badge: "View", badgeClass: "badge-warning" },
+    { label: "Warnings", value: "Not loaded", detail: "Open Contracts" },
   ]);
 
   function toOverviewInstance(instance: ServiceInstance): OverviewInstance {
     return {
       service: instance.deploymentId,
       id: instance.instanceId,
-      status: instance.disabled ? "Offline" : "Healthy",
-      version: "1.12.3",
-      seen: "live",
+      status: instance.disabled ? "Disabled" : "Active",
+      version: "—",
+      seen: "known",
       type: "service",
     };
   }
@@ -116,7 +95,7 @@
         job: job.type,
         state: formatJobState(job.state),
         count: 1,
-        oldest: "live",
+        oldest: "—",
       };
     }
     return Object.values(grouped).slice(0, 5);
@@ -132,15 +111,23 @@
         return "Pending";
       case "completed":
         return "Completed";
-      default:
+      case "failed":
         return "Failed";
+      case "cancelled":
+        return "Cancelled";
+      case "expired":
+        return "Expired";
+      case "dead":
+        return "Dead";
+      default:
+        return state;
     }
   }
 
   function statusVariant(status: string): "healthy" | "degraded" | "unhealthy" | "offline" {
     if (status === "Healthy" || status === "Active" || status === "Completed") return "healthy";
     if (status === "Degraded" || status === "Retry" || status === "Pending") return "degraded";
-    if (status === "Failed") return "unhealthy";
+    if (status === "Failed" || status === "Dead") return "unhealthy";
     return "offline";
   }
 
@@ -228,6 +215,9 @@
             <h2 class="card-title text-base">Service Instances</h2>
             <a href={resolve("/admin/services/instances")} class="btn btn-ghost btn-sm">View all <Icon name="arrowRight" size={16} /></a>
           </div>
+          {#if displayInstances.length === 0}
+            <EmptyState title="No service instances" description="Provisioned service instances will appear here after they are registered." class="m-5" />
+          {:else}
           <div class="overflow-x-auto">
             <table class="table table-sm trellis-table min-w-[860px] table-fixed">
               <colgroup>
@@ -258,8 +248,9 @@
               </tbody>
             </table>
           </div>
+          {/if}
           <div class="flex h-14 items-center justify-between border-t border-base-300 px-5 text-sm text-base-content/60">
-            <span>Showing 1–{displayInstances.length} of {serviceInstanceTotal}</span>
+            <span>Showing {displayInstances.length === 0 ? "0" : `1–${displayInstances.length}`} of {serviceInstanceTotal}</span>
             <a href={resolve("/admin/services/instances")} class="btn btn-ghost btn-sm">View all service instances <Icon name="arrowRight" size={16} /></a>
           </div>
         </div>
@@ -269,19 +260,15 @@
         <section class="card trellis-card bg-base-100">
           <div class="card-body gap-4 p-5">
             <div class="flex items-center justify-between"><h2 class="card-title text-base">Live Health</h2><a href={resolve("/admin/health-events")} class="btn btn-ghost btn-xs">View all</a></div>
-            {#each healthRows as row (row.name)}
-              <div class="grid grid-cols-[96px_1fr_32px_42px] items-center gap-3 text-sm">
-                <span class="font-medium"><span class={["mr-2 inline-block h-2.5 w-2.5 rounded-full", row.dot]}></span>{row.name}</span>
-                <progress class={["progress h-1.5", row.progress]} value={row.pct} max="100"></progress>
-                <span class="text-right font-medium">{row.count}</span>
-                <span class="text-right text-base-content/50">{row.pct}%</span>
-              </div>
-            {/each}
+            <EmptyState title="Live health opens in Health Events" description="Heartbeat-derived healthy, degraded, unhealthy, and offline states require the live health event stream." class="py-4" />
           </div>
         </section>
 
         <section class="card trellis-card overflow-hidden bg-base-100">
           <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Jobs Snapshot</h2><a href={resolve("/admin/jobs")} class="btn btn-ghost btn-xs">View all</a></div>
+          {#if displayJobs.length === 0}
+            <EmptyState title="No jobs" description="Job queues will appear here when the jobs service reports active or retained work." class="m-5" />
+          {:else}
           <div class="overflow-x-auto">
             <table class="table table-xs trellis-table">
               <thead><tr><th>Job</th><th>State</th><th>Count</th><th>Oldest</th></tr></thead>
@@ -292,36 +279,21 @@
               </tbody>
             </table>
           </div>
+          {/if}
         </section>
 
         <section class="card trellis-card overflow-hidden bg-base-100">
           <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Contract Warnings</h2><a href={resolve("/admin/contracts")} class="btn btn-ghost btn-xs">View all</a></div>
-          <div class="divide-y divide-base-300 px-5">
-            {#each warnings as warning (warning.name)}
-              <div class="grid grid-cols-[22px_1fr_auto] gap-3 py-3 text-sm">
-                <Icon name="alert" size={16} class="mt-0.5 text-warning" />
-                <div class="min-w-0"><div class="truncate trellis-identifier text-xs font-semibold">{warning.name}</div><div class="truncate text-xs text-base-content/50">{warning.message}</div></div>
-                <div class="text-xs text-base-content/50">{warning.time}</div>
-              </div>
-            {/each}
-          </div>
+          <EmptyState title="No contract warnings loaded" description="Open Contracts to inspect installed contract analysis and derived runtime permissions." class="m-5" />
         </section>
       </div>
     </div>
 
     <Panel title="Recent Activity" class="mt-4">
       {#snippet actions()}
-        <button class="btn btn-ghost btn-sm">View all events <Icon name="arrowRight" size={16} /></button>
+        <a href={resolve("/admin/health-events")} class="btn btn-ghost btn-sm">View health events <Icon name="arrowRight" size={16} /></a>
       {/snippet}
-        <div class="divide-y divide-base-300 rounded-box border border-base-300">
-          {#each activity as item (item.id)}
-            <div class="grid grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-sm">
-              <span class={["h-2.5 w-2.5 shrink-0 rounded-full", item.dot]}></span>
-              <div class="min-w-0"><span class="trellis-identifier text-xs">{item.id}</span> <span class="text-base-content/60">{item.message}</span></div>
-              <div class="text-xs text-base-content/45">{item.time}</div>
-            </div>
-          {/each}
-        </div>
+        <EmptyState title="No activity feed connected" description="Use Health Events for the live heartbeat stream until activity events are available in the overview." class="py-4" />
     </Panel>
   </section>
 {/if}

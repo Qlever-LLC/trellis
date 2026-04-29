@@ -1,6 +1,6 @@
 import { jetstreamManager } from "@nats-io/jetstream";
 import { type KV, Kvm } from "@nats-io/kv";
-import type { NatsConnection } from "@nats-io/nats-core/internal";
+import type { NatsConnection } from "@nats-io/nats-core";
 import { Objm } from "@nats-io/obj";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
@@ -273,22 +273,57 @@ async function ensureStoreResource(
     objectStore = await objm.open(name);
   }
   const status = await objectStore.status();
+  await reconcileStoreResourceConfig(
+    {
+      async update(streamName, config) {
+        const jsm = await jetstreamManager(nats);
+        return jsm.streams.update(streamName, config);
+      },
+    },
+    status,
+    store,
+  );
+}
+
+type StoreResourceStreamConfig = {
+  name: string;
+  max_age: number;
+  max_bytes: number;
+} & Record<string, unknown>;
+
+type StoreResourceStatus = {
+  streamInfo: {
+    config: StoreResourceStreamConfig;
+  };
+};
+
+type StoreStreamUpdater = {
+  update(name: string, config: StoreResourceStreamConfig): Promise<unknown>;
+};
+
+/**
+ * Updates an existing object-store stream so omitted limits are reconciled back
+ * to the NATS unlimited sentinel instead of preserving stale finite limits.
+ */
+export async function reconcileStoreResourceConfig(
+  streams: StoreStreamUpdater,
+  status: StoreResourceStatus,
+  store: Pick<StoreResourceRequest, "ttlMs" | "maxTotalBytes">,
+): Promise<void> {
+  const config = status.streamInfo.config;
   const maxAge = store.ttlMs > 0 ? store.ttlMs * 1_000_000 : 0;
+  const maxBytes = store.maxTotalBytes ?? -1;
   if (
-    status.streamInfo.config.max_age === maxAge &&
-    (store.maxTotalBytes === undefined ||
-      status.streamInfo.config.max_bytes === store.maxTotalBytes)
+    config.max_age === maxAge &&
+    config.max_bytes === maxBytes
   ) {
     return;
   }
 
-  const jsm = await jetstreamManager(nats);
-  await jsm.streams.update(status.streamInfo.config.name, {
-    ...status.streamInfo.config,
+  await streams.update(config.name, {
+    ...config,
     max_age: maxAge,
-    ...(store.maxTotalBytes !== undefined
-      ? { max_bytes: store.maxTotalBytes }
-      : {}),
+    max_bytes: maxBytes,
   });
 }
 

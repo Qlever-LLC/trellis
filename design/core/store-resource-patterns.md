@@ -89,7 +89,8 @@ Rules:
     `true`
   - `ttlMs`: optional desired retention in milliseconds; `0` or omitted means no
     automatic expiry requested
-  - `maxTotalBytes`: optional desired total-store size limit in bytes
+  - `maxTotalBytes`: optional desired total-store size limit in bytes; omit it
+    when the store should not request a finite total-size limit
 - contracts request logical stores; Trellis chooses the concrete physical store
   identity at service apply/install or upgrade time
 - Trellis validates store declarations from the exact applied contract digest,
@@ -99,6 +100,9 @@ Rules:
   them
 - optional stores (`required: false`) may be omitted from bindings if
   provisioning fails or object-store support is unavailable
+- when `maxTotalBytes` is omitted, Trellis reconciles the backing NATS object
+  store to the unlimited `max_bytes` sentinel instead of preserving a stale
+  finite limit from an older contract digest
 
 ### Binding Shape
 
@@ -124,6 +128,8 @@ Rules:
   `bindings.store`
 - bindings expose only the information the service runtime needs to use the
   resource safely
+- bindings include `maxTotalBytes` only when the contract requested a finite
+  total-store limit
 - v1 bindings do not expose `maxObjectBytes`; per-object limits are not treated
   as effective installed limits until a runtime write path enforces them
 - bindings must not expose operator or platform management credentials

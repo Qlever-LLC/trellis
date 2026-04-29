@@ -315,6 +315,34 @@ Deno.test("contract store rejects activating duplicate subjects", async () => {
   );
 });
 
+Deno.test("contract store rejects activating subject templates with colliding wildcard subjects", async () => {
+  const store = new ContractStore();
+  const contract1 = {
+    ...makeEventContract("events.v1.Shared.Changed.{/partner/id/origin}", [
+      "/partner/id/origin",
+    ]),
+    id: "partners-origin@v1",
+    displayName: "partners-origin",
+  } satisfies TrellisContractV1;
+  const contract2 = {
+    ...makeEventContract("events.v1.Shared.Changed.{/partner/id/id}", [
+      "/partner/id/id",
+    ]),
+    id: "partners-id@v1",
+    displayName: "partners-id",
+  } satisfies TrellisContractV1;
+  const digest1 = await digestContract(contract1);
+  const digest2 = await digestContract(contract2);
+
+  store.activate(digest1, contract1);
+
+  assertThrows(
+    () => store.activate(digest2, contract2),
+    Error,
+    "Subject 'events.v1.Shared.Changed.*' already registered by",
+  );
+});
+
 Deno.test("contract store catalog includes active contracts in id order", async () => {
   const store = new ContractStore();
   const graph = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");

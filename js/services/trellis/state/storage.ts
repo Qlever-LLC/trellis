@@ -1,5 +1,6 @@
 import { AsyncResult, isErr, Result } from "@qlever-llc/result";
 import { KVError, UnexpectedError, ValidationError } from "@qlever-llc/trellis";
+import { isJsonValue } from "@qlever-llc/trellis/contracts";
 import { parseUnknownSchema } from "../../../packages/trellis/codec.ts";
 import type { StateDeleteResponse } from "../../../packages/trellis/models/trellis/rpc/StateDelete.ts";
 import type { StateGetResponse } from "../../../packages/trellis/models/trellis/rpc/StateGet.ts";
@@ -659,9 +660,19 @@ export class StateStore {
         }),
       );
     }
+    if (!isJsonValue(record.value)) {
+      return Result.err(
+        this.#storedEntryCorruption({
+          errors: [{
+            path: "/value",
+            message: "state KV entry value is not JSON",
+          }],
+        }),
+      );
+    }
 
     return Result.ok({
-      value: record.value as JsonValue,
+      value: record.value,
       updatedAt: record.updatedAt,
       ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
       stateVersion: record.stateVersion,

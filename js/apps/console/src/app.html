@@ -26,6 +26,19 @@
         );
       })();
     </script>
+    <script>
+      (() => {
+        try {
+          const theme = localStorage.getItem("trellis.console.theme");
+          document.documentElement.setAttribute(
+            "data-theme",
+            theme === "trellis-dark" ? "trellis-dark" : "trellis",
+          );
+        } catch (_) {
+          document.documentElement.setAttribute("data-theme", "trellis");
+        }
+      })();
+    </script>
     <script src="%sveltekit.assets%/runtime-config.js"></script>
     %sveltekit.head%
   </head>

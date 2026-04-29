@@ -249,7 +249,7 @@
                   <div class="min-w-0">
                     <div class="flex items-center gap-2">
                       <span class={["h-2.5 w-2.5 rounded-full", dotClassForStatus(rowStatus)]}></span>
-                      <span class="truncate font-mono font-medium">{deployment.deploymentId}</span>
+                      <span class="trellis-identifier truncate font-medium">{deployment.deploymentId}</span>
                     </div>
                     <div class="mt-1 text-xs text-base-content/60">{activeServiceInstances.length}/{serviceInstances.length} active instances</div>
                   </div>
@@ -275,7 +275,7 @@
             {#snippet actions()}
               <details class="dropdown dropdown-end">
                 <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-                <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+                <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
                   <li><a href={resolve("/admin/services/new")}>Create service deployment</a></li>
                   <li><a href={resolve("/admin/services/instances")}>Manage service instances</a></li>
                   <li><a href={resolve(`/admin/services/contracts?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Manage service contracts</a></li>
@@ -290,7 +290,7 @@
                 <div class="rounded-box bg-primary/10 p-3 text-primary"><Icon name="server" size={24} /></div>
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
-                    <h2 class="truncate text-xl font-semibold">{selectedDeployment.deploymentId}</h2>
+                    <h2 class="trellis-identifier truncate text-xl font-semibold">{selectedDeployment.deploymentId}</h2>
                     <StatusBadge label={selectedStatus.label} status={selectedStatus.status} />
                   </div>
                   <div class="trellis-identifier mt-1 text-base-content/60">Deployment ID: {selectedDeployment.deploymentId}</div>
@@ -305,15 +305,15 @@
               </div>
             </div>
 
-            <div class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <div class="rounded-box border border-base-300 p-3"><div class="text-xs text-base-content/60">Last heartbeat</div><div class="font-medium">{formatSeenAt(selectedHealthService?.lastSeenAt)}</div></div>
-              <div class="rounded-box border border-base-300 p-3"><div class="text-xs text-base-content/60">Version / runtime</div><div class="font-medium">{selectedHealthService?.version ?? "Not instrumented"}</div><div class="text-xs text-base-content/60">{formatRuntime(selectedHealthService?.runtime, selectedHealthService?.instances[0]?.runtimeVersion)}</div></div>
-              <div class="rounded-box border border-base-300 p-3"><div class="text-xs text-base-content/60">Instances</div><div class="font-medium">{activeInstances.length}/{selectedInstances.length} active / total</div></div>
-              <div class="rounded-box border border-base-300 p-3"><div class="text-xs text-base-content/60">Contracts</div><div class="font-medium">{selectedDeployment.appliedContracts.length}</div></div>
-              <div class="rounded-box border border-base-300 p-3"><div class="text-xs text-base-content/60">Jobs</div><div class="font-medium">{jobsUnavailableMessage ? "Unavailable" : selectedJobs.length}</div></div>
-              <div class="rounded-box border border-base-300 p-3"><div class="text-xs text-base-content/60">Capabilities</div><div class="font-medium">{new Set(selectedInstances.flatMap((instance) => instance.capabilities)).size}</div></div>
-              <div class="rounded-box border border-base-300 p-3 md:col-span-2"><div class="text-xs text-base-content/60">Telemetry</div><div class="font-medium">{selectedHealthService ? "Heartbeat instrumented" : "No heartbeat yet / Not instrumented"}</div></div>
-            </div>
+            <dl class="mt-5 divide-y divide-base-300 rounded-box border border-base-300 text-sm">
+              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Last heartbeat</dt><dd class="font-medium">{formatSeenAt(selectedHealthService?.lastSeenAt)}</dd></div>
+              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Version / runtime</dt><dd><div class="font-medium">{selectedHealthService?.version ?? "Not instrumented"}</div><div class="text-xs text-base-content/60">{formatRuntime(selectedHealthService?.runtime, selectedHealthService?.instances[0]?.runtimeVersion)}</div></dd></div>
+              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Instances</dt><dd class="font-medium">{activeInstances.length}/{selectedInstances.length} active / total</dd></div>
+              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Contracts</dt><dd class="font-medium">{selectedDeployment.appliedContracts.length}</dd></div>
+              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Jobs</dt><dd class="font-medium">{jobsUnavailableMessage ? "Unavailable" : selectedJobs.length}</dd></div>
+              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Capabilities</dt><dd class="font-medium">{new Set(selectedInstances.flatMap((instance) => instance.capabilities)).size}</dd></div>
+              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Telemetry</dt><dd class="font-medium">{selectedHealthService ? "Heartbeat instrumented" : "No heartbeat yet / Not instrumented"}</dd></div>
+            </dl>
           </Panel>
 
           <Panel title="Details" eyebrow="Deployment operations" class="min-w-0">
@@ -381,8 +381,8 @@
                 <div class="space-y-3">
                   {#each selectedDeployment.appliedContracts as applied (applied.contractId)}
                     <div class="rounded-box border border-base-300 bg-base-100 p-3">
-                      <div class="flex flex-wrap items-start justify-between gap-2"><div><div class="font-medium">{applied.contractId}</div><div class="text-xs text-base-content/60">{applied.allowedDigests.length} digest(s)</div></div><a class="btn btn-ghost btn-xs" href={resolve(`/admin/services/contracts?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Manage</a></div>
-                      <div class="mt-3 flex flex-wrap gap-2">{#each applied.allowedDigests as digest (digest)}<span class="rounded-full border border-base-300 px-2 py-1 font-mono text-xs">{digest}</span>{:else}<span class="text-xs text-base-content/60">Lineage allowed</span>{/each}</div>
+                      <div class="flex flex-wrap items-start justify-between gap-2"><div><div class="trellis-identifier font-medium">{applied.contractId}</div><div class="text-xs text-base-content/60">{applied.allowedDigests.length} digest(s)</div></div><a class="btn btn-ghost btn-xs" href={resolve(`/admin/services/contracts?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Manage</a></div>
+                      <div class="mt-3 flex flex-wrap gap-2">{#each applied.allowedDigests as digest (digest)}<span class="trellis-identifier rounded-full border border-base-300 px-2 py-1 text-xs">{digest}</span>{:else}<span class="text-xs text-base-content/60">Lineage allowed</span>{/each}</div>
                     </div>
                   {/each}
                 </div>

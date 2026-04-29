@@ -83,7 +83,7 @@
     {#snippet actions()}
       <details class="dropdown dropdown-end">
         <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
           <li><a href={resolve("/admin/portals/profiles/edit")}>Create portal profile</a></li>
           <li><a href={resolve("/admin/portals/profiles/edit")}>Edit portal profile</a></li>
           <li><a href={resolve("/admin/portals/profiles/disable")}>Disable portal profile</a></li>
@@ -117,7 +117,7 @@
                   </td>
                   <td>
                     <div>{contractLabel(profile.contractId)}</div>
-                    <div class="font-mono text-xs text-base-content/60">{profile.contractId}</div>
+                    <div class="trellis-identifier text-base-content/60">{profile.contractId}</div>
                   </td>
                   <td class="text-xs text-base-content/70">
                     {#if profile.allowedOrigins?.length}
@@ -150,7 +150,7 @@
                   <td class="text-right">
                     <details class="dropdown dropdown-end">
                       <summary class="btn btn-ghost btn-xs">Actions <Icon name="chevronDown" size={12} /></summary>
-                      <ul class="menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+                      <ul class="menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
                         <li><a href={resolve(`/admin/portals/profiles/edit?portal=${encodeURIComponent(profile.portalId)}`)}>Edit profile</a></li>
                         {#if profile.disabled}
                           <li class="disabled"><span>Disable profile</span></li>
@@ -189,7 +189,7 @@
                 <tr>
                   <td class="trellis-identifier font-medium">{portal.portalId}</td>
                   <td>
-                    <span class="font-mono text-xs text-base-content/70">{portal.entryUrl}</span>
+                    <span class="trellis-identifier text-base-content/70">{portal.entryUrl}</span>
                   </td>
                   <td>
                     <StatusBadge label={portal.disabled ? "Disabled" : "Active"} status={portal.disabled ? "offline" : "healthy"} />

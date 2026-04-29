@@ -8,10 +8,7 @@ import {
   operationCancelCapabilities,
   operationReadCapabilities,
 } from "./permissions.ts";
-
-function templateToWildcard(subject: string): string {
-  return subject.replace(/\{[^}]+\}/g, "*");
-}
+import { templateToWildcard } from "./subject_templates.ts";
 
 function subjectNamespace(subject: string): string | null {
   const parts = subject.split(".");

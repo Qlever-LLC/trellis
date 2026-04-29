@@ -167,7 +167,7 @@
                 <div class="mt-3 flex flex-wrap gap-2">
                   {#each applied.allowedDigests as digest (digest)}
                     <div class="flex items-center gap-1 rounded-full border border-base-300 px-2 py-1">
-                      <span class="font-mono text-xs">{digest}</span>
+                      <span class="trellis-identifier">{digest}</span>
                       <button
                         class="btn btn-ghost btn-xs text-error"
                         onclick={() => unapplyContract(selectedDeployment, applied.contractId, [digest])}

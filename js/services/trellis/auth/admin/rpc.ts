@@ -732,7 +732,9 @@ export function createAuthDisableDeviceDeploymentHandler(
     await ctx.deviceDeploymentStorage.put(nextDeployment);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) {
-      return await rollbackRefreshFailure(
+      return await rollbackRefreshFailure<
+        { deployment: typeof nextDeployment }
+      >(
         refreshed.error,
         () => ctx.deviceDeploymentStorage.put(deployment),
       );
@@ -771,7 +773,9 @@ export function createAuthEnableDeviceDeploymentHandler(
     await ctx.deviceDeploymentStorage.put(nextDeployment);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) {
-      return await rollbackRefreshFailure(
+      return await rollbackRefreshFailure<
+        { deployment: typeof nextDeployment }
+      >(
         refreshed.error,
         () => ctx.deviceDeploymentStorage.put(deployment),
       );
@@ -815,7 +819,7 @@ export function createAuthRemoveDeviceDeploymentHandler(
     await ctx.deviceDeploymentStorage.delete(req.deploymentId);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) {
-      return await rollbackRefreshFailure(
+      return await rollbackRefreshFailure<{ success: boolean }>(
         refreshed.error,
         () => ctx.deviceDeploymentStorage.put(deployment),
       );
@@ -903,7 +907,7 @@ export function createAuthDisableDeviceInstanceHandler(
     await ctx.deviceInstanceStorage.put(nextInstance);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) {
-      return await rollbackRefreshFailure(
+      return await rollbackRefreshFailure<{ instance: typeof nextInstance }>(
         refreshed.error,
         () => ctx.deviceInstanceStorage.put(instance),
       );
@@ -942,7 +946,7 @@ export function createAuthEnableDeviceInstanceHandler(
     await ctx.deviceInstanceStorage.put(nextInstance);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) {
-      return await rollbackRefreshFailure(
+      return await rollbackRefreshFailure<{ instance: typeof nextInstance }>(
         refreshed.error,
         () => ctx.deviceInstanceStorage.put(instance),
       );
@@ -980,18 +984,21 @@ export function createAuthRemoveDeviceInstanceHandler(
     await ctx.deviceActivationStorage.delete(req.instanceId);
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) {
-      return await rollbackRefreshFailure(refreshed.error, async () => {
-        await ctx.deviceInstanceStorage.put(instance);
-        if (provisioningSecret) {
-          await ctx.deviceProvisioningSecretStorage.put({
-            ...provisioningSecret,
-            createdAt: provisioningSecret.createdAt instanceof Date
-              ? provisioningSecret.createdAt
-              : new Date(provisioningSecret.createdAt),
-          });
-        }
-        if (activation) await ctx.deviceActivationStorage.put(activation);
-      });
+      return await rollbackRefreshFailure<{ success: boolean }>(
+        refreshed.error,
+        async () => {
+          await ctx.deviceInstanceStorage.put(instance);
+          if (provisioningSecret) {
+            await ctx.deviceProvisioningSecretStorage.put({
+              ...provisioningSecret,
+              createdAt: provisioningSecret.createdAt instanceof Date
+                ? provisioningSecret.createdAt
+                : new Date(provisioningSecret.createdAt),
+            });
+          }
+          if (activation) await ctx.deviceActivationStorage.put(activation);
+        },
+      );
     }
     await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
     return Result.ok({ success: true });

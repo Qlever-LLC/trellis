@@ -688,6 +688,70 @@ Deno.test("StateStore reports malformed stored metadata as unexpected corruption
   assertUnexpectedError(compatible.error);
 });
 
+Deno.test("StateStore reports non-JSON stored current-version values as unexpected corruption", async () => {
+  const kv = new FakeStateKV();
+  const store = new StateStore({
+    kv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const target = {
+    ownerType: "user" as const,
+    contractId: "acme.notes@v1",
+    contractDigest: "digest-v1",
+    ownerKey: "user-1",
+    store: "preferences",
+    kind: "value" as const,
+    schema: Type.Object({ score: Type.Number() }),
+    stateVersion: "prefs.v1",
+    acceptedVersions: {},
+  };
+
+  kv.seedRaw("user.user-1.acme=2Enotes=40v1.preferences.~value", {
+    value: Number.NaN,
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    stateVersion: "prefs.v1",
+    writerContractDigest: "digest-v1",
+  });
+
+  const got = await store.get(target);
+  assertEquals(got.isErr(), true);
+  if (!got.isErr()) throw new Error("expected stored value corruption error");
+  assertUnexpectedError(got.error);
+});
+
+Deno.test("StateStore rejects non-JSON accepted-version values before migration handling", async () => {
+  const kv = new FakeStateKV();
+  const store = new StateStore({
+    kv,
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+  const target = {
+    ownerType: "user" as const,
+    contractId: "acme.notes@v1",
+    contractDigest: "digest-v2",
+    ownerKey: "user-1",
+    store: "drafts",
+    kind: "map" as const,
+    schema: Type.Object({ score: Type.Number(), done: Type.Boolean() }),
+    stateVersion: "draft.v2",
+    acceptedVersions: {
+      "draft.v1": Type.Object({ score: Type.Number() }),
+    },
+  };
+
+  kv.seedRaw("user.user-1.acme=2Enotes=40v1.drafts.a", {
+    value: Number.NaN,
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    stateVersion: "draft.v1",
+    writerContractDigest: "digest-v1",
+  });
+
+  const got = await store.get(target, { key: "a" });
+  assertEquals(got.isErr(), true);
+  if (!got.isErr()) throw new Error("expected stored value corruption error");
+  assertUnexpectedError(got.error);
+});
+
 Deno.test("StateStore keeps caller value schema failures as validation errors", async () => {
   const kv = new FakeStateKV();
   const store = new StateStore({

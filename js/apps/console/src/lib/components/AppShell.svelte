@@ -5,6 +5,7 @@
   import { page } from "$app/state";
   import type { Snippet } from "svelte";
   import type { ConnectionStatus } from "../trellis";
+  import { consoleTheme } from "../theme.svelte";
   import {
     getInitials,
     getPageTitle,
@@ -37,7 +38,6 @@
     onSignOut,
   }: Props = $props();
 
-  let darkMode = $state(false);
   let drawerOpen = $state(false);
 
   const routePath = $derived(toRoutePath(page.url.pathname));
@@ -67,11 +67,6 @@
     drawerOpen = false;
   }
 
-  function toggleTheme(): void {
-    darkMode = !darkMode;
-    document.documentElement.setAttribute("data-theme", darkMode ? "dracula" : "trellis");
-  }
-
   afterNavigate(() => {
     closeDrawer();
   });
@@ -83,7 +78,7 @@
 
 <a class="skip-link btn btn-sm btn-primary" href="#trellis-main">Skip to main content</a>
 
-<div class="drawer min-h-screen bg-base-200 lg:drawer-open" data-theme={darkMode ? "dracula" : "trellis"}>
+<div class="drawer min-h-screen bg-base-200 lg:drawer-open">
   <input id="trellis-nav" type="checkbox" class="drawer-toggle" bind:checked={drawerOpen} />
 
   <div class="drawer-content flex min-w-0 flex-col">
@@ -107,9 +102,9 @@
         <StatusBadge label={`${connectionLabel}: Trellis`} status={connectionVariant} class="hidden sm:inline-flex px-3" />
         <div class="divider divider-horizontal mx-0 hidden lg:flex"></div>
         <label class="swap swap-rotate btn btn-ghost btn-square btn-sm">
-          <input type="checkbox" checked={darkMode} onchange={toggleTheme} />
+          <input type="checkbox" checked={consoleTheme.darkMode} onchange={() => consoleTheme.toggle()} aria-label="Toggle dark mode" />
           <Icon name="sun" size={20} class="swap-off" />
-          <Icon name="sun" size={20} class="swap-on" />
+          <Icon name="moon" size={20} class="swap-on" />
         </label>
         <button class="btn btn-ghost btn-square btn-sm" aria-label="Notifications">
           <Icon name="bell" size={20} />

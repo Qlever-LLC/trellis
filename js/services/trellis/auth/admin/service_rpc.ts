@@ -9,17 +9,20 @@ import {
   isErr,
   Result,
 } from "@qlever-llc/result";
-import type { NatsConnection } from "@nats-io/nats-core/internal";
+import type { NatsConnection } from "@nats-io/nats-core";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
-import type { ContractResourceBindings } from "../../catalog/resources.ts";
+import {
+  type ContractResourceBindings,
+  provisionContractResourceBindings,
+} from "../../catalog/resources.ts";
 
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import { type Connection, ServiceInstanceSchema } from "../schemas.ts";
 import type { SqlSessionRepository } from "../storage.ts";
 import type { StaticDecode } from "typebox";
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
-import { createAuthApplyServiceDeploymentContractHandler as createAuthApplyServiceDeploymentContractHandlerBase } from "./service_deployment_apply.ts";
 import {
+  applyInstalledServiceDeploymentContract,
   normalizeAppliedContracts,
   type ServiceDeployment,
   validateServiceDeploymentRequest,
@@ -49,6 +52,7 @@ type RuntimeKickDeps = {
   sessionStorage: Pick<SqlSessionRepository, "deleteByInstanceKey">;
 };
 type ActiveCatalogValidator = (validationOpts: {
+  extraActiveDigests?: Iterable<string>;
   stagedServiceDeployments?: Iterable<ServiceDeployment>;
   stagedServiceInstances?: Iterable<ServiceInstance>;
 }) => Promise<unknown>;
@@ -247,25 +251,98 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
   ) => Promise<ContractResourceBindings>;
   refreshActiveContracts: () => Promise<void>;
   serviceDeploymentStorage: ServiceDeploymentStorage;
-  validateActiveCatalog?: (opts: {
-    stagedServiceDeployments?: Iterable<ServiceDeployment>;
-  }) => Promise<unknown>;
+  validateActiveCatalog?: ActiveCatalogValidator;
   logger: Pick<AuthRuntimeDeps["logger"], "trace">;
 }) {
-  const handler = createAuthApplyServiceDeploymentContractHandlerBase({
-    ...deps,
-  });
   return async (args: {
     input: { deploymentId: string; contract: unknown };
     context: { caller: RpcUser };
   }) => {
-    if (!isAdmin(args.context.caller)) return insufficientPermissions();
+    const { input: req, context: { caller } } = args;
+    if (!isAdmin(caller)) return insufficientPermissions();
     deps.logger.trace({
       rpc: "Auth.ApplyServiceDeploymentContract",
-      caller: args.context.caller,
-      deploymentId: args.input.deploymentId,
+      caller,
+      deploymentId: req.deploymentId,
     }, "RPC request");
-    return await handler(args);
+
+    const deployment = await deps.serviceDeploymentStorage.get(
+      req.deploymentId,
+    );
+    if (!deployment) {
+      return invalid("/deploymentId", "service deployment not found", {
+        deploymentId: req.deploymentId,
+      });
+    }
+
+    const installed = await deps.installServiceContract(req.contract);
+
+    if (deps.validateActiveCatalog) {
+      const validatedDigest = await validateActiveCatalog(
+        deps.validateActiveCatalog,
+        { extraActiveDigests: [installed.digest] },
+      );
+      if (isErr(validatedDigest)) return validatedDigest;
+    }
+
+    let resourceBindings;
+    try {
+      resourceBindings = await (deps.provisionResourceBindings ??
+        provisionContractResourceBindings)(
+          deps.nats,
+          installed.contract,
+          deployment.deploymentId,
+        );
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+
+    const nextDeployment = applyInstalledServiceDeploymentContract(
+      deployment,
+      { ...installed, resourceBindings },
+    );
+
+    if (deps.validateActiveCatalog) {
+      const validatedDeployment = await validateActiveCatalog(
+        deps.validateActiveCatalog,
+        { stagedServiceDeployments: [nextDeployment] },
+      );
+      if (isErr(validatedDeployment)) return validatedDeployment;
+    }
+
+    try {
+      await deps.serviceDeploymentStorage.put(nextDeployment);
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+
+    const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
+    if (isErr(refreshed)) {
+      try {
+        await deps.serviceDeploymentStorage.put(deployment);
+      } catch (rollbackError) {
+        return Result.err(
+          new UnexpectedError({
+            cause: new AggregateError(
+              [refreshed.error, toError(rollbackError)],
+              "active catalog refresh failed and service deployment rollback failed",
+            ),
+          }),
+        );
+      }
+      return refreshed;
+    }
+
+    return Result.ok({
+      deployment: nextDeployment,
+      contract: {
+        digest: installed.digest,
+        id: installed.id,
+        displayName: installed.displayName,
+        description: installed.description,
+        installedAt: new Date().toISOString(),
+      },
+    });
   };
 }
 
@@ -413,7 +490,9 @@ export function createAuthDisableServiceDeploymentHandler(
     }
     const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
     if (isErr(refreshed)) {
-      return await rollbackRefreshFailure(
+      return await rollbackRefreshFailure<
+        { deployment: typeof nextDeployment }
+      >(
         refreshed.error,
         () => serviceDeploymentStorage.put(deployment),
       );
@@ -747,7 +826,7 @@ export function createAuthRemoveServiceInstanceHandler(
     }
     const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
     if (isErr(refreshed)) {
-      return await rollbackRefreshFailure(
+      return await rollbackRefreshFailure<{ success: boolean }>(
         refreshed.error,
         () => serviceInstanceStorage.put(instance),
       );

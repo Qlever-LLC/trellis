@@ -98,7 +98,7 @@
           <div class="rounded-box border border-base-300 p-3 text-sm">
             <div class="font-medium">{selectedApproval.approval.displayName ?? selectedApproval.approval.contractId ?? "App approval"}</div>
             <div class="text-base-content/60">User: {selectedApproval.user}</div>
-            <div class="font-mono text-xs text-base-content/60">{selectedApproval.approval.contractDigest}</div>
+            <div class="trellis-identifier text-base-content/60">{selectedApproval.approval.contractDigest}</div>
             <div class="text-xs text-base-content/60">Approved {formatDate(selectedApproval.answeredAt)}</div>
           </div>
         {/if}

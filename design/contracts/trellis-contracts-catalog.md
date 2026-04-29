@@ -499,6 +499,9 @@ Rules:
   requirements
 - a wildcard authorization subject for an event is produced by replacing every
   template token with `*`
+- that effective wildcard subject is also the subject key used by active-catalog
+  collision checks, so two templated events with different JSON Pointer tokens
+  still collide if they normalize to the same NATS wildcard subject
 
 Example wildcard derivation:
 
@@ -577,7 +580,9 @@ Rules:
     `true`
   - `ttlMs`: optional desired retention in milliseconds; `0` or omitted means no
     automatic expiry requested
-  - `maxTotalBytes`: optional desired total-store maximum in bytes
+  - `maxTotalBytes`: optional desired total-store maximum in bytes; omitted means
+    no finite total-size request and reconciles the backing NATS object store to
+    its unlimited `max_bytes` sentinel
 - install or upgrade approves the requested alias/type/spec, not general
   infrastructure-management credentials for the service
 - required resources fail install or upgrade if Trellis cannot provision or bind
@@ -920,7 +925,8 @@ The `trellis` runtime service MUST:
 - compute canonical digests
 - store installed contracts by digest
 - maintain the active contract set for the deployment
-- reject active subject collisions across operations, RPCs, and events
+- reject active subject collisions across operations, RPCs, and events using the
+  effective subject after event-template wildcard normalization
 - provision or bind required cloud resources before service apply/install or
   upgrade succeeds
 - persist resource bindings so installed services can resolve them at runtime
@@ -977,10 +983,15 @@ Upgrade rule:
 
 Subject collision rule:
 
-- if two active contracts declare the same subject string, activation MUST fail
-  unless they belong to the same contract `id` lineage
-- overlapping operation/RPC/event subjects across different digests in the same
-  lineage are allowed so rolling upgrades do not break mixed-version deployments
+- if two active surfaces declare the same effective subject, activation MUST fail
+  unless they are the same operation, RPC, or event surface in the same contract
+  `id` lineage
+- templated event subjects compare by the wildcard subject produced by replacing
+  each template token with `*`, not by the literal JSON Pointer tokens in the
+  template
+- overlapping subjects for the same operation/RPC/event surface across different
+  digests in the same lineage are allowed so rolling upgrades do not break
+  mixed-version deployments
 
 This keeps routing, discovery, and permission derivation unambiguous.
 

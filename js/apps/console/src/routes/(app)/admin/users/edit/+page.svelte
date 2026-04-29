@@ -119,7 +119,7 @@
         <div class="rounded-box border border-base-300 p-3 text-sm text-base-content/70">
           <div class="font-medium text-base-content">{targetUser.name ?? targetUser.id}</div>
           <div>{targetUser.email ?? "No email"}</div>
-          <div class="break-all font-mono text-xs">{targetUser.origin}:{targetUser.id}</div>
+          <div class="trellis-identifier break-all">{targetUser.origin}:{targetUser.id}</div>
         </div>
 
         <label class="flex items-center gap-2">

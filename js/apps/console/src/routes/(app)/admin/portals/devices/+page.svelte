@@ -92,7 +92,7 @@
     {#snippet actions()}
       <details class="dropdown dropdown-end">
         <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
           <li><a href={resolve("/admin/portals/devices/default")}>Set default device portal</a></li>
           <li><a href={resolve("/admin/portals/devices/selection")}>Manage device portal selections</a></li>
         </ul>
@@ -141,7 +141,7 @@
               <td class="text-right">
                 <details class="dropdown dropdown-end">
                   <summary class="btn btn-ghost btn-xs">Actions <Icon name="chevronDown" size={12} /></summary>
-                  <ul class="menu dropdown-content z-10 mt-2 w-60 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+                  <ul class="menu dropdown-content z-10 mt-2 w-60 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
                     {#if deployment.disabled}
                       <li class="disabled"><span>Set selection</span></li>
                     {:else}

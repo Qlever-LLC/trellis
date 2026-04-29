@@ -199,41 +199,6 @@ async function loadDeviceActivationFlow(
   );
 }
 
-async function loadDeviceInstance(
-  deps: DeviceActivationOperationDeps,
-  instanceId: string,
-): Promise<DeviceInstance | null> {
-  return await deps.deviceInstanceStorage.get(instanceId) ?? null;
-}
-
-async function loadDeviceDeployment(
-  deps: DeviceActivationOperationDeps,
-  deploymentId: string,
-): Promise<DeviceDeployment | null> {
-  return await deps.deviceDeploymentStorage.get(deploymentId) ?? null;
-}
-
-async function loadDeviceProvisioningSecret(
-  deps: DeviceActivationOperationDeps,
-  instanceId: string,
-): Promise<DeviceProvisioningSecret | null> {
-  return await deps.deviceProvisioningSecretStorage.get(instanceId) ?? null;
-}
-
-async function loadDeviceActivation(
-  deps: DeviceActivationOperationDeps,
-  instanceId: string,
-): Promise<DeviceActivationRecord | null> {
-  return await deps.deviceActivationStorage.get(instanceId) ?? null;
-}
-
-async function findReviewByFlowId(
-  deps: DeviceActivationOperationDeps,
-  flowId: string,
-): Promise<DeviceActivationReviewRecord | null> {
-  return await deps.deviceActivationReviewStorage.getByFlowId(flowId) ?? null;
-}
-
 async function confirmationCodeFor(
   flow: DeviceActivationFlow,
   provisioningSecret: DeviceProvisioningSecret | null,
@@ -276,7 +241,9 @@ async function activateInstance(args: {
   });
   const confirmationCode = await confirmationCodeFor(
     args.flow,
-    await loadDeviceProvisioningSecret(args.deps, args.instance.instanceId),
+    await args.deps.deviceProvisioningSecretStorage.get(
+      args.instance.instanceId,
+    ) ?? null,
   );
   return {
     instanceId: args.instance.instanceId,
@@ -296,7 +263,8 @@ async function activateApprovedReview(
   activatedAt: string;
   confirmationCode?: string;
 }> {
-  const instance = await loadDeviceInstance(deps, review.instanceId);
+  const instance = await deps.deviceInstanceStorage.get(review.instanceId) ??
+    null;
   if (!instance || instance.state === "disabled") {
     throw new AuthError({
       reason: "unknown_device",
@@ -306,7 +274,9 @@ async function activateApprovedReview(
     });
   }
 
-  const deployment = await loadDeviceDeployment(deps, review.deploymentId);
+  const deployment = await deps.deviceDeploymentStorage.get(
+    review.deploymentId,
+  ) ?? null;
   if (!deployment || deployment.disabled) {
     throw new AuthError({
       reason: "device_deployment_not_found",
@@ -329,7 +299,8 @@ async function currentActivationStatus(
   deps: DeviceActivationOperationDeps,
   flow: DeviceActivationFlow,
 ) {
-  const activation = await loadDeviceActivation(deps, flow.instanceId);
+  const activation = await deps.deviceActivationStorage.get(flow.instanceId) ??
+    null;
   if (activation) {
     if (activation.state === "revoked") {
       return {
@@ -339,7 +310,7 @@ async function currentActivationStatus(
     }
     const confirmationCode = await confirmationCodeFor(
       flow,
-      await loadDeviceProvisioningSecret(deps, flow.instanceId),
+      await deps.deviceProvisioningSecretStorage.get(flow.instanceId) ?? null,
     );
     return {
       status: "activated" as const,
@@ -350,7 +321,9 @@ async function currentActivationStatus(
     };
   }
 
-  const review = await findReviewByFlowId(deps, flow.flowId);
+  const review = await deps.deviceActivationReviewStorage.getByFlowId(
+    flow.flowId,
+  ) ?? null;
   if (!review) return null;
   if (review.state === "pending") {
     return {
@@ -427,13 +400,16 @@ export function createActivateDeviceHandler(
         flowId: input.flowId,
       });
     }
-    const instance = await loadDeviceInstance(deps, flow.instanceId);
+    const instance = await deps.deviceInstanceStorage.get(flow.instanceId) ??
+      null;
     if (!instance || instance.state === "disabled") {
       return activationFailure(logger, "unknown_device", {
         instanceId: flow.instanceId,
       });
     }
-    const deployment = await loadDeviceDeployment(deps, instance.deploymentId);
+    const deployment = await deps.deviceDeploymentStorage.get(
+      instance.deploymentId,
+    ) ?? null;
     if (!deployment || deployment.disabled) {
       return activationFailure(logger, "device_deployment_not_found", {
         deploymentId: instance.deploymentId,
@@ -450,7 +426,9 @@ export function createActivateDeviceHandler(
       return Result.ok(existingStatus);
     }
 
-    const existingReview = await findReviewByFlowId(deps, flow.flowId);
+    const existingReview = await deps.deviceActivationReviewStorage.getByFlowId(
+      flow.flowId,
+    ) ?? null;
     if (existingReview?.state === "pending") {
       await op.progress(pendingReviewProgress(existingReview));
       return op.defer();
@@ -554,11 +532,12 @@ export function createGetDeviceConnectInfoHandler(
     const result = await resolveDeviceConnectInfo({
       transports: buildClientTransports(deps.config),
       sentinel: sentinelCreds,
-      loadDeviceInstance: (instanceId) => loadDeviceInstance(deps, instanceId),
-      loadDeviceActivation: (instanceId) =>
-        loadDeviceActivation(deps, instanceId),
-      loadDeviceDeployment: (deploymentId) =>
-        loadDeviceDeployment(deps, deploymentId),
+      loadDeviceInstance: async (instanceId) =>
+        await deps.deviceInstanceStorage.get(instanceId) ?? null,
+      loadDeviceActivation: async (instanceId) =>
+        await deps.deviceActivationStorage.get(instanceId) ?? null,
+      loadDeviceDeployment: async (deploymentId) =>
+        await deps.deviceDeploymentStorage.get(deploymentId) ?? null,
     }, req);
 
     if (result.status === "activation_required") {

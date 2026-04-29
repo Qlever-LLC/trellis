@@ -94,7 +94,6 @@ export const loginPortalSelections = sqliteTable(
   "login_portal_selections",
   {
     id: text("id").primaryKey().$defaultFn(() => ulid()),
-    selectionKey: text("selection_key").notNull().unique(),
     contractId: text("contract_id").notNull().unique(),
     portalId: text("portal_id"),
   },
@@ -104,7 +103,6 @@ export const devicePortalSelections = sqliteTable(
   "device_portal_selections",
   {
     id: text("id").primaryKey().$defaultFn(() => ulid()),
-    selectionKey: text("selection_key").notNull().unique(),
     deploymentId: text("deployment_id").notNull().unique(),
     portalId: text("portal_id"),
   },

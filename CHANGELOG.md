@@ -10,6 +10,12 @@ and this project adheres to
 
 ### Changed
 
+- Documented the Trellis service v1 follow-up cleanup across design docs,
+  guides, and portal notes: active subject collision checks now use the
+  effective wildcard subject for templated events, omitted store
+  `maxTotalBytes` reconciles object-store streams back to the unlimited
+  runtime default, and portal selection records are keyed directly by browser
+  app contract id or device deployment id.
 - Documented the final Trellis service v1 architecture cleanup across design
   docs, guides, the built-in portal, and demos: active catalog and approval
   planning now fail closed on inactive dependencies, embedded schemas reject all

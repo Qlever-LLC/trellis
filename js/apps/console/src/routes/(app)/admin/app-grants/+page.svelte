@@ -97,7 +97,7 @@
       <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
       <details class="dropdown dropdown-end">
         <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-        <ul class="menu dropdown-content z-10 mt-2 w-64 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+        <ul class="menu dropdown-content z-10 mt-2 w-64 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
           <li><a href={resolve("/admin/app-grants/edit")}>Create or edit policy</a></li>
           <li><a href={resolve("/admin/app-grants/disable")}>Disable a policy</a></li>
         </ul>
@@ -134,7 +134,7 @@
             <tr>
                <td>
                 <div class="font-medium">{lineageById[policy.contractId]?.displayName ?? policy.contractId}</div>
-                <div class="font-mono text-xs text-base-content/60">{policy.contractId}</div>
+                <div class="trellis-identifier text-base-content/60">{policy.contractId}</div>
               </td>
               <td>
                 <div class="flex flex-wrap gap-1">
@@ -169,7 +169,7 @@
               <td class="text-right">
                 <details class="dropdown dropdown-end">
                   <summary class="btn btn-ghost btn-xs">Actions</summary>
-                  <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+                  <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
                     <li><a href={resolve(`/admin/app-grants/edit?contract=${encodeURIComponent(policy.contractId)}`)}>Edit</a></li>
                     <li><a class={policy.disabled ? "disabled" : "text-error"} href={resolve(`/admin/app-grants/disable?contract=${encodeURIComponent(policy.contractId)}`)}>Disable</a></li>
                   </ul>

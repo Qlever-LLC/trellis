@@ -1,90 +1,35 @@
 import type { ContractsModule } from "../../catalog/runtime.ts";
-import type { AsyncResult, BaseError } from "@qlever-llc/result";
+import type { trellisControlPlaneApi } from "../../bootstrap/control_plane_api.ts";
+import type { API as trellisAuthApi } from "../../contracts/trellis_auth.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
+import type {
+  OperationRegistration,
+  ServiceTrellis,
+  TrellisService,
+} from "@qlever-llc/trellis/service";
 
-export type AuthRpcMethod =
-  | "Auth.ListInstalledContracts"
-  | "Auth.GetInstalledContract"
-  | "Auth.CreateServiceDeployment"
-  | "Auth.ListServiceDeployments"
-  | "Auth.ApplyServiceDeploymentContract"
-  | "Auth.UnapplyServiceDeploymentContract"
-  | "Auth.DisableServiceDeployment"
-  | "Auth.EnableServiceDeployment"
-  | "Auth.RemoveServiceDeployment"
-  | "Auth.ProvisionServiceInstance"
-  | "Auth.ListServiceInstances"
-  | "Auth.DisableServiceInstance"
-  | "Auth.EnableServiceInstance"
-  | "Auth.RemoveServiceInstance"
-  | "Auth.Me"
-  | "Auth.ValidateRequest"
-  | "Auth.Logout"
-  | "Auth.ListSessions"
-  | "Auth.RevokeSession"
-  | "Auth.ListConnections"
-  | "Auth.KickConnection"
-  | "Auth.ListApprovals"
-  | "Auth.ListUserGrants"
-  | "Auth.RevokeApproval"
-  | "Auth.RevokeUserGrant"
-  | "Auth.ListUsers"
-  | "Auth.UpdateUser"
-  | "Auth.CreatePortal"
-  | "Auth.ListPortals"
-  | "Auth.DisablePortal"
-  | "Auth.ListPortalProfiles"
-  | "Auth.SetPortalProfile"
-  | "Auth.DisablePortalProfile"
-  | "Auth.GetLoginPortalDefault"
-  | "Auth.ListInstanceGrantPolicies"
-  | "Auth.UpsertInstanceGrantPolicy"
-  | "Auth.DisableInstanceGrantPolicy"
-  | "Auth.SetLoginPortalDefault"
-  | "Auth.ListLoginPortalSelections"
-  | "Auth.SetLoginPortalSelection"
-  | "Auth.ClearLoginPortalSelection"
-  | "Auth.GetDevicePortalDefault"
-  | "Auth.SetDevicePortalDefault"
-  | "Auth.ListDevicePortalSelections"
-  | "Auth.SetDevicePortalSelection"
-  | "Auth.ClearDevicePortalSelection"
-  | "Auth.CreateDeviceDeployment"
-  | "Auth.ApplyDeviceDeploymentContract"
-  | "Auth.UnapplyDeviceDeploymentContract"
-  | "Auth.ListDeviceDeployments"
-  | "Auth.DisableDeviceDeployment"
-  | "Auth.EnableDeviceDeployment"
-  | "Auth.RemoveDeviceDeployment"
-  | "Auth.ProvisionDeviceInstance"
-  | "Auth.ListDeviceInstances"
-  | "Auth.DisableDeviceInstance"
-  | "Auth.EnableDeviceInstance"
-  | "Auth.RemoveDeviceInstance"
-  | "Auth.ListDeviceActivations"
-  | "Auth.RevokeDeviceActivation"
-  | "Auth.GetDeviceConnectInfo"
-  | "Auth.ListDeviceActivationReviews"
-  | "Auth.DecideDeviceActivationReview";
+type AuthOwnedApi = typeof trellisAuthApi.owned;
+type ControlPlaneTrellisApi = typeof trellisControlPlaneApi.trellis;
+type AuthOperationName = keyof AuthOwnedApi["operations"] & string;
 
-export type RpcRegistrar = {
-  mount: {
-    bivarianceHack(method: AuthRpcMethod, handler: unknown): Promise<void>;
-  }["bivarianceHack"];
-};
+export type AuthRpcMethod = keyof AuthOwnedApi["rpc"] & string;
+
+export type RpcRegistrar = Pick<
+  ServiceTrellis<AuthOwnedApi, ControlPlaneTrellisApi>,
+  "mount"
+>;
 
 export type OperationRegistrar = {
-  operation: (name: "Auth.ActivateDevice") => {
-    handle: {
-      bivarianceHack(handler: unknown): Promise<void>;
-    }["bivarianceHack"];
-  };
-  operationCompletion: {
-    completeOperation(
-      operationId: string,
-      output: unknown,
-    ): AsyncResult<unknown, BaseError>;
-  };
+  operation<O extends AuthOperationName>(
+    name: O,
+  ): Pick<
+    OperationRegistration<AuthOwnedApi, ControlPlaneTrellisApi, O>,
+    "handle"
+  >;
+  operationCompletion: Pick<
+    TrellisService<AuthOwnedApi, ControlPlaneTrellisApi>,
+    "completeOperation"
+  >;
 };
 
 export type AuthRuntime =

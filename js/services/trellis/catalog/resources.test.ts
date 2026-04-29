@@ -13,6 +13,7 @@ import {
   getStoreResourceRequests,
   provisionContractResourceBindings,
   reconcileKvResourceConfig,
+  reconcileStoreResourceConfig,
 } from "./resources.ts";
 
 const CONTRACT = {
@@ -354,6 +355,74 @@ Deno.test("resource permission grants include store object subjects and subscrib
     grants.publish.includes("$JS.FC.OBJ_svc_test_activity_v1_uploads.>"),
     true,
   );
+});
+
+Deno.test("store reconciliation resets omitted object-store total bytes to unlimited", async () => {
+  const updates: Array<
+    {
+      name: string;
+      config: {
+        max_age: number;
+        max_bytes: number;
+      };
+    }
+  > = [];
+
+  await reconcileStoreResourceConfig(
+    {
+      update(name, config) {
+        updates.push({
+          name,
+          config: {
+            max_age: config.max_age,
+            max_bytes: config.max_bytes,
+          },
+        });
+        return Promise.resolve();
+      },
+    },
+    {
+      streamInfo: {
+        config: {
+          name: "OBJ_uploads",
+          subjects: ["$O.uploads.>"],
+          retention: "limits",
+          max_consumers: -1,
+          max_msgs_per_subject: -1,
+          max_msgs: -1,
+          max_age: 60_000 * 1_000_000,
+          max_bytes: 4096,
+          max_msg_size: -1,
+          storage: "file",
+          discard: "old",
+          num_replicas: 1,
+          duplicate_window: 0,
+          sealed: false,
+          deny_delete: false,
+          deny_purge: false,
+          allow_rollup_hdrs: false,
+          allow_direct: false,
+          mirror_direct: false,
+          discard_new_per_subject: false,
+          first_seq: 0,
+          allow_msg_ttl: false,
+          allow_msg_counter: false,
+          allow_msg_schedules: false,
+          allow_atomic: false,
+          persist_mode: "default",
+        },
+      },
+    },
+    { ttlMs: 0 },
+  );
+
+  assertEquals(updates, [{
+    name: "OBJ_uploads",
+    config: {
+      max_age: 0,
+      max_bytes: -1,
+    },
+  }]);
 });
 
 Deno.test("jobs resource requests apply queue defaults", () => {

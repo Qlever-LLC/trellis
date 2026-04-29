@@ -198,6 +198,8 @@ Flag meanings:
 
 Once a portal is registered, Trellis trusts it to carry out the flows it is selected for. Portal choice is always a deployment-admin decision.
 
+Login selections are keyed directly by browser app contract id. Device selections are keyed directly by device deployment id. Selecting `--builtin` stores a `null` portal for that exact key, forcing the built-in Trellis portal even when a deployment custom default exists.
+
 ### For all browser logins
 
 ```sh

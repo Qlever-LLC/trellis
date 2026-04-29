@@ -97,7 +97,7 @@
               <td class="min-w-56 max-w-0 align-top">
                 <div class="min-w-0 space-y-1">
                   <div class="truncate font-medium" title={identityLabel(user)}>{identityLabel(user)}</div>
-                  <div class="break-all font-mono text-xs leading-snug text-base-content/60">
+                  <div class="break-all trellis-identifier leading-snug text-base-content/60">
                     {userKey(user)}
                   </div>
                 </div>
@@ -136,7 +136,7 @@
               <td class="w-24 whitespace-nowrap text-right align-top">
                 <details class="dropdown dropdown-end">
                   <summary class="btn btn-ghost btn-xs">Actions</summary>
-                  <ul class="menu dropdown-content z-10 mt-2 w-44 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl">
+                  <ul class="menu dropdown-content z-10 mt-2 w-44 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
                     <li><a href={resolve(`/admin/users/edit?user=${encodeURIComponent(user.id)}&origin=${encodeURIComponent(user.origin)}`)}>Edit</a></li>
                   </ul>
                 </details>

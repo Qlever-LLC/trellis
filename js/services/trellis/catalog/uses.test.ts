@@ -71,6 +71,31 @@ function makeOperationContract(options?: {
   };
 }
 
+function makeEventContract(options: {
+  key?: string;
+  subject: string;
+  params: string[];
+}): TrellisContractV1 {
+  return {
+    format: "trellis.contract.v1",
+    id: "partners@v1",
+    displayName: "Partners",
+    description: "Partners test contract",
+    kind: "service",
+    schemas: {
+      PartnerChanged: { type: "object" },
+    },
+    events: {
+      [options.key ?? "Partner.Changed"]: {
+        version: "v1",
+        subject: options.subject,
+        params: options.params,
+        event: { schema: "PartnerChanged" },
+      },
+    },
+  };
+}
+
 Deno.test("active compatible projection rejects divergent RPC capabilities", () => {
   assertThrows(
     () =>
@@ -115,6 +140,32 @@ Deno.test("active compatible projection rejects subject reuse across logical sur
       createActiveContractLookup([
         { digest: "graph-a", contract: first },
         { digest: "graph-b", contract: second },
+      ]),
+    Error,
+    "different logical surfaces",
+  );
+});
+
+Deno.test("active compatible projection rejects wildcard subject reuse across logical surfaces", () => {
+  assertThrows(
+    () =>
+      createActiveContractLookup([
+        {
+          digest: "partners-a",
+          contract: makeEventContract({
+            key: "Partner.ChangedByOrigin",
+            subject: "events.v1.Partner.Changed.{/origin}",
+            params: ["/origin"],
+          }),
+        },
+        {
+          digest: "partners-b",
+          contract: makeEventContract({
+            key: "Partner.ChangedById",
+            subject: "events.v1.Partner.Changed.{/id}",
+            params: ["/id"],
+          }),
+        },
       ]),
     Error,
     "different logical surfaces",

@@ -216,7 +216,7 @@ resources: {
 },
 ```
 
-Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical store identity when the service deployment is applied, installed, or upgraded. The intended service runtime shape mirrors KV closely: `service.store.uploads.open()` resolves a higher-level store object from the persisted binding, and its failable methods return `Result` values. Store bindings expose effective installed runtime limits; v1 does not advertise per-object limits until the runtime write path enforces them.
+Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical store identity when the service deployment is applied, installed, or upgraded. The intended service runtime shape mirrors KV closely: `service.store.uploads.open()` resolves a higher-level store object from the persisted binding, and its failable methods return `Result` values. Store bindings expose effective installed runtime limits; omitting `maxTotalBytes` means no finite total-size request and reconciles the object store back to the runtime's unlimited/default setting. v1 does not advertise per-object limits until the runtime write path enforces them.
 
 These examples use the default `required: true`. Optional KV and store resources may not appear in runtime bindings if provisioning is unavailable or fails.
 

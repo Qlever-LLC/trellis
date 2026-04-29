@@ -71,21 +71,17 @@ CREATE TABLE `portal_defaults` (
 CREATE UNIQUE INDEX `portal_defaults_default_key_unique` ON `portal_defaults` (`default_key`);--> statement-breakpoint
 CREATE TABLE `login_portal_selections` (
 	`id` text PRIMARY KEY NOT NULL,
-	`selection_key` text NOT NULL,
 	`contract_id` text NOT NULL,
 	`portal_id` text
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `login_portal_selections_selection_key_unique` ON `login_portal_selections` (`selection_key`);--> statement-breakpoint
 CREATE UNIQUE INDEX `login_portal_selections_contract_id_unique` ON `login_portal_selections` (`contract_id`);--> statement-breakpoint
 CREATE TABLE `device_portal_selections` (
 	`id` text PRIMARY KEY NOT NULL,
-	`selection_key` text NOT NULL,
 	`deployment_id` text NOT NULL,
 	`portal_id` text
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `device_portal_selections_selection_key_unique` ON `device_portal_selections` (`selection_key`);--> statement-breakpoint
 CREATE UNIQUE INDEX `device_portal_selections_deployment_id_unique` ON `device_portal_selections` (`deployment_id`);--> statement-breakpoint
 CREATE TABLE `instance_grant_policies` (
 	`id` text PRIMARY KEY NOT NULL,

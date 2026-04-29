@@ -80,6 +80,11 @@ If a custom portal needs to call Trellis after login, model that follow-on
 access with a normal `app` contract and a portal profile. Passive portals that
 only render flow state do not need their own Trellis contract.
 
+Custom portal selection is deployment-owned routing policy. Browser login
+selections are keyed directly by app contract id, device activation selections
+are keyed directly by device deployment id, and a `null` portal id explicitly
+selects this built-in portal for that key.
+
 Approval decisions are keyed by the normalized contract identity digest. Portal
 copy may show `displayName` and `description`, but edits to that display
 metadata alone do not require users to approve a new app or agent identity.

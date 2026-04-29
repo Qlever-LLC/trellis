@@ -12,6 +12,7 @@
     | "grid"
     | "key"
     | "menu"
+    | "moon"
     | "more"
     | "phone"
     | "refresh"
@@ -48,6 +49,8 @@
     <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
   {:else if name === "sun"}
     <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+  {:else if name === "moon"}
+    <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8Z" />
   {:else if name === "bell"}
     <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" />
   {:else if name === "menu"}

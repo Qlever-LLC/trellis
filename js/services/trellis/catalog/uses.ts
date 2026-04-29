@@ -14,6 +14,8 @@ import {
   mergeCompatibleSchemas,
 } from "./schema_compatibility.ts";
 import type { ContractStore } from "./store.ts";
+export { templateToWildcard } from "./subject_templates.ts";
+import { templateToWildcard } from "./subject_templates.ts";
 
 type ActiveCompatibleOperation = Omit<ContractOperation, "output"> & {
   output?: ContractSchemaRef;
@@ -37,7 +39,7 @@ type SubjectSurface = {
 
 type SubjectRegistration = SubjectSurface & {
   contractId: string;
-  subject: string;
+  effectiveSubject: string;
 };
 
 export type ContractUseRef = {
@@ -97,7 +99,7 @@ function requireSameSubjectSurface(
 ): void {
   if (left.kind === right.kind && left.key === right.key) return;
   throw new Error(
-    `Active compatible digests for '${left.contractId}' define subject '${left.subject}' for different logical surfaces '${
+    `Active compatible digests for '${left.contractId}' define subject '${left.effectiveSubject}' for different logical surfaces '${
       subjectSurfaceLabel(left)
     }' and '${subjectSurfaceLabel(right)}'`,
   );
@@ -114,33 +116,33 @@ function validateConcreteSubjectSurfaces(
         contractId,
         kind: "rpc" as const,
         key,
-        subject: method.subject,
+        effectiveSubject: templateToWildcard(method.subject),
       };
-      const existing = registrations.get(method.subject);
+      const existing = registrations.get(registration.effectiveSubject);
       if (existing) requireSameSubjectSurface(existing, registration);
-      registrations.set(method.subject, registration);
+      registrations.set(registration.effectiveSubject, registration);
     }
     for (const [key, operation] of Object.entries(contract.operations ?? {})) {
       const registration = {
         contractId,
         kind: "operations" as const,
         key,
-        subject: operation.subject,
+        effectiveSubject: templateToWildcard(operation.subject),
       };
-      const existing = registrations.get(operation.subject);
+      const existing = registrations.get(registration.effectiveSubject);
       if (existing) requireSameSubjectSurface(existing, registration);
-      registrations.set(operation.subject, registration);
+      registrations.set(registration.effectiveSubject, registration);
     }
     for (const [key, event] of Object.entries(contract.events ?? {})) {
       const registration = {
         contractId,
         kind: "events" as const,
         key,
-        subject: event.subject,
+        effectiveSubject: templateToWildcard(event.subject),
       };
-      const existing = registrations.get(event.subject);
+      const existing = registrations.get(registration.effectiveSubject);
       if (existing) requireSameSubjectSurface(existing, registration);
-      registrations.set(event.subject, registration);
+      registrations.set(registration.effectiveSubject, registration);
     }
   }
 }
@@ -506,10 +508,6 @@ function contractUses(
   return (contract as TrellisContractV1 & {
     uses?: Record<string, ContractUseRef>;
   }).uses ?? {};
-}
-
-export function templateToWildcard(subject: string): string {
-  return subject.replace(/\{[^}]+\}/g, "*");
 }
 
 export function sortUniqueStrings(values: Iterable<string>): string[] {

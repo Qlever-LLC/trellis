@@ -13,6 +13,8 @@ import { compileSchema, draft2019, type JsonSchema } from "json-schema-library";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
+import { templateToWildcard } from "./subject_templates.ts";
+
 type CatalogEntry = TrellisCatalogV1["contracts"][number];
 const JsonObjectSchema = Type.Object({}, { additionalProperties: true });
 
@@ -419,13 +421,14 @@ export class ContractStore {
     subject: string,
     surface: string,
   ) {
-    const prev = index.get(subject);
+    const effectiveSubject = templateToWildcard(subject);
+    const prev = index.get(effectiveSubject);
     if (prev && (prev.contractId !== contract.id || prev.surface !== surface)) {
       throw new Error(
-        `Subject '${subject}' already registered by '${prev.displayName}' (${prev.contractId})`,
+        `Subject '${effectiveSubject}' already registered by '${prev.displayName}' (${prev.contractId})`,
       );
     }
-    index.set(subject, {
+    index.set(effectiveSubject, {
       digest,
       contractId: contract.id,
       displayName: contract.displayName,
@@ -507,7 +510,7 @@ export class ContractStore {
   findActiveSubject(
     subject: string,
   ): ActiveSubjectOwner | undefined {
-    return this.#activeSubjectIndex.get(subject);
+    return this.#activeSubjectIndex.get(templateToWildcard(subject));
   }
 
   isActiveDigest(digest: string): boolean {
