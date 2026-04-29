@@ -39,14 +39,17 @@ surfaces:
   services
 
 In TypeScript, the service-local runtime surface lives in `@qlever-llc/trellis`
-and the admin RPC contract lives in `@qlever-llc/trellis/sdk/jobs`:
+and the standard Trellis Jobs admin RPC contract lives in
+`@qlever-llc/trellis/sdk/jobs`:
 
 - service-local jobs are exposed on connected service runtimes as `service.jobs`
 - admin and operator jobs access uses the centralized `Jobs.*` RPC surface,
   typically through generated jobs SDK types or client wrappers
 
 This document also defines the shared Trellis-owned jobs infrastructure plus a
-separate `jobs` admin runtime for admin queries, janitor, and KV projection.
+separate `jobs` admin runtime implementation for admin queries, janitor, and KV
+projection. The `trellis.jobs@v1` contract is a built-in Trellis API; it is not
+owned by that runtime implementation.
 
 Caller-visible asynchronous APIs are defined separately in
 [../operations/trellis-operations.md](./../operations/trellis-operations.md).
@@ -54,18 +57,17 @@ Jobs remain service-private execution machinery.
 
 The shared streams and projected-state KV bucket used by jobs are Trellis-owned
 runtime infrastructure. Trellis provisions or binds those resources during
-service apply/install for jobs-enabled services. The optional jobs admin surface
-may still be authored in language-specific source alongside its implementation
-and emitted as generated artifacts plus SDKs, but ordinary services and demos
-should not need an extra manual `trellis.jobs@v1` install step just to create or
-process jobs.
+service apply/install for jobs-enabled services. The Jobs admin runtime may host
+the built-in `trellis.jobs@v1` RPCs, but it does not own or control the
+contract. Ordinary services and demos should not need an extra manual
+`trellis.jobs@v1` install step just to create or process jobs.
 
 ### Design Principles
 
 1. **Stream-first architecture** — JetStream stream is the source of truth. KV
    is a derived projection for queries.
-2. **Jobs service** — Owns janitor, global RPCs, and KV projection. Stateless
-   and horizontally scalable.
+2. **Jobs admin runtime** — Implements janitor, global RPC handlers, and KV
+   projection for the built-in Jobs API. Stateless and horizontally scalable.
 3. **Service-local processing** — Each service processes its own jobs via its
    own consumer.
 4. **Passive worker heartbeats** — Workers emit per-job-type heartbeat subjects
@@ -245,9 +247,9 @@ requiring a separate manual jobs install step or first-bootstrap side effect.
   without owning the shared stream topology directly
 - Trellis owns the shared streams and projected-state KV bucket needed by the
   jobs subsystem
-- a separate jobs admin runtime may still run for centralized queries, janitor
-  work, and projections, but ordinary service-local workers do not depend on a
-  manual jobs service deployment to start
+- a separate jobs admin runtime may still implement centralized queries, janitor
+  work, and projections for the built-in Jobs API, but ordinary service-local
+  workers do not depend on a manual jobs service deployment to start
 - the `trellis` service provisions or binds the shared jobs resources during
   service apply/install before jobs-enabled services start
 - the `jobs` service and service-local workers create only dynamic per-job-type
@@ -389,8 +391,9 @@ independently. The `jobs` service adds:
 5. **Global RPCs** — ListServices, ListJobs, GetJob, Cancel, Retry, DLQ
    management
 
-The jobs service is stateless. If it's unavailable, job processing continues
-normally; only UI visibility and deadline enforcement pause until it recovers.
+The jobs admin runtime is stateless. If it's unavailable, job processing
+continues normally; only UI visibility and deadline enforcement pause until it
+recovers.
 
 ### Worker Heartbeats
 
@@ -733,7 +736,7 @@ Retention strategy is implementation-specific, not mandated:
 2. **TTL per state** — completed: 7d, failed: 30d, dead: 90d
 3. **Archive** — Move old jobs to archive bucket/cold storage
 
-The central jobs service can implement periodic cleanup or archival as
+The central Jobs admin runtime can implement periodic cleanup or archival as
 configured.
 
 ### Library Structure

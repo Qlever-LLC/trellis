@@ -68,7 +68,7 @@ export async function loadJobsPageData(
     ) {
       return {
         available: false,
-        message: "Jobs service is not installed or not currently reachable.",
+        message: "Jobs admin runtime is not currently reachable.",
         services: [],
         jobs: [],
       };

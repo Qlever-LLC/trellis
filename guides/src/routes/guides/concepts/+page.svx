@@ -250,7 +250,7 @@ installed bindings rather than from `resources.streams` entries.
 
 Job states: `pending` → `active` → `completed` / `failed` / `retry` / `cancelled` / `expired` / `dead`
 
-Services process their own jobs via their own JetStream consumer. A central jobs service handles global queries, janitor cleanup, and the KV projection.
+Services process their own jobs via their own JetStream consumer. A central Jobs admin runtime handles global queries, janitor cleanup, and the KV projection for the built-in Jobs API.
 
 Jobs are not visible to callers. If you need a caller-observable async workflow, use an operation instead.
 

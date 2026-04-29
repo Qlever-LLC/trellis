@@ -1,18 +1,20 @@
-This guide covers querying, cancelling, replaying, and monitoring jobs across all services using `trellis-service-jobs`. The examples use the `orders-service` fulfillment jobs from [Jobs: TypeScript](/guides/using-jobs-ts).
+This guide covers querying, cancelling, replaying, and monitoring jobs across all services using the built-in `trellis.jobs@v1` API. The examples use the `orders-service` fulfillment jobs from [Jobs: TypeScript](/guides/using-jobs-ts).
 
 > **Note for Service Authors:** Jobs are strict service-internal execution machinery. They run in the background and are completely invisible to callers. For caller-visible asynchronous workflows, you should implement **Operations** instead.
 
 This guide is for operators. If you are a service author, see [Jobs: TypeScript](/guides/using-jobs-ts) or [Jobs: Rust](/guides/using-jobs-rust).
 
-## What `trellis-service-jobs` owns
+## What `trellis-service-jobs` implements
 
-`trellis-service-jobs` is a Trellis infrastructure service that provides:
+`trellis.jobs@v1` is a standard built-in Trellis API. `trellis-service-jobs` is
+the optional Trellis infrastructure service that implements its admin runtime
+behavior:
 
 - **KV projection** — a queryable read-optimized view of current job state derived from the JetStream source of truth
 - **Global RPCs** — `Jobs.List`, `Jobs.Get`, `Jobs.Cancel`, `Jobs.Retry`, `Jobs.ReplayDLQ`, `Jobs.DismissDLQ`, `Jobs.ListServices`, `Jobs.Health`
 - **Janitor** — background cleanup of expired jobs and stale projection entries
 
-`trellis-service-jobs` is stateless and horizontally scalable. It does not participate in job correctness — it is a derived observability layer. The JetStream stream remains the source of truth.
+The Jobs admin runtime is stateless and horizontally scalable. It does not participate in job correctness — it is a derived observability layer. The JetStream stream remains the source of truth.
 
 ## Querying jobs
 
@@ -118,9 +120,9 @@ trellis jobs workers --service orders-service
 
 ## Janitor behavior
 
-The janitor is a background loop inside `trellis-service-jobs` that cleans up:
+The janitor is a background loop in the Jobs admin runtime that cleans up:
 
 - **Expired jobs** — jobs that exceeded their `defaultDeadlineMs` and have not completed; moved to `expired`
 - **Stale KV projection entries** — projection records whose underlying stream messages have been cleaned up
 
-The janitor interval is operator-configurable via the `trellis-service-jobs` configuration. There is no fixed default — tune it based on your job volume and retention requirements. A shorter interval keeps the projection tighter; a longer interval reduces janitor overhead on high-volume deployments.
+The janitor interval is operator-configurable via the Jobs admin runtime configuration. There is no fixed default — tune it based on your job volume and retention requirements. A shorter interval keeps the projection tighter; a longer interval reduces janitor overhead on high-volume deployments.

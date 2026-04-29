@@ -64,7 +64,7 @@
         listJobs: (filter) => trellis.request("Jobs.List", filter),
       }, { service: selectedService || undefined });
 
-      unavailableMessage = data.available ? null : data.message ?? "Jobs service is unavailable.";
+      unavailableMessage = data.available ? null : data.message ?? "Jobs admin runtime is unavailable.";
       services = data.services;
       jobs = data.jobs;
     } catch (e) {

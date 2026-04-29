@@ -267,7 +267,7 @@
         <section class="card trellis-card overflow-hidden bg-base-100">
           <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Jobs Snapshot</h2><a href={resolve("/admin/jobs")} class="btn btn-ghost btn-xs">View all</a></div>
           {#if displayJobs.length === 0}
-            <EmptyState title="No jobs" description="Job queues will appear here when the jobs service reports active or retained work." class="m-5" />
+            <EmptyState title="No jobs" description="Job queues will appear here when the Jobs API reports active or retained work." class="m-5" />
           {:else}
           <div class="overflow-x-auto">
             <table class="table table-xs trellis-table">

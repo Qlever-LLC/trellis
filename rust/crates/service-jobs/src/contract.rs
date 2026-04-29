@@ -1,9 +1,7 @@
-//! Thin contract adapter for the generated Jobs SDK.
+//! Runtime adapter for hosting the standard Trellis Jobs API.
 
 use trellis_sdk_jobs::contract as generated_contract;
 use trellis_server::BootstrapContractRef;
-
-pub const CONTRACT_JSON: &str = include_str!("trellis_jobs.manifest.json");
 
 /// Runtime service name for the Jobs admin host.
 pub const SERVICE_NAME: &str = "trellis-service-jobs";

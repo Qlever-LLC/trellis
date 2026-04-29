@@ -62,7 +62,7 @@ Deno.test("loadJobsPageData requests jobs and services with the provided filter"
   deepEqual(data.jobs[0]?.id, "job-1");
 });
 
-Deno.test("loadJobsPageData reports jobs service as unavailable when Jobs RPCs have no responders", async () => {
+Deno.test("loadJobsPageData reports Jobs admin runtime as unavailable when Jobs RPCs have no responders", async () => {
   function request(
     method: "Jobs.ListServices",
     input: Record<string, never>,
@@ -93,7 +93,7 @@ Deno.test("loadJobsPageData reports jobs service as unavailable when Jobs RPCs h
   deepEqual(data.available, false);
   deepEqual(
     data.message,
-    "Jobs service is not installed or not currently reachable.",
+    "Jobs admin runtime is not currently reachable.",
   );
   deepEqual(data.jobs, []);
   deepEqual(data.services, []);

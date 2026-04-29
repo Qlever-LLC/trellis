@@ -1,12 +1,12 @@
 //! Jobs admin service runtime for Trellis.
 //!
-//! This crate owns the admin-side loops and RPC hosting for the `trellis.jobs@v1`
-//! contract: KV-backed queries, stream projection, janitor expiry, and advisory
-//! handling. Service-local job execution lives in [`trellis_jobs`].
+//! This crate implements the admin-side loops and RPC hosting for the standard
+//! `trellis.jobs@v1` Trellis API: KV-backed queries, stream projection, janitor
+//! expiry, and advisory handling. Service-local job execution lives in
+//! [`trellis_jobs`].
 
 mod advisory;
 mod bootstrap;
-#[path = "../contracts/trellis_jobs.rs"]
 mod contract;
 mod janitor;
 mod kv_query;
@@ -26,7 +26,7 @@ pub use bootstrap::{
     JobsServiceHost, JobsServiceHostWithValidator, JobsServiceMode,
 };
 pub use contract::{
-    contract_manifest, expected_contract, rpc, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON,
+    contract_manifest, expected_contract, rpc, CONTRACT_DIGEST, CONTRACT_ID,
     JOBS_RPC_SUBJECT_WILDCARD, SERVICE_NAME,
 };
 pub use janitor::{

@@ -152,7 +152,7 @@
       deployments = deploymentsRes.deployments ?? [];
       instances = instancesRes.instances ?? [];
       jobs = jobsData.jobs;
-      jobsUnavailableMessage = jobsData.available ? null : jobsData.message ?? "Jobs service is unavailable.";
+      jobsUnavailableMessage = jobsData.available ? null : jobsData.message ?? "Jobs admin runtime is unavailable.";
       syncSelectedDeployment(deployments);
     } catch (e) {
       error = errorMessage(e);
