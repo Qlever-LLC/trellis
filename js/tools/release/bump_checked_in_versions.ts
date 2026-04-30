@@ -51,10 +51,7 @@ export function rewriteCheckedInJsonManifestVersion(
     throw new Error(`${label} does not declare a string version.`);
   }
 
-  if (
-    label.endsWith("package.json") &&
-    normalizeVersionBase(manifest.version) === "0.0.0"
-  ) {
+  if (normalizeVersionBase(manifest.version) === "0.0.0") {
     return contents;
   }
 

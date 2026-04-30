@@ -39,6 +39,15 @@ Deno.test("replaceJsonManifestVersion validates the checked-in base version", ()
   );
 });
 
+Deno.test("replaceJsonManifestVersion leaves 0.0.0 app manifests alone", () => {
+  const manifest = JSON.stringify({ name: "app", version: "0.0.0" });
+
+  assertEquals(
+    replaceJsonManifestVersion(manifest, "0.8.0", "0.7.0", "app"),
+    manifest,
+  );
+});
+
 Deno.test("rewriteInternalNpmDependencies updates internal package specs", () => {
   assertEquals(
     rewriteInternalNpmDependencies(

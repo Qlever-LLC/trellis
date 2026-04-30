@@ -90,6 +90,9 @@ export function replaceJsonManifestVersion(
   if (typeof manifest.version !== "string" || !manifest.version.trim()) {
     throw new Error(`${label} does not declare a string version.`);
   }
+  if (normalizeVersionBase(manifest.version) === "0.0.0") {
+    return contents;
+  }
   validateVersionBase(manifest.version, expectedBaseVersion, label);
   manifest.version = releaseVersion;
   return JSON.stringify(manifest, null, 2) + "\n";

@@ -6,7 +6,7 @@ import {
   updateJsonVersions,
 } from "./bump_checked_in_versions.ts";
 
-Deno.test("rewriteCheckedInJsonManifestVersion leaves 0.0.0 app package manifests alone", () => {
+Deno.test("rewriteCheckedInJsonManifestVersion leaves 0.0.0 app manifests alone", () => {
   const manifest = JSON.stringify({
     name: "app",
     version: "0.0.0",
@@ -24,7 +24,7 @@ Deno.test("rewriteCheckedInJsonManifestVersion leaves 0.0.0 app package manifest
   );
 });
 
-Deno.test("updateJsonVersions bumps release-managed manifests and skips app package.json files", async () => {
+Deno.test("updateJsonVersions bumps release-managed manifests and skips app manifests", async () => {
   const rootDir = await Deno.makeTempDir();
 
   try {
@@ -36,6 +36,7 @@ Deno.test("updateJsonVersions bumps release-managed manifests and skips app pack
     );
     const serviceDenoPath = join(rootDir, "services", "activity", "deno.json");
     const appPackagePath = join(rootDir, "apps", "console", "package.json");
+    const appDenoPath = join(rootDir, "apps", "console", "deno.json");
     const workspaceDenoPath = join(rootDir, "deno.json");
 
     await Deno.mkdir(join(rootDir, "packages", "trellis"), { recursive: true });
@@ -53,6 +54,10 @@ Deno.test("updateJsonVersions bumps release-managed manifests and skips app pack
     );
     await Deno.writeTextFile(
       appPackagePath,
+      '{"name":"@qlever-llc/trellis-app-console","version":"0.0.0"}\n',
+    );
+    await Deno.writeTextFile(
+      appDenoPath,
       '{"name":"@qlever-llc/trellis-app-console","version":"0.0.0"}\n',
     );
     await Deno.writeTextFile(
@@ -76,6 +81,10 @@ Deno.test("updateJsonVersions bumps release-managed manifests and skips app pack
     );
     assertEquals(
       JSON.parse(await Deno.readTextFile(appPackagePath)).version,
+      "0.0.0",
+    );
+    assertEquals(
+      JSON.parse(await Deno.readTextFile(appDenoPath)).version,
       "0.0.0",
     );
   } finally {

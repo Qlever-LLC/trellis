@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-04-30
+
 ### Changed
 
 - Raised the minimum supported `nats-server` version to 2.10.0 and changed
@@ -243,7 +245,7 @@ and this project adheres to
 - Fixed standalone login portal builds by defaulting the portal Trellis URL to
   `http://localhost:3000` when `PUBLIC_TRELLIS_URL` is not set.
 
-## [0.8.0] - 2026-04-19
+## [0.8.0-rc.1] - 2026-04-19
 
 ### Added
 
@@ -265,3 +267,4 @@ and this project adheres to
 
 [Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.8.0...HEAD
 [0.8.0]: https://github.com/Qlever-LLC/trellis/compare/v0.7.0...v0.8.0
+[0.8.0-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.7.0...v0.8.0-rc.1

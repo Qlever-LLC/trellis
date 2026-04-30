@@ -2219,7 +2219,7 @@
       }
     },
     "links": {
-      "jsr:@qlever-llc/result@0.7.0": {},
+      "jsr:@qlever-llc/result@0.8.0": {},
       "jsr:@qlever-llc/trellis-app-console@0.0.0": {
         "dependencies": [
           "npm:vite@*"
@@ -2230,8 +2230,8 @@
           "npm:vite@*"
         ]
       },
-      "jsr:@qlever-llc/trellis-service-activity@0.7.0": {},
-      "jsr:@qlever-llc/trellis-service-trellis@0.7.0": {
+      "jsr:@qlever-llc/trellis-service-activity@0.8.0": {},
+      "jsr:@qlever-llc/trellis-service-trellis@0.8.0": {
         "dependencies": [
           "npm:@libsql/client@0.15.15",
           "npm:drizzle-orm@0.44.7",
@@ -2239,8 +2239,8 @@
           "npm:ulid@^3.0.2"
         ]
       },
-      "jsr:@qlever-llc/trellis-svelte@0.7.0": {},
-      "jsr:@qlever-llc/trellis@0.7.0": {}
+      "jsr:@qlever-llc/trellis-svelte@0.8.0": {},
+      "jsr:@qlever-llc/trellis@0.8.0": {}
     }
   }
 }
