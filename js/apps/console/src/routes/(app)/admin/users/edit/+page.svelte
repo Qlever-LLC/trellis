@@ -115,27 +115,30 @@
     </EmptyState>
   {:else}
     <Panel title="User settings" eyebrow="Workflow">
-      <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void saveUser(); }}>
-        <div class="rounded-box border border-base-300 p-3 text-sm text-base-content/70">
-          <div class="font-medium text-base-content">{targetUser.name ?? targetUser.id}</div>
-          <div>{targetUser.email ?? "No email"}</div>
+      <form class="trellis-form" onsubmit={(event) => { event.preventDefault(); void saveUser(); }}>
+        <div class="trellis-record-summary">
+          <div class="trellis-record-summary-title">{targetUser.name ?? targetUser.id}</div>
+          <div class="trellis-metadata">{targetUser.email ?? "No email"}</div>
           <div class="trellis-identifier break-all">{targetUser.origin}:{targetUser.id}</div>
         </div>
 
-        <label class="flex items-center gap-2">
+        <label class="trellis-toggle-row">
+          <span>
+            <span class="block text-sm font-medium">Active</span>
+            <span class="trellis-field-help">Controls whether this user can authenticate and use assigned capabilities.</span>
+          </span>
           <input class="toggle toggle-sm" type="checkbox" bind:checked={active} />
-          <span class="text-sm">Active</span>
         </label>
 
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Capabilities</span>
-          <textarea class="textarea textarea-bordered textarea-sm min-h-24 font-mono" bind:value={capabilitiesText} placeholder="users.read, apps.manage"></textarea>
-          <span class="label-text-alt text-base-content/50">Comma-separated capability names.</span>
+        <label class="trellis-field">
+          <span class="trellis-field-label">Capabilities</span>
+          <textarea class="textarea textarea-bordered textarea-sm font-mono" bind:value={capabilitiesText} placeholder="users.read, apps.manage"></textarea>
+          <span class="trellis-field-help">Comma-separated capability names.</span>
         </label>
 
-        <div class="flex flex-wrap gap-2">
-          <button class="btn btn-outline btn-sm" type="submit" disabled={savePending}>{savePending ? "Saving..." : "Save user"}</button>
+        <div class="trellis-action-row">
           <a class="btn btn-ghost btn-sm" href={resolve("/admin/users")}>Cancel</a>
+          <button class="btn btn-primary btn-sm" type="submit" disabled={savePending}>{savePending ? "Saving..." : "Save user"}</button>
         </div>
       </form>
     </Panel>

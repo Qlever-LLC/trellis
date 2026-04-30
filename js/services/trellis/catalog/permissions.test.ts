@@ -215,6 +215,9 @@ Deno.test("user permissions include event capabilities without raw subjects", ()
     const publishSubjects = getUserPublishSubjects([
       "partners:write",
     ], caller);
+    const transferPublishSubjects = getUserPublishSubjects([
+      "partners:read",
+    ], caller);
     const subscribeSubjects = getUserSubscribeSubjects([
       "partners:read",
     ], caller);
@@ -229,12 +232,15 @@ Deno.test("user permissions include event capabilities without raw subjects", ()
       false,
     );
     assertEquals(publishSubjects.includes("transfer.v1.upload.*.*"), true);
-    assertEquals(publishSubjects.includes("transfer.v1.download.*.*"), false);
+    assertEquals(
+      transferPublishSubjects.includes("transfer.v1.download.*.*"),
+      true,
+    );
     assertEquals(
       subscribeSubjects.includes("events.v1.Partner.Changed.*.*"),
       true,
     );
-    assertEquals(subscribeSubjects.includes("transfer.v1.download.*.*"), true);
+    assertEquals(subscribeSubjects.includes("transfer.v1.download.*.*"), false);
   });
 });
 

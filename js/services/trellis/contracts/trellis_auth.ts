@@ -37,6 +37,9 @@ import {
   AuthCreateServiceDeploymentSchema,
   AuthDecideDeviceActivationReviewResponseSchema,
   AuthDecideDeviceActivationReviewSchema,
+  AuthDeviceActivatedEventSchema,
+  AuthDeviceActivationApprovedEventSchema,
+  AuthDeviceActivationRequestedEventSchema,
   AuthDeviceActivationReviewRequestedEventSchema,
   AuthDisableDeviceDeploymentResponseSchema,
   AuthDisableDeviceDeploymentSchema,
@@ -282,6 +285,9 @@ const schemas = {
   InstanceGrantPolicy: InstanceGrantPolicySchema,
   AuthDeviceActivationReviewRequestedEvent:
     AuthDeviceActivationReviewRequestedEventSchema,
+  AuthDeviceActivationRequestedEvent: AuthDeviceActivationRequestedEventSchema,
+  AuthDeviceActivationApprovedEvent: AuthDeviceActivationApprovedEventSchema,
+  AuthDeviceActivatedEvent: AuthDeviceActivatedEventSchema,
   AuthGetInstalledContractRequest: AuthGetInstalledContractSchema,
   AuthGetInstalledContractResponse: AuthGetInstalledContractResponseSchema,
   AuthCreateServiceDeploymentRequest: AuthCreateServiceDeploymentSchema,
@@ -879,6 +885,33 @@ export const TRELLIS_AUTH_EVENTS = {
     capabilities: {
       publish: ["service:events:auth"],
       subscribe: ["device.review"],
+    },
+  },
+  "Auth.DeviceActivationRequested": {
+    version: "v1",
+    event: schemaRef("AuthDeviceActivationRequestedEvent"),
+    params: ["/deploymentId"],
+    capabilities: {
+      publish: ["service:events:auth"],
+      subscribe: ["device.review"],
+    },
+  },
+  "Auth.DeviceActivationApproved": {
+    version: "v1",
+    event: schemaRef("AuthDeviceActivationApprovedEvent"),
+    params: ["/deploymentId"],
+    capabilities: {
+      publish: ["service:events:auth"],
+      subscribe: ["device.review"],
+    },
+  },
+  "Auth.DeviceActivated": {
+    version: "v1",
+    event: schemaRef("AuthDeviceActivatedEvent"),
+    params: ["/deploymentId"],
+    capabilities: {
+      publish: ["service:events:auth"],
+      subscribe: ["service:events:auth", "device.review"],
     },
   },
 } as const;

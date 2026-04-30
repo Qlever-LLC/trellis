@@ -85,10 +85,16 @@ Rules:
 - `@qlever-llc/trellis` is the normal package for kind-specific contract
   authoring helpers and runtime client connection helpers
 - `@qlever-llc/trellis/contracts` is the advanced package for broader
-  contract-model helpers, and the specialized helper return values remain usable
-  anywhere a runtime contract is expected
+  contract-model helpers, canonicalization, and SDK/codegen-facing types
+- normal contract source modules and runtime client code should prefer
+  `@qlever-llc/trellis`; advanced contract-model imports should come from
+  `@qlever-llc/trellis/contracts`
+- specialized helper return values remain usable anywhere a generated SDK
+  contract module or runtime contract object is expected
 - `@qlever-llc/trellis/service/node` and `@qlever-llc/trellis/service/deno`
   consume contract objects for service runtime helpers
+- generated API reference owns the precise package export inventory and helper
+  signatures
 
 ### 3) SDK-driven `uses`
 
@@ -97,9 +103,10 @@ use.
 
 Generated SDK modules export a contract module object that includes:
 
-- contract metadata
-- projected API metadata
+- stable contract identity, canonical manifest metadata, and manifest digest
+- projected API metadata, including owned, used, and merged views
 - a typed `use(...)` helper for declaring `uses`
+- optional generated subsystem metadata such as state, jobs, and KV helpers
 
 The required user-facing contract metadata is:
 
@@ -172,6 +179,15 @@ multi-contract layout:
 - authors should not hand-assemble a wrapper object that re-exports
   `CONTRACT_ID`, `CONTRACT`, `CONTRACT_DIGEST`, and `API` just to satisfy
   generator tooling
+- generated SDK modules and locally defined contracts share this compatible
+  contract-module shape, and a locally defined contract must be usable wherever
+  generated SDK tooling expects a contract module
+- local `operations`, `rpc`, `events`, `state`, `errors`, and `resources` remain
+  the source for emitted owned contract content
+- a participant may omit owned `operations`, `rpc`, or `events`, and may omit
+  `uses`
+- the defined contract computes and exposes the manifest digest from the emitted
+  canonical manifest
 
 ### 3a) Service-local RPC errors
 
@@ -247,6 +263,10 @@ Rules:
   class constructors
 - generated TypeScript SDKs follow the same class shape so external TS consumers
   also receive real error instances
+- callers receive declared remote errors as reconstructed runtime instances of
+  the declared class where the SDK or local contract has runtime metadata
+- undeclared or unknown remote error payloads remain forward-compatible and fall
+  back to `RemoteError`
 
 The `use(...)` helper:
 
@@ -318,6 +338,27 @@ Rules:
 - conditional writes use runtime `put(..., { expectedRevision })`, not a
   separate compare-and-set helper
 
+State-specific runtime, migration, validation, and corruption-handling rules are
+canonicalized in [../core/state-patterns.md](./../core/state-patterns.md). Exact
+state helper signatures belong in the generated TypeScript API reference under
+`/api`.
+
+### 3c) Exported schemas and SDK type reuse
+
+Service-owned data model types that cross a contract boundary should be declared
+as named schemas and exported through `exports.schemas`.
+
+Rules:
+
+- browser apps, devices, and peer services should import server-owned model
+  types from the generated SDK instead of redefining those shapes locally
+- generated TypeScript SDKs export aliases for schemas listed in
+  `exports.schemas`
+- generated RPC, operation, event, and job types should reuse exported schema
+  aliases when nested wire shapes match those exported schemas
+- exact alias names and declaration forms belong in the generated TypeScript API
+  reference under `/api`
+
 ### 4) TypeScript enforcement of declared permissions
 
 The TypeScript type system must enforce both of these rules:
@@ -342,8 +383,8 @@ contract object itself defines the allowed TypeScript runtime surface.
 
 The contract definition produces three distinct projected API views:
 
-- `API.owned` - the operations, RPCs, and events owned by the local
-  participant and therefore mountable or publishable as owner behavior
+- `API.owned` - the operations, RPCs, and events owned by the local participant
+  and therefore mountable or publishable as owner behavior
 - `API.used` - the subset of remote SDK APIs explicitly permitted by `uses`
 - `API.trellis` - the merged runtime surface used for outbound
   `operation(...).input(...).start()`, `request`, `publish`, and `subscribe`
@@ -354,8 +395,13 @@ Rules:
 - `API.owned` derives only from the local contract's `operations`, `rpc`, and
   `events`
 - `API.used` derives only from the remote SDK operations explicitly selected
-  through `use(...)`
+  through `use(...)`, plus Trellis-owned baseline surfaces that are derived from
+  participant kind or local features
+- contracts that declare top-level `state` receive baseline `State.*` RPCs in
+  `API.used`; those entries also appear in `API.trellis`, while normal
+  application code uses `trellis.state.<store>`
 - `API.trellis` is the only general outbound runtime API surface
+- `API.trellis` is the merge of `API.used` and `API.owned`
 - server-side handler registration uses `API.owned`, not `API.trellis`
 
 This preserves the distinction between what a participant owns and what it is
@@ -404,6 +450,19 @@ Rules:
   derives from the contract; docs and examples should not re-parse mounted RPC
   payloads just to recover types
 - mounted RPC handlers may return either `Result` or `Promise<Result>`
+- returned runtimes expose typed operation, request, publish, and subscribe
+  helpers derived from the contract and must not widen the callable surface
+  beyond what the contract allows
+- service-side helpers must not expose used remote APIs as mountable local
+  handlers
+- request and operation helpers may fail with `TransportError` for Trellis
+  transport/runtime boundary failures even when that error is not a
+  contract-authored remote error; `UnexpectedError` remains for true internal or
+  otherwise unexpected runtime conditions
+- returned runtimes expose operation-native send transfer through the transfer
+  builder flow and grant consumption through runtime transfer helpers
+- contract descriptors declare transfer direction explicitly for operations that
+  ingest caller bytes and RPCs that issue service-owned byte grants
 - for locally owned contracts, author-facing code should normally define
   concrete handler-local aliases such as
   `type Args = RpcArgs<typeof myContract, "My.Method">` and
@@ -415,9 +474,9 @@ Rules:
   service runtime package may still expose one, but docs and examples should
   prefer the explicit `Args` and `Return` form
 - callers do not manually assemble runtime API arrays for normal usage
-- locally authored contracts should normally export the helper result directly
-  return value directly; do not wrap it in a handwritten default-export object
-  that reassembles `CONTRACT_ID`, `CONTRACT`, `CONTRACT_DIGEST`, and `API`
+- locally authored contracts should normally export the helper return value
+  directly; do not wrap it in a handwritten default-export object that
+  reassembles `CONTRACT_ID`, `CONTRACT`, `CONTRACT_DIGEST`, and `API`
 - for TypeScript contract source files, that direct export should be the file's
   default export so prepare/generation can resolve it consistently
 - single-contract examples should normally use a top-level `contract.ts`
@@ -447,19 +506,19 @@ definition, not as a one-time connection option.
 
 ## Normative Surface Ownership
 
-The exact TypeScript public signatures, contract-module types, and runtime
-helper examples live in
-[contracts-typescript-api.md](./contracts-typescript-api.md). That document is
-the canonical API spec.
+This document constrains the architectural direction behind the TypeScript
+contract API. Exact public signatures, contract-module types, runtime helper
+members, overloads, and generated inventories belong in the generated TypeScript
+API reference under `/api`.
 
-This document only constrains the architectural direction behind that API:
+The architectural rules are:
 
 - kind-specific helpers are the supported public authoring entrypoints for
   normal local contract modules
-- `@qlever-llc/trellis/contracts` exposes the preferred contract authoring
-  helpers used by apps and services while returning contract objects with
-  projected API views and manifest metadata
-- `@qlever-llc/trellis` remains the runtime package for
+- `@qlever-llc/trellis` exposes the preferred contract authoring helpers used by
+  apps and services while returning contract objects with projected API views
+  and manifest metadata
+- `@qlever-llc/trellis` also remains the runtime package for
   `TrellisClient.connect(...)`, auth helpers, and `Result`
 - runtime connection helpers live in `@qlever-llc/trellis` and
   `@qlever-llc/trellis/service*`
@@ -477,9 +536,20 @@ This document only constrains the architectural direction behind that API:
   service author guidance should not point at Trellis-internal bootstrap paths
 - emitted manifests remain canonical `trellis.contract.v1` artifacts; this
   design does not create a parallel manifest format
+- TypeScript compile-time typing enforces declared remote usage shape, while
+  runtime validation still enforces canonical manifest, auth, subject ownership,
+  and dependency-resolution rules
+- TypeScript authoring is an implementation of the canonical manifest
+  architecture, not a parallel manifest format
 - generated SDK outputs still need the richer contract module shape with
   `CONTRACT`, `CONTRACT_ID`, `CONTRACT_DIGEST`, projected API views, and typed
   `use(...)` helpers
+- generated SDK outputs must include stable contract identity, canonical
+  manifest metadata, derived API projections, typed dependency selection, and a
+  concrete generated client facade for consumers
+- generated client facades should expose explicit request, operation, event,
+  publish, state, and common runtime members without requiring consumers to name
+  deep contract-derived runtime aliases
 
 The replacement rule also remains the same: normal TypeScript user code should
 not need to use `defineContractSource(...)`, `buildContractArtifacts(...)`, or

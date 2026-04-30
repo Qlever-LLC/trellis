@@ -128,38 +128,58 @@
     <Panel><LoadingState label="Loading policy workflow" /></Panel>
   {:else}
     <Panel title="Instance grant policy" eyebrow="Workflow">
-      <form class="grid gap-3 md:grid-cols-2" onsubmit={(event) => { event.preventDefault(); void savePolicy(); }}>
-        <label class="form-control gap-1 md:col-span-2">
-          <span class="label-text text-xs">Contract lineage</span>
-          <select class="select select-bordered select-sm" bind:value={selectedContractId} onchange={() => loadPolicyIntoForm(selectedContractId)} required>
-            <option value="">Select a contract lineage</option>
-            {#each lineages as lineage (lineage.id)}
-              <option value={lineage.id}>{lineage.displayName} ({lineage.id})</option>
-            {/each}
-          </select>
-          {#if selectedContractId && lineageById[selectedContractId]}
-            <span class="label-text-alt text-base-content/50">{lineageById[selectedContractId].digests.length} installed digest{lineageById[selectedContractId].digests.length !== 1 ? "s" : ""}</span>
+      <form class="trellis-form" onsubmit={(event) => { event.preventDefault(); void savePolicy(); }}>
+        <div class="trellis-record-summary">
+          <div class="trellis-record-summary-title">
+            {selectedContractId ? (lineageById[selectedContractId]?.displayName ?? selectedContractId) : "Select a contract lineage"}
+          </div>
+          <div class="trellis-metadata">
+            {#if selectedPolicy}
+              Existing policy is {selectedPolicy.disabled ? "disabled" : "active"}.
+            {:else if selectedContractId}
+              No policy exists for this lineage yet.
+            {:else}
+              Choose the installed app contract that should receive implied capabilities.
+            {/if}
+          </div>
+          {#if selectedContractId}
+            <div class="trellis-identifier break-all">{selectedContractId}</div>
           {/if}
-        </label>
+        </div>
 
-        <label class="form-control gap-1 md:col-span-2">
-          <span class="label-text text-xs">Implied capabilities</span>
-          <textarea class="textarea textarea-bordered textarea-sm min-h-24 font-mono" bind:value={impliedCapabilitiesText} placeholder="contracts.read, approvals.manage"></textarea>
-          <span class="label-text-alt text-base-content/50">Comma-separated capability names.</span>
-        </label>
+        <div class="trellis-form-grid">
+          <label class="trellis-field trellis-form-wide">
+            <span class="trellis-field-label">Contract lineage</span>
+            <select class="select select-bordered select-sm" bind:value={selectedContractId} onchange={() => loadPolicyIntoForm(selectedContractId)} required>
+              <option value="">Select a contract lineage</option>
+              {#each lineages as lineage (lineage.id)}
+                <option value={lineage.id}>{lineage.displayName} ({lineage.id})</option>
+              {/each}
+            </select>
+            {#if selectedContractId && lineageById[selectedContractId]}
+              <span class="trellis-field-help">{lineageById[selectedContractId].digests.length} installed digest{lineageById[selectedContractId].digests.length !== 1 ? "s" : ""}</span>
+            {/if}
+          </label>
 
-        <label class="form-control gap-1 md:col-span-2">
-          <span class="label-text text-xs">Allowed origins</span>
-          <textarea class="textarea textarea-bordered textarea-sm min-h-24 font-mono" bind:value={allowedOriginsText} placeholder="https://console.example.com, https://portal.example.com"></textarea>
-          <span class="label-text-alt text-base-content/50">Optional comma-separated origins. Leave blank to allow any origin.</span>
-        </label>
+          <label class="trellis-field trellis-form-wide">
+            <span class="trellis-field-label">Implied capabilities</span>
+            <textarea class="textarea textarea-bordered textarea-sm font-mono" bind:value={impliedCapabilitiesText} placeholder="contracts.read, approvals.manage"></textarea>
+            <span class="trellis-field-help">Comma-separated capability names.</span>
+          </label>
 
-        <div class="md:col-span-2 flex flex-wrap items-center gap-2">
-          <button type="submit" class="btn btn-outline btn-sm" disabled={savePending || !selectedContractId.trim()}>{savePending ? "Saving..." : saveLabel}</button>
-          <a class="btn btn-ghost btn-sm" href={resolve("/admin/app-grants")}>Cancel</a>
+          <label class="trellis-field trellis-form-wide">
+            <span class="trellis-field-label">Allowed origins</span>
+            <textarea class="textarea textarea-bordered textarea-sm font-mono" bind:value={allowedOriginsText} placeholder="https://console.example.com, https://portal.example.com"></textarea>
+            <span class="trellis-field-help">Optional comma-separated origins. Leave blank to allow any origin.</span>
+          </label>
+        </div>
+
+        <div class="trellis-action-row">
           {#if selectedPolicy}
             <span class={["badge badge-sm", selectedPolicy.disabled ? "badge-neutral" : "badge-success"]}>{selectedPolicy.disabled ? "Disabled policy loaded" : "Active policy loaded"}</span>
           {/if}
+          <a class="btn btn-ghost btn-sm" href={resolve("/admin/app-grants")}>Cancel</a>
+          <button type="submit" class="btn btn-primary btn-sm" disabled={savePending || !selectedContractId.trim()}>{savePending ? "Saving..." : saveLabel}</button>
         </div>
       </form>
     </Panel>

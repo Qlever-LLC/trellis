@@ -80,8 +80,6 @@ export function registerAuthHttpRoutes(
     serviceInstanceStorage: deps.serviceInstanceStorage,
     config: deps.config,
     contractStore: deps.contracts.contractStore,
-    validateActiveCatalog: deps.contracts.validateActiveCatalog,
-    refreshActiveContracts: deps.contracts.refreshActiveContracts,
     kick: createKick(deps),
     loadEffectiveGrantPolicies: createEffectiveGrantPolicyLoader(deps),
     runtimeDeps: deps,

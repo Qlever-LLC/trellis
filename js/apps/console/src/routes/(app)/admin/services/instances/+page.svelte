@@ -133,16 +133,18 @@
 <section class="space-y-4">
   <PageToolbar title="Service instances" description="Provision runtime service identities and manage instance lifecycle state.">
     {#snippet actions()}
+      <div class="trellis-filterbar-actions">
         <a href={resolve("/admin/services")} class="btn btn-outline btn-sm">Back to Deployments</a>
         <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
+      </div>
     {/snippet}
   </PageToolbar>
 
   <Panel title="Provision service instance" eyebrow="Service identity">
-
-      <form class="grid gap-3 lg:grid-cols-[1fr_2fr_auto]" onsubmit={(event) => { event.preventDefault(); void provisionInstance(); }}>
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Deployment</span>
+    <form class="trellis-filterbar" onsubmit={(event) => { event.preventDefault(); void provisionInstance(); }}>
+      <div class="trellis-filterbar-controls flex-1">
+        <label class="trellis-field w-full lg:w-72">
+          <span class="trellis-field-label">Deployment</span>
           <select class="select select-bordered select-sm" bind:value={provisionDeploymentId} required>
             <option value="" disabled>Select a deployment</option>
             {#each provisionDeployments as deployment (deployment.deploymentId)}
@@ -151,24 +153,25 @@
           </select>
         </label>
 
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Instance key</span>
+        <label class="trellis-field min-w-0 flex-1">
+          <span class="trellis-field-label">Instance key</span>
           <input class="input input-bordered input-sm font-mono" bind:value={instanceKey} placeholder="base64url public key" required />
         </label>
+      </div>
 
-        <div class="flex items-end">
-          <button type="submit" class="btn btn-outline btn-sm" disabled={!canProvision}>
-            {createPending ? "Provisioning…" : "Provision"}
-          </button>
-        </div>
-      </form>
+      <div class="trellis-filterbar-actions">
+        <button type="submit" class="btn btn-primary btn-sm" disabled={!canProvision}>
+          {createPending ? "Provisioning…" : "Provision"}
+        </button>
+      </div>
+    </form>
   </Panel>
 
-  <div class="flex flex-wrap items-end justify-between gap-3">
-    <form class="flex flex-wrap items-end gap-2" onsubmit={(event) => { event.preventDefault(); void load(); }}>
-      <label class="form-control gap-1">
-        <span class="label-text text-xs">Deployment</span>
-        <select class="select select-bordered select-sm w-48" bind:value={deploymentFilter}>
+  <div class="trellis-filterbar">
+    <form class="trellis-filterbar-controls" onsubmit={(event) => { event.preventDefault(); void load(); }}>
+      <label class="trellis-field w-full sm:w-56">
+        <span class="trellis-field-label">Deployment</span>
+        <select class="select select-bordered select-sm" bind:value={deploymentFilter}>
           <option value="">All deployments</option>
           {#each deployments as deployment (deployment.deploymentId)}
             <option value={deployment.deploymentId}>{deployment.deploymentId}</option>
@@ -176,9 +179,9 @@
         </select>
       </label>
 
-      <label class="form-control gap-1">
-        <span class="label-text text-xs">Status</span>
-        <select class="select select-bordered select-sm w-36" bind:value={disabledFilter}>
+      <label class="trellis-field w-full sm:w-40">
+        <span class="trellis-field-label">Status</span>
+        <select class="select select-bordered select-sm" bind:value={disabledFilter}>
           <option value="all">All</option>
           <option value="active">Active</option>
           <option value="disabled">Disabled</option>
@@ -188,7 +191,7 @@
       <button type="submit" class="btn btn-outline btn-sm" disabled={loading}>Apply</button>
     </form>
 
-    <div class="flex items-center gap-3">
+    <div class="trellis-filterbar-actions">
       <p class="text-xs text-base-content/60">{instances.length} instance{instances.length === 1 ? "" : "s"}</p>
       <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
     </div>
@@ -204,85 +207,85 @@
     <EmptyState title="No service instances" description="Provision a service instance after creating an active service deployment." />
   {:else}
     <Panel title="Instances" eyebrow="Primary table">
-    <div class="overflow-x-auto">
-      <table class="table table-sm trellis-table">
-        <thead>
-          <tr>
-            <th>Instance</th>
-            <th>Deployment</th>
-            <th>Contract</th>
-            <th>Resources</th>
-            <th>Capabilities</th>
-            <th>Status</th>
-            <th>Created</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each instances as instance (instance.instanceId)}
+      <div class="overflow-x-auto">
+        <table class="table table-sm trellis-table">
+          <thead>
             <tr>
-              <td>
-                <div class="trellis-identifier font-medium">{instance.instanceId}</div>
-                <div class="trellis-identifier text-base-content/60">{instance.instanceKey}</div>
-              </td>
-              <td class="text-base-content/60">{instance.deploymentId}</td>
-              <td>
-                <div class="trellis-identifier text-base-content/80">{instance.currentContractId ?? "—"}</div>
-                <div class="trellis-identifier text-base-content/60">{instance.currentContractDigest ?? "—"}</div>
-              </td>
-              <td>
-                <div class="flex max-w-72 flex-wrap gap-1">
-                  {#each Object.entries(instance.resourceBindings?.kv ?? {}) as [alias, binding] (alias)}
-                    <span class="badge badge-outline badge-xs">kv:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.bucket}</span></span>
-                  {/each}
-                  {#each Object.entries(instance.resourceBindings?.store ?? {}) as [alias, binding] (alias)}
-                    <span class="badge badge-outline badge-xs">store:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.name}</span></span>
-                  {/each}
-                  {#if !instance.resourceBindings?.kv && !instance.resourceBindings?.store}
-                    <span class="text-base-content/60">—</span>
-                  {/if}
-                </div>
-              </td>
-              <td>
-                <div class="flex flex-wrap gap-1">
-                  {#each instance.capabilities as capability (capability)}
-                    <span class="badge badge-outline badge-xs">{capability}</span>
-                  {:else}
-                    <span class="text-base-content/60">—</span>
-                  {/each}
-                </div>
-              </td>
-              <td>
-                {#if instance.disabled}
-                  <StatusBadge label="Disabled" status="offline" />
-                {:else}
-                  <StatusBadge label="Active" status="healthy" />
-                {/if}
-              </td>
-              <td class="text-base-content/60">{formatDate(instance.createdAt)}</td>
-              <td>
-                <div class="flex flex-wrap justify-end gap-2">
-                  <button
-                    class="btn btn-ghost btn-xs"
-                    onclick={() => setInstanceDisabled(instance, !instance.disabled)}
-                    disabled={actionTarget === instance.instanceId}
-                  >
-                    {instance.disabled ? "Enable" : "Disable"}
-                  </button>
-                  <button
-                    class="btn btn-ghost btn-xs text-error"
-                    onclick={() => removeInstance(instance)}
-                    disabled={actionTarget === `${instance.instanceId}:remove`}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </td>
+              <th>Instance</th>
+              <th>Deployment</th>
+              <th>Contract</th>
+              <th>Resources</th>
+              <th>Capabilities</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th></th>
             </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {#each instances as instance (instance.instanceId)}
+              <tr>
+                <td>
+                  <div class="trellis-identifier font-medium">{instance.instanceId}</div>
+                  <div class="trellis-identifier text-base-content/60">{instance.instanceKey}</div>
+                </td>
+                <td class="text-base-content/60">{instance.deploymentId}</td>
+                <td>
+                  <div class="trellis-identifier text-base-content/80">{instance.currentContractId ?? "—"}</div>
+                  <div class="trellis-identifier text-base-content/60">{instance.currentContractDigest ?? "—"}</div>
+                </td>
+                <td>
+                  <div class="flex max-w-72 flex-wrap gap-1">
+                    {#each Object.entries(instance.resourceBindings?.kv ?? {}) as [alias, binding] (alias)}
+                      <span class="badge badge-outline badge-xs">kv:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.bucket}</span></span>
+                    {/each}
+                    {#each Object.entries(instance.resourceBindings?.store ?? {}) as [alias, binding] (alias)}
+                      <span class="badge badge-outline badge-xs">store:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.name}</span></span>
+                    {/each}
+                    {#if !instance.resourceBindings?.kv && !instance.resourceBindings?.store}
+                      <span class="text-base-content/60">—</span>
+                    {/if}
+                  </div>
+                </td>
+                <td>
+                  <div class="flex flex-wrap gap-1">
+                    {#each instance.capabilities as capability (capability)}
+                      <span class="badge badge-outline badge-xs">{capability}</span>
+                    {:else}
+                      <span class="text-base-content/60">—</span>
+                    {/each}
+                  </div>
+                </td>
+                <td>
+                  {#if instance.disabled}
+                    <StatusBadge label="Disabled" status="offline" />
+                  {:else}
+                    <StatusBadge label="Active" status="healthy" />
+                  {/if}
+                </td>
+                <td class="text-base-content/60">{formatDate(instance.createdAt)}</td>
+                <td>
+                  <div class="trellis-filterbar-actions justify-end">
+                    <button
+                      class="btn btn-ghost btn-xs"
+                      onclick={() => setInstanceDisabled(instance, !instance.disabled)}
+                      disabled={actionTarget === instance.instanceId}
+                    >
+                      {instance.disabled ? "Enable" : "Disable"}
+                    </button>
+                    <button
+                      class="btn btn-ghost btn-xs text-error"
+                      onclick={() => removeInstance(instance)}
+                      disabled={actionTarget === `${instance.instanceId}:remove`}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     </Panel>
   {/if}
 </section>

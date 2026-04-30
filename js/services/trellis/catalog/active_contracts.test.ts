@@ -63,24 +63,12 @@ Deno.test("collectActiveContractDigests builds candidate active set", () => {
       {
         deploymentId: "service.enabled",
         disabled: false,
-        appliedContracts: [],
+        appliedContracts: [{ allowedDigests: ["service-digest"] }],
       },
       {
         deploymentId: "service.disabled",
         disabled: true,
-        appliedContracts: [],
-      },
-    ],
-    serviceInstances: [
-      {
-        deploymentId: "service.enabled",
-        disabled: false,
-        currentContractDigest: "service-digest",
-      },
-      {
-        deploymentId: "service.disabled",
-        disabled: false,
-        currentContractDigest: "disabled-parent-digest",
+        appliedContracts: [{ allowedDigests: ["disabled-parent-digest"] }],
       },
     ],
     deviceDeployments: [
@@ -97,4 +85,32 @@ Deno.test("collectActiveContractDigests builds candidate active set", () => {
     "device-digest",
     "service-digest",
   ]);
+});
+
+Deno.test("collectActiveContractDigests includes enabled service deployment allowed digests without instances", () => {
+  const active = collectActiveContractDigests({
+    builtinDigests: [],
+    serviceDeployments: [{
+      deploymentId: "service.enabled",
+      disabled: false,
+      appliedContracts: [{ allowedDigests: ["service-digest"] }],
+    }],
+    deviceDeployments: [],
+  });
+
+  assertEquals([...active], ["service-digest"]);
+});
+
+Deno.test("collectActiveContractDigests excludes disabled service deployment allowed digests", () => {
+  const active = collectActiveContractDigests({
+    builtinDigests: [],
+    serviceDeployments: [{
+      deploymentId: "service.disabled",
+      disabled: true,
+      appliedContracts: [{ allowedDigests: ["service-digest"] }],
+    }],
+    deviceDeployments: [],
+  });
+
+  assertEquals([...active], []);
 });

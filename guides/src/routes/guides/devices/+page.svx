@@ -34,21 +34,20 @@ surfaces they need after connecting. The common auth session RPCs are available
 automatically for device contracts.
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis/contracts";
+import { defineDeviceContract } from "@qlever-llc/trellis";
 
-export const myDevice = defineContract({
+export const myDevice = defineDeviceContract(() => ({
   id: "my-device@v1",
   displayName: "My Device",
   description: "An activated device that connects to Trellis after activation.",
-  kind: "device",
-});
+}));
 
 export default myDevice;
 ```
 
 Activated devices may not use contract `resources`.
 
-Even when you define the contract from `@qlever-llc/trellis/contracts`, the resulting contract object carries the manifest metadata and API views that `TrellisDevice.connect(...)` expects.
+The resulting contract object carries the manifest metadata and API views that `TrellisDevice.connect(...)` expects.
 
 ## 3. Write the device startup code
 

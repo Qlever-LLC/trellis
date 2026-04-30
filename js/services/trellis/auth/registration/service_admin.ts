@@ -21,8 +21,10 @@ import type {
   SqlServiceInstanceRepository,
   SqlSessionRepository,
 } from "../storage.ts";
+import type { Config } from "../../config.ts";
 
 export async function registerServiceAdminRpcs(deps: {
+  config: Config;
   trellis: RpcRegistrar;
   connectionsKV: RuntimeKV<Connection>;
   sessionStorage: SqlSessionRepository;
@@ -62,6 +64,9 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthApplyServiceDeploymentContractHandler({
       installServiceContract: deps.contracts.installServiceContract,
       nats: deps.natsTrellis,
+      resourceProvisioningOptions: {
+        jetstreamReplicas: deps.config.nats.jetstream.replicas,
+      },
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
       serviceDeploymentStorage: deps.serviceDeploymentStorage,
       validateActiveCatalog: deps.contracts.validateActiveCatalog,

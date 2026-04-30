@@ -155,20 +155,25 @@
     error = null;
     jobsUnavailableMessage = null;
     try {
-      const [deploymentsRes, instancesRes, jobsData] = await Promise.all([
+      const [deploymentsRes, instancesRes] = await Promise.all([
         trellis.request("Auth.ListServiceDeployments", {}).take(),
         trellis.request("Auth.ListServiceInstances", {}).take(),
-        loadJobsPageData({
-          listServices: () => trellis.request("Jobs.ListServices", {}),
-          listJobs: (filter) => trellis.request("Jobs.List", filter),
-        }),
       ]);
       if (isErr(deploymentsRes)) { error = errorMessage(deploymentsRes); return; }
       if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
-      if (isErr(jobsData)) { error = errorMessage(jobsData); return; }
       deployments = deploymentsRes.deployments ?? [];
       instances = instancesRes.instances ?? [];
       contractDetails = await loadContractDetails(deployments);
+
+      const jobsData = await loadJobsPageData({
+        listServices: () => trellis.request("Jobs.ListServices", {}),
+        listJobs: (filter) => trellis.request("Jobs.List", filter),
+      }).catch((jobsError: unknown) => ({
+        available: false,
+        message: `Jobs admin runtime is unavailable: ${errorMessage(jobsError)}`,
+        services: [],
+        jobs: [],
+      }));
       jobs = jobsData.jobs;
       jobsUnavailableMessage = jobsData.available ? null : jobsData.message ?? "Jobs admin runtime is unavailable.";
       syncSelectedDeployment(deployments);
@@ -392,7 +397,7 @@
                           <td>{#if instance.disabled}<StatusBadge label="Disabled" status="offline" />{:else}<StatusBadge label="Active" status="healthy" />{/if}</td>
                           <td><div class="trellis-identifier">{instance.currentContractId ?? "—"}</div><div class="trellis-identifier text-base-content/60">{instance.currentContractDigest ?? "—"}</div></td>
                           <td>
-                            <div class="flex max-w-64 flex-wrap gap-1">
+                            <div class="trellis-token-list">
                               {#each Object.entries(instance.resourceBindings?.kv ?? {}) as [alias, binding] (alias)}
                                 <span class="badge badge-outline badge-xs">kv:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.bucket}</span></span>
                               {/each}
@@ -404,7 +409,7 @@
                               {/if}
                             </div>
                           </td>
-                          <td><div class="flex flex-wrap gap-1">{#each instance.capabilities as capability (capability)}<span class="badge badge-outline badge-xs">{capability}</span>{:else}<span class="text-base-content/60">—</span>{/each}</div></td>
+                          <td><div class="trellis-token-list">{#each instance.capabilities as capability (capability)}<span class="badge badge-outline badge-xs">{capability}</span>{:else}<span class="text-base-content/60">—</span>{/each}</div></td>
                           <td class="text-base-content/60">{formatMaybeDate(instance.createdAt)}</td>
                         </tr>
                       {/each}
@@ -434,7 +439,7 @@
                 <EmptyState title="No contracts" description="Run services contracts to manage deployment contracts." />
               {:else}
                 <div class="space-y-3">
-                  {#each selectedDeployment.appliedContracts as applied (applied.contractId)}
+                  {#each selectedDeployment.appliedContracts as applied, index (`${applied.contractId}:${index}`)}
                     <div class="rounded-box border border-base-300 bg-base-100 p-3">
                       <div class="flex flex-wrap items-start justify-between gap-2"><div><div class="trellis-identifier font-medium">{applied.contractId}</div><div class="text-xs text-base-content/60">{applied.allowedDigests.length} digest(s)</div></div><a class="btn btn-ghost btn-xs" href={resolve(`/admin/services/contracts?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Manage</a></div>
                       <div class="mt-3 flex flex-wrap gap-2">{#each applied.allowedDigests as digest (digest)}<span class="trellis-identifier rounded-full border border-base-300 px-2 py-1 text-xs">{digest}</span>{:else}<span class="text-xs text-base-content/60">Lineage allowed</span>{/each}</div>

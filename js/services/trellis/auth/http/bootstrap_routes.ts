@@ -65,8 +65,6 @@ export function registerBootstrapRoutes(
       loadServiceDeployment: async (deploymentId) => {
         return await opts.serviceDeploymentStorage.get(deploymentId) ?? null;
       },
-      validateActiveCatalog: opts.validateActiveCatalog,
-      refreshActiveContracts: opts.refreshActiveContracts ?? (async () => {}),
       verifyIdentityProof: ({ sessionKey, iat, contractDigest, sig }) =>
         verifyDomainSig(
           sessionKey,

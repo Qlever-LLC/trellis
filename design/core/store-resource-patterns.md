@@ -116,6 +116,7 @@ type StoreResourceBinding = {
   name: string;
   ttlMs: number;
   maxTotalBytes?: number;
+  maxObjectBytes?: number;
 };
 ```
 
@@ -130,8 +131,8 @@ Rules:
   resource safely
 - bindings include `maxTotalBytes` only when the contract requested a finite
   total-store limit
-- v1 bindings do not expose `maxObjectBytes`; per-object limits are not treated
-  as effective installed limits until a runtime write path enforces them
+- bindings include `maxObjectBytes` only when the contract requested a finite
+  per-object limit that the runtime write path enforces
 - bindings must not expose operator or platform management credentials
 
 ### Runtime API Expectations

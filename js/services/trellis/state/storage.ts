@@ -17,7 +17,7 @@ export const MAX_STATE_KEY_BYTES = 512;
 export const MAX_STATE_VALUE_BYTES = 64 * 1024;
 export const MAX_STATE_LIST_LIMIT = 100;
 
-const VALUE_STORE_KEY = "~value";
+const VALUE_STORE_KEY = "$value";
 
 type StateKvEntryLike = {
   key: string;

@@ -40,18 +40,17 @@ In Trellis, every service is defined by a **contract**. The contract is the auth
 Let's start with the smallest possible contract. Create `contracts/orders_service.ts`:
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis/contracts";
+import { defineServiceContract } from "@qlever-llc/trellis";
 
-export const ordersService = defineContract({
+export const ordersService = defineServiceContract({}, () => ({
   id: "orders-service@v1",
   displayName: "Orders Service",
   description: "A simple service for managing orders.",
-  kind: "service",
   uses: {},
   resources: {},
   rpc: {},
   events: {},
-});
+}));
 
 export default ordersService;
 ```
@@ -94,7 +93,7 @@ console.log("Connected to Trellis!");
 
 > **Node.js users:** Import from `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
 
-`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, validates that your contract is active in the Trellis service catalog, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved. If the contract has not been installed yet, it will throw with a clear message telling you exactly what to do.
+`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, validates that your contract digest is installed and still allowed for the service instance, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved. Catalog activation comes from the enabled service deployment's applied digests, so the contract can be active before this instance connects. If the contract has not been installed yet, it will throw with a clear message telling you exactly what to do.
 
 Before we can run this, we need to create a deployment, apply the contract, and provision a service instance.
 
@@ -254,7 +253,7 @@ await service.trellis.mount("Orders.Create", async (req) => {
 });
 ```
 
-Handlers return `Result.ok(value)` on success or `Result.err({type, message})` for typed errors. Input validation has already happened by the time your handler is called — if the caller sends a malformed request, Trellis rejects it before reaching your code.
+Handlers return `Result.ok(value)` on success or `Result.err(error)` for declared errors. Input validation has already happened by the time your handler is called — if the caller sends a malformed request, Trellis rejects it before reaching your code.
 
 Upgrade the contract, then restart the service:
 
@@ -286,7 +285,7 @@ export const GetOrderResponseSchema = Type.Object({
 export type GetOrderResponse = Static<typeof GetOrderResponseSchema>;
 ```
 
-Register `Orders.Get` in the contract's `rpc` section alongside `Orders.Create`:
+Register `Orders.Get` in the contract's `rpc` section alongside `Orders.Create`. The TypeScript service reference shows the full `defineError(...)` setup for `NotFoundError`; this tutorial focuses on the service flow:
 
 ```ts
 import {
@@ -320,16 +319,21 @@ import {
 Mount the handler in `main.ts`:
 
 ```ts
+import { NotFoundError } from "./contracts/orders_service.ts";
+
 await service.trellis.mount("Orders.Get", async (req) => {
   const getResult = await ordersKV.get(req.orderId);
   if (isErr(getResult)) {
-    return Result.err({ type: "NotFoundError", message: "Order not found" });
+    return Result.err(new NotFoundError({
+      resource: "Order",
+      resourceId: req.orderId,
+    }));
   }
   return Result.ok(getResult.take().value);
 });
 ```
 
-`ordersKV.get(key)` returns a `Result<TypedKVEntry<OrderSchema>, KVError>`. When the key doesn't exist, it returns an `Err` — we translate that into a typed `NotFoundError` for the caller. When it succeeds, `getResult.take().value` gives us the actual `Order` record.
+`ordersKV.get(key)` returns a `Result<TypedKVEntry<OrderSchema>, KVError>`. When the key doesn't exist, it returns an `Err` — translate that into a declared service-local `NotFoundError` for the caller. The TypeScript service reference shows the full `defineError(...)` pattern.
 
 Upgrade and restart as before.
 
@@ -339,19 +343,16 @@ Upgrade and restart as before.
 
 Our service shouldn't exist in a vacuum. Let's say we want to know whenever a user logs into Trellis so we can warm up their cache or log the activity.
 
-Events from other services are gated by your contract's `uses` block. Open `contracts/orders_service.ts` and update the `uses` section:
+Events from other services are gated by your contract's `uses` block. Open `contracts/orders_service.ts` and update the contract builder output:
 
 ```ts
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 
-export const ordersService = defineContract({
-  // ...
-  uses: {
-    auth: auth.use({
-      events: { subscribe: ["Auth.Connect"] },
-    }),
-  },
-  // ...
+uses: {
+  auth: auth.use({
+    events: { subscribe: ["Auth.Connect"] },
+  }),
+},
 ```
 
 `auth.use(...)` declares the non-baseline auth surface this service needs. In this example, the service subscribes to `Auth.Connect` events from the auth service. Baseline auth validation such as `Auth.ValidateRequest` may be made available to service runtimes automatically.

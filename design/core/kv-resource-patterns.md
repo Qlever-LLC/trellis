@@ -59,15 +59,17 @@ Rules:
 
 ### Bucket Naming
 
-Use `trellis_<domain>` with lowercase underscores. Bucket names should describe
-the service-owned resource purpose rather than an implementation table or domain
-model that belongs behind a service boundary.
+Use service-scoped names with lowercase underscores. Contract-requested service
+KV buckets use `svc_<service>_<alias>` (or an equivalent Trellis-assigned
+physical name with that scope) rather than shared `trellis_*` names. Bucket names
+should describe the service-owned resource purpose rather than an implementation
+table or domain model that belongs behind a service boundary.
 
 Examples:
 
-- `trellis_activity`
-- `trellis_jobs`
-- `trellis_upload_index`
+- `svc_activity_activity`
+- `svc_billing_job_cache`
+- `svc_documents_upload_index`
 
 ### Key Structure
 

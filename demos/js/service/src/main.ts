@@ -24,11 +24,34 @@ async function main(): Promise<void> {
     sessionKeySeed,
   }).orThrow();
 
+  service.health.setInfo({
+    version: "0.0.0",
+    info: { demo: "field-ops" },
+  });
+
   for (const summary of SITE_SUMMARIES) {
     if (isErr(await service.kv.siteSummaries.get(summary.siteId).take())) {
       await service.kv.siteSummaries.create(summary.siteId, summary).orThrow();
     }
   }
+
+  service.health.add("field-data", async () => {
+    const checks = await Promise.all(
+      SITE_SUMMARIES.map((summary) =>
+        service.kv.siteSummaries.get(summary.siteId).take()
+      ),
+    );
+    const loadedSites = checks.filter((result) => !isErr(result)).length;
+
+    return {
+      status: loadedSites === SITE_SUMMARIES.length ? "ok" : "failed",
+      summary: `${loadedSites}/${SITE_SUMMARIES.length} demo sites loaded`,
+      info: {
+        expectedSites: SITE_SUMMARIES.length,
+        loadedSites,
+      },
+    };
+  });
 
   service.jobs.refreshSiteSummary.handle(features.sites.refreshSiteSummary);
 
@@ -43,6 +66,8 @@ async function main(): Promise<void> {
     "Evidence.Download",
     features.evidence.downloadEvidence(service),
   );
+  await service.trellis.mount("Evidence.Delete", features.evidence.deleteEvidence);
+  await service.trellis.mount("Reports.List", features.reports.listReports);
   await service.operation("Sites.Refresh").handle(features.sites.refreshSite);
   await service.operation("Reports.Generate").handle(
     features.reports.generateReport,

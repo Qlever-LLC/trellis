@@ -131,7 +131,6 @@ fn prepare_bootstraps_repo_without_discover_summary() {
   },
   operations: {},
   events: {},
-  subjects: {},
 };
 
 export default contract;
@@ -150,7 +149,6 @@ export default contract;
   rpc: {},
   operations: {},
   events: {},
-  subjects: {},
   uses: {
     orders: {
       contract: "trellis.orders@v1",
@@ -203,7 +201,7 @@ export default contract;
 }
 
 #[test]
-fn prepare_generates_app_typescript_sdk_from_sveltekit_lib_contract() {
+fn prepare_ignores_sveltekit_lib_contract() {
     let temp = tempfile::tempdir().unwrap();
     let app = temp.path().join("js/apps/console");
     fs::create_dir_all(app.join("src/lib")).unwrap();
@@ -234,18 +232,13 @@ fn prepare_generates_app_typescript_sdk_from_sveltekit_lib_contract() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    assert!(temp
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("No contracts found."));
+    assert!(!temp
         .path()
         .join("generated/contracts/manifests/trellis.console@v1.json")
         .exists());
-    assert!(temp
-        .path()
-        .join("js/generated/js/sdks/console/client.ts")
-        .exists());
-    assert!(temp
-        .path()
-        .join("js/generated/js/sdks/console/mod.ts")
-        .exists());
+    assert!(!temp.path().join("js/generated/js/sdks/console").exists());
     assert!(!temp
         .path()
         .join("generated/rust/sdks/console/Cargo.toml")
@@ -341,7 +334,6 @@ fn prepare_in_local_runtime_repo_keeps_typescript_package_specifiers() {
   },
   operations: {},
   events: {},
-  subjects: {},
 };
 
 export default contract;

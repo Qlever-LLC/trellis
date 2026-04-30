@@ -62,10 +62,16 @@ Rules:
 - KV flow records are scratch state and must be safe to expire
 - connection records describe live transport presence and are not durable
   authority
+- enabled service deployments' applied digests are durable catalog/auth
+  authority once apply succeeds; service instances only affect runtime
+  availability and current-digest enforcement
 - connection-time lookups must use explicit repositories or injected
   dependencies, not hidden global state
 - session TTL is enforced from the session's `lastAuth` timestamp using the
   deployment `ttlMs.sessions` setting
+- sessions are SQL-backed durable records; revocation deletes matching SQL
+  sessions and cleans up short-lived connection-presence KV before kicking live
+  NATS clients
 
 ### 1) Trellis uses a two-layer auth model
 
@@ -140,7 +146,7 @@ Browser clients:
 Server and service clients:
 
 - use Ed25519 keys
-- load the private seed from configuration such as `TRELLIS_SESSION_KEY_SEED`
+- load the private seed from configuration such as `sessionKeySeedFile`
 
 Rules:
 
@@ -161,6 +167,13 @@ Rules:
   validates the auth token
 - browser clients receive sentinel credentials only after bind succeeds
 - services load sentinel credentials from deployment configuration
+- service runtimes and reconnect-capable clients regenerate auth payloads at
+  connect and reconnect time from their session key, current contract digest,
+  corrected issue time, and signature; auth does not issue or renew reusable
+  binding tokens
+- high-level runtime clients own bootstrap server-time handling, corrected `iat`
+  calculation, a single server-time refresh retry for `iat_out_of_range`, and
+  reconnect-safe auth payload generation
 
 ### 6) User identity is provisioned before contract approval
 
@@ -187,6 +200,15 @@ Rules:
 
 - portal owns browser UX such as provider chooser and approval screens, but auth
   remains the protocol and state authority
+- TypeScript browser runtimes own the normal browser flow lifecycle: creating or
+  loading the non-extractable session key, starting auth requests, preserving
+  the auth-owned `flowId` through redirects, fetching portal flow state, and
+  binding only with the contract already stored on that flow
+- fragment-delivered tokens are not the main browser UX path; browser and portal
+  clients preserve and consume `flowId` as the stable continuation handle
+- browser login-init proofs cover the redirect target and canonical portal
+  context so a signed flow cannot be retargeted or recontextualized after
+  signing; the final browser bind proof is tied to the `flowId`
 - portals are per-instance deployments by default; built-in and custom portal
   deployments should use explicit Trellis URL config rather than assuming the
   portal shares an origin with the Trellis HTTP service
@@ -271,6 +293,54 @@ per-instance portal model because the portal deployment already knows which
 Trellis instance it targets. A portal may later continue as a user-authenticated
 browser app for onboarding or activation work, but that remains user-delegated
 app authority rather than service authority.
+
+Language runtimes expose this model through thin helper layers rather than
+separate protocols. Exact TypeScript declarations belong in the generated `/api`
+reference, and exact Rust functions and structs belong in Rustdoc.
+
+Rules:
+
+- TypeScript service helpers expose the same proof domains as browser helpers,
+  but return direct runtime values rather than redirect- or callback-oriented
+  flow state
+- TypeScript portal helpers should own auth-owned URL construction, flow-state
+  fetches, approval submission shape, provider continuation URLs, and redirect
+  extraction while remaining thin wrappers over the HTTP surfaces in
+  [auth-api.md](./auth-api.md)
+- portal helper APIs should treat `flowId` as browser URL state so static SPA
+  portals and non-Svelte custom portals can use the same framework-neutral
+  helpers; Svelte helpers are only thin controller-style wrappers over that
+  browser helper layer
+- high-level browser helpers may assemble redirect URLs and hide provider
+  placeholders from app code, but they must not invent portal-local query
+  conventions or bypass auth-owned flow state
+- when a high-level browser sign-in helper is called without an explicit return
+  target, it should prefer a `redirectTo` query parameter from the current page,
+  then configured landing-path behavior, and finally the current browser
+  location
+- Rust public APIs return `Result` directly and hide proof-string construction
+  and token-envelope formatting from callers
+- Rust agent login is detached-only: helpers create an auth-owned browser flow
+  and return a login URL for the user or CLI to present manually; they do not
+  start a local callback listener or auto-open a browser
+- Rust detached login completion polls the auth-owned flow until bind is ready,
+  then binds through the same browser-flow model used by other user clients
+- Rust admin reauth reuses the stored session key for contract changes and may
+  complete immediately when auth can prove the new delegated envelope is already
+  covered; otherwise it continues through the same detached portal flow
+- Rust persisted admin session state stores the session seed and delegated
+  contract digest. Reconnect auth regenerates the runtime token from those
+  values and the current issue time rather than persisting a renewable binding
+  token
+- Rust admin clients are thin typed facades over generated auth/admin SDK
+  models; they may group calls ergonomically but must not hand-maintain
+  independent wire shapes or redefine auth semantics
+- Rust portal administration preserves the same portal invariants as the wire
+  API: built-in portals are implicit, custom portal records are routing config,
+  portal profiles are trust policy keyed by portal, login selections are keyed
+  by contract id, device selections are keyed by deployment id, and
+  `portalId =
+  null` forces the built-in portal for that scope
 
 The important distinction is that installed and activated devices differ in auth
 establishment, not in the basic runtime treatment after auth succeeds.
@@ -400,8 +470,7 @@ are split by concern:
   `rpc.v1.Auth.*`, and emitted auth events
 - [device-activation.md](./device-activation.md) - known-device activation,
   connect info, and activation flow
-- [auth-typescript-api.md](./auth-typescript-api.md) - TypeScript browser and
-  service auth helpers
-- [auth-rust-api.md](./auth-rust-api.md) - Rust service and agent auth helpers
+- Generated `/api` reference and Rustdoc - exact TypeScript and Rust helper
+  declarations for auth client libraries
 - [auth-operations.md](./auth-operations.md) - deployment, HA, rate limits,
   rotation, and accepted operational risks

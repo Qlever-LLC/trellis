@@ -117,6 +117,12 @@ persistence strategy, but the public semantics are uniform:
 
 Rules:
 
+- public operation surfaces are descriptor-driven and typed from the contract;
+  exact language signatures, overloads, exported names, and generated member
+  inventories belong in the generated TypeScript API reference and Rustdoc under
+  `/api`
+- callers configure new operations through typed builders derived from
+  contract-owned operation keys, not free-form string dispatch
 - `operation(...).input(...).start()` returns an `OperationRef`, not a terminal
   result
 - `OperationRef.get()` returns the current durable snapshot
@@ -125,10 +131,27 @@ Rules:
 - `OperationRef.watch()` returns a live async stream of typed operation events
 - transfer-capable operations initiate caller-to-service send transfer through
   `operation(...).input(...).transfer(body).start()`
+- transfer initiation is builder-only: callers MUST NOT start an operation once
+  and attach bytes later, and resumed operation references MUST only observe
+  transfer-backed operations
+- receive grants returned by RPCs are consumed through the root transfer helper,
+  not through an operation reference; the operation reference remains an
+  observation handle
 - public TypeScript operations APIs MUST use `Result` / `AsyncResult` for
   expected failures rather than exception-oriented wrappers
+- Rust operation APIs return Rust `Result` values directly while preserving the
+  same expected-failure semantics
 - runtimes MUST expose operation APIs through normal helpers; callers MUST NOT
   need to know hidden `*.Start`, `*.Get`, `*.Wait`, or `*.Watch` wire names
+- public APIs MUST NOT expose hidden control subjects, caller reply subjects,
+  reply-stream mechanics, or runtime control envelopes
+- generated runtimes SHOULD omit cancellation helpers and service-side
+  cancellation affordances for non-cancelable operations rather than exposing
+  methods that always fail
+- event streams and generated callbacks MUST filter cancellation affordances
+  according to the descriptor: public cancellation helpers and cancellation
+  handler controls exist only for operations declared cancelable, while runtime
+  control frames remain hidden
 
 Caller surface:
 
@@ -143,105 +166,58 @@ Owning-service surface:
 
 - owning services register handlers with
   `service.operation(key).handle(handler)`
+- generated service surfaces expose typed input, caller identity, and an active
+  operation handle to handlers
 - transfer-capable handlers receive provider-side `transfer.updates()` and
   `transfer.completed()` helpers
 - handlers may complete operations directly or attach local jobs to them
+- handler-visible active operation handles are the only service-side public path
+  for publishing lifecycle changes, progress, terminal success, terminal
+  failure, cancellation, or job attachment
 - handlers that intentionally leave terminal completion to another control path
   return `op.defer()` after recording any durable progress they own. The runtime
   MUST NOT auto-complete, auto-fail, or keep the handler promise pending for a
-  deferred operation.
+  deferred operation. The deferred sentinel is explicit external terminal
+  ownership; it is not an operation output and MUST NOT be replaced with a
+  never-resolving promise.
 
-Language-specific public API details live in:
+Generated operation runtimes MUST derive input, progress, output, cancelability,
+transfer behavior, and provider-side transfer helpers from the operation
+descriptor. They MUST expose typed operation helpers only for operations the
+participant owns or explicitly declares in `uses`, and they MUST preserve enough
+descriptor metadata for language-specific generated facades. For exact
+TypeScript and Rust signatures, use the generated API reference and Rustdoc
+under `/api`.
 
-- [operations-typescript-api.md](./operations-typescript-api.md)
-- [operations-rust-api.md](./operations-rust-api.md)
+### 5) Operation model
 
-### 5) Operation types
+The public operation model is shared across languages. Exact exported type names
+and method signatures belong in generated API reference/Rustdoc, but every
+runtime MUST preserve these logical fields and semantics:
 
-Canonical logical shapes:
-
-```ts
-type OperationState =
-  | "pending"
-  | "running"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
-type OperationRef<TProgress, TOutput> = {
-  id: string;
-  service: string;
-  operation: string;
-  get(): AsyncResult<OperationSnapshot<TProgress, TOutput>, BaseError>;
-  wait(): AsyncResult<TerminalOperation<TProgress, TOutput>, BaseError>;
-  watch(): AsyncResult<
-    AsyncIterable<OperationEvent<TProgress, TOutput>>,
-    BaseError
-  >;
-  cancel?(): AsyncResult<OperationSnapshot<TProgress, TOutput>, BaseError>;
-};
-
-type OperationSnapshot<TProgress, TOutput> = {
-  id: string;
-  service: string;
-  operation: string;
-  state: OperationState;
-  createdAt: string;
-  updatedAt: string;
-  completedAt?: string;
-  progress?: TProgress;
-  transfer?: {
-    chunkIndex: number;
-    chunkBytes: number;
-    transferredBytes: number;
-  };
-  output?: TOutput;
-  error?: {
-    type: string;
-    message: string;
-  };
-};
-
-type TerminalOperation<TProgress, TOutput> =
-  & OperationSnapshot<TProgress, TOutput>
-  & {
-    state: "completed" | "failed" | "cancelled";
-  };
-
-type OperationEvent<TProgress, TOutput> =
-  | { type: "accepted"; snapshot: OperationSnapshot<TProgress, TOutput> }
-  | { type: "started"; snapshot: OperationSnapshot<TProgress, TOutput> }
-  | {
-    type: "transfer";
-    transfer: {
-      chunkIndex: number;
-      chunkBytes: number;
-      transferredBytes: number;
-    };
-    snapshot: OperationSnapshot<TProgress, TOutput> & {
-      transfer: {
-        chunkIndex: number;
-        chunkBytes: number;
-        transferredBytes: number;
-      };
-    };
-  }
-  | {
-    type: "progress";
-    progress: TProgress;
-    snapshot: OperationSnapshot<TProgress, TOutput> & {
-      progress: TProgress;
-    };
-  }
-  | { type: "completed"; snapshot: TerminalOperation<TProgress, TOutput> }
-  | { type: "failed"; snapshot: TerminalOperation<TProgress, TOutput> }
-  | { type: "cancelled"; snapshot: TerminalOperation<TProgress, TOutput> };
-```
+- operation state is one of pending, running, completed, failed, or cancelled
+- an operation reference identifies the operation id, owning service, and
+  operation key, and supports current-state reads, terminal waits, live watches,
+  and cancellation only when the descriptor allows cancellation
+- a durable snapshot carries operation identity, a monotonic revision,
+  timestamps, current state, optional typed progress, optional transfer
+  progress, optional typed output, and an error view for failed terminal
+  outcomes
+- terminal snapshots are snapshots whose state is completed, failed, or
+  cancelled
+- lifecycle events carry accepted, started, transfer progress, progress,
+  completed, failed, and cancelled changes as appropriate for the descriptor
+- generated progress events carry the progress payload both as the event payload
+  and on the embedded snapshot; generated transfer events do the same for
+  transfer progress
+- runtime control events that are not part of this public lifecycle remain
+  hidden behind the operation reference
 
 Lifecycle rules:
 
 - the first externally visible event MUST be `accepted`
 - `accepted` creates a durable operation snapshot in `pending`
+- every durable snapshot exposes a monotonic public `revision`
 - `started` transitions the snapshot to `running`
 - `transfer` updates the stored transfer progress payload, emits once per
   acknowledged chunk, and MUST carry that payload as both `event.transfer` and

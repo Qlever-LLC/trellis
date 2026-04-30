@@ -1,53 +1,13 @@
-import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
-import type { AppTypes } from "$app/types";
+type Profile = {
+  active?: boolean;
+  capabilities?: readonly string[];
+  email?: string;
+  id?: string;
+  name?: string | null;
+  origin?: string;
+} | null | undefined;
 
-type Profile = AuthMeOutput["user"] | null | undefined;
-type AppPathname = ReturnType<AppTypes["Pathname"]>;
-
-export type NavItem = {
-  href: AppPathname;
-  label: string;
-  icon: string;
-  adminOnly?: boolean;
-};
-
-export type NavSection = {
-  title: string;
-  items: NavItem[];
-  adminOnly?: boolean;
-};
-
-const navSections: NavSection[] = [
-  {
-    title: "Operate",
-    adminOnly: true,
-    items: [
-      { href: "/admin", label: "Overview", icon: "users" },
-      { href: "/admin/health-events", label: "Health Events", icon: "alert" },
-      { href: "/admin/sessions", label: "Sessions", icon: "activity" },
-      { href: "/admin/jobs", label: "Jobs", icon: "clipboard" },
-      { href: "/admin/contracts", label: "Contracts", icon: "shield" },
-    ],
-  },
-  {
-    title: "Manage",
-    adminOnly: true,
-    items: [
-      { href: "/admin/services", label: "Service Deployments", icon: "server" },
-      { href: "/admin/services/instances", label: "Service Instances", icon: "box" },
-      { href: "/admin/devices/profiles", label: "Device Deployments", icon: "shield" },
-      { href: "/admin/devices/instances", label: "Devices", icon: "phone" },
-      { href: "/admin/devices/activations", label: "Device Activations", icon: "activity" },
-      { href: "/admin/devices/reviews", label: "Device Reviews", icon: "clipboard" },
-      { href: "/admin/users", label: "Users", icon: "users" },
-      { href: "/admin/app-grants", label: "Access", icon: "key" },
-      { href: "/admin/portals", label: "Registry", icon: "database" },
-      { href: "/profile", label: "Settings", icon: "settings" },
-    ],
-  },
-];
-
-const routeTitles: Record<string, string> = {
+export const routeTitles = {
   "/profile": "Profile",
   "/admin": "Overview",
   "/admin/users": "Users",
@@ -56,6 +16,7 @@ const routeTitles: Record<string, string> = {
   "/admin/app-grants/edit": "Edit App Grant",
   "/admin/app-grants/disable": "Disable App Grant",
   "/admin/sessions": "Sessions",
+  "/admin/deployments": "Deployments",
   "/admin/services": "Service Deployments",
   "/admin/sessions/revoke": "Revoke Session",
   "/admin/sessions/kick": "Kick Connection",
@@ -87,7 +48,63 @@ const routeTitles: Record<string, string> = {
   "/admin/devices/reviews": "Device Reviews",
   "/admin/devices/reviews/decide": "Decide Device Review",
   "/profile/grants/revoke": "Revoke Profile Grant",
+} as const;
+
+type AppPathname = keyof typeof routeTitles;
+
+export type NavItem = {
+  href: AppPathname;
+  label: string;
+  icon: string;
+  adminOnly?: boolean;
 };
+
+export type NavSection = {
+  title: string;
+  items: NavItem[];
+  adminOnly?: boolean;
+};
+
+const navSections: NavSection[] = [
+  {
+    title: "Operate",
+    adminOnly: true,
+    items: [
+      { href: "/admin", label: "Overview", icon: "users" },
+      { href: "/admin/health-events", label: "Health Events", icon: "alert" },
+      { href: "/admin/sessions", label: "Sessions", icon: "activity" },
+      { href: "/admin/jobs", label: "Jobs", icon: "clipboard" },
+      { href: "/admin/contracts", label: "Contracts", icon: "shield" },
+    ],
+  },
+  {
+    title: "Manage",
+    adminOnly: true,
+    items: [
+      { href: "/admin/deployments", label: "Deployments", icon: "server" },
+      {
+        href: "/admin/services/instances",
+        label: "Service Instances",
+        icon: "box",
+      },
+      { href: "/admin/devices/instances", label: "Devices", icon: "phone" },
+      {
+        href: "/admin/devices/activations",
+        label: "Device Activations",
+        icon: "activity",
+      },
+      {
+        href: "/admin/devices/reviews",
+        label: "Device Reviews",
+        icon: "clipboard",
+      },
+      { href: "/admin/users", label: "Users", icon: "users" },
+      { href: "/admin/app-grants", label: "Access", icon: "key" },
+      { href: "/admin/portals", label: "Registry", icon: "database" },
+      { href: "/profile", label: "Profile", icon: "settings" },
+    ],
+  },
+];
 
 export function requiresAdminRoute(pathname: string): boolean {
   return pathname === "/admin" || pathname.startsWith("/admin/");
@@ -107,8 +124,12 @@ export function getVisibleNavSections(profile: Profile): NavSection[] {
     }));
 }
 
+function hasRouteTitle(pathname: string): pathname is keyof typeof routeTitles {
+  return Object.hasOwn(routeTitles, pathname);
+}
+
 export function getPageTitle(pathname: string): string {
-  return routeTitles[pathname] ?? "Trellis";
+  return hasRouteTitle(pathname) ? routeTitles[pathname] : "Trellis";
 }
 
 export function getRoleLabel(profile: Profile): string {

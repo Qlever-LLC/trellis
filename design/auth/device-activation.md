@@ -210,7 +210,8 @@ pending-review step:
 
 - `Auth.ActivateDevice` creates or resumes a review record instead of activating
   immediately
-- auth emits a device-review-requested event for reviewer automation
+- auth emits `events.v1.Auth.DeviceActivationReviewRequested` for reviewer
+  automation
 - a service or privileged user with `device.review` or `admin` decides the
   review through auth RPCs
 - the built-in portal and custom portals observe review and completion through
@@ -366,6 +367,9 @@ type WaitForDeviceActivationResponse =
 Rules:
 
 - online devices use the wait endpoint to learn that activation completed
+- wait proof construction and verification are canonical only in
+  [auth-protocol.md](./auth-protocol.md); this document intentionally does not
+  duplicate the algorithm
 - offline devices may receive a confirmation code from the portal flow out of
   band and verify it locally with `activationKey`
 - when activation completes, Trellis derives the same confirmation code from the
@@ -447,262 +451,83 @@ Auth validates:
 This lets old and new device digests coexist during rollout while keeping
 validation explicit.
 
+Lifecycle events are:
+
+- `events.v1.Auth.DeviceActivationRequested`
+- `events.v1.Auth.DeviceActivationReviewRequested`
+- `events.v1.Auth.DeviceActivationApproved`
+- `events.v1.Auth.DeviceActivated`
+
 ## Client library boundary
 
 Normal device, portal, and admin code SHOULD use Trellis client-library helpers
-for the mechanical parts of device activation.
-
-### TypeScript helper surface
-
-The TypeScript helper split is:
-
-- low-level device activation helpers in `@qlever-llc/trellis/auth`
-- portal and admin RPC wrappers in `@qlever-llc/trellis/auth`
-- the intended high-level device runtime entrypoint in `@qlever-llc/trellis`
-
-```ts
-type DeviceIdentity = {
-  identitySeed: Uint8Array;
-  identitySeedBase64url: string;
-  publicIdentityKey: string;
-  activationKey: Uint8Array;
-  activationKeyBase64url: string;
-};
-
-declare function deriveDeviceIdentity(
-  deviceRootSecret: Uint8Array,
-): Promise<DeviceIdentity>;
-
-declare function buildDeviceActivationPayload(args: {
-  activationKey: Uint8Array | string;
-  publicIdentityKey: string;
-  nonce: string;
-}): Promise<DeviceActivationPayload>;
-
-declare function encodeDeviceActivationPayload(
-  payload: DeviceActivationPayload,
-): string;
-
-declare function parseDeviceActivationPayload(
-  payload: string,
-): DeviceActivationPayload;
-
-declare function startDeviceActivationRequest(args: {
-  trellisUrl: string;
-  payload: DeviceActivationPayload;
-}): Promise<{
-  flowId: string;
-  instanceId: string;
-  deploymentId: string;
-  activationUrl: string;
-}>;
-
-declare function signDeviceWaitRequest(args: {
-  publicIdentityKey: string;
-  nonce: string;
-  identitySeed: Uint8Array | string;
-  contractDigest?: string;
-  iat?: number;
-}): Promise<DeviceActivationWaitRequest>;
-
-declare function waitForDeviceActivation(args: {
-  trellisUrl: string;
-  publicIdentityKey: string;
-  nonce: string;
-  identitySeed: Uint8Array | string;
-  contractDigest: string;
-  signal?: AbortSignal;
-  pollIntervalMs?: number;
-}): Promise<{
-  status: "activated";
-  activatedAt: string;
-  confirmationCode?: string;
-  connectInfo: DeviceConnectInfo;
-}>;
-
-declare function getDeviceConnectInfo(args: {
-  trellisUrl: string;
-  publicIdentityKey: string;
-  identitySeed: Uint8Array | string;
-  contractDigest: string;
-  iat?: number;
-}): Promise<{ status: "ready"; connectInfo: DeviceConnectInfo }>;
-
-declare function deriveDeviceConfirmationCode(args: {
-  activationKey: Uint8Array | string;
-  publicIdentityKey: string;
-  nonce: string;
-}): Promise<string>;
-
-declare function verifyDeviceConfirmationCode(args: {
-  activationKey: Uint8Array | string;
-  publicIdentityKey: string;
-  nonce: string;
-  confirmationCode: string;
-}): Promise<boolean>;
-
-type AuthActivateDeviceOperation = {
-  watch(): AsyncResult<
-    AsyncIterable<
-      OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>
-    >,
-    BaseError
-  >;
-  wait(): AsyncResult<
-    TerminalOperation<AuthActivateDeviceProgress, AuthActivateDeviceOutput>,
-    BaseError
-  >;
-};
-
-declare function createDeviceActivationClient(client: {
-  request(
-    method: string,
-    input: unknown,
-    opts?: unknown,
-  ): AsyncResult<unknown, BaseError>;
-  operation(method: "Auth.ActivateDevice"): {
-    input(input: { flowId: string }): {
-      start(): AsyncResult<AuthActivateDeviceOperation, BaseError>;
-    };
-  };
-}): {
-  activateDevice(
-    input: { flowId: string },
-  ): Promise<AuthActivateDeviceOperation>;
-  listDeviceActivations(input?: {
-    instanceId?: string;
-    deploymentId?: string;
-    state?: "activated" | "revoked";
-  }): Promise<{
-    activations: Array<{
-      instanceId: string;
-      publicIdentityKey: string;
-      deploymentId: string;
-      state: "activated" | "revoked";
-      activatedAt: string;
-      revokedAt: string | null;
-    }>;
-  }>;
-  revokeDeviceActivation(
-    input: { instanceId: string },
-  ): Promise<{ success: boolean }>;
-  getDeviceConnectInfo(input: {
-    publicIdentityKey: string;
-    contractDigest: string;
-    iat: number;
-    sig: string;
-  }): Promise<{ status: "ready"; connectInfo: DeviceConnectInfo }>;
-};
-
-declare const TrellisDevice: {
-  connect<TApi extends TrellisAPI>(args: {
-    trellisUrl: string;
-    contract: {
-      CONTRACT_ID: string;
-      CONTRACT_DIGEST: string;
-      API: { trellis: TApi };
-    };
-    rootSecret: Uint8Array | string;
-    log?: LoggerLike | false;
-  }): AsyncResult<
-    TrellisDeviceConnection<TApi>,
-    TransportError | UnexpectedError
-  >;
-};
-```
-
-```ts
-declare module "@qlever-llc/trellis/device/deno" {
-  type TrellisDeviceActivatedStatus = {
-    status: "activated";
-  };
-
-  type TrellisDeviceNotReadyStatus = {
-    status: "not_ready";
-    reason: string;
-  };
-
-  type TrellisDeviceActivationRequiredStatus = {
-    status: "activation_required";
-    activationUrl: string;
-    waitForOnlineApproval(
-      opts?: { signal?: AbortSignal },
-    ): Promise<TrellisDeviceActivatedStatus>;
-    acceptConfirmationCode(code: string): Promise<TrellisDeviceActivatedStatus>;
-  };
-
-  type TrellisDeviceActivationStatus =
-    | TrellisDeviceActivatedStatus
-    | TrellisDeviceNotReadyStatus
-    | TrellisDeviceActivationRequiredStatus;
-
-  declare function checkDeviceActivation<TApi extends TrellisAPI>(args: {
-    trellisUrl: string;
-    contract: {
-      CONTRACT_ID: string;
-      CONTRACT_DIGEST: string;
-      API: { trellis: TApi };
-    };
-    rootSecret: Uint8Array | string;
-    stateDir?: string;
-    statePath?: string;
-  }): Promise<TrellisDeviceActivationStatus>;
-}
-```
+for the mechanical parts of device activation. Exact TypeScript declarations are
+documented in the generated `/api` reference; exact Rust functions, structs, and
+re-exports are documented in Rustdoc and generated SDK docs.
 
 Rules:
 
-- device-side code SHOULD treat `deriveDeviceIdentity(...)` as the root helper
-  and persist only the device root secret directly; any Deno activation-state
-  persistence belongs to `checkDeviceActivation(...)`
-- `buildDeviceActivationUrl(...)` always targets Trellis at
-  `POST /auth/devices/activate/requests`; callers do not choose a portal URL
-  directly
-- `waitForDeviceActivation(...)` polls the auth wait endpoint and returns once
+- device-side helpers SHOULD derive the identity seed, public identity key, and
+  activation key from the device root secret; applications persist only the
+  device root secret directly
+- activation helpers SHOULD build, encode, parse, and verify activation payloads
+  and confirmation codes rather than forcing app code to reimplement byte
+  layouts locally
+- wait helpers own the polling loop for the auth wait endpoint and return once
   activation is ready
-- if the wait endpoint returns `{ status: "rejected" }`,
-  `waitForDeviceActivation(...)` throws rather than returning a rejected union
-  branch to the caller
-- `getDeviceConnectInfo(...)` signs a connect-info proof using the device
-  identity and returns the auth-owned `{ status: "ready", connectInfo }`
-  envelope
-- portal and admin browser apps SHOULD prefer
-  `createDeviceActivationClient(...)` over manually spelling auth RPC method
-  names
+- if the wait endpoint returns `{ status: "rejected" }`, TypeScript wait helpers
+  should throw rather than returning a rejected union branch to the caller; Rust
+  helpers should surface the failure through their normal `Result` error path
+- connect-info helpers own the identity-key proof/signature step and return the
+  auth-owned ready/connect-info envelope
+- portal and admin browser apps SHOULD prefer a typed device-activation client
+  wrapper over manually spelling auth RPC method names and payload shapes
 - authenticated portal-side activation starts the `Auth.ActivateDevice`
   operation; review and completion are observed through operation progress and
   watch/wait semantics rather than a separate status-poll RPC
-- device activation helpers own proof construction and payload encoding; app
-  code should not reimplement those byte layouts locally
-- `TrellisDevice.connect(...)` is a pure runtime connect helper; if Trellis says
-  activation is still required it returns a transport error instead of starting
-  activation
-- `TrellisDevice.connect(...)` accepts `rootSecret` directly as bytes or a
-  string form; it does not generate or persist secrets on behalf of the
-  application
-- `TrellisDevice.connect(...)` SHOULD fetch current connect info on startup
-  rather than persisting stale connect info across restarts
+- the TypeScript device runtime connect helper is a pure runtime entrypoint; if
+  Trellis says activation is still required it returns a transport error instead
+  of starting activation on the caller's behalf
+- the TypeScript device runtime connect helper accepts the root secret directly
+  as bytes or a string form; storage, loading, generation, and rotation policy
+  belong to the application
+- the TypeScript device runtime connect helper accepts the same logger-or-false
+  convention as service runtime helpers and should log distinct NATS lifecycle
+  events for disconnect, reconnect attempts, reconnect success, stale
+  connections, and connection errors
+- device runtime helpers SHOULD fetch current connect info on startup rather
+  than persisting stale connect info across restarts
 - when the connected device contract uses the shared `Health.Heartbeat` event,
-  `TrellisDevice.connect(...)` publishes baseline heartbeats automatically and
-  exposes the same callback-based `health` helper surface used by services for
-  enriching those heartbeats
-- Deno device runtimes SHOULD use `checkDeviceActivation(...)` as the main
-  high-level helper; it reports `activated`, `activation_required`, or
-  `not_ready`
+  the TypeScript runtime connect helper publishes baseline heartbeats
+  automatically and exposes the same callback-based `health` helper surface used
+  by services for enriching those heartbeats
+- Deno device runtimes SHOULD use the high-level activation-status helper before
+  connecting; it reports `activated`, `activation_required`, or `not_ready`
 - callers do not manage or persist serialized local activation state directly
-- Deno file-backed activation persistence stays internal to
-  `checkDeviceActivation(...)`, with optional `stateDir` and `statePath`
-  overrides when the runtime needs to control the storage location
-- `waitForOnlineApproval(...)` and `acceptConfirmationCode(...)` are exposed
-  only on `activation_required` status and transition the helper to later
-  `activated` status for a separate `connect()` call
+- Deno file-backed activation persistence stays internal to that
+  activation-status helper, with storage-location overrides when the runtime
+  needs to control the storage location
+- online approval waiting and offline confirmation actions are exposed only on
+  activation-required status and transition the helper to later activated status
+  for a separate runtime connect call
+- Rust activated-device code SHOULD use the Rust helpers for deterministic
+  identity derivation, activation payload and URL construction, wait-request
+  signing, activation wait, connect-info retrieval, and confirmation-code
+  verification rather than hand-written HKDF, HMAC, wait-proof, or connect-info
+  logic
+- Rust callers may use lower-level generated SDK surfaces for authenticated
+  portal-side activation until a small typed convenience wrapper is available,
+  but those calls still follow the `Auth.ActivateDevice` operation model
+- any future Rust device runtime helper should follow the same service-style
+  connect pattern as the TypeScript device runtime helper and remain a thin
+  wrapper over the public auth HTTP and RPC surfaces
 
 ### Minimal activated device example
 
 ```ts
 import { isErr, TrellisDevice } from "@qlever-llc/trellis";
 import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
-import { defineDeviceContract } from "@qlever-llc/trellis/contracts";
+import { defineDeviceContract } from "@qlever-llc/trellis";
 
 export const device = defineDeviceContract(() => ({
   id: "acme.demo-device@v1",

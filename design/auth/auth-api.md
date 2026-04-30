@@ -28,7 +28,7 @@ It does not define language-specific client APIs.
 
 Headings in this document use logical names like `rpc.Auth.Logout`. The wire
 subjects remain versioned forms such as `rpc.v1.Auth.Logout` and
-`rpc.v1.Auth.ActivateWorkload`.
+`operations.v1.Auth.ActivateDevice`.
 
 ## HTTP Endpoints
 
@@ -240,6 +240,10 @@ type PortalFlowState =
 Rules:
 
 - portal renders UX only from this auth-owned flow state
+- custom portal libraries should use `flowId` as their browser URL state and
+  call this endpoint to render auth state; they should not depend on
+  provider-specific fragments or portal-local query conventions as protocol
+  authority
 - portal MUST treat `redirect.location` as an opaque next auth step
 - `redirect.location` may point back to the originating browser app or to
   another auth-owned step in the same login flow
@@ -251,6 +255,9 @@ Rules:
   still use its own local routes and UI state while rendering the flow
 - portal-specific customization data travels through `app.context` rather than
   ad hoc query parameters between app and portal
+- framework-neutral browser helpers and thin framework wrappers may hide the
+  fetch and redirect plumbing, but exact helper declarations belong in the
+  generated `/api` reference rather than in design docs
 
 ### POST /auth/flow/:flowId/approval
 
@@ -409,7 +416,7 @@ approval is granted.
 
 ## Authenticated User RPCs
 
-These RPCs require `session-key` and `proof` headers.
+These RPCs require `session-key`, `contract-digest`, and `proof` headers.
 
 The following self-service auth RPCs intentionally require no granted
 capabilities beyond successful authenticated user context:
@@ -501,6 +508,7 @@ Request:
 ```ts
 {
   sessionKey: string;
+  contractDigest: string;
   proof: string;
   subject: string;
   payloadHash: string;
@@ -568,7 +576,9 @@ Public auth-owned surfaces:
 - operation subject `operations.v1.Auth.ActivateDevice`
 - portal, portal-override, device-deployment, device-instance, and device
   lifecycle admin RPCs under `rpc.v1.Auth.*`
-- event subject `events.v1.Auth.DeviceActivationReviewRequested`
+- event subjects `events.v1.Auth.DeviceActivationRequested`,
+  `events.v1.Auth.DeviceActivationApproved`, `events.v1.Auth.DeviceActivated`,
+  and `events.v1.Auth.DeviceActivationReviewRequested`
 
 Shared request and response types:
 
@@ -700,9 +710,11 @@ durable deployment record:
 - if active-catalog refresh fails after persistence, auth rolls the deployment
   record back; if rollback also fails, the RPC returns an unexpected aggregate
   failure rather than reporting a successful apply or unapply.
-- service bootstrap validates the staged service instance before persisting a
-  new `currentContractDigest` or resource binding state, and rolls the instance
-  back if active-catalog refresh fails after the save.
+- service bootstrap validates that the presented digest is installed, allowed by
+  the enabled parent deployment, and matches the service instance's current
+  runtime digest enforcement before persisting `currentContractDigest` or
+  resource binding state. Instance state affects runtime availability; it does
+  not activate catalog/auth surfaces.
 
 ```ts
 type UnapplyServiceDeploymentContractRequest = {
@@ -1001,8 +1013,11 @@ Portal selection rules:
 Library rule:
 
 - public client libraries MAY wrap these HTTP and RPC surfaces with higher-level
-  device-activation helpers, but those helpers MUST preserve these canonical
-  wire shapes and the `Auth.ActivateDevice` operation model
+  browser-flow, portal, admin, service, and device-activation helpers, but those
+  helpers MUST preserve these canonical wire shapes and the
+  `Auth.ActivateDevice` operation model
+- exact TypeScript helper declarations belong in the generated `/api` reference;
+  exact Rust helper declarations belong in Rustdoc
 
 Device-activation observation rule:
 
@@ -1080,7 +1095,10 @@ Canonical operation inventory:
 
 Canonical event inventory:
 
+- `events.v1.Auth.DeviceActivationRequested`
+- `events.v1.Auth.DeviceActivationApproved`
 - `events.v1.Auth.DeviceActivationReviewRequested`
+- `events.v1.Auth.DeviceActivated`
 
 ## Admin RPCs
 
@@ -1352,6 +1370,7 @@ Trellis publishes these events as part of `trellis.auth@v1`:
 - `events.v1.Auth.SessionRevoked`
 - `events.v1.Auth.ConnectionKicked`
 - `events.v1.Auth.DeviceActivationRequested`
+- `events.v1.Auth.DeviceActivationReviewRequested`
 - `events.v1.Auth.DeviceActivationApproved`
 - `events.v1.Auth.DeviceActivationRejected`
 - `events.v1.Auth.DeviceActivated`

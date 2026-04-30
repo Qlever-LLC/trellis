@@ -166,7 +166,7 @@ export function deriveDeviceRuntimeAccess(
 
     for (const method of uses.rpcCalls) {
       if (method.method.transfer?.direction === "receive") {
-        subscribeSubjects.add(TRANSFER_DOWNLOAD_SUBJECT);
+        publishSubjects.add(TRANSFER_DOWNLOAD_SUBJECT);
       }
     }
 

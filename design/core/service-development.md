@@ -101,17 +101,24 @@ if (catalog.isErr()) {
   throw catalog.error;
 }
 
-Deno.addSignalListener("SIGTERM", async () => {
-  await service.stop();
-  Deno.exit(0);
-});
+const shutdown = async () => {
+  try {
+    await service.stop();
+  } finally {
+    Deno.removeSignalListener("SIGTERM", shutdown);
+  }
+};
+
+Deno.addSignalListener("SIGTERM", shutdown);
 ```
 
 Rules:
 
-- service shutdown handlers SHOULD call `Deno.exit(0)` after `service.stop()` so
-  file-watched local dev restarts do not leave the old process alive with a
-  bound port
+- service shutdown handlers SHOULD release runtime resources, remove registered
+  signal listeners, and let successful shutdown terminate naturally so
+  `deno run --watch` can restart the program instead of exiting the watcher
+- failed or timed-out shutdown paths MAY call `Deno.exit(1)` after logging the
+  failure
 - if a service also owns an HTTP listener, its shutdown path SHOULD bound the
   wait for listener drain before exiting rather than waiting indefinitely on
   long-lived keep-alive or streaming connections
@@ -139,9 +146,8 @@ Rules:
 ### Minimal installable service example
 
 ```ts
-import { Result } from "@qlever-llc/trellis";
+import { defineServiceContract, Result } from "@qlever-llc/trellis";
 import type { RpcArgs, RpcResult } from "@qlever-llc/trellis";
-import { defineServiceContract } from "@qlever-llc/trellis/contracts";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import {
   HealthResponseSchema,
@@ -238,8 +244,9 @@ Behavior:
 - if the contract is not installed, startup fails immediately
 - service bootstrap is a validation and binding-resolution step, not a resource
   provisioning step; it validates the exact presented digest against the service
-  instance and parent deployment, stages the instance update for active-catalog
-  validation, and rolls back the instance if refresh fails
+  instance and parent deployment, then persists instance runtime state without
+  activating catalog/auth surfaces; enabled service deployments' applied digests
+  are already active once apply succeeds
 - schema-backed KV handles such as `service.kv.<alias>` resolve during bootstrap
   as direct typed stores, while store handles such as `service.store.<alias>`
   are opened explicitly before use

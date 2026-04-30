@@ -734,6 +734,40 @@ export const AuthDeviceActivationReviewRequestedEventSchema = Type.Object({
   }),
 });
 
+export const AuthDeviceActivationRequestedEventSchema = Type.Object({
+  flowId: Type.String({ minLength: 1 }),
+  instanceId: Type.String({ minLength: 1 }),
+  publicIdentityKey: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
+  requestedAt: IsoDateStringSchema,
+  requestedBy: DeviceActivationActorSchema,
+});
+
+export const AuthDeviceActivationApprovedEventSchema = Type.Object({
+  reviewId: Type.String({ minLength: 1 }),
+  flowId: Type.String({ minLength: 1 }),
+  instanceId: Type.String({ minLength: 1 }),
+  publicIdentityKey: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
+  requestedAt: IsoDateStringSchema,
+  approvedAt: IsoDateStringSchema,
+  requestedBy: DeviceActivationActorSchema,
+  approvedBy: Type.Object({
+    id: Type.String({ minLength: 1 }),
+    origin: Type.Optional(Type.String({ minLength: 1 })),
+  }),
+});
+
+export const AuthDeviceActivatedEventSchema = Type.Object({
+  instanceId: Type.String({ minLength: 1 }),
+  publicIdentityKey: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
+  activatedAt: IsoDateStringSchema,
+  activatedBy: DeviceActivationActorSchema,
+  flowId: Type.Optional(Type.String({ minLength: 1 })),
+  reviewId: Type.Optional(Type.String({ minLength: 1 })),
+});
+
 export const DeviceConnectInfoSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
   deploymentId: Type.String({ minLength: 1 }),

@@ -6,6 +6,7 @@ import {
 import {
   CONTRACT_STATE_METADATA,
   type ContractStateMetadata,
+  digestContractManifest,
 } from "./contract_support/mod.ts";
 import {
   base64urlDecode,
@@ -66,6 +67,7 @@ type ClientContract<
   TContract extends TrellisContractV1 = TrellisContractV1,
 > = {
   CONTRACT: TContract;
+  CONTRACT_DIGEST?: string;
   API: {
     trellis: TApi;
   };
@@ -857,8 +859,11 @@ function bootstrapTargetsRequestedContract<
   bootstrap: ClientBootstrapResponse,
   args: ClientConnectArgsFor<TContract>,
 ): boolean {
+  const requestedDigest = args.contract.CONTRACT_DIGEST ??
+    digestContractManifest(args.contract.CONTRACT);
   return bootstrap.status === "ready" &&
-    bootstrap.connectInfo.contractId === args.contract.CONTRACT.id;
+    bootstrap.connectInfo.contractId === args.contract.CONTRACT.id &&
+    bootstrap.connectInfo.contractDigest === requestedDigest;
 }
 
 async function buildSessionKeyLoginUrl(args: {

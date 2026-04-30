@@ -26,6 +26,7 @@ const testContract = {
     description: "Example client contract",
     kind: "app",
   },
+  CONTRACT_DIGEST: "digest-a",
   API: {
     trellis: emptyApi,
   },
@@ -1127,7 +1128,7 @@ Deno.test("connectClientWithDeps rebootstraps browser auth when token lookahead 
         throw new Error(`Unexpected fetch ${url}`);
       }
       bootstrapCalls += 1;
-      const contractDigest = bootstrapCalls === 1 ? "digest-a" : "digest-b";
+      const contractDigest = testContract.CONTRACT_DIGEST;
       const sentinel = bootstrapCalls === 1
         ? { jwt: "jwt-a", seed: initialSentinelSeed }
         : { jwt: "jwt-b", seed: refreshedSentinelSeed };
@@ -1191,7 +1192,7 @@ Deno.test("connectClientWithDeps rebootstraps browser auth when token lookahead 
       ) as {
         contractDigest?: string;
       };
-      return token.contractDigest === "digest-b";
+      return token.contractDigest === testContract.CONTRACT_DIGEST;
     });
     const token = JSON.parse(
       authTokenFromAuthenticator(connectAuthenticator),
@@ -1203,7 +1204,7 @@ Deno.test("connectClientWithDeps rebootstraps browser auth when token lookahead 
 
     assertEquals(bootstrapCalls, 2);
     assertEquals(token.bindingToken, undefined);
-    assertEquals(token.contractDigest, "digest-b");
+    assertEquals(token.contractDigest, testContract.CONTRACT_DIGEST);
     assertEquals(jwtFromAuthenticator(connectAuthenticator), "jwt-b");
     assert(typeof token.iat === "number");
     await testConnection.close();
@@ -1277,7 +1278,7 @@ Deno.test("connectClientWithDeps recovers exhausted browser auth through auth co
               connectInfo: {
                 sessionKey: "session-key",
                 contractId: testContract.CONTRACT.id,
-                contractDigest: "digest-c",
+                contractDigest: testContract.CONTRACT_DIGEST,
                 transports: {
                   native: { natsServers: ["nats://127.0.0.1:4222"] },
                 },
@@ -1365,7 +1366,7 @@ Deno.test("connectClientWithDeps recovers exhausted browser auth through auth co
       ) as {
         contractDigest?: string;
       };
-      return token.contractDigest === "digest-c";
+      return token.contractDigest === testContract.CONTRACT_DIGEST;
     });
     const token = JSON.parse(
       authTokenFromAuthenticator(connectAuthenticator),
@@ -1377,7 +1378,7 @@ Deno.test("connectClientWithDeps recovers exhausted browser auth through auth co
     assertEquals(authRequiredCalls, 1);
     assertEquals(bootstrapCalls, 3);
     assertEquals(token.bindingToken, undefined);
-    assertEquals(token.contractDigest, "digest-c");
+    assertEquals(token.contractDigest, testContract.CONTRACT_DIGEST);
     await testConnection.close();
     await new Promise((resolve) => setTimeout(resolve, 20));
   } finally {
@@ -1413,7 +1414,7 @@ Deno.test("connectClientWithDeps reauths when reconnect bootstrap targets anothe
           ? "digest-a"
           : bootstrapCalls === 2
           ? "digest-other"
-          : "digest-c";
+          : testContract.CONTRACT_DIGEST;
         return Promise.resolve(
           new Response(
             JSON.stringify({
@@ -1511,7 +1512,7 @@ Deno.test("connectClientWithDeps reauths when reconnect bootstrap targets anothe
 
     assertEquals(authRequiredCalls, 1);
     assertEquals(bootstrapCalls, 3);
-    assertEquals(token.contractDigest, "digest-c");
+    assertEquals(token.contractDigest, testContract.CONTRACT_DIGEST);
     await testConnection.close();
     await new Promise((resolve) => setTimeout(resolve, 20));
   } finally {
@@ -1864,6 +1865,150 @@ Deno.test("connectClientWithDeps reauths when bootstrap resolves a different con
     assertEquals(fetchUrls.some((url) => url.includes("/auth/requests")), true);
     assertEquals(
       fetchUrls.some((url) => url.includes("/auth/flow/flow-3/bind")),
+      true,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("connectClientWithDeps reauths when bootstrap resolves stale contract digest", async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchUrls: string[] = [];
+
+  try {
+    let bootstrapCalls = 0;
+    globalThis.fetch = ((input: URL | Request | string) => {
+      const url = String(input);
+      fetchUrls.push(url);
+      if (url.endsWith("/bootstrap/client") && bootstrapCalls === 0) {
+        bootstrapCalls += 1;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "ready",
+              serverNow: 1_700_000_000,
+              connectInfo: {
+                sessionKey: "session-key",
+                contractId: testContract.CONTRACT.id,
+                contractDigest: "digest-old",
+                transports: {
+                  native: { natsServers: ["nats://127.0.0.1:4222"] },
+                  websocket: { natsServers: ["ws://localhost:8080"] },
+                },
+                transport: {
+                  inboxPrefix: "_INBOX.session-key",
+                  sentinel: { jwt: "jwt", seed: "seed" },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+      if (url.includes("/auth/flow/flow-stale-digest/bind")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "bound",
+              bindingToken: "binding-token-stale-digest",
+              inboxPrefix: "_INBOX.session-key",
+              expires: "2026-01-01T00:03:00.000Z",
+              sentinel: { jwt: "jwt", seed: "seed" },
+              transports: {
+                native: { natsServers: ["nats://127.0.0.1:4222"] },
+                websocket: { natsServers: ["ws://localhost:8080"] },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+      if (url.endsWith("/auth/requests")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "flow_started",
+              flowId: "flow-stale-digest",
+              loginUrl:
+                "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-stale-digest",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+      if (url.endsWith("/bootstrap/client") && bootstrapCalls === 1) {
+        bootstrapCalls += 1;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "ready",
+              serverNow: 1_700_000_000,
+              connectInfo: {
+                sessionKey: "session-key",
+                contractId: testContract.CONTRACT.id,
+                contractDigest: testContract.CONTRACT_DIGEST,
+                transports: {
+                  native: { natsServers: ["nats://127.0.0.1:4222"] },
+                  websocket: { natsServers: ["ws://localhost:8080"] },
+                },
+                transport: {
+                  inboxPrefix: "_INBOX.session-key",
+                  sentinel: { jwt: "jwt", seed: "seed" },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const error = await assertRejects(
+      () =>
+        connectClientWithDeps({
+          trellisUrl: "https://trellis.example.com",
+          contract: testContract,
+          auth: {
+            mode: "session_key",
+            sessionKeySeed: TEST_SEED,
+            redirectTo: "https://cli.example.com/callback",
+          },
+          onAuthRequired: async () => ({
+            status: "bound",
+            flowId: "flow-stale-digest",
+          }),
+        }, {
+          loadTransport: async () => ({
+            connect: async () => {
+              throw new Error("stop-after-connect");
+            },
+          }),
+          now: () => 1_700_000_000_000,
+        }),
+      TransportError,
+    );
+
+    assertEquals(error.code, "trellis.runtime.connect_failed");
+    assertEquals(fetchUrls.some((url) => url.includes("/auth/requests")), true);
+    assertEquals(
+      fetchUrls.some((url) =>
+        url.includes("/auth/flow/flow-stale-digest/bind")
+      ),
       true,
     );
   } finally {

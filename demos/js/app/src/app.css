@@ -36,37 +36,6 @@
   --border: 1px;
 }
 
-@plugin "daisyui/theme" {
-  name: "trellis-executive-dark";
-  default: false;
-  prefersdark: false;
-  color-scheme: dark;
-  --color-base-100: #101828;
-  --color-base-200: #0b1320;
-  --color-base-300: #243b53;
-  --color-base-content: #f5f3ef;
-  --color-primary: #f5f3ef;
-  --color-primary-content: #101828;
-  --color-secondary: #8da4ba;
-  --color-secondary-content: #101828;
-  --color-accent: #c97a3f;
-  --color-accent-content: #101828;
-  --color-neutral: #2a2521;
-  --color-neutral-content: #f5f3ef;
-  --color-info: #8da4ba;
-  --color-info-content: #101828;
-  --color-success: #69b38d;
-  --color-success-content: #07120d;
-  --color-warning: #c97a3f;
-  --color-warning-content: #101828;
-  --color-error: #d16f64;
-  --color-error-content: #101828;
-  --radius-selector: 0.375rem;
-  --radius-field: 0.375rem;
-  --radius-box: 0.875rem;
-  --border: 1px;
-}
-
 :root {
   --trellis-deep-ink: #101828;
   --trellis-oxford: #243b53;
@@ -76,7 +45,8 @@
   --trellis-espresso: #2a2521;
   --trellis-paper: #fffdf9;
   --trellis-shadow:
-    0 1px 1px rgb(16 24 40 / 0.05), 0 12px 34px rgb(42 37 33 / 0.08);
+    0 1px 1px rgb(16 24 40 / 0.05),
+    0 12px 34px rgb(42 37 33 / 0.08);
 }
 
 html,
@@ -89,15 +59,8 @@ body {
   min-height: 100vh;
   color: var(--color-base-content);
   font-family:
-    Inter,
-    "Söhne",
-    "Sohne",
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+    Inter, "Söhne", "Sohne", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
   background:
     radial-gradient(
       circle at 0% 0%,
@@ -105,11 +68,11 @@ body {
       transparent 32rem
     ),
     linear-gradient(
-      135deg,
-      #fbfaf7 0%,
-      var(--trellis-warm-gray) 52%,
-      #ece7df 100%
-    );
+    135deg,
+    #fbfaf7 0%,
+    var(--trellis-warm-gray) 52%,
+    #ece7df 100%
+  );
   background-attachment: fixed;
 }
 
@@ -161,6 +124,12 @@ a {
   }
 }
 
+@media (min-width: 1280px) {
+  .app-shell {
+    grid-template-columns: 18rem minmax(0, 1fr) minmax(19rem, 23rem);
+  }
+}
+
 .app-sidebar {
   border-bottom: 1px solid color-mix(in oklch, var(--trellis-stone) 72%, white);
   background: color-mix(
@@ -175,13 +144,39 @@ a {
     position: sticky;
     top: 0;
     height: 100vh;
-    border-right: 1px solid color-mix(in oklch, var(--trellis-stone) 72%, white);
+    border-right: 1px solid
+      color-mix(in oklch, var(--trellis-stone) 72%, white);
     border-bottom: 0;
   }
 }
 
 .app-main {
   min-width: 0;
+}
+
+.app-event-sidebar {
+  border-left: 1px solid color-mix(in oklch, var(--trellis-stone) 72%, white);
+  background: color-mix(
+    in oklch,
+    var(--trellis-paper) 84%,
+    var(--trellis-warm-gray)
+  );
+}
+
+@media (min-width: 1280px) {
+  .app-event-sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+}
+
+.live-event-rail {
+  background: linear-gradient(
+    180deg,
+    rgb(255 253 249 / 0.82),
+    rgb(245 243 239 / 0.72)
+  );
 }
 
 .page-workspace {
@@ -200,12 +195,127 @@ a {
 }
 
 .trellis-kicker {
-  color: var(--trellis-copper);
+  color: color-mix(
+    in oklch,
+    var(--trellis-copper) 78%,
+    var(--trellis-deep-ink)
+  );
   font-size: 0.85rem;
   font-weight: 800;
   letter-spacing: 0.15em;
   line-height: 1rem;
   text-transform: uppercase;
+}
+
+.source-label {
+  color: color-mix(in oklch, var(--trellis-deep-ink) 70%, transparent);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1rem;
+  text-transform: uppercase;
+}
+
+.source-label {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.source-label::before {
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  content: "";
+  background: var(--trellis-copper);
+}
+
+.capability-note {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.45rem;
+  color: color-mix(in oklch, var(--trellis-deep-ink) 48%, transparent);
+  padding: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1rem;
+}
+
+.capability-note strong {
+  color: color-mix(in oklch, var(--trellis-deep-ink) 60%, transparent);
+}
+
+.assignment-row-selected {
+  background: color-mix(in oklch, var(--trellis-paper) 84%, var(--trellis-stone));
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--trellis-copper) 42%, transparent);
+}
+
+.preview-placeholder {
+  background:
+    linear-gradient(90deg, transparent, rgb(255 253 249 / 0.58), transparent),
+    color-mix(in oklch, var(--trellis-warm-gray) 70%, var(--trellis-paper));
+  background-size: 220% 100%, 100% 100%;
+  animation: preview-loading 1.4s ease-out infinite;
+}
+
+@keyframes preview-loading {
+  from {
+    background-position: 140% 0, 0 0;
+  }
+
+  to {
+    background-position: -80% 0, 0 0;
+  }
+}
+
+.operation-modal-backdrop {
+  background: rgb(16 24 40 / 0.74);
+}
+
+.demo-modal-surface {
+  border: 1px solid color-mix(in oklch, var(--trellis-stone) 70%, white);
+  background: var(--trellis-paper);
+  box-shadow: 0 24px 70px rgb(16 24 40 / 0.32);
+}
+
+.operation-update-line {
+  overflow: hidden;
+  border-block: 1px solid color-mix(in oklch, var(--trellis-stone) 68%, transparent);
+  background: color-mix(in oklch, var(--trellis-warm-gray) 54%, transparent);
+  padding: 1rem 0.25rem;
+  color: color-mix(in oklch, var(--trellis-deep-ink) 70%, transparent);
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+
+.operation-update-message {
+  opacity: 1;
+  transition: opacity 140ms ease-out;
+}
+
+.next-action-rail {
+  border-block: 1px solid
+    color-mix(in oklch, var(--trellis-stone) 68%, transparent);
+  background: color-mix(in oklch, var(--trellis-warm-gray) 54%, transparent);
+}
+
+.skip-workspace {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 20;
+  transform: translateY(-160%);
+}
+
+.skip-workspace:focus {
+  transform: translateY(0);
 }
 
 .executive-rule {
@@ -252,21 +362,103 @@ a {
   border-color: rgb(184 107 53 / 0.38);
 }
 
-.command-header {
-  position: relative;
-  overflow: hidden;
+.workflow-rail {
+  counter-reset: workflow-step;
 }
 
-.command-header::after {
+.workflow-rail-link,
+.workflow-progress-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid transparent;
+  color: color-mix(in oklch, var(--trellis-deep-ink) 72%, transparent);
+}
+
+.workflow-rail-link:hover {
+  color: var(--trellis-deep-ink);
+  background: color-mix(in oklch, oklch(0.985 0.011 82) 74%, transparent);
+}
+
+.workflow-rail-link.menu-active,
+.workflow-rail-link[aria-current="step"] {
+  color: var(--trellis-deep-ink);
+  background: color-mix(in oklch, oklch(0.66 0.105 52) 18%, transparent);
+  border-color: color-mix(in oklch, oklch(0.66 0.105 52) 42%, transparent);
+}
+
+.workflow-rail-link-locked {
+  opacity: 0.55;
+}
+
+.workflow-step-index {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in oklch, var(--trellis-stone) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--trellis-paper) 72%, var(--trellis-warm-gray));
+  color: color-mix(in oklch, var(--trellis-deep-ink) 68%, transparent);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.workflow-rail-link.menu-active .workflow-step-index,
+.workflow-progress-item[aria-current="step"] .workflow-step-index {
+  border-color: color-mix(in oklch, oklch(0.66 0.105 52) 64%, transparent);
+  background: color-mix(in oklch, oklch(0.66 0.105 52) 88%, var(--trellis-deep-ink));
+  color: oklch(0.97 0.018 82);
+}
+
+.workflow-step-state {
+  max-width: 5.5rem;
+  flex: 0 0 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: color-mix(in oklch, var(--trellis-deep-ink) 52%, transparent);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.workflow-step-state-current,
+.workflow-step-state-completed {
+  color: color-mix(in oklch, oklch(0.66 0.105 52) 76%, var(--trellis-deep-ink));
+}
+
+.workflow-progress-strip {
+  background: color-mix(in oklch, var(--trellis-warm-gray) 45%, transparent);
+}
+
+.workflow-progress-item {
+  border-radius: var(--radius-box);
+  padding: 0.55rem 0.65rem;
+}
+
+.blocking-operation-panel {
+  border-block: 1px solid color-mix(in oklch, var(--trellis-stone) 68%, transparent);
+  background: color-mix(in oklch, oklch(0.965 0.014 78) 72%, transparent);
+  padding: 1rem 0.25rem;
+}
+
+.workflow-blocked {
+  position: relative;
+}
+
+.workflow-blocked::after {
   position: absolute;
-  inset: auto 1.25rem 0;
-  height: 2px;
+  inset: 0;
+  pointer-events: none;
   content: "";
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--trellis-copper),
-    transparent
-  );
-  opacity: 0.8;
+  background: color-mix(in oklch, oklch(0.985 0.01 80) 38%, transparent);
+}
+
+.command-header {
+  overflow: hidden;
 }

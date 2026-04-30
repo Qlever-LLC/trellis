@@ -8,6 +8,12 @@ This service is the bootstrap exception described in
 `design/core/trellis-patterns.md`: it wires the platform together before other
 services can rely on the catalog, bindings, and auth runtime.
 
+Runtime requirement: Trellis requires `nats-server` 2.10.0 or newer. Jobs use
+JetStream source subject transforms and grant the newer filtered consumer-create
+API subject instead of the older durable consumer-create subject. Configure
+`nats.jetstream.replicas` to match the target JetStream topology: use `1` for
+standalone/local NATS and normally `3` for production clusters.
+
 ## What the service does
 
 - Serves `/auth/*` HTTP routes for login, callback, approval, and bind.
@@ -166,12 +172,14 @@ This follows `design/auth/trellis-auth.md`.
    capabilities.
 4. If approval is needed, the user is shown the auth-hosted approval page.
 5. `/auth/flow/:flowId/bind` creates or refreshes the bound session and returns
-   the binding token, inbox prefix, NATS servers, and sentinel credentials.
+   the inbox prefix, NATS servers, sentinel credentials, and expiry metadata
+   needed for runtime auth.
 
 ### NATS auth callout flow
 
 1. A client connects to NATS with sentinel credentials and a Trellis auth token.
-2. `auth/callout/callout.ts` verifies the binding token and session proof.
+2. `auth/callout/callout.ts` verifies the Trellis auth payload and session
+   proof.
 3. The current principal is resolved from SQL-backed sessions, service/device
    records, and user projections.
 4. Runtime permissions are derived from the active contract set plus any
@@ -246,7 +254,7 @@ This follows `design/contracts/trellis-contracts-catalog.md`.
   `trellis.health@v1` remain logically separate even though they are currently
   hosted by this process.
 - State versioning and migration semantics are documented in
-  `design/core/state-patterns.md` and `design/state/state-typescript-api.md`.
+  `design/core/state-patterns.md`.
 
 ## Common commands
 

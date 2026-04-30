@@ -9,26 +9,26 @@
   default: true;
   prefersdark: false;
   color-scheme: light;
-  --color-base-100: #ffffff;
-  --color-base-200: #f6f8fb;
-  --color-base-300: #dbe3ee;
-  --color-base-content: #111827;
-  --color-primary: #10b981;
-  --color-primary-content: #052e22;
-  --color-secondary: #8b5cf6;
-  --color-secondary-content: #ffffff;
-  --color-accent: #14b8a6;
-  --color-accent-content: #042f2e;
-  --color-neutral: #071d2d;
-  --color-neutral-content: #e5edf6;
-  --color-info: #3b82f6;
-  --color-info-content: #eff6ff;
-  --color-success: #10b981;
-  --color-success-content: #052e22;
-  --color-warning: #f59e0b;
-  --color-warning-content: #431407;
-  --color-error: #ef4444;
-  --color-error-content: #ffffff;
+  --color-base-100: #fffdf9;
+  --color-base-200: #f5f3ef;
+  --color-base-300: #c8c2b8;
+  --color-base-content: #101828;
+  --color-primary: #101828;
+  --color-primary-content: #f5f3ef;
+  --color-secondary: #243b53;
+  --color-secondary-content: #f5f3ef;
+  --color-accent: #b86b35;
+  --color-accent-content: #fff7ef;
+  --color-neutral: #2a2521;
+  --color-neutral-content: #f5f3ef;
+  --color-info: #243b53;
+  --color-info-content: #f5f3ef;
+  --color-success: #2f7d5c;
+  --color-success-content: #f4fbf6;
+  --color-warning: #b86b35;
+  --color-warning-content: #fff7ef;
+  --color-error: #9f3a31;
+  --color-error-content: #fff7ef;
   --radius-selector: 0.75rem;
   --radius-field: 0.75rem;
   --radius-box: 1rem;
@@ -40,26 +40,26 @@
   default: false;
   prefersdark: true;
   color-scheme: dark;
-  --color-base-100: #0d1b27;
-  --color-base-200: #07131f;
-  --color-base-300: #203244;
-  --color-base-content: #e5edf6;
-  --color-primary: #34d399;
-  --color-primary-content: #032218;
-  --color-secondary: #a78bfa;
-  --color-secondary-content: #1f1147;
-  --color-accent: #2dd4bf;
-  --color-accent-content: #042f2e;
-  --color-neutral: #dbeafe;
-  --color-neutral-content: #07131f;
-  --color-info: #60a5fa;
-  --color-info-content: #0b1d35;
-  --color-success: #34d399;
-  --color-success-content: #032218;
-  --color-warning: #fbbf24;
-  --color-warning-content: #2f1f05;
-  --color-error: #f87171;
-  --color-error-content: #350b0b;
+  --color-base-100: #101828;
+  --color-base-200: #0b121f;
+  --color-base-300: #243b53;
+  --color-base-content: #f5f3ef;
+  --color-primary: #b86b35;
+  --color-primary-content: oklch(20% 0.025 55);
+  --color-secondary: #c8c2b8;
+  --color-secondary-content: #101828;
+  --color-accent: #b86b35;
+  --color-accent-content: #fff7ef;
+  --color-neutral: #2a2521;
+  --color-neutral-content: #f5f3ef;
+  --color-info: #c8c2b8;
+  --color-info-content: #101828;
+  --color-success: #59a982;
+  --color-success-content: #07150f;
+  --color-warning: #d28a52;
+  --color-warning-content: #1f1208;
+  --color-error: #c9665b;
+  --color-error-content: #1f0c0a;
   --radius-selector: 0.75rem;
   --radius-field: 0.75rem;
   --radius-box: 1rem;
@@ -74,13 +74,26 @@ a {
 html,
 body {
   background: var(--color-base-200);
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
 }
 
 body {
   color: var(--color-base-content);
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
+}
+
+:root {
+  --trellis-z-dropdown: 40;
+  --trellis-focus-ring: 0 0 0 3px
+    color-mix(in oklab, var(--color-accent) 22%, transparent);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
 
 .skip-link {
@@ -99,7 +112,7 @@ body {
 .trellis-card {
   border: 1px solid var(--color-base-300);
   border-radius: 1rem;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px rgb(15 23 42 / 0.03);
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 8px 24px rgb(42 37 33 / 0.04);
 }
 
 [data-theme="trellis-dark"] .trellis-card {
@@ -111,8 +124,9 @@ body {
 }
 
 .trellis-table {
-  table-layout: fixed;
-  width: 100%;
+  table-layout: auto;
+  min-width: 100%;
+  width: max-content;
 }
 
 .trellis-table :where(th) {
@@ -124,6 +138,7 @@ body {
   padding-bottom: 0.72rem;
   padding-top: 0.72rem;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .trellis-table :where(td) {
@@ -131,6 +146,26 @@ body {
   padding-bottom: 0.72rem;
   padding-top: 0.72rem;
   vertical-align: middle;
+  white-space: nowrap;
+}
+
+.trellis-table :where(.trellis-identifier) {
+  display: inline-block;
+  max-width: 24rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.trellis-table :where(.badge) {
+  white-space: nowrap;
+}
+
+.trellis-table :where(.trellis-token-list) {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+  min-width: max-content;
 }
 
 .trellis-table :where(tbody tr) {
@@ -158,46 +193,255 @@ body {
   font-size: 0.8125rem;
 }
 
+.trellis-form {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.trellis-form-grid {
+  display: grid;
+  gap: 1rem 1.125rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+}
+
+.trellis-form-wide {
+  grid-column: 1 / -1;
+}
+
+.trellis-field {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.trellis-field-label {
+  color: color-mix(in oklab, var(--color-base-content) 74%, transparent);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.045em;
+  line-height: 1rem;
+  text-transform: uppercase;
+}
+
+.trellis-field-help {
+  color: color-mix(in oklab, var(--color-base-content) 52%, transparent);
+  font-size: 0.78rem;
+  line-height: 1.25rem;
+}
+
+.trellis-field :where(.input, .select),
+.form-control :where(.input, .select) {
+  min-height: 2.55rem;
+  width: 100%;
+}
+
+.trellis-field :where(.textarea),
+.form-control :where(.textarea) {
+  line-height: 1.45;
+  min-height: 7rem;
+  width: 100%;
+}
+
+.trellis-field :where(.input, .select, .textarea),
+.form-control :where(.input, .select, .textarea) {
+  background-color: color-mix(in oklab, var(--color-base-100) 92%, var(--color-base-200));
+  border-color: color-mix(in oklab, var(--color-base-300) 82%, var(--color-base-content));
+  transition: border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.trellis-field :where(.input, .select, .textarea):focus,
+.trellis-field :where(.input, .select, .textarea):focus-visible,
+.form-control :where(.input, .select, .textarea):focus,
+.form-control :where(.input, .select, .textarea):focus-visible {
+  border-color: var(--color-accent);
+  box-shadow: var(--trellis-focus-ring);
+  outline: none;
+}
+
+.form-control > .label-text,
+.form-control > .label > .label-text {
+  color: color-mix(in oklab, var(--color-base-content) 74%, transparent);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.045em;
+  line-height: 1rem;
+  text-transform: uppercase;
+}
+
+.form-control > .label-text-alt,
+.form-control > .label > .label-text-alt {
+  color: color-mix(in oklab, var(--color-base-content) 52%, transparent);
+  font-size: 0.78rem;
+  line-height: 1.25rem;
+}
+
+.trellis-record-summary {
+  align-items: start;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--color-accent) 10%, transparent),
+      transparent 42%
+    ),
+    color-mix(in oklab, var(--color-base-200) 64%, var(--color-base-100));
+  border: 1px solid color-mix(in oklab, var(--color-base-300) 76%, var(--color-accent));
+  border-radius: 0.9rem;
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+}
+
+.trellis-record-summary-title {
+  color: var(--color-base-content);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.trellis-record-summary .trellis-identifier {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.trellis-toggle-row {
+  align-items: center;
+  background: color-mix(in oklab, var(--color-base-200) 54%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-base-300) 76%, transparent);
+  border-radius: 0.85rem;
+  display: flex;
+  gap: 0.8rem;
+  justify-content: space-between;
+  padding: 0.85rem 0.95rem;
+}
+
+.trellis-action-row {
+  align-items: center;
+  border-top: 1px solid color-mix(in oklab, var(--color-base-300) 78%, transparent);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
+  padding-top: 1rem;
+}
+
+.trellis-filterbar {
+  align-items: end;
+  background: color-mix(in oklab, var(--color-base-100) 78%, var(--color-base-200));
+  border: 1px solid color-mix(in oklab, var(--color-base-300) 82%, transparent);
+  border-radius: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  justify-content: space-between;
+  padding: 0.9rem;
+}
+
+.trellis-filterbar-controls,
+.trellis-filterbar-actions {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.trellis-filterbar .trellis-field {
+  min-width: min(100%, 12rem);
+}
+
+.trellis-dropdown-menu {
+  background: var(--color-base-100);
+  border: 1px solid color-mix(in oklab, var(--color-base-300) 86%, transparent);
+  border-radius: 0.9rem;
+  box-shadow:
+    0 1px 2px color-mix(in oklab, var(--color-base-content) 7%, transparent),
+    0 18px 44px color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  margin-top: 0.55rem;
+  padding: 0.45rem;
+  z-index: var(--trellis-z-dropdown);
+}
+
+.dropdown-content.menu:not(.trellis-dropdown-menu) {
+  background: var(--color-base-100);
+  border-color: color-mix(in oklab, var(--color-base-300) 86%, transparent);
+  border-radius: 0.9rem;
+  box-shadow:
+    0 1px 2px color-mix(in oklab, var(--color-base-content) 7%, transparent),
+    0 18px 44px color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  margin-top: 0.55rem;
+  padding: 0.45rem;
+  z-index: var(--trellis-z-dropdown);
+}
+
+.trellis-dropdown-menu :where(a, button),
+.dropdown-content.menu:not(.trellis-dropdown-menu) :where(a, button) {
+  border-radius: 0.7rem;
+  min-height: 2.2rem;
+}
+
+.trellis-dropdown-menu :where(a, button):focus-visible,
+.dropdown-content.menu:not(.trellis-dropdown-menu) :where(a, button):focus-visible {
+  box-shadow: var(--trellis-focus-ring);
+  outline: none;
+}
+
+@media (max-width: 639px) {
+  .trellis-action-row,
+  .trellis-filterbar,
+  .trellis-filterbar-controls,
+  .trellis-filterbar-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .trellis-action-row :where(.btn),
+  .trellis-filterbar :where(.btn) {
+    width: 100%;
+  }
+}
+
 .trellis-sidebar {
-  background: #071d2d;
-  color: #cbd5e1;
+  background: #101828;
+  color: #c8c2b8;
 }
 
 .trellis-sidebar .menu a {
   border-radius: 0.75rem;
-  color: #cbd5e1;
+  color: #c8c2b8;
   font-size: 0.9rem;
   gap: 0.75rem;
   min-height: 2.6rem;
 }
 
 .trellis-sidebar .menu a:hover {
-  background: rgb(255 255 255 / 0.06);
-  color: #f8fafc;
+  background: rgb(245 243 239 / 0.06);
+  color: #f5f3ef;
 }
 
 .trellis-sidebar .menu a.active {
-  background: #263949;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
-  color: #ffffff;
+  background: #243b53;
+  box-shadow: inset 0 0 0 1px rgb(245 243 239 / 0.08);
+  color: #f5f3ef;
 }
 
 .trellis-topbar {
-  box-shadow: 0 1px 4px rgb(15 23 42 / 0.12);
+  box-shadow: 0 1px 4px rgb(16 24 40 / 0.12);
 }
 
 .trellis-badge-soft.badge-success {
-  background: rgb(16 185 129 / 0.14);
+  background: rgb(47 125 92 / 0.14);
   color: var(--color-success);
 }
 
 .trellis-badge-soft.badge-warning {
-  background: rgb(245 158 11 / 0.16);
+  background: rgb(184 107 53 / 0.16);
   color: var(--color-warning);
 }
 
 .trellis-badge-soft.badge-error {
-  background: rgb(239 68 68 / 0.14);
+  background: rgb(159 58 49 / 0.14);
   color: var(--color-error);
 }
 

@@ -1263,6 +1263,7 @@ function deviceAdminDeps(args: {
     AdminRpcDeps["deviceProvisioningSecretStorage"]["put"]
   >[0];
   activation?: DeviceActivationRecord;
+  publishes?: Array<{ event: string; payload: unknown }>;
   kicked?: Array<{ serverId: string; clientId: number }>;
   installDeviceContract?: (contract: unknown) => Promise<{
     id: string;
@@ -1411,6 +1412,12 @@ function deviceAdminDeps(args: {
       deleteByPublicIdentityKey: async () => {},
       deleteBySessionKey: async () => {},
       listEntries: async () => [],
+    },
+    eventPublisher: {
+      publish: (event, payload) => {
+        args.publishes?.push({ event, payload });
+        return AsyncResult.ok(undefined);
+      },
     },
     userStorage: { get: async () => undefined },
     installDeviceContract: args.installDeviceContract ?? (async () => ({
@@ -1768,6 +1775,18 @@ Deno.test("auth review event is templated by deployment", () => {
     TRELLIS_AUTH_EVENTS["Auth.DeviceActivationReviewRequested"].params,
     ["/deploymentId"],
   );
+  assertEquals(
+    TRELLIS_AUTH_EVENTS["Auth.DeviceActivationRequested"].params,
+    ["/deploymentId"],
+  );
+  assertEquals(
+    TRELLIS_AUTH_EVENTS["Auth.DeviceActivationApproved"].params,
+    ["/deploymentId"],
+  );
+  assertEquals(
+    TRELLIS_AUTH_EVENTS["Auth.DeviceActivated"].params,
+    ["/deploymentId"],
+  );
 });
 
 Deno.test("Auth.DecideDeviceActivationReview completes approve decision through operation controller", async () => {
@@ -1801,7 +1820,12 @@ Deno.test("Auth.DecideDeviceActivationReview completes approve decision through 
   const completions: Array<{ operationId: string; output: unknown }> = [];
   const putReviews: DeviceActivationReviewRecord[] = [];
   const putInstances: DeviceInstance[] = [];
-  const { deps } = deviceAdminDeps({ deployment, instances: [instance] });
+  const publishes: Array<{ event: string; payload: unknown }> = [];
+  const { deps } = deviceAdminDeps({
+    deployment,
+    instances: [instance],
+    publishes,
+  });
   const result = await createDeviceAdminHandlers({
     ...deps,
     operationCompletion: {
@@ -1851,6 +1875,34 @@ Deno.test("Auth.DecideDeviceActivationReview completes approve decision through 
   assertEquals(putReviews[0].state, "approved");
   assertEquals(putInstances[0].state, "activated");
   assertEquals(value.review.state, "approved");
+  assertEquals(publishes, [
+    {
+      event: "Auth.DeviceActivationApproved",
+      payload: {
+        reviewId: "dar_1",
+        flowId: "flow_1",
+        instanceId: "device_1",
+        publicIdentityKey: "pub_device_1",
+        deploymentId: "reader.default",
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        approvedAt: putReviews[0].decidedAt,
+        requestedBy: { origin: "github", id: "user_1" },
+        approvedBy: { id: "admin" },
+      },
+    },
+    {
+      event: "Auth.DeviceActivated",
+      payload: {
+        instanceId: "device_1",
+        publicIdentityKey: "pub_device_1",
+        deploymentId: "reader.default",
+        activatedAt: putReviews[0].decidedAt,
+        activatedBy: { origin: "github", id: "user_1" },
+        flowId: "flow_1",
+        reviewId: "dar_1",
+      },
+    },
+  ]);
 });
 
 Deno.test("Auth.DecideDeviceActivationReview completes reject decision through operation controller", async () => {

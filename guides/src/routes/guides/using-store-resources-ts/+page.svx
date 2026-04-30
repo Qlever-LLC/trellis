@@ -1,6 +1,4 @@
-This guide documents the intended TypeScript service API for `resources.store`.
-
-It is a design and authoring guide only. The runtime implementation is intentionally separate from this docs change, so treat the code snippets below as the target public shape rather than a released feature.
+This guide shows how a TypeScript service uses `resources.store` for service-owned blobs.
 
 Read [Trellis Concepts](/guides/concepts) first for background on contracts, resources, and `Result`-based APIs.
 
@@ -22,23 +20,23 @@ Do not use `resources.store` for typed records. Keep those in `resources.kv`.
 Add a `store` section under `resources`:
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis/contracts";
+import { defineServiceContract } from "@qlever-llc/trellis";
 
-export const documentsService = defineContract({
+export const documentsService = defineServiceContract({}, () => ({
   id: "documents-service@v1",
   displayName: "Documents Service",
   description: "Process uploaded documents and generated exports.",
-  kind: "service",
   resources: {
     store: {
       uploads: {
         purpose: "Temporary uploaded files awaiting processing",
         ttlMs: 86_400_000,
+        maxObjectBytes: 100 * 1024 * 1024,
         maxTotalBytes: 10 * 1024 * 1024 * 1024,
       },
     },
   },
-});
+}));
 ```
 
 Fields:
@@ -47,19 +45,20 @@ Fields:
 - `required` defaults to `true`; set it to `false` only when the service can run
   without this store binding
 - `ttlMs` is optional; omit it or set it to `0` when the store should not request automatic expiry
+- `maxObjectBytes` requests a finite per-object limit. Trellis enforces it for
+  normal store writes and transfer-staged objects before the object becomes
+  available through the store.
 - `maxTotalBytes` requests a finite total store size limit; omit it when the
   store should use the runtime's unlimited/default object-store size behavior
 
-Trellis v1 does not expose `maxObjectBytes` as an effective installed binding because the current runtime path does not enforce per-object object-store limits. Keep per-object validation in service code until that limit is enforced by the runtime.
-
-Like `resources.kv`, the key under `store` (`uploads`) is only a logical alias. Trellis assigns the physical store identity during service deployment apply/install/upgrade and stores the binding for the exact digest that produced it. Optional stores may be omitted from runtime bindings when provisioning fails or object-store support is unavailable. If a later compatible digest omits `maxTotalBytes`, Trellis reconciles the backing object store back to the unlimited/default total-size setting instead of preserving an older finite limit.
+Like `resources.kv`, the key under `store` (`uploads`) is only a logical alias. Trellis assigns the physical store identity during service deployment apply/install/upgrade and stores the binding for the exact digest that produced it. Optional stores may be omitted from runtime bindings when provisioning fails or object-store support is unavailable. If a later compatible digest omits `maxObjectBytes` or `maxTotalBytes`, Trellis reconciles the backing object store back to the unlimited/default size setting instead of preserving an older finite limit.
 
 ## 2. Connect the service and open the store
 
-The intended runtime shape mirrors the KV handle pattern. This example assumes the default required binding, so `service.store.uploads` is present after a successful connect:
+The runtime shape mirrors the KV handle pattern. This example assumes the default required binding, so `service.store.uploads` is present after a successful connect:
 
 ```ts
-import { isErr } from "@qlever-llc/trellis";
+import { isErr, Result } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { documentsService } from "./contracts/documents_service.ts";
 
@@ -76,7 +75,7 @@ if (isErr(opened)) throw opened.error;
 const uploads = opened.value;
 ```
 
-This is intentionally parallel to:
+This mirrors the KV open pattern:
 
 ```ts
 const opened = await service.kv.orders.open(OrderSchema);
@@ -86,7 +85,7 @@ const opened = await service.kv.orders.open(OrderSchema);
 
 ## 3. Create and replace objects
 
-Store write semantics should follow KV naming and behavior:
+Store write semantics follow KV naming and behavior:
 
 - `create(...)` fails when the key already exists
 - `put(...)` overwrites the current value for that key
@@ -116,7 +115,7 @@ All failable public methods return `Result`, matching the broader Trellis TypeSc
 
 ## 4. Read metadata and body data
 
-The intended `get(...)` API returns an entry object so metadata stays attached to the object body.
+The `get(...)` API returns an entry object so metadata stays attached to the object body.
 
 ```ts
 const entryResult = await uploads.get("incoming/claim-1234.pdf");
@@ -142,7 +141,7 @@ Use `stream()` for larger values. Use `bytes()` when the object is small enough 
 
 ## 5. List and delete by prefix
 
-The intended v1 listing model is prefix-based and owner-only.
+The v1 listing model is prefix-based and owner-only.
 
 ```ts
 const listed = await uploads.list("incoming/");
@@ -156,7 +155,7 @@ const deleted = await uploads.delete("incoming/claim-1234.pdf");
 if (isErr(deleted)) throw deleted.error;
 ```
 
-This guide intentionally does not define pagination or watch semantics yet.
+This guide does not cover pagination or watch semantics.
 
 ## 6. Metadata model
 
@@ -172,8 +171,44 @@ metadata: {
 
 Keep metadata small and descriptive. If the service needs richer typed state or query patterns, store that state separately in `resources.kv` and treat the store object as the opaque binary payload.
 
-## 7. Relationship to client transfer
+## 7. After a send transfer completes
 
-`resources.store` is only the service-owned storage layer.
+Transfer-capable operations can stage caller-sent bytes into a service store. After the provider-side `transfer.completed()` resolves, the staged object is durable in the owning service store and the next step is normal store access.
 
-It does not by itself make direct client upload or download available. A future Trellis transfer protocol may use a store resource internally, but that is a separate design and authorization problem.
+```ts
+await service.operation("Documents.Files.Upload").handle(
+  async ({ input, transfer }) => {
+    const transferred = await transfer.completed();
+    if (transferred.isErr()) return Result.err(transferred.error);
+
+    const opened = await service.store.uploads.open();
+    const uploads = opened.take();
+    if (isErr(uploads)) return Result.err(uploads.error);
+
+    const entryResult = await uploads.get(input.key);
+    const entry = entryResult.take();
+    if (isErr(entry)) return Result.err(entry.error);
+
+    const streamResult = await entry.stream();
+    const stream = streamResult.take();
+    if (isErr(stream)) return Result.err(stream.error);
+
+    await processDocumentStream(stream);
+
+    const deleted = await uploads.delete(input.key);
+    if (deleted.isErr()) {
+      console.warn("upload cleanup failed", deleted.error);
+    }
+
+    return Result.ok({ key: input.key, size: entry.info.size });
+  },
+);
+```
+
+Prefer `stream()` for large files and use `bytes()` only when buffering the full object is intentional. Clean up temporary staged objects with `delete(...)` after processing when they should not remain in the service store.
+
+## 8. Relationship to client transfer
+
+`resources.store` is the service-owned storage layer. Do not expose raw store bindings to callers.
+
+For caller-sent bytes, expose a contract-owned operation with `transfer: { direction: "send", store, key, contentType }` and let the service process the staged object after `transfer.completed()`. For caller-received bytes, expose a contract-owned RPC or operation that returns a `direction: "receive"` transfer grant; callers consume that grant with `trellis.transfer(grant).stream()` or `.bytes()`.

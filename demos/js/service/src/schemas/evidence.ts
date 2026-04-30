@@ -68,6 +68,15 @@ export const EvidenceDownloadResponse = Type.Object({
   transfer: EvidenceDownloadGrant,
 });
 
+export const EvidenceDeleteRequest = Type.Object({
+  key: Type.String({ minLength: 1 }),
+});
+
+export const EvidenceDeleteResponse = Type.Object({
+  key: Type.String({ minLength: 1 }),
+  deleted: Type.Boolean(),
+});
+
 export const EvidenceUploadedEvent = Type.Object({
   evidenceId: Type.String({ minLength: 1 }),
   key: Type.String({ minLength: 1 }),

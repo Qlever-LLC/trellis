@@ -245,8 +245,8 @@ browser-only portal/login helper facade also lives at
 `@qlever-llc/trellis/auth/browser`. See:
 
 - [../auth/trellis-auth.md](./../auth/trellis-auth.md)
-- [../auth/auth-typescript-api.md](./../auth/auth-typescript-api.md)
-- [../auth/auth-rust-api.md](./../auth/auth-rust-api.md)
+- [../auth/auth-api.md](./../auth/auth-api.md)
+- `/api` in the guides site for exact TypeScript auth helpers and Rustdoc links
 
 ## `@qlever-llc/trellis/tracing`
 
@@ -263,10 +263,9 @@ standalone TypeScript package.
   `service.jobs`
 - TypeScript admin jobs access uses `Jobs.*` RPCs declared through
   `@qlever-llc/trellis/sdk/jobs`
-- subsystem semantics and language-specific details live in:
+- subsystem semantics and API details live in:
   - [../jobs/trellis-jobs.md](./../jobs/trellis-jobs.md)
-  - [../jobs/jobs-typescript-api.md](./../jobs/jobs-typescript-api.md)
-  - [../jobs/jobs-rust-api.md](./../jobs/jobs-rust-api.md)
+  - `/api` in the guides site for exact TypeScript signatures and Rustdoc links
 
 ## `@qlever-llc/trellis/contracts`
 
@@ -280,5 +279,5 @@ contract re-exports. See:
   should use `@qlever-llc/trellis/contracts`
 
 - [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md)
-- [../contracts/contracts-typescript-api.md](./../contracts/contracts-typescript-api.md)
-- [../contracts/contracts-rust-api.md](./../contracts/contracts-rust-api.md)
+- [../contracts/trellis-typescript-contract-authoring.md](./../contracts/trellis-typescript-contract-authoring.md)
+- [../contracts/trellis-rust-contract-libraries.md](./../contracts/trellis-rust-contract-libraries.md)

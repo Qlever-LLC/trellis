@@ -66,11 +66,14 @@ export function registerBrowserAuthRoutes(
       } catch (error) {
         const message = getApprovalResolutionErrorMessage(error);
         if (message) {
+          logger.warn({ error }, "Unable to plan app approval request");
           throw new HTTPException(409, { message });
         }
         if (error instanceof Error) {
+          logger.warn({ error }, "Unable to plan app approval request");
           throw new HTTPException(409, { message: error.message });
         }
+        logger.error({ error }, "Failed to plan app approval request");
         throw error;
       }
     },

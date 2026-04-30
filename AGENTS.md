@@ -5,6 +5,18 @@
 - Use `design/README.md` to choose the smallest relevant design-doc set for the
   task.
 - Do not load the entire `design/` tree by default.
+- Treat `design/` as architecture/protocol/invariant documentation, not as the
+  TypeScript or Rust API reference. Public TS APIs should be documented with
+  JSDoc for generated docs, and public Rust APIs should be documented with
+  Rustdoc.
+- Use the `guides` site `/api` surface to discover generated TypeScript docs and
+  Rustdoc locations, but treat source as authoritative for exact current APIs.
+  For TypeScript, verify exact public signatures against public entrypoints and
+  their JSDoc. For Rust, verify exact APIs against Rustdoc generated from the
+  current crate source, especially when a crate is listed as pending on `/api`.
+- If design docs and source disagree, treat source as the current as-built
+  behavior and design docs as intended behavior; call out the drift instead of
+  silently relying on stale docs.
 - When working in a Svelte project, identify the project root first by finding
   the nearest ancestor directory that contains `svelte.config.*`.
 - If that Svelte project root contains a `DESIGN.md`, read it before making UI,
@@ -64,6 +76,18 @@
 - Architecture and boundaries: `design/core/trellis-patterns.md`
 - Type system and errors: `design/core/type-system-patterns.md`
 - Service layout and jobs vs operations: `design/core/service-development.md`
+- Auth architecture, protocol, and wire APIs: `design/auth/trellis-auth.md`,
+  `design/auth/auth-protocol.md`, `design/auth/auth-api.md`
+- Device activation: `design/auth/device-activation.md`
+- Operations design: `design/operations/trellis-operations.md`
+- Jobs design: `design/jobs/trellis-jobs.md`
+- TypeScript contract authoring:
+  `design/contracts/trellis-typescript-contract-authoring.md`
+- Rust contract generation/facades:
+  `design/contracts/trellis-rust-contract-libraries.md`
+- Contract catalog, manifests, and permission derivation:
+  `design/contracts/trellis-contracts-catalog.md`
+- State semantics and migrations: `design/core/state-patterns.md`
 - Observability, correlation, and JSDoc expectations:
   `design/core/observability-patterns.md`
 - Frontend conventions: `design/core/frontend-svelte-patterns.md`

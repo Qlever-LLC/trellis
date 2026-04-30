@@ -30,36 +30,37 @@ It covers:
 
 ### TTL Defaults
 
-| Variable          | Default | Description                         |
+| Config key        | Default | Description                         |
 | ----------------- | ------- | ----------------------------------- |
-| `SESSION_TIMEOUT` | 24h     | Session expires after inactivity    |
-| `NATS_JWT_TTL`    | 1h      | NATS JWT expiry; triggers reconnect |
+| `ttlMs.sessions`  | 24h     | Session expires after inactivity    |
+| `ttlMs.natsJwt`   | 1h      | NATS JWT expiry; triggers reconnect |
 
-Relationship: `NATS_JWT_TTL < SESSION_TIMEOUT`.
+Relationship: `ttlMs.natsJwt < ttlMs.sessions`.
 
-Reducing `NATS_JWT_TTL` increases reconnect frequency but does not change RPC
+Reducing `ttlMs.natsJwt` increases reconnect frequency but does not change RPC
 replay window.
 
 ### Per-service Secrets
 
-| Variable                   | Description            |
-| -------------------------- | ---------------------- |
-| `TRELLIS_SESSION_KEY_SEED` | Base64url Ed25519 seed |
-| `NATS_SERVERS`             | NATS server URL(s)     |
-| `NATS_SENTINEL_CREDS`      | Path to sentinel creds |
+| Config key             | Description            |
+| ---------------------- | ---------------------- |
+| `sessionKeySeedFile`   | Base64url Ed25519 seed file |
+| `client.natsServers`   | NATS server URL(s)     |
+| `nats.sentinelCredsPath` | Path to sentinel creds |
 
 Additional `trellis` service config:
 
-| Variable                  | Description                 |
+| Config key                | Description                 |
 | ------------------------- | --------------------------- |
-| `NATS_AUTH_CREDS_FILE`    | Auth account credentials    |
-| `NATS_TRELLIS_CREDS_FILE` | Trellis account credentials |
+| `nats.auth.credsPath`     | Auth account credentials    |
+| `nats.trellis.credsPath`  | Trellis account credentials |
+| `storage.dbPath`          | SQLite auth/control-plane DB |
 
 ### Store TTLs
 
 | Store                  | TTL               |
 | ---------------------- | ----------------- |
-| sessions               | `SESSION_TIMEOUT` |
+| sessions               | SQL rows, expired from `ttlMs.sessions` |
 | users                  | None              |
 | oauthStates            | 5 min             |
 | pendingAuth            | 5 min             |
@@ -78,8 +79,9 @@ Additional `trellis` service config:
 
 Cluster-wide required state:
 
-- services store
-- sessions store
+- SQLite auth/control-plane database (`storage.dbPath`)
+- services tables
+- sessions table
 - OAuth state store
 - pending auth store
 - device activation flow store
@@ -121,8 +123,8 @@ credential.
 
 ## Connection Revocation Model
 
-Connection revocation is performed by kicking live NATS clients and deleting KV
-state.
+Connection revocation is performed by kicking live NATS clients, deleting
+connection-presence KV state, and deleting SQL-backed sessions.
 
 Illustrative behavior:
 
@@ -138,10 +140,7 @@ async function revokeSession(sessionKey: string) {
     await connectionsKv.delete(connKey);
   }
 
-  const sessions = await sessionsKv.keys(`${sessionKey}.*`);
-  for await (const key of sessions) {
-    await sessionsKv.delete(key);
-  }
+  await sessionsSql.deleteBySessionKey(sessionKey);
 }
 ```
 

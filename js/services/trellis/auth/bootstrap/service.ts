@@ -34,10 +34,6 @@ type ServiceBootstrapInstance = {
   createdAt: string | Date;
 };
 
-type CatalogServiceInstance = Omit<ServiceBootstrapInstance, "createdAt"> & {
-  createdAt: string;
-};
-
 export const ServiceBootstrapRequestSchema = Type.Object({
   sessionKey: SessionKeySchema,
   contractId: Type.String({ minLength: 1 }),
@@ -68,10 +64,6 @@ export type ServiceBootstrapDeps = {
       }>;
     } | null
   >;
-  validateActiveCatalog?(opts: {
-    stagedServiceInstances?: Iterable<CatalogServiceInstance>;
-  }): Promise<unknown>;
-  refreshActiveContracts(): Promise<void>;
   verifyIdentityProof(input: {
     sessionKey: string;
     iat: number;
@@ -152,17 +144,6 @@ function hasDeclaredResourcesOrJobs(contract: TrellisContractV1): boolean {
   const analysis = getContractResourceAnalysis(contract);
   return analysis.kv.length > 0 || analysis.store.length > 0 ||
     analysis.jobs.length > 0;
-}
-
-function toCatalogServiceInstance(
-  instance: ServiceBootstrapInstance,
-): CatalogServiceInstance {
-  return {
-    ...instance,
-    createdAt: instance.createdAt instanceof Date
-      ? instance.createdAt.toISOString()
-      : instance.createdAt,
-  };
 }
 
 export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
@@ -322,32 +303,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         capabilities,
         resourceBindings: resourceBindings ?? {},
       };
-      try {
-        await deps.validateActiveCatalog?.({
-          stagedServiceInstances: [toCatalogServiceInstance(nextService)],
-        });
-      } catch (error) {
-        return c.json(
-          bootstrapFailure(
-            "service_contract_mismatch",
-            error instanceof Error ? error.message : String(error),
-            {
-              instanceId: service.instanceId,
-              deploymentId: deployment.deploymentId,
-              expectedContractId: request.contractId,
-              expectedContractDigest: request.contractDigest,
-            },
-          ),
-          409,
-        );
-      }
       await deps.saveServiceInstance(nextService);
-      try {
-        await deps.refreshActiveContracts();
-      } catch (error) {
-        await deps.saveServiceInstance(service);
-        throw error;
-      }
     }
 
     return c.json({

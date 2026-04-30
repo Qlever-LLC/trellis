@@ -181,6 +181,12 @@ function usedPublishRules(entries: ContractEntry[]): PermissionRule[] {
           subject: `${TRANSFER_UPLOAD_SUBJECT_PREFIX}.*.*`,
           requiredCapabilities: operation.operation.capabilities?.call ?? [],
         })),
+      ...uses.rpcCalls
+        .filter((method) => method.method.transfer?.direction === "receive")
+        .map((method) => ({
+          subject: `${TRANSFER_DOWNLOAD_SUBJECT_PREFIX}.*.*`,
+          requiredCapabilities: method.method.capabilities?.call ?? [],
+        })),
       ...uses.eventPublishes.map((event) => ({
         subject: templateToWildcard(event.event.subject),
         requiredCapabilities: event.event.capabilities?.publish ?? [],
@@ -193,12 +199,6 @@ function usedSubscribeRules(entries: ContractEntry[]): PermissionRule[] {
   return entries.flatMap((entry) => {
     const uses = resolvedUses(entry);
     return [
-      ...uses.rpcCalls
-        .filter((method) => method.method.transfer?.direction === "receive")
-        .map((method) => ({
-          subject: `${TRANSFER_DOWNLOAD_SUBJECT_PREFIX}.*.*`,
-          requiredCapabilities: method.method.capabilities?.call ?? [],
-        })),
       ...uses.eventSubscribes.map((event) => ({
         subject: templateToWildcard(event.event.subject),
         requiredCapabilities: event.event.capabilities?.subscribe ?? [],

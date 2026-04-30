@@ -8,7 +8,7 @@ use crate::app::{
 };
 use crate::cli::*;
 use crate::output;
-use miette::IntoDiagnostic;
+use miette::{miette, IntoDiagnostic};
 use rusqlite::{params, Connection};
 use serde_json::json;
 use ulid::Ulid;
@@ -27,12 +27,20 @@ async fn nats_bootstrap_command(args: &NatsBootstrapArgs) -> miette::Result<()> 
         .or_else(|| env::var("TRELLIS_NATS_SERVERS").ok())
         .or_else(|| env::var("NATS_SERVERS").ok())
         .unwrap_or_else(|| "localhost".to_string());
+    let jetstream_replicas = match args.jetstream_replicas {
+        Some(0) => {
+            return Err(miette!("--jetstream-replicas must be a positive integer"));
+        }
+        Some(replicas) => replicas,
+        None => parse_jetstream_replicas_env()?.unwrap_or(1),
+    };
 
     let stream_created = ensure_stream(
         &servers,
         &args.trellis_creds,
         "trellis",
         vec!["events.>".to_string()],
+        jetstream_replicas,
     )
     .await?;
     let mut rows = vec![vec![
@@ -41,8 +49,15 @@ async fn nats_bootstrap_command(args: &NatsBootstrapArgs) -> miette::Result<()> 
         if stream_created { "created" } else { "exists" }.to_string(),
     ]];
     for bucket in AUTH_BOOTSTRAP_BUCKETS {
-        let status =
-            ensure_bucket(&servers, &args.auth_creds, bucket.name, 1, bucket.ttl_ms).await?;
+        let status = ensure_bucket(
+            &servers,
+            &args.auth_creds,
+            bucket.name,
+            1,
+            bucket.ttl_ms,
+            jetstream_replicas,
+        )
+        .await?;
         rows.push(vec![
             "bucket".to_string(),
             bucket.name.to_string(),
@@ -56,6 +71,18 @@ async fn nats_bootstrap_command(args: &NatsBootstrapArgs) -> miette::Result<()> 
     }
     println!("{}", output::table(&["kind", "name", "status"], rows));
     Ok(())
+}
+
+fn parse_jetstream_replicas_env() -> miette::Result<Option<usize>> {
+    let Some(value) = env::var("TRELLIS_JETSTREAM_REPLICAS").ok() else {
+        return Ok(None);
+    };
+    match value.parse::<usize>() {
+        Ok(replicas) if replicas > 0 => Ok(Some(replicas)),
+        _ => Err(miette!(
+            "TRELLIS_JETSTREAM_REPLICAS must be a positive integer"
+        )),
+    }
 }
 
 async fn bootstrap_admin_command(args: &BootstrapAdminArgs) -> miette::Result<()> {

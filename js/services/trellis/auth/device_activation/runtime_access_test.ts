@@ -203,11 +203,11 @@ Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract use
   );
   assertEquals(
     access.value.publishSubjects.includes("transfer.v1.download.*.*"),
-    false,
+    true,
   );
   assertEquals(
     access.value.subscribeSubjects.includes("transfer.v1.download.*.*"),
-    true,
+    false,
   );
   assertEquals(access.value.capabilities.includes("billing.refund"), true);
 });

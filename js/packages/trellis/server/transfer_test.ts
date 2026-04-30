@@ -1,8 +1,22 @@
 import { assertEquals } from "@std/assert";
+import {
+  type Msg,
+  type NatsConnection,
+  type Payload,
+  type Subscription,
+} from "@nats-io/nats-core";
+import { AsyncResult, Result } from "@qlever-llc/result";
 
 import { createAuth } from "../auth.ts";
 import { NatsTest } from "../testing/nats.ts";
-import { TypedStore } from "../store.ts";
+import {
+  type StoreBody,
+  type StorePutOptions,
+  type StoreStatus,
+  TypedStore,
+  TypedStoreEntry,
+} from "../store.ts";
+import type { StoreError } from "../errors/StoreError.ts";
 import { createTransferHandle } from "../transfer.ts";
 import { ServiceTransfer } from "./transfer.ts";
 
@@ -26,6 +40,202 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
   });
   return { promise, resolve };
 }
+
+function createFakeNatsConnection(
+  flush: () => Promise<void>,
+  events: string[] = [],
+): NatsConnection {
+  const status = (() =>
+    (async function* () {
+      return;
+    })()) as NatsConnection["status"];
+
+  let closed = false;
+  let pendingResolve: (() => void) | undefined;
+  const closeSubscription = () => {
+    closed = true;
+    pendingResolve?.();
+    pendingResolve = undefined;
+  };
+  const subscription: Subscription = {
+    closed: Promise.resolve(),
+    unsubscribe: closeSubscription,
+    drain: async () => closeSubscription(),
+    isDraining: () => false,
+    isClosed: () => closed,
+    callback: () => {},
+    getSubject: () => "transfer.test",
+    getReceived: () => 0,
+    getProcessed: () => 0,
+    getPending: () => 0,
+    getID: () => 1,
+    getMax: () => undefined,
+    [Symbol.asyncIterator]: async function* () {
+      while (!closed) {
+        await new Promise<void>((resolve) => {
+          pendingResolve = resolve;
+        });
+      }
+    },
+  };
+
+  const createMessage = (subject: string): Msg => ({
+    subject,
+    sid: 1,
+    data: new Uint8Array(),
+    respond: () => true,
+    json: <T>() => ({}) as T,
+    string: () => "",
+  });
+
+  return {
+    info: undefined,
+    closed: async () => {},
+    close: async () => {},
+    publish: (_subject: string, _data?: Payload) => {},
+    publishMessage: () => {},
+    respondMessage: () => true,
+    subscribe: () => {
+      events.push("subscribe");
+      return subscription;
+    },
+    request: async (subject: string) => createMessage(subject),
+    requestMany: async () =>
+      (async function* () {
+        return;
+      })(),
+    flush: async () => {
+      events.push("flush");
+      await flush();
+    },
+    drain: async () => {},
+    isClosed: () => false,
+    isDraining: () => false,
+    getServer: () => "nats://127.0.0.1:4222",
+    status,
+    stats: () => ({ inBytes: 0, outBytes: 0, inMsgs: 0, outMsgs: 0 }),
+    rtt: async () => 0,
+    reconnect: async () => {},
+  };
+}
+
+function createFakeStore(): TypedStore {
+  const info = {
+    key: "incoming/test.txt",
+    size: 14,
+    updatedAt: new Date(0).toISOString(),
+    metadata: {},
+  };
+  const entry: TypedStoreEntry = Object.assign(
+    Object.create(TypedStoreEntry.prototype),
+    { key: info.key, info },
+  );
+  const status: StoreStatus = {
+    size: 0,
+    sealed: false,
+    ttlMs: 0,
+    maxObjectBytes: 1024,
+  };
+
+  return Object.assign(Object.create(TypedStore.prototype), {
+    get: (_key: string) => AsyncResult.from(Promise.resolve(Result.ok(entry))),
+    put: (_key: string, _body: StoreBody, _options?: StorePutOptions) =>
+      AsyncResult.from(Promise.resolve(Result.ok(undefined))),
+    status: () => AsyncResult.from(Promise.resolve(Result.ok(status))),
+  });
+}
+
+function createFakeStoreHandle() {
+  const store = createFakeStore();
+  return {
+    open: (): AsyncResult<TypedStore, StoreError> =>
+      AsyncResult.from(Promise.resolve(Result.ok(store))),
+  };
+}
+
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error("condition was not met");
+}
+
+Deno.test("ServiceTransfer initiateDownload waits for subscription readiness", async () => {
+  const serviceAuth = await createAuth({ sessionKeySeed: SERVICE_SEED });
+  const userAuth = await createAuth({ sessionKeySeed: USER_SEED });
+  const flushed = deferred<void>();
+  let flushCalls = 0;
+  let settled = false;
+  const events: string[] = [];
+  const transfer = new ServiceTransfer({
+    name: "files-service",
+    nc: createFakeNatsConnection(async () => {
+      flushCalls += 1;
+      await flushed.promise;
+    }, events),
+    auth: serviceAuth,
+    stores: { uploads: createFakeStoreHandle() },
+  });
+
+  const resultPromise = transfer.initiateDownload({
+    sessionKey: userAuth.sessionKey,
+    store: "uploads",
+    key: "incoming/test.txt",
+    expiresInMs: 60_000,
+  }).then((result) => {
+    settled = true;
+    return result;
+  });
+
+  await waitUntil(() => flushCalls === 1);
+  assertEquals(events, ["subscribe", "flush"]);
+  assertEquals(settled, false);
+  flushed.resolve();
+  const result = await resultPromise;
+  assertEquals(result.isOk(), true);
+
+  await transfer.stop();
+});
+
+Deno.test("ServiceTransfer initiateUpload waits for subscription readiness", async () => {
+  const serviceAuth = await createAuth({ sessionKeySeed: SERVICE_SEED });
+  const userAuth = await createAuth({ sessionKeySeed: USER_SEED });
+  const flushed = deferred<void>();
+  let flushCalls = 0;
+  let settled = false;
+  const events: string[] = [];
+  const transfer = new ServiceTransfer({
+    name: "files-service",
+    nc: createFakeNatsConnection(async () => {
+      flushCalls += 1;
+      await flushed.promise;
+    }, events),
+    auth: serviceAuth,
+    stores: { uploads: createFakeStoreHandle() },
+  });
+
+  const resultPromise = transfer.initiateUpload({
+    sessionKey: userAuth.sessionKey,
+    store: "uploads",
+    key: "incoming/test.txt",
+    expiresInMs: 60_000,
+  }).then((result) => {
+    settled = true;
+    return result;
+  });
+
+  await waitUntil(() => flushCalls === 1);
+  assertEquals(events, ["subscribe", "flush"]);
+  assertEquals(settled, false);
+  flushed.resolve();
+  const result = await resultPromise;
+  assertEquals(result.isOk(), true);
+
+  await transfer.stop();
+});
 
 Deno.test({
   name:

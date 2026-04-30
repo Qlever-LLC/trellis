@@ -1,3 +1,9 @@
+---
+title: State Patterns
+description: Trellis-managed contract-owned state model, versioning, and runtime boundaries.
+order: 45
+---
+
 # State Patterns
 
 `State` is the Trellis-managed API for semi-durable contract-owned state that
@@ -28,6 +34,8 @@ Each declared store is named and schema-backed:
 - each store may declare `stateVersion`; it defaults to `"v1"`
 - each store may declare `acceptedVersions`, a map of older author-known state
   versions to schemas that the current runtime can read for migration
+- the declared store metadata drives both emitted manifest content and typed
+  runtime facades
 
 Example:
 
@@ -105,7 +113,9 @@ storage backing remains an implementation detail.
 ## Normal Runtime Surface
 
 The normal client/device runtime exposes declared stores at
-`trellis.state.<store>`.
+`trellis.state.<store>`. Contracts that declare state automatically include the
+Trellis-owned `State.*` RPCs in `API.used`; those entries are also present in
+the merged `API.trellis` runtime surface.
 
 Example:
 
@@ -124,6 +134,9 @@ const listed = await activeDrafts.list({ limit: 20 });
 Rules:
 
 - the store name comes from the contract's top-level `state` map
+- the generated contract API exposes supporting `State.*` RPCs through
+  `API.used` and `API.trellis`, but the named-store facade is the normal runtime
+  entrypoint
 - normal callers do not provide `contractId`, `scope`, user identity, or device
   identity
 - the runtime derives the target namespace from the authenticated session and
@@ -139,6 +152,9 @@ Rules:
   the previous version under `acceptedVersions`
 - there is no public normal-client generic keyspace API and no public normal-
   client `scope` parameter
+- exact TypeScript client type declarations, option shapes, result unions, and
+  method signatures belong in the generated TypeScript API reference under
+  `/api`
 
 ## State Versioning And Migration
 

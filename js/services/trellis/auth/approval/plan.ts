@@ -53,7 +53,7 @@ export async function planUserContractApproval(
   for (const method of uses.rpcCalls) {
     publishSubjects.add(templateToWildcard(method.method.subject));
     if (method.method.transfer?.direction === "receive") {
-      subscribeSubjects.add(TRANSFER_DOWNLOAD_SUBJECT);
+      publishSubjects.add(TRANSFER_DOWNLOAD_SUBJECT);
     }
     for (const capability of method.method.capabilities?.call ?? []) {
       capabilities.add(capability);
@@ -89,7 +89,7 @@ export async function planUserContractApproval(
     )
   ) {
     if (method.transfer?.direction === "receive") {
-      subscribeSubjects.add(TRANSFER_DOWNLOAD_SUBJECT);
+      publishSubjects.add(TRANSFER_DOWNLOAD_SUBJECT);
     }
   }
 

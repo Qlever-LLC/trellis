@@ -150,7 +150,7 @@
           <EmptyState title="No contracts" description="This service deployment has no applied contracts." />
         {:else}
           <div class="space-y-3">
-            {#each selectedDeployment.appliedContracts as applied (applied.contractId)}
+            {#each selectedDeployment.appliedContracts as applied, index (`${applied.contractId}:${index}`)}
               <div class="rounded-box border border-base-300 bg-base-100 p-3">
                 <div class="flex flex-wrap items-start justify-between gap-2">
                   <div>

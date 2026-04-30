@@ -10,6 +10,9 @@ and this project adheres to
 
 ### Changed
 
+- Raised the minimum supported `nats-server` version to 2.10.0 and changed
+  jobs-derived worker permissions to use only the newer filtered JetStream
+  consumer-create API subject.
 - Documented the Trellis service v1 follow-up cleanup across design docs,
   guides, and portal notes: active subject collision checks now use the
   effective wildcard subject for templated events, omitted store

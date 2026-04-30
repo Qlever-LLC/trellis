@@ -99,10 +99,11 @@ export type Order = Static<typeof OrderSchema>;
 Create `contracts/orders_service.ts`. The contract declares every RPC, event, dependency, and resource your service uses:
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis/contracts";
+import { defineError, defineServiceContract } from "@qlever-llc/trellis";
 import { HealthResponseSchema, HealthRpcSchema } from "@qlever-llc/trellis/health";
 import { auth } from "@qlever-llc/trellis/sdk/auth";
 import { core } from "@qlever-llc/trellis/sdk/core";
+import { Type } from "@sinclair/typebox";
 import {
   CreateOrderRequestSchema,
   CreateOrderResponseSchema,
@@ -123,16 +124,23 @@ const schemas = {
   OrderFailedEvent: OrderFailedEventSchema,
 } as const;
 
-function schemaRef<const TName extends keyof typeof schemas & string>(schema: TName) {
-  return { schema } as const;
-}
+export const NotFoundError = defineError({
+  type: "NotFoundError",
+  fields: {
+    resource: Type.String(),
+    resourceId: Type.String(),
+  },
+  message: ({ resource, resourceId }) => `${resource} ${resourceId} not found`,
+});
 
-export const ordersService = defineContract({
+const errors = {
+  NotFoundError,
+} as const;
+
+export const ordersService = defineServiceContract({ schemas, errors }, (ref) => ({
   id: "orders-service@v1",
   displayName: "Orders Service",
   description: "Create and track orders, emit fulfillment events.",
-  kind: "service",
-  schemas,
   uses: {
     core: core.use({
       rpc: { call: ["Trellis.Bindings.Get", "Trellis.Catalog"] },
@@ -153,51 +161,52 @@ export const ordersService = defineContract({
   rpc: {
     "Orders.Health": {
       version: "v1",
-      input: schemaRef("HealthRequest"),
-      output: schemaRef("HealthResponse"),
+      input: ref.schema("HealthRequest"),
+      output: ref.schema("HealthResponse"),
       capabilities: { call: [] },
-      errors: ["UnexpectedError"],
+      errors: [ref.error("UnexpectedError")],
     },
     "Orders.Create": {
       version: "v1",
-      input: schemaRef("CreateOrderRequest"),
-      output: schemaRef("CreateOrderResponse"),
+      input: ref.schema("CreateOrderRequest"),
+      output: ref.schema("CreateOrderResponse"),
       capabilities: { call: ["orders.write"] },
-      errors: ["ValidationError", "UnexpectedError"],
+      errors: [ref.error("ValidationError"), ref.error("UnexpectedError")],
     },
     "Orders.Get": {
       version: "v1",
-      input: schemaRef("GetOrderRequest"),
-      output: schemaRef("GetOrderResponse"),
+      input: ref.schema("GetOrderRequest"),
+      output: ref.schema("GetOrderResponse"),
       capabilities: { call: ["orders.read"] },
-      errors: ["NotFoundError", "UnexpectedError"],
+      errors: [ref.error("NotFoundError"), ref.error("UnexpectedError")],
     },
   },
   events: {
     "Orders.Shipped": {
       version: "v1",
-      event: schemaRef("OrderShippedEvent"),
+      event: ref.schema("OrderShippedEvent"),
       capabilities: { publish: ["service"], subscribe: ["service"] },
     },
     "Orders.Failed": {
       version: "v1",
-      event: schemaRef("OrderFailedEvent"),
+      event: ref.schema("OrderFailedEvent"),
       capabilities: { publish: ["service"], subscribe: ["service"] },
     },
   },
-});
+}));
 
 export default ordersService;
 ```
 
 Key things to note:
 
-- contract source modules should import `defineContract(...)` from `@qlever-llc/trellis/contracts`; runtime helpers such as `isErr`, `Result`, and `TrellisClient.connect(...)` come from `@qlever-llc/trellis`, while the returned contract object remains usable anywhere a runtime contract is expected
-- contract source modules should export the `defineContract(...)` result directly instead of manually re-exporting `CONTRACT_ID`, `CONTRACT_DIGEST`, `API`, or `use`
+- contract source modules should use the kind-specific authoring helper, such as `defineServiceContract(...)`, from `@qlever-llc/trellis`; runtime helpers such as `isErr`, `Result`, and `TrellisClient.connect(...)` come from the same package
+- contract source modules should export the `defineServiceContract(...)` result directly instead of manually re-exporting `CONTRACT_ID`, `CONTRACT_DIGEST`, `API`, or `use`
 - embedded JSON schemas must be self-contained Draft 2019-09 schemas. Do not use
   JSON Schema `$ref` inside the schema objects; use Trellis schema references
   such as `ref.schema("CreateOrderRequest")` at RPC, operation, event, resource,
   and state declaration sites.
+- service-local domain errors should be declared with `defineError(...)`, registered in the contract `errors` map, and referenced from RPCs with `ref.error(...)`
 - `uses` declares cross-contract dependencies — without these, Trellis will not grant access to those RPCs/events
 - `auth.use(...)` declares the non-baseline auth surfaces this service needs, such as `Auth.Connect` event delivery. Baseline auth validation such as `Auth.ValidateRequest` may be made available to service runtimes automatically.
 - `resources.kv.orders` requests a KV bucket with the logical alias `orders` — Trellis assigns the physical name during service deployment apply/install/upgrade
@@ -224,6 +233,8 @@ const service = await TrellisService.connect({
 ```
 
 `TrellisService.connect(...)` automatically verifies that the exact contract digest is installed, currently assigned to the service instance, and still allowed by the service deployment before it resolves required resource bindings plus any optional bindings that were successfully provisioned during deployment apply/install/upgrade. If the contract is not installed or the running binary presents a stale digest, startup fails with a clear error message.
+
+Catalog and auth activation do not wait for this runtime connection. Once apply succeeds on an enabled service deployment, the deployment's applied digest is active; service instances only determine whether a particular process may connect and serve traffic with that digest.
 
 For Node, change the import to `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
 
@@ -252,6 +263,7 @@ Mount handlers that match the operations declared in your contract:
 
 ```ts
 import { isErr, Result } from "@qlever-llc/trellis";
+import { NotFoundError } from "./contracts/orders_service.ts";
 
 await service.trellis.mount("Orders.Create", async (req) => {
   const orderId = crypto.randomUUID();
@@ -269,7 +281,10 @@ await service.trellis.mount("Orders.Create", async (req) => {
 await service.trellis.mount("Orders.Get", async (req) => {
   const result = await ordersKV.get(req.orderId);
   if (isErr(result) || !result.value) {
-    return Result.err({ type: "NotFoundError", message: "Order not found" });
+    return Result.err(new NotFoundError({
+      resource: "Order",
+      resourceId: req.orderId,
+    }));
   }
   return Result.ok(result.value);
 });
@@ -291,18 +306,82 @@ export type OutboundTrellis = TrellisFor<typeof ordersService>;
 Then use it from `main.ts` or a handler module:
 
 ```ts
-import { Result } from "@qlever-llc/trellis";
+import { Result, isErr } from "@qlever-llc/trellis";
+import { NotFoundError } from "./contracts/orders_service.ts";
 import type { OutboundTrellis, Rpc } from "./contracts/orders_service.ts";
 
 export const getOrder: Rpc<"Orders.Get"> = async (req, _context, trellis) => {
   const result = await ordersKV.get(req.orderId);
   if (isErr(result) || !result.value) {
-    return Result.err({ type: "NotFoundError", message: "Order not found" });
+    return Result.err(new NotFoundError({
+      resource: "Order",
+      resourceId: req.orderId,
+    }));
   }
   return Result.ok(result.value);
 };
 
 await service.trellis.mount("Orders.Get", getOrder);
+```
+
+### Service-local RPC errors
+
+Use built-in Trellis errors for platform-wide failures such as validation, auth, transport, and unexpected internal errors. For service-domain failures like “order not found”, define a local error class and declare it on the RPC so callers receive a real runtime error instance.
+
+```ts
+import { defineError, defineServiceContract, err, Result } from "@qlever-llc/trellis";
+import { Type } from "@sinclair/typebox";
+
+export const NotFoundError = defineError({
+  type: "NotFoundError",
+  fields: {
+    resource: Type.String(),
+    resourceId: Type.String(),
+  },
+  message: ({ resource, resourceId }) => `${resource} ${resourceId} not found`,
+});
+
+const errors = { NotFoundError } as const;
+
+export const ordersService = defineServiceContract(
+  { schemas, errors },
+  (ref) => ({
+    // ...
+    rpc: {
+      "Orders.Get": {
+        version: "v1",
+        input: ref.schema("GetOrderRequest"),
+        output: ref.schema("GetOrderResponse"),
+        errors: [ref.error("NotFoundError"), ref.error("UnexpectedError")],
+      },
+    },
+  }),
+);
+
+await service.trellis.mount("Orders.Get", async (req) => {
+  const order = await loadOrder(req.orderId);
+  if (!order) {
+    return err(new NotFoundError({
+      resource: "Order",
+      resourceId: req.orderId,
+    }));
+  }
+  return Result.ok(order);
+});
+```
+
+Caller code can then branch on the declared error class instead of checking ad-hoc `{ type, message }` objects:
+
+```ts
+import { isErr } from "@qlever-llc/trellis";
+import { NotFoundError } from "./contracts/orders_service.ts";
+
+const result = await client.request("Orders.Get", { orderId: "ord_123" });
+const value = result.take();
+
+if (isErr(value) && value.error instanceof NotFoundError) {
+  console.log(value.error.resource, value.error.resourceId);
+}
 ```
 
 ## 7. Subscribe to events
@@ -385,25 +464,25 @@ This produces a Deno package under `./generated/sdk/ts/`. The generated SDK vers
 Consumers import the SDK like any other Trellis contract package:
 
 ```ts
-import { defineContract } from "@qlever-llc/trellis/contracts";
+import { defineAppContract } from "@qlever-llc/trellis";
 import { ordersService } from "@my-org/sdk-orders-service";
 
 // Declare a dependency on your service
-const app = defineContract({
+const app = defineAppContract(() => ({
   // ...
   uses: {
     ordersService: ordersService.use({
       rpc: { call: ["Orders.Create", "Orders.Get"] },
     }),
   },
-});
+}));
 ```
 
 Regenerate the SDK whenever the contract changes. This is the same pattern that the first-party `@qlever-llc/trellis/sdk/auth`, `@qlever-llc/trellis/sdk/core`, and `@qlever-llc/trellis/sdk/state` subpaths follow.
 
 ## 11. Install and run
 
-Apply the contract to a service deployment directly from source during development, then provision one service instance:
+Apply the contract to a service deployment directly from source during development, then provision one service instance. The applied digest becomes active for catalog/auth after apply; the instance is for runtime availability and current-digest enforcement:
 
 ```sh
 trellis deploy create svc/orders-service
@@ -446,7 +525,7 @@ deno run --allow-net --allow-env main.ts
 
 ## Development loop
 
-1. Update schemas and the `defineContract(...)` module
+1. Update schemas and the `defineServiceContract(...)` module
 2. Re-run `deno task prepare`
 3. Upgrade the contract in Trellis if the contract changed
 4. Restart the service

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
   import { afterNavigate } from "$app/navigation";
-  import { base, resolve } from "$app/paths";
+  import { base } from "$app/paths";
   import { page } from "$app/state";
   import type { Snippet } from "svelte";
   import type { ConnectionStatus } from "../trellis";
@@ -16,6 +16,7 @@
   import Icon from "./Icon.svelte";
   import LoadingState from "./LoadingState.svelte";
   import StatusBadge from "./StatusBadge.svelte";
+  import TrellisLogo from "./TrellisLogo.svelte";
   import ToastViewport from "./ToastViewport.svelte";
 
   type Props = {
@@ -65,6 +66,10 @@
 
   function closeDrawer(): void {
     drawerOpen = false;
+  }
+
+  function resolveAppPath(path: string): string {
+    return `${base}${path}`;
   }
 
   afterNavigate(() => {
@@ -127,7 +132,7 @@
               {/if}
               <Icon name="chevronDown" size={16} class="opacity-60" />
             </summary>
-            <div class="menu dropdown-content z-50 mt-3 w-64 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
+            <div class="menu dropdown-content trellis-dropdown-menu w-64">
               <div class="px-2 py-2">
                 <p class="truncate text-sm font-medium">{profile.name}</p>
                 <p class="text-xs text-base-content/60">{getRoleLabel(profile)}</p>
@@ -161,13 +166,9 @@
 
     <aside class="trellis-sidebar flex min-h-full w-[251px] flex-col">
       <div class="flex h-[76px] items-center gap-3 px-6">
-        <div class="grid h-9 w-9 place-items-center rounded-xl border border-success/40 bg-success/10 text-success">
-          <Icon name="cpu" size={22} />
-        </div>
-        <div>
-          <div class="text-2xl font-semibold leading-none tracking-tight text-white">Trellis</div>
-          <div class="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Console</div>
-        </div>
+        <a href={resolveAppPath("/admin")} aria-label="Trellis Console home">
+          <TrellisLogo subtitle="Console" titleClass="text-white" subtitleClass="text-slate-400" />
+        </a>
         <button type="button" class="btn btn-square btn-ghost btn-sm ml-auto lg:hidden" aria-label="Close navigation" onclick={closeDrawer}>
           <Icon name="menu" size={18} />
         </button>
@@ -182,29 +183,7 @@
             <ul class="menu gap-1 p-0">
               {#each section.items as item (item.href)}
                 <li>
-                  {#if item.href === "/admin"}
-                    <a href={resolve("/admin")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
-                  {:else if item.href === "/admin/health-events"}
-                    <a href={resolve("/admin/health-events")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
-                  {:else if item.href === "/admin/sessions"}
-                    <a href={resolve("/admin/sessions")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
-                  {:else if item.href === "/admin/jobs"}
-                    <a href={resolve("/admin/jobs")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
-                  {:else if item.href === "/admin/contracts"}
-                    <a href={resolve("/admin/contracts")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
-                  {:else if item.href === "/admin/services"}
-                    <a href={resolve("/admin/services")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
-                  {:else if item.href === "/admin/devices/instances"}
-                    <a href={resolve("/admin/devices/instances")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
-                  {:else if item.href === "/admin/users"}
-                    <a href={resolve("/admin/users")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
-                  {:else if item.href === "/admin/app-grants"}
-                    <a href={resolve("/admin/app-grants")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
-                  {:else if item.href === "/admin/portals"}
-                    <a href={resolve("/admin/portals")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
-                  {:else}
-                    <a href={resolve("/profile")} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
-                  {/if}
+                  <a href={resolveAppPath(item.href)} class={{ active: routePath === item.href }} aria-current={routePath === item.href ? "page" : undefined} onclick={closeDrawer}><Icon name={item.icon} size={16} />{item.label}</a>
                 </li>
               {/each}
             </ul>

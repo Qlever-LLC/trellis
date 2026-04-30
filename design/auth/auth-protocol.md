@@ -223,15 +223,18 @@ Proof input:
 ```ts
 function buildProofInput(
   sessionKey: string,
+  contractDigest: string,
   subject: string,
   payloadHash: Uint8Array,
 ): Uint8Array {
   const enc = new TextEncoder();
   const sessionKeyBytes = enc.encode(sessionKey);
+  const contractDigestBytes = enc.encode(contractDigest);
   const subjectBytes = enc.encode(subject);
 
   const buf = new Uint8Array(
-    4 + sessionKeyBytes.length + 4 + subjectBytes.length + 4 +
+    4 + sessionKeyBytes.length + 4 + contractDigestBytes.length +
+      4 + subjectBytes.length + 4 +
       payloadHash.length,
   );
   const view = new DataView(buf.buffer);
@@ -241,6 +244,10 @@ function buildProofInput(
   offset += 4;
   buf.set(sessionKeyBytes, offset);
   offset += sessionKeyBytes.length;
+  view.setUint32(offset, contractDigestBytes.length);
+  offset += 4;
+  buf.set(contractDigestBytes, offset);
+  offset += contractDigestBytes.length;
   view.setUint32(offset, subjectBytes.length);
   offset += 4;
   buf.set(subjectBytes, offset);
@@ -255,7 +262,7 @@ function buildProofInput(
 payloadHash = SHA256(payload);
 proof = ed25519_sign(
   sessionKeyPrivate,
-  SHA256(buildProofInput(sessionKey, subject, payloadHash)),
+  SHA256(buildProofInput(sessionKey, contractDigest, subject, payloadHash)),
 );
 ```
 
@@ -264,22 +271,26 @@ Rules:
 - receivers MUST compute `payloadHash` from the raw request body they actually
   received
 - receivers MUST NOT trust a caller-supplied payload hash header
+- receivers MUST bind the proof to the authenticated `contractDigest` for the
+  current runtime session
 - length-prefixing is mandatory and prevents boundary attacks
 
 Required message headers:
 
 ```text
 session-key: <sessionKey>
+contract-digest: <contractDigest>
 proof: <base64url(ed25519 signature)>
 ```
 
 Verification steps:
 
 1. Extract `session-key`
-2. Compute `payloadHash = SHA256(raw_request_body)`
-3. Reconstruct proof input and verify signature using `session-key` as the
+2. Extract `contract-digest`
+3. Compute `payloadHash = SHA256(raw_request_body)`
+4. Reconstruct proof input and verify signature using `session-key` as the
    public key
-4. Call `rpc.Auth.ValidateRequest` for session lookup and capability checking
+5. Call `rpc.Auth.ValidateRequest` for session lookup and capability checking
 
 ## Pre-Auth Device Wait Verification
 
@@ -296,16 +307,19 @@ function buildDeviceWaitProofInput(
   publicIdentityKey: string,
   nonce: string,
   iat: number,
+  contractDigest?: string,
 ): Uint8Array {
   const enc = new TextEncoder();
   const publicIdentityKeyBytes = enc.encode(publicIdentityKey);
   const nonceBytes = enc.encode(nonce);
   const iatBytes = enc.encode(String(iat));
+  const contractDigestBytes = enc.encode(contractDigest ?? "");
 
   const buf = new Uint8Array(
     4 + publicIdentityKeyBytes.length +
       4 + nonceBytes.length +
-      4 + iatBytes.length,
+      4 + iatBytes.length +
+      4 + contractDigestBytes.length,
   );
   const view = new DataView(buf.buffer);
 
@@ -323,13 +337,18 @@ function buildDeviceWaitProofInput(
   view.setUint32(offset, iatBytes.length);
   offset += 4;
   buf.set(iatBytes, offset);
+  offset += iatBytes.length;
+
+  view.setUint32(offset, contractDigestBytes.length);
+  offset += 4;
+  buf.set(contractDigestBytes, offset);
 
   return buf;
 }
 
 sig = ed25519_sign(
   identityPrivateKey,
-  SHA256(buildDeviceWaitProofInput(publicIdentityKey, nonce, iat)),
+  SHA256(buildDeviceWaitProofInput(publicIdentityKey, nonce, iat, contractDigest)),
 );
 ```
 
@@ -337,6 +356,8 @@ Rules:
 
 - the endpoint MUST reject if `abs(now - iat) > 30s`
 - the endpoint MUST verify `sig` using the supplied `publicIdentityKey`
+- when the request includes `contractDigest`, the endpoint MUST include that
+  exact digest in the proof input
 - the endpoint MUST match the request against a pending or activated
   device-activation flow using `publicIdentityKey` and `nonce`
 - the endpoint MUST NOT create a device session or issue transport credentials
@@ -685,6 +706,7 @@ Events:
 - `events.v1.Auth.SessionRevoked`
 - `events.v1.Auth.ConnectionKicked`
 - `events.v1.Auth.DeviceActivationRequested`
+- `events.v1.Auth.DeviceActivationReviewRequested`
 - `events.v1.Auth.DeviceActivationApproved`
 - `events.v1.Auth.DeviceActivationRejected`
 - `events.v1.Auth.DeviceActivated`

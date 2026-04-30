@@ -58,7 +58,7 @@ export const contract = defineServiceContract(
         version: "v1",
         input: ref.schema("FindUser"),
         output: ref.schema("User"),
-        errors: [ref.error("UserMissing")],
+        errors: [ref.error("NotFoundError")],
         capabilities: { call: ["users.read"] },
       },
     },

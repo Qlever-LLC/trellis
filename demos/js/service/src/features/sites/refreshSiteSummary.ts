@@ -6,6 +6,10 @@ import contract from "../../../contract.ts";
 type Args = JobArgs<typeof contract, "refreshSiteSummary">;
 type Return = JobResult<typeof contract, "refreshSiteSummary">;
 
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function refreshSiteSummary(
   { job, trellis }: Args,
 ): Promise<Return> {
@@ -17,7 +21,7 @@ export async function refreshSiteSummary(
     current: 1,
     total: 2,
   }).orThrow();
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  await pause(1_200);
 
   if (!siteSummary) {
     const message = `Unknown site '${job.payload.siteId}'`;
@@ -26,19 +30,18 @@ export async function refreshSiteSummary(
 
   const refreshed = {
     ...siteSummary,
-    latestStatus: siteSummary.overdueInspections > 0
-      ? "attention-needed"
-      : "refreshed",
     lastReportAt: new Date().toISOString(),
   };
 
   await trellis.kv.siteSummaries.put(refreshed.siteId, refreshed).orThrow();
+  await pause(1_000);
   await job.progress({
     step: "stored-summary",
     message: `Stored refreshed summary for ${refreshed.siteName}`,
     current: 2,
     total: 2,
   }).orThrow();
+  await pause(700);
 
   return Result.ok({
     refreshId: job.ref.id,

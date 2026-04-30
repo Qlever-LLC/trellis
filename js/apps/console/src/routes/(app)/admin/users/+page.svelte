@@ -6,8 +6,6 @@
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
-  import type { AuthListUsersOutput } from "@qlever-llc/trellis/sdk/auth";
-  import type { SessionRecord } from "../../../../lib/auth_display.ts";
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { getTrellis } from "../../../../lib/trellis";
 
@@ -32,20 +30,26 @@
 
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let sessionsWarning = $state<string | null>(null);
   let users = $state<UserView[]>([]);
   let userLastAuth = $state<Record<string, string>>({});
 
   async function load() {
     loading = true;
     error = null;
+    sessionsWarning = null;
     try {
-      const [usersResponse, sessionsResponse] = await Promise.all([
-        trellis.request("Auth.ListUsers", {}).take(),
-        trellis.request("Auth.ListSessions", {}).take(),
-      ]);
+      const usersResponse = await trellis.request("Auth.ListUsers", {}).take();
       if (isErr(usersResponse)) { error = errorMessage(usersResponse); return; }
-      if (isErr(sessionsResponse)) { error = errorMessage(sessionsResponse); return; }
       users = usersResponse.users ?? [];
+
+      const sessionsResponse = await trellis.request("Auth.ListSessions", {}).take();
+      if (isErr(sessionsResponse)) {
+        sessionsWarning = `Last-auth metadata unavailable: ${errorMessage(sessionsResponse)}`;
+        userLastAuth = {};
+        return;
+      }
+
       const lastAuthByUser: Record<string, string> = {};
       for (const session of sessionsResponse.sessions ?? []) {
         if (session.principal.type !== "user") continue;
@@ -71,6 +75,9 @@
 
   {#if error}
     <div class="alert alert-error"><span>{error}</span></div>
+  {/if}
+  {#if sessionsWarning}
+    <div class="alert alert-info"><span>{sessionsWarning}</span></div>
   {/if}
 
   {#if loading}

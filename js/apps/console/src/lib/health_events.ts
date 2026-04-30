@@ -190,5 +190,10 @@ export function summarizeHealthServices(
         right.lastSeenAt - left.lastSeenAt
       ),
     };
-  }).sort((left, right) => right.lastSeenAt - left.lastSeenAt);
+  }).sort((left, right) => {
+    const byName = left.serviceName.localeCompare(right.serviceName);
+    if (byName !== 0) return byName;
+    return left.kind.localeCompare(right.kind) ||
+      left.contractId.localeCompare(right.contractId);
+  });
 }

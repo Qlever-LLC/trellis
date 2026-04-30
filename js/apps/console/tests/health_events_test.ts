@@ -100,3 +100,45 @@ Deno.test("summarizeHealthServices keeps live unhealthy instances unhealthy", ()
   assertEquals(services[0]?.status, "unhealthy");
   assertEquals(services[0]?.liveInstances, 2);
 });
+
+Deno.test("summarizeHealthServices orders participants by name", () => {
+  let instances = upsertHealthInstance(
+    {},
+    heartbeat({
+      service: {
+        name: "zeta",
+        kind: "service",
+        instanceId: "instance-z",
+        contractId: "trellis.zeta@v1",
+        contractDigest: "digest-z",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        publishIntervalMs: 30_000,
+        runtime: "deno",
+      },
+    }),
+    20_000,
+  );
+  instances = upsertHealthInstance(
+    instances,
+    heartbeat({
+      service: {
+        name: "activity",
+        kind: "service",
+        instanceId: "instance-a",
+        contractId: "trellis.activity@v1",
+        contractDigest: "digest-a",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        publishIntervalMs: 30_000,
+        runtime: "deno",
+      },
+    }),
+    10_000,
+  );
+
+  const services = summarizeHealthServices(instances, 25_000);
+
+  assertEquals(services.map((service) => service.serviceName), [
+    "activity",
+    "zeta",
+  ]);
+});

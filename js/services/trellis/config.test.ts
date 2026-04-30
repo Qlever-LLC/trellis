@@ -122,6 +122,7 @@ Deno.test("auth config loads structured provider map from file", async () => {
         "ws://localhost:8080",
         "wss://nats.example.com",
       ]);
+      assertEquals(cfg.nats.jetstream.replicas, 1);
       assertEquals(cfg.client.nativeNatsServers, [
         "tls://nats.example.com:4222",
       ]);
@@ -160,6 +161,49 @@ Deno.test("config path uses TRELLIS_CONFIG or the default path", () => {
     "/tmp/trellis.jsonc",
   );
   assertEquals(resolveConfigPath({}), "/etc/trellis/config.jsonc");
+});
+
+Deno.test("auth config loads explicit JetStream replica count", async () => {
+  await withTempConfig(
+    `{
+      "nats": {
+        "servers": "localhost",
+        "jetstream": { "replicas": 3 },
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080"]
+      },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": {
+          "github": {
+            "type": "github",
+            "clientId": "github-client",
+            "clientSecretFile": "./github.secret"
+          }
+        }
+      }
+    }`,
+    async (configPath) => {
+      const cfg = await loadAuthConfigFromFile(configPath);
+      assertEquals(cfg.nats.jetstream.replicas, 3);
+    },
+  );
 });
 
 Deno.test("auth config parses direct JSONC text without env cache mutation", async () => {

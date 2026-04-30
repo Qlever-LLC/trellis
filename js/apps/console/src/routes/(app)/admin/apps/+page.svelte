@@ -42,49 +42,54 @@
     description="Review and revoke per-user app approvals."
   >
     {#snippet actions()}
-      <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>
-        Refresh
-      </button>
-      <details class="dropdown dropdown-end">
-        <summary class="btn btn-outline btn-sm">
-          Actions <Icon name="chevronDown" size={14} />
-        </summary>
-        <ul
-          class="menu dropdown-content z-10 mt-2 w-64 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm"
-        >
-          <li>
-            <a href={resolve("/admin/apps/revoke")}>Revoke an approval</a>
-          </li>
-        </ul>
-      </details>
+      <div class="trellis-filterbar-actions">
+        <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>
+          Refresh
+        </button>
+        <details class="dropdown dropdown-end">
+          <summary class="btn btn-outline btn-sm">
+            Actions <Icon name="chevronDown" size={14} />
+          </summary>
+          <ul class="menu dropdown-content trellis-dropdown-menu w-64">
+            <li>
+              <a href={resolve("/admin/apps/revoke")}>Revoke an approval</a>
+            </li>
+          </ul>
+        </details>
+      </div>
     {/snippet}
   </PageToolbar>
 
   <form
-    class="flex gap-2 items-end"
+    class="trellis-filterbar"
     onsubmit={(e) => {
       e.preventDefault();
       void load();
     }}
   >
-    <input
-      class="input input-bordered input-sm w-60"
-      placeholder="Filter by user…"
-      bind:value={filterUser}
-    />
-    <button type="submit" class="btn btn-outline btn-sm" disabled={loading}
-      >Apply</button
-    >
-    {#if filterUser.trim()}
-      <button
-        type="button"
-        class="btn btn-ghost btn-sm"
-        onclick={() => {
-          filterUser = "";
-          void load();
-        }}>Clear</button
-      >
-    {/if}
+    <div class="trellis-filterbar-controls">
+      <label class="trellis-field w-full sm:w-72">
+        <span class="trellis-field-label">User</span>
+        <input
+          class="input input-bordered input-sm"
+          placeholder="Filter by user…"
+          bind:value={filterUser}
+        />
+      </label>
+    </div>
+    <div class="trellis-filterbar-actions">
+      <button type="submit" class="btn btn-outline btn-sm" disabled={loading}>Apply</button>
+      {#if filterUser.trim()}
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          onclick={() => {
+            filterUser = "";
+            void load();
+          }}>Clear</button
+        >
+      {/if}
+    </div>
   </form>
 
   {#if error}
@@ -129,9 +134,7 @@
                 <td class="text-right">
                   <details class="dropdown dropdown-end">
                     <summary class="btn btn-ghost btn-xs">Actions</summary>
-                    <ul
-                      class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm"
-                    >
+                    <ul class="menu dropdown-content trellis-dropdown-menu w-48">
                       <li>
                         <a
                           class="text-error"

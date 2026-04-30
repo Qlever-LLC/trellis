@@ -77,8 +77,10 @@ model:
 
 1. a contract-owned operation accepts JSON input and declares `direction: "send"`
    transfer support
-2. the caller configures the operation input and starts it through `operation(...).input(input).start()`
-3. the caller executes the raw byte transfer through the higher-level `operation(...).input(input).transfer(body).start()` helper
+2. the caller configures the operation input and sends bytes through the
+   higher-level `operation(...).input(input).transfer(body).start()` helper
+3. callers do not start the same send-transfer operation first and attach bytes
+   later
 4. the provider awaits `transfer.completed()` and continues with service-owned processing
 
 Example:

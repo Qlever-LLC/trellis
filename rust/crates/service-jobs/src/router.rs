@@ -2,13 +2,13 @@
 
 use serde_json::Value;
 use trellis_sdk_jobs::rpc::{
-    Empty, JobsCancelRpc, JobsDismissDLQRpc, JobsGetRpc, JobsHealthRpc, JobsListDLQRpc,
-    JobsListRpc, JobsListServicesRpc, JobsReplayDLQRpc, JobsRetryRpc,
+    JobsCancelRpc, JobsDismissDLQRpc, JobsGetRpc, JobsHealthRpc, JobsListDLQRpc, JobsListRpc,
+    JobsListServicesRpc, JobsReplayDLQRpc, JobsRetryRpc,
 };
 use trellis_sdk_jobs::types::{
-    JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsHealthResponse,
-    JobsHealthResponseChecksItem, JobsListDLQRequest, JobsListRequest, JobsReplayDLQRequest,
-    JobsRetryRequest,
+    JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsHealthRequest,
+    JobsHealthResponse, JobsListDLQRequest, JobsListRequest, JobsListServicesRequest,
+    JobsReplayDLQRequest, JobsRetryRequest,
 };
 use trellis_server::Router;
 
@@ -18,9 +18,9 @@ use crate::kv_query::JobsKvQuery;
 /// Build the Jobs admin RPC router backed by a KV query adapter.
 pub fn build_router_with_query(query: JobsKvQuery) -> Router {
     let mut router = Router::new();
-    router.register_rpc::<JobsHealthRpc, _, _>(|_ctx, _input: Empty| async move {
+    router.register_rpc::<JobsHealthRpc, _, _>(|_ctx, _input: JobsHealthRequest| async move {
         Ok(JobsHealthResponse {
-            checks: Vec::<JobsHealthResponseChecksItem>::new(),
+            checks: Vec::new(),
             service: SERVICE_NAME.to_string(),
             status: Value::String("ok".to_string()),
             timestamp: now_timestamp_string(),
@@ -28,7 +28,7 @@ pub fn build_router_with_query(query: JobsKvQuery) -> Router {
     });
     router.register_rpc::<JobsListServicesRpc, _, _>({
         let query = query.clone();
-        move |_ctx, _input: Empty| {
+        move |_ctx, _input: JobsListServicesRequest| {
             let query = query.clone();
             async move { query.list_services().await.map_err(map_query_error) }
         }

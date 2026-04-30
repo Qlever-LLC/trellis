@@ -164,6 +164,82 @@ service.jobs.reserveInventory.handle(async ({ job }) => {
 
 When the job returns a cancelled error, `op.attach()` resolves with a `cancelled` `TerminalOperation`.
 
+## 6. Transfer-capable operations
+
+Use a transfer-capable operation when the async workflow starts with caller-sent bytes, such as a document upload that the service stores and then processes. The operation remains the caller-visible workflow; byte-transfer progress is separate from business progress reported with `op.progress(...)`.
+
+Declare the transfer on the operation contract. The `store` names a service-owned `resources.store` binding, while `key` and `contentType` are JSON Pointers into the operation input:
+
+```ts
+operations: {
+  "Documents.Files.Upload": {
+    version: "v1",
+    input: ref.schema("FilesUploadRequest"),
+    progress: ref.schema("FilesUploadProgress"),
+    output: ref.schema("FilesUploadResult"),
+    transfer: {
+      direction: "send",
+      store: "uploads",
+      key: "/key",
+      contentType: "/contentType",
+      expiresInMs: 60_000,
+    },
+    capabilities: {
+      call: ["documents.write"],
+      read: ["documents.read"],
+    },
+  },
+},
+```
+
+Callers attach the bytes before starting the operation. Use transfer callbacks for progress bars that track bytes, and use operation progress for domain milestones such as `stored`, `queued`, or `processed`:
+
+```ts
+const upload = await client.operation("Documents.Files.Upload")
+  .input({
+    key: "incoming/report.pdf",
+    contentType: "application/pdf",
+  })
+  .transfer(fileBytes)
+  .onTransfer((event) => {
+    console.log("bytes sent", event.transfer.transferredBytes);
+  })
+  .onProgress((event) => {
+    console.log(event.progress.stage, event.progress.message);
+  })
+  .start()
+  .orThrow();
+
+const completed = await upload.wait().orThrow();
+```
+
+On the provider side, `transfer.completed()` is the bridge from transport to store-backed processing. Once it resolves, the staged bytes are durable in the service store named by the contract. Process them directly, or enqueue a private job if follow-up work should retry or outlive the current process:
+
+```ts
+await service.operation("Documents.Files.Upload").handle(
+  async ({ input, op, transfer }) => {
+    const transferred = await transfer.completed();
+    if (transferred.isErr()) return Result.err(transferred.error);
+
+    const stored = await op.progress({
+      stage: "stored",
+      message: `Stored ${transferred.value.size} bytes`,
+    });
+    if (stored.isErr()) return Result.err(stored.error);
+
+    const job = await service.jobs.processUpload.create({
+      key: input.key,
+      size: transferred.value.size,
+    });
+    if (job.isErr()) return Result.err(job.error);
+
+    return await op.attach(job.value);
+  },
+);
+```
+
+For post-transfer store access and cleanup, see [Store resources: TypeScript](/guides/using-store-resources-ts). Keep raw store bindings service-local; if a caller needs to receive stored bytes later, expose a contract-owned receive transfer grant instead of handing out store access.
+
 ## Development loop
 
 1. Update operation schemas and contract `operations` section

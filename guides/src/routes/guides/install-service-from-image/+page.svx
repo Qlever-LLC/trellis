@@ -107,6 +107,6 @@ Trellis derives service access from:
 4. start the container with the right env
 5. confirm the expected RPCs, events, and bindings work
 
-Deployment apply and instance provisioning should happen before the container starts serving traffic. Service resource provisioning happens during apply/install/upgrade; service bootstrap validates the staged instance state and only consumes the persisted bindings. If active-catalog refresh fails, Trellis rolls back the deployment or instance record instead of leaving a partial apply visible to runtimes.
+Deployment apply and instance provisioning should happen before the container starts serving traffic. Service resource provisioning happens during apply/install/upgrade; after apply succeeds on an enabled deployment, the applied digest is active for catalog and auth even before an instance connects. Service bootstrap validates runtime availability/current digest state for that instance and consumes the persisted bindings; it does not activate the catalog entry.
 
 If you are building service images, include the generated contract artifact at `/trellis/contract.json`. If the image uses a different path, add an OCI label such as `io.trellis.contract.path=/path/to/contract.json` so the CLI can discover it automatically.

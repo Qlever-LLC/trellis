@@ -73,6 +73,11 @@ const rawSchema = z.object({
   }),
   nats: z.object({
     servers: z.string(),
+    jetstream: z.object({
+      replicas: z.coerce.number().int().positive().default(1),
+    }).default({
+      replicas: 1,
+    }),
     trellis: z.object({
       credsPath: z.string(),
     }),
@@ -164,6 +169,9 @@ export type Config = {
   };
   nats: {
     servers: string;
+    jetstream: {
+      replicas: number;
+    };
     trellis: { credsPath: string };
     auth: { credsPath: string };
     sentinelCredsPath: string;
@@ -296,6 +304,7 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
     ttlMs: raw.ttlMs,
     nats: {
       servers: raw.nats.servers,
+      jetstream: raw.nats.jetstream,
       trellis: raw.nats.trellis,
       auth: raw.nats.auth,
       sentinelCredsPath: raw.nats.sentinelCredsPath,

@@ -520,6 +520,7 @@ pub(crate) async fn ensure_stream(
     creds: &Path,
     name: &str,
     subjects: Vec<String>,
+    num_replicas: usize,
 ) -> miette::Result<bool> {
     let client = connect_with_creds(servers, creds).await?;
     let js = jetstream::new(client);
@@ -529,6 +530,7 @@ pub(crate) async fn ensure_stream(
     js.create_stream(stream::Config {
         name: name.to_string(),
         subjects,
+        num_replicas,
         ..Default::default()
     })
     .await
@@ -542,6 +544,7 @@ pub(crate) async fn ensure_bucket(
     bucket: &str,
     history: i64,
     ttl_ms: u64,
+    num_replicas: usize,
 ) -> miette::Result<BucketEnsureStatus> {
     let client = connect_with_creds(servers, creds).await?;
     let js = jetstream::new(client);
@@ -556,6 +559,7 @@ pub(crate) async fn ensure_bucket(
             bucket: bucket.to_string(),
             history,
             max_age: Duration::from_millis(ttl_ms),
+            num_replicas,
             ..Default::default()
         })
         .await
@@ -567,6 +571,7 @@ pub(crate) async fn ensure_bucket(
         bucket: bucket.to_string(),
         history,
         max_age: Duration::from_millis(ttl_ms),
+        num_replicas,
         ..Default::default()
     })
     .await

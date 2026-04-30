@@ -33,6 +33,10 @@ pub struct NatsBootstrapArgs {
     #[arg(long)]
     /// Direct server list used only for bootstrap-time transport setup.
     pub servers: Option<String>,
+
+    #[arg(long)]
+    /// JetStream replica count for Trellis-created streams and KV buckets.
+    pub jetstream_replicas: Option<usize>,
 }
 
 #[derive(Debug, Args)]

@@ -15,6 +15,7 @@
     startConsoleSignIn,
     auth,
   } from "../../lib/auth";
+  import TrellisLogo from "../../lib/components/TrellisLogo.svelte";
   import { errorMessage } from "../../lib/format";
 
   let authError = $state<string | null>(null);
@@ -99,9 +100,10 @@
 <div class="flex min-h-screen items-center justify-center bg-base-200 px-4">
   <div class="card trellis-card w-full max-w-sm border border-base-300 bg-base-100 shadow-none">
     <div class="card-body gap-5">
-      <div class="text-center">
-        <p class="text-[0.65rem] font-semibold uppercase tracking-wider text-base-content/50">Operator control plane</p>
-        <h1 class="mt-1 text-xl font-semibold tracking-tight">Trellis Admin Console</h1>
+      <div class="flex flex-col items-center text-center" aria-labelledby="login-title">
+        <TrellisLogo subtitle="Admin Console" titleClass="text-base-content" subtitleClass="text-base-content/50" />
+        <p class="mt-4 text-[0.65rem] font-semibold uppercase tracking-wider text-base-content/50">Operator control plane</p>
+        <h1 id="login-title" class="mt-1 text-xl font-semibold tracking-tight">Sign in to Trellis</h1>
       </div>
 
       {#if authError}

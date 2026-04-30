@@ -34,6 +34,7 @@ const config: Config = {
   },
   nats: {
     servers: "nats://127.0.0.1:4222",
+    jetstream: { replicas: 1 },
     trellis: { credsPath: "" },
     auth: { credsPath: "" },
     sentinelCredsPath: "",
@@ -58,6 +59,7 @@ function makeDeps(args: {
   existingReview?: ReviewRecord;
   activation?: ActivationRecord;
   reviews?: ReviewRecord[];
+  publishes?: Array<{ event: string; payload: unknown }>;
   reviewMode?: "none" | "required";
   reviewReads?: Array<ReviewRecord | undefined>;
   activationReads?: Array<ActivationRecord | undefined>;
@@ -126,7 +128,12 @@ function makeDeps(args: {
     deviceProvisioningSecretStorage: { get: async () => undefined },
     logger: { trace: () => {}, warn: () => {} },
     sentinelCreds: { jwt: "jwt", seed: "seed" },
-    trellis: { publish: () => AsyncResult.ok(undefined) },
+    trellis: {
+      publish: (event, payload) => {
+        args.publishes?.push({ event, payload });
+        return AsyncResult.ok(undefined);
+      },
+    },
     config,
     reviewWaitTiming: {
       now: args.now,
@@ -168,6 +175,34 @@ Deno.test("Auth.ActivateDevice pending review stores source operation id", async
   assertEquals(reviews[0].operationId, "op_activate_1");
 });
 
+Deno.test("Auth.ActivateDevice publishes requested before review requested", async () => {
+  const publishes: Array<{ event: string; payload: unknown }> = [];
+  const progress: unknown[] = [];
+  const deps = makeDeps({
+    now: () => baseTimeMs,
+    expiresAtMs: baseTimeMs + 60_000,
+    publishes,
+  });
+
+  const result = await createActivateDeviceHandler(deps)(
+    operationContext(progress),
+  );
+
+  assertEquals(result, { kind: "deferred" });
+  assertEquals(publishes.map((entry) => entry.event), [
+    "Auth.DeviceActivationRequested",
+    "Auth.DeviceActivationReviewRequested",
+  ]);
+  assertEquals(publishes[0].payload, {
+    flowId: "flow_1",
+    instanceId: "dev_1",
+    publicIdentityKey: "pub_1",
+    deploymentId: "reader.default",
+    requestedAt: new Date(baseTimeMs).toISOString(),
+    requestedBy: { origin: "github", id: "user_1" },
+  });
+});
+
 Deno.test("Auth.ActivateDevice pending review records progress without local polling", async () => {
   const progress: unknown[] = [];
   const activationReads: Array<ActivationRecord | undefined> = [];
@@ -188,6 +223,7 @@ Deno.test("Auth.ActivateDevice pending review records progress without local pol
 
 Deno.test("Auth.ActivateDevice existing pending review records progress without local polling", async () => {
   const progress: unknown[] = [];
+  const publishes: Array<{ event: string; payload: unknown }> = [];
   const review: ReviewRecord = {
     reviewId: "dar_1",
     operationId: "op_activate_1",
@@ -206,6 +242,7 @@ Deno.test("Auth.ActivateDevice existing pending review records progress without 
     expiresAtMs: baseTimeMs + 60_000,
     existingReview: review,
     activationReads,
+    publishes,
   });
 
   const result = await createActivateDeviceHandler(deps)(
@@ -221,14 +258,17 @@ Deno.test("Auth.ActivateDevice existing pending review records progress without 
     requestedAt: new Date(baseTimeMs).toISOString(),
   }]);
   assertEquals(activationReads.length, 1);
+  assertEquals(publishes, []);
 });
 
 Deno.test("Auth.ActivateDevice activates immediately when review is not required", async () => {
   const progress: unknown[] = [];
+  const publishes: Array<{ event: string; payload: unknown }> = [];
   const deps = makeDeps({
     now: () => baseTimeMs,
     expiresAtMs: baseTimeMs + 60_000,
     reviewMode: "none",
+    publishes,
   });
 
   const result = await createActivateDeviceHandler(deps)(
@@ -242,10 +282,66 @@ Deno.test("Auth.ActivateDevice activates immediately when review is not required
   assertEquals(value.instanceId, "dev_1");
   assertEquals(value.deploymentId, "reader.default");
   assertEquals(progress, []);
+  assertEquals(publishes.map((entry) => entry.event), [
+    "Auth.DeviceActivationRequested",
+    "Auth.DeviceActivated",
+  ]);
+  assertEquals(publishes[1].payload, {
+    instanceId: "dev_1",
+    publicIdentityKey: "pub_1",
+    deploymentId: "reader.default",
+    activatedAt: value.activatedAt,
+    activatedBy: { origin: "github", id: "user_1" },
+    flowId: "flow_1",
+  });
+});
+
+Deno.test("Auth.ActivateDevice publishes activation for already-approved review", async () => {
+  const progress: unknown[] = [];
+  const publishes: Array<{ event: string; payload: unknown }> = [];
+  const deps = makeDeps({
+    now: () => baseTimeMs,
+    expiresAtMs: baseTimeMs + 60_000,
+    existingReview: {
+      reviewId: "dar_1",
+      operationId: "op_activate_1",
+      flowId: "flow_1",
+      instanceId: "dev_1",
+      publicIdentityKey: "pub_1",
+      deploymentId: "reader.default",
+      requestedBy: { origin: "github", id: "user_1" },
+      state: "approved",
+      requestedAt: new Date(baseTimeMs).toISOString(),
+      decidedAt: new Date(baseTimeMs + 1_000).toISOString(),
+    },
+    publishes,
+  });
+
+  const result = await createActivateDeviceHandler(deps)(
+    operationContext(progress),
+  );
+
+  assert("take" in result);
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+  assert(value.status === "activated");
+  assertEquals(publishes.map((entry) => entry.event), [
+    "Auth.DeviceActivated",
+  ]);
+  assertEquals(publishes[0].payload, {
+    instanceId: "dev_1",
+    publicIdentityKey: "pub_1",
+    deploymentId: "reader.default",
+    activatedAt: value.activatedAt,
+    activatedBy: { origin: "github", id: "user_1" },
+    flowId: "flow_1",
+    reviewId: "dar_1",
+  });
 });
 
 Deno.test("Auth.ActivateDevice returns already-terminal rejected review", async () => {
   const progress: unknown[] = [];
+  const publishes: Array<{ event: string; payload: unknown }> = [];
   const deps = makeDeps({
     now: () => baseTimeMs,
     expiresAtMs: baseTimeMs + 60_000,
@@ -262,6 +358,7 @@ Deno.test("Auth.ActivateDevice returns already-terminal rejected review", async 
       decidedAt: new Date(baseTimeMs + 1_000).toISOString(),
       reason: "not expected",
     },
+    publishes,
   });
 
   const result = await createActivateDeviceHandler(deps)(
@@ -273,4 +370,5 @@ Deno.test("Auth.ActivateDevice returns already-terminal rejected review", async 
   if (isErr(value)) throw value.error;
   assertEquals(value, { status: "rejected", reason: "not expected" });
   assertEquals(progress, []);
+  assertEquals(publishes, []);
 });

@@ -91,7 +91,7 @@ scripts, wrappers, and CI:
 
 ```text
 trellis-generate
-trellis-generate prepare [--watch [--changes]] <path>
+trellis-generate prepare [--watch [--changes]] [path]
 trellis-generate discover <path>
 trellis-generate generate manifest (--source <file> | --manifest <file> | --image <ref>) --out <file>
 trellis-generate generate ts (--source <file> | --manifest <file> | --image <ref>) --out <dir>
@@ -112,6 +112,9 @@ These commands:
   generates manifest, TypeScript SDK, and Rust SDK artifacts; `app` generates
   manifest and TypeScript SDK artifacts; `agent` and `device` contracts are
   verified only
+- when omitted, `prepare [path]` defaults to the current working directory
+- discovery uses configured package/workspace entries and explicit contract
+  source inputs; it does not implicitly scan `src/lib` for contracts
 
 Normal docs should not teach `trellis generate` or
 `trellis contracts build/verify`. Those workflows belong to `trellis-generate`
@@ -161,11 +164,11 @@ trellis deploy remove <svc/id|dev/id> [-f]
 trellis deploy instances <svc|dev|svc/id|dev/id> [--disabled] [--state <registered|activated|revoked|disabled>] [--show-metadata]
 trellis deploy provision <svc/id|dev/id> [--instance-seed <seed>] [--name <name>] [--serial-number <serial>] [--model-number <model>] [--metadata <key=value>...]
 trellis deploy activation list [--instance <id>] [--deployment <id>] [--state <activated|revoked>]
-trellis deploy activation revoke <id>
+trellis deploy activation revoke <instanceId>
 trellis deploy review list [--instance <id>] [--deployment <id>] [--state <pending|approved|rejected>]
 trellis deploy review approve <id> [--reason <code>]
 trellis deploy review reject <id> [--reason <code>]
-trellis bootstrap nats --trellis-creds <path> --auth-creds <path> [--servers <servers>]
+trellis bootstrap nats --trellis-creds <path> --auth-creds <path> [--servers <servers>] [--jetstream-replicas <n>]
 trellis bootstrap admin --origin <origin> --id <id> [--db-path <path>] [--capability <capability>...]
 trellis keygen ...
 trellis self check [--prerelease]
@@ -250,7 +253,8 @@ Operational command behavior:
 - `trellis bootstrap nats` creates the shared event stream and Trellis-owned KV
   buckets needed before the runtime starts; these buckets are for OAuth state,
   pending auth, browser flows, active connection presence, and the public Trellis
-  State API
+  State API; `--jetstream-replicas` defaults to `1` for standalone installs and
+  should match the target NATS topology, commonly `3` for production clusters
 - `trellis bootstrap admin` bootstraps the initial admin user in Trellis service
   SQLite storage; by default it writes `/var/lib/trellis/trellis.sqlite` and
   seeds `admin`, `trellis.catalog.read`, and `trellis.contract.read` so the first

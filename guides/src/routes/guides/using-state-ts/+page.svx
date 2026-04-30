@@ -4,7 +4,7 @@ Read [Trellis Concepts](/guides/concepts) first for background on contracts, `us
 
 ## What `State` is for
 
-Use `State` when the caller itself needs memory that should survive restarts, browser refreshes, or moving between machines.
+Use `State` when the caller itself needs semi-durable memory that should survive restarts, browser refreshes, or moving between machines. State belongs to the authenticated app or device caller; it is not service-private data and normal callers do not pass a public `scope`.
 
 Good uses:
 
@@ -19,7 +19,7 @@ Do not use `State` for:
 - large binary payloads
 - cross-app shared namespaces
 
-For service-private state, keep using `resources.kv`.
+For service-owned structured data, keep using schema-backed `resources.kv` from a `TrellisService.connect(...)` runtime.
 
 ## 1. Declare named state stores in the contract
 
@@ -27,8 +27,8 @@ Apps and devices declare Trellis-managed state with top-level `state` entries.
 The `State` runtime API is derived from those declarations automatically.
 
 ```ts
-import { defineAppContract } from "@qlever-llc/trellis/contracts";
-import { Type } from "typebox";
+import { defineAppContract } from "@qlever-llc/trellis";
+import { Type } from "@sinclair/typebox";
 
 const schemas = {
   PreferencesV1: Type.Object({ theme: Type.String() }),
@@ -194,6 +194,8 @@ Expired entries behave like missing keys.
 - keep values small
 - keep keys stable and path-like, such as `prefs/theme` or `drafts/report-123`
 - treat `State` as app memory, not as a substitute for large files or service databases
+- use `resources.kv` instead when a service owns durable structured data for itself
+- do not pass a public `scope` or choose a raw contract-wide keyspace in normal caller code
 - store only JSON values; encode unusual payloads yourself when needed
 - use `expectedRevision` when multiple app instances may write the same key
 - keep `stateVersion` stable across compatible additive schema changes

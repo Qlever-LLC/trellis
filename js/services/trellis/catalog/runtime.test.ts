@@ -12,6 +12,7 @@ import {
   initializeTrellisStorageSchema,
   openTrellisStorageDb,
 } from "../storage/db.ts";
+import { planUserContractApproval } from "../auth/approval/plan.ts";
 import { getContracts as getPermissionContracts } from "./permissions.ts";
 import type { ContractsModule } from "./runtime.ts";
 import type { ContractRecord } from "./schemas.ts";
@@ -28,6 +29,7 @@ async function withContractsModule(
   test: (
     module: ContractsModule,
     contractStorage: SqlContractStorageRepository,
+    serviceDeploymentStorage: SqlServiceDeploymentRepository,
   ) => Promise<void>,
 ): Promise<void> {
   const dbPath = await Deno.makeTempFile({
@@ -41,18 +43,20 @@ async function withContractsModule(
     const { createContractsModule } = await import("./runtime.ts");
     await initializeTrellisStorageSchema(storage);
     const contractStorage = new SqlContractStorageRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
     await test(
       createContractsModule({
         builtinContracts: [],
         contractStorage,
         serviceInstanceStorage: new SqlServiceInstanceRepository(storage.db),
-        serviceDeploymentStorage: new SqlServiceDeploymentRepository(
-          storage.db,
-        ),
+        serviceDeploymentStorage,
         deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
         deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
       }),
       contractStorage,
+      serviceDeploymentStorage,
     );
   } finally {
     storage.client.close();
@@ -125,6 +129,49 @@ Deno.test("contracts runtime rejects operation subject version mismatches", asyn
     );
 
     assertEquals(await contractStorage.list(), []);
+  });
+});
+
+Deno.test("contracts runtime lets app approval use applied service contract without service instance", async () => {
+  await withContractsModule(async (module, _contractStorage, deployments) => {
+    const service = await module.installServiceContract(
+      makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
+    );
+    await deployments.put({
+      deploymentId: "billing.default",
+      namespaces: ["Billing"],
+      disabled: false,
+      appliedContracts: [{
+        contractId: service.id,
+        allowedDigests: [service.digest],
+      }],
+    });
+
+    await module.refreshActiveContracts();
+    const plan = await planUserContractApproval(module.contractStore, {
+      format: "trellis.contract.v1",
+      id: "console@v1",
+      displayName: "Console",
+      description: "Browser app",
+      kind: "app",
+      uses: {
+        billing: {
+          contract: "billing@v1",
+          operations: { call: ["Refund"] },
+        },
+      },
+    });
+
+    assertEquals(plan.publishSubjects, [
+      "operations.v1.Billing.Refund",
+      "operations.v1.Billing.Refund.control",
+    ]);
+    assertEquals(
+      module.contractStore.getActiveCatalog().contracts.map((entry) =>
+        entry.digest
+      ),
+      [service.digest],
+    );
   });
 });
 
@@ -256,7 +303,7 @@ Deno.test("contracts runtime fails closed when an active digest is missing", asy
   });
 });
 
-Deno.test("contracts runtime refresh fails closed for unknown service current digest", async () => {
+Deno.test("contracts runtime refresh fails closed for unknown service deployment digest", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-missing-active-",
@@ -790,7 +837,7 @@ Deno.test("contracts runtime does not activate contracts from user sessions", as
   }
 });
 
-Deno.test("contracts runtime does not activate service deployment allowed digests without active instances", async () => {
+Deno.test("contracts runtime activates service deployment allowed digests without active instances", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-deployment-",
@@ -833,14 +880,19 @@ Deno.test("contracts runtime does not activate service deployment allowed digest
 
     await module.refreshActiveContracts();
 
-    assertEquals(module.contractStore.getActiveCatalog().contracts, []);
+    assertEquals(
+      module.contractStore.getActiveCatalog().contracts.map((entry) =>
+        entry.digest
+      ),
+      [installed.digest],
+    );
   } finally {
     storage.client.close();
     await Deno.remove(dbPath).catch(() => undefined);
   }
 });
 
-Deno.test("contracts runtime activates service current digests and enabled device deployment digests", async () => {
+Deno.test("contracts runtime activates enabled service and device deployment digests", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-instances-",
@@ -921,7 +973,7 @@ Deno.test("contracts runtime activates service current digests and enabled devic
   }
 });
 
-Deno.test("contracts runtime excludes current digests for disabled parent deployments", async () => {
+Deno.test("contracts runtime excludes applied digests for disabled parent deployments", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-disabled-parents-",

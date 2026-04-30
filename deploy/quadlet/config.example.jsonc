@@ -20,6 +20,10 @@
   },
   "nats": {
     "servers": "nats",
+    "jetstream": {
+      // Use 1 for standalone/local NATS and 3 for a three-node production cluster.
+      "replicas": 3
+    },
     "trellis": {
       "credsPath": "/run/trellis/creds/trellis-trellis.creds"
     },

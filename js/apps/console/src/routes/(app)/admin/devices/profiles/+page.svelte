@@ -109,7 +109,7 @@
   </div>
 
   <datalist id="installed-contract-ids">
-    {#each contracts as contract (contract.id)}
+    {#each contracts as contract (contract.digest)}
       <option value={contract.id}></option>
     {/each}
   </datalist>
@@ -145,7 +145,7 @@
                   <span class="text-base-content/40">None</span>
                 {:else}
                   <div class="flex flex-col gap-1">
-                    {#each deployment.appliedContracts as applied (applied.contractId)}
+                    {#each deployment.appliedContracts as applied, index (`${applied.contractId}:${index}`)}
                       <span class="flex items-center gap-1">
                         <span>{applied.contractId}</span>
                         <span class="badge badge-ghost badge-xs">{applied.allowedDigests.length}</span>
@@ -158,8 +158,8 @@
                 {#if deployment.appliedContracts.length === 0}
                   <span class="text-base-content/40">None</span>
                 {:else}
-                  <div class="flex flex-wrap gap-1">
-                    {#each deployment.appliedContracts as applied (applied.contractId)}
+                  <div class="trellis-token-list">
+                    {#each deployment.appliedContracts as applied, index (`${applied.contractId}:${index}`)}
                       {#if applied.allowedDigests.length === 0}
                         <span class="badge badge-ghost badge-xs">Lineage allowed</span>
                       {:else}

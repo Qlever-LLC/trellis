@@ -48,16 +48,6 @@ Rules:
 - `@qlever-llc/trellis` is a runtime library, not a central registry for every service API
 - service APIs are defined with the service that owns them and consumed through contract packages
 
-#### Category Responsibilities
-
-| Category | Mounts RPCs | Publishes Events | Subscribes Events | Owns Storage |
-| --- | --- | --- | --- | --- |
-| Infrastructure | Yes | Maybe | Maybe | KV and platform infra |
-| Ingest | No | Yes | Maybe | Sync state |
-| Repository | Yes | Maybe | Yes | Yes |
-| Processing | Maybe | Yes | Yes | No |
-| Egress | No | No | Yes | Sync state |
-
 ### Communication Patterns
 
 #### Events

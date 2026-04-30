@@ -77,6 +77,47 @@ export type ResolvedContractUses = {
   eventSubscribes: ResolvedEventUse[];
 };
 
+export type ContractUseDependencySurface =
+  | "contract"
+  | "rpc"
+  | "operation"
+  | "event";
+
+export type ContractUseDependencyErrorReason =
+  | "inactive"
+  | "unknown"
+  | "missing";
+
+export type ContractUseDependencyErrorOptions = {
+  alias: string;
+  contractId: string;
+  surface: ContractUseDependencySurface;
+  reason: ContractUseDependencyErrorReason;
+  key?: string;
+};
+
+/** Reports an invalid cross-contract dependency declared in a contract `uses` block. */
+export class ContractUseDependencyError extends Error {
+  readonly alias: string;
+  readonly contractId: string;
+  readonly surface: ContractUseDependencySurface;
+  readonly reason: ContractUseDependencyErrorReason;
+  readonly key?: string;
+
+  constructor(options: ContractUseDependencyErrorOptions) {
+    const subject = options.surface === "contract"
+      ? `${options.reason} contract '${options.contractId}'`
+      : `missing ${options.surface} '${options.key}' on '${options.contractId}'`;
+    super(`Dependency '${options.alias}' references ${subject}`);
+    this.name = "ContractUseDependencyError";
+    this.alias = options.alias;
+    this.contractId = options.contractId;
+    this.surface = options.surface;
+    this.reason = options.reason;
+    if (options.key !== undefined) this.key = options.key;
+  }
+}
+
 function requireSameSubject(
   key: string,
   left: string,
@@ -537,9 +578,13 @@ export function resolveContractUses(
     for (const key of use.rpc?.call ?? []) {
       const method = target.rpc?.[key];
       if (!method) {
-        throw new Error(
-          `Dependency '${alias}' references missing RPC '${key}' on '${use.contract}'`,
-        );
+        throw new ContractUseDependencyError({
+          alias,
+          contractId: use.contract,
+          surface: "rpc",
+          reason: "missing",
+          key,
+        });
       }
       resolved.rpcCalls.push({ alias, contractId: target.id, key, method });
     }
@@ -547,9 +592,13 @@ export function resolveContractUses(
     for (const key of use.operations?.call ?? []) {
       const operation = target.operations?.[key];
       if (!operation) {
-        throw new Error(
-          `Dependency '${alias}' references missing operation '${key}' on '${use.contract}'`,
-        );
+        throw new ContractUseDependencyError({
+          alias,
+          contractId: use.contract,
+          surface: "operation",
+          reason: "missing",
+          key,
+        });
       }
       resolved.operationCalls.push({
         alias,
@@ -562,9 +611,13 @@ export function resolveContractUses(
     for (const key of use.events?.publish ?? []) {
       const event = target.events?.[key];
       if (!event) {
-        throw new Error(
-          `Dependency '${alias}' references missing event '${key}' on '${use.contract}'`,
-        );
+        throw new ContractUseDependencyError({
+          alias,
+          contractId: use.contract,
+          surface: "event",
+          reason: "missing",
+          key,
+        });
       }
       resolved.eventPublishes.push({
         alias,
@@ -577,9 +630,13 @@ export function resolveContractUses(
     for (const key of use.events?.subscribe ?? []) {
       const event = target.events?.[key];
       if (!event) {
-        throw new Error(
-          `Dependency '${alias}' references missing event '${key}' on '${use.contract}'`,
-        );
+        throw new ContractUseDependencyError({
+          alias,
+          contractId: use.contract,
+          surface: "event",
+          reason: "missing",
+          key,
+        });
       }
       resolved.eventSubscribes.push({
         alias,
@@ -607,9 +664,12 @@ export function resolveContractUsesFromStore(
       if (options?.ignoreInactiveContracts) {
         return null;
       }
-      throw new Error(
-        `Dependency '${alias}' references inactive contract '${use.contract}'`,
-      );
+      throw new ContractUseDependencyError({
+        alias,
+        contractId: use.contract,
+        surface: "contract",
+        reason: "inactive",
+      });
     }
 
     return target;
@@ -625,9 +685,12 @@ export function resolveContractUsesFromKnownStore(
       contractStore.getKnownContractsById(use.contract),
     );
     if (!target) {
-      throw new Error(
-        `Dependency '${alias}' references unknown contract '${use.contract}'`,
-      );
+      throw new ContractUseDependencyError({
+        alias,
+        contractId: use.contract,
+        surface: "contract",
+        reason: "unknown",
+      });
     }
 
     return target;

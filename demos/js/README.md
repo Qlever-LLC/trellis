@@ -60,8 +60,10 @@ digest first or moving to a new contract lineage.
 
 Create one service deployment from `demos/js/service/contract.ts`, apply the
 contract so required resources are provisioned before the deployment record is
-updated, provision one service instance, then start the service with the
-provisioned instance seed.
+updated, then provision one service instance and start the service with the
+provisioned instance seed. After apply succeeds on the enabled deployment, the
+applied digest is active for catalog/auth; the service instance is only needed
+for this demo service process to connect and serve traffic.
 
 ```sh
 trellis deploy create svc/demo.field-ops

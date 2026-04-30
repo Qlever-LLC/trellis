@@ -43,7 +43,11 @@ async function main(): Promise<void> {
 
     while (true) {
       printMenu();
-      const choice = prompt("Select option")?.trim() ?? "";
+      const selectedOption = prompt("Select option");
+      if (selectedOption === null) {
+        return;
+      }
+      const choice = selectedOption.trim();
 
       switch (choice) {
         case "1":
@@ -195,27 +199,18 @@ async function generateReport(device: Device): Promise<void> {
     return;
   }
 
+  const reportComment = prompt("Report comment")?.trim();
+  if (!reportComment) {
+    console.info("Report skipped: report comment is required.");
+    return;
+  }
+
   console.log(chalk.green.bold("== Generating Inspection Report"));
   const operation = await device.operation("Reports.Generate")
-    .input({ inspectionId })
+    .input({ inspectionId, reportComment })
     .start()
     .orThrow();
   console.info(`Accepted report operation ${operation.id}`);
-
-  const cancel = prompt("Cancel after a short delay? [y/N]")?.trim()
-    .toLowerCase();
-  if (cancel === "y" || cancel === "yes") {
-    setTimeout(() => {
-      void operation.cancel().match({
-        ok: (snapshot: { state: string }) => {
-          console.info(`Cancel requested; current state is ${snapshot.state}`);
-        },
-        err: (error: Error) => {
-          console.error("Cancel request failed:", error.message);
-        },
-      });
-    }, 500);
-  }
 
   const events = await operation.watch().orThrow();
   for await (const event of events) {

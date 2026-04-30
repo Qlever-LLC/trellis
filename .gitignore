@@ -44,6 +44,7 @@ utils/arangodb/data/
 
 # Generated build artifacts
 generated/
+guides/static/api/typescript/
 **/npm/
 *.tgz
 

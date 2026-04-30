@@ -5,7 +5,6 @@ import type { Config } from "../../config.ts";
 import type { ContractStore } from "../../catalog/store.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
-import type { ServiceBootstrapDeps } from "../bootstrap/service.ts";
 import { randomToken } from "../crypto.ts";
 import type { Provider } from "../providers/index.ts";
 import { createProviders } from "../providers/registry.ts";
@@ -82,8 +81,6 @@ export type AuthHttpRouteOptions = {
     contractId: string,
   ) => Promise<InstanceGrantPolicy[]>;
   contractStore: ContractStore;
-  validateActiveCatalog?: ServiceBootstrapDeps["validateActiveCatalog"];
-  refreshActiveContracts?: () => Promise<void>;
   providers?: Record<string, Provider>;
   runtimeDeps: HttpRouteRuntimeDeps;
 };
@@ -157,8 +154,10 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     } catch (error) {
       const message = getApprovalResolutionErrorMessage(error);
       if (message) {
+        logger.warn({ error }, "Unable to resolve app approval request");
         throw new HTTPException(409, { message });
       }
+      logger.error({ error }, "Failed to resolve app approval request");
       throw error;
     }
   }

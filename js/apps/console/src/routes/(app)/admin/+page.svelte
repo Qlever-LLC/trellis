@@ -44,6 +44,7 @@
   let instances = $state<ServiceInstance[]>([]);
   let sessionCount = $state(0);
   let connectionCount = $state(0);
+  let jobsUnavailableMessage = $state<string | null>(null);
   let jobs = $state<Job[]>([]);
 
   const activeInstances = $derived(instances.filter((instance) => !instance.disabled).length);
@@ -142,24 +143,31 @@
   async function load() {
     loading = true;
     error = null;
+    jobsUnavailableMessage = null;
     try {
-      const [sessionsRes, connectionsRes, instancesRes, jobsRes] = await Promise.all([
+      const [sessionsRes, connectionsRes, instancesRes] = await Promise.all([
         trellis.request("Auth.ListSessions", {}).take(),
         trellis.request("Auth.ListConnections", {}).take(),
         trellis.request("Auth.ListServiceInstances", {}).take(),
-        loadJobsPageData({
-          listServices: () => trellis.request("Jobs.ListServices", {}),
-          listJobs: (filter) => trellis.request("Jobs.List", filter),
-        }),
       ]);
       if (isErr(sessionsRes)) { error = errorMessage(sessionsRes); return; }
       if (isErr(connectionsRes)) { error = errorMessage(connectionsRes); return; }
       if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
-      if (isErr(jobsRes)) { error = errorMessage(jobsRes); return; }
       sessionCount = sessionsRes.sessions?.length ?? 0;
       connectionCount = connectionsRes.connections?.length ?? 0;
       instances = instancesRes.instances ?? [];
-      jobs = jobsRes.available ? jobsRes.jobs : [];
+
+      const jobsData = await loadJobsPageData({
+        listServices: () => trellis.request("Jobs.ListServices", {}),
+        listJobs: (filter) => trellis.request("Jobs.List", filter),
+      }).catch((jobsError: unknown) => ({
+        available: false,
+        message: `Jobs admin runtime is unavailable: ${errorMessage(jobsError)}`,
+        services: [],
+        jobs: [],
+      }));
+      jobs = jobsData.available ? jobsData.jobs : [];
+      jobsUnavailableMessage = jobsData.available ? null : jobsData.message ?? "Jobs admin runtime is unavailable.";
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -266,7 +274,12 @@
 
         <section class="card trellis-card overflow-hidden bg-base-100">
           <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Jobs Snapshot</h2><a href={resolve("/admin/jobs")} class="btn btn-ghost btn-xs">View all</a></div>
-          {#if displayJobs.length === 0}
+          {#if jobsUnavailableMessage}
+            <div class="m-5 space-y-2">
+              <div class="alert alert-info"><span>{jobsUnavailableMessage}</span></div>
+              <p class="text-xs text-base-content/60">Overview metrics remain available without the Jobs runtime.</p>
+            </div>
+          {:else if displayJobs.length === 0}
             <EmptyState title="No jobs" description="Job queues will appear here when the Jobs API reports active or retained work." class="m-5" />
           {:else}
           <div class="overflow-x-auto">

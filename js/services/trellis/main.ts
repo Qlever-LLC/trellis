@@ -13,6 +13,9 @@ const runtime = await createRuntimeGlobals(config);
 
 const SERVER_DRAIN_TIMEOUT_MS = 5_000;
 const PROCESS_SHUTDOWN_TIMEOUT_MS = 10_000;
+const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM"] as const;
+
+type ShutdownSignal = (typeof SHUTDOWN_SIGNALS)[number];
 
 function aggregateStartupFailure(error: unknown, cleanupResults: unknown[]) {
   if (cleanupResults.length === 0) return error;
@@ -31,7 +34,10 @@ async function waitForServerDrain(
     await Promise.race([
       server.finished,
       new Promise<void>((resolve) => {
-        timeoutId = setTimeout(resolve, SERVER_DRAIN_TIMEOUT_MS);
+        timeoutId = setTimeout(() => {
+          server.unref();
+          resolve();
+        }, SERVER_DRAIN_TIMEOUT_MS);
       }),
     ]);
   } finally {
@@ -104,6 +110,14 @@ const { backgroundTasks, logger, server, serverAbort } =
   await startTrellisService();
 
 let shuttingDown: Promise<void> | null = null;
+const shutdownSignalListeners = new Map<ShutdownSignal, () => void>();
+
+function removeShutdownSignalListeners(): void {
+  for (const [signal, listener] of shutdownSignalListeners) {
+    Deno.removeSignalListener(signal, listener);
+  }
+  shutdownSignalListeners.clear();
+}
 
 function shutdown(signal: string): Promise<void> {
   if (shuttingDown) {
@@ -153,7 +167,7 @@ function shutdown(signal: string): Promise<void> {
   return shuttingDown;
 }
 
-async function shutdownForSignal(signal: string): Promise<void> {
+async function shutdownForSignal(signal: ShutdownSignal): Promise<void> {
   let timeoutId: number | undefined;
 
   try {
@@ -171,7 +185,7 @@ async function shutdownForSignal(signal: string): Promise<void> {
         );
       }),
     ]);
-    Deno.exit(0);
+    removeShutdownSignalListeners();
   } catch (error) {
     logger.error({ error, signal }, "Failed during Trellis shutdown");
     Deno.exit(1);
@@ -182,8 +196,10 @@ async function shutdownForSignal(signal: string): Promise<void> {
   }
 }
 
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  Deno.addSignalListener(signal, () => {
+for (const signal of SHUTDOWN_SIGNALS) {
+  const listener = () => {
     void shutdownForSignal(signal);
-  });
+  };
+  shutdownSignalListeners.set(signal, listener);
+  Deno.addSignalListener(signal, listener);
 }

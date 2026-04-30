@@ -1,4 +1,5 @@
 import { defineServiceContract } from "@qlever-llc/trellis/contracts";
+import { health } from "@qlever-llc/trellis/sdk/health";
 import * as schemas from "./src/schemas/index.ts";
 
 export const contract = defineServiceContract(
@@ -6,11 +7,12 @@ export const contract = defineServiceContract(
     schemas,
   },
   (ref) => ({
-    id: "trellis.demo-service@v1",
+    id: "trellis.demo-service@v2",
     displayName: "Field Ops Demo Service",
     description: "Consolidated Field Ops demo service for Trellis concepts.",
+    uses: { health: health.useDefaults() },
     exports: {
-      schemas: ["EvidenceRecord", "InspectionAssignment", "SiteSummary"],
+      schemas: ["EvidenceRecord", "InspectionAssignment", "ReportRecord", "SiteSummary"],
     },
     jobs: {
       refreshSiteSummary: {
@@ -29,8 +31,8 @@ export const contract = defineServiceContract(
       },
       store: {
         uploads: {
-          purpose: "Staged evidence files for the Field Ops demo.",
-          ttlMs: 60_000,
+          purpose: "Persistent evidence locker files for the Field Ops demo.",
+          ttlMs: 0,
           maxObjectBytes: 64 * 1024 * 1024,
           maxTotalBytes: 256 * 1024 * 1024,
         },
@@ -73,6 +75,20 @@ export const contract = defineServiceContract(
         capabilities: { call: [] },
         errors: [ref.error("TransferError"), ref.error("UnexpectedError")],
       },
+      "Evidence.Delete": {
+        version: "v1",
+        input: ref.schema("EvidenceDeleteRequest"),
+        output: ref.schema("EvidenceDeleteResponse"),
+        capabilities: { call: [] },
+        errors: [ref.error("UnexpectedError")],
+      },
+      "Reports.List": {
+        version: "v1",
+        input: ref.schema("ReportsListRequest"),
+        output: ref.schema("ReportsListResponse"),
+        capabilities: { call: [] },
+        errors: [ref.error("UnexpectedError")],
+      },
     },
     operations: {
       "Sites.Refresh": {
@@ -87,8 +103,7 @@ export const contract = defineServiceContract(
         input: ref.schema("ReportsGenerateRequest"),
         progress: ref.schema("ReportsGenerateProgress"),
         output: ref.schema("ReportsGenerateResponse"),
-        capabilities: { call: [], read: [], cancel: [] },
-        cancel: true,
+        capabilities: { call: [], read: [] },
       },
       "Evidence.Upload": {
         version: "v1",

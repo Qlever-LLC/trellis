@@ -5,12 +5,7 @@ use std::path::{Path, PathBuf};
 use miette::IntoDiagnostic;
 
 const TS_MANIFEST_FILES: &[&str] = &["deno.json", "deno.jsonc", "package.json"];
-const CONVENTIONAL_TS_CONTRACT_FILES: &[&str] = &[
-    "contract.ts",
-    "contract.js",
-    "src/lib/contract.ts",
-    "src/lib/contract.js",
-];
+const CONVENTIONAL_TS_CONTRACT_FILES: &[&str] = &["contract.ts", "contract.js"];
 const RUST_MANIFEST_FILE: &str = "Cargo.toml";
 const SKIPPED_DISCOVERY_DIRS: &[&str] = &[
     ".git",
@@ -134,34 +129,16 @@ fn collect_typescript_project_contracts(
         collect_conventional_ts_contract_sources(project_root, manifest_path)?;
 
     if conventional_sources.len() > 1 {
-        if conventional_sources
-            .iter()
-            .all(|source| is_top_level_ts_contract_source(project_root, &source.source_path))
-        {
-            return Err(miette::miette!(
-                "project root {} has multiple top-level contract sources; choose exactly one of contract.ts or contract.js",
-                project_root.display()
-            ));
-        }
         return Err(miette::miette!(
-            "project root {} has multiple conventional contract sources; choose exactly one of contract.ts, contract.js, src/lib/contract.ts, or src/lib/contract.js",
+            "project root {} has multiple top-level contract sources; choose exactly one of contract.ts or contract.js",
             project_root.display()
         ));
     }
 
     if contracts_dir.exists() && contracts_dir.is_dir() {
         if !contracts_dir_sources.is_empty() && !conventional_sources.is_empty() {
-            if conventional_sources
-                .iter()
-                .all(|source| is_top_level_ts_contract_source(project_root, &source.source_path))
-            {
-                return Err(miette::miette!(
-                    "project root {} has both contracts/ and a top-level contract.ts or contract.js; choose one layout",
-                    project_root.display()
-                ));
-            }
             return Err(miette::miette!(
-                "project root {} has both contracts/ and a conventional contract.ts, contract.js, src/lib/contract.ts, or src/lib/contract.js; choose one layout",
+                "project root {} has both contracts/ and a top-level contract.ts or contract.js; choose one layout",
                 project_root.display()
             ));
         }
@@ -172,13 +149,6 @@ fn collect_typescript_project_contracts(
     }
 
     Ok(conventional_sources)
-}
-
-fn is_top_level_ts_contract_source(project_root: &Path, source_path: &Path) -> bool {
-    source_path
-        .strip_prefix(project_root)
-        .ok()
-        .is_some_and(|relative| matches!(relative.to_str(), Some("contract.ts" | "contract.js")))
 }
 
 fn collect_conventional_ts_contract_sources(
@@ -383,7 +353,7 @@ mod tests {
     }
 
     #[test]
-    fn discover_contracts_finds_sveltekit_lib_contract_ts() {
+    fn discover_contracts_ignores_sveltekit_lib_contract_ts_and_js() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path();
         let project = repo_root.join("apps/console");
@@ -394,12 +364,14 @@ mod tests {
             "const contract = {};\nexport default contract;\n",
         )
         .unwrap();
+        fs::write(
+            project.join("src/lib/contract.js"),
+            "const contract = {};\nexport default contract;\n",
+        )
+        .unwrap();
 
         let discovered = discover_contracts(repo_root).unwrap();
-        assert_eq!(discovered.len(), 1);
-        assert_eq!(discovered[0].project_root, project.canonicalize().unwrap());
-        assert_eq!(discovered[0].language, SourceLanguage::TypeScript);
-        assert!(discovered[0].source_path.ends_with("src/lib/contract.ts"));
+        assert!(discovered.is_empty());
     }
 
     #[test]
@@ -451,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn discover_contracts_errors_for_top_level_and_sveltekit_contract_sources() {
+    fn discover_contracts_ignores_sveltekit_lib_contract_when_top_level_exists() {
         let temp = tempfile::tempdir().unwrap();
         let repo_root = temp.path();
         let project = repo_root.join("app");
@@ -468,10 +440,11 @@ mod tests {
         )
         .unwrap();
 
-        let error = discover_contracts(repo_root).unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("has multiple conventional contract sources"));
+        let discovered = discover_contracts(repo_root).unwrap();
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered[0].project_root, project.canonicalize().unwrap());
+        assert_eq!(discovered[0].language, SourceLanguage::TypeScript);
+        assert!(discovered[0].source_path.ends_with("contract.ts"));
     }
 
     #[test]

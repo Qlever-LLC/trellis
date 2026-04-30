@@ -7,12 +7,6 @@ export type ActiveServiceDeploymentRecord = ActiveDeploymentContractRecord & {
   disabled?: boolean;
 };
 
-export type ActiveServiceInstanceRecord = {
-  deploymentId: string;
-  currentContractDigest?: string | null;
-  disabled?: boolean;
-};
-
 export type ActiveDeviceDeploymentRecord = ActiveDeploymentContractRecord & {
   deploymentId: string;
   disabled?: boolean;
@@ -25,7 +19,6 @@ export type ActiveDeviceInstanceRecord = {
 export type ActiveCatalogRecordSet = {
   builtinDigests: Iterable<string>;
   serviceDeployments: Iterable<ActiveServiceDeploymentRecord>;
-  serviceInstances: Iterable<ActiveServiceInstanceRecord>;
   deviceDeployments: Iterable<ActiveDeviceDeploymentRecord>;
   deviceInstances?: Iterable<ActiveDeviceInstanceRecord>;
 };
@@ -65,20 +58,11 @@ export function collectActiveContractDigests(
   const active = new Set<string>();
   for (const digest of records.builtinDigests) active.add(digest);
 
-  const serviceDeployments = new Map(
-    [...records.serviceDeployments].map((deployment) => [
-      deployment.deploymentId,
-      deployment,
-    ]),
+  addDeploymentAllowedDigests(
+    active,
+    records.serviceDeployments,
+    (deployment) => !deployment.disabled,
   );
-  for (const instance of records.serviceInstances) {
-    if (
-      instance.disabled ||
-      serviceDeployments.get(instance.deploymentId)?.disabled === true ||
-      !instance.currentContractDigest
-    ) continue;
-    active.add(instance.currentContractDigest);
-  }
 
   addDeploymentAllowedDigests(
     active,

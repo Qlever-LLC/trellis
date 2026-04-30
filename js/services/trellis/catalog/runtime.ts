@@ -465,11 +465,6 @@ export function createContractsModule(opts: {
       validationOpts?.stagedServiceDeployments,
       (deployment) => deployment.deploymentId,
     );
-    const serviceInstances = overlayStagedRecords(
-      await opts.serviceInstanceStorage.list(),
-      validationOpts?.stagedServiceInstances,
-      (instance) => instance.instanceId,
-    );
     const deviceDeployments = overlayStagedRecords(
       await opts.deviceDeploymentStorage.list(),
       validationOpts?.stagedDeviceDeployments,
@@ -484,7 +479,6 @@ export function createContractsModule(opts: {
     const active = collectActiveContractDigests({
       builtinDigests: contractStore.getBuiltinDigests(),
       serviceDeployments,
-      serviceInstances,
       deviceDeployments,
       deviceInstances,
     });

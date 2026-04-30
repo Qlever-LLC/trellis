@@ -127,10 +127,10 @@ Trellis derives service access from:
 
 ## Development loop
 
-1. update schemas and the `defineContract(...)` module
+1. update schemas and the `defineServiceContract(...)` module
 2. run the repo-local prepare task (`deno task prepare` or `cargo xtask prepare`)
 3. `trellis deploy apply svc/my-service --source ./contracts/my_service.ts`
 4. restart the service
 5. confirm the expected RPCs, events, and bindings work
 
-If apply or the following active-catalog refresh fails, Trellis rolls the durable deployment record back. Service bootstrap uses the same staged active-catalog validation before persisting a new current digest, so failed upgrades do not leave a service instance pinned to an incompatible digest.
+If apply or the following active-catalog refresh fails, Trellis rolls the durable deployment record back. Once apply succeeds on an enabled service deployment, its applied digest is active for catalog and auth. Service bootstrap only proves a running instance is using an installed digest still allowed by that deployment, so failed or absent service starts do not control catalog activation.

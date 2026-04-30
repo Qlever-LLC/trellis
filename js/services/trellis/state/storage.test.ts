@@ -278,7 +278,7 @@ Deno.test("StateStore unconditional put does not load the existing entry before 
     acceptedVersions: {},
   };
 
-  kv.seed("user.user-1.acme=2Enotes=40v1.preferences.~value", {
+  kv.seed("user.user-1.acme=2Enotes=40v1.preferences.$value", {
     value: { theme: "light" },
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     stateVersion: "v1",
@@ -462,13 +462,13 @@ Deno.test("StateStore lists map keys that look like value-store sentinels", asyn
 
   unwrapOk(
     await store.put(target, {
-      key: "__value",
+      key: "$value",
       value: { label: "old sentinel" },
     }),
   );
   unwrapOk(
     await store.put(target, {
-      key: "~value",
+      key: "__value",
       value: { label: "new sentinel text" },
     }),
   );
@@ -479,7 +479,7 @@ Deno.test("StateStore lists map keys that look like value-store sentinels", asyn
 
   assertEquals(listed.entries.map(listedKey), [
     "__value",
-    "~value",
+    "$value",
   ]);
 });
 
@@ -511,7 +511,7 @@ Deno.test("StateStore stamps state provenance and keeps namespace contract-id sc
   assertFound(got);
 
   const stored = kv.snapshot(
-    "user.user-1.acme=2Enotes=40v1.preferences.~value",
+    "user.user-1.acme=2Enotes=40v1.preferences.$value",
   );
   assertRecord(stored?.value);
   assertEquals(stored?.value.stateVersion, "prefs.v2");
@@ -633,7 +633,7 @@ Deno.test("StateStore reports malformed stored envelopes as unexpected corruptio
   };
 
   kv.seedRaw(
-    "user.user-1.acme=2Enotes=40v1.preferences.~value",
+    "user.user-1.acme=2Enotes=40v1.preferences.$value",
     "not-envelope",
   );
 
@@ -663,7 +663,7 @@ Deno.test("StateStore reports malformed stored metadata as unexpected corruption
     },
   };
 
-  kv.seedRaw("user.user-1.acme=2Enotes=40v1.preferences.~value", {
+  kv.seedRaw("user.user-1.acme=2Enotes=40v1.preferences.$value", {
     value: { theme: "dark" },
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
   });
@@ -706,7 +706,7 @@ Deno.test("StateStore reports non-JSON stored current-version values as unexpect
     acceptedVersions: {},
   };
 
-  kv.seedRaw("user.user-1.acme=2Enotes=40v1.preferences.~value", {
+  kv.seedRaw("user.user-1.acme=2Enotes=40v1.preferences.$value", {
     value: Number.NaN,
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     stateVersion: "prefs.v1",
@@ -875,7 +875,7 @@ Deno.test("StateStore rejects unstamped entries before value schema validation",
     },
   };
 
-  kv.seedRaw("user.user-1.acme=2Enotes=40v1.preferences.~value", {
+  kv.seedRaw("user.user-1.acme=2Enotes=40v1.preferences.$value", {
     value: { theme: 123 },
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
   });

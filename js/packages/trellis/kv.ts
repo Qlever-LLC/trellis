@@ -212,6 +212,7 @@ export class TypedKV<S extends TSchema> {
       ttl?: number;
       bindOnly?: boolean;
       maxValueBytes?: number;
+      replicas?: number;
     },
   ): AsyncResult<TypedKV<S>, KVError> {
     return AsyncResult.from((async () => {
@@ -222,6 +223,9 @@ export class TypedKV<S extends TSchema> {
           : await kvm.create(name, {
             history: options.history ?? 1,
             ttl: options.ttl ?? 0,
+            ...(options.replicas !== undefined
+              ? { replicas: options.replicas }
+              : {}),
             ...(options.maxValueBytes
               ? { maxValueSize: options.maxValueBytes }
               : {}),

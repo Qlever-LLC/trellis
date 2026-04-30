@@ -217,13 +217,14 @@ async function activateInstance(args: {
   instance: DeviceInstance;
   deployment: DeviceDeployment;
   activatedBy: DeviceActivationActor;
+  reviewId?: string;
 }): Promise<{
   instanceId: string;
   deploymentId: string;
   activatedAt: string;
   confirmationCode?: string;
 }> {
-  const activatedAt = new Date().toISOString();
+  const activatedAt = new Date(reviewWaitTiming(args.deps).now()).toISOString();
   await args.deps.deviceActivationStorage.put({
     instanceId: args.instance.instanceId,
     publicIdentityKey: args.instance.publicIdentityKey,
@@ -239,6 +240,20 @@ async function activateInstance(args: {
     activatedAt,
     revokedAt: null,
   });
+  (await args.deps.trellis.publish("Auth.DeviceActivated", {
+    instanceId: args.instance.instanceId,
+    publicIdentityKey: args.instance.publicIdentityKey,
+    deploymentId: args.deployment.deploymentId,
+    activatedAt,
+    activatedBy: args.activatedBy,
+    flowId: args.flow.flowId,
+    ...(args.reviewId ? { reviewId: args.reviewId } : {}),
+  })).inspectErr((error: unknown) =>
+    args.deps.logger.warn(
+      { error, instanceId: args.instance.instanceId },
+      "Failed to publish Auth.DeviceActivated",
+    )
+  );
   const confirmationCode = await confirmationCodeFor(
     args.flow,
     await args.deps.deviceProvisioningSecretStorage.get(
@@ -292,6 +307,7 @@ async function activateApprovedReview(
     instance,
     deployment,
     activatedBy: review.requestedBy,
+    reviewId: review.reviewId,
   });
 }
 
@@ -358,6 +374,29 @@ function remainingFlowLifetimeMs(
   nowMs: number,
 ): number {
   return Math.max(0, new Date(isoString(flow.expiresAt)).getTime() - nowMs);
+}
+
+async function publishDeviceActivationRequested(args: {
+  deps: DeviceActivationOperationDeps;
+  flow: DeviceActivationFlow;
+  instance: DeviceInstance;
+  deployment: DeviceDeployment;
+  requestedBy: DeviceActivationActor;
+  requestedAt: string;
+}): Promise<void> {
+  (await args.deps.trellis.publish("Auth.DeviceActivationRequested", {
+    flowId: args.flow.flowId,
+    instanceId: args.instance.instanceId,
+    publicIdentityKey: args.instance.publicIdentityKey,
+    deploymentId: args.deployment.deploymentId,
+    requestedAt: args.requestedAt,
+    requestedBy: args.requestedBy,
+  })).inspectErr((error: unknown) =>
+    args.deps.logger.warn(
+      { error, flowId: args.flow.flowId },
+      "Failed to publish Auth.DeviceActivationRequested",
+    )
+  );
 }
 
 export function createActivateDeviceHandler(
@@ -448,8 +487,17 @@ export function createActivateDeviceHandler(
       }
     }
 
+    const requestedAt = new Date(reviewWaitTiming(deps).now()).toISOString();
+
     if (deployment.reviewMode === "required") {
-      const requestedAt = new Date().toISOString();
+      await publishDeviceActivationRequested({
+        deps,
+        flow,
+        instance,
+        deployment,
+        requestedBy: { origin: caller.origin, id: caller.id },
+        requestedAt,
+      });
       const review: DeviceActivationReviewRecord = {
         reviewId: `dar_${randomToken(12)}`,
         operationId: op.id,
@@ -479,6 +527,14 @@ export function createActivateDeviceHandler(
       return op.defer();
     }
 
+    await publishDeviceActivationRequested({
+      deps,
+      flow,
+      instance,
+      deployment,
+      requestedBy: { origin: caller.origin, id: caller.id },
+      requestedAt,
+    });
     return Result.ok({
       status: "activated" as const,
       ...(await activateInstance({

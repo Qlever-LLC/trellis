@@ -101,11 +101,11 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     "operations.v1.example.Evidence.Upload.control",
     "rpc.v1.example.Auth.Me",
     "rpc.v1.example.Evidence.Download",
+    "transfer.v1.download.*.*",
     "transfer.v1.upload.*.*",
   ]);
   assertEquals(plan.subscribeSubjects, [
     "events.v1.example.Auth.Connect",
-    "transfer.v1.download.*.*",
   ]);
 });
 
@@ -260,11 +260,11 @@ Deno.test("planUserContractApproval maps explicit transfer declarations by direc
   assertEquals(plan.publishSubjects.includes("transfer.v1.upload.*.*"), true);
   assertEquals(
     plan.publishSubjects.includes("transfer.v1.download.*.*"),
-    false,
+    true,
   );
   assertEquals(
     plan.subscribeSubjects.includes("transfer.v1.download.*.*"),
-    true,
+    false,
   );
   assertEquals(
     plan.subscribeSubjects.includes("transfer.v1.upload.*.*"),

@@ -16,12 +16,13 @@ const contract = defineAppContract({ schemas }, (ref) => ({
           "Sites.Get",
           "Evidence.List",
           "Evidence.Download",
+          "Evidence.Delete",
+          "Reports.List",
         ],
       },
       operations: {
         call: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
         read: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
-        cancel: ["Reports.Generate"],
       },
       events: {
         subscribe: [

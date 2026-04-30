@@ -296,6 +296,34 @@ Deno.test("KV reconciliation updates existing bucket limits", async () => {
   }]);
 });
 
+Deno.test("KV reconciliation applies configured replica count", async () => {
+  const updates: Array<{ name: string; numReplicas: number }> = [];
+
+  await reconcileKvResourceConfig(
+    {
+      update(name, config) {
+        updates.push({ name, numReplicas: config.num_replicas });
+        return Promise.resolve();
+      },
+    },
+    {
+      streamInfo: {
+        config: {
+          name: "KV_activity",
+          max_msgs_per_subject: 1,
+          max_age: 0,
+          max_msg_size: -1,
+          num_replicas: 1,
+        },
+      },
+    },
+    { history: 1, ttlMs: 0 },
+    { jetstreamReplicas: 3 },
+  );
+
+  assertEquals(updates, [{ name: "KV_activity", numReplicas: 3 }]);
+});
+
 Deno.test("resource permission grants include store object subjects and subscribe permissions", () => {
   const grants = getResourcePermissionGrants({
     store: {
@@ -425,6 +453,33 @@ Deno.test("store reconciliation resets omitted object-store total bytes to unlim
   }]);
 });
 
+Deno.test("store reconciliation applies configured replica count", async () => {
+  const updates: Array<{ name: string; numReplicas: number }> = [];
+
+  await reconcileStoreResourceConfig(
+    {
+      update(name, config) {
+        updates.push({ name, numReplicas: config.num_replicas });
+        return Promise.resolve();
+      },
+    },
+    {
+      streamInfo: {
+        config: {
+          name: "OBJ_uploads",
+          max_age: 0,
+          max_bytes: -1,
+          num_replicas: 1,
+        },
+      },
+    },
+    { ttlMs: 0 },
+    { jetstreamReplicas: 3 },
+  );
+
+  assertEquals(updates, [{ name: "OBJ_uploads", numReplicas: 3 }]);
+});
+
 Deno.test("jobs resource requests apply queue defaults", () => {
   const contract = {
     ...CONTRACT,
@@ -518,13 +573,41 @@ Deno.test("jobs resource grants use service-visible queue bindings", () => {
     true,
   );
   assertEquals(
-    grants.publish.includes("$JS.API.CONSUMER.DURABLE.CREATE.JOBS_WORK.>"),
+    grants.subscribe.includes(
+      "trellis.jobs.document_activity_25c0dcc8dbcd.document-process.*.*",
+    ),
     true,
   );
   assertEquals(
     grants.publish.includes("$JS.API.CONSUMER.CREATE.JOBS_WORK.>"),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.CONSUMER.INFO.JOBS_WORK.>"),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.CONSUMER.MSG.NEXT.JOBS_WORK.>"),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.ACK.JOBS_WORK.>"),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.CONSUMER.DURABLE.CREATE.JOBS_WORK.>"),
     false,
   );
+  assertEquals(
+    grants.publish.includes("$JS.API.STREAM.MSG.GET.KV_trellis_jobs"),
+    false,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.STREAM.INFO.KV_trellis_jobs"),
+    false,
+  );
+  assertEquals(grants.publish.includes("$KV.trellis_jobs.>"), false);
+  assertEquals(grants.publish.includes("$JS.API.$KV.trellis_jobs.>"), false);
 });
 
 Deno.test({

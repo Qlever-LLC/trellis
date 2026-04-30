@@ -65,6 +65,10 @@ export type ContractResourceAnalysis = {
   jobs: JobsQueueRequest[];
 };
 
+export type ResourceProvisioningOptions = {
+  jetstreamReplicas?: number;
+};
+
 export type ContractResourceBindings = {
   kv?: Record<string, {
     bucket: string;
@@ -179,6 +183,7 @@ async function ensureKvResource(
   nats: NatsConnection,
   bucket: string,
   request: Pick<KvResourceRequest, "history" | "ttlMs" | "maxValueBytes">,
+  options: ResourceProvisioningOptions = {},
 ): Promise<void> {
   const kvm = new Kvm(nats);
   let kv: KV;
@@ -186,6 +191,7 @@ async function ensureKvResource(
     kv = await kvm.create(bucket, {
       history: request.history,
       ttl: request.ttlMs,
+      replicas: options.jetstreamReplicas ?? 1,
       ...(request.maxValueBytes ? { maxValueSize: request.maxValueBytes } : {}),
     });
   } catch (error) {
@@ -204,6 +210,7 @@ async function ensureKvResource(
     },
     await kv.status(),
     request,
+    options,
   );
 }
 
@@ -212,6 +219,7 @@ type KvResourceStreamConfig = {
   max_msgs_per_subject: number;
   max_age: number;
   max_msg_size: number;
+  num_replicas: number;
 } & Record<string, unknown>;
 
 type KvResourceStatus = {
@@ -232,14 +240,17 @@ export async function reconcileKvResourceConfig(
   streams: KvStreamUpdater,
   status: KvResourceStatus,
   request: Pick<KvResourceRequest, "history" | "ttlMs" | "maxValueBytes">,
+  options: ResourceProvisioningOptions = {},
 ): Promise<void> {
   const config = status.streamInfo.config;
   const maxAge = request.ttlMs > 0 ? request.ttlMs * 1_000_000 : 0;
   const maxMsgSize = request.maxValueBytes ?? -1;
+  const numReplicas = options.jetstreamReplicas ?? 1;
   if (
     config.max_msgs_per_subject === request.history &&
     config.max_age === maxAge &&
-    config.max_msg_size === maxMsgSize
+    config.max_msg_size === maxMsgSize &&
+    config.num_replicas === numReplicas
   ) {
     return;
   }
@@ -249,6 +260,7 @@ export async function reconcileKvResourceConfig(
     max_msgs_per_subject: request.history,
     max_age: maxAge,
     max_msg_size: maxMsgSize,
+    num_replicas: numReplicas,
   });
 }
 
@@ -256,6 +268,7 @@ async function ensureStoreResource(
   nats: NatsConnection,
   name: string,
   store: StoreResourceRequest,
+  options: ResourceProvisioningOptions = {},
 ): Promise<void> {
   const objm = new Objm(nats);
   let objectStore;
@@ -265,6 +278,7 @@ async function ensureStoreResource(
       ...(store.maxTotalBytes !== undefined
         ? { max_bytes: store.maxTotalBytes }
         : {}),
+      replicas: options.jetstreamReplicas ?? 1,
     });
   } catch (error) {
     if (!isObjectStoreAlreadyExistsError(error)) {
@@ -282,6 +296,7 @@ async function ensureStoreResource(
     },
     status,
     store,
+    options,
   );
 }
 
@@ -289,6 +304,7 @@ type StoreResourceStreamConfig = {
   name: string;
   max_age: number;
   max_bytes: number;
+  num_replicas: number;
 } & Record<string, unknown>;
 
 type StoreResourceStatus = {
@@ -309,13 +325,16 @@ export async function reconcileStoreResourceConfig(
   streams: StoreStreamUpdater,
   status: StoreResourceStatus,
   store: Pick<StoreResourceRequest, "ttlMs" | "maxTotalBytes">,
+  options: ResourceProvisioningOptions = {},
 ): Promise<void> {
   const config = status.streamInfo.config;
   const maxAge = store.ttlMs > 0 ? store.ttlMs * 1_000_000 : 0;
   const maxBytes = store.maxTotalBytes ?? -1;
+  const numReplicas = options.jetstreamReplicas ?? 1;
   if (
     config.max_age === maxAge &&
-    config.max_bytes === maxBytes
+    config.max_bytes === maxBytes &&
+    config.num_replicas === numReplicas
   ) {
     return;
   }
@@ -324,6 +343,7 @@ export async function reconcileStoreResourceConfig(
     ...config,
     max_age: maxAge,
     max_bytes: maxBytes,
+    num_replicas: numReplicas,
   });
 }
 
@@ -338,9 +358,12 @@ function isObjectStoreAlreadyExistsError(error: unknown): boolean {
 async function ensureStreamResource(
   nats: NatsConnection,
   stream: BuiltinStreamBinding,
+  options: ResourceProvisioningOptions = {},
 ): Promise<void> {
   const jsm = await jetstreamManager(nats);
-  const config = toJetStreamStreamConfig(stream);
+  const config = toJetStreamStreamConfig(stream, {
+    numReplicas: options.jetstreamReplicas ?? stream.numReplicas,
+  });
 
   try {
     await jsm.streams.info(stream.name);
@@ -401,16 +424,15 @@ function isStreamNotFoundError(error: unknown): boolean {
 
 async function ensureBuiltinJobsInfrastructure(
   nats: NatsConnection,
+  options: ResourceProvisioningOptions = {},
 ): Promise<void> {
   await ensureKvResource(nats, BUILTIN_JOBS_STATE_BUCKET, {
     history: 1,
     ttlMs: 0,
-  });
-  await Promise.all(
-    Object.values(BUILTIN_JOBS_STREAMS).map((stream) =>
-      ensureStreamResource(nats, stream)
-    ),
-  );
+  }, options);
+  await ensureStreamResource(nats, BUILTIN_JOBS_STREAMS.jobs, options);
+  await ensureStreamResource(nats, BUILTIN_JOBS_STREAMS.jobsWork, options);
+  await ensureStreamResource(nats, BUILTIN_JOBS_STREAMS.jobsAdvisories, options);
 }
 
 function sanitizeToken(value: string): string {
@@ -551,6 +573,7 @@ export async function provisionContractResourceBindings(
   nats: NatsConnection | undefined,
   contract: TrellisContractV1,
   serviceDeploymentId: string,
+  options: ResourceProvisioningOptions = {},
 ): Promise<ContractResourceBindings> {
   const requests = getKvResourceRequests(contract);
   const stores = getStoreResourceRequests(contract);
@@ -577,7 +600,7 @@ export async function provisionContractResourceBindings(
         request.alias,
       );
       try {
-        await ensureKvResource(nats, bucket, request);
+        await ensureKvResource(nats, bucket, request, options);
       } catch (error) {
         if (!request.required) continue;
         throw error;
@@ -614,7 +637,7 @@ export async function provisionContractResourceBindings(
           store.alias,
         );
         try {
-          await ensureStoreResource(nats, name, store);
+          await ensureStoreResource(nats, name, store, options);
         } catch (error) {
           if (!store.required) continue;
           throw error;
@@ -640,7 +663,7 @@ export async function provisionContractResourceBindings(
         "NATS connection is required to provision jobs resources",
       );
     }
-    await ensureBuiltinJobsInfrastructure(nats);
+    await ensureBuiltinJobsInfrastructure(nats, options);
     const namespace = buildJobsNamespace(serviceDeploymentId, contract.id);
     bindings.jobs = {
       namespace,
@@ -708,13 +731,14 @@ export function getResourcePermissionGrants(
     publish.add(`trellis.jobs.${namespace}.>`);
     publish.add(`trellis.jobs.workers.${namespace}.>`);
     publish.add(`trellis.work.${namespace}.>`);
-    publish.add(`$JS.API.CONSUMER.DURABLE.CREATE.${workStream}.>`);
+    publish.add(`$JS.API.CONSUMER.CREATE.${workStream}.>`);
     publish.add(`$JS.API.CONSUMER.INFO.${workStream}.>`);
     publish.add(`$JS.API.CONSUMER.MSG.NEXT.${workStream}.>`);
     publish.add(`$JS.ACK.${workStream}.>`);
     for (const queue of Object.values(bindings.jobs.queues)) {
       publish.add(queue.publishPrefix + ".>");
       publish.add(queue.workSubject);
+      subscribe.add(`${queue.publishPrefix}.*.*`);
       subscribe.add(`${queue.publishPrefix}.*.cancelled`);
     }
   }

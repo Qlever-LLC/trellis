@@ -1,7 +1,7 @@
 import { buildDntPackage } from "../../../tools/package_build/build_dnt_package.ts";
 
 const npmPackageJsonPath = new URL("../npm/package.json", import.meta.url);
-const npmScriptDirUrl = new URL("../npm/script/", import.meta.url);
+const npmDirUrl = new URL("../npm/", import.meta.url);
 const generatedSdkSourceUrl = new URL(
   "../../../../generated/js/sdks/",
   import.meta.url,
@@ -32,16 +32,6 @@ function normalizeExportValue(value: unknown): unknown {
   );
 }
 
-function removeRequireCondition(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return value;
-  }
-
-  return Object.fromEntries(
-    Object.entries(value).filter(([key]) => key !== "require"),
-  );
-}
-
 async function removeMissingRequireCondition(value: unknown): Promise<unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return value;
@@ -63,6 +53,64 @@ async function removeMissingRequireCondition(value: unknown): Promise<unknown> {
         }
         throw error;
       }
+    }),
+  );
+
+  return Object.fromEntries(entries.filter((entry) => entry !== undefined));
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await Deno.stat(new URL(path, npmPackageJsonPath));
+    return true;
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function normalizeExportTargets(
+  _key: string,
+  value: unknown,
+): Promise<unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  if (_key.startsWith("./sdk/")) {
+    const subpath = _key.slice("./".length);
+    const importPath = `./esm/npm/src/${subpath}.js`;
+    const requirePath = `./script/npm/src/${subpath}.js`;
+    return {
+      ...(await pathExists(importPath) ? { import: importPath } : {}),
+      ...(await pathExists(requirePath) ? { require: requirePath } : {}),
+    };
+  }
+
+  const entries = await Promise.all(
+    Object.entries(value).map(async ([condition, nestedValue]) => {
+      if (
+        (condition !== "import" && condition !== "require") ||
+        typeof nestedValue !== "string"
+      ) {
+        return [condition, nestedValue] as const;
+      }
+
+      if (await pathExists(nestedValue)) {
+        return [condition, nestedValue] as const;
+      }
+
+      const fallback = nestedValue.replace(
+        /^\.\/(esm|script)\//,
+        "./$1/npm/src/",
+      );
+      if (fallback !== nestedValue && await pathExists(fallback)) {
+        return [condition, fallback] as const;
+      }
+
+      return undefined;
     }),
   );
 
@@ -111,10 +159,10 @@ async function stageGeneratedSdks() {
   await copyDir(generatedSdkSourceUrl, generatedSdkBuildUrl);
 }
 
-async function normalizeScriptModuleSpecifiers() {
+async function normalizeModuleSpecifiers() {
   const relativeTsSpecifierPattern = /(["'])(\.{1,2}\/[^"']+)\.ts\1/g;
 
-  for await (const fileUrl of walkFiles(npmScriptDirUrl)) {
+  for await (const fileUrl of walkFiles(npmDirUrl)) {
     if (!fileUrl.pathname.endsWith(".js")) {
       continue;
     }
@@ -151,11 +199,7 @@ async function normalizePackageJsonExports() {
       const normalizedValue = normalizeExportValue(value);
       return [
         normalizedKey,
-        await removeMissingRequireCondition(
-          normalizedKey.startsWith("./sdk/")
-            ? removeRequireCondition(normalizedValue)
-            : normalizedValue,
-        ),
+        await normalizeExportTargets(normalizedKey, normalizedValue),
       ];
     }),
   );
@@ -193,6 +237,8 @@ await buildDntPackage({
     "./js/packages/trellis/sdk/jobs.ts",
     "./js/packages/trellis/sdk/state.ts",
     "./js/packages/trellis/errors/index.ts",
+    "./js/packages/trellis/host/mod.ts",
+    "./js/packages/trellis/host/node.ts",
     "./js/packages/trellis/service/mod.ts",
     "./js/packages/trellis/service/deno.ts",
     "./js/packages/trellis/service/node.ts",
@@ -246,6 +292,6 @@ await buildDntPackage({
   },
 });
 
-await normalizeScriptModuleSpecifiers();
+await normalizeModuleSpecifiers();
 await normalizePackageJsonExports();
 await Deno.remove(generatedSdkBuildUrl, { recursive: true });

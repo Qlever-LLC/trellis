@@ -4,6 +4,7 @@ import { isErr, UnexpectedError } from "@qlever-llc/trellis";
 import { ASSIGNED_INSPECTIONS } from "../../../../shared/field_data.ts";
 import contract from "../../../contract.ts";
 import { recordActivity } from "../activity/index.ts";
+import { buildReportRecord, recordReport } from "./reportStore.ts";
 
 export const generateReport: OperationHandler<
   typeof contract,
@@ -42,7 +43,7 @@ export const generateReport: OperationHandler<
   const inspectionLabel = inspection
     ? `${inspection.siteName} / ${inspection.assetName}`
     : input.inspectionId;
-  const reportId = `report-${input.inspectionId}`;
+  const reportId = `closeout-${input.inspectionId}`;
 
   const started = await op.started().take();
   if (isErr(started)) {
@@ -50,7 +51,7 @@ export const generateReport: OperationHandler<
     if (!error) return;
     throw error;
   }
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  await new Promise((resolve) => setTimeout(resolve, 900));
 
   for (
     const progress of [
@@ -58,10 +59,10 @@ export const generateReport: OperationHandler<
         stage: "drafting",
         message: `Collecting field notes for ${inspectionLabel}`,
       },
-      { stage: "rendering", message: `Rendering ${reportId}` },
+      { stage: "checking", message: `Checking evidence and site readiness` },
       {
         stage: "publishing",
-        message: `Publishing ${reportId} for ${inspectionLabel}`,
+        message: `Publishing closeout status for ${inspectionLabel}`,
       },
     ]
   ) {
@@ -71,24 +72,43 @@ export const generateReport: OperationHandler<
       if (!error) return;
       throw error;
     }
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
   }
 
+  const publishedAt = new Date().toISOString();
   const output = {
     reportId,
     inspectionId: input.inspectionId,
     status: "published",
   };
+  const report = buildReportRecord({
+    reportId,
+    inspectionId: input.inspectionId,
+    status: output.status,
+    publishedAt,
+    reportComment: input.reportComment,
+  });
+
+  const finalizing = await op.progress({
+    stage: "finalizing",
+    message: `Finalizing closeout report for ${inspectionLabel}`,
+  }).take();
+  if (isErr(finalizing)) {
+    const error = await handleOperationError(finalizing.error);
+    if (!error) return;
+    throw error;
+  }
 
   await trellis.publish("Reports.Published", {
     reportId,
     inspectionId: input.inspectionId,
     siteId: inspection?.siteId,
-    publishedAt: new Date().toISOString(),
+    publishedAt,
   }).orThrow();
+  recordReport(report);
   await recordActivity(trellis, {
-    kind: "report-published",
-    message: `Published ${reportId} for ${inspectionLabel}`,
+    kind: "closeout-published",
+    message: `Published closeout status for ${inspectionLabel}`,
     relatedSiteId: inspection?.siteId,
     relatedInspectionId: input.inspectionId,
   });

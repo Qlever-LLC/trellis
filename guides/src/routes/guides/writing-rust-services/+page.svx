@@ -148,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-`connect_service` verifies the contract is active in the Trellis service catalog and resolves the persisted resource bindings for that exact contract digest.
+`connect_service` verifies the contract digest is installed and still allowed for the service instance, then resolves the persisted resource bindings for that exact digest. The digest becomes active in the Trellis service catalog when it is applied to an enabled service deployment; it does not wait for this instance to connect.
 
 ## 6. Open KV stores
 
@@ -226,7 +226,7 @@ service.stop().await?;
 cargo build --release
 ```
 
-Apply the contract to a service deployment and provision one service instance:
+Apply the contract to a service deployment and provision one service instance. The applied digest becomes active for catalog/auth after apply; the instance is for runtime availability and current-digest enforcement:
 
 ```sh
 trellis deploy create svc/orders-service

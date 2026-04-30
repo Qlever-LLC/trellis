@@ -133,48 +133,58 @@
     <EmptyState title="No active deployments" description="Create or enable a deployment before provisioning device instances." />
   {:else}
     <Panel title="Instance identity" eyebrow="Device identity">
-      <form class="grid gap-3 lg:grid-cols-[1fr_2fr_2fr]" onsubmit={(event) => { event.preventDefault(); void provisionInstance(); }}>
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Deployment</span>
-          <select class="select select-bordered select-sm" bind:value={provisionDeploymentId} required>
-            {#each activeDeployments as deployment (deployment.deploymentId)}
-              <option value={deployment.deploymentId}>{deployment.deploymentId}</option>
-            {/each}
-          </select>
-        </label>
+      <form class="trellis-form" onsubmit={(event) => { event.preventDefault(); void provisionInstance(); }}>
+        <div class="trellis-record-summary">
+          <div class="trellis-record-summary-title">{metadataName.trim() || "New device instance"}</div>
+          <div class="trellis-metadata">Deployment {provisionDeploymentId || "not selected"}</div>
+          {#if publicIdentityKey.trim()}
+            <div class="trellis-identifier break-all">{publicIdentityKey.trim()}</div>
+          {/if}
+        </div>
 
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Public identity key</span>
-          <input class="input input-bordered input-sm font-mono" bind:value={publicIdentityKey} placeholder="base64url public key" required />
-        </label>
+        <div class="trellis-form-grid">
+          <label class="trellis-field trellis-form-wide">
+            <span class="trellis-field-label">Deployment</span>
+            <select class="select select-bordered select-sm" bind:value={provisionDeploymentId} required>
+              {#each activeDeployments as deployment (deployment.deploymentId)}
+                <option value={deployment.deploymentId}>{deployment.deploymentId}</option>
+              {/each}
+            </select>
+          </label>
 
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Activation key</span>
-          <input class="input input-bordered input-sm font-mono" bind:value={activationKey} placeholder="base64url activation key" required />
-        </label>
+          <label class="trellis-field">
+            <span class="trellis-field-label">Public identity key</span>
+            <input class="input input-bordered input-sm font-mono" bind:value={publicIdentityKey} placeholder="base64url public key" required />
+          </label>
 
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Name</span>
-          <input class="input input-bordered input-sm" bind:value={metadataName} placeholder="Optional display name" />
-        </label>
+          <label class="trellis-field">
+            <span class="trellis-field-label">Activation key</span>
+            <input class="input input-bordered input-sm font-mono" bind:value={activationKey} placeholder="base64url activation key" required />
+          </label>
 
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Serial number</span>
-          <input class="input input-bordered input-sm" bind:value={metadataSerialNumber} placeholder="Optional serial" />
-        </label>
+          <label class="trellis-field">
+            <span class="trellis-field-label">Name</span>
+            <input class="input input-bordered input-sm" bind:value={metadataName} placeholder="Optional display name" />
+          </label>
 
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Model number</span>
-          <input class="input input-bordered input-sm" bind:value={metadataModelNumber} placeholder="Optional model" />
-        </label>
+          <label class="trellis-field">
+            <span class="trellis-field-label">Serial number</span>
+            <input class="input input-bordered input-sm" bind:value={metadataSerialNumber} placeholder="Optional serial" />
+          </label>
 
-        <label class="form-control gap-1 lg:col-span-2">
-          <span class="label-text text-xs">Metadata</span>
-          <textarea class="textarea textarea-bordered textarea-sm min-h-24 font-mono" bind:value={opaqueMetadata} placeholder="assetTag=asset-42&#10;location=front-desk"></textarea>
-        </label>
+          <label class="trellis-field">
+            <span class="trellis-field-label">Model number</span>
+            <input class="input input-bordered input-sm" bind:value={metadataModelNumber} placeholder="Optional model" />
+          </label>
 
-        <div class="flex items-end lg:justify-end">
-          <button type="submit" class="btn btn-outline btn-sm" disabled={pending || !provisionDeploymentId}>
+          <label class="trellis-field trellis-form-wide">
+            <span class="trellis-field-label">Metadata</span>
+            <textarea class="textarea textarea-bordered textarea-sm font-mono" bind:value={opaqueMetadata} placeholder="assetTag=asset-42&#10;location=front-desk"></textarea>
+          </label>
+        </div>
+
+        <div class="trellis-action-row">
+          <button type="submit" class="btn btn-primary btn-sm" disabled={pending || !provisionDeploymentId}>
             {pending ? "Provisioning…" : "Provision"}
           </button>
         </div>

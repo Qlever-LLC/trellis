@@ -72,6 +72,7 @@ function parseSentinelCreds(credsContent: string): SentinelCreds {
 /** Creates Trellis runtime dependencies in explicit startup order. */
 export async function createRuntimeGlobals(config: Config) {
   const cleanupSteps: CleanupStep[] = [];
+  const kvOptions = { replicas: config.nats.jetstream.replicas };
   const sentinelCreds = parseSentinelCreds(
     Deno.readTextFileSync(config.nats.sentinelCredsPath),
   );
@@ -121,7 +122,11 @@ export async function createRuntimeGlobals(config: Config) {
       natsAuth,
       "trellis_oauth_states",
       OAuthStateSchema,
-      { history: 1, ttl: config.ttlMs.oauth },
+      {
+        ...kvOptions,
+        history: 1,
+        ttl: config.ttlMs.oauth,
+      },
     );
     const oauthStateKV = oauthStateKVResult.take();
     if (isErr(oauthStateKV)) {
@@ -134,7 +139,11 @@ export async function createRuntimeGlobals(config: Config) {
       natsAuth,
       "trellis_pending_auth",
       PendingAuthSchema,
-      { history: 1, ttl: config.ttlMs.pendingAuth },
+      {
+        ...kvOptions,
+        history: 1,
+        ttl: config.ttlMs.pendingAuth,
+      },
     );
     const pendingAuthKV = pendingAuthKVResult.take();
     if (isErr(pendingAuthKV)) {
@@ -148,6 +157,7 @@ export async function createRuntimeGlobals(config: Config) {
       "trellis_browser_flows",
       AuthBrowserFlowSchema,
       {
+        ...kvOptions,
         history: 1,
         ttl: Math.max(config.ttlMs.oauth, config.ttlMs.deviceFlow),
       },
@@ -163,7 +173,11 @@ export async function createRuntimeGlobals(config: Config) {
       natsAuth,
       "trellis_connections",
       ConnectionSchema,
-      { history: 1, ttl: config.ttlMs.connections },
+      {
+        ...kvOptions,
+        history: 1,
+        ttl: config.ttlMs.connections,
+      },
     );
     const connectionsKV = connectionsKVResult.take();
     if (isErr(connectionsKV)) {
@@ -176,7 +190,11 @@ export async function createRuntimeGlobals(config: Config) {
       natsAuth,
       "trellis_state",
       StoredStateEntrySchema,
-      { history: 1, ttl: 0 },
+      {
+        ...kvOptions,
+        history: 1,
+        ttl: 0,
+      },
     );
     const stateKV = stateKVResult.take();
     if (isErr(stateKV)) {

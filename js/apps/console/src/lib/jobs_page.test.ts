@@ -99,6 +99,41 @@ Deno.test("loadJobsPageData reports Jobs admin runtime as unavailable when Jobs 
   deepEqual(data.services, []);
 });
 
+Deno.test("loadJobsPageData reports lowercase NATS no responders as unavailable", async () => {
+  function request(
+    method: "Jobs.ListServices",
+    input: Record<string, never>,
+  ): AsyncResult<JobsListServicesOutput, BaseError>;
+  function request(
+    method: "Jobs.List",
+    input: JobsListInput,
+  ): AsyncResult<JobsListOutput, BaseError>;
+  function request(
+    method: "Jobs.ListServices" | "Jobs.List",
+    _input: Record<string, never> | JobsListInput,
+  ): AsyncResult<JobsListServicesOutput | JobsListOutput, BaseError> {
+    if (method === "Jobs.ListServices") {
+      return AsyncResult.err(
+        new UnexpectedError({
+          cause: new Error("no responders: 'rpc.v1.Jobs.ListServices'"),
+        }),
+      );
+    }
+
+    return AsyncResult.ok<JobsListOutput>({ jobs: [] });
+  }
+  const data = await loadJobsPageData({
+    listServices: () => request("Jobs.ListServices", {}),
+    listJobs: (filter) => request("Jobs.List", filter),
+  });
+
+  deepEqual(data.available, false);
+  deepEqual(
+    data.message,
+    "Jobs admin runtime is not currently reachable.",
+  );
+});
+
 Deno.test("loadJobsPageData reports missing Jobs permissions with re-auth guidance", async () => {
   function request(
     method: "Jobs.ListServices",

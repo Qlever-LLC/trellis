@@ -614,6 +614,7 @@ Rules:
   - `maxTotalBytes`: optional desired total-store maximum in bytes; omitted
     means no finite total-size request and reconciles the backing NATS object
     store to its unlimited `max_bytes` sentinel
+  - `maxObjectBytes`: optional desired per-object maximum in bytes
 - install or upgrade approves the requested alias/type/spec, not general
   infrastructure-management credentials for the service
 - required resources fail install or upgrade if Trellis cannot provision or bind
@@ -621,9 +622,8 @@ Rules:
 - optional resources (`required: false`) may be omitted from installed bindings
   if provisioning is unavailable or fails; service code must treat those aliases
   as optional at runtime
-- v1 store bindings expose only effective runtime limits; `maxObjectBytes` is
-  not emitted as an installed binding because Trellis does not enforce
-  per-object object-store limits in the current runtime path
+- v1 store bindings expose effective runtime limits, including `maxObjectBytes`
+  when the runtime enforces a finite per-object limit
 
 ### 10a) First-class jobs
 
@@ -845,10 +845,13 @@ Catalog rules:
   in-memory catalog; unknown digests or divergent duplicate active surfaces keep
   the previous catalog unavailable rather than falling back to built-in
   manifests or a partial catalog
-- admin apply/unapply and service-bootstrap flows MUST use the same validation
-  in dry-run mode against staged deployment or instance records before mutating
-  the durable active set, so incompatible digests fail before partial catalog
-  state is persisted or exposed to callers
+- admin apply/unapply flows MUST use the same validation in dry-run mode against
+  staged deployment records before mutating the durable active set, so
+  incompatible digests fail before partial catalog state is persisted or exposed
+  to callers
+- active service digests are derived from enabled service deployments'
+  `appliedContracts[].allowedDigests` once apply succeeds, not from service
+  instances or their current runtime digest fields
 - active device digests are derived from enabled device deployments'
   `appliedContracts[].allowedDigests`, not from per-device current-contract
   fields

@@ -506,7 +506,7 @@ mod tests {
         let filter = super::WatchPathFilter::empty(root);
 
         assert!(filter.is_relevant(Path::new("/repo/services/orders/contracts/orders.ts")));
-        assert!(filter.is_relevant(Path::new("/repo/js/apps/console/src/lib/contract.ts")));
+        assert!(filter.is_relevant(Path::new("/repo/js/apps/console/contract.ts")));
     }
 
     #[test]
@@ -728,12 +728,21 @@ mod tests {
         for changed_path in [
             "services/orders/contract.ts",
             "services/orders/contract.js",
-            "services/orders/src/lib/contract.ts",
             "services/orders/contracts/new-contract.ts",
             "devices/sensor/contracts/new-contract.rs",
         ] {
             assert_watch_decision_full(&plan, &[changed_path]);
         }
+    }
+
+    #[test]
+    fn watch_decision_treats_any_contract_ts_or_js_as_discovery_shape() {
+        assert!(super::is_discovery_shape_path(Path::new(
+            "services/orders/src/lib/contract.ts"
+        )));
+        assert!(super::is_discovery_shape_path(Path::new(
+            "services/orders/src/lib/contract.js"
+        )));
     }
 
     #[test]
@@ -920,7 +929,7 @@ mod tests {
                 "apps/console",
                 "apps/console/package.json",
                 SourceLanguage::TypeScript,
-                "apps/console/src/lib/contract.ts",
+                "apps/console/contract.ts",
                 "trellis.console@v1",
                 ContractKind::App,
             ),

@@ -1,7 +1,7 @@
 <script lang="ts">
   import "../app.css";
   import type { Snippet } from "svelte";
-  import { base, resolve } from "$app/paths";
+  import { base } from "$app/paths";
   import { page } from "$app/state";
 
   let { children }: { children: Snippet } = $props();
@@ -9,6 +9,7 @@
   const pathname = $derived(normalizePath(stripBasePath(page.url.pathname)));
   const overviewActive = $derived(pathname === "/");
   const guidesActive = $derived(pathname === "/guides" || pathname.startsWith("/guides/"));
+  const apiActive = $derived(pathname === "/api" || pathname.startsWith("/api/"));
   const designActive = $derived(pathname === "/design" || pathname.startsWith("/design/"));
 
   function normalizePath(path: string) {
@@ -26,6 +27,14 @@
 
     return pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
   }
+
+  function resolveDocHref(href: string) {
+    if (!base) {
+      return href;
+    }
+
+    return href === "/" ? `${base}/` : `${base}${href}`;
+  }
 </script>
 
 <div class="min-h-screen bg-base-100 text-base-content">
@@ -33,7 +42,7 @@
     <div
       class="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 sm:px-6"
     >
-      <a href={resolve("/")} class="text-sm font-semibold">Trellis documentation</a>
+      <a href={resolveDocHref("/")} class="text-sm font-semibold">Trellis documentation</a>
 
       <div class="flex items-center gap-4 text-sm">
         <nav class="flex items-center gap-4" aria-label="Primary">
@@ -44,7 +53,7 @@
                 : "text-base-content/70",
               "hover:text-base-content",
             ]}
-            href={resolve("/")}>Overview</a
+            href={resolveDocHref("/")}>Overview</a
           >
           <a
             class={[
@@ -53,7 +62,16 @@
                 : "text-base-content/70",
               "hover:text-base-content",
             ]}
-            href={resolve("/guides")}>Guides</a
+            href={resolveDocHref("/guides")}>Guides</a
+          >
+          <a
+            class={[
+              apiActive
+                ? "font-medium text-base-content"
+                : "text-base-content/70",
+              "hover:text-base-content",
+            ]}
+            href={resolveDocHref("/api")}>API Reference</a
           >
           <a
             class={[
@@ -62,7 +80,7 @@
                 : "text-base-content/70",
               "hover:text-base-content",
             ]}
-            href={resolve("/design")}>Design</a
+            href={resolveDocHref("/design")}>Design</a
           >
         </nav>
       </div>

@@ -160,32 +160,48 @@
     {#if loading}
       <LoadingState label="Loading login portal selections" />
     {:else}
-      <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void saveSelection(); }}>
-        <label class="form-control gap-1 max-w-2xl">
-          <span class="label-text text-xs">Contract</span>
-          <select class="select select-bordered select-sm" bind:value={contractId} onchange={syncDraft} required>
-            <option value="" disabled>Select a contract</option>
-            {#each contracts as contract (contract.digest)}
-              <option value={contract.id}>{contract.displayName ?? contract.id}</option>
-            {/each}
-          </select>
-        </label>
+      <form class="trellis-form" onsubmit={(event) => { event.preventDefault(); void saveSelection(); }}>
+        <div class="trellis-record-summary">
+          <div class="trellis-record-summary-title">{contractId || "Select a contract"}</div>
+          <div class="trellis-metadata">
+            {#if selectedSelection}
+              Current override: {portalLabel(selectedSelection.portalId)}.
+            {:else}
+              Current default: {portalLabel(defaultPortal.portalId)}.
+            {/if}
+          </div>
+          {#if contractId}
+            <div class="trellis-identifier break-all">{contractId}</div>
+          {/if}
+        </div>
 
-        <label class="form-control gap-1 max-w-2xl">
-          <span class="label-text text-xs">Override</span>
-          <select class="select select-bordered select-sm" bind:value={selectionDraft}>
-            <option value={INHERIT_OPTION}>Use default portal ({portalLabel(defaultPortal.portalId)})</option>
-            <option value={BUILTIN_OPTION}>Built-in portal</option>
-            {#each portals as portal (portal.portalId)}
-              <option value={portal.portalId} disabled={portal.disabled}>{portalLabel(portal.portalId)}</option>
-            {/each}
-          </select>
-        </label>
+        <div class="trellis-form-grid">
+          <label class="trellis-field trellis-form-wide">
+            <span class="trellis-field-label">Contract</span>
+            <select class="select select-bordered select-sm" bind:value={contractId} onchange={syncDraft} required>
+              <option value="" disabled>Select a contract</option>
+              {#each contracts as contract (contract.digest)}
+                <option value={contract.id}>{contract.displayName ?? contract.id}</option>
+              {/each}
+            </select>
+          </label>
 
-        <div class="flex flex-wrap items-center gap-2">
-          <button type="submit" class="btn btn-outline btn-sm" disabled={!contractId || pending}>{pending ? "Saving…" : "Apply Selection"}</button>
-          <button type="button" class="btn btn-ghost btn-sm" onclick={() => void clearSelection()} disabled={!contractId || !selectedSelection || pending}>{pending ? "Clearing…" : "Clear Selection"}</button>
+          <label class="trellis-field trellis-form-wide">
+            <span class="trellis-field-label">Override</span>
+            <select class="select select-bordered select-sm" bind:value={selectionDraft}>
+              <option value={INHERIT_OPTION}>Use default portal ({portalLabel(defaultPortal.portalId)})</option>
+              <option value={BUILTIN_OPTION}>Built-in portal</option>
+              {#each portals as portal (portal.portalId)}
+                <option value={portal.portalId} disabled={portal.disabled}>{portalLabel(portal.portalId)}</option>
+              {/each}
+            </select>
+          </label>
+        </div>
+
+        <div class="trellis-action-row">
           <a class="btn btn-ghost btn-sm" href={resolve("/admin/portals/login")}>Done</a>
+          <button type="button" class="btn btn-ghost btn-sm" onclick={() => void clearSelection()} disabled={!contractId || !selectedSelection || pending}>{pending ? "Clearing…" : "Clear Selection"}</button>
+          <button type="submit" class="btn btn-primary btn-sm" disabled={!contractId || pending}>{pending ? "Saving…" : "Apply Selection"}</button>
         </div>
       </form>
     {/if}

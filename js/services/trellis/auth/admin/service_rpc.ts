@@ -14,6 +14,7 @@ import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import {
   type ContractResourceBindings,
   provisionContractResourceBindings,
+  type ResourceProvisioningOptions,
 } from "../../catalog/resources.ts";
 
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
@@ -248,7 +249,9 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
     nats: NatsConnection | undefined,
     contract: TrellisContractV1,
     deploymentId: string,
+    options?: ResourceProvisioningOptions,
   ) => Promise<ContractResourceBindings>;
+  resourceProvisioningOptions?: ResourceProvisioningOptions;
   refreshActiveContracts: () => Promise<void>;
   serviceDeploymentStorage: ServiceDeploymentStorage;
   validateActiveCatalog?: ActiveCatalogValidator;
@@ -303,6 +306,7 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
           deps.nats,
           installed.contract,
           deployment.deploymentId,
+          deps.resourceProvisioningOptions,
         );
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));

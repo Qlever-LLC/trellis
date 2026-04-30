@@ -24,6 +24,9 @@ import {
   AuthCreatePortalSchema,
   AuthDecideDeviceActivationReviewResponseSchema,
   AuthDecideDeviceActivationReviewSchema,
+  AuthDeviceActivatedEventSchema,
+  AuthDeviceActivationApprovedEventSchema,
+  AuthDeviceActivationRequestedEventSchema,
   AuthDeviceActivationReviewRequestedEventSchema,
   AuthDisableDeviceDeploymentResponseSchema,
   AuthDisableDeviceDeploymentSchema,
@@ -758,6 +761,45 @@ Deno.test("device activation and connect-info schemas validate", () => {
       origin: "github",
       id: "123",
     },
+  }));
+  assert(Value.Check(AuthDeviceActivationRequestedEventSchema, {
+    flowId: "flow_1",
+    instanceId: "dev_1",
+    publicIdentityKey: "A".repeat(43),
+    deploymentId: "sherpa",
+    requestedAt: now,
+    requestedBy: {
+      origin: "github",
+      id: "123",
+    },
+  }));
+  assert(Value.Check(AuthDeviceActivationApprovedEventSchema, {
+    reviewId: "dar_1",
+    flowId: "flow_1",
+    instanceId: "dev_1",
+    publicIdentityKey: "A".repeat(43),
+    deploymentId: "sherpa",
+    requestedAt: now,
+    approvedAt: now,
+    requestedBy: {
+      origin: "github",
+      id: "123",
+    },
+    approvedBy: {
+      id: "admin",
+    },
+  }));
+  assert(Value.Check(AuthDeviceActivatedEventSchema, {
+    instanceId: "dev_1",
+    publicIdentityKey: "A".repeat(43),
+    deploymentId: "sherpa",
+    activatedAt: now,
+    activatedBy: {
+      origin: "github",
+      id: "123",
+    },
+    flowId: "flow_1",
+    reviewId: "dar_1",
   }));
   assert(Value.Check(AuthGetDeviceConnectInfoSchema, {
     publicIdentityKey: "A".repeat(43),

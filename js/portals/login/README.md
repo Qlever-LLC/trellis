@@ -68,6 +68,12 @@ device deployment and the presented device contract digest; Trellis will not
 pick another digest from the deployment allow-list if the device presents a
 retired or unknown digest.
 
+For browser app login, dependency checks resolve against the active catalog. A
+service contract digest becomes active for these checks when it is applied to an
+enabled service deployment; Trellis does not wait for a service instance to
+connect. If the implementing service is down, follow-on app calls may fail, but
+the portal should not describe that as an inactive contract dependency.
+
 For device activation to succeed, the portal contract digest must be allowed on
 the relevant device deployment through `appliedContracts[].allowedDigests` or an
 empty allowed-digest lineage entry. Trellis treats `allowedDigests` as a rollout

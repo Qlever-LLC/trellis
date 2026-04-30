@@ -324,6 +324,74 @@ const designGroupDocs: DocEntry[] = designGroups.map((group) => ({
   showPageHeader: false,
 }));
 
+export const apiReferenceOverviewDoc: DocEntry = {
+  title: "API Reference",
+  description:
+    "Generated TypeScript API docs and Rustdoc links for public Trellis crates.",
+  href: "/api",
+  section: "API Reference",
+  showPageHeader: false,
+};
+
+export const apiReferenceDocs: DocEntry[] = [
+  {
+    title: "TypeScript API Reference",
+    description:
+      "Generated TypeScript API documentation from public JSDoc comments.",
+    href: "/api/typescript/index.html",
+    section: "API Reference",
+  },
+  {
+    title: "trellis-client",
+    description: "Rust SDK client API on docs.rs.",
+    href: "https://docs.rs/trellis-client/latest/trellis_client/",
+    section: "Rustdoc",
+  },
+  {
+    title: "trellis-server",
+    description: "Rust server runtime API on docs.rs.",
+    href: "https://docs.rs/trellis-server/latest/trellis_server/",
+    section: "Rustdoc",
+  },
+  {
+    title: "trellis-contracts",
+    description: "Rust contract types and helpers on docs.rs.",
+    href: "https://docs.rs/trellis-contracts/latest/trellis_contracts/",
+    section: "Rustdoc",
+  },
+  {
+    title: "trellis-auth",
+    description: "Rust authentication API on docs.rs.",
+    href: "https://docs.rs/trellis-auth/latest/trellis_auth/",
+    section: "Rustdoc",
+  },
+  {
+    title: "trellis-codegen-rust",
+    description: "Rust code generation API on docs.rs.",
+    href: "https://docs.rs/trellis-codegen-rust/latest/trellis_codegen_rust/",
+    section: "Rustdoc",
+  },
+  {
+    title: "trellis-codegen-ts",
+    description: "TypeScript code generation API on docs.rs.",
+    href: "https://docs.rs/trellis-codegen-ts/latest/trellis_codegen_ts/",
+    section: "Rustdoc",
+  },
+  {
+    title: "trellis-cli",
+    description: "Rust CLI crate API on docs.rs.",
+    href: "https://docs.rs/trellis-cli/latest/trellis_cli/",
+    section: "Rustdoc",
+  },
+];
+
+export const pendingRustdocCrates = [
+  "trellis-auth-adapters",
+  "trellis-jobs",
+  "trellis-service-jobs",
+  "trellis-core-bootstrap",
+] as const;
+
 export const guideDocs: DocEntry[] = [
   {
     title: "Trellis Concepts",
@@ -597,6 +665,10 @@ export function overviewDocsBySection(): {
   return [
     ...guideDocsBySection(),
     {
+      section: "API Reference",
+      docs: [apiReferenceOverviewDoc],
+    },
+    {
       section: "Design",
       docs: designGroupDocs,
     },
@@ -604,24 +676,39 @@ export function overviewDocsBySection(): {
 }
 
 export function allPrimaryNavDocs(): DocEntry[] {
-  return [...guideDocs, designOverviewDoc, ...designGroupDocs];
+  return [
+    ...guideDocs,
+    apiReferenceOverviewDoc,
+    designOverviewDoc,
+    ...designGroupDocs,
+  ];
 }
 
 export function allDocsByHref(pathname: string): DocEntry | null {
-  return [...guideDocs, ...designNavigationDocs].find((doc) =>
-    doc.href === pathname
-  ) ?? null;
+  return [
+    ...guideDocs,
+    apiReferenceOverviewDoc,
+    ...apiReferenceDocs,
+    ...designNavigationDocs,
+  ].find((doc) => doc.href === pathname) ?? null;
 }
 
 export function docsForSection(section: string): DocEntry[] {
-  return [...guideDocs, ...designNavigationDocs].filter((doc) =>
-    doc.section === section
-  );
+  return [
+    ...guideDocs,
+    apiReferenceOverviewDoc,
+    ...apiReferenceDocs,
+    ...designNavigationDocs,
+  ].filter((doc) => doc.section === section);
 }
 
 export function docsBySection(): { section: string; docs: DocEntry[] }[] {
   const orderedSections = [
     ...guideDocsBySection(),
+    {
+      section: "API Reference",
+      docs: [apiReferenceOverviewDoc, ...apiReferenceDocs],
+    },
     ...designDocsBySection(),
   ];
 

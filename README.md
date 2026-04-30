@@ -35,6 +35,12 @@ Trellis service deployments need persistent writable storage at
 `/var/lib/trellis/trellis.sqlite` and can be moved with `storage.dbPath` in the
 Trellis service config.
 
+Trellis requires `nats-server` 2.10.0 or newer. Jobs rely on JetStream source
+subject transforms and the filtered consumer create API permission model.
+Set `nats.jetstream.replicas` in the Trellis service config to match the NATS
+topology: `1` for standalone/local installs and typically `3` for production
+clusters.
+
 Current TypeScript runtime entrypoints:
 
 - `TrellisClient.connect(...)` for browser and client runtimes

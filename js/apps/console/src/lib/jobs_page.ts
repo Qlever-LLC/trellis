@@ -61,7 +61,9 @@ export async function loadJobsPageData(
         jobs: [],
       };
     }
+    const normalizedMessage = message.toLowerCase();
     if (
+      normalizedMessage.includes("no responders") ||
       message.includes("No responders available for request") ||
       message.includes("references inactive contract") ||
       message.includes("not currently reachable")

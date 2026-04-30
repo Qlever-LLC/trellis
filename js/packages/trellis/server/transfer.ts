@@ -451,6 +451,29 @@ export class ServiceTransfer {
     this.#uploadSessions.set(subject, session);
     this.#runUploadSession(session);
 
+    const ready = await this.#flushSubscriptionInterest("initiateUpload");
+    const readyValue = ready.take();
+    if (isErr(readyValue)) {
+      this.#expireUploadSession(subject, readyValue.error);
+      return Result.err(readyValue.error);
+    }
+    if (!this.#uploadSessions.has(subject)) {
+      return Result.err(
+        new TransferError({
+          operation: "initiateUpload",
+          context: { reason: "session_closed" },
+        }),
+      );
+    }
+    if (Date.now() >= expiresAtMs) {
+      const error = new TransferError({
+        operation: "initiateUpload",
+        context: { reason: "expired" },
+      });
+      this.#expireUploadSession(subject, error);
+      return Result.err(error);
+    }
+
     return Result.ok({
       type: "TransferGrant",
       direction: "send",
@@ -566,6 +589,30 @@ export class ServiceTransfer {
     this.#downloadSessions.set(subject, session);
     this.#runDownloadSession(session);
 
+    const ready = await this.#flushSubscriptionInterest("initiateDownload");
+    const readyValue = ready.take();
+    if (isErr(readyValue)) {
+      this.#cleanupDownloadSession(subject);
+      return Result.err(readyValue.error);
+    }
+    if (!this.#downloadSessions.has(subject)) {
+      return Result.err(
+        new TransferError({
+          operation: "initiateDownload",
+          context: { reason: "session_closed" },
+        }),
+      );
+    }
+    if (Date.now() >= expiresAtMs) {
+      this.#cleanupDownloadSession(subject);
+      return Result.err(
+        new TransferError({
+          operation: "initiateDownload",
+          context: { reason: "expired" },
+        }),
+      );
+    }
+
     return Result.ok({
       type: "TransferGrant",
       direction: "receive",
@@ -614,6 +661,17 @@ export class ServiceTransfer {
       );
     }
     return Result.ok(value);
+  }
+
+  async #flushSubscriptionInterest(
+    operation: string,
+  ): Promise<ResultType<void, TransferError>> {
+    try {
+      await this.#nc.flush();
+      return Result.ok(undefined);
+    } catch (cause) {
+      return Result.err(new TransferError({ operation, cause }));
+    }
   }
 
   async #runUploadSession(session: UploadSession): Promise<void> {

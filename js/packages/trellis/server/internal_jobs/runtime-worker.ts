@@ -138,6 +138,9 @@ type StartNatsWorkerHostOptions<TResult> =
   & StartNatsRuntimeDeps
   & {
     manager: JobManager<unknown, TResult>;
+    getProjectedJob?: (
+      job: Job<unknown, TResult>,
+    ) => Promise<Job<unknown, TResult> | undefined>;
     validatePayload?: (
       args: PayloadValidationArgs<TResult>,
     ) => Promise<void> | void;
@@ -173,6 +176,9 @@ type StartNatsQueueWorkerOptions<TResult> =
     binding: JobsRuntimeBinding;
     queueType: string;
     hostCancellation?: JobCancellationToken;
+    getProjectedJob?: (
+      job: Job<unknown, TResult>,
+    ) => Promise<Job<unknown, TResult> | undefined>;
     validatePayload?: (
       args: PayloadValidationArgs<TResult>,
     ) => Promise<void> | void;
@@ -459,6 +465,7 @@ export async function startNatsQueueWorker<TResult>(
     consumer,
     cancelSubscription,
     hostCancellation: options.hostCancellation,
+    getProjectedJob: options.getProjectedJob,
     payloadSchema: queue.payload,
     validatePayload: options.validatePayload,
     resultSchema: queue.result,
@@ -564,6 +571,7 @@ export async function startNatsWorkerHostFromBinding<TResult>(
         binding,
         queueType,
         hostCancellation: cancellation,
+        getProjectedJob: options.getProjectedJob,
         validatePayload: options.validatePayload,
         validateResult: options.validateResult,
         handler: options.handler,

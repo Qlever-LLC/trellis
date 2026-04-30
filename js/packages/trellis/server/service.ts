@@ -1,5 +1,8 @@
-import { jwtAuthenticator, type NatsConnection } from "@nats-io/nats-core";
-import { Kvm } from "@nats-io/kv";
+import {
+  jwtAuthenticator,
+  type NatsConnection,
+  type Subscription,
+} from "@nats-io/nats-core";
 import {
   type KVError,
   type OperationRegistration as RootOperationRegistration,
@@ -87,7 +90,11 @@ import {
 } from "./internal_jobs/job-manager.ts";
 import { startNatsWorkerHostFromBinding } from "./internal_jobs/runtime-worker.ts";
 import type { ActiveJob as InternalActiveJob } from "./internal_jobs/active-job.ts";
-import type { Job as InternalJob } from "./internal_jobs/types.ts";
+import {
+  type Job as InternalJob,
+  type JobEvent as InternalJobEvent,
+  JobEventSchema,
+} from "./internal_jobs/types.ts";
 import {
   observeNatsTrellisConnection,
   type TrellisConnection,
@@ -120,8 +127,6 @@ type ResourceBindingJobs = {
   workStream?: string;
   queues: Record<string, ResourceBindingJobsQueue>;
 };
-
-const TRELLIS_JOBS_STATE_BUCKET = "trellis_jobs";
 
 const ClientTransportEndpointsSchema = Type.Object({
   natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
@@ -1091,11 +1096,10 @@ export async function createConnectedService<
     response: () => health.response(),
   });
 
-  const heartbeatEventEnabled = args.server.health !== undefined &&
-    Boolean(
-      (currentApi.events as Record<string, unknown> | undefined)
-        ?.["Health.Heartbeat"],
-    );
+  const heartbeatEventEnabled = Boolean(
+    (currentApi.events as Record<string, unknown> | undefined)
+      ?.["Health.Heartbeat"],
+  );
   let healthPublishTimer: ReturnType<typeof setInterval> | undefined;
   let publishingHeartbeat = false;
   const publishHealthHeartbeat = async (): Promise<void> => {
@@ -1218,6 +1222,12 @@ function isTerminalJobState(
     state === "expired" || state === "dead" || state === "dismissed";
 }
 
+function isTerminalJobSnapshot<TPayload, TResult>(
+  snapshot: JobSnapshot<TPayload, TResult>,
+): snapshot is TerminalJob<TPayload, TResult> {
+  return isTerminalJobState(snapshot.state);
+}
+
 function operationOutputsEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (typeof left !== typeof right || left === null || right === null) {
@@ -1244,27 +1254,226 @@ function operationOutputsEqual(left: unknown, right: unknown): boolean {
   return false;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function parseJobLifecycleEvent<TPayload, TResult>(
+  data: Uint8Array,
+): InternalJobEvent<TPayload, TResult> | undefined {
+  try {
+    const decoded = JSON.parse(new TextDecoder().decode(data));
+    if (!Value.Check(JobEventSchema, decoded)) {
+      return undefined;
+    }
+    return decoded as InternalJobEvent<TPayload, TResult>;
+  } catch {
+    return undefined;
+  }
 }
 
-function readProjectedJob<TPayload, TResult>(
-  nc: NatsConnection,
-  bucket: string,
-  jobId: string,
-): AsyncResult<JobSnapshot<TPayload, TResult> | null, BaseError> {
-  return AsyncResult.from((async () => {
-    try {
-      const kv = await new Kvm(nc).open(bucket);
-      const entry = await kv.get(jobId);
-      if (!entry) {
-        return Result.ok(null);
+function jobLifecycleKey(service: string, jobType: string, jobId: string): string {
+  return `${service}.${jobType}.${jobId}`;
+}
+
+function subjectMatchesLifecycleEvent(
+  subject: string,
+  queueBinding: ResourceBindingJobsQueue,
+  event: InternalJobEvent,
+): boolean {
+  const prefix = `${queueBinding.publishPrefix}.`;
+  if (!subject.startsWith(prefix)) return false;
+
+  const suffix = subject.slice(prefix.length).split(".");
+  return suffix.length === 2 && suffix[0] === event.jobId &&
+    suffix[1] === event.eventType;
+}
+
+function snapshotFromLifecycleEvent<TPayload, TResult>(
+  current: JobSnapshot<TPayload, TResult>,
+  event: InternalJobEvent<TPayload, TResult>,
+): JobSnapshot<TPayload, TResult> {
+  if (
+    event.service !== current.service || event.jobType !== current.type ||
+    event.jobId !== current.id
+  ) {
+    return current;
+  }
+  if (isTerminalJobState(current.state)) {
+    return current;
+  }
+
+  const base: JobSnapshot<TPayload, TResult> = {
+    ...current,
+    state: event.state,
+    updatedAt: event.timestamp,
+    tries: event.tries,
+    ...(event.maxTries !== undefined ? { maxTries: event.maxTries } : {}),
+    ...(event.deadline !== undefined ? { deadline: event.deadline } : {}),
+  };
+
+  switch (event.eventType) {
+    case "created":
+    case "retried":
+      return event.payload === undefined ? base : {
+        ...base,
+        payload: event.payload,
+      };
+    case "started":
+      return { ...base, startedAt: event.timestamp };
+    case "progress":
+      return event.progress === undefined ? base : {
+        ...base,
+        progress: event.progress,
+      };
+    case "logged":
+      return event.logs === undefined ? base : {
+        ...base,
+        logs: [...(current.logs ?? []), ...event.logs],
+      };
+    case "completed":
+      return {
+        ...base,
+        completedAt: event.timestamp,
+        ...(event.result !== undefined ? { result: event.result } : {}),
+      };
+    case "failed":
+    case "cancelled":
+    case "expired":
+    case "dead":
+    case "dismissed":
+      return event.error === undefined ? base : {
+        ...base,
+        lastError: event.error,
+      };
+  }
+
+  return base;
+}
+
+type JobLifecycleWaiter<TPayload, TResult> = {
+  resolve(snapshot: TerminalJob<TPayload, TResult>): void;
+  reject(cause: BaseError): void;
+};
+
+type JobLifecycleTracker = {
+  watch(queueBinding: ResourceBindingJobsQueue): void;
+  seed<TPayload, TResult>(snapshot: JobSnapshot<TPayload, TResult>): void;
+  get<TPayload, TResult>(args: {
+    service: string;
+    jobType: string;
+    id: string;
+  }): JobSnapshot<TPayload, TResult> | undefined;
+  apply<TPayload, TResult>(
+    event: InternalJobEvent<TPayload, TResult>,
+  ): JobSnapshot<TPayload, TResult> | undefined;
+  wait<TPayload, TResult>(
+    snapshot: JobSnapshot<TPayload, TResult>,
+  ): Promise<TerminalJob<TPayload, TResult>>;
+  stop(): void;
+};
+
+function createJobLifecycleTracker(nc: NatsConnection): JobLifecycleTracker {
+  const snapshots = new Map<string, JobSnapshot<unknown, unknown>>();
+  const waiters = new Map<string, JobLifecycleWaiter<unknown, unknown>[]>();
+  const subscriptions = new Map<string, Subscription>();
+  let stopped = false;
+
+  const notify = (key: string, snapshot: JobSnapshot<unknown, unknown>) => {
+    if (!isTerminalJobSnapshot(snapshot)) return;
+    const pending = waiters.get(key) ?? [];
+    waiters.delete(key);
+    for (const waiter of pending) waiter.resolve(snapshot);
+  };
+
+  const apply = <TPayload, TResult>(
+    event: InternalJobEvent<TPayload, TResult>,
+  ): JobSnapshot<TPayload, TResult> | undefined => {
+    const key = jobLifecycleKey(event.service, event.jobType, event.jobId);
+    const current = snapshots.get(key) as
+      | JobSnapshot<TPayload, TResult>
+      | undefined;
+    if (!current) return undefined;
+
+    const next = snapshotFromLifecycleEvent(current, event);
+    snapshots.set(key, next as JobSnapshot<unknown, unknown>);
+    notify(key, next as JobSnapshot<unknown, unknown>);
+    return next;
+  };
+
+  return {
+    watch(queueBinding) {
+      if (subscriptions.has(queueBinding.publishPrefix)) return;
+
+      const subscription = nc.subscribe(`${queueBinding.publishPrefix}.*.*`);
+      subscriptions.set(queueBinding.publishPrefix, subscription);
+      void (async () => {
+        for await (const msg of subscription) {
+          const event = parseJobLifecycleEvent(msg.data);
+          if (!event || !subjectMatchesLifecycleEvent(
+            msg.subject,
+            queueBinding,
+            event,
+          )) {
+            continue;
+          }
+          apply(event);
+        }
+      })();
+    },
+    seed<TPayload, TResult>(snapshot: JobSnapshot<TPayload, TResult>) {
+      const key = jobLifecycleKey(snapshot.service, snapshot.type, snapshot.id);
+      const current = snapshots.get(key) as
+        | JobSnapshot<TPayload, TResult>
+        | undefined;
+      if (current && isTerminalJobState(current.state)) return;
+      snapshots.set(key, snapshot as JobSnapshot<unknown, unknown>);
+      notify(key, snapshot as JobSnapshot<unknown, unknown>);
+    },
+    get<TPayload, TResult>(args: {
+      service: string;
+      jobType: string;
+      id: string;
+    }) {
+      const current = snapshots.get(
+        jobLifecycleKey(args.service, args.jobType, args.id),
+      );
+      return current as JobSnapshot<TPayload, TResult> | undefined;
+    },
+    apply,
+    wait<TPayload, TResult>(snapshot: JobSnapshot<TPayload, TResult>) {
+      this.seed(snapshot);
+      const key = jobLifecycleKey(snapshot.service, snapshot.type, snapshot.id);
+      const current = snapshots.get(key) as
+        | JobSnapshot<TPayload, TResult>
+        | undefined;
+      if (current && isTerminalJobSnapshot(current)) {
+        return Promise.resolve(current);
       }
-      return Result.ok(entry.json() as JobSnapshot<TPayload, TResult>);
-    } catch (cause) {
-      return Result.err(toUnexpectedError(cause));
-    }
-  })());
+      if (stopped) {
+        return Promise.reject(toUnexpectedError(
+          new Error("job lifecycle tracker stopped"),
+        ));
+      }
+
+      return new Promise((resolve, reject) => {
+        const pending = waiters.get(key) ?? [];
+        pending.push({
+          resolve: resolve as (snapshot: TerminalJob<unknown, unknown>) => void,
+          reject,
+        });
+        waiters.set(key, pending);
+      });
+    },
+    stop() {
+      stopped = true;
+      for (const subscription of subscriptions.values()) {
+        subscription.unsubscribe();
+      }
+      subscriptions.clear();
+      const error = toUnexpectedError(new Error("job lifecycle tracker stopped"));
+      for (const pending of waiters.values()) {
+        for (const waiter of pending) waiter.reject(error);
+      }
+      waiters.clear();
+    },
+  };
 }
 
 function createJobRef<TPayload, TResult>(args: {
@@ -1273,17 +1482,9 @@ function createJobRef<TPayload, TResult>(args: {
   jobsBinding: ResourceBindingJobs;
   queueBinding: ResourceBindingJobsQueue;
   seed: JobSnapshot<TPayload, TResult>;
+  lifecycle: JobLifecycleTracker;
 }): JobRef<TPayload, TResult> {
-  const readLatest = (): AsyncResult<
-    JobSnapshot<TPayload, TResult> | null,
-    BaseError
-  > => {
-    return readProjectedJob<TPayload, TResult>(
-      args.nc,
-      TRELLIS_JOBS_STATE_BUCKET,
-      args.seed.id,
-    );
-  };
+  args.lifecycle.seed(args.seed);
 
   return new JobRef<TPayload, TResult>(
     {
@@ -1292,71 +1493,54 @@ function createJobRef<TPayload, TResult>(args: {
       jobType: args.queueType,
     },
     {
-      get: () =>
-        AsyncResult.from((async () => {
-          const latest = await readLatest().take();
-          if (isErr(latest)) {
-            return Result.err(latest.error);
-          }
-          return Result.ok(latest ?? args.seed);
-        })()),
+      get: () => AsyncResult.ok(
+        args.lifecycle.get<TPayload, TResult>({
+          service: args.seed.service,
+          jobType: args.queueType,
+          id: args.seed.id,
+        }) ?? args.seed,
+      ),
       wait: () =>
         AsyncResult.from((async () => {
-          for (;;) {
-            const latest = await readLatest().take();
-            if (isErr(latest)) {
-              return Result.err(latest.error);
-            }
-            const snapshot = latest ?? args.seed;
-            if (isTerminalJobState(snapshot.state)) {
-              return Result.ok(snapshot as TerminalJob<TPayload, TResult>);
-            }
-            await sleep(250);
+          try {
+            return Result.ok(await args.lifecycle.wait(args.seed));
+          } catch (cause) {
+            return Result.err(toUnexpectedError(cause));
           }
         })()),
       cancel: () =>
         AsyncResult.from((async () => {
-          const latest = await readLatest().take();
-          if (isErr(latest)) {
-            return Result.err(latest.error);
+          const current = args.lifecycle.get<TPayload, TResult>({
+            service: args.seed.service,
+            jobType: args.queueType,
+            id: args.seed.id,
+          }) ?? args.seed;
+          if (isTerminalJobState(current.state)) {
+            return Result.ok(current);
           }
-          const snapshot = latest ?? args.seed;
-          if (isTerminalJobState(snapshot.state)) {
-            return Result.ok(snapshot);
-          }
+
+          const event: InternalJobEvent<TPayload, TResult> = {
+            jobId: args.seed.id,
+            service: current.service,
+            jobType: args.queueType,
+            eventType: "cancelled",
+            state: "cancelled",
+            previousState: current.state,
+            tries: current.tries,
+            error: "cancelled",
+            timestamp: new Date().toISOString(),
+          };
 
           try {
             args.nc.publish(
               `${args.queueBinding.publishPrefix}.${args.seed.id}.cancelled`,
-              new TextEncoder().encode(JSON.stringify({
-                jobId: args.seed.id,
-                service: snapshot.service,
-                jobType: args.queueType,
-                eventType: "cancelled",
-                state: "cancelled",
-                previousState: snapshot.state,
-                tries: snapshot.tries,
-                error: "cancelled",
-                timestamp: new Date().toISOString(),
-              })),
+              new TextEncoder().encode(JSON.stringify(event)),
             );
           } catch (cause) {
             return Result.err(toUnexpectedError(cause));
           }
 
-          for (;;) {
-            const refreshed = await readLatest().take();
-            if (isErr(refreshed)) {
-              return Result.err(refreshed.error);
-            }
-            const current = refreshed ?? snapshot;
-            if (
-              current.state === "cancelled" || isTerminalJobState(current.state)
-            ) {
-              return Result.ok(current);
-            }
-            await sleep(250);
-          }
+          return Result.ok(args.lifecycle.apply(event) ?? current);
         })()),
     },
   );
@@ -1397,6 +1581,7 @@ function createJobsFacade<
 }): ManagedJobsFacade<TJobs, TTrellisApi, TKv> {
   const handlers = new Map<string, RegisteredJobHandler<unknown, unknown>>();
   const jobsFacade: Record<string, unknown> = {};
+  const lifecycle = createJobLifecycleTracker(args.nc);
   let activeHost: JobWorkerHostAdapter | undefined;
   let startupPromise:
     | Promise<Result<JobWorkerHostAdapter, BaseError>>
@@ -1404,6 +1589,9 @@ function createJobsFacade<
   let stopPromise: Promise<Result<void, BaseError>> | undefined;
 
   for (const queueType of Object.keys(args.contractJobs ?? {})) {
+    const queueBinding = args.jobsBinding?.queues[queueType];
+    if (queueBinding) lifecycle.watch(queueBinding);
+
     jobsFacade[queueType] = {
       create: (payload) =>
         AsyncResult.from((async () => {
@@ -1427,6 +1615,7 @@ function createJobsFacade<
               nc: args.nc,
               jobs: jobsBinding,
             });
+            await args.nc.flush();
             const created = await manager.create(queueType, payload);
             return Result.ok(createJobRef({
               nc: args.nc,
@@ -1434,6 +1623,7 @@ function createJobsFacade<
               jobsBinding,
               queueBinding,
               seed: created as JobSnapshot<unknown, unknown>,
+              lifecycle,
             }));
           } catch (cause) {
             return Result.err(toUnexpectedError(cause));
@@ -1516,6 +1706,13 @@ function createJobsFacade<
               instanceId: `${args.serviceName}-worker`,
               queueTypes: [queueType],
               manager,
+              getProjectedJob: async (job) => {
+                return lifecycle.get({
+                  service: job.service,
+                  jobType: job.type,
+                  id: job.id,
+                });
+              },
               handler: async (job: InternalActiveJob<unknown, unknown>) => {
                 const publicJob = new PublicActiveJob(
                   createJobRef({
@@ -1524,6 +1721,7 @@ function createJobsFacade<
                     jobsBinding,
                     queueBinding,
                     seed: job.job() as JobSnapshot<unknown, unknown>,
+                    lifecycle,
                   }),
                   job.job().payload,
                   () => job.isCancelled(),
@@ -1537,7 +1735,7 @@ function createJobsFacade<
                   },
                 );
 
-                const handled = await handler(publicJob);
+                const handled = (await handler(publicJob)).take();
                 if (isErr(handled)) {
                   throw InternalJobProcessError.failed(handled.error.message);
                 }
@@ -1592,6 +1790,7 @@ function createJobsFacade<
           }
         }
         if (!activeHost) {
+          lifecycle.stop();
           return Result.ok(undefined);
         }
 
@@ -1599,6 +1798,7 @@ function createJobsFacade<
         try {
           return await host.stop();
         } finally {
+          lifecycle.stop();
           if (activeHost === host) {
             activeHost = undefined;
           }

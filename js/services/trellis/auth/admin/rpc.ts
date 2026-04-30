@@ -198,6 +198,9 @@ export type AdminRpcDeps = {
     | "deleteBySessionKey"
     | "listEntries"
   >;
+  eventPublisher?: {
+    publish(event: string, payload: unknown): AsyncResult<unknown, BaseError>;
+  };
   userStorage: Pick<SqlUserProjectionRepository, "get">;
 };
 
@@ -1203,6 +1206,41 @@ export const authDecideDeviceActivationReviewHandler = async (
     operationOutput,
   );
   if (completed.isErr()) return completed;
+  (await ctx.eventPublisher?.publish("Auth.DeviceActivationApproved", {
+    reviewId: updatedReview.reviewId,
+    flowId: updatedReview.flowId,
+    instanceId: updatedReview.instanceId,
+    publicIdentityKey: updatedReview.publicIdentityKey,
+    deploymentId: updatedReview.deploymentId,
+    requestedAt: updatedReview.requestedAt instanceof Date
+      ? updatedReview.requestedAt.toISOString()
+      : updatedReview.requestedAt,
+    approvedAt: decidedAt,
+    requestedBy: updatedReview.requestedBy,
+    approvedBy: {
+      id: caller.id ?? "unknown",
+      ...(caller.origin ? { origin: caller.origin } : {}),
+    },
+  }))?.inspectErr((error: unknown) =>
+    ctx.logger.warn(
+      { error, reviewId: updatedReview.reviewId },
+      "Failed to publish Auth.DeviceActivationApproved",
+    )
+  );
+  (await ctx.eventPublisher?.publish("Auth.DeviceActivated", {
+    instanceId: activation.instanceId,
+    publicIdentityKey: activation.publicIdentityKey,
+    deploymentId: activation.deploymentId,
+    activatedAt: activation.activatedAt,
+    activatedBy: activation.activatedBy,
+    flowId: updatedReview.flowId,
+    reviewId: updatedReview.reviewId,
+  }))?.inspectErr((error: unknown) =>
+    ctx.logger.warn(
+      { error, instanceId: activation.instanceId },
+      "Failed to publish Auth.DeviceActivated",
+    )
+  );
   return Result.ok({
     review: toPublicReview(updatedReview),
     activation,

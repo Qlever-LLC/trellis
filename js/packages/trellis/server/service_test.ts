@@ -7,6 +7,7 @@ import {
 import {
   type Msg,
   type NatsConnection,
+  type Payload,
   PermissionViolationError,
   type Subscription,
 } from "@nats-io/nats-core";
@@ -85,6 +86,11 @@ type WaitableService = {
   stop(): Promise<void>;
 };
 
+type PublishedNatsMessage = {
+  subject: string;
+  data: Uint8Array;
+};
+
 function hasServiceWait(value: object): value is WaitableService {
   return Reflect.has(value, "wait") &&
     typeof Reflect.get(value, "wait") === "function";
@@ -97,6 +103,7 @@ function waitForServiceStop(service: WaitableService): Promise<void> {
 async function connectJobsHandlerTestService(opts?: {
   includeWorkStream?: boolean;
   deferClosed?: boolean;
+  published?: PublishedNatsMessage[];
 }) {
   const originalFetch = globalThis.fetch;
   const includeWorkStream = opts?.includeWorkStream ?? true;
@@ -172,7 +179,10 @@ async function connectJobsHandlerTestService(opts?: {
       server: { log: false },
     }, {
       connect: async () =>
-        createFakeNatsConnection({ deferClosed: opts?.deferClosed }),
+        createFakeNatsConnection({
+          deferClosed: opts?.deferClosed,
+          published: opts?.published,
+        }),
     }).orThrow();
 
     return {
@@ -232,6 +242,7 @@ function createFakeNatsConnection(args: {
   closedResult?: Error | void;
   deferClosed?: boolean;
   requestJson?: (subject: string) => unknown;
+  published?: PublishedNatsMessage[];
 } = {}): NatsConnection {
   type TestNatsConnection = NatsConnection & {
     options: { inboxPrefix: string };
@@ -244,31 +255,96 @@ function createFakeNatsConnection(args: {
       }
     })()) as NatsConnection["status"];
 
-  const createMessage = (subject: string, value: unknown): Msg => ({
+  const createMessage = (
+    subject: string,
+    value: unknown,
+    data: Uint8Array<ArrayBufferLike> = new Uint8Array(),
+  ): Msg => ({
     subject,
     sid: 1,
-    data: new Uint8Array(),
+    data,
     respond: () => true,
     json: <T>() => value as T,
     string: () => "",
   });
 
-  const subscription: Subscription = {
-    closed: Promise.resolve(),
-    unsubscribe: () => {},
-    drain: async () => {},
-    isDraining: () => false,
-    isClosed: () => false,
-    callback: () => {},
-    getSubject: () => "test.subject",
-    getReceived: () => 0,
-    getProcessed: () => 0,
-    getPending: () => 0,
-    getID: () => 1,
-    getMax: () => undefined,
-    [Symbol.asyncIterator]: async function* () {
-      return;
-    },
+  type BufferedSubscription = Subscription & {
+    push(message: Msg): void;
+  };
+
+  const subscriptions: BufferedSubscription[] = [];
+  const subjectMatches = (pattern: string, subject: string): boolean => {
+    const patternParts = pattern.split(".");
+    const subjectParts = subject.split(".");
+    for (let index = 0; index < patternParts.length; index += 1) {
+      const part = patternParts[index];
+      if (part === ">") return true;
+      if (subjectParts[index] === undefined) return false;
+      if (part !== "*" && part !== subjectParts[index]) return false;
+    }
+    return patternParts.length === subjectParts.length;
+  };
+  const payloadBytes = (payload: Payload | undefined): Uint8Array => {
+    if (payload === undefined) {
+      return new Uint8Array();
+    }
+    if (typeof payload === "string") {
+      return new TextEncoder().encode(payload);
+    }
+    return payload;
+  };
+  const createSubscription = (subject: string): BufferedSubscription => {
+    const queue: Msg[] = [];
+    let closed = false;
+    let received = 0;
+    let pendingResolver: (() => void) | undefined;
+    const notify = () => {
+      pendingResolver?.();
+      pendingResolver = undefined;
+    };
+
+    const subscription: BufferedSubscription = {
+      closed: Promise.resolve(),
+      unsubscribe: () => {
+        closed = true;
+        notify();
+      },
+      drain: async () => {
+        closed = true;
+        notify();
+      },
+      isDraining: () => false,
+      isClosed: () => closed,
+      callback: () => {},
+      getSubject: () => subject,
+      getReceived: () => received,
+      getProcessed: () => received,
+      getPending: () => queue.length,
+      getID: () => 1,
+      getMax: () => undefined,
+      push: (message: Msg) => {
+        if (closed) {
+          return;
+        }
+        queue.push(message);
+        received += 1;
+        notify();
+      },
+      [Symbol.asyncIterator]: async function* () {
+        while (!closed) {
+          const next = queue.shift();
+          if (next) {
+            yield next;
+            continue;
+          }
+          await new Promise<void>((resolve) => {
+            pendingResolver = resolve;
+          });
+        }
+      },
+    };
+    subscriptions.push(subscription);
+    return subscription;
   };
 
   let resolveClosed: ((value: Error | void) => void) | undefined;
@@ -289,11 +365,25 @@ function createFakeNatsConnection(args: {
     options: {
       inboxPrefix: "_INBOX.test",
     },
-    publish: () => {},
+    publish: (subject: string, data?: Payload) => {
+      const bytes = payloadBytes(data);
+      args.published?.push({ subject, data: bytes });
+      for (const subscription of subscriptions) {
+        if (subjectMatches(subscription.getSubject(), subject)) {
+          let value: unknown = {};
+          try {
+            value = JSON.parse(new TextDecoder().decode(bytes));
+          } catch {
+            value = {};
+          }
+          subscription.push(createMessage(subject, value, bytes));
+        }
+      }
+    },
     publishMessage: () => {},
     respondMessage: () => true,
-    subscribe: () => subscription,
-    request: async (subject) =>
+    subscribe: (subject: string) => createSubscription(subject),
+    request: async (subject: string) =>
       createMessage(subject, args.requestJson?.(subject) ?? {}),
     requestMany: async () =>
       (async function* () {
@@ -981,6 +1071,38 @@ Deno.test("service heartbeat publishing stops after terminal NATS close", async 
   }
 });
 
+Deno.test("service heartbeat publishing starts from declared health use", async () => {
+  let publishRequests = 0;
+  const connection = createFakeNatsConnection({
+    requestJson: () => {
+      publishRequests += 1;
+      return { stream: "HEALTH", seq: publishRequests, duplicate: false };
+    },
+  });
+
+  const service = await connectTrellisServiceInternal("svc", {
+    sessionKeySeed: TEST_SEED,
+    contractDigest: heartbeatTestContract.CONTRACT_DIGEST,
+    nats: {
+      servers: "nats://127.0.0.1:4222",
+      authenticator: {},
+    },
+    server: {
+      api: heartbeatTestContract.API.owned,
+      trellisApi: heartbeatTestContract.API.trellis,
+      log: false,
+    },
+  }, {
+    connect: () => Promise.resolve(connection),
+  });
+
+  try {
+    assertEquals(publishRequests > 0, true);
+  } finally {
+    await service.stop();
+  }
+});
+
 Deno.test("internal service connect cleans up the connection when bootstrap probing fails", async () => {
   let closed = false;
   let resolveClosed: ((value: Error | void) => void) | undefined;
@@ -1203,6 +1325,174 @@ Deno.test("service wait resolves after service stop when no job handlers are reg
     await service.stop();
     await waiting;
   } finally {
+    restore();
+  }
+});
+
+Deno.test("service-local JobRef wait observes scoped lifecycle events", async () => {
+  const published: PublishedNatsMessage[] = [];
+  const { service, restore } = await connectJobsHandlerTestService({
+    published,
+  });
+
+  try {
+    const ref = await service.jobs.refreshSummaries.create({
+      siteId: "site-1",
+    }).orThrow();
+    const waiting = ref.wait().orThrow();
+
+    await delay(5);
+    service.nc.publish(
+      `trellis.jobs.jobs_handler_test.refreshSummaries.${ref.id}.completed`,
+      new TextEncoder().encode(JSON.stringify({
+        jobId: ref.id,
+        service: "jobs_handler_test",
+        jobType: "refreshSummaries",
+        eventType: "completed",
+        state: "completed",
+        previousState: "pending",
+        tries: 1,
+        result: { refreshId: "refresh-1" },
+        timestamp: "2024-01-01T00:00:01.000Z",
+      })),
+    );
+
+    const terminal = await waiting;
+    assertEquals(terminal.state, "completed");
+    assertEquals(terminal.result, { refreshId: "refresh-1" });
+
+    const latest = await ref.get().orThrow();
+    assertEquals(latest.state, "completed");
+    assertEquals(latest.result, { refreshId: "refresh-1" });
+    assertEquals(
+      published.some((message) => message.subject.includes("KV_trellis_jobs")),
+      false,
+    );
+  } finally {
+    await service.stop();
+    restore();
+  }
+});
+
+Deno.test("service-local JobRef wait observes terminal event before wait starts", async () => {
+  const { service, restore } = await connectJobsHandlerTestService();
+
+  try {
+    const ref = await service.jobs.refreshSummaries.create({
+      siteId: "site-1",
+    }).orThrow();
+
+    service.nc.publish(
+      `trellis.jobs.jobs_handler_test.refreshSummaries.${ref.id}.completed`,
+      new TextEncoder().encode(JSON.stringify({
+        jobId: ref.id,
+        service: "jobs_handler_test",
+        jobType: "refreshSummaries",
+        eventType: "completed",
+        state: "completed",
+        previousState: "pending",
+        tries: 1,
+        result: { refreshId: "refresh-before-wait" },
+        timestamp: "2024-01-01T00:00:01.000Z",
+      })),
+    );
+    await delay(5);
+
+    const terminal = await ref.wait().orThrow();
+    assertEquals(terminal.state, "completed");
+    assertEquals(terminal.result, { refreshId: "refresh-before-wait" });
+
+    const latest = await ref.get().orThrow();
+    assertEquals(latest.state, "completed");
+    assertEquals(latest.result, { refreshId: "refresh-before-wait" });
+  } finally {
+    await service.stop();
+    restore();
+  }
+});
+
+Deno.test("service-local JobRef cancel publishes scoped cancelled lifecycle event", async () => {
+  const published: PublishedNatsMessage[] = [];
+  const { service, restore } = await connectJobsHandlerTestService({
+    published,
+  });
+
+  try {
+    const ref = await service.jobs.refreshSummaries.create({
+      siteId: "site-1",
+    }).orThrow();
+    const cancelled = await ref.cancel().orThrow();
+
+    assertEquals(cancelled.state, "cancelled");
+    const eventMessage = published.find((message) =>
+      message.subject ===
+        `trellis.jobs.jobs_handler_test.refreshSummaries.${ref.id}.cancelled`
+    );
+    if (!eventMessage) {
+      throw new Error("expected cancelled lifecycle event to be published");
+    }
+
+    const event = JSON.parse(new TextDecoder().decode(eventMessage.data)) as {
+      jobId: string;
+      service: string;
+      jobType: string;
+      eventType: string;
+      state: string;
+      previousState: string;
+    };
+    assertEquals(event.jobId, ref.id);
+    assertEquals(event.service, "jobs_handler_test");
+    assertEquals(event.jobType, "refreshSummaries");
+    assertEquals(event.eventType, "cancelled");
+    assertEquals(event.state, "cancelled");
+    assertEquals(event.previousState, "pending");
+
+    const latest = await ref.get().orThrow();
+    assertEquals(latest.state, "cancelled");
+  } finally {
+    await service.stop();
+    restore();
+  }
+});
+
+Deno.test("service-local JobRef cancel is a no-op after terminal completion", async () => {
+  const published: PublishedNatsMessage[] = [];
+  const { service, restore } = await connectJobsHandlerTestService({
+    published,
+  });
+
+  try {
+    const ref = await service.jobs.refreshSummaries.create({
+      siteId: "site-1",
+    }).orThrow();
+    service.nc.publish(
+      `trellis.jobs.jobs_handler_test.refreshSummaries.${ref.id}.completed`,
+      new TextEncoder().encode(JSON.stringify({
+        jobId: ref.id,
+        service: "jobs_handler_test",
+        jobType: "refreshSummaries",
+        eventType: "completed",
+        state: "completed",
+        previousState: "pending",
+        tries: 1,
+        result: { refreshId: "refresh-1" },
+        timestamp: "2024-01-01T00:00:01.000Z",
+      })),
+    );
+    await delay(5);
+
+    const cancelled = await ref.cancel().orThrow();
+    assertEquals(cancelled.state, "completed");
+    assertEquals(cancelled.result, { refreshId: "refresh-1" });
+    assertEquals(
+      published.some((message) =>
+        message.subject ===
+          `trellis.jobs.jobs_handler_test.refreshSummaries.${ref.id}.cancelled`
+      ),
+      false,
+    );
+  } finally {
+    await service.stop();
     restore();
   }
 });

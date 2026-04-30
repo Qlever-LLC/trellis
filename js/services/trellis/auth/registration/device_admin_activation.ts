@@ -54,6 +54,7 @@ export async function registerDeviceAdminAndActivation(
 ): Promise<void> {
   const handlers = createDeviceAdminHandlers({
     ...deps,
+    eventPublisher: deps.trellis,
     kick: createKick(deps),
     loadEffectiveGrantPolicies: createEffectiveGrantPolicyLoader(deps),
     operationCompletion: deps.trellis.operationCompletion,

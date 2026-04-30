@@ -138,31 +138,41 @@
     {#if loading}
       <LoadingState label="Loading portal profile data" />
     {:else}
-      <form class="grid gap-3 md:grid-cols-2" onsubmit={(event) => { event.preventDefault(); void saveProfile(); }}>
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Portal ID</span>
-          <input class="input input-bordered input-sm" bind:value={portalId} list="portal-profile-options" placeholder="portal-login" required disabled={currentProfile !== null} />
-        </label>
+      <form class="trellis-form" onsubmit={(event) => { event.preventDefault(); void saveProfile(); }}>
+        <div class="trellis-record-summary">
+          <div class="trellis-record-summary-title">{portalId.trim() || "New portal profile"}</div>
+          <div class="trellis-metadata">{entryUrl.trim() || "Entry URL not set"}</div>
+          {#if contractId.trim()}
+            <div class="trellis-identifier break-all">{contractId.trim()}</div>
+          {/if}
+        </div>
 
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Entry URL</span>
-          <input class="input input-bordered input-sm" bind:value={entryUrl} placeholder="https://portal.example.com/" required />
-        </label>
+        <div class="trellis-form-grid">
+          <label class="trellis-field">
+            <span class="trellis-field-label">Portal ID</span>
+            <input class="input input-bordered input-sm" bind:value={portalId} list="portal-profile-options" placeholder="portal-login" required disabled={currentProfile !== null} />
+          </label>
 
-        <label class="form-control gap-1">
-          <span class="label-text text-xs">Contract ID</span>
-          <input class="input input-bordered input-sm" bind:value={contractId} list="installed-portal-contracts" placeholder="trellis.console@v1" required />
-        </label>
+          <label class="trellis-field">
+            <span class="trellis-field-label">Entry URL</span>
+            <input class="input input-bordered input-sm" bind:value={entryUrl} placeholder="https://portal.example.com/" required />
+          </label>
 
-        <label class="form-control gap-1 md:col-span-2">
-          <span class="label-text text-xs">Allowed origins</span>
-          <textarea class="textarea textarea-bordered textarea-sm min-h-24 font-mono" bind:value={allowedOriginsText} placeholder="https://console.example.com, https://portal.example.com"></textarea>
-          <span class="label-text-alt text-base-content/50">Optional comma-separated or newline-separated origins. Leave blank to allow any origin.</span>
-        </label>
+          <label class="trellis-field trellis-form-wide">
+            <span class="trellis-field-label">Contract ID</span>
+            <input class="input input-bordered input-sm" bind:value={contractId} list="installed-portal-contracts" placeholder="trellis.console@v1" required />
+          </label>
 
-        <div class="flex flex-wrap items-center gap-2 md:col-span-2">
-          <button type="submit" class="btn btn-outline btn-sm" disabled={pending}>{pending ? "Saving…" : currentProfile ? "Update Portal Profile" : "Create Portal Profile"}</button>
+          <label class="trellis-field trellis-form-wide">
+            <span class="trellis-field-label">Allowed origins</span>
+            <textarea class="textarea textarea-bordered textarea-sm font-mono" bind:value={allowedOriginsText} placeholder="https://console.example.com, https://portal.example.com"></textarea>
+            <span class="trellis-field-help">Optional comma-separated or newline-separated origins. Leave blank to allow any origin.</span>
+          </label>
+        </div>
+
+        <div class="trellis-action-row">
           <a class="btn btn-ghost btn-sm" href={resolve("/admin/portals")}>Done</a>
+          <button type="submit" class="btn btn-primary btn-sm" disabled={pending}>{pending ? "Saving…" : currentProfile ? "Update Portal Profile" : "Create Portal Profile"}</button>
         </div>
       </form>
     {/if}

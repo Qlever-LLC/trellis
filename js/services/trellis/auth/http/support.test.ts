@@ -1,6 +1,7 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 
+import { ContractUseDependencyError } from "../../catalog/uses.ts";
 import { ContractStore } from "../../catalog/store.ts";
 import type { ContractApprovalRecord, PendingAuth } from "../schemas.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
@@ -114,6 +115,23 @@ Deno.test("getApprovalResolutionErrorMessage explains inactive contract dependen
   assertEquals(
     message,
     "Requested app depends on inactive contract 'trellis.jobs@v1'. Install or upgrade that service before logging in.",
+  );
+});
+
+Deno.test("getApprovalResolutionErrorMessage explains missing dependency surfaces", () => {
+  const message = getApprovalResolutionErrorMessage(
+    new ContractUseDependencyError({
+      alias: "fieldOps",
+      contractId: "trellis.demo-service@v1",
+      surface: "rpc",
+      reason: "missing",
+      key: "Evidence.Delete",
+    }),
+  );
+
+  assertEquals(
+    message,
+    "Requested app depends on missing RPC 'Evidence.Delete' from contract 'trellis.demo-service@v1'. Update the app contract or install a compatible version of that service before logging in.",
   );
 });
 

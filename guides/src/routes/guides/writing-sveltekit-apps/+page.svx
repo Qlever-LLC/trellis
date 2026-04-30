@@ -31,9 +31,8 @@ uses `kit.alias` to generate `.svelte-kit/tsconfig.json`, which is the graph use
 by the editor and `svelte-check`; Vite aliases alone are not enough.
 
 Alias every local package specifier used by app code or generated SDK code. If you
-local-link Trellis itself, alias both the Trellis package root and every Trellis
-subpath you import so `@qlever-llc/trellis` and `@qlever-llc/trellis/contracts`
-do not resolve to different package copies.
+local-link Trellis itself, alias the Trellis package root and every Trellis
+subpath you import so they do not resolve to different package copies.
 
 ```js
 // svelte.config.js
@@ -51,7 +50,6 @@ const config = {
     alias: {
       // Only needed when developing against a local Trellis checkout.
       "@qlever-llc/trellis": aliasPath("../trellis/js/packages/trellis/index.ts"),
-      "@qlever-llc/trellis/contracts": aliasPath("../trellis/js/packages/trellis/contracts.ts"),
       "@qlever-llc/trellis/sdk/auth": aliasPath("../trellis/js/packages/trellis/sdk/auth.ts"),
 
       // Needed for local generated SDKs that are not installed packages.
@@ -83,7 +81,7 @@ Start by creating `src/lib/contract.ts`. For this example, we only need the
 baseline Trellis auth features that app contracts receive automatically.
 
 ```ts
-import { defineAppContract } from "@qlever-llc/trellis/contracts";
+import { defineAppContract } from "@qlever-llc/trellis";
 
 const contract = defineAppContract(() => ({
   id: "my-app@v1",
@@ -99,7 +97,7 @@ browser apps need. `Auth.Me` returns a `{ user, device, service }` envelope, wit
 the device branch carrying the device identity and the activating user when
 applicable.
 
-Contract source files should prefer `@qlever-llc/trellis/contracts`; keep runtime and auth helpers on `@qlever-llc/trellis` or `@qlever-llc/trellis-svelte`.
+Contract source files should prefer the kind-specific helpers from `@qlever-llc/trellis`; keep Svelte-specific helpers on `@qlever-llc/trellis-svelte`.
 
 ### Keep contract updates in your normal dev/build flow
 

@@ -38,6 +38,11 @@ surfaces:
 - an admin jobs surface for operators to query and manage jobs across all
   services
 
+Exact TypeScript helper signatures, Rust method signatures, generated item
+inventories, SDK imports, and client member lists belong in the generated API
+reference and Rustdoc under `/api`. This document defines the subsystem
+invariants those APIs must preserve.
+
 In TypeScript, the service-local runtime surface lives in `@qlever-llc/trellis`
 and the standard Trellis Jobs admin RPC contract lives in
 `@qlever-llc/trellis/sdk/jobs`:
@@ -118,6 +123,7 @@ stateDiagram-v2
 
     completed --> [*]
     cancelled --> [*]
+    expired --> [*]
     dismissed --> [*]
 ```
 
@@ -273,6 +279,16 @@ examples below show the resolved JetStream or KV configuration the jobs runtime
 expects after binding. Trellis should provision these shared resources during
 service apply/install so service-local workers can rely on the bindings without
 a separate infrastructure install step.
+
+Trellis jobs require `nats-server` 2.10.0 or newer. This is the runtime floor
+for JetStream source subject transforms and filtered consumer create API
+permissions; older durable consumer-create subjects are not part of the v1 jobs
+permission model.
+
+Trellis-created Jobs streams and KV buckets use the configured JetStream replica
+count for the deployment. Standalone/local NATS deployments should use `1`;
+production clustered deployments should normally use `3`. The examples below use
+`3` to show the recommended production shape.
 
 Resolved service bindings may still include internal runtime-generated work
 stream details such as `JOBS_WORK`, but ordinary service code should treat those
@@ -571,13 +587,25 @@ The server-side jobs runtime should provide:
 
 Public runtime rules:
 
+- jobs are service-private execution primitives and are not caller-visible async
+  contracts; use operations when a caller needs a durable public contract for
+  observing, waiting on, or cancelling work
+- service-local job APIs and centralized admin RPC APIs are deliberately
+  separate surfaces. The service-local API creates and handles a service's own
+  jobs; the admin API observes and operates on jobs across services through the
+  built-in `Jobs.*` RPC contract
 - service-author APIs SHOULD be per-job-type rather than raw stringly queue
   dispatch
+- generated service runtimes MUST expose typed per-job generated methods or
+  properties for declared jobs, derived from the contract's top-level jobs map
+  rather than from raw resources
 - `create(...)` SHOULD return a typed `JobRef`, not a projected job snapshot
 - `JobRef.wait()` is valid as an internal service primitive, but jobs are still
   service-private and are not the public async API for ordinary callers
 - public TypeScript jobs APIs MUST use `Result` / `AsyncResult` for expected
   failures rather than exception-oriented `requestOrThrow` wrappers
+- Rust jobs APIs return Rust `Result` values directly and should not model
+  expected failures with panics
 - public jobs APIs MUST NOT expose `unknown`, `any`, or `serde_json::Value`
   except in explicit raw wire-model types
 - connected service runtimes SHOULD expose jobs through a higher-level facade
@@ -586,6 +614,18 @@ Public runtime rules:
   `jobsRuntimeBindingFromCoreBinding(...)`
 - raw binding conversion helpers are bootstrap internals and SHOULD NOT be the
   normal public service-author entrypoint
+- active job handles expose typed payloads plus service-private execution
+  controls such as heartbeat/in-progress acknowledgement, progress publication,
+  log publication, cooperative cancellation checks, and redelivery metadata
+- duplicate handler registration for the same service-local job type is a
+  bootstrap-time programming error; runtimes SHOULD fail fast rather than racing
+  multiple handlers on one queue
+- worker-loop startup, binding resolution, and shutdown belong to the connected
+  service lifecycle; application code registers handlers and starts or waits on
+  the service instead of manually owning worker bindings on the normal public
+  path
+- a generic string-based queue lookup helper, if present, is a low-level escape
+  hatch and MUST NOT be the primary public service-author API
 
 Language runtimes may realize this with different concrete APIs as long as they
 preserve the normative behavior and public API constraints defined in this
@@ -599,10 +639,10 @@ indefinitely.
 JetStream) to detect redeliveries and implement idempotent handling where
 necessary.
 
-Language-specific public API details live in:
-
-- [jobs-typescript-api.md](./jobs-typescript-api.md)
-- [jobs-rust-api.md](./jobs-rust-api.md)
+For exact service-local TypeScript APIs, use the generated API reference under
+`/api`. For Rust jobs crates, use published Rustdoc where linked from `/api`; if
+a crate is still listed as pending there, generate Rustdoc locally from the
+crate source.
 
 ### Client Library API
 
@@ -613,11 +653,20 @@ Admin client rules:
 
 - the admin client is an operator surface, not a normal end-user application
   surface
+- admin and operator access is an observability and operations boundary, not a
+  service-author execution surface
 - public TypeScript admin helpers MUST follow Trellis `Result` conventions
   rather than throwing for expected remote or validation failures
 - centralized jobs queries and mutations SHOULD be generated-contract-aligned
   wrappers over `trellis.jobs@v1` exposed through generated SDK modules or typed
   request helpers rather than handwritten cast-heavy adapters
+- admin APIs MAY return wire-shaped unknown/JSON payload and result fields
+  because they cross service boundaries and inspect jobs that are not statically
+  typed in the caller
+- connected clients MUST NOT expose a primary generic jobs lookup helper for
+  admin queries; admin access stays on the normal generated contract RPC surface
+- generated SDK request and response types are preferred over handwritten casts
+  or adapters
 
 The required v1 surface is:
 
@@ -630,10 +679,10 @@ The required v1 surface is:
 Jobs watch APIs are admin and observability helpers only. Caller-visible async
 workflows MUST use operations rather than direct jobs watch APIs.
 
-Language-specific public API details live in:
-
-- [jobs-typescript-api.md](./jobs-typescript-api.md)
-- [jobs-rust-api.md](./jobs-rust-api.md)
+For exact admin TypeScript APIs, use the generated API reference under `/api`.
+For Rust jobs crates, use published Rustdoc where linked from `/api`; if a crate
+is still listed as pending there, generate Rustdoc locally from the crate
+source.
 
 ### RPC Endpoints
 

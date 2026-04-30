@@ -1,240 +1,221 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  import { afterNavigate } from "$app/navigation";
+  import { resolve } from "$app/paths";
+  import { page } from "$app/state";
+  import { formatDateTimeWithAge } from "$lib/format";
   import { getTrellis } from "$lib/trellis";
 
-  type InspectionAssignment = { inspectionId: string; siteName: string; assetName: string };
-  type ReportsGenerateProgress = { stage: string; message: string };
-  type ReportsGenerateResponse = { reportId: string; inspectionId: string; status: string };
-
-  type ReportEvent = {
-    type: string;
-    snapshot: { state: string };
-    progress?: ReportsGenerateProgress;
-  };
-  type ReportTerminal = {
-    state: "completed" | "failed" | "cancelled";
-    output?: ReportsGenerateResponse;
-  };
-  type ReportOperationRef = {
-    id: string;
-    watch(): { orThrow(): Promise<AsyncIterable<ReportEvent>> };
-    wait(): { orThrow(): Promise<ReportTerminal> };
-    cancel(): { orThrow(): Promise<{ state: string }> };
+  type ReportRecord = {
+    reportId: string;
+    inspectionId: string;
+    siteId?: string;
+    siteName: string;
+    assetName: string;
+    status: string;
+    publishedAt: string;
+    summary: string;
+    reportComment: string;
+    readiness: string;
+    evidenceStatus: string;
   };
 
   const trellis = getTrellis();
 
-  let assignments = $state<InspectionAssignment[]>([]);
-  let selectedInspectionId = $state("");
-  let loading = $state(true);
-  let running = $state(false);
-  let canCancel = $state(false);
-  let error = $state<string | null>(null);
-  let events = $state<Array<{ label: string; state: string }>>([]);
-  let acceptedId = $state<string | null>(null);
-  let terminal = $state<ReportTerminal | null>(null);
-  let currentRef: ReportOperationRef | null = null;
-  let mounted = false;
-  let assignmentRequestId = 0;
-  let operationRunId = 0;
+  type InspectionRoute = "/inspection" | `/inspection?${string}`;
 
-  async function loadAssignments(): Promise<void> {
-    const requestId = ++assignmentRequestId;
+  let reports = $state<ReportRecord[]>([]);
+  let selectedReportId = $state<string | null>(null);
+  let loading = $state(true);
+  let error = $state<string | null>(null);
+  let mounted = false;
+  let requestId = 0;
+
+  let selectedReport = $derived(
+    reports.find((report) => report.reportId === selectedReportId) ?? reports[0] ?? null,
+  );
+  let selectedInspectionRoute = $derived.by((): InspectionRoute => {
+    if (!selectedReport) return "/inspection";
+    const params = new URLSearchParams({ inspectionId: selectedReport.inspectionId });
+    if (selectedReport.siteId) params.set("siteId", selectedReport.siteId);
+    return `/inspection?${params.toString()}` as InspectionRoute;
+  });
+
+  function selectReportFromUrl(loadedReports: ReportRecord[]): void {
+    const reportId = page.url.searchParams.get("reportId");
+    selectedReportId = loadedReports.some((report) => report.reportId === reportId)
+      ? reportId
+      : loadedReports[0]?.reportId ?? null;
+  }
+
+  async function loadReports(): Promise<void> {
+    const runId = ++requestId;
     loading = true;
     error = null;
 
     try {
-      const response = await trellis.request("Assignments.List", {}).orThrow();
-      if (!mounted || requestId !== assignmentRequestId) return;
-      assignments = response.assignments;
-      selectedInspectionId = response.assignments[0]?.inspectionId ?? "";
+      const response = await trellis.request("Reports.List", {}).orThrow();
+      if (!mounted || runId !== requestId) return;
+      const loadedReports: ReportRecord[] = response.reports;
+      reports = loadedReports;
+      selectReportFromUrl(loadedReports);
     } catch (cause) {
-      if (!mounted || requestId !== assignmentRequestId) return;
+      if (!mounted || runId !== requestId) return;
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
-      if (!mounted || requestId !== assignmentRequestId) return;
+      if (!mounted || runId !== requestId) return;
       loading = false;
     }
   }
 
-  function describeEvent(event: ReportEvent): { label: string; state: string } {
-    if (event.type === "progress" && event.progress) {
-      return {
-        label: `${event.progress.stage}: ${event.progress.message}`,
-        state: event.snapshot.state,
-      };
-    }
-
-    return { label: `${event.type} update`, state: event.snapshot.state };
-  }
-
-  async function watchOperation(ref: ReportOperationRef, runId: number): Promise<void> {
-    const stream = await ref.watch().orThrow();
-    for await (const event of stream) {
-      if (!mounted || runId !== operationRunId) return;
-      events = [describeEvent(event), ...events].slice(0, 8);
-    }
-  }
-
-  async function startOperation(): Promise<void> {
-    if (!selectedInspectionId) return;
-
-    running = true;
-    error = null;
-    events = [];
-    terminal = null;
-    const runId = ++operationRunId;
-
-    try {
-      const ref = await trellis.operation("Reports.Generate").input({ inspectionId: selectedInspectionId }).start().orThrow();
-      if (!mounted || runId !== operationRunId) return;
-      currentRef = ref;
-      canCancel = true;
-      acceptedId = ref.id;
-      void watchOperation(ref, runId).catch((cause) => {
-        if (!mounted || runId !== operationRunId) return;
-        error = cause instanceof Error ? cause.message : String(cause);
-      });
-      const completed = await ref.wait().orThrow();
-      if (!mounted || runId !== operationRunId) return;
-      terminal = completed;
-    } catch (cause) {
-      if (!mounted || runId !== operationRunId) return;
-      error = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      if (!mounted || runId !== operationRunId) return;
-      running = false;
-      canCancel = false;
-      currentRef = null;
-    }
-  }
-
-  async function cancelOperation(): Promise<void> {
-    if (!currentRef) return;
-
-    try {
-      const snapshot = await currentRef.cancel().orThrow();
-      if (!mounted) return;
-      events = [{ label: "cancel requested", state: snapshot.state }, ...events].slice(0, 8);
-    } catch (cause) {
-      if (!mounted) return;
-      error = cause instanceof Error ? cause.message : String(cause);
-    }
-  }
-
-  function terminalBadgeClass(state: ReportTerminal["state"]): string {
-    if (state === "completed") return "badge badge-success badge-outline";
-    if (state === "cancelled") return "badge badge-warning badge-outline";
-    return "badge badge-error badge-outline";
-  }
-
   onMount(() => {
     mounted = true;
-    void loadAssignments();
+    void loadReports();
+  });
+
+  afterNavigate(() => {
+    if (!mounted || loading) return;
+    selectReportFromUrl(reports);
   });
 
   onDestroy(() => {
     mounted = false;
-    assignmentRequestId += 1;
-    operationRunId += 1;
-    currentRef = null;
+    requestId += 1;
   });
 </script>
 
 <svelte:head>
-  <title>Report Run · Field Inspection Desk</title>
+  <title>Reports · Field Inspection Desk</title>
 </svelte:head>
 
 <section class="page-sheet rounded-box p-5 sm:p-7">
   <div class="flex flex-col gap-6">
-  <header class="pb-1">
-    <div class="flex min-w-0 flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-      <div class="min-w-0 space-y-3">
-        <div class="trellis-kicker">Reports.Generate</div>
-        <h1 class="break-words text-2xl font-black tracking-tight md:text-3xl">Report run</h1>
-        <p class="max-w-3xl break-words text-sm text-base-content/70">
-          Pick an inspection, launch the report operation, and monitor every progress signal before publication.
+    <header class="pb-1">
+      <div class="flex min-w-0 flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div class="min-w-0 space-y-3">
+          <div class="trellis-kicker">Reports.List</div>
+          <h1 class="break-words text-2xl font-black tracking-tight md:text-3xl">Completed closeout reports</h1>
+          <p class="max-w-3xl break-words text-sm text-base-content/70">
+            Review reports published by the inspection closeout workflow during this demo service run.
+          </p>
+        </div>
+        <button class="btn btn-accent btn-sm" onclick={loadReports} disabled={loading}>
+          {loading ? "Loading reports..." : "Refresh reports"}
+        </button>
+      </div>
+      <p class="capability-note mt-4">
+        <strong>RPC:</strong> Reports.List
+      </p>
+    </header>
+
+    {#if error}
+      <div role="alert" class="alert alert-error"><span>{error}</span></div>
+    {/if}
+
+    {#if loading && reports.length === 0}
+      <div class="alert" role="status"><span>Loading completed reports from Reports.List.</span></div>
+    {:else if reports.length === 0}
+      <div class="next-action-rail px-1 py-4">
+        <p class="source-label">No completed reports</p>
+        <p class="mt-2 max-w-2xl text-sm text-base-content/68">
+          Run closeout from an inspection to publish a report, then return here to view it.
         </p>
-      </div>
-      <div class="badge badge-outline badge-lg max-w-full"><span class="truncate">Teaching note: operation</span></div>
-    </div>
-  </header>
-
-  {#if error}
-    <div role="alert" class="alert alert-error"><span>{error}</span></div>
-  {/if}
-
-  <div class="section-rule grid gap-7 pt-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-    <section class="min-w-0">
-      <div class="flex flex-col gap-5">
-        <div class="flex min-w-0 flex-wrap items-center justify-between gap-3">
-          <h2 class="min-w-0 break-words text-lg font-black tracking-tight">Run controls</h2>
-          {#if acceptedId}
-            <span class="badge badge-outline max-w-full font-mono"><span class="truncate">{acceptedId}</span></span>
-          {/if}
+        <div class="mt-4">
+          <a class="btn btn-accent btn-sm" href={resolve("/inspection")}>Open inspections</a>
         </div>
-
-        {#if loading}
-          <div class="alert"><span>Loading inspections.</span></div>
-        {:else}
-          <label class="form-control gap-2">
-            <span class="label-text font-medium">Queued inspection</span>
-            <select class="select select-bordered w-full min-w-0" bind:value={selectedInspectionId}>
-              {#each assignments as assignment (assignment.inspectionId)}
-                <option value={assignment.inspectionId}>{assignment.siteName} · {assignment.assetName}</option>
-              {/each}
-            </select>
-          </label>
-
-          <div class="flex flex-wrap gap-3">
-            <button class="btn btn-accent" onclick={startOperation} disabled={running || !selectedInspectionId}>
-              {running ? "Running report..." : "Start report run"}
-            </button>
-            <button class="btn btn-outline" onclick={cancelOperation} disabled={!running || !canCancel}>Cancel</button>
-            <button class="btn btn-ghost" onclick={loadAssignments} disabled={loading || running}>Refresh queue</button>
-          </div>
-        {/if}
       </div>
-    </section>
-
-    <section class="min-w-0 border-t border-base-300/80 pt-6 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
-      <div class="flex flex-col gap-5">
-        <div class="flex min-w-0 flex-wrap items-center justify-between gap-3">
-          <h2 class="min-w-0 break-words text-lg font-black tracking-tight">Operation timeline</h2>
-          {#if terminal}
-            <span class={terminalBadgeClass(terminal.state)}><span class="truncate">{terminal.state}</span></span>
-          {:else if running}
-            <span class="badge badge-outline">running</span>
-          {/if}
-        </div>
-
-        {#if events.length === 0}
-          <div class="alert"><span>Start a report run to stream progress from Reports.Generate.</span></div>
-        {:else}
-          <div class="space-y-2" aria-live="polite">
-            {#each events as event, index (`${event.label}-${index}`)}
-              <div class="min-w-0 border-t border-base-300/80 bg-base-200/45 px-1 py-3 text-sm">
-                <span class="badge badge-outline badge-sm max-w-full"><span class="truncate">{event.state}</span></span>
-                <span class="ml-2 break-words">{event.label}</span>
-              </div>
-            {/each}
+    {:else}
+      <div class="section-rule grid gap-7 pt-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(22rem,1.05fr)]">
+        <section class="min-w-0">
+          <div class="flex min-w-0 items-center justify-between gap-3">
+            <h2 class="min-w-0 break-words text-lg font-black tracking-tight">Report ledger</h2>
+            <span class="source-label">Live Trellis response</span>
           </div>
-        {/if}
-
-        {#if terminal?.output}
-          <div class="divider my-0">Report package</div>
-          <div class="overflow-x-auto">
-            <table class="table table-sm executive-table min-w-[28rem]">
+          <div class="mt-5 overflow-x-auto">
+            <table class="table table-zebra executive-table min-w-[36rem]">
+              <thead>
+                <tr><th>Report</th><th>Inspection</th><th>Status</th></tr>
+              </thead>
               <tbody>
-                <tr><th scope="row">Report id</th><td class="break-words font-mono text-xs">{terminal.output.reportId}</td></tr>
-                <tr><th scope="row">Inspection id</th><td class="break-words">{terminal.output.inspectionId}</td></tr>
-                <tr><th scope="row">Status</th><td class="break-words">{terminal.output.status}</td></tr>
+                {#each reports as report (report.reportId)}
+                  <tr
+                    class={[
+                      "cursor-pointer hover:bg-base-200/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+                      selectedReport?.reportId === report.reportId && "assignment-row-selected",
+                    ]}
+                    role="button"
+                    tabindex="0"
+                    aria-label={`View report ${report.reportId}`}
+                    aria-pressed={selectedReport?.reportId === report.reportId}
+                    onclick={() => selectedReportId = report.reportId}
+                    onkeydown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      selectedReportId = report.reportId;
+                    }}
+                  >
+                    <th scope="row">
+                      <div class="break-words font-medium">{report.siteName}</div>
+                      <div class="break-words font-mono text-xs text-base-content/60">{report.reportId}</div>
+                    </th>
+                    <td>
+                      <div class="break-words">{report.assetName}</div>
+                      <div class="break-words font-mono text-xs text-base-content/60">{report.inspectionId}</div>
+                    </td>
+                    <td><span class="badge badge-success badge-outline">{report.status}</span></td>
+                  </tr>
+                {/each}
               </tbody>
             </table>
           </div>
-        {/if}
+        </section>
+
+        <section class="min-w-0 border-t border-base-300/80 pt-6 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
+          {#if selectedReport}
+            <div class="flex min-w-0 flex-col gap-5">
+              <div class="min-w-0">
+                <p class="source-label">Report view</p>
+                <h2 class="mt-1 break-words text-lg font-black tracking-tight">{selectedReport.siteName}</h2>
+                <p class="mt-1 break-words text-sm text-base-content/62">{formatDateTimeWithAge(selectedReport.publishedAt)}</p>
+              </div>
+
+              <dl class="divide-y divide-base-300/80 border-y border-base-300/80 text-sm">
+                <div class="grid gap-1 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
+                  <dt class="source-label">Report id</dt>
+                  <dd class="break-words font-mono text-xs">{selectedReport.reportId}</dd>
+                </div>
+                <div class="grid gap-1 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
+                  <dt class="source-label">Inspection</dt>
+                  <dd class="break-words font-mono text-xs">{selectedReport.inspectionId}</dd>
+                </div>
+                <div class="grid gap-1 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
+                  <dt class="source-label">Summary</dt>
+                  <dd class="break-words">{selectedReport.summary}</dd>
+                </div>
+                <div class="grid gap-1 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
+                  <dt class="source-label">Report comment</dt>
+                  <dd class="break-words">{selectedReport.reportComment}</dd>
+                </div>
+                <div class="grid gap-1 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
+                  <dt class="source-label">Readiness</dt>
+                  <dd class="break-words">{selectedReport.readiness}</dd>
+                </div>
+                <div class="grid gap-1 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
+                  <dt class="source-label">Evidence</dt>
+                  <dd class="break-words">{selectedReport.evidenceStatus}</dd>
+                </div>
+              </dl>
+
+              <div class="next-action-rail px-1 py-4">
+                <p class="source-label">Related workflow</p>
+                <div class="mt-3 flex flex-wrap gap-3">
+                  <a class="btn btn-outline btn-sm" href={resolve(selectedInspectionRoute)}>Open inspection</a>
+                </div>
+              </div>
+            </div>
+          {/if}
+        </section>
       </div>
-    </section>
-  </div>
+    {/if}
   </div>
 </section>
