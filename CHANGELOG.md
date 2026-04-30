@@ -8,6 +8,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.0-rc.3] - 2026-04-30
+
+### Fixed
+
+- Moved release metadata validation to the start of all publish workflows so a
+  missing release changelog section fails before crates, npm packages, CLI
+  binaries, or container images are built.
+- Built the console ARM64 image from the amd64 GitHub runner with QEMU so the
+  static console build uses the known-good amd64 Vite/Rolldown/Tailwind path
+  while still producing an ARM64 nginx runtime image.
+
 ## [0.8.0] - 2026-04-30
 
 ### Changed

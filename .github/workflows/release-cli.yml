@@ -18,6 +18,8 @@ on:
   pull_request:
     paths:
       - ".github/workflows/release-cli.yml"
+      - "CHANGELOG.md"
+      - "js/tools/release/**"
       - "rust/**"
 
 env:
@@ -37,6 +39,11 @@ jobs:
         uses: denoland/setup-deno@v2
         with:
           deno-version: 2.7.7
+
+      - name: Validate release metadata
+        run: deno run --config js/deno.json -A js/tools/release/validate_release.ts
+        env:
+          TRELLIS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
 
       - name: Prepare release version
         run: deno run --config js/deno.json -A js/tools/release/prepare_release.ts
@@ -113,6 +120,11 @@ jobs:
         uses: denoland/setup-deno@v2
         with:
           deno-version: 2.7.7
+
+      - name: Validate release metadata
+        run: deno run --config js/deno.json -A js/tools/release/validate_release.ts
+        env:
+          TRELLIS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
 
       - name: Prepare release version
         run: deno run --config js/deno.json -A js/tools/release/prepare_release.ts
@@ -203,6 +215,11 @@ jobs:
         uses: denoland/setup-deno@v2
         with:
           deno-version: 2.7.7
+
+      - name: Validate release metadata
+        run: deno run --config js/deno.json -A js/tools/release/validate_release.ts
+        env:
+          TRELLIS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag }}
 
       - name: Download packaged artifacts
         uses: actions/download-artifact@v4
