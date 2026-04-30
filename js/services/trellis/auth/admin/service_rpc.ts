@@ -258,7 +258,12 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
   logger: Pick<AuthRuntimeDeps["logger"], "trace">;
 }) {
   return async (args: {
-    input: { deploymentId: string; contract: unknown; expectedDigest: string };
+    input: {
+      deploymentId: string;
+      contract: unknown;
+      expectedDigest: string;
+      replaceExisting?: boolean;
+    };
     context: { caller: RpcUser };
   }) => {
     const { input: req, context: { caller } } = args;
@@ -291,7 +296,7 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
       );
     }
 
-    if (deps.validateActiveCatalog) {
+    if (deps.validateActiveCatalog && !req.replaceExisting) {
       const validatedDigest = await validateActiveCatalog(
         deps.validateActiveCatalog,
         { extraActiveDigests: [installed.digest] },
@@ -315,6 +320,7 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
     const nextDeployment = applyInstalledServiceDeploymentContract(
       deployment,
       { ...installed, resourceBindings },
+      { replaceExisting: req.replaceExisting },
     );
 
     if (deps.validateActiveCatalog) {

@@ -311,7 +311,13 @@ export function normalizeDeviceAppliedContracts(
 export function applyInstalledServiceDeploymentContract(
   deployment: ServiceDeployment,
   installed: InstalledServiceDeploymentContract,
+  options?: { replaceExisting?: boolean },
 ): ServiceDeployment {
+  const existingContracts = options?.replaceExisting
+    ? deployment.appliedContracts.filter((applied) =>
+      applied.contractId !== installed.id
+    )
+    : deployment.appliedContracts;
   return {
     ...deployment,
     namespaces: [
@@ -319,7 +325,7 @@ export function applyInstalledServiceDeploymentContract(
     ]
       .sort((left, right) => left.localeCompare(right)),
     appliedContracts: normalizeAppliedContracts([
-      ...deployment.appliedContracts,
+      ...existingContracts,
       {
         contractId: installed.id,
         allowedDigests: [installed.digest],

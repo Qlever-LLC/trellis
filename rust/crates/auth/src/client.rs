@@ -571,6 +571,7 @@ impl<'a> AuthClient<'a> {
                         deployment_id: deployment_id.to_string(),
                         contract,
                         expected_digest,
+                        replace_existing: None,
                     },
                 )
                 .await?;

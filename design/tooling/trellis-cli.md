@@ -156,7 +156,7 @@ trellis portal device clear <deploymentId>
 trellis deploy list <svc|dev> [--contract <contractId>] [--disabled]
 trellis deploy show <svc/id|dev/id>
 trellis deploy create <svc/id|dev/id> [--namespace <ns>...] [--review-mode <none|required>]
-trellis deploy apply <svc/id|dev/id> (--source <file> | --manifest <file> | --image <ref>) [-f]
+trellis deploy apply <svc/id|dev/id> (--source <file> | --manifest <file> | --image <ref>) [-f] [--replace]
 trellis deploy unapply <svc/id|dev/id> <contractId> [--digest <digest>...]
 trellis deploy disable <svc/id|dev/id>
 trellis deploy enable <svc/id|dev/id>
@@ -215,6 +215,10 @@ Operational command behavior:
 - `trellis auth approval revoke` removes a stored `user <-> contractDigest`
   decision, removes reconnect authority for that delegated app or agent grant,
   and revokes matching active delegated sessions in the `trellis` service
+- `trellis deploy apply --replace` replaces the target deployment's active
+  allowed digest set for the submitted contract lineage instead of adding a
+  second active digest; this is intended for coordinated or unreleased breaking
+  same-lineage development and does not mutate historical catalog digest records
 - `trellis auth grant *` manages deployment-wide delegated grant policies keyed
   by app or agent contract lineage; `set` may resolve the lineage from either a
   contract id or a local contract source path, may optionally restrict matching

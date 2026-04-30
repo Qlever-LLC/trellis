@@ -149,6 +149,7 @@ export const AuthApplyServiceDeploymentContractSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   contract: OpenObjectSchema,
   expectedDigest: DigestSchema,
+  replaceExisting: Type.Optional(Type.Boolean()),
 });
 export const AuthApplyServiceDeploymentContractResponseSchema = Type.Object({
   deployment: ServiceDeploymentSchema,
@@ -896,6 +897,7 @@ export const AuthApplyDeviceDeploymentContractSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   contract: OpenObjectSchema,
   expectedDigest: DigestSchema,
+  replaceExisting: Type.Optional(Type.Boolean()),
 });
 export const AuthApplyDeviceDeploymentContractResponseSchema = Type.Object({
   deployment: DeviceDeploymentSchema,

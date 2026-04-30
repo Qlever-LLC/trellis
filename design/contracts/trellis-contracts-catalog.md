@@ -218,6 +218,9 @@ Rules:
 - all concurrently active digests for the same `id` MUST remain semantically
   compatible within that lineage, so mixed-version callers and service instances
   can keep working during rollout
+- operator replace workflows MAY remove the old active digest for an unreleased
+  or otherwise coordinated deployment before activating a breaking same-lineage
+  digest; this replaces deployment activation, not the stored digest record
 
 ### 6.1) Contract digest projection
 
@@ -332,6 +335,10 @@ Breaking schema changes include:
 
 If a rollout needs one of those breaking changes, it MUST use a new contract
 `id` / major version rather than a second active digest in the same lineage.
+During early unreleased development, an operator MAY use deployment replace mode
+to activate a new same-lineage digest only when the replaced digest is removed
+from the deployment's active allowed set and no incompatible same-lineage digest
+remains concurrently active.
 
 ### Declared dependencies (`uses`)
 

@@ -215,6 +215,7 @@ async fn apply_command(format: OutputFormat, args: &DeployApplyArgs) -> miette::
                         deployment_id: args.reference.id.clone(),
                         contract,
                         expected_digest: loaded.digest.clone(),
+                        replace_existing: args.replace.then_some(true),
                     },
                 )
                 .await
@@ -235,6 +236,7 @@ async fn apply_command(format: OutputFormat, args: &DeployApplyArgs) -> miette::
                         deployment_id: args.reference.id.clone(),
                         contract,
                         expected_digest: loaded.digest.clone(),
+                        replace_existing: args.replace.then_some(true),
                     },
                 )
                 .await

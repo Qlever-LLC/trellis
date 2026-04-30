@@ -282,6 +282,7 @@ fn deploy_service_apply_help_does_not_treat_modifiers_as_primary_inputs() {
     assert!(stdout.contains("--source-export <SOURCE_EXPORT>"));
     assert!(stdout.contains("--image-contract-path <IMAGE_CONTRACT_PATH>"));
     assert!(stdout.contains("-f, --force"));
+    assert!(stdout.contains("--replace"));
     assert!(!stdout.contains("--nats-servers"));
     assert!(!stdout.contains("--creds <CREDS>"));
     assert!(!stdout.contains("|--source-export <SOURCE_EXPORT>|"));
@@ -299,6 +300,7 @@ fn deploy_device_apply_help_does_not_treat_modifiers_as_primary_inputs() {
     assert!(stdout.contains("--source-export <SOURCE_EXPORT>"));
     assert!(stdout.contains("--image-contract-path <IMAGE_CONTRACT_PATH>"));
     assert!(stdout.contains("-f, --force"));
+    assert!(stdout.contains("--replace"));
     assert!(!stdout.contains("--nats-servers"));
     assert!(!stdout.contains("--creds <CREDS>"));
     assert!(!stdout.contains("|--source-export <SOURCE_EXPORT>|"));

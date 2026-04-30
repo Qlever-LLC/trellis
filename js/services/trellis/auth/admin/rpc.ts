@@ -583,6 +583,7 @@ export function createAuthApplyDeviceDeploymentContractHandler(deps: {
         deploymentId: string;
         contract: unknown;
         expectedDigest: string;
+        replaceExisting?: boolean;
       };
       context: { caller: RpcUser };
     },
@@ -617,7 +618,11 @@ export function createAuthApplyDeviceDeploymentContractHandler(deps: {
     const nextDeployment: DeviceDeployment = {
       ...deployment,
       appliedContracts: normalizeDeviceAppliedContracts([
-        ...deployment.appliedContracts,
+        ...(req.replaceExisting
+          ? deployment.appliedContracts.filter((applied) =>
+            applied.contractId !== installed.id
+          )
+          : deployment.appliedContracts),
         { contractId: installed.id, allowedDigests: [installed.digest] },
       ]),
     };

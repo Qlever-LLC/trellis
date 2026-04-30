@@ -217,6 +217,9 @@ pub struct DeployApplyArgs {
 
     #[arg(short = 'f', long)]
     pub force: bool,
+
+    #[arg(long)]
+    pub replace: bool,
 }
 
 #[derive(Debug, Args)]

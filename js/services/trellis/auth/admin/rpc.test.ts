@@ -578,6 +578,83 @@ Deno.test("Auth.ApplyServiceDeploymentContract preserves bindings for multiple s
   );
 });
 
+Deno.test("Auth.ApplyServiceDeploymentContract replaces same-lineage digests when requested", async () => {
+  const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
+  serviceDeploymentStorage.seed({
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: serviceContract.id,
+      allowedDigests: ["digest-a"],
+      resourceBindingsByDigest: {
+        "digest-a": {
+          kv: {
+            cache: { bucket: "svc_billing_cache_a", history: 1, ttlMs: 0 },
+          },
+        },
+      },
+    }],
+  });
+  const stagedDeployments: ServiceDeployment[] = [];
+
+  const handler = createAuthApplyServiceDeploymentContractHandler({
+    serviceDeploymentStorage,
+    installServiceContract: async () => ({
+      id: serviceContract.id,
+      digest: "digest-b",
+      displayName: serviceContract.displayName,
+      description: serviceContract.description,
+      contract: serviceContract,
+      usedNamespaces: ["billing"],
+    }),
+    provisionResourceBindings: async () => ({
+      kv: { cache: { bucket: "svc_billing_cache_b", history: 2, ttlMs: 1000 } },
+    }),
+    validateActiveCatalog: async (
+      { extraActiveDigests, stagedServiceDeployments },
+    ) => {
+      assertEquals(extraActiveDigests, undefined);
+      stagedDeployments.push(...stagedServiceDeployments ?? []);
+    },
+    refreshActiveContracts: async () => {},
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      contract: {},
+      expectedDigest: "digest-b",
+      replaceExisting: true,
+    },
+    context: adminContext,
+  });
+
+  assert(!result.isErr());
+  const expectedDeployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: serviceContract.id,
+      allowedDigests: ["digest-b"],
+      resourceBindingsByDigest: {
+        "digest-b": {
+          kv: {
+            cache: { bucket: "svc_billing_cache_b", history: 2, ttlMs: 1000 },
+          },
+        },
+      },
+    }],
+  };
+  assertEquals(
+    serviceDeploymentStorage.getValue("billing.default"),
+    expectedDeployment,
+  );
+  assertEquals(stagedDeployments, [expectedDeployment]);
+});
+
 Deno.test("Auth.ApplyServiceDeploymentContract allows same-lineage digest resource setting changes", async () => {
   const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
   serviceDeploymentStorage.seed({
@@ -1485,6 +1562,50 @@ Deno.test("Auth.ApplyDeviceDeploymentContract validates staged deployment before
   assertEquals(refreshCount, 0);
   assertEquals(kicked, []);
   assertEquals(getStored(), original);
+});
+
+Deno.test("Auth.ApplyDeviceDeploymentContract replaces same-lineage digests when requested", async () => {
+  const original: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "none",
+    disabled: false,
+    appliedContracts: [{
+      contractId: "reader@v1",
+      allowedDigests: ["digest-a"],
+    }],
+  };
+  const putDeployments: DeviceDeployment[] = [];
+  const stagedDeployments: DeviceDeployment[] = [];
+  const { deps, getStored } = deviceAdminDeps({
+    deployment: original,
+    putDeployments,
+    validateActiveCatalog: async ({ stagedDeviceDeployments }) => {
+      stagedDeployments.push(...stagedDeviceDeployments ?? []);
+    },
+  });
+
+  const result = await createDeviceAdminHandlers(deps)
+    .applyDeviceDeploymentContract({
+      input: {
+        deploymentId: "reader.default",
+        contract: {},
+        expectedDigest: "digest-b",
+        replaceExisting: true,
+      },
+      context: { caller: { id: "admin", capabilities: ["admin"] } },
+    });
+
+  const expectedDeployment: DeviceDeployment = {
+    ...original,
+    appliedContracts: [{
+      contractId: "reader@v1",
+      allowedDigests: ["digest-b"],
+    }],
+  };
+  assert(!result.isErr());
+  assertEquals(putDeployments, [expectedDeployment]);
+  assertEquals(stagedDeployments, [expectedDeployment]);
+  assertEquals(getStored(), expectedDeployment);
 });
 
 Deno.test("Auth.ApplyDeviceDeploymentContract rejects mismatched expected digest", async () => {
