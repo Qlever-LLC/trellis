@@ -67,6 +67,7 @@
   let kindFilter = $state<KindFilter>("all");
   let statusFilter = $state<StatusFilter>("all");
   let selectedKey = $state("");
+  let selectedServiceInstanceId = $state("");
 
   const serviceDeploymentsById = $derived.by(() => new Map(serviceDeployments.map((deployment) => [deployment.deploymentId, deployment])));
   const deviceDeploymentsById = $derived.by(() => new Map(deviceDeployments.map((deployment) => [deployment.deploymentId, deployment])));
@@ -139,6 +140,7 @@
   const selectedServiceDeployment = $derived(selectedDeployment?.kind === "service" ? serviceDeploymentsById.get(selectedDeployment.deploymentId) ?? null : null);
   const selectedDeviceDeployment = $derived(selectedDeployment?.kind === "device" ? deviceDeploymentsById.get(selectedDeployment.deploymentId) ?? null : null);
   const selectedServiceInstances = $derived(selectedServiceDeployment ? serviceInstances.filter((instance) => instance.deploymentId === selectedServiceDeployment.deploymentId) : []);
+  const selectedServiceInstance = $derived.by(() => selectedServiceInstances.find((instance) => instance.instanceId === selectedServiceInstanceId) ?? selectedServiceInstances[0] ?? null);
   const selectedDeviceInstances = $derived(selectedDeviceDeployment ? deviceInstances.filter((instance) => instance.deploymentId === selectedDeviceDeployment.deploymentId) : []);
   const selectedDeviceActivations = $derived(selectedDeviceDeployment ? deviceActivations.filter((activation) => activation.deploymentId === selectedDeviceDeployment.deploymentId) : []);
   const selectedDeviceReviews = $derived(selectedDeviceDeployment ? deviceReviews.filter((review) => review.deploymentId === selectedDeviceDeployment.deploymentId) : []);
@@ -204,10 +206,16 @@
   function syncSelectedDeployment() {
     if (deploymentViews.some((deployment) => deployment.key === selectedKey)) return;
     selectedKey = deploymentViews[0]?.key ?? "";
+    selectedServiceInstanceId = "";
   }
 
   function selectDeployment(deployment: DeploymentView) {
+    if (selectedKey !== deployment.key) selectedServiceInstanceId = "";
     selectedKey = deployment.key;
+  }
+
+  function selectServiceInstance(instance: ServiceInstance) {
+    selectedServiceInstanceId = instance.instanceId;
   }
 
   async function load() {
@@ -393,34 +401,80 @@
                   {#if selectedServiceInstances.length === 0}
                     <EmptyState title="No service instances" description="Provision an instance from the service instance workflow." class="py-4" />
                   {:else}
-                    <div class="overflow-x-auto">
-                      <table class="table table-sm trellis-table">
-                        <thead><tr><th>Instance</th><th>Status</th><th>Contract</th><th>Resources</th><th>Capabilities</th><th>Created</th></tr></thead>
-                        <tbody>
-                          {#each selectedServiceInstances as instance (instance.instanceId)}
-                            <tr>
-                              <td><div class="trellis-identifier font-medium">{instance.instanceId}</div><div class="trellis-identifier text-base-content/60">{instance.instanceKey}</div></td>
-                              <td><StatusBadge label={instance.disabled ? "Disabled" : "Active"} status={statusForInstance(instance.disabled)} /></td>
-                              <td><div class="trellis-identifier">{instance.currentContractId ?? "—"}</div><div class="trellis-identifier text-base-content/60">{instance.currentContractDigest ?? "—"}</div></td>
-                              <td>
-                                <div class="trellis-token-list">
-                                  {#each Object.entries(instance.resourceBindings?.kv ?? {}) as [alias, binding] (alias)}
-                                    <span class="badge badge-outline badge-xs">kv:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.bucket}</span></span>
-                                  {/each}
-                                  {#each Object.entries(instance.resourceBindings?.store ?? {}) as [alias, binding] (alias)}
-                                    <span class="badge badge-outline badge-xs">store:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.name}</span></span>
-                                  {/each}
-                                  {#if !hasResourceBindings(instance)}
-                                    <span class="text-base-content/60">—</span>
-                                  {/if}
-                                </div>
-                              </td>
-                              <td><div class="trellis-token-list">{#each instance.capabilities as capability (capability)}<span class="badge badge-outline badge-xs">{capability}</span>{:else}<span class="text-base-content/60">—</span>{/each}</div></td>
-                              <td class="text-base-content/60">{formatMaybeDate(instance.createdAt)}</td>
-                            </tr>
-                          {/each}
-                        </tbody>
-                      </table>
+                    <div class="grid gap-4 2xl:grid-cols-[minmax(28rem,0.9fr)_minmax(0,1.1fr)]">
+                      <div class="min-w-0 overflow-x-auto rounded-box border border-base-300">
+                        <table class="table table-sm trellis-table">
+                          <thead><tr><th>Instance</th><th>Status</th><th>Contract</th><th>Created</th></tr></thead>
+                          <tbody>
+                            {#each selectedServiceInstances as instance (instance.instanceId)}
+                              <tr class={{ "bg-base-200/60": selectedServiceInstance?.instanceId === instance.instanceId }}>
+                                <td>
+                                  <button class="trellis-identifier max-w-48 truncate text-left font-medium hover:underline" onclick={() => selectServiceInstance(instance)}>
+                                    {instance.instanceId}
+                                  </button>
+                                </td>
+                                <td><StatusBadge label={instance.disabled ? "Disabled" : "Active"} status={statusForInstance(instance.disabled)} /></td>
+                                <td class="trellis-identifier text-base-content/60">{instance.currentContractId ?? "—"}</td>
+                                <td class="whitespace-nowrap text-base-content/60">{formatMaybeDate(instance.createdAt)}</td>
+                              </tr>
+                            {/each}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div class="min-w-0 rounded-box border border-base-300 bg-base-100">
+                        {#if selectedServiceInstance}
+                          <div class="border-b border-base-300 px-4 py-3">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                              <div class="min-w-0">
+                                <div class="trellis-identifier truncate font-medium">{selectedServiceInstance.instanceId}</div>
+                                <div class="trellis-identifier truncate text-xs text-base-content/60">{selectedServiceInstance.instanceKey}</div>
+                              </div>
+                              <StatusBadge label={selectedServiceInstance.disabled ? "Disabled" : "Active"} status={statusForInstance(selectedServiceInstance.disabled)} />
+                            </div>
+                          </div>
+
+                          <dl class="divide-y divide-base-300 text-sm">
+                            <div class="grid grid-cols-[9rem_minmax(0,1fr)] gap-4 px-4 py-3">
+                              <dt class="text-base-content/60">Contract</dt>
+                              <dd class="min-w-0">
+                                <div class="trellis-identifier truncate font-medium">{selectedServiceInstance.currentContractId ?? "—"}</div>
+                                <div class="trellis-identifier mt-1 truncate text-xs text-base-content/60">{selectedServiceInstance.currentContractDigest ?? "—"}</div>
+                              </dd>
+                            </div>
+                            <div class="grid grid-cols-[9rem_minmax(0,1fr)] gap-4 px-4 py-3">
+                              <dt class="text-base-content/60">Resources</dt>
+                              <dd class="trellis-token-list min-w-0">
+                                {#each Object.entries(selectedServiceInstance.resourceBindings?.kv ?? {}) as [alias, binding] (alias)}
+                                  <span class="badge badge-outline badge-xs">kv:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.bucket}</span></span>
+                                {/each}
+                                {#each Object.entries(selectedServiceInstance.resourceBindings?.store ?? {}) as [alias, binding] (alias)}
+                                  <span class="badge badge-outline badge-xs">store:{alias} <span class="trellis-identifier ml-1 text-base-content/60">{binding.name}</span></span>
+                                {/each}
+                                {#if !hasResourceBindings(selectedServiceInstance)}
+                                  <span class="text-base-content/60">—</span>
+                                {/if}
+                              </dd>
+                            </div>
+                            <div class="grid grid-cols-[9rem_minmax(0,1fr)] gap-4 px-4 py-3">
+                              <dt class="text-base-content/60">Capabilities</dt>
+                              <dd class="trellis-token-list min-w-0">
+                                {#each selectedServiceInstance.capabilities as capability (capability)}
+                                  <span class="badge badge-outline badge-xs">{capability}</span>
+                                {:else}
+                                  <span class="text-base-content/60">—</span>
+                                {/each}
+                              </dd>
+                            </div>
+                            <div class="grid grid-cols-[9rem_minmax(0,1fr)] gap-4 px-4 py-3">
+                              <dt class="text-base-content/60">Created</dt>
+                              <dd class="text-base-content/70">{formatMaybeDate(selectedServiceInstance.createdAt)}</dd>
+                            </div>
+                          </dl>
+                        {:else}
+                          <EmptyState title="Select an instance" description="Choose a service instance from the roster." class="py-4" />
+                        {/if}
+                      </div>
                     </div>
                   {/if}
                 </div>
