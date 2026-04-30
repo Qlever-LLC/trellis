@@ -143,21 +143,11 @@ jobs:
             io.trellis.contract.path=/trellis/contract.json
 
   console:
-    name: Build console (${{ matrix.platform }})
-    runs-on: ${{ matrix.runner }}
+    name: Publish console
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            platform: linux/amd64
-            platform_tag: amd64
-          - runner: ubuntu-latest
-            platform: linux/arm64
-            platform_tag: arm64
 
     steps:
       - name: Check out repository
@@ -244,109 +234,15 @@ jobs:
             type=raw,value=rc,enable=${{ env.RELEASE_TAG != '' && contains(env.RELEASE_TAG, '-') }}
             type=raw,value=latest,enable=${{ env.RELEASE_TAG != '' && !contains(env.RELEASE_TAG, '-') }}
 
-      - name: Build console image for verification
-        if: env.SHOULD_PUSH != 'true'
+      - name: Build console image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: js/apps/console/Containerfile
-          platforms: ${{ matrix.platform }}
-          push: false
+          platforms: linux/amd64,linux/arm64
+          push: ${{ env.SHOULD_PUSH == 'true' }}
+          tags: ${{ steps.console_meta.outputs.tags }}
           labels: |
             ${{ steps.console_meta.outputs.labels }}
             org.opencontainers.image.title=console
             org.opencontainers.image.description=Trellis administrative web console
-
-      - name: Build and push console image by digest
-        id: console_build
-        if: env.SHOULD_PUSH == 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: js/apps/console/Containerfile
-          platforms: ${{ matrix.platform }}
-          labels: |
-            ${{ steps.console_meta.outputs.labels }}
-            org.opencontainers.image.title=console
-            org.opencontainers.image.description=Trellis administrative web console
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/console,push-by-digest=true,name-canonical=true,push=true
-
-      - name: Export console image digest
-        if: env.SHOULD_PUSH == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/digests
-          digest="${{ steps.console_build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
-
-      - name: Upload console image digest
-        if: env.SHOULD_PUSH == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: console-digests-${{ matrix.platform_tag }}
-          path: /tmp/digests/*
-          if-no-files-found: error
-          retention-days: 1
-
-  console-merge:
-    name: Publish console manifest
-    if: ${{ startsWith(github.ref, 'refs/tags/') || (inputs.publish == true && inputs.tag != '') }}
-    needs: console
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Normalize image owner
-        id: owner
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "value=$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
-
-      - name: Download console image digests
-        uses: actions/download-artifact@v4
-        with:
-          path: /tmp/digests
-          pattern: console-digests-*
-          merge-multiple: true
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract console image metadata
-        id: console_meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/console
-          tags: |
-            type=raw,value=${{ env.RELEASE_TAG }},enable=${{ env.RELEASE_TAG != '' }}
-            type=sha,prefix=sha-
-            type=raw,value=rc,enable=${{ env.RELEASE_TAG != '' && contains(env.RELEASE_TAG, '-') }}
-            type=raw,value=latest,enable=${{ env.RELEASE_TAG != '' && !contains(env.RELEASE_TAG, '-') }}
-
-      - name: Create console multi-arch manifest
-        working-directory: /tmp/digests
-        shell: bash
-        run: |
-          set -euo pipefail
-          tags=()
-          while IFS= read -r tag; do
-            tags+=("-t" "$tag")
-          done < <(printf '%s\n' "${{ steps.console_meta.outputs.tags }}")
-
-          refs=()
-          for digest_file in *; do
-            refs+=("${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/console@sha256:${digest_file}")
-          done
-
-          docker buildx imagetools create "${tags[@]}" "${refs[@]}"
