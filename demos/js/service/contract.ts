@@ -7,7 +7,7 @@ export const contract = defineServiceContract(
     schemas,
   },
   (ref) => ({
-    id: "trellis.demo-service@v2",
+    id: "trellis.demo-service@v1",
     displayName: "Field Ops Demo Service",
     description: "Consolidated Field Ops demo service for Trellis concepts.",
     uses: { health: health.useDefaults() },

@@ -42,17 +42,21 @@ export const refreshSite: OperationHandler<
 
   await pause(700);
 
-  await trellis.publish("Sites.Refreshed", {
-    refreshId: completedJob.result.refreshId,
-    site: completedJob.result.site,
-    refreshedAt: new Date().toISOString(),
-  }).orThrow();
-  await pause(700);
-  await recordActivity(trellis, {
-    kind: "site-refreshed",
-    message: `Refreshed ${completedJob.result.site.siteName}`,
-    relatedSiteId: completedJob.result.site.siteId,
-  });
+  try {
+    await trellis.publish("Sites.Refreshed", {
+      refreshId: completedJob.result.refreshId,
+      site: completedJob.result.site,
+      refreshedAt: new Date().toISOString(),
+    }).orThrow();
+    await pause(700);
+    await recordActivity(trellis, {
+      kind: "site-refreshed",
+      message: `Refreshed ${completedJob.result.site.siteName}`,
+      relatedSiteId: completedJob.result.site.siteId,
+    });
+  } catch (cause) {
+    console.warn("Site refresh side-effect publish failed", cause);
+  }
 
   return await op.complete(completedJob.result).orThrow();
 };
