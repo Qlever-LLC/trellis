@@ -663,7 +663,7 @@ Deno.test("OperationInvoker.input().start() still returns an OperationRef after 
     },
     {
       subject: controlSubject("operations.v1.Billing.Refund"),
-      body: { action: "wait", operationId: "op_123" },
+      body: { action: "get", operationId: "op_123" },
     },
   ]);
 });
@@ -845,7 +845,7 @@ Deno.test("OperationInvoker.input().transfer().start() waits for terminal state 
     },
     {
       subject: controlSubject("operations.v1.Billing.Refund"),
-      body: { action: "wait", operationId: "op_upload_123" },
+      body: { action: "get", operationId: "op_upload_123" },
     },
   ]);
   assertEquals(result.terminal.state, "completed");
@@ -1074,7 +1074,7 @@ Deno.test("OperationRef.cancel() surfaces control error frames with the runtime 
   assertEquals(context.controlErrorMessage, "cannot cancel now");
 });
 
-Deno.test("OperationRef.wait() sends action:wait and rejects a non-terminal snapshot", async () => {
+Deno.test("OperationRef.wait() watches until a terminal snapshot without a request timeout", async () => {
   const transport = new FakeOperationTransport([
     {
       kind: "accepted",
@@ -1098,6 +1098,35 @@ Deno.test("OperationRef.wait() sends action:wait and rejects a non-terminal snap
         },
       },
     },
+    {
+      kind: "event",
+      event: {
+        type: "progress",
+        progress: {
+          message: "still working",
+        },
+        snapshot: {
+          revision: 3,
+          state: "running",
+          progress: {
+            message: "still working",
+          },
+        },
+      },
+    },
+    {
+      kind: "event",
+      event: {
+        type: "completed",
+        snapshot: {
+          revision: 4,
+          state: "completed",
+          output: {
+            refundId: "rf_123",
+          },
+        },
+      },
+    },
   ]);
 
   const operation = new OperationInvoker(transport, refundOperation);
@@ -1109,12 +1138,11 @@ Deno.test("OperationRef.wait() sends action:wait and rejects a non-terminal snap
       },
     },
   );
-  const result = await reference.wait();
-  const error = result.match({
-    ok: () => {
-      throw new Error("expected wait() to fail");
+  const terminal = await reference.wait().match({
+    ok: (value) => value,
+    err: (error) => {
+      throw error;
     },
-    err: (value) => value,
   });
 
   assertEquals(transport.seen, [
@@ -1124,15 +1152,15 @@ Deno.test("OperationRef.wait() sends action:wait and rejects a non-terminal snap
     },
     {
       subject: controlSubject("operations.v1.Billing.Refund"),
-      body: { action: "wait", operationId: "op_123" },
+      body: { action: "get", operationId: "op_123" },
+    },
+    {
+      subject: controlSubject("operations.v1.Billing.Refund"),
+      body: { action: "watch", operationId: "op_123" },
     },
   ]);
-  assertExists(error);
-  assertEquals(error.name, "TransportError");
-  assertEquals(
-    Reflect.get(error, "code"),
-    "trellis.operation.invalid_snapshot",
-  );
+  assertEquals(terminal.state, "completed");
+  assertEquals(terminal.output, { refundId: "rf_123" });
 });
 
 Deno.test("OperationRef.wait() surfaces control error frames with the runtime error details", async () => {

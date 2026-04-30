@@ -617,20 +617,32 @@ class RuntimeOperationRef<
     TransportError | UnexpectedError
   > {
     return AsyncResult.from((async () => {
-      const snapshotValue = await this.#controlSnapshot("wait").take();
+      const snapshotValue = await this.#controlSnapshot("get").take();
       if (isErr(snapshotValue)) {
         return snapshotValue;
       }
-      if (!isTerminalState(snapshotValue.state)) {
-        return err(createTransportError({
-          code: "trellis.operation.invalid_snapshot",
-          message: "Trellis returned an incomplete operation snapshot.",
-          hint:
-            "Retry the operation request. If it keeps happening, reconnect to Trellis and try again.",
-          cause: new Error("wait returned non-terminal snapshot"),
-        }));
+      if (isTerminalState(snapshotValue.state)) {
+        return ok(snapshotValue as TerminalOperation<TProgress, TOutput>);
       }
-      return ok(snapshotValue as TerminalOperation<TProgress, TOutput>);
+
+      const eventsValue = await this.watch().take();
+      if (isErr(eventsValue)) {
+        return eventsValue;
+      }
+
+      for await (const event of eventsValue) {
+        if (isTerminalEvent(event)) {
+          return ok(event.snapshot);
+        }
+      }
+
+      return err(createTransportError({
+        code: "trellis.operation.watch_closed",
+        message: "Trellis operation watch ended before a terminal snapshot.",
+        hint:
+          "Retry the operation wait. If it keeps happening, reconnect to Trellis and try again.",
+        context: { operationId: this.id, operation: this.operation },
+      }));
     })());
   }
 

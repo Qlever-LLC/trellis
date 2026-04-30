@@ -609,7 +609,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
         if (control.action === "watch") {
           if (msg.reply) {
             await publishSnapshot(msg.reply, snapshot);
-            if (!runtime) continue;
+            if (!runtime || runtime.terminal) continue;
             runtime.watchers.add(msg.reply);
           }
           continue;

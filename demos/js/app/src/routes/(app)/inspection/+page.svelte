@@ -36,9 +36,8 @@
     watch(): { orThrow(): Promise<AsyncIterable<RefreshEvent>> };
     wait(): { orThrow(): Promise<RefreshTerminal> };
   };
-  type LocalOperationUpdateKind = "operation" | "external-job";
   type LocalOperationUpdate = {
-    kind: LocalOperationUpdateKind;
+    kind: "operation";
     id: string;
     operationId: string;
     name: "Sites.Refresh";
@@ -46,7 +45,6 @@
     subject: string;
     state: string;
     occurredAt: string;
-    jobId?: string;
     refreshId?: string;
   };
 
@@ -164,15 +162,13 @@
       if (!mounted || runId !== refreshRunId) return;
       if (!event.progress) continue;
       const label = event.progress ? `${event.progress.stage}: ${event.progress.message}` : `${event.type} update`;
-      const jobMatch = event.progress?.message.match(/Running private job\s+(\S+)/i);
       dispatchLiveUpdate({
-        kind: jobMatch ? "external-job" : "operation",
+        kind: "operation",
         operationId: ref.id,
         name: "Sites.Refresh",
-        action: jobMatch ? "External field-system job" : label,
-        subject: jobMatch?.[1] ?? selectedSite?.siteName ?? selectedSiteId ?? "Selected site",
+        action: label,
+        subject: selectedSite?.siteName ?? selectedSiteId ?? "Selected site",
         state: event.snapshot.state,
-        jobId: jobMatch?.[1],
       });
     }
   }
@@ -183,10 +179,13 @@
     refreshing = true;
     error = null;
     const runId = ++refreshRunId;
+    let terminalReached = false;
+    let operationId = `Sites.Refresh-${runId}`;
 
     try {
       const ref = await trellis.operation("Sites.Refresh").input({ siteId: selectedSiteId }).start().orThrow();
       if (!mounted || runId !== refreshRunId) return;
+      operationId = ref.id;
       dispatchLiveUpdate({
         kind: "operation",
         operationId: ref.id,
@@ -197,6 +196,10 @@
       });
       void watchRefresh(ref, runId).catch((cause) => {
         if (!mounted || runId !== refreshRunId) return;
+        if (terminalReached) {
+          error = `Sites.Refresh completed, but the progress watch failed: ${cause instanceof Error ? cause.message : String(cause)}`;
+          return;
+        }
         error = cause instanceof Error ? cause.message : String(cause);
         dispatchLiveUpdate({
           kind: "operation",
@@ -209,6 +212,8 @@
       });
       const terminal = await ref.wait().orThrow();
       if (!mounted || runId !== refreshRunId) return;
+      terminalReached = true;
+      error = null;
       dispatchLiveUpdate({
         kind: "operation",
         operationId: ref.id,
@@ -216,17 +221,19 @@
         action: "Completed field status refresh",
         subject: terminal.output?.site.siteName ?? selectedSite?.siteName ?? selectedSiteId ?? "Selected site",
         state: terminal.state,
+        refreshId: terminal.output?.refreshId,
       });
       if (terminal.output) {
-        selectedSite = terminal.output.site;
-        await loadDesk(terminal.output.site.siteId ?? selectedSiteId);
+        const refreshedSite = terminal.output.site;
+        selectedSite = refreshedSite;
+        sites = sites.map((site) => site.siteId === refreshedSite.siteId ? refreshedSite : site);
       }
     } catch (cause) {
       if (!mounted || runId !== refreshRunId) return;
       error = cause instanceof Error ? cause.message : String(cause);
       dispatchLiveUpdate({
         kind: "operation",
-        operationId: `Sites.Refresh-${runId}`,
+        operationId,
         name: "Sites.Refresh",
         action: "Failed field status refresh",
         subject: selectedSite?.siteName ?? selectedSiteId ?? "Selected site",

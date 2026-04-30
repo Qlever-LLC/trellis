@@ -125,10 +125,10 @@
   }
 
   let displayItems = $derived.by((): StreamDisplayItem[] => {
-    const jobOperationIds: Record<string, string> = {};
+    const refreshOperationIds: Record<string, string> = {};
     for (const event of liveEvents) {
-      if (event.name === "Sites.Refresh" && event.kind === "external-job" && event.operationId) {
-        jobOperationIds[event.refreshId ?? event.subject] = event.operationId;
+      if (event.name === "Sites.Refresh" && event.kind === "operation" && event.operationId && event.refreshId) {
+        refreshOperationIds[event.refreshId] = event.operationId;
       }
     }
 
@@ -140,7 +140,7 @@
 
     for (const event of liveEvents) {
       const relatedOperationId = event.name === "Sites.Refreshed" && event.refreshId
-        ? jobOperationIds[event.refreshId]
+        ? refreshOperationIds[event.refreshId]
         : event.operationId;
 
       if (isGroupedOperationUpdate(event)) {
@@ -173,7 +173,7 @@
       const events = relatedEvents[group.operationId] ?? [];
       const occurredAt = [group.latestOccurredAt, ...events.map((event) => event.occurredAt)]
         .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? group.latestOccurredAt;
-      return { occurredAt, items: [group, ...events] };
+      return { occurredAt, items: [{ ...group, children: [...group.children, ...events] }] };
     });
     const groupedOperationIds = new Set(Object.keys(groups));
     const orphanRelatedBlocks = Object.entries(relatedEvents)
@@ -188,9 +188,8 @@
   function handleLocalOperationUpdate(event: Event): void {
     const detail = event instanceof CustomEvent ? event.detail : null;
     if (!isLocalOperationUpdate(detail)) return;
-    const isTerminal = detail.state === "completed" || detail.state === "failed" || detail.state === "cancelled";
     if (detail.name === "Sites.Refresh") {
-      activeRefreshOperationId = isTerminal ? null : detail.operationId;
+      activeRefreshOperationId = detail.state === "failed" || detail.state === "cancelled" ? null : detail.operationId;
     } else {
       activeReportOperation = detail.state === "failed" || detail.state === "cancelled"
         ? null
@@ -261,6 +260,7 @@
         {},
         (event: unknown) => {
           if (isActivityRecordedEvent(event)) {
+            const relatedOperationId = event.kind === "site-refreshed" ? activeRefreshOperationId ?? undefined : undefined;
             addEvent({
               id: `${event.activityId}-${event.occurredAt}`,
               kind: "event",
@@ -268,8 +268,9 @@
               action: formatEventKind(event.kind),
               subject: subjectFromActivity(event.message),
               occurredAt: event.occurredAt,
-              operationId: event.kind === "site-refreshed" ? activeRefreshOperationId ?? undefined : undefined,
+              operationId: relatedOperationId,
             });
+            if (relatedOperationId) activeRefreshOperationId = null;
           }
           return ok(undefined);
         },
@@ -377,7 +378,7 @@
   </header>
 
   <p class="capability-note">
-    <strong>Events + operations:</strong> Activity.Recorded + Sites.Refreshed + Reports.Published + Sites.Refresh + Reports.Generate + external jobs
+    <strong>Events + operations:</strong> Activity.Recorded + Sites.Refreshed + Reports.Published + Sites.Refresh + Reports.Generate
   </p>
 
   {#if error}

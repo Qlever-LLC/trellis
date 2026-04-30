@@ -25,7 +25,7 @@ export const refreshSite: OperationHandler<
 
   await op.progress({
     stage: "refreshing",
-    message: `Running private job ${job.id}`,
+    message: `Refreshing field status for ${input.siteId}`,
   }).orThrow();
 
   const completedJob = await job.wait().orThrow();
@@ -42,21 +42,20 @@ export const refreshSite: OperationHandler<
 
   await pause(700);
 
-  try {
-    await trellis.publish("Sites.Refreshed", {
-      refreshId: completedJob.result.refreshId,
-      site: completedJob.result.site,
-      refreshedAt: new Date().toISOString(),
-    }).orThrow();
-    await pause(700);
-    await recordActivity(trellis, {
-      kind: "site-refreshed",
-      message: `Refreshed ${completedJob.result.site.siteName}`,
-      relatedSiteId: completedJob.result.site.siteId,
-    });
-  } catch (cause) {
-    console.warn("Site refresh side-effect publish failed", cause);
-  }
+  const completed = await op.complete(completedJob.result).orThrow();
 
-  return await op.complete(completedJob.result).orThrow();
+  await trellis.publish("Sites.Refreshed", {
+    refreshId: completedJob.result.refreshId,
+    site: completedJob.result.site,
+    refreshedAt: new Date().toISOString(),
+  }).orThrow();
+  await pause(700);
+
+  await recordActivity(trellis, {
+    kind: "site-refreshed",
+    message: `Refreshed ${completedJob.result.site.siteName}`,
+    relatedSiteId: completedJob.result.site.siteId,
+  });
+
+  return completed;
 };
