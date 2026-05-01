@@ -16,6 +16,9 @@ and this project adheres to
 
 ### Fixed
 
+- Fixed hand-built `trellis` and `trellis-generate` binaries to include local
+  git metadata in `--version` output while keeping official GitHub Actions
+  release builds on the clean package version.
 - Fixed local app aliases and Trellis client SDK loading so generated Trellis SDK
   imports resolve through linked packages instead of app-private
   `#trellis-generated-sdk/*` aliases, and added a regression test for

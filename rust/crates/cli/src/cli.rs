@@ -16,7 +16,7 @@ pub use portals::*;
 pub use self_cmd::*;
 
 #[derive(Debug, Parser)]
-#[command(name = "trellis", version, about = "Trellis CLI")]
+#[command(name = "trellis", version = env!("TRELLIS_BUILD_VERSION"), about = "Trellis CLI")]
 /// Top-level Trellis CLI arguments shared by all subcommands.
 pub struct Cli {
     #[arg(long, global = true, default_value = "text")]

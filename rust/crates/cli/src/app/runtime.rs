@@ -74,9 +74,9 @@ pub(super) fn keygen_command(format: OutputFormat, args: &KeygenArgs) -> miette:
 
 pub(super) fn version_command(format: OutputFormat) -> miette::Result<()> {
     if output::is_json(format) {
-        output::print_json(&json!({ "version": env!("CARGO_PKG_VERSION") }))?;
+        output::print_json(&json!({ "version": env!("TRELLIS_BUILD_VERSION") }))?;
     } else {
-        output::print_info(env!("CARGO_PKG_VERSION"));
+        output::print_info(env!("TRELLIS_BUILD_VERSION"));
     }
     Ok(())
 }

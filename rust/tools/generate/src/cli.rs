@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Parser)]
 #[command(
     name = "trellis-generate",
-    version,
+    version = env!("TRELLIS_BUILD_VERSION"),
     about = "Generate and verify Trellis contract artifacts"
 )]
 pub struct Cli {
