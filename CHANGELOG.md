@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.0-rc.7] - 2026-05-01
+
 ### Changed
 
 - Changed generated TypeScript SDK packages to expose only their root export,
