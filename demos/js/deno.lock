@@ -2240,7 +2240,8 @@
         ]
       },
       "jsr:@qlever-llc/trellis-svelte@0.8.0": {},
-      "jsr:@qlever-llc/trellis@0.8.0": {}
+      "jsr:@qlever-llc/trellis@0.8.0": {},
+      "jsr:@trellis-sdk/trellis-demo-service@0.0.0": {}
     }
   }
 }

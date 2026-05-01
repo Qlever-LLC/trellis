@@ -174,14 +174,14 @@ fn deno_json(
 }
 
 fn is_standalone_package_name(package_name: &str) -> bool {
-    if package_name.starts_with("@qlever-llc/trellis-generated-") {
+    if package_name.starts_with("@trellis-sdk/") {
         return false;
     }
     !package_name.starts_with('@') || package_name.matches('/').count() == 1
 }
 
 fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
-    let module_export = sdk_module_export_name(&opts.package_name);
+    let module_export = sdk_module_export_name(&opts.package_name, &loaded.manifest.id);
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let trellis_import = trellis_runtime_import(opts);
@@ -1708,7 +1708,7 @@ fn normalize_relative_path_string(path: String) -> String {
 }
 
 fn render_readme(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
-    let module_export = sdk_module_export_name(&opts.package_name);
+    let module_export = sdk_module_export_name(&opts.package_name, &loaded.manifest.id);
     let use_example = example_use_block(&module_export, loaded);
     let import_specifier = sdk_readme_import_specifier(&opts.package_name);
     format!(
@@ -1783,13 +1783,32 @@ fn key_to_pascal(value: &str) -> String {
         .join("")
 }
 
-fn sdk_module_export_name(package_name: &str) -> String {
-    let trimmed = package_name
-        .strip_prefix("@qlever-llc/trellis-sdk-")
-        .or_else(|| package_name.strip_prefix("@qlever-llc/trellis/sdk/"))
-        .or_else(|| package_name.strip_prefix("@qlever-llc/trellis-generated-"))
-        .unwrap_or(package_name);
-    kebab_to_camel(trimmed)
+fn sdk_module_export_name(package_name: &str, contract_id: &str) -> String {
+    match contract_id {
+        "trellis.activity@v1" => "activity".to_string(),
+        "trellis.auth@v1" => "auth".to_string(),
+        "trellis.core@v1" => "core".to_string(),
+        "trellis.health@v1" => "health".to_string(),
+        "trellis.jobs@v1" => "jobs".to_string(),
+        "trellis.state@v1" => "state".to_string(),
+        _ => {
+            let contract_stem = contract_id
+                .split('@')
+                .next()
+                .unwrap_or(contract_id)
+                .replace('.', "-");
+            if package_name.ends_with(&contract_stem) {
+                return kebab_to_camel(&contract_stem);
+            }
+
+            let package_leaf = package_name.rsplit('/').next().unwrap_or(package_name);
+            let trimmed = package_leaf
+                .strip_prefix("trellis-sdk-")
+                .or_else(|| package_leaf.strip_prefix("trellis-generated-"))
+                .unwrap_or(package_leaf);
+            kebab_to_camel(trimmed)
+        }
+    }
 }
 
 fn sdk_readme_import_specifier(package_name: &str) -> String {
@@ -2059,7 +2078,7 @@ fn is_safe_js_ident(value: &str) -> bool {
 }
 
 fn render_mod_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
-    let module_export = sdk_module_export_name(&opts.package_name);
+    let module_export = sdk_module_export_name(&opts.package_name, &loaded.manifest.id);
     let client_interface = client_interface_name(&loaded.manifest.id);
     let client_state = client_state_type_name(&loaded.manifest.id);
     let use_exports = if module_export == "auth" {

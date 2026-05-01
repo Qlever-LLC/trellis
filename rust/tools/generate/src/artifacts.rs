@@ -264,11 +264,16 @@ pub fn required_owner_version(
 }
 
 pub fn default_ts_package_name_from_id(contract_id: &str) -> String {
+    ts_package_name_from_id(contract_id, "@trellis-sdk/")
+}
+
+pub fn ts_package_name_from_id(contract_id: &str, prefix: &str) -> String {
     let stem = contract_id
         .split('@')
         .next()
         .unwrap_or("trellis-sdk")
         .replace('.', "-");
+
     match stem.as_str() {
         "trellis-activity" => "@qlever-llc/trellis/sdk/activity".to_string(),
         "trellis-auth" => "@qlever-llc/trellis/sdk/auth".to_string(),
@@ -276,7 +281,7 @@ pub fn default_ts_package_name_from_id(contract_id: &str) -> String {
         "trellis-health" => "@qlever-llc/trellis/sdk/health".to_string(),
         "trellis-jobs" => "@qlever-llc/trellis/sdk/jobs".to_string(),
         "trellis-state" => "@qlever-llc/trellis/sdk/state".to_string(),
-        other => format!("@qlever-llc/trellis-generated-{other}"),
+        other => format!("{prefix}{other}"),
     }
 }
 
@@ -296,6 +301,39 @@ pub fn rust_runtime_deps(
         },
         version,
         repo_root,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ts_package_name_from_id;
+
+    #[test]
+    fn generated_ts_package_names_use_private_default_namespace() {
+        assert_eq!(
+            ts_package_name_from_id("trellis.demo-service@v1", "@trellis-sdk/"),
+            "@trellis-sdk/trellis-demo-service",
+        );
+    }
+
+    #[test]
+    fn generated_ts_package_names_apply_prefix() {
+        assert_eq!(
+            ts_package_name_from_id("trellis.demo-service@v1", "@example/"),
+            "@example/trellis-demo-service",
+        );
+        assert_eq!(
+            ts_package_name_from_id("trellis.demo-service@v1", "example-sdk-"),
+            "example-sdk-trellis-demo-service",
+        );
+    }
+
+    #[test]
+    fn generated_ts_package_names_keep_trellis_owned_contracts_canonical() {
+        assert_eq!(
+            ts_package_name_from_id("trellis.core@v1", "@example/"),
+            "@qlever-llc/trellis/sdk/core",
+        );
     }
 }
 

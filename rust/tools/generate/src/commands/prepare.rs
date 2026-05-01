@@ -21,7 +21,7 @@ pub fn run(args: &PrepareArgs, force: bool) -> miette::Result<()> {
 
 fn run_once(args: &PrepareArgs, force: bool) -> miette::Result<()> {
     let plan = build_prepare_plan(args)?;
-    execute_prepare_plan(&plan, force, Some(&args.root))
+    execute_prepare_plan(&plan, force, Some(&args.root), &args.prefix)
 }
 
 fn build_prepare_plan(args: &PrepareArgs) -> miette::Result<Vec<AutoPlanEntry>> {
@@ -33,6 +33,7 @@ fn execute_prepare_plan(
     plan: &[AutoPlanEntry],
     force: bool,
     root: Option<&Path>,
+    prefix: &str,
 ) -> miette::Result<()> {
     if plan.is_empty() {
         output::print_title("Trellis Prepare");
@@ -42,7 +43,7 @@ fn execute_prepare_plan(
         output::print_info("No contracts found.");
         return Ok(());
     }
-    execute_auto_plan(plan, Some("Trellis Prepare"), false, force).map(|_| ())
+    execute_auto_plan(plan, Some("Trellis Prepare"), false, force, prefix).map(|_| ())
 }
 
 fn watch(args: &PrepareArgs, force: bool) -> miette::Result<()> {
@@ -114,10 +115,22 @@ fn watch(args: &PrepareArgs, force: bool) -> miette::Result<()> {
                         WatchPrepareDecision::Affected(entries) => {
                             let selected_plan: Vec<AutoPlanEntry> =
                                 entries.into_iter().cloned().collect();
-                            execute_watch_prepare(&selected_plan, force, None).is_ok()
+                            execute_watch_prepare(
+                                &selected_plan,
+                                force,
+                                None,
+                                &args.prefix,
+                            )
+                            .is_ok()
                         }
                         WatchPrepareDecision::Full => {
-                            execute_watch_prepare(&fresh_plan, force, Some(&args.root)).is_ok()
+                            execute_watch_prepare(
+                                &fresh_plan,
+                                force,
+                                Some(&args.root),
+                                &args.prefix,
+                            )
+                            .is_ok()
                         }
                         WatchPrepareDecision::RestartRequired => {
                             print_watch_restart_required();
@@ -143,7 +156,7 @@ fn watch(args: &PrepareArgs, force: bool) -> miette::Result<()> {
 
 fn run_full_watch_prepare(args: &PrepareArgs, force: bool) -> miette::Result<Vec<AutoPlanEntry>> {
     let plan = build_prepare_plan(args)?;
-    execute_prepare_plan(&plan, force, Some(&args.root))?;
+    execute_prepare_plan(&plan, force, Some(&args.root), &args.prefix)?;
     Ok(plan)
 }
 
@@ -151,8 +164,9 @@ fn execute_watch_prepare(
     plan: &[AutoPlanEntry],
     force: bool,
     root: Option<&Path>,
+    prefix: &str,
 ) -> miette::Result<()> {
-    if let Err(error) = execute_prepare_plan(plan, force, root) {
+    if let Err(error) = execute_prepare_plan(plan, force, root, prefix) {
         eprintln!("prepare failed: {error:?}");
         return Err(error);
     }

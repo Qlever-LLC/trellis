@@ -8,8 +8,5 @@
     "check": "deno task prepare && deno task check:prepared",
     "check:prepared": "deno check src/main.ts contract.ts",
     "start": "deno run --allow-env --allow-net --allow-read --allow-write --allow-sys src/main.ts"
-  },
-  "imports": {
-    "@trellis-demo/service-sdk": "../generated/js/sdks/demo-service/mod.ts"
   }
 }

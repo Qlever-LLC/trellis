@@ -6,9 +6,9 @@ use trellis_contracts::ContractKind;
 
 use crate::artifacts::{
     current_generator_fingerprint, default_rust_crate_name_from_id,
-    default_ts_package_name_from_id, detect_output_root, detect_runtime_source,
+    detect_output_root, detect_runtime_source,
     generated_artifacts_are_fresh, generated_artifacts_metadata, required_owner_version,
-    sdk_output_stem, write_contract_outputs,
+    sdk_output_stem, ts_package_name_from_id, write_contract_outputs,
 };
 use crate::cli::RuntimeSource;
 use crate::contract_input;
@@ -175,6 +175,7 @@ pub fn execute_auto_plan(
     title: Option<&str>,
     show_title: bool,
     force: bool,
+    prefix: &str,
 ) -> miette::Result<AutoExecutionSummary> {
     if show_title {
         output::print_section("Run");
@@ -198,7 +199,10 @@ pub fn execute_auto_plan(
                     &resolved,
                     "generate contract artifacts from local discovery",
                 )?;
-                let package_name = default_ts_package_name_from_id(&resolved.loaded.manifest.id);
+                let package_name = ts_package_name_from_id(
+                    &resolved.loaded.manifest.id,
+                    prefix,
+                );
                 let crate_name = default_rust_crate_name_from_id(&resolved.loaded.manifest.id);
                 let out_manifest = entry.out_manifest.as_ref().ok_or_else(|| {
                     miette::miette!("missing manifest output for generated contract")

@@ -4,8 +4,9 @@ use miette::IntoDiagnostic;
 
 use crate::artifacts::{
     current_generator_fingerprint, default_rust_crate_name_from_id,
-    default_ts_package_name_from_id, generated_artifacts_are_fresh, generated_artifacts_metadata,
-    infer_artifact_version, resolve_contract, rust_runtime_deps, ts_runtime_deps,
+    generated_artifacts_are_fresh, generated_artifacts_metadata,
+    infer_artifact_version, resolve_contract, rust_runtime_deps, ts_package_name_from_id,
+    ts_runtime_deps,
     write_contract_outputs,
 };
 use crate::cli::{GenerateAllArgs, GenerateManifestArgs, GenerateRustSdkArgs, GenerateTsSdkArgs};
@@ -33,7 +34,12 @@ pub fn ts_sdk(args: &GenerateTsSdkArgs) -> miette::Result<()> {
     let package_name = args
         .package_name
         .clone()
-        .unwrap_or_else(|| default_ts_package_name_from_id(&resolved.loaded.manifest.id));
+        .unwrap_or_else(|| {
+            ts_package_name_from_id(
+                &resolved.loaded.manifest.id,
+                &args.prefix,
+            )
+        });
     let artifact_version = infer_artifact_version(
         &resolved,
         args.artifact_version.clone(),
@@ -95,7 +101,12 @@ pub fn all(args: &GenerateAllArgs, force: bool) -> miette::Result<()> {
     let package_name = args
         .package_name
         .clone()
-        .unwrap_or_else(|| default_ts_package_name_from_id(&resolved.loaded.manifest.id));
+        .unwrap_or_else(|| {
+            ts_package_name_from_id(
+                &resolved.loaded.manifest.id,
+                &args.prefix,
+            )
+        });
     let crate_name = args
         .crate_name
         .clone()

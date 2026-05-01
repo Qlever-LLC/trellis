@@ -32,6 +32,9 @@ pub struct PrepareArgs {
     #[arg(long, requires = "watch")]
     pub changes: bool,
 
+    #[arg(long, default_value = "@trellis-sdk/")]
+    pub prefix: String,
+
     #[arg(default_value = ".")]
     pub root: PathBuf,
 }
@@ -104,6 +107,9 @@ pub struct GenerateTsSdkArgs {
     #[arg(long)]
     pub package_name: Option<String>,
 
+    #[arg(long, default_value = "@trellis-sdk/")]
+    pub prefix: String,
+
     #[arg(long, value_enum, default_value = "registry")]
     pub runtime_source: RuntimeSource,
 
@@ -151,6 +157,9 @@ pub struct GenerateAllArgs {
 
     #[arg(long)]
     pub package_name: Option<String>,
+
+    #[arg(long, default_value = "@trellis-sdk/")]
+    pub prefix: String,
 
     #[arg(long)]
     pub crate_name: Option<String>,
@@ -200,5 +209,35 @@ mod tests {
     fn prepare_rejects_changes_without_watch() {
         Cli::try_parse_from(["trellis-generate", "prepare", "--changes", "."])
             .expect_err("prepare --changes should require --watch");
+    }
+
+    #[test]
+    fn prepare_accepts_prefix() {
+        let cli = Cli::try_parse_from([
+            "trellis-generate",
+            "prepare",
+            "--prefix",
+            "@example/",
+            ".",
+        ])
+        .expect("prepare --prefix should parse");
+
+        let Some(TopLevelCommand::Prepare(args)) = cli.command else {
+            panic!("expected prepare command");
+        };
+
+        assert_eq!(args.prefix, "@example/");
+    }
+
+    #[test]
+    fn prepare_defaults_prefix_to_trellis_sdk_scope() {
+        let cli = Cli::try_parse_from(["trellis-generate", "prepare", "."])
+            .expect("prepare should parse");
+
+        let Some(TopLevelCommand::Prepare(args)) = cli.command else {
+            panic!("expected prepare command");
+        };
+
+        assert_eq!(args.prefix, "@trellis-sdk/");
     }
 }

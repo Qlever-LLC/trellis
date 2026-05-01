@@ -10,7 +10,7 @@ pub fn local_generate(force: bool) -> miette::Result<()> {
     let cwd = std::env::current_dir().into_diagnostic()?;
     let discovered = discover_local_contracts(&cwd)?;
     let plan = build_auto_plan(discovered, None)?;
-    execute_auto_plan(&plan, Some("Trellis Generate"), false, force).map(|_| ())
+    execute_auto_plan(&plan, Some("Trellis Generate"), false, force, "@trellis-sdk/").map(|_| ())
 }
 
 pub fn discover(args: &DiscoverArgs, force: bool) -> miette::Result<()> {
@@ -25,7 +25,7 @@ pub fn discover(args: &DiscoverArgs, force: bool) -> miette::Result<()> {
     }
     output::print_section("Plan");
     output::print_discover_summary(&discover_summary_lines(&plan));
-    let summary = execute_auto_plan(&plan, None, true, force)?;
+    let summary = execute_auto_plan(&plan, None, true, force, "@trellis-sdk/")?;
     output::print_section("Result");
     output::print_info(&output::summary_line("generated", summary.generated));
     output::print_info(&output::summary_line("verified", summary.verified));

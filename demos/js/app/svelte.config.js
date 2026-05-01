@@ -102,7 +102,7 @@ const config = {
         rootDir,
         "../../../generated/js/sdks/state/mod.ts",
       ),
-      "@trellis-demo/service-sdk": resolve(
+      "@trellis-sdk/trellis-demo-service": resolve(
         rootDir,
         "../generated/js/sdks/demo-service/mod.ts",
       ),

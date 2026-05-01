@@ -1,5 +1,5 @@
 import { defineDeviceContract } from "@qlever-llc/trellis";
-import { trellisDemoService } from "@trellis-demo/service-sdk";
+import { trellisDemoService } from "@trellis-sdk/trellis-demo-service";
 import { Type } from "typebox";
 
 const schemas = {

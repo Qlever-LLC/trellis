@@ -140,4 +140,4 @@ Rules:
 The Trellis repo's local frontend apps keep explicit `kit.alias` objects in each
 SvelteKit config. App workspaces that define their own local generated SDK
 package names should add those package names to their app-local aliases, for
-example `@trellis-demo/service-sdk` in the demo workspace.
+example `@trellis-sdk/trellis-demo-service` in the demo workspace.
