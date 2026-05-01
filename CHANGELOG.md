@@ -10,6 +10,8 @@ and this project adheres to
 
 ### Added
 
+- Added unauthenticated `GET /version` on the Trellis service to report public
+  build version and revision metadata for deployed containers.
 - Added `trellis-generate prepare --out <path>` to let callers choose the
   output root for generated manifests and SDKs while scanning contracts from a
   separate source path.

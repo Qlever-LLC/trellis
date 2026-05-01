@@ -4,11 +4,13 @@ import { startControlPlaneBackgroundTasks } from "./bootstrap/control_plane.ts";
 import { createRuntimeGlobals } from "./bootstrap/globals.ts";
 import { registerControlPlane } from "./bootstrap/register.ts";
 import { loadConfig } from "./config.ts";
+import { registerVersionRoute } from "./version.ts";
 
 initTracing("trellis");
 
 const config = loadConfig();
 const app = new Hono();
+registerVersionRoute(app);
 const runtime = await createRuntimeGlobals(config);
 
 const SERVER_DRAIN_TIMEOUT_MS = 5_000;

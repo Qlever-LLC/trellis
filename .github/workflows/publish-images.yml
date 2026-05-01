@@ -136,6 +136,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: ${{ env.SHOULD_PUSH == 'true' }}
           tags: ${{ steps.trellis_meta.outputs.tags }}
+          build-args: |
+            TRELLIS_VERSION=${{ env.RELEASE_TAG }}
+            TRELLIS_REVISION=${{ github.sha }}
           labels: |
             ${{ steps.trellis_meta.outputs.labels }}
             org.opencontainers.image.title=trellis

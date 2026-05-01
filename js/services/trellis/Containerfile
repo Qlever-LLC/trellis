@@ -16,6 +16,11 @@ FROM docker.io/denoland/deno:2.7.7 AS runtime
 
 WORKDIR /app
 
+ARG TRELLIS_VERSION=dev
+ARG TRELLIS_REVISION=
+ENV TRELLIS_VERSION=${TRELLIS_VERSION}
+ENV TRELLIS_REVISION=${TRELLIS_REVISION}
+
 LABEL io.trellis.contract.path="/trellis/contract.json"
 
 COPY js /app/js
