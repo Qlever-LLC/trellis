@@ -33,14 +33,15 @@ The app has two distinct roles:
 
 1. Start NATS and the Trellis runtime/control-plane service.
 2. Copy `.env.example` to `.env` if you want to override local defaults.
-3. Set `PUBLIC_TRELLIS_URL` to the Trellis runtime/control-plane service origin
-   if it is not `http://localhost:3000`.
+3. Optionally set `PUBLIC_TRELLIS_URL` to override the Trellis
+   runtime/control-plane service origin.
 4. `deno task dev`
 
-`PUBLIC_TRELLIS_URL` is the authoritative Trellis runtime/control-plane service
-base URL for the portal in both dev and build output. Standalone local builds
-default to `http://localhost:3000` when it is unset. Trellis
-runtime/control-plane service builds inject the configured public origin.
+The portal defaults to the browser origin that served it, so packaged Trellis
+images can run behind any public hostname without rebuilding the image.
+`PUBLIC_TRELLIS_URL` remains an override for custom portal deployments.
+Non-browser local tooling falls back to `http://localhost:3000` when it is
+unset.
 
 The example `.env` is suitable for standalone local dev against the Trellis
 runtime/control-plane service on `http://localhost:3000`. You can also override
@@ -50,7 +51,7 @@ it directly from the shell, for example:
 PUBLIC_TRELLIS_URL=http://localhost:3000 deno task dev
 ```
 
-Static builds can also override `PUBLIC_TRELLIS_URL` at build time:
+Static builds can also override `PUBLIC_TRELLIS_URL` at build time when needed:
 
 ```bash
 PUBLIC_TRELLIS_URL=http://localhost:3000 deno task build

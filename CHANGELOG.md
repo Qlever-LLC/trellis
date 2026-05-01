@@ -23,6 +23,9 @@ and this project adheres to
 
 ### Fixed
 
+- Fixed the built-in Trellis portal to resolve the runtime origin from the
+  browser by default so published service images work behind deployment-specific
+  hostnames without rebuilding.
 - Fixed npm package error construction and Deno service transport loading so
   locally linked npm artifacts can construct Trellis errors and connect service
   runtimes without relying on missing dnt or Deno transport package shims.

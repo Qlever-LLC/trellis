@@ -1,22 +1,16 @@
 import { fromFileUrl } from "@std/path";
 import { loadConfig } from "../config.ts";
 
-function requirePortalPublicTrellisUrl(): string {
+function portalPublicTrellisUrl(): string | undefined {
   const value = loadConfig().web.publicOrigin?.trim();
-  if (!value) {
-    throw new Error(
-      "config.web.publicOrigin is required to build the builtin portal for `deno task dev`.",
-    );
-  }
-
-  return value;
+  return value || undefined;
 }
 
 async function main(): Promise<void> {
-  const publicTrellisUrl = requirePortalPublicTrellisUrl();
+  const publicTrellisUrl = portalPublicTrellisUrl();
 
   if (Deno.args.includes("--print-public-trellis-url")) {
-    console.log(publicTrellisUrl);
+    console.log(publicTrellisUrl ?? "");
     return;
   }
 
@@ -28,7 +22,7 @@ async function main(): Promise<void> {
     args: ["task", "build:static:prebuilt"],
     cwd: portalDir,
     env: {
-      PUBLIC_TRELLIS_URL: publicTrellisUrl,
+      PUBLIC_TRELLIS_URL: publicTrellisUrl ?? "",
     },
     stdout: "inherit",
     stderr: "inherit",
