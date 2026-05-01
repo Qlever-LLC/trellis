@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Added `trellis-generate prepare --out <path>` to let callers choose the
+  output root for generated manifests and SDKs while scanning contracts from a
+  separate source path.
+
 ### Fixed
 
 - Fixed local app aliases and Trellis client SDK loading so generated Trellis SDK

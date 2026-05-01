@@ -26,7 +26,19 @@ fn run_once(args: &PrepareArgs, force: bool) -> miette::Result<()> {
 
 fn build_prepare_plan(args: &PrepareArgs) -> miette::Result<Vec<AutoPlanEntry>> {
     let canonical_root = args.root.canonicalize().into_diagnostic()?;
-    build_auto_plan(discover_contracts(&args.root)?, Some(&canonical_root))
+    let output_root = match &args.out {
+        Some(out) => absolute_path(out)?,
+        None => canonical_root,
+    };
+    build_auto_plan(discover_contracts(&args.root)?, Some(&output_root))
+}
+
+fn absolute_path(path: &Path) -> miette::Result<PathBuf> {
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+
+    Ok(std::env::current_dir().into_diagnostic()?.join(path))
 }
 
 fn execute_prepare_plan(

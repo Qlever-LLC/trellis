@@ -244,6 +244,47 @@ export default contract;
 }
 
 #[test]
+fn prepare_accepts_custom_output_root() {
+    let temp = tempfile::tempdir().unwrap();
+    let service = temp.path().join("service");
+    let out = temp.path().join("artifacts");
+    fs::create_dir_all(service.join("contracts")).unwrap();
+    fs::write(
+        service.join("deno.json"),
+        "{\n  \"version\": \"0.4.0\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &service.join("contracts/orders.ts"),
+        "trellis.orders@v1",
+        "Orders",
+        "service",
+    );
+
+    let output = trellis_generate()
+        .args([
+            "prepare",
+            service.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(out
+        .join("generated/contracts/manifests/trellis.orders@v1.json")
+        .exists());
+    assert!(out.join("generated/js/sdks/orders/mod.ts").exists());
+    assert!(out.join("generated/rust/sdks/orders/Cargo.toml").exists());
+    assert!(!service.join("generated").exists());
+}
+
+#[test]
 fn prepare_ignores_sveltekit_lib_contract() {
     let temp = tempfile::tempdir().unwrap();
     let app = temp.path().join("js/apps/console");

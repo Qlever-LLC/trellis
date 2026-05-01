@@ -35,6 +35,9 @@ pub struct PrepareArgs {
     #[arg(long, default_value = "@trellis-sdk/")]
     pub prefix: String,
 
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+
     #[arg(default_value = ".")]
     pub root: PathBuf,
 }
@@ -227,6 +230,25 @@ mod tests {
         };
 
         assert_eq!(args.prefix, "@example/");
+    }
+
+    #[test]
+    fn prepare_accepts_out() {
+        let cli = Cli::try_parse_from([
+            "trellis-generate",
+            "prepare",
+            "./service",
+            "--out",
+            "./artifacts",
+        ])
+        .expect("prepare --out should parse");
+
+        let Some(TopLevelCommand::Prepare(args)) = cli.command else {
+            panic!("expected prepare command");
+        };
+
+        assert_eq!(args.root, std::path::PathBuf::from("./service"));
+        assert_eq!(args.out, Some(std::path::PathBuf::from("./artifacts")));
     }
 
     #[test]
