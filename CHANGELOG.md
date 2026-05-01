@@ -8,6 +8,11 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Normalized formatting in the `trellis-generate` Rust command and planning
+  code.
+
 ### Added
 
 - Added unauthenticated `GET /version` on the Trellis service to report public

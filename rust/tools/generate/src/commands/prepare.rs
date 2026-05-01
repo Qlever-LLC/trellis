@@ -127,23 +127,15 @@ fn watch(args: &PrepareArgs, force: bool) -> miette::Result<()> {
                         WatchPrepareDecision::Affected(entries) => {
                             let selected_plan: Vec<AutoPlanEntry> =
                                 entries.into_iter().cloned().collect();
-                            execute_watch_prepare(
-                                &selected_plan,
-                                force,
-                                None,
-                                &args.prefix,
-                            )
-                            .is_ok()
+                            execute_watch_prepare(&selected_plan, force, None, &args.prefix).is_ok()
                         }
-                        WatchPrepareDecision::Full => {
-                            execute_watch_prepare(
-                                &fresh_plan,
-                                force,
-                                Some(&args.root),
-                                &args.prefix,
-                            )
-                            .is_ok()
-                        }
+                        WatchPrepareDecision::Full => execute_watch_prepare(
+                            &fresh_plan,
+                            force,
+                            Some(&args.root),
+                            &args.prefix,
+                        )
+                        .is_ok(),
                         WatchPrepareDecision::RestartRequired => {
                             print_watch_restart_required();
                             return Ok(());

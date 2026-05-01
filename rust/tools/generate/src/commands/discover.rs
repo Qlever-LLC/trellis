@@ -10,7 +10,14 @@ pub fn local_generate(force: bool) -> miette::Result<()> {
     let cwd = std::env::current_dir().into_diagnostic()?;
     let discovered = discover_local_contracts(&cwd)?;
     let plan = build_auto_plan(discovered, None)?;
-    execute_auto_plan(&plan, Some("Trellis Generate"), false, force, "@trellis-sdk/").map(|_| ())
+    execute_auto_plan(
+        &plan,
+        Some("Trellis Generate"),
+        false,
+        force,
+        "@trellis-sdk/",
+    )
+    .map(|_| ())
 }
 
 pub fn discover(args: &DiscoverArgs, force: bool) -> miette::Result<()> {

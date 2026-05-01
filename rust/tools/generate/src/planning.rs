@@ -5,10 +5,10 @@ use serde_json::Value;
 use trellis_contracts::ContractKind;
 
 use crate::artifacts::{
-    current_generator_fingerprint, default_rust_crate_name_from_id,
-    detect_output_root, detect_runtime_source,
-    generated_artifacts_are_fresh, generated_artifacts_metadata, required_owner_version,
-    sdk_output_stem, trellis_package_version, ts_package_name_from_id, write_contract_outputs,
+    current_generator_fingerprint, default_rust_crate_name_from_id, detect_output_root,
+    detect_runtime_source, generated_artifacts_are_fresh, generated_artifacts_metadata,
+    required_owner_version, sdk_output_stem, trellis_package_version, ts_package_name_from_id,
+    write_contract_outputs,
 };
 use crate::cli::RuntimeSource;
 use crate::contract_input;
@@ -199,10 +199,7 @@ pub fn execute_auto_plan(
                     &resolved,
                     "generate contract artifacts from local discovery",
                 )?;
-                let package_name = ts_package_name_from_id(
-                    &resolved.loaded.manifest.id,
-                    prefix,
-                );
+                let package_name = ts_package_name_from_id(&resolved.loaded.manifest.id, prefix);
                 let crate_name = default_rust_crate_name_from_id(&resolved.loaded.manifest.id);
                 let out_manifest = entry.out_manifest.as_ref().ok_or_else(|| {
                     miette::miette!("missing manifest output for generated contract")
