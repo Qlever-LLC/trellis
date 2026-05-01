@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.0-rc.6] - 2026-04-30
+
 ### Changed
 
 - Normalized formatting in the `trellis-generate` Rust command and planning
