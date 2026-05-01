@@ -8,6 +8,11 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed GitHub Pages guide builds to prepare generated Trellis SDK artifacts
+  before generating TypeScript API docs.
+
 ## [0.8.0-rc.6] - 2026-04-30
 
 ### Changed

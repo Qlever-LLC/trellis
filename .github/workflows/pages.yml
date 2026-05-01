@@ -88,6 +88,13 @@ jobs:
             local base_path="$2"
             local out_dir="$3"
 
+            seed_sdk_manifests "${repo_root}"
+
+            (
+              cd "${repo_root}/js"
+              deno task prepare
+            )
+
             (
               cd "${repo_root}/guides"
               deno install --allow-scripts=npm:esbuild,npm:sharp
