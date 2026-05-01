@@ -25,7 +25,7 @@ Each service owns a local contract definition that emits the canonical
 
 ```ts
 import { defineError, defineServiceContract } from "@qlever-llc/trellis";
-import { core } from "@qlever-llc/trellis/sdk/core";
+import { sdk as core } from "@qlever-llc/trellis/sdk/core";
 
 const schemas = {
   FindUser: FindUserSchema,

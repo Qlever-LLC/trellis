@@ -1944,7 +1944,7 @@ fn is_safe_js_ident(value: &str) -> bool {
     chars.all(|ch| ch == '_' || ch == '$' || ch.is_ascii_alphanumeric())
 }
 
-fn render_mod_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
+fn render_mod_ts(_opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let client_interface = client_interface_name(&loaded.manifest.id);
     let client_state = client_state_type_name(&loaded.manifest.id);
     format!(
@@ -2398,7 +2398,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_contract_emits_named_module_and_typed_use_helper() {
+    fn generated_contract_emits_sdk_module_and_typed_use_helper() {
         let (opts, loaded, root) =
             sample_opts_and_loaded("@qlever-llc/trellis-sdk-core", "trellis.core@v1");
         let contract = render_contract_ts(&opts, &loaded);
@@ -2410,20 +2410,20 @@ mod tests {
             "import type { ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis\";"
         ));
         assert!(contract.contains(
-            "export const core: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {"
+            "export const sdk: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {"
         ));
         assert!(contract
             .contains("use: (<const TSpec extends UseSpec<typeof API.owned>>(spec: TSpec) => {"));
         assert!(contract.contains(
             "return dependencyUse as ContractDependencyUse<typeof CONTRACT_ID, typeof API.owned, TSpec>;"
         ));
-        assert!(contract.contains("export const use = core.use;"));
+        assert!(contract.contains("export const use = sdk.use;"));
         assert!(contract.contains("spec.operations?.call"));
         assert!(!contract.contains("assertSelectedKeysExist(\"subjects\""));
         assert!(!contract.contains("spec.subjects"));
         assert!(contract.contains("does not expose ${kind} key '${key}'"));
         assert!(mod_ts.contains(
-            "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, core } from \"./contract.ts\";"
+            "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, sdk } from \"./contract.ts\";"
         ));
         assert!(mod_ts.contains("export * from \"./schemas.ts\";"));
         assert!(!mod_ts.contains("SCHEMAS"));
@@ -2451,11 +2451,11 @@ mod tests {
         let deno = deno_json(&opts, &loaded).unwrap();
 
         assert_eq!(
-            deno.get("exports")
-                .and_then(Value::as_object)
-                .and_then(|exports| exports.get("./client"))
-                .and_then(Value::as_str),
-            Some("./client.ts")
+            deno.get("exports").and_then(Value::as_object).cloned(),
+            Some(serde_json::Map::from_iter([(
+                ".".to_string(),
+                Value::String("./mod.ts".to_string()),
+            )]))
         );
         assert!(client.contains("export interface TrellisDemoKvServiceClient {"));
         assert!(client.contains("import type { API } from \"./api.ts\";"));
@@ -2777,7 +2777,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_auth_sdk_emits_use_defaults_helper() {
+    fn generated_auth_sdk_uses_same_sdk_module_shape() {
         let (opts, loaded, root) =
             sample_opts_and_loaded("@qlever-llc/trellis-sdk-auth", "trellis.auth@v1");
         let contract = render_contract_ts(&opts, &loaded);
@@ -2786,14 +2786,12 @@ mod tests {
         assert!(contract.contains(
             "import type { ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis\";"
         ));
-        assert!(contract.contains("const DEFAULT_AUTH_RPC_CALL = ["));
+        assert!(!contract.contains("useDefaults"));
         assert!(contract.contains(
-            "type AuthModule = SdkContractModule<typeof CONTRACT_ID, typeof API.owned> & {"
+            "export const sdk: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {"
         ));
-        assert!(contract.contains("useDefaults: AuthUseDefaultsFn;"));
-        assert!(contract.contains("export const useDefaults = auth.useDefaults;"));
         assert!(mod_ts.contains(
-            "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, useDefaults, auth } from \"./contract.ts\";"
+            "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, sdk } from \"./contract.ts\";"
         ));
 
         fs::remove_dir_all(root).unwrap();
@@ -2888,7 +2886,7 @@ mod tests {
         assert!(contract.contains("\"fireAndForget\": {"));
         assert!(contract.contains("result: unknown;"));
         assert!(contract.contains(
-            "export const jobsDemo: SdkContractModule<typeof CONTRACT_ID, typeof API.owned, ContractJobs> = {"
+            "export const sdk: SdkContractModule<typeof CONTRACT_ID, typeof API.owned, ContractJobs> = {"
         ));
 
         fs::remove_dir_all(root).unwrap();
@@ -2976,7 +2974,7 @@ mod tests {
             "import { CONTRACT_JOBS_METADATA, type ContractJobsMetadata } from \"@qlever-llc/trellis/contracts\";"
         ));
         assert!(contract.contains(
-            "export const exampleJobs: SdkContractModule<typeof CONTRACT_ID, typeof API.owned, ContractJobs> = {"
+            "export const sdk: SdkContractModule<typeof CONTRACT_ID, typeof API.owned, ContractJobs> = {"
         ));
         assert!(contract.contains("type ContractJobs = {"));
         assert!(contract.contains("\"sendEmail\": {"));
@@ -3102,11 +3100,12 @@ mod tests {
         let readme = render_readme(&opts, &loaded);
 
         assert!(readme.contains("import { defineContract } from \"@qlever-llc/trellis\";"));
-        assert!(readme.contains("import { activity } from \"@qlever-llc/trellis/sdk/activity\";"));
+        assert!(readme
+            .contains("import { sdk as dependency } from \"@qlever-llc/trellis/sdk/activity\";"));
         assert!(readme.contains("displayName: \"Example App\""));
         assert!(readme.contains("description: \"User-facing app for the example deployment.\""));
         assert!(readme.contains("kind: \"app\""));
-        assert!(readme.contains("dependency: activity.use({"));
+        assert!(readme.contains("dependency: dependency.use({"));
         assert!(readme.contains("const client = app.createClient(nc, authSession);"));
         assert!(!readme.contains("mergeApis"));
         assert!(!readme.contains("createClient(nc, auth, [api] as const)"));

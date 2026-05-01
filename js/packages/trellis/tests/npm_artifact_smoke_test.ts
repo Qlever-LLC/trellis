@@ -105,7 +105,7 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   const authGeneratedMod = await Deno.readTextFile(
     new URL("../npm/esm/generated-sdk/auth/mod.js", import.meta.url),
   );
-  assertEquals(authGeneratedMod.includes("useDefaults"), true);
+  assertEquals(authGeneratedMod.includes("useDefaults"), false);
   const coreGeneratedMod = await Deno.readTextFile(
     new URL("../npm/esm/generated-sdk/trellis-core/mod.js", import.meta.url),
   );
@@ -113,19 +113,11 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   const healthWrapper = await Deno.readTextFile(
     new URL("../npm/esm/npm/src/sdk/health.js", import.meta.url),
   );
-  assertEquals(healthWrapper.includes("export const useDefaults"), true);
-  assertEquals(
-    healthWrapper.includes("Object.assign(baseHealth, { useDefaults })"),
-    true,
-  );
+  assertEquals(healthWrapper.includes("useDefaults"), false);
   const stateWrapper = await Deno.readTextFile(
     new URL("../npm/esm/npm/src/sdk/state.js", import.meta.url),
   );
-  assertEquals(stateWrapper.includes("export const useDefaults"), true);
-  assertEquals(
-    stateWrapper.includes("Object.assign(baseState, { useDefaults })"),
-    true,
-  );
+  assertEquals(stateWrapper.includes("useDefaults"), false);
 
   const authClientTypes = await Deno.readTextFile(
     new URL("../npm/esm/generated-sdk/auth/client.d.ts", import.meta.url),

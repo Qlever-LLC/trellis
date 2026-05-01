@@ -101,8 +101,8 @@ Create `contracts/orders_service.ts`. The contract declares every RPC, event, de
 ```ts
 import { defineError, defineServiceContract } from "@qlever-llc/trellis";
 import { HealthResponseSchema, HealthRpcSchema } from "@qlever-llc/trellis/health";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
-import { core } from "@qlever-llc/trellis/sdk/core";
+import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
+import { sdk as core } from "@qlever-llc/trellis/sdk/core";
 import { Type } from "@sinclair/typebox";
 import {
   CreateOrderRequestSchema,
@@ -208,7 +208,7 @@ Key things to note:
   and state declaration sites.
 - service-local domain errors should be declared with `defineError(...)`, registered in the contract `errors` map, and referenced from RPCs with `ref.error(...)`
 - `uses` declares cross-contract dependencies — without these, Trellis will not grant access to those RPCs/events
-- `auth.use(...)` declares the non-baseline auth surfaces this service needs, such as `Auth.Connect` event delivery. Baseline auth validation such as `Auth.ValidateRequest` may be made available to service runtimes automatically.
+- `auth.use(...)` explicitly declares the auth surfaces this service needs, such as `Auth.Connect` event delivery
 - `resources.kv.orders` requests a KV bucket with the logical alias `orders` — Trellis assigns the physical name during service deployment apply/install/upgrade
 - `capabilities` controls who can call each operation — `orders.read` and `orders.write` gate the `Orders.Get` and `Orders.Create` RPCs respectively
 - templated event subjects must declare `params` in subject-token order, and each
@@ -465,7 +465,7 @@ Consumers import the SDK like any other Trellis contract package:
 
 ```ts
 import { defineAppContract } from "@qlever-llc/trellis";
-import { ordersService } from "@my-org/sdk-orders-service";
+import { sdk as ordersService } from "@my-org/sdk-orders-service";
 
 // Declare a dependency on your service
 const app = defineAppContract(() => ({

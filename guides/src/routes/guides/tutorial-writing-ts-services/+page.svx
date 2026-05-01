@@ -346,7 +346,7 @@ Our service shouldn't exist in a vacuum. Let's say we want to know whenever a us
 Events from other services are gated by your contract's `uses` block. Open `contracts/orders_service.ts` and update the contract builder output:
 
 ```ts
-import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 
 uses: {
   auth: auth.use({
@@ -355,7 +355,7 @@ uses: {
 },
 ```
 
-`auth.use(...)` declares the non-baseline auth surface this service needs. In this example, the service subscribes to `Auth.Connect` events from the auth service. Baseline auth validation such as `Auth.ValidateRequest` may be made available to service runtimes automatically.
+`auth.use(...)` explicitly declares the auth surface this service needs. In this example, the service subscribes to `Auth.Connect` events from the auth service.
 
 Now subscribe to the event in `main.ts`:
 

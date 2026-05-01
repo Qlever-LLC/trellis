@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Changed generated TypeScript SDK packages to expose only their root export,
+  export the contract module consistently as `sdk`, and require explicit
+  `use(...)` selections instead of `useDefaults()` helpers.
+
 ### Fixed
 
 - Fixed GitHub Pages guide builds to prepare generated Trellis SDK artifacts

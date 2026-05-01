@@ -101,12 +101,32 @@ Rules:
 TypeScript authors do not hand-write remote dependency contract ids in normal
 use.
 
-Generated SDK modules export a contract module object that includes:
+Generated SDK modules expose a root-only package export. The root export includes
+a contract module object named `sdk` that includes:
 
 - stable contract identity, canonical manifest metadata, and manifest digest
 - projected API metadata, including owned, used, and merged views
 - a typed `use(...)` helper for declaring `uses`
 - optional generated subsystem metadata such as state, jobs, and KV helpers
+
+Authors should import that stable export with a local alias that describes the
+dependency:
+
+```ts
+import { sdk as catalog } from "@trellis-sdk/catalog";
+
+const app = defineAppContract(() => ({
+  id: "example.app@v1",
+  displayName: "Example App",
+  description: "Example app.",
+  uses: {
+    catalog: catalog.use({ rpc: { call: ["Catalog.Search"] } }),
+  },
+}));
+```
+
+Generated SDKs do not expose dependency-specific default-use helpers. All
+caller-visible `uses` selections should be explicit in the authored contract.
 
 The required user-facing contract metadata is:
 
@@ -182,6 +202,9 @@ multi-contract layout:
 - generated SDK modules and locally defined contracts share this compatible
   contract-module shape, and a locally defined contract must be usable wherever
   generated SDK tooling expects a contract module
+- generated SDK package exports are root-only; contract source should import the
+  package root and should not depend on generated subpaths such as `./api`,
+  `./types`, or `./contract`
 - local `operations`, `rpc`, `events`, `state`, `errors`, and `resources` remain
   the source for emitted owned contract content
 - a participant may omit owned `operations`, `rpc`, or `events`, and may omit

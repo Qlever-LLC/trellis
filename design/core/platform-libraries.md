@@ -173,8 +173,14 @@ Rules:
 Provides the first-party generated SDKs for Trellis-owned contracts such as
 auth, core, activity, jobs, health, and state. Import the specific subpath for
 the Trellis-owned contract you need, for example
-`import { auth } from "@qlever-llc/trellis/sdk/auth"` and
-`import { core } from "@qlever-llc/trellis/sdk/core"`.
+`import { sdk as auth } from "@qlever-llc/trellis/sdk/auth"` and
+`import { sdk as core } from "@qlever-llc/trellis/sdk/core"`.
+
+Generated SDK package exports are root-only. The root module re-exports the
+contract module as `sdk`, the standalone `use(...)` helper, typed DTOs, schemas,
+and public client/API types. Contract authors should import `sdk` with a local
+alias that describes the dependency and declare all required `uses` explicitly
+with `sdk.use(...)`.
 
 - public apps and peer services should not resolve those service-owned handles
   directly

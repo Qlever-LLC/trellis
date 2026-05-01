@@ -9,16 +9,16 @@ const app = defineAppContract(
     displayName: "Test Portal",
     description: "Exercise auth defaults in contract authoring.",
     uses: {
-      auth: trellisAuth.useDefaults({
+      auth: trellisAuth.use({
         rpc: {
-          call: ["Auth.Me", "Auth.ListApprovals"],
+          call: ["Auth.ListApprovals", "Auth.Logout", "Auth.Me"],
         },
       }),
     },
   }),
 );
 
-Deno.test("trellisAuth.useDefaults adds baseline auth rpc uses once", () => {
+Deno.test("trellisAuth.use records explicit auth rpc uses", () => {
   assertEquals(app.CONTRACT.uses?.auth, {
     contract: "trellis.auth@v1",
     rpc: {
@@ -31,7 +31,7 @@ Deno.test("trellisAuth.useDefaults adds baseline auth rpc uses once", () => {
   });
 });
 
-Deno.test("trellisAuth.useDefaults exposes baseline rpc api surface", () => {
+Deno.test("trellisAuth.use exposes explicit rpc api surface", () => {
   assertEquals(app.API.used.rpc["Auth.Me"].subject, "rpc.v1.Auth.Me");
   assertEquals(app.API.used.rpc["Auth.Logout"].subject, "rpc.v1.Auth.Logout");
   assertEquals(

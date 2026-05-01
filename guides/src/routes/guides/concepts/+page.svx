@@ -270,7 +270,7 @@ Jobs are not visible to callers. If you need a caller-observable async workflow,
 | `@qlever-llc/trellis-jobs` | Job creation, processing, retry, progress tracking |
 | `@qlever-llc/trellis/sdk/*` | First-party generated SDK modules with typed DTOs and use declarations for Trellis-owned contracts |
 
-`@qlever-llc/trellis/sdk/*` subpaths (for example `@qlever-llc/trellis/sdk/auth`, `@qlever-llc/trellis/sdk/core`, and `@qlever-llc/trellis/sdk/state`) are generated from contract definitions as part of the contract build pipeline. Import them for typed request or response types and `use(...)` declarations.
+`@qlever-llc/trellis/sdk/*` subpaths (for example `@qlever-llc/trellis/sdk/auth`, `@qlever-llc/trellis/sdk/core`, and `@qlever-llc/trellis/sdk/state`) are generated from contract definitions as part of the contract build pipeline. Import the root `sdk` export with a local alias for typed request or response types and explicit `use(...)` declarations.
 
 App and service contracts prepared by `prepare` provide enough type information for browser apps to derive local client types directly from their contract object with `TrellisClientFor<typeof contract>`. App-local `getTrellis()` helpers should use those contract-derived types instead of importing generated `client.ts` facades from `generated/js/sdks/...` paths.
 
