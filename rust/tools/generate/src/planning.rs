@@ -8,7 +8,7 @@ use crate::artifacts::{
     current_generator_fingerprint, default_rust_crate_name_from_id,
     detect_output_root, detect_runtime_source,
     generated_artifacts_are_fresh, generated_artifacts_metadata, required_owner_version,
-    sdk_output_stem, ts_package_name_from_id, write_contract_outputs,
+    sdk_output_stem, trellis_package_version, ts_package_name_from_id, write_contract_outputs,
 };
 use crate::cli::RuntimeSource;
 use crate::contract_input;
@@ -211,6 +211,7 @@ pub fn execute_auto_plan(
                     &resolved,
                     &artifact_version,
                     entry.runtime_source,
+                    &trellis_package_version(),
                     entry.ts_out.is_some(),
                     entry.rust_out.is_some(),
                     &package_name,

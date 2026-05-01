@@ -6,7 +6,7 @@ use crate::artifacts::{
     current_generator_fingerprint, default_rust_crate_name_from_id,
     generated_artifacts_are_fresh, generated_artifacts_metadata,
     infer_artifact_version, resolve_contract, rust_runtime_deps, ts_package_name_from_id,
-    ts_runtime_deps,
+    trellis_package_version, ts_runtime_deps,
     write_contract_outputs,
 };
 use crate::cli::{GenerateAllArgs, GenerateManifestArgs, GenerateRustSdkArgs, GenerateTsSdkArgs};
@@ -52,7 +52,7 @@ pub fn ts_sdk(args: &GenerateTsSdkArgs) -> miette::Result<()> {
         package_version: artifact_version.clone(),
         runtime_deps: ts_runtime_deps(
             args.runtime_source,
-            artifact_version,
+            trellis_package_version(),
             args.runtime_repo_root.clone(),
         ),
     })
@@ -116,6 +116,7 @@ pub fn all(args: &GenerateAllArgs, force: bool) -> miette::Result<()> {
         &resolved,
         &artifact_version,
         args.runtime_source,
+        &trellis_package_version(),
         args.ts_out.is_some(),
         args.rust_out.is_some(),
         &package_name,

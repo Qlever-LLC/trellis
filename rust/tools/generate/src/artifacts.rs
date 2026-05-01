@@ -15,6 +15,8 @@ use crate::cli::{ContractInputArgs, RuntimeSource};
 use crate::contract_input::{self, ResolvedContractInput};
 use crate::output;
 
+const TRELLIS_DENO_JSON: &str = include_str!("../../../../js/packages/trellis/deno.json");
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GeneratedArtifactsMetadata {
     pub schema_version: u8,
@@ -22,6 +24,7 @@ pub struct GeneratedArtifactsMetadata {
     pub contract_digest: String,
     pub artifact_version: String,
     pub runtime_source: RuntimeSource,
+    pub ts_runtime_version: String,
     pub has_ts_sdk: bool,
     pub has_rust_sdk: bool,
     pub package_name: String,
@@ -88,6 +91,7 @@ pub fn write_contract_outputs(
         resolved,
         &artifact_version,
         runtime_source,
+        &trellis_package_version(),
         ts_out.is_some(),
         rust_out.is_some(),
         package_name,
@@ -107,7 +111,7 @@ pub fn write_contract_outputs(
             package_version: artifact_version.clone(),
             runtime_deps: ts_runtime_deps(
                 runtime_source,
-                artifact_version.clone(),
+                trellis_package_version(),
                 runtime_repo_root.clone(),
             ),
         })
@@ -144,6 +148,7 @@ pub fn generated_artifacts_metadata(
     resolved: &ResolvedContractInput,
     artifact_version: &str,
     runtime_source: RuntimeSource,
+    ts_runtime_version: &str,
     has_ts_sdk: bool,
     has_rust_sdk: bool,
     package_name: &str,
@@ -156,6 +161,7 @@ pub fn generated_artifacts_metadata(
         contract_digest: resolved.loaded.digest.clone(),
         artifact_version: artifact_version.to_string(),
         runtime_source,
+        ts_runtime_version: ts_runtime_version.to_string(),
         has_ts_sdk,
         has_rust_sdk,
         package_name: package_name.to_string(),
@@ -289,6 +295,16 @@ pub fn default_rust_crate_name_from_id(contract_id: &str) -> String {
     trellis_codegen_rust::default_sdk_crate_name(contract_id)
 }
 
+pub fn trellis_package_version() -> String {
+    let manifest: serde_json::Value = serde_json::from_str(TRELLIS_DENO_JSON)
+        .expect("bundled Trellis Deno package manifest must be valid JSON");
+    manifest
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .expect("bundled Trellis Deno package manifest must have a version")
+        .to_string()
+}
+
 pub fn rust_runtime_deps(
     source: RuntimeSource,
     version: String,
@@ -306,7 +322,7 @@ pub fn rust_runtime_deps(
 
 #[cfg(test)]
 mod tests {
-    use super::ts_package_name_from_id;
+    use super::{trellis_package_version, ts_package_name_from_id};
 
     #[test]
     fn generated_ts_package_names_use_private_default_namespace() {
@@ -334,6 +350,11 @@ mod tests {
             ts_package_name_from_id("trellis.core@v1", "@example/"),
             "@qlever-llc/trellis/sdk/core",
         );
+    }
+
+    #[test]
+    fn trellis_package_version_comes_from_bundled_package_metadata() {
+        assert_ne!(trellis_package_version(), "0.0.0");
     }
 }
 

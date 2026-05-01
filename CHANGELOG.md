@@ -20,6 +20,10 @@ and this project adheres to
   imports resolve through linked packages instead of app-private
   `#trellis-generated-sdk/*` aliases, and added a regression test for
   out-of-tree SDK generation defaulting to the `@trellis-sdk/` scope.
+- Fixed generated TypeScript SDK dependency metadata to use the Trellis runtime
+  version bundled with `trellis-generate`, emit npm runtime imports, and publish
+  npm SDKs with Trellis as a peer and development dependency instead of a nested
+  runtime dependency.
 
 ## [0.8.0-rc.5] - 2026-04-30
 

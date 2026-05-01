@@ -156,7 +156,7 @@ fn deno_json(
         imports.insert(
             "@qlever-llc/trellis".to_string(),
             Value::String(format!(
-                "jsr:@qlever-llc/trellis@^{}",
+                "npm:@qlever-llc/trellis@^{}",
                 opts.runtime_deps.version
             )),
         );
@@ -1611,11 +1611,13 @@ fn render_build_npm_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Str
     let trellis_dependency = format!("^{}", opts.runtime_deps.version);
 
     format!(
-        "// Generated from {}\nimport {{ build, emptyDir }} from \"jsr:@deno/dnt@^0.41.3\";\n\nawait emptyDir(new URL(\"../npm\", import.meta.url));\n\nawait build({{\n  entryPoints: [\"./mod.ts\"],\n  outDir: \"./npm\",\n  shims: {{\n    deno: true,\n  }},\n  test: false,\n  typeCheck: false,\n  package: {{\n    name: {},\n    version: {},\n    description: \"Generated Trellis SDK for contract {}\",\n    license: \"Apache-2.0\",\n    homepage: \"https://github.com/Qlever-LLC/trellis#readme\",\n    bugs: {{\n      url: \"https://github.com/Qlever-LLC/trellis/issues\",\n    }},\n    repository: {{\n      type: \"git\",\n      url: \"https://github.com/Qlever-LLC/trellis\",\n    }},\n    publishConfig: {{\n      access: \"public\",\n    }},\n    dependencies: {{\n      \"@qlever-llc/trellis\": {},\n    }},\n  }},\n}});\n\nconst packageJsonPath = new URL(\"../npm/package.json\", import.meta.url);\nconst packageJson = JSON.parse(await Deno.readTextFile(packageJsonPath));\npackageJson.dependencies = {{\n  ...(packageJson.dependencies ?? {{}}),\n  \"@qlever-llc/trellis\": {},\n}};\nawait Deno.writeTextFile(packageJsonPath, `${{JSON.stringify(packageJson, null, 2)}}\n`);\n",
+        "// Generated from {}\nimport {{ build, emptyDir }} from \"jsr:@deno/dnt@^0.41.3\";\n\nawait emptyDir(new URL(\"../npm\", import.meta.url));\n\nawait build({{\n  entryPoints: [\"./mod.ts\"],\n  outDir: \"./npm\",\n  shims: {{\n    deno: true,\n  }},\n  test: false,\n  typeCheck: false,\n  package: {{\n    name: {},\n    version: {},\n    description: \"Generated Trellis SDK for contract {}\",\n    license: \"Apache-2.0\",\n    homepage: \"https://github.com/Qlever-LLC/trellis#readme\",\n    bugs: {{\n      url: \"https://github.com/Qlever-LLC/trellis/issues\",\n    }},\n    repository: {{\n      type: \"git\",\n      url: \"https://github.com/Qlever-LLC/trellis\",\n    }},\n    publishConfig: {{\n      access: \"public\",\n    }},\n    peerDependencies: {{\n      \"@qlever-llc/trellis\": {},\n    }},\n    devDependencies: {{\n      \"@qlever-llc/trellis\": {},\n    }},\n  }},\n}});\n\nconst packageJsonPath = new URL(\"../npm/package.json\", import.meta.url);\nconst packageJson = JSON.parse(await Deno.readTextFile(packageJsonPath));\ndelete packageJson.dependencies?.[\"@qlever-llc/trellis\"];\npackageJson.peerDependencies = {{\n  ...(packageJson.peerDependencies ?? {{}}),\n  \"@qlever-llc/trellis\": {},\n}};\npackageJson.devDependencies = {{\n  ...(packageJson.devDependencies ?? {{}}),\n  \"@qlever-llc/trellis\": {},\n}};\nawait Deno.writeTextFile(packageJsonPath, `${{JSON.stringify(packageJson, null, 2)}}\n`);\n",
         escape_js_string(&source_reference),
         js_string(&opts.package_name),
         js_string(&opts.package_version),
         escape_js_string(&loaded.manifest.id),
+        js_string(&trellis_dependency),
+        js_string(&trellis_dependency),
         js_string(&trellis_dependency),
         js_string(&trellis_dependency),
     )
@@ -2379,8 +2381,8 @@ mod tests {
     }
 
     #[test]
-    fn registry_mode_emits_jsr_imports() {
-        let root = unique_temp_dir("registry-mode-jsr-imports");
+    fn registry_mode_emits_npm_imports() {
+        let root = unique_temp_dir("registry-mode-npm-imports");
         fs::create_dir_all(&root).unwrap();
         let manifest_path = root.join("trellis.core@v1.json");
         fs::write(
@@ -2405,7 +2407,7 @@ mod tests {
         let imports = deno.get("imports").and_then(Value::as_object).unwrap();
         assert_eq!(
             imports.get("@qlever-llc/trellis").unwrap(),
-            "jsr:@qlever-llc/trellis@^0.2.3"
+            "npm:@qlever-llc/trellis@^0.2.3"
         );
         assert_eq!(imports.len(), 1);
         assert!(deno.get("extends").is_none());
@@ -2503,6 +2505,9 @@ mod tests {
         let build_npm = render_build_npm_ts(&opts, &loaded);
 
         assert!(build_npm.contains("\"@qlever-llc/trellis\": \"^0.4.0\""));
+        assert!(build_npm.contains("peerDependencies"));
+        assert!(build_npm.contains("devDependencies"));
+        assert!(build_npm.contains("delete packageJson.dependencies"));
         assert!(!build_npm.contains("file:"));
 
         fs::remove_dir_all(root).unwrap();
@@ -2572,6 +2577,8 @@ mod tests {
             "export type ExamplePingHandler = RpcHandlerFn<typeof API.owned, \"Example.Ping\">;"
         ));
         assert!(build_npm.contains("\"@qlever-llc/trellis\": \"^0.4.0\""));
+        assert!(build_npm.contains("peerDependencies"));
+        assert!(build_npm.contains("devDependencies"));
         assert!(!build_npm.contains("@qlever-llc/trellis/contracts/contract-module"));
 
         fs::remove_dir_all(root).unwrap();
