@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.0-rc.8] - 2026-05-01
+
 ### Fixed
 
 - Fixed the Trellis npm package build by removing the stale activity SDK export
