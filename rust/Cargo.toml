@@ -15,7 +15,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.8.0"
+version = "0.8.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/qlever-llc/trellis"
@@ -42,6 +42,6 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 time = { version = "0.3.47", features = ["formatting"] }
 self_update = { version = "0.44.0", default-features = false, features = ["archive-tar", "archive-zip", "compression-flate2", "compression-zip-deflate", "rustls", "ureq"] }
-trellis-sdk-auth = { path = "../generated/rust/sdks/auth", version = "0.8.0" }
-trellis-sdk-core = { path = "../generated/rust/sdks/trellis-core", version = "0.8.0" }
-trellis-sdk-jobs = { path = "../generated/rust/sdks/jobs", version = "0.8.0" }
+trellis-sdk-auth = { path = "../generated/rust/sdks/auth", version = "0.8.1" }
+trellis-sdk-core = { path = "../generated/rust/sdks/trellis-core", version = "0.8.1" }
+trellis-sdk-jobs = { path = "../generated/rust/sdks/jobs", version = "0.8.1" }

@@ -1,7 +1,7 @@
 {
   "extends": "../../deno.json",
   "name": "@qlever-llc/trellis-service-trellis",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "exports": "./main.ts",
   "tasks": {
     "build:builtin-portal": "deno run --env --allow-env --allow-read --allow-run scripts/build_builtin_portal.ts",

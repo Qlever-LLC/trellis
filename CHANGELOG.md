@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-05-01
+
+### Fixed
+
+- Fixed the `@qlever-llc/trellis-svelte` npm package to publish built runtime
+  JavaScript under `dist/` so Vite can optimize Svelte 5 rune modules without
+  parsing raw `.svelte.ts` source from `node_modules`.
+
 ## [0.8.0-rc.8] - 2026-05-01
 
 ### Fixed
@@ -357,6 +365,7 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/Qlever-LLC/trellis/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Qlever-LLC/trellis/compare/v0.7.0...v0.8.0
 [0.8.0-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.7.0...v0.8.0-rc.1
