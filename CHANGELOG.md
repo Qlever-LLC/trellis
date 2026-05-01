@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.0-rc.4] - 2026-04-30
+
+### Fixed
+
+- Fixed export in public packages
+
 ## [0.8.0-rc.3] - 2026-04-30
 
 ### Fixed
