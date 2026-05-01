@@ -248,6 +248,40 @@ async function addGeneratedSdkTypeImports() {
   }
 }
 
+async function rewriteCanonicalGeneratedSdkSelfImports() {
+  for (const format of ["esm", "script"]) {
+    const generatedSdkDir = new URL(
+      `../npm/${format}/generated-sdk/`,
+      import.meta.url,
+    );
+
+    for await (const fileUrl of walkFiles(generatedSdkDir)) {
+      if (
+        !fileUrl.pathname.endsWith(".js") && !fileUrl.pathname.endsWith(".d.ts")
+      ) {
+        continue;
+      }
+
+      const original = await Deno.readTextFile(fileUrl);
+      let updated = original;
+      for (const sdkName of Object.keys(sdkExportDirs)) {
+        updated = updated
+          .replaceAll(
+            `../../../sdk/${sdkName}.js`,
+            `@qlever-llc/trellis/sdk/${sdkName}`,
+          )
+          .replaceAll(
+            `../../sdk/${sdkName}.js`,
+            `@qlever-llc/trellis/sdk/${sdkName}`,
+          );
+      }
+      if (updated !== original) {
+        await Deno.writeTextFile(fileUrl, updated);
+      }
+    }
+  }
+}
+
 async function removeSdkWrapperPolyfills() {
   for (const sdkName of Object.keys(sdkExportDirs)) {
     for (const format of ["esm", "script"]) {
@@ -261,6 +295,34 @@ async function removeSdkWrapperPolyfills() {
             throw error;
           }
         });
+      }
+    }
+  }
+}
+
+async function rewriteSdkWrapperTargets() {
+  for (const [sdkName, sdkDir] of Object.entries(sdkExportDirs)) {
+    for (const format of ["esm", "script"]) {
+      for (const extension of ["js", "d.ts"]) {
+        const fileUrl = new URL(
+          `../npm/${format}/npm/src/sdk/${sdkName}.${extension}`,
+          import.meta.url,
+        );
+        const original = await Deno.readTextFile(fileUrl).catch((error) => {
+          if (error instanceof Deno.errors.NotFound) return undefined;
+          throw error;
+        });
+        if (original === undefined) {
+          continue;
+        }
+
+        const updated = original.replaceAll(
+          `../.build/generated-sdk/${sdkDir}/mod.js`,
+          `../../../generated-sdk/${sdkDir}/mod.js`,
+        );
+        if (updated !== original) {
+          await Deno.writeTextFile(fileUrl, updated);
+        }
       }
     }
   }
@@ -382,6 +444,8 @@ await buildDntPackage({
 await normalizeModuleSpecifiers();
 await stageCanonicalGeneratedSdkArtifacts();
 await addGeneratedSdkTypeImports();
+await rewriteCanonicalGeneratedSdkSelfImports();
 await removeSdkWrapperPolyfills();
+await rewriteSdkWrapperTargets();
 await normalizePackageJsonExports();
 await Deno.remove(generatedSdkBuildUrl, { recursive: true });

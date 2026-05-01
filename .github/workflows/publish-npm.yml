@@ -49,7 +49,7 @@ jobs:
       - name: Set up Deno
         uses: denoland/setup-deno@v2
         with:
-          deno-version: 2.7.7
+          deno-version: 2.7.14
 
       - name: Validate release metadata
         run: deno run --config js/deno.json -A js/tools/release/validate_release.ts
@@ -100,76 +100,9 @@ jobs:
         run: deno task build:npm
         working-directory: js
 
-      - name: Pack package archives
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf dist/npm
-          mkdir -p dist/npm
-
-          packages=(
-            js/packages/result/npm
-            js/packages/trellis/npm
-            js/packages/trellis-svelte/npm
-          )
-          for pkg in "${packages[@]}"; do
-            npm pack "$pkg" --pack-destination dist/npm >/dev/null
-          done
-
-      - name: Smoke test package imports
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf /tmp/trellis-npm-smoke
-          mkdir -p /tmp/trellis-npm-smoke
-
-          tgz_name() {
-            local package_json="$1"
-            local name
-            local version
-            name=$(node -p "require('./${package_json}').name")
-            version=$(node -p "require('./${package_json}').version")
-            name="${name#@}"
-            name="${name//\//-}"
-            printf '%s-%s.tgz' "$name" "$version"
-          }
-
-          result_tgz=$(tgz_name js/packages/result/npm/package.json)
-          trellis_tgz=$(tgz_name js/packages/trellis/npm/package.json)
-          trellis_svelte_tgz=$(tgz_name js/packages/trellis-svelte/npm/package.json)
-
-          cd /tmp/trellis-npm-smoke
-          npm init -y >/dev/null
-          npm install \
-            "$GITHUB_WORKSPACE/dist/npm/$result_tgz" \
-            "$GITHUB_WORKSPACE/dist/npm/$trellis_tgz" \
-            "$GITHUB_WORKSPACE/dist/npm/$trellis_svelte_tgz" >/dev/null
-          node --input-type=module <<'EOF'
-          await import("@qlever-llc/result");
-          await import("@qlever-llc/trellis");
-          await import("@qlever-llc/trellis/auth");
-          await import("@qlever-llc/trellis/contracts");
-          await import("@qlever-llc/trellis/errors");
-          await import("@qlever-llc/trellis/sdk/auth");
-          await import("@qlever-llc/trellis/sdk/core");
-          await import("@qlever-llc/trellis/sdk/jobs");
-          await import("@qlever-llc/trellis/tracing");
-          await import("@qlever-llc/trellis/host");
-          await import("@qlever-llc/trellis/host/node");
-          EOF
-          node <<'EOF'
-          require("@qlever-llc/result");
-          require("@qlever-llc/trellis");
-          require("@qlever-llc/trellis/auth");
-          require("@qlever-llc/trellis/contracts");
-          require("@qlever-llc/trellis/errors");
-          require("@qlever-llc/trellis/sdk/auth");
-          require("@qlever-llc/trellis/sdk/core");
-          require("@qlever-llc/trellis/sdk/jobs");
-          require("@qlever-llc/trellis/tracing");
-          require("@qlever-llc/trellis/host");
-          require("@qlever-llc/trellis/host/node");
-          EOF
+      - name: Smoke test packed npm packages
+        run: deno task smoke:npm
+        working-directory: js
 
       - name: Configure npm registry auth
         if: env.SHOULD_PUBLISH == 'true'

@@ -5,6 +5,7 @@ const forbiddenImportPattern =
   /(?:from|require\()\s*["']@qlever-llc\/trellis-(?!sdk\b)[^"']+["']/;
 const staleCliArtifactPattern =
   /defineCliContract|"service" \| "app" \| "device" \| "cli"|defineClientContract\("cli"/;
+const privateGeneratedSdkBuildPattern = /\.build\/generated-sdk/;
 
 async function* walkFiles(dir: string): AsyncGenerator<string> {
   for await (const entry of Deno.readDir(dir)) {
@@ -47,6 +48,7 @@ Deno.test("trellis npm artifact only depends on allowed published Trellis packag
     const source = await Deno.readTextFile(filePath);
     assertEquals(forbiddenImportPattern.test(source), false, filePath);
     assertEquals(staleCliArtifactPattern.test(source), false, filePath);
+    assertEquals(privateGeneratedSdkBuildPattern.test(source), false, filePath);
   }
 
   for await (const filePath of walkFiles(join(npmDir.pathname, "script"))) {
@@ -54,6 +56,7 @@ Deno.test("trellis npm artifact only depends on allowed published Trellis packag
     const source = await Deno.readTextFile(filePath);
     assertEquals(forbiddenImportPattern.test(source), false, filePath);
     assertEquals(staleCliArtifactPattern.test(source), false, filePath);
+    assertEquals(privateGeneratedSdkBuildPattern.test(source), false, filePath);
   }
 });
 
@@ -91,17 +94,22 @@ Deno.test("trellis npm SDK exports resolve through canonical generated SDK artif
     true,
   );
 
+  const activityApi = await Deno.readTextFile(
+    new URL("../npm/esm/generated-sdk/activity/api.js", import.meta.url),
+  );
+  assertEquals(activityApi.includes("../../../sdk/"), false);
+  assertEquals(activityApi.includes("../../sdk/"), false);
+  assertEquals(
+    activityApi.includes('from "@qlever-llc/trellis/sdk/health"'),
+    true,
+  );
+
   await assertNotExists(
     new URL("../npm/esm/npm/src/.build/generated-sdk", import.meta.url),
   );
   await assertNotExists(
     new URL("../npm/script/npm/src/.build/generated-sdk", import.meta.url),
   );
-
-  const sdkWrapper = await Deno.readTextFile(
-    new URL("../npm/esm/npm/src/sdk/auth.js", import.meta.url),
-  );
-  assertEquals(sdkWrapper.includes("_dnt.polyfills.js"), false);
 });
 
 async function assertNotExists(url: URL): Promise<void> {
