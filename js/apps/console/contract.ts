@@ -1,7 +1,7 @@
 import { defineAppContract } from "@qlever-llc/trellis/contracts";
-import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
-import { health as trellisHealth } from "@qlever-llc/trellis/sdk/health";
-import { jobs as trellisJobs } from "@qlever-llc/trellis/sdk/jobs";
+import { sdk as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
+import { sdk as trellisHealth } from "@qlever-llc/trellis/sdk/health";
+import { sdk as trellisJobs } from "@qlever-llc/trellis/sdk/jobs";
 
 export const contract = defineAppContract(
   () => ({
@@ -10,7 +10,7 @@ export const contract = defineAppContract(
     description:
       "Drive the Trellis admin console's contract-declared Auth, Health, and Jobs access.",
     uses: {
-      auth: trellisAuth.useDefaults({
+      auth: trellisAuth.use({
         rpc: {
           call: [
             "Auth.ClearDevicePortalSelection",

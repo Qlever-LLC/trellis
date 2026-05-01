@@ -135,12 +135,7 @@ fn deno_json(
     root.insert(
         "exports".to_string(),
         serde_json::json!({
-            ".": "./mod.ts",
-            "./api": "./api.ts",
-            "./client": "./client.ts",
-            "./types": "./types.ts",
-            "./schemas": "./schemas.ts",
-            "./contract": "./contract.ts"
+            ".": "./mod.ts"
         }),
     );
     if is_standalone_package_name(&opts.package_name) {
@@ -181,12 +176,10 @@ fn is_standalone_package_name(package_name: &str) -> bool {
 }
 
 fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
-    let module_export = sdk_module_export_name(&opts.package_name, &loaded.manifest.id);
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let trellis_import = trellis_runtime_import(opts);
     let trellis_contracts_import = trellis_contracts_import(opts);
-    let is_trellis_auth = loaded.manifest.id == "trellis.auth@v1";
     let contract_jobs_type = render_contract_jobs_type(loaded);
     let has_contract_jobs = contract_jobs_type.is_some();
     let sdk_contract_module_type = if has_contract_jobs {
@@ -261,67 +254,10 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         lines.push("});".to_string());
     }
 
-    if is_trellis_auth {
-        lines.extend([
-            String::new(),
-            "const DEFAULT_AUTH_RPC_CALL = [".to_string(),
-            "  \"Auth.Me\",".to_string(),
-            "  \"Auth.Logout\",".to_string(),
-            "] as const;".to_string(),
-            String::new(),
-            "type AuthOwnedApi = typeof API.owned;".to_string(),
-            "type AuthUseSpec = UseSpec<AuthOwnedApi>;".to_string(),
-            "type DefaultAuthRpcCall = typeof DEFAULT_AUTH_RPC_CALL;".to_string(),
-            "type WithDefaultAuthRpcCall<TSpec extends AuthUseSpec | undefined> =".to_string(),
-            "  TSpec extends { rpc?: { call?: infer TCall extends readonly string[] } }"
-                .to_string(),
-            "    ? readonly [...DefaultAuthRpcCall, ...TCall]".to_string(),
-            "    : DefaultAuthRpcCall;".to_string(),
-            "type WithDefaultAuthUseSpec<TSpec extends AuthUseSpec | undefined> =".to_string(),
-            "  (TSpec extends AuthUseSpec ? Omit<TSpec, \"rpc\"> : {}) & {".to_string(),
-            "    rpc: {".to_string(),
-            "      call: WithDefaultAuthRpcCall<TSpec>;".to_string(),
-            "    };".to_string(),
-            "  };".to_string(),
-            "type AuthUseDefaultsFn = <".to_string(),
-            "  const TSpec extends AuthUseSpec | undefined = undefined,".to_string(),
-            ">(spec?: TSpec) => ContractDependencyUse<".to_string(),
-            "  typeof CONTRACT_ID,".to_string(),
-            "  AuthOwnedApi,".to_string(),
-            "  WithDefaultAuthUseSpec<TSpec>".to_string(),
-            ">;".to_string(),
-            format!("type AuthModule = {sdk_contract_module_type} & {{"),
-            "  useDefaults: AuthUseDefaultsFn;".to_string(),
-            "};".to_string(),
-            String::new(),
-            "function mergeAuthUseDefaults(spec?: AuthUseSpec): AuthUseSpec {".to_string(),
-            "  const rpcCall = [...DEFAULT_AUTH_RPC_CALL];".to_string(),
-            "  for (const key of spec?.rpc?.call ?? []) {".to_string(),
-            "    if (!rpcCall.includes(key as (typeof rpcCall)[number])) {".to_string(),
-            "      rpcCall.push(key as (typeof rpcCall)[number]);".to_string(),
-            "    }".to_string(),
-            "  }".to_string(),
-            String::new(),
-            "  return {".to_string(),
-            "    ...spec,".to_string(),
-            "    rpc: {".to_string(),
-            "      ...spec?.rpc,".to_string(),
-            "      call: rpcCall,".to_string(),
-            "    },".to_string(),
-            "  };".to_string(),
-            "}".to_string(),
-            String::new(),
-            format!("export const {}: AuthModule = {{", module_export),
-        ]);
-    } else {
-        lines.extend([
-            String::new(),
-            format!(
-                "export const {}: {} = {{",
-                module_export, sdk_contract_module_type
-            ),
-        ]);
-    }
+    lines.extend([
+        String::new(),
+        format!("export const sdk: {sdk_contract_module_type} = {{"),
+    ]);
 
     let mut contract_fields = vec![
         "  CONTRACT_ID,".to_string(),
@@ -351,7 +287,7 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         "    };".to_string(),
         String::new(),
         "    Object.defineProperty(dependencyUse, CONTRACT_MODULE_METADATA, {".to_string(),
-        format!("      value: {},", module_export),
+        "      value: sdk,".to_string(),
         "      enumerable: false,".to_string(),
         "    });".to_string(),
         String::new(),
@@ -360,26 +296,11 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
     ]);
     lines.extend(contract_fields);
 
-    if is_trellis_auth {
-        lines.extend([
-            "  useDefaults: ((spec?: AuthUseSpec) => {".to_string(),
-            format!(
-                "    return {}.use(mergeAuthUseDefaults(spec));",
-                module_export
-            ),
-            "  }) as AuthUseDefaultsFn,".to_string(),
-            "};".to_string(),
-            String::new(),
-            format!("export const use = {}.use;", module_export),
-            format!("export const useDefaults = {}.useDefaults;", module_export),
-        ]);
-    } else {
-        lines.extend([
-            "};".to_string(),
-            String::new(),
-            format!("export const use = {}.use;", module_export),
-        ]);
-    }
+    lines.extend([
+        "};".to_string(),
+        String::new(),
+        "export const use = sdk.use;".to_string(),
+    ]);
 
     format!(
         "{}
@@ -1710,12 +1631,11 @@ fn normalize_relative_path_string(path: String) -> String {
 }
 
 fn render_readme(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
-    let module_export = sdk_module_export_name(&opts.package_name, &loaded.manifest.id);
-    let use_example = example_use_block(&module_export, loaded);
+    let use_example = example_use_block("dependency", loaded);
     let import_specifier = sdk_readme_import_specifier(&opts.package_name);
     format!(
-        "# {}\n\nGenerated Trellis SDK for contract `{}`.\n\n## Usage\n\n```ts\nimport {{ defineContract }} from \"@qlever-llc/trellis\";\nimport {{ {} }} from \"{}\";\n\nconst app = defineContract({{\n  id: \"example.app@v1\",\n  displayName: \"Example App\",\n  description: \"User-facing app for the example deployment.\",\n  kind: \"app\",\n  uses: {{\n{}\n  }},\n}});\n\nconst client = app.createClient(nc, authSession);\n```\n\n## Contents\n\n- `{}`: generated contract module with `CONTRACT_ID`, `CONTRACT_DIGEST`, `CONTRACT`, `API`, and `use(...)`\n- `API`: nested contract API views with `API.owned`, `API.used`, and `API.trellis`\n- `types.ts`: TypeScript types derived from JSON Schemas\n- `schemas.ts`: Raw JSON Schemas (as `as const` objects)\n- `contract.ts`: embedded contract metadata and typed `use(...)` helper\n",
-        opts.package_name, loaded.manifest.id, module_export, import_specifier, use_example, module_export
+        "# {}\n\nGenerated Trellis SDK for contract `{}`.\n\n## Usage\n\n```ts\nimport {{ defineContract }} from \"@qlever-llc/trellis\";\nimport {{ sdk as dependency }} from \"{}\";\n\nconst app = defineContract({{\n  id: \"example.app@v1\",\n  displayName: \"Example App\",\n  description: \"User-facing app for the example deployment.\",\n  kind: \"app\",\n  uses: {{\n{}\n  }},\n}});\n\nconst client = app.createClient(nc, authSession);\n```\n\n## Contents\n\n- `sdk`: generated contract module with `CONTRACT_ID`, `CONTRACT_DIGEST`, `CONTRACT`, `API`, and `use(...)`\n- `API`: nested contract API views with `API.owned`, `API.used`, and `API.trellis`\n- `types.ts`: TypeScript types derived from JSON Schemas\n- `schemas.ts`: Raw JSON Schemas (as `as const` objects)\n- `contract.ts`: embedded contract metadata and typed `use(...)` helper\n",
+        opts.package_name, loaded.manifest.id, import_specifier, use_example
     )
 }
 
@@ -1785,67 +1705,12 @@ fn key_to_pascal(value: &str) -> String {
         .join("")
 }
 
-fn sdk_module_export_name(package_name: &str, contract_id: &str) -> String {
-    match contract_id {
-        "trellis.activity@v1" => "activity".to_string(),
-        "trellis.auth@v1" => "auth".to_string(),
-        "trellis.core@v1" => "core".to_string(),
-        "trellis.health@v1" => "health".to_string(),
-        "trellis.jobs@v1" => "jobs".to_string(),
-        "trellis.state@v1" => "state".to_string(),
-        _ => {
-            let contract_stem = contract_id
-                .split('@')
-                .next()
-                .unwrap_or(contract_id)
-                .replace('.', "-");
-            if package_name.ends_with(&contract_stem) {
-                return kebab_to_camel(&contract_stem);
-            }
-
-            let package_leaf = package_name.rsplit('/').next().unwrap_or(package_name);
-            let trimmed = package_leaf
-                .strip_prefix("trellis-sdk-")
-                .or_else(|| package_leaf.strip_prefix("trellis-generated-"))
-                .unwrap_or(package_leaf);
-            kebab_to_camel(trimmed)
-        }
-    }
-}
-
 fn sdk_readme_import_specifier(package_name: &str) -> String {
     if let Some(trimmed) = package_name.strip_prefix("@qlever-llc/trellis-sdk-") {
         format!("@qlever-llc/trellis/sdk/{trimmed}")
     } else {
         package_name.to_string()
     }
-}
-
-fn kebab_to_camel(value: &str) -> String {
-    let mut out = String::new();
-    let mut uppercase_next = false;
-
-    for ch in value.chars() {
-        if ch == '-' {
-            uppercase_next = true;
-            continue;
-        }
-
-        if out.is_empty() {
-            out.push(ch.to_ascii_lowercase());
-            uppercase_next = false;
-            continue;
-        }
-
-        if uppercase_next {
-            out.push(ch.to_ascii_uppercase());
-            uppercase_next = false;
-        } else {
-            out.push(ch);
-        }
-    }
-
-    out
 }
 
 fn example_use_block(module_export: &str, loaded: &LoadedManifest) -> String {
@@ -2080,22 +1945,13 @@ fn is_safe_js_ident(value: &str) -> bool {
 }
 
 fn render_mod_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
-    let module_export = sdk_module_export_name(&opts.package_name, &loaded.manifest.id);
     let client_interface = client_interface_name(&loaded.manifest.id);
     let client_state = client_state_type_name(&loaded.manifest.id);
-    let use_exports = if module_export == "auth" {
-        "CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, useDefaults, auth".to_string()
-    } else {
-        format!(
-            "CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, {}",
-            module_export
-        )
-    };
     format!(
         "export {{ API, OWNED_API }} from \"./api.ts\";\nexport type {{ Api, ApiViews, OwnedApi }} from \"./api.ts\";\nexport * from \"./types.ts\";\nexport * from \"./schemas.ts\";\nexport type {{ Client, {}, {} }} from \"./client.ts\";\nexport {{ {} }} from \"./contract.ts\";\n",
         client_interface,
         client_state,
-        use_exports,
+        "CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, sdk",
     )
 }
 

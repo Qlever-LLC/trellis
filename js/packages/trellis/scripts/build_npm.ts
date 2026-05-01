@@ -100,13 +100,12 @@ async function normalizeExportTargets(
 
   if (_key.startsWith("./sdk/")) {
     const sdkName = _key.slice("./sdk/".length);
-    const sdkDir = sdkExportDirs[sdkName];
-    if (sdkDir === undefined) {
+    if (sdkExportDirs[sdkName] === undefined) {
       return {};
     }
 
-    const importPath = `./esm/generated-sdk/${sdkDir}/mod.js`;
-    const requirePath = `./script/generated-sdk/${sdkDir}/mod.js`;
+    const importPath = `./esm/npm/src/sdk/${sdkName}.js`;
+    const requirePath = `./script/npm/src/sdk/${sdkName}.js`;
     return {
       ...(await pathExists(importPath) ? { import: importPath } : {}),
       ...(await pathExists(requirePath) ? { require: requirePath } : {}),
@@ -225,12 +224,12 @@ async function addGeneratedSdkTypeImports() {
     'import type { TrellisAPI } from "@qlever-llc/trellis/contracts";\n';
 
   for (const format of ["esm", "script"]) {
-    const generatedSdkDir = new URL(
-      `../npm/${format}/generated-sdk/`,
+    const formatDir = new URL(
+      `../npm/${format}/`,
       import.meta.url,
     );
 
-    for await (const fileUrl of walkFiles(generatedSdkDir)) {
+    for await (const fileUrl of walkFiles(formatDir)) {
       if (!fileUrl.pathname.endsWith(".d.ts")) {
         continue;
       }
@@ -238,7 +237,10 @@ async function addGeneratedSdkTypeImports() {
       const original = await Deno.readTextFile(fileUrl);
       if (
         !original.includes("TrellisAPI") ||
-        original.includes("import type { TrellisAPI }")
+        /^import\b.*\bTrellisAPI\b.*$/m.test(original) ||
+        /^export\s+(?:declare\s+)?(?:type|interface)\s+TrellisAPI\b/m.test(
+          original,
+        )
       ) {
         continue;
       }

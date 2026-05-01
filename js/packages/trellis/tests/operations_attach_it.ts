@@ -2,7 +2,7 @@ import { connect } from "@nats-io/transport-deno";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { defineServiceContract } from "../contract.ts";
-import { auth } from "@qlever-llc/trellis/sdk/auth";
+import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 import { AsyncResult, ok } from "../index.ts";
 import { TrellisServiceRuntime } from "../server/mod.ts";
 import { createClient } from "../client.ts";

@@ -136,11 +136,7 @@ import {
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
 } from "../../../packages/trellis/auth/protocol.ts";
-import {
-  type ContractDependencyUse,
-  defineServiceContract,
-  type UseSpec,
-} from "@qlever-llc/trellis/contracts";
+import { defineServiceContract } from "@qlever-llc/trellis/contracts";
 import {
   HealthResponseSchema,
   HealthRpcSchema,
@@ -929,68 +925,8 @@ const baseTrellisAuth = defineServiceContract(
   }),
 );
 
-const DEFAULT_AUTH_RPC_CALL = [
-  "Auth.Me",
-  "Auth.Logout",
-] as const;
+export const trellisAuth = baseTrellisAuth;
 
-type TrellisAuthOwnedApi = typeof baseTrellisAuth.API.owned;
-type TrellisAuthDefaultRpcCall = typeof DEFAULT_AUTH_RPC_CALL;
-type TrellisAuthUseSpec = UseSpec<TrellisAuthOwnedApi>;
-
-type WithDefaultAuthRpcCall<TSpec extends TrellisAuthUseSpec | undefined> =
-  TSpec extends { rpc?: { call?: infer TCall extends readonly string[] } }
-    ? readonly [...TrellisAuthDefaultRpcCall, ...TCall]
-    : TrellisAuthDefaultRpcCall;
-
-type WithDefaultAuthUseSpec<TSpec extends TrellisAuthUseSpec | undefined> =
-  & (TSpec extends TrellisAuthUseSpec ? Omit<TSpec, "rpc"> : {})
-  & {
-    rpc: {
-      call: WithDefaultAuthRpcCall<TSpec>;
-    };
-  };
-
-type TrellisAuthUseDefaultsFn = <
-  const TSpec extends TrellisAuthUseSpec | undefined = undefined,
->(
-  spec?: TSpec,
-) => ContractDependencyUse<
-  typeof baseTrellisAuth.CONTRACT_ID,
-  TrellisAuthOwnedApi,
-  WithDefaultAuthUseSpec<TSpec>
->;
-
-type TrellisAuthModule = typeof baseTrellisAuth & {
-  useDefaults: TrellisAuthUseDefaultsFn;
-};
-
-function mergeAuthUseDefaults(
-  spec?: TrellisAuthUseSpec,
-): TrellisAuthUseSpec {
-  const rpcCall = [...DEFAULT_AUTH_RPC_CALL];
-  for (const key of spec?.rpc?.call ?? []) {
-    if (!rpcCall.includes(key as (typeof rpcCall)[number])) {
-      rpcCall.push(key as (typeof rpcCall)[number]);
-    }
-  }
-
-  return {
-    ...spec,
-    rpc: {
-      ...spec?.rpc,
-      call: rpcCall,
-    },
-  };
-}
-
-export const trellisAuth: TrellisAuthModule = Object.assign(baseTrellisAuth, {
-  useDefaults: ((spec?: TrellisAuthUseSpec) => {
-    return baseTrellisAuth.use(mergeAuthUseDefaults(spec));
-  }) as TrellisAuthUseDefaultsFn,
-});
-
-export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use, useDefaults } =
-  trellisAuth;
+export const { CONTRACT_ID, CONTRACT, CONTRACT_DIGEST, API, use } = trellisAuth;
 export type Api = typeof API;
 export default trellisAuth;

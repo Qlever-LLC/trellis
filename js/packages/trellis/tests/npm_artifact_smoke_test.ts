@@ -61,7 +61,7 @@ Deno.test("trellis npm artifact only depends on allowed published Trellis packag
   }
 });
 
-Deno.test("trellis npm SDK exports resolve through canonical generated SDK artifacts", async () => {
+Deno.test("trellis npm SDK exports resolve through public wrapper modules", async () => {
   const packageJsonUrl = new URL("../npm/package.json", import.meta.url);
   try {
     await Deno.stat(packageJsonUrl);
@@ -73,10 +73,59 @@ Deno.test("trellis npm SDK exports resolve through canonical generated SDK artif
   }
 
   const packageJson = JSON.parse(await Deno.readTextFile(packageJsonUrl));
-  assertEquals(packageJson.exports["./sdk/auth"], {
-    import: "./esm/generated-sdk/auth/mod.js",
-    require: "./script/generated-sdk/auth/mod.js",
+  assertEquals(packageJson.exports["./sdk/activity"], {
+    import: "./esm/npm/src/sdk/activity.js",
+    require: "./script/npm/src/sdk/activity.js",
   });
+  assertEquals(packageJson.exports["./sdk/auth"], {
+    import: "./esm/npm/src/sdk/auth.js",
+    require: "./script/npm/src/sdk/auth.js",
+  });
+  assertEquals(packageJson.exports["./sdk/core"], {
+    import: "./esm/npm/src/sdk/core.js",
+    require: "./script/npm/src/sdk/core.js",
+  });
+  assertEquals(packageJson.exports["./sdk/health"], {
+    import: "./esm/npm/src/sdk/health.js",
+    require: "./script/npm/src/sdk/health.js",
+  });
+  assertEquals(packageJson.exports["./sdk/jobs"], {
+    import: "./esm/npm/src/sdk/jobs.js",
+    require: "./script/npm/src/sdk/jobs.js",
+  });
+  assertEquals(packageJson.exports["./sdk/state"], {
+    import: "./esm/npm/src/sdk/state.js",
+    require: "./script/npm/src/sdk/state.js",
+  });
+
+  const authWrapper = await Deno.readTextFile(
+    new URL("../npm/esm/npm/src/sdk/auth.js", import.meta.url),
+  );
+  assertEquals(authWrapper.includes("useDefaults"), false);
+  const authGeneratedMod = await Deno.readTextFile(
+    new URL("../npm/esm/generated-sdk/auth/mod.js", import.meta.url),
+  );
+  assertEquals(authGeneratedMod.includes("useDefaults"), true);
+  const coreGeneratedMod = await Deno.readTextFile(
+    new URL("../npm/esm/generated-sdk/trellis-core/mod.js", import.meta.url),
+  );
+  assertEquals(coreGeneratedMod.includes(" use,"), true);
+  const healthWrapper = await Deno.readTextFile(
+    new URL("../npm/esm/npm/src/sdk/health.js", import.meta.url),
+  );
+  assertEquals(healthWrapper.includes("export const useDefaults"), true);
+  assertEquals(
+    healthWrapper.includes("Object.assign(baseHealth, { useDefaults })"),
+    true,
+  );
+  const stateWrapper = await Deno.readTextFile(
+    new URL("../npm/esm/npm/src/sdk/state.js", import.meta.url),
+  );
+  assertEquals(stateWrapper.includes("export const useDefaults"), true);
+  assertEquals(
+    stateWrapper.includes("Object.assign(baseState, { useDefaults })"),
+    true,
+  );
 
   const authClientTypes = await Deno.readTextFile(
     new URL("../npm/esm/generated-sdk/auth/client.d.ts", import.meta.url),
@@ -90,6 +139,25 @@ Deno.test("trellis npm SDK exports resolve through canonical generated SDK artif
   );
   assertEquals(
     authApiTypes.includes(
+      'import type { TrellisAPI } from "@qlever-llc/trellis/contracts";',
+    ),
+    true,
+  );
+
+  const healthWrapperTypes = await Deno.readTextFile(
+    new URL("../npm/esm/npm/src/sdk/health.d.ts", import.meta.url),
+  );
+  assertEquals(
+    healthWrapperTypes.includes(
+      'import type { TrellisAPI } from "@qlever-llc/trellis/contracts";',
+    ),
+    true,
+  );
+  const stateWrapperTypes = await Deno.readTextFile(
+    new URL("../npm/esm/npm/src/sdk/state.d.ts", import.meta.url),
+  );
+  assertEquals(
+    stateWrapperTypes.includes(
       'import type { TrellisAPI } from "@qlever-llc/trellis/contracts";',
     ),
     true,

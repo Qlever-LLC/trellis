@@ -4,7 +4,7 @@ import { encodeSchema } from "../codec.ts";
 import { createClient } from "../client.ts";
 import { defineAppContract, defineServiceContract } from "../contract.ts";
 import { err, UnexpectedError } from "../index.ts";
-import { auth } from "../sdk/auth.ts";
+import { sdk as auth } from "../sdk/auth.ts";
 
 Deno.test("createClient prefers trellis API for app contracts", () => {
   const contract = defineAppContract(() => ({

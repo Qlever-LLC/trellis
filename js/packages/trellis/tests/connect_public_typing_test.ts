@@ -11,7 +11,7 @@ import {
   TrellisDevice,
 } from "../index.ts";
 import { checkDeviceActivation } from "../device/deno.ts";
-import { jobs } from "../sdk/jobs.ts";
+import { sdk as jobs } from "../sdk/jobs.ts";
 import { TrellisService } from "../service/deno.ts";
 
 const selectionSchemas = {

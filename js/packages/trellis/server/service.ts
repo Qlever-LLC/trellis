@@ -13,7 +13,7 @@ import {
   TypedStore,
   TypedStoreEntry,
 } from "@qlever-llc/trellis";
-import { auth as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
+import { sdk as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
 import {
   TrellisServiceRuntime,
   type TrellisServiceRuntimeFor,

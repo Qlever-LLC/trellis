@@ -12,8 +12,8 @@ import {
   type Subscription,
 } from "@nats-io/nats-core";
 import { type BaseError, Result } from "@qlever-llc/result";
-import { core } from "@qlever-llc/trellis/sdk/core";
-import { health } from "@qlever-llc/trellis/sdk/health";
+import { sdk as core } from "@qlever-llc/trellis/sdk/core";
+import { sdk as health } from "@qlever-llc/trellis/sdk/health";
 import { Type } from "typebox";
 
 import type { LoggerLike } from "../globals.ts";
@@ -78,7 +78,7 @@ const heartbeatTestContract = defineServiceContract({}, () => ({
   id: "trellis.server.heartbeat-test@v1",
   displayName: "Heartbeat Test",
   description: "Verify heartbeat runtime lifecycle behavior.",
-  uses: { health: health.useDefaults() },
+  uses: { health: health.use({ events: { publish: ["Health.Heartbeat"] } }) },
 }));
 
 type WaitableService = {

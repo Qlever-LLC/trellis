@@ -1,5 +1,5 @@
 import { defineServiceContract } from "@qlever-llc/trellis/contracts";
-import { health } from "@qlever-llc/trellis/sdk/health";
+import { sdk as health } from "@qlever-llc/trellis/sdk/health";
 import * as schemas from "./src/schemas/index.ts";
 
 export const contract = defineServiceContract(
@@ -10,7 +10,7 @@ export const contract = defineServiceContract(
     id: "trellis.demo-service@v1",
     displayName: "Field Ops Demo Service",
     description: "Consolidated Field Ops demo service for Trellis concepts.",
-    uses: { health: health.useDefaults() },
+    uses: { health: health.use({ events: { publish: ["Health.Heartbeat"] } }) },
     exports: {
       schemas: ["EvidenceRecord", "InspectionAssignment", "ReportRecord", "SiteSummary"],
     },
