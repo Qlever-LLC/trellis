@@ -126,7 +126,7 @@ export function createClient<
 
 async function loadCoreApi(): Promise<TrellisAPI> {
   try {
-    const mod = await import("./sdk/core.ts") as CoreSdkModule;
+    const mod = await import("@qlever-llc/trellis/sdk/core") as CoreSdkModule;
     const api = mod.core?.API.trellis ?? mod.API?.trellis;
     if (api) {
       return api;

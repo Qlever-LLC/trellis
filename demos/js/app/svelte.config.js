@@ -52,55 +52,31 @@ const config = {
       ),
       "@qlever-llc/trellis/sdk/activity": resolve(
         rootDir,
-        "../../../js/packages/trellis/sdk/activity.ts",
+        "../../../generated/js/sdks/activity/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/auth": resolve(
         rootDir,
-        "../../../js/packages/trellis/sdk/auth.ts",
+        "../../../generated/js/sdks/auth/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/core": resolve(
         rootDir,
-        "../../../js/packages/trellis/sdk/core.ts",
+        "../../../generated/js/sdks/trellis-core/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/health": resolve(
         rootDir,
-        "../../../js/packages/trellis/sdk/health.ts",
+        "../../../generated/js/sdks/health/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/jobs": resolve(
         rootDir,
-        "../../../js/packages/trellis/sdk/jobs.ts",
+        "../../../generated/js/sdks/jobs/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/state": resolve(
         rootDir,
-        "../../../js/packages/trellis/sdk/state.ts",
+        "../../../generated/js/sdks/state/mod.ts",
       ),
       "@qlever-llc/trellis": resolve(
         rootDir,
         "../../../js/packages/trellis/index.ts",
-      ),
-      "#trellis-generated-sdk/activity": resolve(
-        rootDir,
-        "../../../generated/js/sdks/activity/mod.ts",
-      ),
-      "#trellis-generated-sdk/auth": resolve(
-        rootDir,
-        "../../../generated/js/sdks/auth/mod.ts",
-      ),
-      "#trellis-generated-sdk/core": resolve(
-        rootDir,
-        "../../../generated/js/sdks/trellis-core/mod.ts",
-      ),
-      "#trellis-generated-sdk/health": resolve(
-        rootDir,
-        "../../../generated/js/sdks/health/mod.ts",
-      ),
-      "#trellis-generated-sdk/jobs": resolve(
-        rootDir,
-        "../../../generated/js/sdks/jobs/mod.ts",
-      ),
-      "#trellis-generated-sdk/state": resolve(
-        rootDir,
-        "../../../generated/js/sdks/state/mod.ts",
       ),
       "@trellis-sdk/trellis-demo-service": resolve(
         rootDir,

@@ -4,6 +4,12 @@
     "../../js/packages/result",
     "../../js/packages/trellis",
     "../../js/packages/trellis-svelte",
+    "../../generated/js/sdks/activity",
+    "../../generated/js/sdks/auth",
+    "../../generated/js/sdks/trellis-core",
+    "../../generated/js/sdks/health",
+    "../../generated/js/sdks/jobs",
+    "../../generated/js/sdks/state",
     "./generated/js/sdks/demo-service"
   ],
   "workspace": ["./service", "./device", "./app"],

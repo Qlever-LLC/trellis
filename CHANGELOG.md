@@ -8,6 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed local app aliases and Trellis client SDK loading so generated Trellis SDK
+  imports resolve through linked packages instead of app-private
+  `#trellis-generated-sdk/*` aliases, and added a regression test for
+  out-of-tree SDK generation defaulting to the `@trellis-sdk/` scope.
+
 ## [0.8.0-rc.5] - 2026-04-30
 
 ### Changed

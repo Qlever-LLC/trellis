@@ -87,6 +87,49 @@ fn explicit_generate_all_emits_buildable_sdk_packages() {
 }
 
 #[test]
+fn explicit_generate_all_defaults_out_of_tree_package_to_trellis_sdk_scope() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("service");
+    let manifest_path = temp.path().join("krishi.cloud@v1.json");
+    let ts_out = temp.path().join("ts");
+    fs::create_dir_all(project.join("contracts")).unwrap();
+    fs::write(
+        project.join("deno.json"),
+        "{\n  \"version\": \"0.4.0\"\n}\n",
+    )
+    .unwrap();
+    write_ts_contract(
+        &project.join("contracts/cloud.ts"),
+        "krishi.cloud@v1",
+        "Cloud",
+        "service",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
+        .args([
+            "generate",
+            "all",
+            "--source",
+            project.join("contracts/cloud.ts").to_str().unwrap(),
+            "--out-manifest",
+            manifest_path.to_str().unwrap(),
+            "--ts-out",
+            ts_out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let deno = fs::read_to_string(ts_out.join("deno.json")).unwrap();
+    assert!(deno.contains("\"name\": \"@trellis-sdk/krishi-cloud\""));
+    assert!(!deno.contains("@qlever-llc/trellis-generated-krishi-cloud"));
+}
+
+#[test]
 fn prepare_bootstraps_repo_without_discover_summary() {
     let temp = tempfile::tempdir().unwrap();
     let services = temp.path().join("services/orders");
