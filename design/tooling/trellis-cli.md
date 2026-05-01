@@ -97,6 +97,8 @@ trellis-generate generate manifest (--source <file> | --manifest <file> | --imag
 trellis-generate generate ts (--source <file> | --manifest <file> | --image <ref>) --out <dir>
 trellis-generate generate rust (--source <file> | --manifest <file> | --image <ref>) --out <dir>
 trellis-generate generate all (--source <file> | --manifest <file> | --image <ref>) --out-manifest <file> [--ts-out <dir>] [--rust-out <dir>]
+trellis-generate self check [--prerelease]
+trellis-generate self update [--prerelease]
 ```
 
 These commands:

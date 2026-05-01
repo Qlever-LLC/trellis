@@ -18,6 +18,9 @@ and this project adheres to
 
 - Fixed GitHub Pages guide builds to prepare generated Trellis SDK artifacts
   before generating TypeScript API docs.
+- Fixed CLI release publishing to build and attach `trellis-generate` archives
+  alongside `trellis`, added `trellis-generate self check/update`, and hardened
+  self-upgrade asset selection for both binaries.
 
 ## [0.8.0-rc.6] - 2026-04-30
 

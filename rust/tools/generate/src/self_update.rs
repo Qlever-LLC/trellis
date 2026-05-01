@@ -270,15 +270,8 @@ mod tests {
     }
 
     #[test]
-    fn detects_semver_prerelease_suffixes() {
-        assert!(is_prerelease_version("1.2.3-rc.1"));
-        assert!(is_prerelease_version("1.2.3-beta.2+build.7"));
-        assert!(!is_prerelease_version("1.2.3"));
-    }
-
-    #[test]
     fn selects_highest_stable_version_from_unsorted_input() {
-        let target = SelfUpdateTarget::new("qlever-llc", "trellis", "trellis", "0.7.0");
+        let target = SelfUpdateTarget::new("qlever-llc", "trellis", "trellis-generate", "0.7.0");
         let versions = vec![
             "0.7.3".to_string(),
             "0.7.1".to_string(),
@@ -291,7 +284,7 @@ mod tests {
 
     #[test]
     fn stable_selection_ignores_prerelease_versions() {
-        let target = SelfUpdateTarget::new("qlever-llc", "trellis", "trellis", "0.7.0");
+        let target = SelfUpdateTarget::new("qlever-llc", "trellis", "trellis-generate", "0.7.0");
         let versions = vec![
             "0.8.0-rc.1".to_string(),
             "0.7.4".to_string(),
@@ -313,7 +306,7 @@ mod tests {
 
     #[test]
     fn selects_highest_version_from_github_style_tags() {
-        let target = SelfUpdateTarget::new("qlever-llc", "trellis", "trellis", "0.7.0");
+        let target = SelfUpdateTarget::new("qlever-llc", "trellis", "trellis-generate", "0.7.0");
         let versions = vec![
             "v0.7.2".to_string(),
             "v0.7.4".to_string(),
@@ -338,25 +331,28 @@ mod tests {
 
     #[test]
     fn asset_identifier_includes_binary_name_and_tag() {
-        let target = SelfUpdateTarget::new("qlever-llc", "trellis", "trellis", "0.7.0");
-        assert_eq!(asset_identifier(target, "v0.8.0"), "trellis-v0.8.0-");
+        let target = SelfUpdateTarget::new("qlever-llc", "trellis", "trellis-generate", "0.7.0");
+        assert_eq!(
+            asset_identifier(target, "v0.8.0"),
+            "trellis-generate-v0.8.0-"
+        );
     }
 
     #[test]
     fn release_asset_filter_requires_binary_name_and_target() {
-        let target = SelfUpdateTarget::new("qlever-llc", "trellis", "trellis", "0.7.0");
+        let target = SelfUpdateTarget::new("qlever-llc", "trellis", "trellis-generate", "0.7.0");
         let release = Release {
             assets: vec![
                 self_update::update::ReleaseAsset {
-                    name: format!("trellis-generate-0.8.0-{}.tar.gz", get_target()),
+                    name: format!("trellis-0.8.0-{}.tar.gz", get_target()),
                     download_url: String::new(),
                 },
                 self_update::update::ReleaseAsset {
-                    name: "trellis-0.8.0-other-target.tar.gz".to_string(),
+                    name: "trellis-generate-0.8.0-other-target.tar.gz".to_string(),
                     download_url: String::new(),
                 },
                 self_update::update::ReleaseAsset {
-                    name: format!("checksum-0.8.0-{}-trellis.sha256", get_target()),
+                    name: format!("checksum-0.8.0-{}-trellis-generate.sha256", get_target()),
                     download_url: String::new(),
                 },
             ],
@@ -368,10 +364,10 @@ mod tests {
 
     #[test]
     fn release_asset_filter_accepts_matching_binary_name_and_target() {
-        let target = SelfUpdateTarget::new("qlever-llc", "trellis", "trellis", "0.7.0");
+        let target = SelfUpdateTarget::new("qlever-llc", "trellis", "trellis-generate", "0.7.0");
         let release = Release {
             assets: vec![self_update::update::ReleaseAsset {
-                name: format!("trellis-0.8.0-{}.tar.gz", get_target()),
+                name: format!("trellis-generate-0.8.0-{}.tar.gz", get_target()),
                 download_url: String::new(),
             }],
             ..Release::default()

@@ -22,6 +22,41 @@ pub enum TopLevelCommand {
     Prepare(PrepareArgs),
     Discover(DiscoverArgs),
     Generate(GenerateCommand),
+    /// Check for or install generator updates.
+    #[command(name = "self")]
+    Self_(SelfCommand),
+}
+
+#[derive(Debug, Args)]
+/// Check for or install newer Trellis generator releases.
+pub struct SelfCommand {
+    #[command(subcommand)]
+    pub command: SelfSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+/// Trellis generator self-management commands.
+pub enum SelfSubcommand {
+    /// Check GitHub releases and report whether an update is available.
+    Check(SelfCheckArgs),
+    /// Download and install the latest Trellis generator release for this platform.
+    Update(SelfUpdateArgs),
+}
+
+#[derive(Debug, Args)]
+/// Check whether a newer Trellis generator release exists.
+pub struct SelfCheckArgs {
+    #[arg(long)]
+    /// Include prerelease versions such as release candidates.
+    pub prerelease: bool,
+}
+
+#[derive(Debug, Args)]
+/// Install the newest Trellis generator release for this platform.
+pub struct SelfUpdateArgs {
+    #[arg(long)]
+    /// Allow prerelease versions such as release candidates.
+    pub prerelease: bool,
 }
 
 #[derive(Debug, Args)]
@@ -178,7 +213,7 @@ pub struct GenerateAllArgs {
 mod tests {
     use clap::Parser;
 
-    use super::{Cli, TopLevelCommand};
+    use super::{Cli, SelfSubcommand, TopLevelCommand};
 
     #[test]
     fn prepare_accepts_watch_flag() {
@@ -216,14 +251,9 @@ mod tests {
 
     #[test]
     fn prepare_accepts_prefix() {
-        let cli = Cli::try_parse_from([
-            "trellis-generate",
-            "prepare",
-            "--prefix",
-            "@example/",
-            ".",
-        ])
-        .expect("prepare --prefix should parse");
+        let cli =
+            Cli::try_parse_from(["trellis-generate", "prepare", "--prefix", "@example/", "."])
+                .expect("prepare --prefix should parse");
 
         let Some(TopLevelCommand::Prepare(args)) = cli.command else {
             panic!("expected prepare command");
@@ -261,5 +291,35 @@ mod tests {
         };
 
         assert_eq!(args.prefix, "@trellis-sdk/");
+    }
+
+    #[test]
+    fn self_check_accepts_prerelease_flag() {
+        let cli = Cli::try_parse_from(["trellis-generate", "self", "check", "--prerelease"])
+            .expect("self check --prerelease should parse");
+
+        let Some(TopLevelCommand::Self_(command)) = cli.command else {
+            panic!("expected self command");
+        };
+        let SelfSubcommand::Check(args) = command.command else {
+            panic!("expected self check command");
+        };
+
+        assert!(args.prerelease);
+    }
+
+    #[test]
+    fn self_update_accepts_prerelease_flag() {
+        let cli = Cli::try_parse_from(["trellis-generate", "self", "update", "--prerelease"])
+            .expect("self update --prerelease should parse");
+
+        let Some(TopLevelCommand::Self_(command)) = cli.command else {
+            panic!("expected self command");
+        };
+        let SelfSubcommand::Update(args) = command.command else {
+            panic!("expected self update command");
+        };
+
+        assert!(args.prerelease);
     }
 }
