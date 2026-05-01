@@ -6,6 +6,7 @@ const forbiddenImportPattern =
 const staleCliArtifactPattern =
   /defineCliContract|"service" \| "app" \| "device" \| "cli"|defineClientContract\("cli"/;
 const privateGeneratedSdkBuildPattern = /\.build\/generated-sdk/;
+const dntShimDenoRuntimeDetectionPattern = /"Deno" in dntShim\.dntGlobalThis/;
 
 async function* walkFiles(dir: string): AsyncGenerator<string> {
   for await (const entry of Deno.readDir(dir)) {
@@ -110,6 +111,47 @@ Deno.test("trellis npm SDK exports resolve through canonical generated SDK artif
   await assertNotExists(
     new URL("../npm/script/npm/src/.build/generated-sdk", import.meta.url),
   );
+});
+
+Deno.test("trellis npm runtime transport falls back to npm native transport in Deno", async () => {
+  const packageJsonUrl = new URL("../npm/package.json", import.meta.url);
+  const esmRuntimeTransport = new URL(
+    "../npm/esm/npm/src/runtime_transport.js",
+    import.meta.url,
+  );
+  const scriptRuntimeTransport = new URL(
+    "../npm/script/npm/src/runtime_transport.js",
+    import.meta.url,
+  );
+
+  try {
+    await Deno.stat(packageJsonUrl);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return;
+    throw error;
+  }
+
+  await Deno.stat(esmRuntimeTransport);
+  await Deno.stat(scriptRuntimeTransport);
+
+  for (const path of [esmRuntimeTransport, scriptRuntimeTransport]) {
+    const source = await Deno.readTextFile(path);
+    assertEquals(
+      source.includes('["@nats-io", "transport-deno"].join("/")'),
+      true,
+      path.pathname,
+    );
+    assertEquals(
+      source.includes('"transport-node"'),
+      true,
+      path.pathname,
+    );
+    assertEquals(
+      dntShimDenoRuntimeDetectionPattern.test(source),
+      false,
+      path.pathname,
+    );
+  }
 });
 
 async function assertNotExists(url: URL): Promise<void> {

@@ -18,6 +18,9 @@ and this project adheres to
 
 ### Fixed
 
+- Fixed npm package error construction and Deno service transport loading so
+  locally linked npm artifacts can construct Trellis errors and connect service
+  runtimes without relying on missing dnt or Deno transport package shims.
 - Fixed hand-built `trellis` and `trellis-generate` binaries to include local
   git metadata in `--version` output while keeping official GitHub Actions
   release builds on the clean package version.

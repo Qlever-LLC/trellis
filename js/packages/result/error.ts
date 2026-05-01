@@ -64,7 +64,10 @@ export abstract class BaseError<
     this.#context = context ?? {};
     this.#traceId = traceId ?? BaseError.traceIdGetter?.();
 
-    Object.setPrototypeOf(this, new.target.prototype);
+    const constructor = this.constructor;
+    if ("prototype" in constructor) {
+      Object.setPrototypeOf(this, constructor.prototype);
+    }
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, this.constructor);
     }

@@ -24,6 +24,10 @@ export type RuntimeTransport = {
   connect(options: RuntimeTransportConnectOptions): Promise<NatsConnection>;
 };
 
+type NativeGlobalThis = typeof globalThis & {
+  Deno?: { version?: { deno?: string } };
+};
+
 export function selectRuntimeTransportServers(
   transports: RuntimeTransports,
 ): string[] {
@@ -50,6 +54,11 @@ function isBrowserRuntime(): boolean {
   return typeof window !== "undefined" && typeof document !== "undefined";
 }
 
+function isDenoRuntime(): boolean {
+  const load = new Function("return globalThis") as () => NativeGlobalThis;
+  return typeof load().Deno?.version?.deno === "string";
+}
+
 function usesWebSocketTransport(servers: string | string[]): boolean {
   const values = Array.isArray(servers) ? servers : [servers];
   return values.some((server) =>
@@ -64,6 +73,33 @@ function runtimeImport<TModule>(specifier: string): Promise<TModule> {
   return load(specifier);
 }
 
+function denoTransportSpecifier(): string {
+  return ["@nats-io", "transport-deno"].join("/");
+}
+
+function isMissingOptionalDenoTransport(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes("@nats-io/transport-deno") &&
+    (error.message.includes("Could not find package") ||
+      error.message.includes("Cannot find module") ||
+      error.message.includes("MODULE_NOT_FOUND") ||
+      error.message.includes("not a dependency") ||
+      error.message.includes("not in import map"));
+}
+
+async function loadNativeDenoTransport(): Promise<RuntimeTransport> {
+  try {
+    return await import(denoTransportSpecifier()) as RuntimeTransport;
+  } catch (error) {
+    if (!isMissingOptionalDenoTransport(error)) {
+      throw error;
+    }
+    return await runtimeImport<RuntimeTransport>(
+      ["@nats-io", "transport-node"].join("/"),
+    );
+  }
+}
+
 export async function loadDefaultRuntimeTransport(): Promise<RuntimeTransport> {
   if (isBrowserRuntime()) {
     return {
@@ -71,18 +107,14 @@ export async function loadDefaultRuntimeTransport(): Promise<RuntimeTransport> {
     };
   }
 
-  if ("Deno" in globalThis) {
+  if (isDenoRuntime()) {
     return {
       connect: async (options) => {
         if (usesWebSocketTransport(options.servers)) {
           return await wsconnect(options);
         }
 
-        const mod = await runtimeImport<
-          { connect: RuntimeTransport["connect"] }
-        >(
-          ["@nats-io", "transport-deno"].join("/"),
-        );
+        const mod = await loadNativeDenoTransport();
         return await mod.connect(options);
       },
     };

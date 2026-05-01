@@ -1,5 +1,5 @@
 import { assertEquals, assertInstanceOf } from "@std/assert";
-import { BaseError } from "@qlever-llc/result";
+import { BaseError, UnexpectedError } from "@qlever-llc/result";
 import {
   AsyncResult,
   type Infer,
@@ -62,6 +62,18 @@ Deno.test("Result class", async (t) => {
     if (Result.isErr(error)) {
       assertEquals(error.error.message, "oops");
     }
+  });
+
+  await t.step("BaseError subclasses preserve prototype identity", () => {
+    const error = new TestError("oops");
+    assertInstanceOf(error, TestError);
+    assertInstanceOf(error, BaseError);
+    assertInstanceOf(error, Error);
+
+    const unexpected = new UnexpectedError({ cause: new Error("boom") });
+    assertInstanceOf(unexpected, UnexpectedError);
+    assertInstanceOf(unexpected, BaseError);
+    assertInstanceOf(unexpected, Error);
   });
 
   await t.step("construction with helper functions", () => {
