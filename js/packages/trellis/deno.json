@@ -10,7 +10,6 @@
     "./contracts": "./contracts.ts",
     "./device/deno": "./device/deno.ts",
     "./health": "./health.ts",
-    "./sdk/activity": "./sdk/activity.ts",
     "./sdk/auth": "./sdk/auth.ts",
     "./sdk/core": "./sdk/core.ts",
     "./sdk/health": "./sdk/health.ts",

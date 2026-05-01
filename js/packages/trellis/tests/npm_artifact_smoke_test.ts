@@ -73,10 +73,6 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   }
 
   const packageJson = JSON.parse(await Deno.readTextFile(packageJsonUrl));
-  assertEquals(packageJson.exports["./sdk/activity"], {
-    import: "./esm/npm/src/sdk/activity.js",
-    require: "./script/npm/src/sdk/activity.js",
-  });
   assertEquals(packageJson.exports["./sdk/auth"], {
     import: "./esm/npm/src/sdk/auth.js",
     require: "./script/npm/src/sdk/auth.js",
@@ -136,32 +132,22 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
     true,
   );
 
-  const healthWrapperTypes = await Deno.readTextFile(
-    new URL("../npm/esm/npm/src/sdk/health.d.ts", import.meta.url),
+  const healthApiTypes = await Deno.readTextFile(
+    new URL("../npm/esm/generated-sdk/health/api.d.ts", import.meta.url),
   );
   assertEquals(
-    healthWrapperTypes.includes(
+    healthApiTypes.includes(
       'import type { TrellisAPI } from "@qlever-llc/trellis/contracts";',
     ),
     true,
   );
-  const stateWrapperTypes = await Deno.readTextFile(
-    new URL("../npm/esm/npm/src/sdk/state.d.ts", import.meta.url),
+  const stateApiTypes = await Deno.readTextFile(
+    new URL("../npm/esm/generated-sdk/state/api.d.ts", import.meta.url),
   );
   assertEquals(
-    stateWrapperTypes.includes(
+    stateApiTypes.includes(
       'import type { TrellisAPI } from "@qlever-llc/trellis/contracts";',
     ),
-    true,
-  );
-
-  const activityApi = await Deno.readTextFile(
-    new URL("../npm/esm/generated-sdk/activity/api.js", import.meta.url),
-  );
-  assertEquals(activityApi.includes("../../../sdk/"), false);
-  assertEquals(activityApi.includes("../../sdk/"), false);
-  assertEquals(
-    activityApi.includes('from "@qlever-llc/trellis/sdk/health"'),
     true,
   );
 

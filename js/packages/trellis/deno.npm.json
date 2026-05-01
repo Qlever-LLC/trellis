@@ -3,13 +3,11 @@
   "name": "@qlever-llc/trellis",
   "version": "0.8.0",
   "imports": {
-    "#trellis-generated-sdk/activity": "./.build/generated-sdk/activity/mod.ts",
     "#trellis-generated-sdk/auth": "./.build/generated-sdk/auth/mod.ts",
     "#trellis-generated-sdk/core": "./.build/generated-sdk/trellis-core/mod.ts",
     "#trellis-generated-sdk/health": "./.build/generated-sdk/health/mod.ts",
     "#trellis-generated-sdk/jobs": "./.build/generated-sdk/jobs/mod.ts",
     "#trellis-generated-sdk/state": "./.build/generated-sdk/state/mod.ts",
-    "@qlever-llc/trellis/sdk/activity": "./sdk/activity.ts",
     "@qlever-llc/trellis/sdk/auth": "./sdk/auth.ts",
     "@qlever-llc/trellis/sdk/core": "./sdk/core.ts",
     "@qlever-llc/trellis/sdk/health": "./sdk/health.ts",

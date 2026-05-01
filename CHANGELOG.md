@@ -8,6 +8,11 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the Trellis npm package build by removing the stale activity SDK export
+  after the built-in activity contract was removed from generated SDK outputs.
+
 ## [0.8.0-rc.7] - 2026-05-01
 
 ### Changed

@@ -26,7 +26,6 @@ Deno.test("trellis package exports the first-party SDK subpaths", async () => {
     new URL("../deno.json", import.meta.url),
   );
 
-  assertStringIncludes(source, '"./sdk/activity": "./sdk/activity.ts"');
   assertStringIncludes(source, '"./sdk/auth": "./sdk/auth.ts"');
   assertStringIncludes(source, '"./sdk/core": "./sdk/core.ts"');
   assertStringIncludes(source, '"./sdk/health": "./sdk/health.ts"');

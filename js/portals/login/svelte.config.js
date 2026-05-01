@@ -49,10 +49,6 @@ const config = {
         rootDir,
         "../../packages/trellis/health.ts",
       ),
-      "@qlever-llc/trellis/sdk/activity": resolve(
-        rootDir,
-        "../../../generated/js/sdks/activity/mod.ts",
-      ),
       "@qlever-llc/trellis/sdk/auth": resolve(
         rootDir,
         "../../../generated/js/sdks/auth/mod.ts",

@@ -11,7 +11,6 @@ const generatedSdkBuildUrl = new URL(
   import.meta.url,
 );
 const sdkExportDirs: Record<string, string> = {
-  activity: "activity",
   auth: "auth",
   core: "trellis-core",
   health: "health",
@@ -381,7 +380,6 @@ await buildDntPackage({
     "./js/packages/trellis/device.ts",
     "./js/packages/trellis/device/deno.ts",
     "./js/packages/trellis/health.ts",
-    "./js/packages/trellis/sdk/activity.ts",
     "./js/packages/trellis/sdk/auth.ts",
     "./js/packages/trellis/sdk/core.ts",
     "./js/packages/trellis/sdk/health.ts",
