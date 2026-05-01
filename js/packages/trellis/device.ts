@@ -971,7 +971,13 @@ export const TrellisDevice = {
     }>,
   >(
     args: TrellisDeviceConnectArgs<DeviceContractApi<TContract>, TContract>,
-  ) {
+  ): AsyncResult<
+    TrellisDeviceConnection<
+      DeviceContractApi<TContract>,
+      RuntimeStateStoresForContract<TContract>
+    >,
+    TransportError | UnexpectedError
+  > {
     return deviceConnectResult(connectDeviceWithDeps(args, defaultDeps));
   },
 };

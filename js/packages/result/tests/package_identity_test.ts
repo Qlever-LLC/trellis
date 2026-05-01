@@ -16,3 +16,22 @@ Deno.test("result package readme uses the standalone result package name", async
 
   assertStringIncludes(source, "@qlever-llc/result");
 });
+
+Deno.test("result npm build opts out of DNT Deno shims", async () => {
+  const source = await Deno.readTextFile(
+    new URL("../scripts/build_npm.ts", import.meta.url),
+  );
+
+  assertStringIncludes(source, "denoShims: false");
+});
+
+Deno.test("result npm declarations do not import DNT polyfills", async () => {
+  const modTypes = await Deno.readTextFile(
+    new URL("../npm/esm/mod.d.ts", import.meta.url),
+  ).catch((error) => {
+    if (error instanceof Deno.errors.NotFound) return "";
+    throw error;
+  });
+
+  assertEquals(modTypes.includes("_dnt.polyfills"), false);
+});

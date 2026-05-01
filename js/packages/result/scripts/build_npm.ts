@@ -12,5 +12,6 @@ await buildDntPackage({
     typebox: "^1.0.15",
     ulid: "^3.0.1",
   },
+  denoShims: false,
   typeCheck: false,
 });

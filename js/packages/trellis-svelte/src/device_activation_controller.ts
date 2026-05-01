@@ -3,11 +3,8 @@ import type { AsyncResult } from "@qlever-llc/result";
 import type {
   AuthActivateDeviceOutput,
   AuthActivateDeviceProgress,
-} from "../../trellis/auth/device_activation.ts";
-import type {
-  OperationEvent,
-  TerminalOperation,
-} from "../../trellis/operations.ts";
+} from "@qlever-llc/trellis/auth";
+import type { OperationEvent, TerminalOperation } from "@qlever-llc/trellis";
 import {
   clearPreservedDeviceActivationCallbackState,
   getPreservedDeviceActivationCallbackState,

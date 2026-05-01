@@ -5,7 +5,7 @@ import {
   portalFlowIdFromUrl,
   portalProviderLoginUrl,
   submitPortalApproval,
-} from "../../trellis/auth/browser.ts";
+} from "@qlever-llc/trellis/auth/browser";
 
 export type CreatePortalFlowConfig = AuthConfig & {
   getUrl?: () => URL;

@@ -10,6 +10,14 @@ const generatedSdkBuildUrl = new URL(
   "../.build/generated-sdk/",
   import.meta.url,
 );
+const sdkExportDirs: Record<string, string> = {
+  activity: "activity",
+  auth: "auth",
+  core: "trellis-core",
+  health: "health",
+  jobs: "jobs",
+  state: "state",
+};
 
 function rewriteCjsPath(path: string): string {
   return path;
@@ -71,6 +79,17 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+async function removeFileDntPolyfills(fileUrl: URL) {
+  const original = await Deno.readTextFile(fileUrl);
+  const updated = original
+    .replace(/^import ["']\.\.\/_dnt\.polyfills\.js["'];\r?\n/gm, "")
+    .replace(/^require\(["']\.\.\/_dnt\.polyfills\.js["']\);\r?\n/gm, "");
+
+  if (updated !== original) {
+    await Deno.writeTextFile(fileUrl, updated);
+  }
+}
+
 async function normalizeExportTargets(
   _key: string,
   value: unknown,
@@ -80,9 +99,14 @@ async function normalizeExportTargets(
   }
 
   if (_key.startsWith("./sdk/")) {
-    const subpath = _key.slice("./".length);
-    const importPath = `./esm/npm/src/${subpath}.js`;
-    const requirePath = `./script/npm/src/${subpath}.js`;
+    const sdkName = _key.slice("./sdk/".length);
+    const sdkDir = sdkExportDirs[sdkName];
+    if (sdkDir === undefined) {
+      return {};
+    }
+
+    const importPath = `./esm/generated-sdk/${sdkDir}/mod.js`;
+    const requirePath = `./script/generated-sdk/${sdkDir}/mod.js`;
     return {
       ...(await pathExists(importPath) ? { import: importPath } : {}),
       ...(await pathExists(requirePath) ? { require: requirePath } : {}),
@@ -175,6 +199,69 @@ async function normalizeModuleSpecifiers() {
 
     if (updated !== original) {
       await Deno.writeTextFile(fileUrl, updated);
+    }
+  }
+}
+
+async function stageCanonicalGeneratedSdkArtifacts() {
+  for (const format of ["esm", "script"]) {
+    const source = new URL(
+      `../npm/${format}/npm/src/.build/generated-sdk/`,
+      import.meta.url,
+    );
+    const target = new URL(`../npm/${format}/generated-sdk/`, import.meta.url);
+    await Deno.remove(target, { recursive: true }).catch((error) => {
+      if (!(error instanceof Deno.errors.NotFound)) {
+        throw error;
+      }
+    });
+    await copyDir(source, target);
+    await Deno.remove(source, { recursive: true });
+  }
+}
+
+async function addGeneratedSdkTypeImports() {
+  const trellisApiImport =
+    'import type { TrellisAPI } from "@qlever-llc/trellis/contracts";\n';
+
+  for (const format of ["esm", "script"]) {
+    const generatedSdkDir = new URL(
+      `../npm/${format}/generated-sdk/`,
+      import.meta.url,
+    );
+
+    for await (const fileUrl of walkFiles(generatedSdkDir)) {
+      if (!fileUrl.pathname.endsWith(".d.ts")) {
+        continue;
+      }
+
+      const original = await Deno.readTextFile(fileUrl);
+      if (
+        !original.includes("TrellisAPI") ||
+        original.includes("import type { TrellisAPI }")
+      ) {
+        continue;
+      }
+
+      await Deno.writeTextFile(fileUrl, trellisApiImport + original);
+    }
+  }
+}
+
+async function removeSdkWrapperPolyfills() {
+  for (const sdkName of Object.keys(sdkExportDirs)) {
+    for (const format of ["esm", "script"]) {
+      for (const extension of ["js", "d.ts"]) {
+        const fileUrl = new URL(
+          `../npm/${format}/npm/src/sdk/${sdkName}.${extension}`,
+          import.meta.url,
+        );
+        await removeFileDntPolyfills(fileUrl).catch((error) => {
+          if (!(error instanceof Deno.errors.NotFound)) {
+            throw error;
+          }
+        });
+      }
     }
   }
 }
@@ -293,5 +380,8 @@ await buildDntPackage({
 });
 
 await normalizeModuleSpecifiers();
+await stageCanonicalGeneratedSdkArtifacts();
+await addGeneratedSdkTypeImports();
+await removeSdkWrapperPolyfills();
 await normalizePackageJsonExports();
 await Deno.remove(generatedSdkBuildUrl, { recursive: true });

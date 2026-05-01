@@ -27,6 +27,7 @@ type BuildDntPackageOptions = {
   npmInstallDeps?: Record<string, string>;
   typeCheck?: false | "both" | "single";
   skipNpmInstall?: boolean;
+  denoShims?: boolean;
   externalizePackageDirs?: Record<string, string>;
   mappings?: DntSpecifierMappings;
 };
@@ -96,6 +97,29 @@ async function externalizeCopiedPackageDir(
   }
 }
 
+async function removeDntPolyfillImports(outDir: string) {
+  for await (const filePath of walkFiles(outDir)) {
+    if (!filePath.endsWith(".js") && !filePath.endsWith(".d.ts")) {
+      continue;
+    }
+
+    const original = await Deno.readTextFile(filePath);
+    const updated = original
+      .replace(/^import ["']\.\/_dnt\.polyfills\.js["'];\r?\n/gm, "")
+      .replace(/^require\(["']\.\/_dnt\.polyfills\.js["']\);\r?\n/gm, "");
+
+    if (updated !== original) {
+      await Deno.writeTextFile(filePath, updated);
+    }
+  }
+
+  for await (const filePath of walkFiles(outDir)) {
+    if (filePath.includes("_dnt.polyfills.")) {
+      await Deno.remove(filePath);
+    }
+  }
+}
+
 export async function buildDntPackage(options: BuildDntPackageOptions) {
   const packageDir = Deno.cwd();
   const buildRoot = options.buildRoot
@@ -128,9 +152,7 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
     await build({
       entryPoints: options.entryPoints,
       outDir,
-      shims: {
-        deno: true,
-      },
+      shims: options.denoShims === false ? {} : { deno: true },
       test: false,
       typeCheck: options.typeCheck ?? false,
       skipNpmInstall: options.skipNpmInstall ?? false,
@@ -181,6 +203,10 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
     packageJsonPath,
     JSON.stringify(packageJson, null, 2) + "\n",
   );
+
+  if (options.denoShims === false) {
+    await removeDntPolyfillImports(outDir);
+  }
 
   for (
     const [dirName, packageName] of Object.entries(

@@ -56,3 +56,60 @@ Deno.test("trellis npm artifact only depends on allowed published Trellis packag
     assertEquals(staleCliArtifactPattern.test(source), false, filePath);
   }
 });
+
+Deno.test("trellis npm SDK exports resolve through canonical generated SDK artifacts", async () => {
+  const packageJsonUrl = new URL("../npm/package.json", import.meta.url);
+  try {
+    await Deno.stat(packageJsonUrl);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      return;
+    }
+    throw error;
+  }
+
+  const packageJson = JSON.parse(await Deno.readTextFile(packageJsonUrl));
+  assertEquals(packageJson.exports["./sdk/auth"], {
+    import: "./esm/generated-sdk/auth/mod.js",
+    require: "./script/generated-sdk/auth/mod.js",
+  });
+
+  const authClientTypes = await Deno.readTextFile(
+    new URL("../npm/esm/generated-sdk/auth/client.d.ts", import.meta.url),
+  );
+  assertEquals(authClientTypes.includes('from "@qlever-llc/trellis"'), true);
+  assertEquals(authClientTypes.includes("npm/src/errors"), false);
+  assertEquals(authClientTypes.includes("../errors"), false);
+
+  const authApiTypes = await Deno.readTextFile(
+    new URL("../npm/esm/generated-sdk/auth/api.d.ts", import.meta.url),
+  );
+  assertEquals(
+    authApiTypes.includes(
+      'import type { TrellisAPI } from "@qlever-llc/trellis/contracts";',
+    ),
+    true,
+  );
+
+  await assertNotExists(
+    new URL("../npm/esm/npm/src/.build/generated-sdk", import.meta.url),
+  );
+  await assertNotExists(
+    new URL("../npm/script/npm/src/.build/generated-sdk", import.meta.url),
+  );
+
+  const sdkWrapper = await Deno.readTextFile(
+    new URL("../npm/esm/npm/src/sdk/auth.js", import.meta.url),
+  );
+  assertEquals(sdkWrapper.includes("_dnt.polyfills.js"), false);
+});
+
+async function assertNotExists(url: URL): Promise<void> {
+  try {
+    await Deno.stat(url);
+    throw new Error(`Expected ${url.pathname} not to exist`);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return;
+    throw error;
+  }
+}

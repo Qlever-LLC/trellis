@@ -1,7 +1,5 @@
-import type {
-  AuthActivateDeviceOutput,
-} from "../../../trellis/auth/device_activation.ts";
-import type { TerminalOperation } from "../../../trellis/operations.ts";
+import type { AuthActivateDeviceOutput } from "@qlever-llc/trellis/auth";
+import type { TerminalOperation } from "@qlever-llc/trellis";
 
 type DeviceActivationProgressInput = {
   instanceId: string;
