@@ -8,6 +8,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.0-rc.5] - 2026-04-30
+
+### Changed
+
+- Changed generated TypeScript SDK package names for non-Trellis-owned
+  contracts to default to the `@trellis-sdk/` scope, added `--prefix` for
+  custom generated SDK package prefixes, and updated demos/docs to consume
+  generated SDKs as linked packages instead of import-map aliases.
+
+### Fixed
+
+- Fixed npm package smoke validation to pack and install the release artifacts
+  locally, verify public ESM/CJS/TypeScript consumer imports, and reject private
+  generated SDK build-path references in published packages.
+
 ## [0.8.0-rc.4] - 2026-04-30
 
 ### Fixed
