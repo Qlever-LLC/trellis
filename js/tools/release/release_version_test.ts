@@ -77,6 +77,26 @@ Deno.test("rewriteCargoManifestVersions updates workspace and internal dependenc
   );
 });
 
+Deno.test("rewriteCargoManifestVersions updates internal package versions", () => {
+  const manifest =
+    `[package]\nname = "trellis-generate"\nversion = "0.7.0"\npublish = false\n\n[dependencies]\nserde = "1.0.228"\n`;
+
+  assertEquals(
+    rewriteCargoManifestVersions(manifest, "0.7.0-rc.1", "0.7.0"),
+    `[package]\nname = "trellis-generate"\nversion = "0.7.0-rc.1"\npublish = false\n\n[dependencies]\nserde = "1.0.228"\n`,
+  );
+});
+
+Deno.test("rewriteCargoManifestVersions leaves external package versions alone", () => {
+  const manifest =
+    `[package]\nname = "external-helper"\nversion = "1.2.3"\n\n[dependencies]\nserde = "1.0.228"\n`;
+
+  assertEquals(
+    rewriteCargoManifestVersions(manifest, "0.7.0-rc.1", "0.7.0"),
+    manifest,
+  );
+});
+
 Deno.test("rewriteCargoManifestVersions fails when a checked-in dependency base version diverges", () => {
   const manifest =
     `[dependencies]\ntrellis-client = { path = "../client", version = "0.6.0" }\n`;

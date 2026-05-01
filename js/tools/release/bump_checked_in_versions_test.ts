@@ -118,17 +118,27 @@ Deno.test("updateCargoVersions bumps workspace and internal crate versions", asy
 
   try {
     const cargoPath = join(rootDir, "Cargo.toml");
+    const generateCargoPath = join(rootDir, "tools", "generate", "Cargo.toml");
     await Deno.writeTextFile(
       cargoPath,
       `[workspace.package]\nversion = "0.7.0"\n\n[dependencies]\ntrellis-client = { path = "../client", version = "0.7.0" }\nserde = { version = "1.0.228" }\n`,
     );
+    await Deno.mkdir(join(rootDir, "tools", "generate"), { recursive: true });
+    await Deno.writeTextFile(
+      generateCargoPath,
+      `[package]\nname = "trellis-generate"\nversion = "0.7.0"\npublish = false\n`,
+    );
 
     const updatedPaths = await updateCargoVersions(rootDir, "0.8.0", "0.7.0");
 
-    assertEquals(updatedPaths, [cargoPath]);
+    assertEquals(updatedPaths.sort(), [cargoPath, generateCargoPath].sort());
     assertEquals(
       await Deno.readTextFile(cargoPath),
       `[workspace.package]\nversion = "0.8.0"\n\n[dependencies]\ntrellis-client = { path = "../client", version = "0.8.0" }\nserde = { version = "1.0.228" }\n`,
+    );
+    assertEquals(
+      await Deno.readTextFile(generateCargoPath),
+      `[package]\nname = "trellis-generate"\nversion = "0.8.0"\npublish = false\n`,
     );
   } finally {
     await Deno.remove(rootDir, { recursive: true });

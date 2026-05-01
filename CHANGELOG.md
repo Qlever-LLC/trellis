@@ -29,6 +29,8 @@ and this project adheres to
   version bundled with `trellis-generate`, emit npm runtime imports, and publish
   npm SDKs with Trellis as a peer and development dependency instead of a nested
   runtime dependency.
+- Fixed checked-in release version bumps to include the standalone
+  `trellis-generate` Cargo package version.
 
 ## [0.8.0-rc.5] - 2026-04-30
 

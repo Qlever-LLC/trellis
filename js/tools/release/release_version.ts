@@ -14,6 +14,7 @@ const INTERNAL_RUST_CRATES = new Set([
   "trellis-codegen-ts",
   "trellis-contracts",
   "trellis-core-bootstrap",
+  "trellis-generate",
   "trellis-jobs",
   "trellis-sdk-auth",
   "trellis-sdk-core",
@@ -186,17 +187,22 @@ export function rewriteCargoManifestVersions(
   releaseVersion: string,
   expectedBaseVersion: string,
 ): string {
+  const packageName = contents.match(/^name\s*=\s*"([^"]+)"\s*$/m)?.[1];
+  const updatePackageVersion = packageName !== undefined &&
+    INTERNAL_RUST_CRATES.has(packageName);
+  let inPackage = false;
   let inWorkspacePackage = false;
   const lines = contents.split("\n");
 
   return lines.map((line) => {
     const trimmed = line.trim();
     if (trimmed.startsWith("[")) {
+      inPackage = trimmed === "[package]";
       inWorkspacePackage = trimmed === "[workspace.package]";
       return line;
     }
 
-    if (inWorkspacePackage) {
+    if (inWorkspacePackage || (inPackage && updatePackageVersion)) {
       const workspaceVersionMatch = line.match(
         /^(\s*version\s*=\s*")([^"]+)("\s*)$/,
       );
@@ -204,7 +210,9 @@ export function rewriteCargoManifestVersions(
         validateVersionBase(
           workspaceVersionMatch[2],
           expectedBaseVersion,
-          "rust workspace version",
+          inWorkspacePackage
+            ? "rust workspace version"
+            : `${packageName} version`,
         );
         return `${workspaceVersionMatch[1]}${releaseVersion}${
           workspaceVersionMatch[3]
