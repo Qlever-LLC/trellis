@@ -2230,7 +2230,6 @@
           "npm:vite@*"
         ]
       },
-      "jsr:@qlever-llc/trellis-service-activity@0.8.0": {},
       "jsr:@qlever-llc/trellis-service-trellis@0.8.0": {
         "dependencies": [
           "npm:@libsql/client@0.15.15",
@@ -2240,14 +2239,7 @@
         ]
       },
       "jsr:@qlever-llc/trellis-svelte@0.8.0": {},
-      "jsr:@qlever-llc/trellis/sdk/activity@0.8.0": {},
-      "jsr:@qlever-llc/trellis/sdk/auth@0.8.0": {},
-      "jsr:@qlever-llc/trellis/sdk/core@0.8.0": {},
-      "jsr:@qlever-llc/trellis/sdk/health@0.8.0": {},
-      "jsr:@qlever-llc/trellis/sdk/jobs@0.8.0": {},
-      "jsr:@qlever-llc/trellis/sdk/state@0.8.0": {},
-      "jsr:@qlever-llc/trellis@0.8.0": {},
-      "jsr:@trellis-sdk/trellis-demo-service@0.0.0": {}
+      "jsr:@qlever-llc/trellis@0.8.0": {}
     }
   }
 }

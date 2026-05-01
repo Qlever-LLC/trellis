@@ -5,7 +5,6 @@
     "./packages/trellis-svelte",
     "./packages/trellis",
     "./portals/login",
-    "./services/activity",
     "./services/trellis"
   ],
   "tasks": {
@@ -125,12 +124,19 @@
   "nodeModulesDir": "auto",
   "compilerOptions": {
     "strict": true,
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "dom.asynciterable",
+      "deno.ns"
+    ],
     "verbatimModuleSyntax": true
   },
   "lint": {
     "rules": {
-      "exclude": ["import-map-remap"]
+      "exclude": [
+        "import-map-remap"
+      ]
     }
   }
 }
