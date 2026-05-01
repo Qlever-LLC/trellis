@@ -11,4 +11,4 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 toml = "1.1.2"
-trellis-contracts = { path = "../contracts", version = "0.8.1" }
+trellis-contracts = { path = "../contracts", version = "0.8.2" }

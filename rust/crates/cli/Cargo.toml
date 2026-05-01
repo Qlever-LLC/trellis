@@ -17,11 +17,11 @@ serde.workspace = true
 serde_json.workspace = true
 json5 = "1.3.1"
 tokio.workspace = true
-trellis-client = { path = "../client", version = "0.8.1" }
-trellis-auth = { path = "../auth", version = "0.8.1" }
-trellis-codegen-rust = { path = "../codegen-rust", version = "0.8.1" }
-trellis-codegen-ts = { path = "../codegen-ts", version = "0.8.1" }
-trellis-contracts = { path = "../contracts", version = "0.8.1" }
+trellis-client = { path = "../client", version = "0.8.2" }
+trellis-auth = { path = "../auth", version = "0.8.2" }
+trellis-codegen-rust = { path = "../codegen-rust", version = "0.8.2" }
+trellis-codegen-ts = { path = "../codegen-ts", version = "0.8.2" }
+trellis-contracts = { path = "../contracts", version = "0.8.2" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 miette.workspace = true

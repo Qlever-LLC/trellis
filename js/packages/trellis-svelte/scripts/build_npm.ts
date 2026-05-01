@@ -28,8 +28,8 @@ const sourceFiles = [
 
 const dependencies = resolveInternalNpmDependenciesForBuild({
   "@nats-io/nats-core": "^3.3.1",
-  "@qlever-llc/result": "^0.8.0",
-  "@qlever-llc/trellis": "^0.8.0",
+  "@qlever-llc/result": "^0.8.2",
+  "@qlever-llc/trellis": "^0.8.2",
   typebox: "^1.0.15",
 });
 const peerDependencies = resolveInternalNpmDependenciesForBuild({

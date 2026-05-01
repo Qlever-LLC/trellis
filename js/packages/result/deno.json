@@ -1,7 +1,7 @@
 {
   "extends": "../../deno.json",
   "name": "@qlever-llc/result",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "exports": "./mod.ts",
   "tasks": {
     "build:npm": "deno run -A ./scripts/build_npm.ts",

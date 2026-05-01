@@ -8,9 +8,9 @@ description = "Bootstrap adapters for the generated Trellis core SDK."
 
 [dependencies]
 futures-util.workspace = true
-trellis-client = { path = "../client", version = "0.8.1" }
+trellis-client = { path = "../client", version = "0.8.2" }
 trellis-sdk-core.workspace = true
-trellis-server = { path = "../server", version = "0.8.1" }
+trellis-server = { path = "../server", version = "0.8.2" }
 
 [dev-dependencies]
 serde_json.workspace = true

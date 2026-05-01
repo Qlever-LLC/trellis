@@ -14,16 +14,16 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 time.workspace = true
-trellis-client = { path = "../client", version = "0.8.1" }
-trellis-auth = { path = "../auth", version = "0.8.1" }
-trellis-auth-adapters = { path = "../auth-adapters", version = "0.8.1" }
-trellis-core-bootstrap = { path = "../core-bootstrap", version = "0.8.1" }
+trellis-client = { path = "../client", version = "0.8.2" }
+trellis-auth = { path = "../auth", version = "0.8.2" }
+trellis-auth-adapters = { path = "../auth-adapters", version = "0.8.2" }
+trellis-core-bootstrap = { path = "../core-bootstrap", version = "0.8.2" }
 trellis-sdk-auth.workspace = true
 trellis-sdk-core.workspace = true
 trellis-sdk-jobs.workspace = true
-trellis-server = { path = "../server", version = "0.8.1" }
-trellis-contracts = { path = "../contracts", version = "0.8.1" }
-trellis-jobs = { path = "../jobs", version = "0.8.1" }
+trellis-server = { path = "../server", version = "0.8.2" }
+trellis-contracts = { path = "../contracts", version = "0.8.2" }
+trellis-jobs = { path = "../jobs", version = "0.8.2" }
 
 [dev-dependencies]
 bytes.workspace = true

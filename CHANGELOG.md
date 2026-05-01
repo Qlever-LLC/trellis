@@ -8,7 +8,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.8.1] - 2026-05-01
+## [0.8.2] - 2026-05-01
 
 ### Fixed
 
@@ -365,7 +365,7 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.8.1...HEAD
-[0.8.1]: https://github.com/Qlever-LLC/trellis/compare/v0.8.0...v0.8.1
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/Qlever-LLC/trellis/compare/v0.8.1...v0.8.2
 [0.8.0]: https://github.com/Qlever-LLC/trellis/compare/v0.7.0...v0.8.0
 [0.8.0-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.7.0...v0.8.0-rc.1
