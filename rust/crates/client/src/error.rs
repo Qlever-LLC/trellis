@@ -78,6 +78,39 @@ fn format_rpc_error_payload(raw: &str) -> String {
     message
 }
 
+fn format_bootstrap_http_payload(raw: &str) -> String {
+    let Ok(value) = serde_json::from_str::<Value>(raw) else {
+        return raw.to_string();
+    };
+
+    let reason = value.get("reason").and_then(Value::as_str);
+    let message = value
+        .get("message")
+        .and_then(Value::as_str)
+        .or(reason)
+        .unwrap_or(raw);
+
+    let mut formatted = match reason {
+        Some(reason) if message != reason => format!("{reason}: {message}"),
+        _ => message.to_string(),
+    };
+
+    if let Some(object) = value.as_object() {
+        let context = object
+            .iter()
+            .filter(|(key, value)| {
+                key.as_str() != "reason" && key.as_str() != "message" && !value.is_null()
+            })
+            .map(|(key, value)| format!("{key}={}", format_json_value(value)))
+            .collect::<Vec<_>>();
+        if !context.is_empty() {
+            formatted.push_str(&format!(" ({})", context.join(", ")));
+        }
+    }
+
+    formatted
+}
+
 /// Errors returned by the Trellis client runtime.
 #[derive(thiserror::Error, Debug)]
 pub enum TrellisClientError {
@@ -99,6 +132,12 @@ pub enum TrellisClientError {
     #[error("nats request error: {0}")]
     NatsRequest(String),
 
+    #[error("service bootstrap failed with HTTP {status}: {}", format_bootstrap_http_payload(.body))]
+    BootstrapHttp { status: u16, body: String },
+
+    #[error("service bootstrap error: {0}")]
+    Bootstrap(String),
+
     #[error("request timeout")]
     Timeout,
 
@@ -117,7 +156,7 @@ pub enum TrellisClientError {
 
 #[cfg(test)]
 mod tests {
-    use super::format_rpc_error_payload;
+    use super::{format_bootstrap_http_payload, format_rpc_error_payload};
 
     #[test]
     fn formats_validation_error_payload_human_readably() {
@@ -131,5 +170,37 @@ mod tests {
     #[test]
     fn leaves_non_json_payloads_unchanged() {
         assert_eq!(format_rpc_error_payload("plain error"), "plain error");
+    }
+
+    #[test]
+    fn formats_bootstrap_http_failure_payload_human_readably() {
+        let raw = r#"{"allowedDigests":["digest-old"],"currentContractDigest":"digest-old","currentContractId":"trellis.jobs@v1","deploymentId":"svc/jobs","expectedContractDigest":"digest-new","expectedContractId":"trellis.jobs@v1","instanceId":"svc_1","message":"Service instance 'svc_1' is not allowed to run digest 'digest-new'. Re-apply the current contract to the deployment.","reason":"service_contract_mismatch"}"#;
+
+        assert_eq!(
+            format_bootstrap_http_payload(raw),
+            "service_contract_mismatch: Service instance 'svc_1' is not allowed to run digest 'digest-new'. Re-apply the current contract to the deployment. (allowedDigests=digest-old, currentContractDigest=digest-old, currentContractId=trellis.jobs@v1, deploymentId=svc/jobs, expectedContractDigest=digest-new, expectedContractId=trellis.jobs@v1, instanceId=svc_1)"
+        );
+    }
+
+    #[test]
+    fn bootstrap_http_failure_falls_back_to_reason() {
+        assert_eq!(
+            format_bootstrap_http_payload(r#"{"reason":"invalid_signature"}"#),
+            "invalid_signature"
+        );
+    }
+
+    #[test]
+    fn bootstrap_http_error_display_uses_formatted_payload() {
+        let error = super::TrellisClientError::BootstrapHttp {
+            status: 409,
+            body: r#"{"reason":"service_contract_mismatch","message":"Apply the contract first."}"#
+                .to_string(),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "service bootstrap failed with HTTP 409: service_contract_mismatch: Apply the contract first."
+        );
     }
 }

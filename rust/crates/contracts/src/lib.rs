@@ -13,7 +13,8 @@ mod model;
 mod schema;
 
 pub use builder::{
-    job_queue, kv, operation, rpc, schema_ref, store, use_contract, ContractManifestBuilder,
+    contract_capability_namespace, event, global_capability_name, job_queue, kv, operation, rpc,
+    schema_ref, state, store, use_contract, ContractManifestBuilder,
 };
 pub use canonical::{canonicalize_json, digest_json, sha256_base64url};
 pub use catalog::{
@@ -21,15 +22,19 @@ pub use catalog::{
     write_catalog_pack,
 };
 pub use error::ContractsError;
-pub use manifest::{load_json_value, load_manifest, manifest_paths_in_dir, parse_manifest};
+pub use manifest::{
+    digest_contract_json, digest_contract_value, load_json_value, load_manifest,
+    manifest_paths_in_dir, parse_manifest, project_contract_digest_manifest,
+};
 pub use model::{
-    Catalog, CatalogEntry, CatalogPack, ContractErrorDecl, ContractErrorRef, ContractEvent,
-    ContractExports, ContractJobQueueResource, ContractKind, ContractKvResource, ContractManifest,
-    ContractOperation, ContractOperationTransfer, ContractOperationTransferDirection,
-    ContractResources, ContractRpcMethod, ContractRpcTransfer, ContractRpcTransferDirection,
-    ContractSchemaRef, ContractStoreResource, ContractUseOperation, ContractUsePubSub,
-    ContractUseRef, ContractUseRpc, LoadedManifest, OperationCapabilities, PubSubCapabilities,
-    RpcCapabilities, CATALOG_FORMAT_V1, CONTRACT_FORMAT_V1,
+    Catalog, CatalogEntry, CatalogPack, ContractCapabilities, ContractCapabilityMetadata,
+    ContractErrorDecl, ContractErrorRef, ContractEvent, ContractExports, ContractJobQueueResource,
+    ContractKind, ContractKvResource, ContractManifest, ContractOperation,
+    ContractOperationTransfer, ContractOperationTransferDirection, ContractResources,
+    ContractRpcMethod, ContractRpcTransfer, ContractRpcTransferDirection, ContractSchemaRef,
+    ContractStateKind, ContractStateStore, ContractStoreResource, ContractUseOperation,
+    ContractUsePubSub, ContractUseRef, ContractUseRpc, LoadedManifest, OperationCapabilities,
+    PubSubCapabilities, RpcCapabilities, CATALOG_FORMAT_V1, CONTRACT_FORMAT_V1,
 };
 pub use schema::{validate_catalog, validate_manifest};
 

@@ -1,0 +1,54 @@
+[
+  {
+    "name": "capabilities and reachable schemas",
+    "input": {
+      "format": "trellis.contract.v1",
+      "id": "conformance.capabilities@v1",
+      "displayName": "Conformance",
+      "description": "Contract digest conformance vector.",
+      "kind": "service",
+      "capabilities": {
+        "conformance.capabilities::read": {
+          "displayName": "Read",
+          "description": "Read records."
+        }
+      },
+      "schemas": {
+        "Input": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "Output": {
+          "type": "object",
+          "properties": {
+            "value": { "type": "string" }
+          },
+          "required": ["value"]
+        },
+        "Unused": {
+          "type": "object",
+          "properties": {
+            "ignored": { "type": "number" }
+          }
+        }
+      },
+      "rpc": {
+        "Conformance.Read": {
+          "version": "v1",
+          "subject": "rpc.v1.Conformance.Read",
+          "input": { "schema": "Input" },
+          "output": { "schema": "Output" },
+          "capabilities": {
+            "call": ["conformance.capabilities::read"]
+          }
+        }
+      },
+      "exports": {
+        "schemas": ["Unused"]
+      },
+      "unknownFutureField": true
+    },
+    "digest": "xUqDCdoT1_uLoroJTKXsCy0TR0jVUsd40Sfllzdv4j0"
+  }
+]

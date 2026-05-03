@@ -9,12 +9,16 @@ use crate::browser_login::{
     poll_agent_flow_until_ready, DETACHED_LOGIN_POLL_INTERVAL,
 };
 use crate::{
-    build_device_activation_payload, clear_admin_session, derive_device_confirmation_code,
-    derive_device_identity, load_admin_session, parse_device_activation_payload,
-    save_admin_session, sign_device_wait_request, start_admin_reauth, start_agent_login,
+    build_device_activation_payload, build_device_wait_proof_input, clear_admin_session,
+    derive_device_confirmation_code, derive_device_identity, get_device_connect_info,
+    load_admin_session, parse_device_activation_payload, save_admin_session,
+    sign_device_wait_request, start_admin_reauth, start_agent_login,
     start_device_activation_request, verify_device_confirmation_code,
     wait_for_device_activation_response, AdminSessionState, AgentLoginChallenge,
-    StartAgentLoginOpts, WaitForDeviceActivationResponse,
+    AuthValidateRequestRequest, DeviceActivationLocalState, DeviceActivationSession,
+    DeviceActivationSessionBuilder, DeviceActivationStartResponse, DeviceActivationStatus,
+    GetDeviceConnectInfoOpts, StartAgentLoginOpts, TrellisAuthError,
+    WaitForDeviceActivationResponse,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -33,6 +37,21 @@ fn unique_test_dir(label: &str) -> PathBuf {
 fn env_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+}
+
+#[test]
+fn auth_validate_request_omits_absent_capabilities() {
+    let request = AuthValidateRequestRequest {
+        capabilities: None,
+        payload_hash: "hash".to_string(),
+        proof: "proof".to_string(),
+        session_key: "session".to_string(),
+        subject: "rpc.v1.Jobs.ListServices".to_string(),
+    };
+
+    let encoded = serde_json::to_value(request).expect("serialize request");
+
+    assert_eq!(encoded.get("capabilities"), None);
 }
 
 #[test]
@@ -168,6 +187,50 @@ fn contract_digest_changes_for_identity_fields() {
     assert_ne!(
         contract_digest(baseline).expect("baseline digest"),
         contract_digest(identity_changed).expect("identity changed digest")
+    );
+}
+
+#[test]
+fn contract_digest_changes_for_capability_metadata() {
+    let baseline = r#"{
+      "format": "trellis.contract.v1",
+      "id": "trellis.agent@v1",
+      "kind": "agent",
+      "capabilities": {
+        "agent.admin": {
+          "displayName": "Admin access",
+          "description": "Manage the deployment."
+        }
+      },
+      "uses": {
+        "auth": {
+          "contract": "trellis.auth@v1",
+          "rpc": { "call": ["Auth.Me"] }
+        }
+      }
+    }"#;
+    let capability_changed = r#"{
+      "format": "trellis.contract.v1",
+      "id": "trellis.agent@v1",
+      "kind": "agent",
+      "capabilities": {
+        "agent.admin": {
+          "displayName": "Admin access",
+          "description": "Manage the deployment.",
+          "consequence": "Can change runtime state."
+        }
+      },
+      "uses": {
+        "auth": {
+          "contract": "trellis.auth@v1",
+          "rpc": { "call": ["Auth.Me"] }
+        }
+      }
+    }"#;
+
+    assert_ne!(
+        contract_digest(baseline).expect("baseline digest"),
+        contract_digest(capability_changed).expect("capability changed digest")
     );
 }
 
@@ -491,6 +554,272 @@ fn device_activation_payload_round_trips() {
     );
 }
 
+#[test]
+fn device_wait_proof_input_includes_contract_digest_length_and_content() {
+    let proof_input =
+        build_device_wait_proof_input("public-key", "nonce_123", 1_701_000_000, Some("digest-abc"));
+
+    let mut offset = 0;
+    let read_part = |bytes: &[u8], offset: &mut usize| {
+        let len = u32::from_be_bytes(bytes[*offset..*offset + 4].try_into().expect("read length"))
+            as usize;
+        *offset += 4;
+        let part = std::str::from_utf8(&bytes[*offset..*offset + len]).expect("utf8 part");
+        *offset += len;
+        part.to_string()
+    };
+
+    assert_eq!(read_part(&proof_input, &mut offset), "public-key");
+    assert_eq!(read_part(&proof_input, &mut offset), "nonce_123");
+    assert_eq!(read_part(&proof_input, &mut offset), "1701000000");
+    assert_eq!(read_part(&proof_input, &mut offset), "digest-abc");
+    assert_eq!(offset, proof_input.len());
+}
+
+#[test]
+fn device_wait_signature_changes_when_contract_digest_changes() {
+    let identity = derive_device_identity(&[19u8; 32]).expect("derive device identity");
+    let first = sign_device_wait_request(
+        &identity.public_identity_key,
+        "nonce_123",
+        &identity.identity_seed_base64url,
+        Some("digest-a"),
+        1_701_000_000,
+    )
+    .expect("sign first wait request");
+    let second = sign_device_wait_request(
+        &identity.public_identity_key,
+        "nonce_123",
+        &identity.identity_seed_base64url,
+        Some("digest-b"),
+        1_701_000_000,
+    )
+    .expect("sign second wait request");
+
+    assert_ne!(first.sig, second.sig);
+}
+
+#[test]
+fn device_activation_session_builder_exposes_request_free_payload_details() {
+    let builder = DeviceActivationSessionBuilder::new(&[13u8; 32], "nonce_123")
+        .expect("build activation session builder");
+    let identity = derive_device_identity(&[13u8; 32]).expect("derive device identity");
+
+    assert_eq!(builder.public_identity_key(), identity.public_identity_key);
+    assert_eq!(
+        parse_device_activation_payload(builder.encoded_payload()).expect("parse encoded payload"),
+        builder.payload().clone()
+    );
+    assert_eq!(builder.confirmation_code().len(), 8);
+    assert!(verify_device_confirmation_code(
+        &identity.activation_key_base64url,
+        builder.public_identity_key(),
+        "nonce_123",
+        builder.confirmation_code(),
+    )
+    .expect("verify confirmation code"));
+}
+
+#[test]
+fn device_activation_session_tracks_pending_state_and_signs_wait_requests() {
+    let builder = DeviceActivationSessionBuilder::new(&[15u8; 32], "nonce_456")
+        .expect("build activation session builder");
+    let session = builder
+        .pending_session(
+            "https://trellis.example.test",
+            "digest-abc",
+            DeviceActivationStartResponse {
+                flow_id: "flow_123".to_string(),
+                instance_id: "dev_123".to_string(),
+                deployment_id: "reader.default".to_string(),
+                activation_url:
+                    "https://trellis.example.test/_trellis/portal/devices/activate?flowId=flow_123"
+                        .to_string(),
+            },
+        )
+        .expect("build pending session");
+
+    assert_eq!(
+        session.activation_url(),
+        "https://trellis.example.test/_trellis/portal/devices/activate?flowId=flow_123"
+    );
+    assert_eq!(
+        session.local_state().status,
+        DeviceActivationStatus::Pending
+    );
+    assert_eq!(session.local_state().contract_digest, "digest-abc");
+    assert_eq!(session.local_state().flow_id, "flow_123");
+    assert_eq!(session.local_state().instance_id, "dev_123");
+
+    let wait_request = session.build_wait_request(1234).expect("sign wait request");
+    assert_eq!(
+        wait_request.public_identity_key,
+        session.public_identity_key()
+    );
+    assert_eq!(wait_request.nonce, "nonce_456");
+    assert_eq!(wait_request.contract_digest.as_deref(), Some("digest-abc"));
+    assert_eq!(wait_request.iat, 1234);
+}
+
+#[test]
+fn device_activation_local_state_round_trips_flow_id_json() {
+    let state = DeviceActivationLocalState {
+        status: DeviceActivationStatus::Pending,
+        contract_digest: "digest-abc".to_string(),
+        public_identity_key: "public-key".to_string(),
+        flow_id: "flow_123".to_string(),
+        instance_id: "dev_123".to_string(),
+        deployment_id: "reader.default".to_string(),
+        nonce: "nonce_123".to_string(),
+        activation_url: "https://trellis.example.test/activate".to_string(),
+    };
+
+    let encoded = serde_json::to_string(&state).expect("serialize local state");
+    assert!(encoded.contains("\"flowId\":\"flow_123\""));
+    assert!(!encoded.contains("flow_id"));
+
+    let decoded: DeviceActivationLocalState =
+        serde_json::from_str(&encoded).expect("deserialize local state");
+    assert_eq!(decoded, state);
+}
+
+#[test]
+fn device_activation_session_resumes_from_matching_local_state() {
+    let root_secret = [21u8; 32];
+    let builder = DeviceActivationSessionBuilder::new(&root_secret, "nonce_123")
+        .expect("build activation session builder");
+    let mut original = builder
+        .pending_session(
+            "https://trellis.example.test",
+            "digest-abc",
+            DeviceActivationStartResponse {
+                flow_id: "flow_123".to_string(),
+                instance_id: "dev_123".to_string(),
+                deployment_id: "reader.default".to_string(),
+                activation_url: "https://trellis.example.test/activate".to_string(),
+            },
+        )
+        .expect("build pending session");
+    let confirmation_code = original.confirmation_code().to_string();
+    original
+        .accept_confirmation_code(&confirmation_code)
+        .expect("accept confirmation code");
+    let local_state = original.local_state().clone();
+
+    let resumed = DeviceActivationSession::from_local_state(
+        "https://trellis.example.test",
+        &root_secret,
+        "digest-abc",
+        local_state.clone(),
+    )
+    .expect("resume session");
+
+    assert_eq!(resumed.local_state(), &local_state);
+    assert_eq!(
+        resumed.public_identity_key(),
+        local_state.public_identity_key
+    );
+    assert_eq!(resumed.confirmation_code(), confirmation_code);
+}
+
+#[test]
+fn device_activation_session_resume_rejects_wrong_root_secret() {
+    let root_secret = [23u8; 32];
+    let builder = DeviceActivationSessionBuilder::new(&root_secret, "nonce_123")
+        .expect("build activation session builder");
+    let local_state = builder
+        .pending_session(
+            "https://trellis.example.test",
+            "digest-abc",
+            DeviceActivationStartResponse {
+                flow_id: "flow_123".to_string(),
+                instance_id: "dev_123".to_string(),
+                deployment_id: "reader.default".to_string(),
+                activation_url: "https://trellis.example.test/activate".to_string(),
+            },
+        )
+        .expect("build pending session")
+        .local_state()
+        .clone();
+
+    let error = DeviceActivationSession::from_local_state(
+        "https://trellis.example.test",
+        &[24u8; 32],
+        "digest-abc",
+        local_state,
+    )
+    .expect_err("wrong root secret should fail");
+
+    assert!(
+        matches!(error, TrellisAuthError::InvalidArgument(message) if message.contains("public identity key mismatch"))
+    );
+}
+
+#[test]
+fn device_activation_session_resume_rejects_wrong_contract_digest() {
+    let root_secret = [25u8; 32];
+    let builder = DeviceActivationSessionBuilder::new(&root_secret, "nonce_123")
+        .expect("build activation session builder");
+    let local_state = builder
+        .pending_session(
+            "https://trellis.example.test",
+            "digest-abc",
+            DeviceActivationStartResponse {
+                flow_id: "flow_123".to_string(),
+                instance_id: "dev_123".to_string(),
+                deployment_id: "reader.default".to_string(),
+                activation_url: "https://trellis.example.test/activate".to_string(),
+            },
+        )
+        .expect("build pending session")
+        .local_state()
+        .clone();
+
+    let error = DeviceActivationSession::from_local_state(
+        "https://trellis.example.test",
+        &root_secret,
+        "digest-def",
+        local_state,
+    )
+    .expect_err("wrong contract digest should fail");
+
+    assert!(
+        matches!(error, TrellisAuthError::InvalidArgument(message) if message.contains("contract digest mismatch"))
+    );
+}
+
+#[test]
+fn device_activation_session_accepts_local_confirmation_code() {
+    let builder = DeviceActivationSessionBuilder::new(&[17u8; 32], "nonce_789")
+        .expect("build activation session builder");
+    let mut session = builder
+        .pending_session(
+            "https://trellis.example.test",
+            "digest-def",
+            DeviceActivationStartResponse {
+                flow_id: "flow_456".to_string(),
+                instance_id: "dev_456".to_string(),
+                deployment_id: "reader.secondary".to_string(),
+                activation_url:
+                    "https://trellis.example.test/_trellis/portal/devices/activate?flowId=flow_456"
+                        .to_string(),
+            },
+        )
+        .expect("build pending session");
+
+    let confirmation_code = session.confirmation_code().to_string();
+    session
+        .accept_confirmation_code(&confirmation_code)
+        .expect("accept confirmation code");
+
+    assert_eq!(
+        session.local_state().status,
+        DeviceActivationStatus::Activated
+    );
+    assert_eq!(session.local_state().instance_id, "dev_456");
+    assert!(session.accept_confirmation_code("WRONG").is_err());
+}
+
 #[tokio::test]
 async fn device_activation_start_posts_to_request_endpoint() {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -582,6 +911,284 @@ async fn device_activation_wait_posts_to_activate_wait_endpoint() {
         .expect("wait response");
     assert!(matches!(response, WaitForDeviceActivationResponse::Pending));
 
+    server.await.expect("server finished");
+}
+
+async fn get_device_connect_info_from_body(
+    identity: &crate::DeviceIdentity,
+    contract_digest: &str,
+    body: serde_json::Value,
+) -> Result<crate::DeviceConnectInfoResponse, TrellisAuthError> {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind listener");
+    let address = listener.local_addr().expect("listener address");
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept connection");
+        let mut buffer = [0u8; 2048];
+        let _ = stream.read(&mut buffer).await.expect("read request");
+        let body = serde_json::to_string(&body).expect("serialize response body");
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
+    });
+
+    let result = get_device_connect_info(GetDeviceConnectInfoOpts {
+        trellis_url: &format!("http://{address}"),
+        public_identity_key: &identity.public_identity_key,
+        identity_seed_base64url: &identity.identity_seed_base64url,
+        contract_digest,
+        iat: 456,
+    })
+    .await;
+
+    server.await.expect("server finished");
+    result
+}
+
+fn ready_device_connect_info_body(overrides: serde_json::Value) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "status": "ready",
+        "connectInfo": {
+            "instanceId": "dev_123",
+            "deploymentId": "reader.default",
+            "contractId": "acme.reader@v1",
+            "contractDigest": "digest-a",
+            "transports": { "native": { "natsServers": ["nats://127.0.0.1:4222"] } },
+            "transport": { "sentinel": { "jwt": "jwt", "seed": "seed" } },
+            "auth": { "mode": "device_identity", "iatSkewSeconds": 30 }
+        }
+    });
+    merge_json(&mut body, overrides);
+    body
+}
+
+fn merge_json(target: &mut serde_json::Value, patch: serde_json::Value) {
+    match (target, patch) {
+        (serde_json::Value::Object(target), serde_json::Value::Object(patch)) => {
+            for (key, value) in patch {
+                merge_json(target.entry(key).or_insert(serde_json::Value::Null), value);
+            }
+        }
+        (target, patch) => *target = patch,
+    }
+}
+
+#[tokio::test]
+async fn device_connect_info_posts_signed_connect_info_request_and_parses_ready_response() {
+    let identity = derive_device_identity(&[31u8; 32]).expect("derive device identity");
+    let expected = sign_device_wait_request(
+        &identity.public_identity_key,
+        "connect-info",
+        &identity.identity_seed_base64url,
+        Some("digest-a"),
+        456,
+    )
+    .expect("sign expected request");
+    let expected_public_identity_key = identity.public_identity_key.clone();
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind listener");
+    let address = listener.local_addr().expect("listener address");
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept connection");
+        let mut buffer = [0u8; 4096];
+        let read = stream.read(&mut buffer).await.expect("read request");
+        let request = String::from_utf8_lossy(&buffer[..read]);
+        assert!(
+            request.starts_with("POST /auth/devices/connect-info HTTP/1.1\r\n"),
+            "unexpected request line: {request}"
+        );
+        assert!(request.contains(&format!(
+            "\"publicIdentityKey\":\"{}\"",
+            expected.public_identity_key
+        )));
+        assert!(request.contains("\"contractDigest\":\"digest-a\""));
+        assert!(request.contains("\"iat\":456"));
+        assert!(request.contains(&format!("\"sig\":\"{}\"", expected.sig)));
+        assert!(!request.contains("\"nonce\""));
+
+        let body = format!(
+            r#"{{"status":"ready","connectInfo":{{"instanceId":"dev_123","deploymentId":"reader.default","contractId":"acme.reader@v1","contractDigest":"digest-a","transports":{{"native":{{"natsServers":["nats://127.0.0.1:4222"]}}}},"transport":{{"sentinel":{{"jwt":"jwt","seed":"seed"}}}},"auth":{{"mode":"device_identity","iatSkewSeconds":30}}}}}}"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
+    });
+
+    let response = get_device_connect_info(GetDeviceConnectInfoOpts {
+        trellis_url: &format!("http://{address}"),
+        public_identity_key: &expected_public_identity_key,
+        identity_seed_base64url: &identity.identity_seed_base64url,
+        contract_digest: "digest-a",
+        iat: 456,
+    })
+    .await
+    .expect("get connect info");
+
+    assert_eq!(response.status, "ready");
+    assert_eq!(response.connect_info.contract_digest, "digest-a");
+    assert_eq!(
+        response.connect_info.auth.mode,
+        crate::DeviceConnectInfoAuthMode::DeviceIdentity
+    );
+    assert_eq!(response.connect_info.auth.iat_skew_seconds, 30);
+    assert_eq!(
+        response
+            .connect_info
+            .transports
+            .native
+            .expect("native transport")
+            .nats_servers,
+        vec!["nats://127.0.0.1:4222".to_string()]
+    );
+
+    server.await.expect("server finished");
+}
+
+#[tokio::test]
+async fn device_connect_info_rejects_contract_digest_mismatch() {
+    let identity = derive_device_identity(&[34u8; 32]).expect("derive device identity");
+
+    let error = get_device_connect_info_from_body(
+        &identity,
+        "digest-a",
+        ready_device_connect_info_body(serde_json::json!({
+            "connectInfo": { "contractDigest": "digest-b" }
+        })),
+    )
+    .await
+    .expect_err("digest mismatch should fail");
+
+    assert!(matches!(
+        error,
+        TrellisAuthError::InvalidArgument(message) if message.contains("contract digest mismatch")
+    ));
+}
+
+#[tokio::test]
+async fn device_connect_info_rejects_bad_auth_mode() {
+    let identity = derive_device_identity(&[35u8; 32]).expect("derive device identity");
+
+    let error = get_device_connect_info_from_body(
+        &identity,
+        "digest-a",
+        ready_device_connect_info_body(serde_json::json!({
+            "connectInfo": { "auth": { "mode": "session" } }
+        })),
+    )
+    .await
+    .expect_err("bad auth mode should fail");
+
+    assert!(matches!(error, TrellisAuthError::Http(_)));
+}
+
+#[tokio::test]
+async fn device_connect_info_rejects_missing_native_transport() {
+    let identity = derive_device_identity(&[36u8; 32]).expect("derive device identity");
+
+    let error = get_device_connect_info_from_body(
+        &identity,
+        "digest-a",
+        ready_device_connect_info_body(serde_json::json!({
+            "connectInfo": { "transports": { "native": null } }
+        })),
+    )
+    .await
+    .expect_err("missing native transport should fail");
+
+    assert!(matches!(
+        error,
+        TrellisAuthError::InvalidArgument(message) if message.contains("missing native NATS transport")
+    ));
+}
+
+#[tokio::test]
+async fn device_connect_info_rejects_empty_native_transport() {
+    let identity = derive_device_identity(&[37u8; 32]).expect("derive device identity");
+
+    let error = get_device_connect_info_from_body(
+        &identity,
+        "digest-a",
+        ready_device_connect_info_body(serde_json::json!({
+            "connectInfo": { "transports": { "native": { "natsServers": [] } } }
+        })),
+    )
+    .await
+    .expect_err("empty native transport should fail");
+
+    assert!(matches!(
+        error,
+        TrellisAuthError::InvalidArgument(message) if message.contains("native NATS transport has no servers")
+    ));
+}
+
+#[tokio::test]
+async fn device_connect_info_requires_identity_protocol_fields() {
+    let identity = derive_device_identity(&[38u8; 32]).expect("derive device identity");
+    let mut body = ready_device_connect_info_body(serde_json::json!({}));
+    body["connectInfo"]
+        .as_object_mut()
+        .expect("connect info object")
+        .remove("instanceId");
+
+    let error = get_device_connect_info_from_body(&identity, "digest-a", body)
+        .await
+        .expect_err("missing instanceId should fail");
+
+    assert!(matches!(error, TrellisAuthError::Http(_)));
+}
+
+#[tokio::test]
+async fn device_connect_info_rejects_unexpected_ready_status() {
+    let identity = derive_device_identity(&[33u8; 32]).expect("derive device identity");
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind listener");
+    let address = listener.local_addr().expect("listener address");
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept connection");
+        let mut buffer = [0u8; 2048];
+        let _ = stream.read(&mut buffer).await.expect("read request");
+        let body = r#"{"status":"not_ready","connectInfo":{"instanceId":"dev_123","deploymentId":"reader.default","contractId":"acme.reader@v1","contractDigest":"digest-a","transports":{"native":{"natsServers":["nats://127.0.0.1:4222"]}},"transport":{"sentinel":{"jwt":"jwt","seed":"seed"}},"auth":{"mode":"device_identity","iatSkewSeconds":30}}}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
+    });
+
+    let error = get_device_connect_info(GetDeviceConnectInfoOpts {
+        trellis_url: &format!("http://{address}"),
+        public_identity_key: &identity.public_identity_key,
+        identity_seed_base64url: &identity.identity_seed_base64url,
+        contract_digest: "digest-a",
+        iat: 456,
+    })
+    .await
+    .expect_err("non-ready status should fail");
+
+    assert!(matches!(
+        error,
+        TrellisAuthError::UnexpectedDeviceConnectInfoStatus(status) if status == "not_ready"
+    ));
     server.await.expect("server finished");
 }
 

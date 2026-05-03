@@ -7,6 +7,10 @@ pub enum TrellisAuthError {
     #[error("invalid contract json: {0}")]
     ContractJson(#[from] serde_json::Error),
 
+    /// Contract digest calculation failed.
+    #[error("contract digest error: {0}")]
+    ContractDigest(#[from] trellis_contracts::ContractsError),
+
     /// A configured auth or portal URL was invalid.
     #[error("invalid url: {0}")]
     Url(#[from] url::ParseError),
@@ -66,6 +70,14 @@ pub enum TrellisAuthError {
     /// A device activation start request returned a non-success HTTP response.
     #[error("device activation start failed: {0} {1}")]
     DeviceActivationStartFailure(u16, String),
+
+    /// A device connect-info request returned a non-success HTTP response.
+    #[error("device connect info failed: {0} {1}")]
+    DeviceConnectInfoFailure(u16, String),
+
+    /// A device connect-info request returned a response status this crate cannot use.
+    #[error("unexpected device connect info status: {0}")]
+    UnexpectedDeviceConnectInfoStatus(String),
 
     /// Device activation was explicitly rejected.
     #[error("device activation rejected{0}")]

@@ -142,6 +142,21 @@ export type ContractManifestMetadata = {
 export type ContractKind = "service" | "app" | "device" | "agent";
 
 export type Capability = string;
+export type PlatformCapability = "admin" | "service";
+export type GlobalCapability = `${string}::${string}`;
+export type ContractCapabilityMetadata = {
+  displayName: string;
+  description: string;
+  consequence?: string;
+};
+export type ContractCapabilities = Record<string, ContractCapabilityMetadata>;
+type DeclaredCapabilityName<TCapabilities> = [TCapabilities] extends [undefined]
+  ? never
+  : Extract<keyof NonNullable<TCapabilities>, string>;
+type CapabilityRef<TCapabilities> =
+  | DeclaredCapabilityName<TCapabilities>
+  | GlobalCapability
+  | PlatformCapability;
 export type JsonSchema = JsonValue | boolean;
 
 export type ContractSchemaRef<TSchemaName extends string = string> = {
@@ -175,12 +190,16 @@ export type ContractRefBuilder<
   TErrors extends
     | Readonly<Record<string, ErrorClass>>
     | undefined = undefined,
+  TCapabilities extends ContractCapabilities | undefined = undefined,
 > = {
   schema<const TName extends SchemaNameOf<TSchemas>>(
     schemaName: TName,
   ): ContractSchemaRef<TName>;
   error<const TName extends ErrorNameOf<TErrors>>(
     errorName: TName,
+  ): TName;
+  capability<const TName extends CapabilityRef<TCapabilities>>(
+    capabilityName: TName,
   ): TName;
 };
 
@@ -320,6 +339,7 @@ export type TrellisContractV1 = {
   displayName: string;
   description: string;
   kind: ContractKind;
+  capabilities?: ContractCapabilities;
   schemas?: ContractSchemas;
   exports?: ContractExports;
   state?: ContractState;
@@ -568,18 +588,22 @@ export type ContractSourceState<TSchemaName extends string = string> = Record<
 export type ContractSourceRpcMethod<
   TSchemaName extends string = string,
   TErrorName extends string = string,
+  TCapability extends string = Capability,
 > = {
   version: `v${number}`;
   input: ContractSchemaRef<TSchemaName>;
   output: ContractSchemaRef<TSchemaName>;
-  capabilities?: { call?: readonly Capability[] };
+  capabilities?: { call?: readonly TCapability[] };
   transfer?: { direction: "receive" };
   errors?: readonly TErrorName[];
   authRequired?: boolean;
   subject?: string;
 };
 
-export type ContractSourceOperation<TSchemaName extends string = string> = {
+export type ContractSourceOperation<
+  TSchemaName extends string = string,
+  TCapability extends string = Capability,
+> = {
   version: `v${number}`;
   input: ContractSchemaRef<TSchemaName>;
   progress?: ContractSchemaRef<TSchemaName>;
@@ -594,21 +618,24 @@ export type ContractSourceOperation<TSchemaName extends string = string> = {
     maxBytes?: number;
   };
   capabilities?: {
-    call?: readonly Capability[];
-    read?: readonly Capability[];
-    cancel?: readonly Capability[];
+    call?: readonly TCapability[];
+    read?: readonly TCapability[];
+    cancel?: readonly TCapability[];
   };
   cancel?: boolean;
   subject?: string;
 };
 
-export type ContractSourceEvent<TSchemaName extends string = string> = {
+export type ContractSourceEvent<
+  TSchemaName extends string = string,
+  TCapability extends string = Capability,
+> = {
   version: `v${number}`;
   event: ContractSchemaRef<TSchemaName>;
   params?: readonly SubjectParam[];
   capabilities?: {
-    publish?: readonly Capability[];
-    subscribe?: readonly Capability[];
+    publish?: readonly TCapability[];
+    subscribe?: readonly TCapability[];
   };
   subject?: string;
 };
@@ -667,6 +694,7 @@ export type TrellisContractSource = {
   displayName: string;
   description: string;
   kind: ContractKind;
+  capabilities?: ContractCapabilities;
   schemas?: ContractSourceSchemas;
   exports?: ContractSourceExports;
   state?: ContractSourceState;
@@ -725,6 +753,15 @@ type BaselineStateApi = {
   };
   operations: {};
   events: {};
+  subjects: {};
+};
+
+type BaselineHealthApi = {
+  rpc: {};
+  operations: {};
+  events: {
+    "Health.Heartbeat": EventDesc<Schema<Record<string, unknown>>>;
+  };
   subjects: {};
 };
 
@@ -999,6 +1036,7 @@ type BuiltRpcDesc = {
 
 const TRELLIS_AUTH_CONTRACT_ID = "trellis.auth@v1";
 const TRELLIS_STATE_CONTRACT_ID = "trellis.state@v1";
+const TRELLIS_HEALTH_CONTRACT_ID = "trellis.health@v1";
 
 const BASELINE_AUTH_RPC_CALL = ["Auth.Me", "Auth.Logout"] as const;
 const BASELINE_STATE_RPC_CALL = [
@@ -1007,6 +1045,7 @@ const BASELINE_STATE_RPC_CALL = [
   "State.Delete",
   "State.List",
 ] as const;
+const BASELINE_HEALTH_EVENTS_PUBLISH = ["Health.Heartbeat"] as const;
 
 const UnknownRuntimeSchema = schema(Type.Unknown());
 
@@ -1022,6 +1061,17 @@ function trellisRpcDesc<TInput, TOutput>(
     input: typedUnknownRuntimeSchema<TInput>(),
     output: typedUnknownRuntimeSchema<TOutput>(),
     callerCapabilities: [],
+  };
+}
+
+function trellisEventDesc<TEvent>(
+  name: string,
+): EventDesc<Schema<TEvent>> {
+  return {
+    subject: eventSubject(name, "v1", undefined),
+    event: typedUnknownRuntimeSchema<TEvent>(),
+    publishCapabilities: [],
+    subscribeCapabilities: [],
   };
 }
 
@@ -1055,8 +1105,19 @@ const BASELINE_STATE_API: BaselineStateApi = {
   subjects: {},
 };
 
+const BASELINE_HEALTH_API: BaselineHealthApi = {
+  rpc: {},
+  operations: {},
+  events: {
+    "Health.Heartbeat": trellisEventDesc<Record<string, unknown>>(
+      "Health.Heartbeat",
+    ),
+  },
+  subjects: {},
+};
+
 type ProjectedRpc<
-  T extends Readonly<Record<string, ContractSourceRpcMethod>> | undefined,
+  T,
   TSchemas,
   TErrors,
 > = T extends Readonly<Record<string, ContractSourceRpcMethod>> ? {
@@ -1065,7 +1126,7 @@ type ProjectedRpc<
   : {};
 
 type ProjectedOperations<
-  T extends Readonly<Record<string, ContractSourceOperation>> | undefined,
+  T,
   TSchemas,
 > = T extends Readonly<Record<string, ContractSourceOperation>> ? {
     [K in keyof T]:
@@ -1080,7 +1141,7 @@ type ProjectedOperations<
   : {};
 
 type ProjectedEvents<
-  T extends Readonly<Record<string, ContractSourceEvent>> | undefined,
+  T,
   TSchemas,
 > = T extends Readonly<Record<string, ContractSourceEvent>> ? {
     [K in keyof T]: EventDesc<
@@ -1092,10 +1153,10 @@ type ProjectedEvents<
 export type OwnedApiFromSource<
   T extends {
     schemas?: Readonly<Record<string, TSchema>>;
-    errors?: Readonly<Record<string, ErrorClass>>;
-    rpc?: Readonly<Record<string, ContractSourceRpcMethod>>;
-    operations?: Readonly<Record<string, ContractSourceOperation>>;
-    events?: Readonly<Record<string, ContractSourceEvent>>;
+    errors?: unknown;
+    rpc?: unknown;
+    operations?: unknown;
+    events?: unknown;
   },
 > = {
   rpc: ProjectedRpc<T["rpc"], T["schemas"], T["errors"]>;
@@ -1149,8 +1210,19 @@ type ImplicitStateApiForSource<T> = [StateFromSource<T>] extends [undefined]
   ? EmptyApi
   : BaselineStateApi;
 
+type ImplicitHealthApiForSource<T> = T extends {
+  kind: infer TKind;
+  id: infer TId;
+} ? TId extends "trellis.health@v1" ? EmptyApi
+  : TKind extends "service" | "device" ? BaselineHealthApi
+  : EmptyApi
+  : EmptyApi;
+
 type ImplicitTrellisApiFromSource<T> = T extends { kind: infer TKind }
-  ? MergeApis<ImplicitAuthApiForKind<TKind>, ImplicitStateApiForSource<T>>
+  ? MergeApis<
+    MergeApis<ImplicitAuthApiForKind<TKind>, ImplicitStateApiForSource<T>>,
+    ImplicitHealthApiForSource<T>
+  >
   : EmptyApi;
 
 export type UsedApiFromSource<T extends { uses?: unknown }> = MergeApis<
@@ -1226,6 +1298,9 @@ export type DefinedContract<
 >;
 
 export type DefineContractInput<
+  TCapabilities extends ContractCapabilities | undefined =
+    | ContractCapabilities
+    | undefined,
   TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
   TUses extends
     | Readonly<Record<string, AuthorContractDependencyUse>>
@@ -1237,21 +1312,42 @@ export type DefineContractInput<
     | Readonly<
       Record<
         string,
-        ContractSourceRpcMethod<SchemaNameOf<TSchemas>, ErrorNameOf<TErrors>>
+        ContractSourceRpcMethod<
+          SchemaNameOf<TSchemas>,
+          ErrorNameOf<TErrors>,
+          CapabilityRef<TCapabilities>
+        >
       >
     >
     | undefined = undefined,
   TOperations extends
-    | Readonly<Record<string, ContractSourceOperation<SchemaNameOf<TSchemas>>>>
+    | Readonly<
+      Record<
+        string,
+        ContractSourceOperation<
+          SchemaNameOf<TSchemas>,
+          CapabilityRef<TCapabilities>
+        >
+      >
+    >
     | undefined = undefined,
   TEvents extends
-    | Readonly<Record<string, ContractSourceEvent<SchemaNameOf<TSchemas>>>>
+    | Readonly<
+      Record<
+        string,
+        ContractSourceEvent<
+          SchemaNameOf<TSchemas>,
+          CapabilityRef<TCapabilities>
+        >
+      >
+    >
     | undefined = undefined,
 > = {
   id: string;
   displayName: string;
   description: string;
   kind: ContractKind;
+  capabilities?: ContractCapabilities;
   schemas?: TSchemas;
   exports?: ContractSourceExports<SchemaNameOf<TSchemas>>;
   state?: ContractSourceState<SchemaNameOf<TSchemas>>;
@@ -1269,6 +1365,7 @@ type DefineContractSource = {
   displayName: string;
   description: string;
   kind: ContractKind;
+  capabilities?: ContractCapabilities;
   schemas?: Readonly<Record<string, TSchema>>;
   exports?: ContractSourceExports;
   state?: ContractSourceState;
@@ -1288,6 +1385,7 @@ type ConstrainSection<TSection, TExpected> = [TSection] extends [undefined]
 type ValidateDefineContractInput<T extends DefineContractSource> =
   & T
   & DefineContractInput<
+    T["capabilities"],
     T["schemas"],
     ConstrainSection<
       T["uses"],
@@ -1304,7 +1402,8 @@ type ValidateDefineContractInput<T extends DefineContractSource> =
           string,
           ContractSourceRpcMethod<
             SchemaNameOf<T["schemas"]>,
-            ErrorNameOf<T["errors"]>
+            ErrorNameOf<T["errors"]>,
+            CapabilityRef<T["capabilities"]>
           >
         >
       >
@@ -1312,12 +1411,26 @@ type ValidateDefineContractInput<T extends DefineContractSource> =
     ConstrainSection<
       T["operations"],
       Readonly<
-        Record<string, ContractSourceOperation<SchemaNameOf<T["schemas"]>>>
+        Record<
+          string,
+          ContractSourceOperation<
+            SchemaNameOf<T["schemas"]>,
+            CapabilityRef<T["capabilities"]>
+          >
+        >
       >
     >,
     ConstrainSection<
       T["events"],
-      Readonly<Record<string, ContractSourceEvent<SchemaNameOf<T["schemas"]>>>>
+      Readonly<
+        Record<
+          string,
+          ContractSourceEvent<
+            SchemaNameOf<T["schemas"]>,
+            CapabilityRef<T["capabilities"]>
+          >
+        >
+      >
     >
   >;
 
@@ -1326,20 +1439,25 @@ type DefineContractRegistry<
   TErrors extends
     | Readonly<Record<string, unknown>>
     | undefined = undefined,
+  TCapabilities extends ContractCapabilities | undefined = undefined,
 > = {
   schemas?: TSchemas;
   errors?: TErrors;
+  capabilities?: TCapabilities;
 };
 
 type AnyDefineContractRegistry = DefineContractRegistry<
   Readonly<Record<string, TSchema>> | undefined,
-  Readonly<Record<string, unknown>> | undefined
+  Readonly<Record<string, unknown>> | undefined,
+  ContractCapabilities | undefined
 >;
 
 type ClientContractRegistry<
   TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
+  TCapabilities extends ContractCapabilities | undefined = undefined,
 > = {
   schemas?: TSchemas;
+  capabilities?: TCapabilities;
 };
 
 type RegistrySchemas<TRegistry extends AnyDefineContractRegistry> =
@@ -1354,6 +1472,12 @@ type RegistryErrors<TRegistry extends AnyDefineContractRegistry> =
       ? ExtractErrorClasses<
         TErrors
       >
+    : undefined
+    : undefined;
+
+type RegistryCapabilities<TRegistry extends AnyDefineContractRegistry> =
+  TRegistry extends { capabilities: infer TCapabilities }
+    ? TCapabilities extends ContractCapabilities | undefined ? TCapabilities
     : undefined
     : undefined;
 
@@ -1391,11 +1515,75 @@ type RegistryEvents<TRegistry extends AnyDefineContractRegistry> =
   >
   | undefined;
 
+type BodyCapabilities<TBody> = Extract<
+  TBody extends { capabilities: infer TCapabilities } ? TCapabilities
+    : undefined,
+  ContractCapabilities | undefined
+>;
+
+type BodyRpcMethods<TBody, TRegistry extends AnyDefineContractRegistry> =
+  TBody extends { rpc?: infer TRpc } ? ConstrainSection<
+      TRpc,
+      Readonly<
+        Record<
+          string,
+          ContractSourceRpcMethod<
+            SchemaNameOf<RegistrySchemas<TRegistry>>,
+            ErrorNameOf<RegistryErrors<TRegistry>>,
+            CapabilityRef<RegistryCapabilities<TRegistry>>
+          >
+        >
+      >
+    >
+    : undefined;
+
+type BodyOperations<TBody, TRegistry extends AnyDefineContractRegistry> =
+  TBody extends { operations?: infer TOperations } ? ConstrainSection<
+      TOperations,
+      Readonly<
+        Record<
+          string,
+          ContractSourceOperation<
+            SchemaNameOf<RegistrySchemas<TRegistry>>,
+            CapabilityRef<RegistryCapabilities<TRegistry>>
+          >
+        >
+      >
+    >
+    : undefined;
+
+type BodyEvents<TBody, TRegistry extends AnyDefineContractRegistry> =
+  TBody extends { events?: infer TEvents } ? ConstrainSection<
+      TEvents,
+      Readonly<
+        Record<
+          string,
+          ContractSourceEvent<
+            SchemaNameOf<RegistrySchemas<TRegistry>>,
+            CapabilityRef<RegistryCapabilities<TRegistry>>
+          >
+        >
+      >
+    >
+    : undefined;
+
+type ValidateCapabilitySections<
+  TBody,
+  TRegistry extends AnyDefineContractRegistry,
+> = {
+  rpc?: BodyRpcMethods<TBody, TRegistry>;
+  operations?: BodyOperations<TBody, TRegistry>;
+  events?: BodyEvents<TBody, TRegistry>;
+};
+
 type UsedApiOf<TBody extends { uses?: unknown }> = UsedApiFromUses<
   TBody["uses"]
 >;
 
 type DefineContractBodyInput<
+  TCapabilities extends ContractCapabilities | undefined =
+    | ContractCapabilities
+    | undefined,
   TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
   TUses extends
     | Readonly<Record<string, AuthorContractDependencyUse>>
@@ -1407,19 +1595,40 @@ type DefineContractBodyInput<
     | Readonly<
       Record<
         string,
-        ContractSourceRpcMethod<SchemaNameOf<TSchemas>, ErrorNameOf<TErrors>>
+        ContractSourceRpcMethod<
+          SchemaNameOf<TSchemas>,
+          ErrorNameOf<TErrors>,
+          CapabilityRef<TCapabilities>
+        >
       >
     >
     | undefined = undefined,
   TOperations extends
-    | Readonly<Record<string, ContractSourceOperation<SchemaNameOf<TSchemas>>>>
+    | Readonly<
+      Record<
+        string,
+        ContractSourceOperation<
+          SchemaNameOf<TSchemas>,
+          CapabilityRef<TCapabilities>
+        >
+      >
+    >
     | undefined = undefined,
   TEvents extends
-    | Readonly<Record<string, ContractSourceEvent<SchemaNameOf<TSchemas>>>>
+    | Readonly<
+      Record<
+        string,
+        ContractSourceEvent<
+          SchemaNameOf<TSchemas>,
+          CapabilityRef<TCapabilities>
+        >
+      >
+    >
     | undefined = undefined,
 > =
   & Omit<
     DefineContractInput<
+      TCapabilities,
       TSchemas,
       TUses,
       TErrors,
@@ -1435,6 +1644,9 @@ type DefineContractBodyInput<
   };
 
 type ServiceContractBodyInput<
+  TCapabilities extends ContractCapabilities | undefined =
+    | ContractCapabilities
+    | undefined,
   TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
   TUses extends
     | Readonly<Record<string, AuthorContractDependencyUse>>
@@ -1446,19 +1658,40 @@ type ServiceContractBodyInput<
     | Readonly<
       Record<
         string,
-        ContractSourceRpcMethod<SchemaNameOf<TSchemas>, ErrorNameOf<TErrors>>
+        ContractSourceRpcMethod<
+          SchemaNameOf<TSchemas>,
+          ErrorNameOf<TErrors>,
+          CapabilityRef<TCapabilities>
+        >
       >
     >
     | undefined = undefined,
   TOperations extends
-    | Readonly<Record<string, ContractSourceOperation<SchemaNameOf<TSchemas>>>>
+    | Readonly<
+      Record<
+        string,
+        ContractSourceOperation<
+          SchemaNameOf<TSchemas>,
+          CapabilityRef<TCapabilities>
+        >
+      >
+    >
     | undefined = undefined,
   TEvents extends
-    | Readonly<Record<string, ContractSourceEvent<SchemaNameOf<TSchemas>>>>
+    | Readonly<
+      Record<
+        string,
+        ContractSourceEvent<
+          SchemaNameOf<TSchemas>,
+          CapabilityRef<TCapabilities>
+        >
+      >
+    >
     | undefined = undefined,
 > =
   & Omit<
     DefineContractBodyInput<
+      TCapabilities,
       TSchemas,
       TUses,
       TErrors,
@@ -1476,6 +1709,7 @@ type ClientContractBodyInput<
     | Readonly<Record<string, AuthorContractDependencyUse>>
     | undefined = undefined,
 > = ContractIdentityFields & {
+  capabilities?: ContractCapabilities;
   exports?: ContractSourceExports<SchemaNameOf<TSchemas>>;
   state?: ContractSourceState<SchemaNameOf<TSchemas>>;
   uses?: TUses;
@@ -1494,7 +1728,9 @@ type BuiltContractSource<
   TBody extends { id: string },
 > = Simplify<
   & Omit<TBody, "schemas" | "errors">
-  & Pick<TRegistry, Extract<keyof TRegistry, "schemas" | "errors">>
+  & (TRegistry extends { schemas?: infer TSchemas } ? { schemas?: TSchemas }
+    : {})
+  & (TRegistry extends { errors?: infer TErrors } ? { errors?: TErrors } : {})
 >;
 
 type WithKind<TBody extends { id: string }, TKind extends ContractKind> =
@@ -1505,9 +1741,10 @@ type WithKind<TBody extends { id: string }, TKind extends ContractKind> =
 function createContractRefBuilder<
   TSchemas extends Readonly<Record<string, TSchema>> | undefined,
   TErrors extends Readonly<Record<string, ErrorClass>> | undefined,
+  TCapabilities extends ContractCapabilities | undefined,
 >(
-  registry: DefineContractRegistry<TSchemas, TErrors>,
-): ContractRefBuilder<TSchemas, TErrors> {
+  registry: DefineContractRegistry<TSchemas, TErrors, TCapabilities>,
+): ContractRefBuilder<TSchemas, TErrors, TCapabilities> {
   const schemaRef = registry.schemas
     ? createSchemaRef(registry.schemas)
     : undefined;
@@ -1524,6 +1761,11 @@ function createContractRefBuilder<
     },
     error<const TName extends ErrorNameOf<TErrors>>(errorName: TName): TName {
       return errorName;
+    },
+    capability<const TName extends CapabilityRef<TCapabilities>>(
+      capabilityName: TName,
+    ): TName {
+      return capabilityName;
     },
   };
 }
@@ -1751,6 +1993,67 @@ function sortedUnique(values: readonly string[]): string[] {
   return [...new Set(values)].sort();
 }
 
+/** Return the global capability namespace for a contract id. */
+export function contractCapabilityNamespace(contractId: string): string {
+  return contractId.replace(/@v\d+$/, "");
+}
+
+/** Return the globally qualified name for a contract-local capability. */
+export function globalCapabilityName(
+  contractId: string,
+  localCapability: string,
+): string {
+  return `${contractCapabilityNamespace(contractId)}::${localCapability}`;
+}
+
+function projectCapabilities(
+  capabilities: readonly Capability[] | undefined,
+  contractId: string,
+  declaredCapabilities: ContractCapabilities | undefined,
+  context: string,
+): string[] | undefined {
+  if (!capabilities) {
+    return undefined;
+  }
+  return sortedUnique(
+    capabilities.map((capability) => {
+      if (
+        declaredCapabilities && Object.hasOwn(declaredCapabilities, capability)
+      ) {
+        return globalCapabilityName(contractId, capability);
+      }
+      if (
+        capability === "admin" || capability === "service" ||
+        capability.includes("::")
+      ) {
+        return capability;
+      }
+      throw new Error(
+        `${context} references undeclared local capability '${capability}'`,
+      );
+    }),
+  );
+}
+
+function emitCapabilities(
+  contractId: string,
+  capabilities: ContractCapabilities | undefined,
+): ContractCapabilities | undefined {
+  if (!capabilities) {
+    return undefined;
+  }
+
+  const entries: [string, ContractCapabilityMetadata][] = Object.entries(
+    capabilities,
+  )
+    .map(([localCapability, metadata]) => [
+      globalCapabilityName(contractId, localCapability),
+      { ...metadata },
+    ]);
+  entries.sort(([left], [right]) => left.localeCompare(right));
+  return Object.fromEntries(entries);
+}
+
 function collectSchemaRef(
   reachableSchemas: Set<string>,
   ref: ContractSchemaRef | undefined,
@@ -1972,6 +2275,38 @@ function projectDigestEvents(
 }
 
 /**
+ * Return the canonical manifest shape used by Trellis runtimes before
+ * validation, persistence, and digesting.
+ *
+ * This is not the digest projection: human-facing fields such as
+ * `displayName` and `description` are preserved here even though they are not
+ * part of contract identity. Unknown extension fields are intentionally omitted
+ * until the runtime explicitly supports them.
+ */
+export function normalizeContractManifest(
+  contract: TrellisContractV1,
+): TrellisContractV1 {
+  return {
+    format: contract.format,
+    id: contract.id,
+    displayName: contract.displayName,
+    description: contract.description,
+    kind: contract.kind,
+    ...(contract.capabilities ? { capabilities: contract.capabilities } : {}),
+    ...(contract.schemas ? { schemas: contract.schemas } : {}),
+    ...(contract.exports ? { exports: contract.exports } : {}),
+    ...(contract.uses ? { uses: contract.uses } : {}),
+    ...(contract.state ? { state: contract.state } : {}),
+    ...(contract.rpc ? { rpc: contract.rpc } : {}),
+    ...(contract.operations ? { operations: contract.operations } : {}),
+    ...(contract.events ? { events: contract.events } : {}),
+    ...(contract.jobs ? { jobs: contract.jobs } : {}),
+    ...(contract.resources ? { resources: contract.resources } : {}),
+    ...(contract.errors ? { errors: contract.errors } : {}),
+  };
+}
+
+/**
  * Build the normalized runtime/interface projection used for contract identity.
  */
 export function projectContractDigestManifest(
@@ -1989,6 +2324,7 @@ export function projectContractDigestManifest(
     format: contract.format,
     id: contract.id,
     kind: contract.kind,
+    ...(contract.capabilities ? { capabilities: contract.capabilities } : {}),
     ...(schemas ? { schemas } : {}),
     ...(contract.state ? { state: contract.state } : {}),
     ...(uses ? { uses } : {}),
@@ -2003,7 +2339,9 @@ export function projectContractDigestManifest(
 
 /** Compute the v1 contract digest from the normalized digest projection. */
 export function digestContractManifest(contract: TrellisContractV1): string {
-  return digestCanonicalJson(projectContractDigestManifest(contract));
+  return digestCanonicalJson(
+    projectContractDigestManifest(normalizeContractManifest(contract)),
+  );
 }
 
 function rpcSubject(name: string, version: `v${number}`): string {
@@ -2237,6 +2575,7 @@ function emitUses(
 }
 
 function emitContract(source: TrellisContractSource): TrellisContractV1 {
+  const capabilities = emitCapabilities(source.id, source.capabilities);
   const rpc = source.rpc
     ? Object.fromEntries(
       Object.entries(source.rpc).map(([name, method]) => {
@@ -2248,7 +2587,12 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
         };
         if (method.capabilities?.call) {
           emitted.capabilities = {
-            call: sortedUnique(method.capabilities.call),
+            call: projectCapabilities(
+              method.capabilities.call,
+              source.id,
+              source.capabilities,
+              `rpc '${name}' call capabilities`,
+            ) ?? [],
           };
         }
         if (method.transfer) {
@@ -2319,13 +2663,34 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
         ) {
           emitted.capabilities = {
             ...(operation.capabilities.call
-              ? { call: sortedUnique(operation.capabilities.call) }
+              ? {
+                call: projectCapabilities(
+                  operation.capabilities.call,
+                  source.id,
+                  source.capabilities,
+                  `operation '${name}' call capabilities`,
+                ) ?? [],
+              }
               : {}),
             ...(operation.capabilities.read
-              ? { read: sortedUnique(operation.capabilities.read) }
+              ? {
+                read: projectCapabilities(
+                  operation.capabilities.read,
+                  source.id,
+                  source.capabilities,
+                  `operation '${name}' read capabilities`,
+                ) ?? [],
+              }
               : {}),
             ...(operation.capabilities.cancel
-              ? { cancel: sortedUnique(operation.capabilities.cancel) }
+              ? {
+                cancel: projectCapabilities(
+                  operation.capabilities.cancel,
+                  source.id,
+                  source.capabilities,
+                  `operation '${name}' cancel capabilities`,
+                ) ?? [],
+              }
               : {}),
           };
         }
@@ -2360,10 +2725,24 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
         if (event.capabilities?.publish || event.capabilities?.subscribe) {
           emitted.capabilities = {
             ...(event.capabilities.publish
-              ? { publish: sortedUnique(event.capabilities.publish) }
+              ? {
+                publish: projectCapabilities(
+                  event.capabilities.publish,
+                  source.id,
+                  source.capabilities,
+                  `event '${name}' publish capabilities`,
+                ) ?? [],
+              }
               : {}),
             ...(event.capabilities.subscribe
-              ? { subscribe: sortedUnique(event.capabilities.subscribe) }
+              ? {
+                subscribe: projectCapabilities(
+                  event.capabilities.subscribe,
+                  source.id,
+                  source.capabilities,
+                  `event '${name}' subscribe capabilities`,
+                ) ?? [],
+              }
               : {}),
           };
         }
@@ -2397,6 +2776,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     displayName: source.displayName,
     description: source.description,
     kind: source.kind,
+    ...(capabilities ? { capabilities } : {}),
     ...(source.schemas ? { schemas: cloneSchemas(source.schemas) } : {}),
     ...(source.exports
       ? { exports: cloneContractExports(source.exports) }
@@ -2463,7 +2843,12 @@ function buildOwnedApi(source: TrellisContractSource): ApiShape {
           `rpc '${name}' output`,
         ),
       ),
-      callerCapabilities: method.capabilities?.call ?? [],
+      callerCapabilities: projectCapabilities(
+        method.capabilities?.call,
+        source.id,
+        source.capabilities,
+        `rpc '${name}' call capabilities`,
+      ) ?? [],
       transfer: method.transfer ? { ...method.transfer } : undefined,
       authRequired: method.authRequired ?? true,
       errors: method.errors,
@@ -2510,9 +2895,24 @@ function buildOwnedApi(source: TrellisContractSource): ApiShape {
         transfer: operation.transfer
           ? { ...operation.transfer, direction: "send" }
           : undefined,
-        callerCapabilities: operation.capabilities?.call ?? [],
-        readCapabilities: operation.capabilities?.read ?? [],
-        cancelCapabilities: operation.capabilities?.cancel ?? [],
+        callerCapabilities: projectCapabilities(
+          operation.capabilities?.call,
+          source.id,
+          source.capabilities,
+          `operation '${name}' call capabilities`,
+        ) ?? [],
+        readCapabilities: projectCapabilities(
+          operation.capabilities?.read,
+          source.id,
+          source.capabilities,
+          `operation '${name}' read capabilities`,
+        ) ?? [],
+        cancelCapabilities: projectCapabilities(
+          operation.capabilities?.cancel,
+          source.id,
+          source.capabilities,
+          `operation '${name}' cancel capabilities`,
+        ) ?? [],
         cancel: operation.cancel,
       },
     ]),
@@ -2537,8 +2937,18 @@ function buildOwnedApi(source: TrellisContractSource): ApiShape {
           event: schema(
             resolveSchemaRef(source.schemas, event.event, `event '${name}'`),
           ),
-          publishCapabilities: event.capabilities?.publish ?? [],
-          subscribeCapabilities: event.capabilities?.subscribe ?? [],
+          publishCapabilities: projectCapabilities(
+            event.capabilities?.publish,
+            source.id,
+            source.capabilities,
+            `event '${name}' publish capabilities`,
+          ) ?? [],
+          subscribeCapabilities: projectCapabilities(
+            event.capabilities?.subscribe,
+            source.id,
+            source.capabilities,
+            `event '${name}' subscribe capabilities`,
+          ) ?? [],
         },
       ];
     }),
@@ -3062,6 +3472,17 @@ function deriveImplicitTrellisUses(source: DefineContractSource): Record<
     );
   }
 
+  if (
+    (source.kind === "service" || source.kind === "device") &&
+    source.id !== TRELLIS_HEALTH_CONTRACT_ID
+  ) {
+    uses.health = baselineUse(
+      TRELLIS_HEALTH_CONTRACT_ID,
+      { events: { publish: [...BASELINE_HEALTH_EVENTS_PUBLISH] } },
+      BASELINE_HEALTH_API,
+    );
+  }
+
   return uses;
 }
 
@@ -3159,6 +3580,7 @@ function defineContract(
   const body = build(createContractRefBuilder({
     ...(registry.schemas ? { schemas: registry.schemas } : {}),
     ...(errorClasses ? { errors: errorClasses } : {}),
+    ...(registry.capabilities ? { capabilities: registry.capabilities } : {}),
   }));
   const materializedSchemas = materializeErrorSchemas(
     registry.schemas,
@@ -3166,6 +3588,7 @@ function defineContract(
   );
   const source: DefineContractSource = {
     ...body,
+    ...(registry.capabilities ? { capabilities: registry.capabilities } : {}),
     ...(materializedSchemas ? { schemas: materializedSchemas } : {}),
     ...(normalizedErrors ? { errors: normalizedErrors } : {}),
   };
@@ -3177,6 +3600,7 @@ function defineContract(
     displayName: source.displayName,
     description: source.description,
     kind: source.kind,
+    ...(source.capabilities ? { capabilities: source.capabilities } : {}),
     ...(source.schemas ? { schemas: source.schemas } : {}),
     ...(source.exports ? { exports: source.exports } : {}),
     ...(source.state ? { state: source.state } : {}),
@@ -3235,7 +3659,8 @@ export function defineServiceContract<
   const TErrors extends Readonly<Record<string, unknown>> | undefined,
   const TRegistry extends DefineContractRegistry<
     Readonly<Record<string, TSchema>> | undefined,
-    TErrors
+    TErrors,
+    ContractCapabilities | undefined
   >,
   const TUses extends
     | Readonly<Record<string, AuthorContractDependencyUse>>
@@ -3246,7 +3671,8 @@ export function defineServiceContract<
         string,
         ContractSourceRpcMethod<
           SchemaNameOf<RegistrySchemas<TRegistry>>,
-          ErrorNameOf<RegistryErrors<TRegistry>>
+          ErrorNameOf<RegistryErrors<TRegistry>>,
+          CapabilityRef<RegistryCapabilities<TRegistry>>
         >
       >
     >
@@ -3255,7 +3681,10 @@ export function defineServiceContract<
     | Readonly<
       Record<
         string,
-        ContractSourceOperation<SchemaNameOf<RegistrySchemas<TRegistry>>>
+        ContractSourceOperation<
+          SchemaNameOf<RegistrySchemas<TRegistry>>,
+          CapabilityRef<RegistryCapabilities<TRegistry>>
+        >
       >
     >
     | undefined,
@@ -3263,11 +3692,15 @@ export function defineServiceContract<
     | Readonly<
       Record<
         string,
-        ContractSourceEvent<SchemaNameOf<RegistrySchemas<TRegistry>>>
+        ContractSourceEvent<
+          SchemaNameOf<RegistrySchemas<TRegistry>>,
+          CapabilityRef<RegistryCapabilities<TRegistry>>
+        >
       >
     >
     | undefined,
   const TBody extends ServiceContractBodyInput<
+    ContractCapabilities | undefined,
     RegistrySchemas<TRegistry>,
     TUses,
     RegistryErrors<TRegistry>,
@@ -3280,7 +3713,8 @@ export function defineServiceContract<
   build: (
     ref: ContractRefBuilder<
       RegistrySchemas<TRegistry>,
-      RegistryErrors<TRegistry>
+      RegistryErrors<TRegistry>,
+      RegistryCapabilities<TRegistry>
     >,
   ) => TBody,
 ): DefinedContract<

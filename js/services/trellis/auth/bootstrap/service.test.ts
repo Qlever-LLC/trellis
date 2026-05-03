@@ -86,14 +86,21 @@ async function createApp(args: {
   registerInactiveContract?: boolean;
   appliedResourceBindings?: Record<string, unknown> | null;
   appliedResourceBindingsByDigest?: Record<string, Record<string, unknown>>;
+  builtinContract?: boolean;
   includeAlternateContract?: boolean;
+  useOnlyAlternateDeploymentDigest?: boolean;
 }) {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
   const validated = await createTestContractStore();
   const alternate = args.includeAlternateContract
     ? await createAlternateTestContract()
     : undefined;
-  const store = new ContractStore();
+  const store = args.builtinContract
+    ? new ContractStore([{
+      digest: validated.digest,
+      contract: validated.contract,
+    }])
+    : new ContractStore();
   if (args.registerInactiveContract) {
     store.add(validated.digest, validated.contract);
     if (alternate) store.add(alternate.digest, alternate.contract);
@@ -161,7 +168,9 @@ async function createApp(args: {
         appliedContracts: [{
           contractId: validated.contract.id,
           allowedDigests: alternate
-            ? [validated.digest, alternate.digest]
+            ? args.useOnlyAlternateDeploymentDigest
+              ? [alternate.digest]
+              : [validated.digest, alternate.digest]
             : [validated.digest],
           ...(args.appliedResourceBindings === null
             ? {}
@@ -350,6 +359,58 @@ Deno.test("POST /bootstrap/service selects bindings by exact digest", async () =
   assertEquals((await firstResponse.json()).binding.resources, firstBindings);
   assertEquals(secondResponse.status, 200);
   assertEquals((await secondResponse.json()).binding.resources, secondBindings);
+});
+
+Deno.test("POST /bootstrap/service rejects current built-in digest over stale deployment digest", async () => {
+  const expectedAlternate = await createAlternateTestContract();
+  const staleBindings = {
+    kv: { cache: { bucket: "builtin_cache", history: 1, ttlMs: 0 } },
+  };
+  const { app, auth, contract, savedServices } = await createApp({
+    builtinContract: true,
+    includeAlternateContract: true,
+    useOnlyAlternateDeploymentDigest: true,
+    appliedResourceBindingsByDigest: {
+      [expectedAlternate.digest]: staleBindings,
+    },
+    service: {
+      displayName: "Example Service",
+      active: true,
+      capabilities: ["service"],
+      description: "Example service",
+      contractId: expectedAlternate.contract.id,
+      contractDigest: expectedAlternate.digest,
+      resourceBindings: staleBindings,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    },
+  });
+
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: contract.digest,
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT, contract.digest),
+    }),
+  });
+
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    reason: "service_contract_mismatch",
+    message:
+      `Service instance 'svc_1' under deployment 'deployment_1' is not allowed to run digest '${contract.digest}' for contract '${contract.contract.id}'. Allowed digests: ${expectedAlternate.digest}. Re-apply the current contract to the deployment or restart the matching service revision.`,
+    instanceId: "svc_1",
+    deploymentId: "deployment_1",
+    expectedContractId: contract.contract.id,
+    expectedContractDigest: contract.digest,
+    allowedDigests: [expectedAlternate.digest],
+    currentContractId: expectedAlternate.contract.id,
+    currentContractDigest: expectedAlternate.digest,
+  });
+  assertEquals(savedServices.length, 0);
 });
 
 Deno.test("POST /bootstrap/service fails clearly when applied resources have no stored bindings", async () => {

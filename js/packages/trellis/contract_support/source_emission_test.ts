@@ -3,11 +3,15 @@ import { Type } from "typebox";
 
 import {
   defineAppContract,
+  defineDeviceContract,
   defineError,
   defineServiceContract,
   digestContractManifest,
+  globalCapabilityName,
+  normalizeContractManifest,
 } from "./mod.ts";
 import { unwrapSchema } from "./runtime.ts";
+import { sdk as health } from "../sdk/health.ts";
 
 const EmptySchema = Type.Object({});
 const StringSchema = Type.Object({ value: Type.String() });
@@ -16,6 +20,13 @@ const baseSchemas = {
   Empty: EmptySchema,
   StringValue: StringSchema,
 } as const;
+
+function baselineHealthUse() {
+  return {
+    contract: "trellis.health@v1",
+    events: { publish: ["Health.Heartbeat"] },
+  };
+}
 
 function schemaRef<
   TSchemas extends Record<string, unknown>,
@@ -26,10 +37,36 @@ function schemaRef<
   return { schema } as const;
 }
 
+if (false) {
+  defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+    id: "capability.compile-error@v1",
+    displayName: "Capability compile error",
+    description:
+      "This contract intentionally fails type checking without the directive.",
+    rpc: {
+      "Capability.Missing": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("StringValue"),
+        capabilities: {
+          // @ts-expect-error local capability references must be declared first
+          call: [ref.capability("missing.local")],
+        },
+      },
+    },
+  }));
+}
+
 Deno.test("kind-specific helpers preserve emitted manifest shape and digest", async () => {
   const auth = defineServiceContract(
     {
       schemas: baseSchemas,
+      capabilities: {
+        "events.auth": {
+          displayName: "Auth events",
+          description: "Publish and subscribe to auth events.",
+        },
+      },
     },
     () => ({
       id: "trellis.auth@v1",
@@ -52,8 +89,8 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
           version: "v1",
           event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
           capabilities: {
-            publish: ["events:auth"],
-            subscribe: ["events:auth"],
+            publish: ["events.auth"],
+            subscribe: ["events.auth"],
           },
         },
       },
@@ -61,7 +98,19 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
   );
 
   const activity = defineServiceContract(
-    { schemas: baseSchemas },
+    {
+      schemas: baseSchemas,
+      capabilities: {
+        "activity.read": {
+          displayName: "Read activity",
+          description: "Read activity entries.",
+        },
+        "events.activity": {
+          displayName: "Activity events",
+          description: "Publish and subscribe to activity events.",
+        },
+      },
+    },
     () => ({
       id: "trellis.activity@v1",
       displayName: "Activity",
@@ -86,8 +135,8 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
           version: "v1",
           event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
           capabilities: {
-            publish: ["events:activity"],
-            subscribe: ["events:activity"],
+            publish: ["events.activity"],
+            subscribe: ["events.activity"],
           },
         },
       },
@@ -100,6 +149,16 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
     displayName: "Activity",
     description: "Expose activity APIs while depending on auth in tests.",
     kind: "service",
+    capabilities: {
+      [globalCapabilityName("trellis.activity@v1", "activity.read")]: {
+        displayName: "Read activity",
+        description: "Read activity entries.",
+      },
+      [globalCapabilityName("trellis.activity@v1", "events.activity")]: {
+        displayName: "Activity events",
+        description: "Publish and subscribe to activity events.",
+      },
+    },
     schemas: {
       Empty: {
         properties: {},
@@ -117,6 +176,10 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
         rpc: { call: ["Auth.Me"] },
         events: { subscribe: ["Auth.Connect"] },
       },
+      health: {
+        contract: "trellis.health@v1",
+        events: { publish: ["Health.Heartbeat"] },
+      },
     },
     rpc: {
       "Activity.List": {
@@ -124,7 +187,9 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
         subject: "rpc.v1.Activity.List",
         input: { schema: "Empty" },
         output: { schema: "StringValue" },
-        capabilities: { call: ["activity.read"] },
+        capabilities: {
+          call: [globalCapabilityName("trellis.activity@v1", "activity.read")],
+        },
         errors: [{ type: "UnexpectedError" }],
       },
     },
@@ -134,8 +199,12 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
         subject: "events.v1.Activity.Recorded",
         event: { schema: "StringValue" },
         capabilities: {
-          publish: ["events:activity"],
-          subscribe: ["events:activity"],
+          publish: [
+            globalCapabilityName("trellis.activity@v1", "events.activity"),
+          ],
+          subscribe: [
+            globalCapabilityName("trellis.activity@v1", "events.activity"),
+          ],
         },
       },
     },
@@ -161,6 +230,87 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
   );
   assertEquals(auth.CONTRACT.exports, {
     schemas: ["StringValue"],
+  });
+});
+
+Deno.test("service contracts automatically use baseline health heartbeat", () => {
+  const contract = defineServiceContract({}, () => ({
+    id: "baseline-health.service@v1",
+    displayName: "Baseline Health Service",
+    description:
+      "Verify service contracts publish runtime heartbeat by default.",
+  }));
+
+  assertEquals(contract.CONTRACT.uses?.health, baselineHealthUse());
+  assertEquals(
+    (contract.API.used.events as Record<string, { subject: string }>)[
+      "Health.Heartbeat"
+    ].subject,
+    "events.v1.Health.Heartbeat",
+  );
+});
+
+Deno.test("health contract does not automatically use itself", () => {
+  const contract = defineServiceContract({}, () => ({
+    id: "trellis.health@v1",
+    displayName: "Trellis Health",
+    description: "Expose shared Trellis heartbeat events.",
+  }));
+
+  assertEquals(contract.CONTRACT.uses, undefined);
+});
+
+function typecheckHealthContractDoesNotInferSelfUse(): void {
+  const contract = defineServiceContract({}, () => ({
+    id: "trellis.health@v1",
+    displayName: "Trellis Health",
+    description: "Expose shared Trellis heartbeat events.",
+  }));
+
+  // @ts-expect-error health contract should not infer an implicit self-use.
+  const invalid = contract.API.used.events["Health.Heartbeat"];
+  void invalid;
+}
+
+void typecheckHealthContractDoesNotInferSelfUse;
+
+Deno.test("device contracts keep implicit auth state and baseline health", () => {
+  const contract = defineDeviceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "baseline-health.device@v1",
+      displayName: "Baseline Health Device",
+      description: "Verify device contracts retain all implicit Trellis uses.",
+      state: {
+        preferences: {
+          kind: "value",
+          schema: ref.schema("StringValue"),
+        },
+      },
+    }),
+  );
+
+  assertEquals(contract.CONTRACT.uses?.auth?.contract, "trellis.auth@v1");
+  assertEquals(contract.CONTRACT.uses?.state?.contract, "trellis.state@v1");
+  assertEquals(contract.CONTRACT.uses?.health, baselineHealthUse());
+});
+
+Deno.test("explicit health use preserves selections and gains baseline heartbeat", () => {
+  const contract = defineServiceContract({}, () => ({
+    id: "explicit-health.service@v1",
+    displayName: "Explicit Health Service",
+    description: "Verify explicit health use merges with baseline heartbeat.",
+    uses: {
+      health: health.use({ events: { subscribe: ["Health.Heartbeat"] } }),
+    },
+  }));
+
+  assertEquals(contract.CONTRACT.uses?.health, {
+    contract: "trellis.health@v1",
+    events: {
+      publish: ["Health.Heartbeat"],
+      subscribe: ["Health.Heartbeat"],
+    },
   });
 });
 
@@ -399,10 +549,53 @@ Deno.test("contract digest ignores display metadata, exports, and unused schemas
 });
 
 Deno.test("contract digest normalizes capability order and duplicates", () => {
-  const first = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+  const digestCapabilities = {
+    a: { displayName: "A", description: "A capability." },
+    b: { displayName: "B", description: "B capability." },
+    "events.admin": {
+      displayName: "Admin events",
+      description: "Administer events.",
+    },
+    "events.audit": {
+      displayName: "Audit events",
+      description: "Audit events.",
+    },
+    "events.read": {
+      displayName: "Read events",
+      description: "Read events.",
+    },
+    "events.write": {
+      displayName: "Write events",
+      description: "Write events.",
+    },
+  } as const;
+  const first = defineServiceContract({
+    schemas: baseSchemas,
+    capabilities: digestCapabilities,
+  }, (ref) => ({
     id: "digest.capabilities@v1",
     displayName: "Digest Capabilities",
     description: "Verify capability normalization.",
+    capabilities: {
+      a: { displayName: "A", description: "A capability." },
+      b: { displayName: "B", description: "B capability." },
+      "events.admin": {
+        displayName: "Admin events",
+        description: "Administer events.",
+      },
+      "events.audit": {
+        displayName: "Audit events",
+        description: "Audit events.",
+      },
+      "events.read": {
+        displayName: "Read events",
+        description: "Read events.",
+      },
+      "events.write": {
+        displayName: "Write events",
+        description: "Write events.",
+      },
+    },
     rpc: {
       "Digest.Read": {
         version: "v1",
@@ -423,10 +616,33 @@ Deno.test("contract digest normalizes capability order and duplicates", () => {
     },
   }));
 
-  const second = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+  const second = defineServiceContract({
+    schemas: baseSchemas,
+    capabilities: digestCapabilities,
+  }, (ref) => ({
     id: "digest.capabilities@v1",
     displayName: "Digest Capabilities",
     description: "Verify capability normalization.",
+    capabilities: {
+      b: { displayName: "B", description: "B capability." },
+      a: { displayName: "A", description: "A capability." },
+      "events.write": {
+        displayName: "Write events",
+        description: "Write events.",
+      },
+      "events.read": {
+        displayName: "Read events",
+        description: "Read events.",
+      },
+      "events.admin": {
+        displayName: "Admin events",
+        description: "Administer events.",
+      },
+      "events.audit": {
+        displayName: "Audit events",
+        description: "Audit events.",
+      },
+    },
     rpc: {
       "Digest.Read": {
         version: "v1",
@@ -448,10 +664,191 @@ Deno.test("contract digest normalizes capability order and duplicates", () => {
   }));
 
   assertEquals(first.CONTRACT.rpc?.["Digest.Read"]?.capabilities?.call, [
-    "a",
-    "b",
+    globalCapabilityName("digest.capabilities@v1", "a"),
+    globalCapabilityName("digest.capabilities@v1", "b"),
   ]);
   assertEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
+});
+
+Deno.test("defineServiceContract emits top-level capabilities with global names", () => {
+  const authCapabilities = {
+    "users.read": {
+      displayName: "Read users",
+      description: "Allows reading user profiles.",
+      consequence: "Exposes user profile data.",
+    },
+  } as const;
+  const contract = defineServiceContract({
+    schemas: baseSchemas,
+    capabilities: authCapabilities,
+  }, (ref) => ({
+    id: "trellis.auth@v1",
+    displayName: "Auth Capabilities",
+    description: "Verify capability declarations emit globally.",
+    rpc: {
+      "Auth.Users.List": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("StringValue"),
+        capabilities: { call: ["platform::audit", "users.read"] },
+      },
+    },
+    operations: {
+      "Auth.Users.Export": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("StringValue"),
+        capabilities: {
+          call: ["users.read"],
+          read: ["users.read"],
+          cancel: ["platform::cancel"],
+        },
+      },
+    },
+    events: {
+      "Auth.UserChanged": {
+        version: "v1",
+        event: ref.schema("StringValue"),
+        capabilities: {
+          publish: ["users.read"],
+          subscribe: ["external::subscribe", "users.read"],
+        },
+      },
+    },
+  }));
+
+  const globalUsersRead = globalCapabilityName(
+    "trellis.auth@v1",
+    "users.read",
+  );
+
+  assertEquals(contract.CONTRACT.capabilities, {
+    [globalUsersRead]: {
+      displayName: "Read users",
+      description: "Allows reading user profiles.",
+      consequence: "Exposes user profile data.",
+    },
+  });
+  assertEquals(contract.CONTRACT.rpc?.["Auth.Users.List"]?.capabilities?.call, [
+    "platform::audit",
+    globalUsersRead,
+  ]);
+  assertEquals(
+    contract.CONTRACT.operations?.["Auth.Users.Export"]?.capabilities,
+    {
+      call: [globalUsersRead],
+      read: [globalUsersRead],
+      cancel: ["platform::cancel"],
+    },
+  );
+  assertEquals(contract.CONTRACT.events?.["Auth.UserChanged"]?.capabilities, {
+    publish: [globalUsersRead],
+    subscribe: ["external::subscribe", globalUsersRead],
+  });
+  assertEquals(
+    contract.API.owned.rpc["Auth.Users.List"].callerCapabilities,
+    ["platform::audit", globalUsersRead],
+  );
+  assertEquals(
+    contract.API.owned.events["Auth.UserChanged"].subscribeCapabilities,
+    ["external::subscribe", globalUsersRead],
+  );
+});
+
+Deno.test("contract digest changes when capability metadata changes", () => {
+  const firstCapabilities = {
+    read: {
+      displayName: "Read",
+      description: "Read records.",
+    },
+  } as const;
+  const secondCapabilities = {
+    read: {
+      displayName: "Read",
+      description: "Read records with changed metadata.",
+    },
+  } as const;
+  const first = defineServiceContract({
+    schemas: baseSchemas,
+    capabilities: firstCapabilities,
+  }, (ref) => ({
+    id: "digest.capability-metadata@v1",
+    displayName: "Capability Metadata",
+    description: "First capability metadata.",
+    rpc: {
+      "Capability.Read": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("StringValue"),
+        capabilities: { call: ["read"] },
+      },
+    },
+  }));
+
+  const second = defineServiceContract({
+    schemas: baseSchemas,
+    capabilities: secondCapabilities,
+  }, (ref) => ({
+    id: "digest.capability-metadata@v1",
+    displayName: "Capability Metadata",
+    description: "First capability metadata.",
+    rpc: {
+      "Capability.Read": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("StringValue"),
+        capabilities: { call: ["read"] },
+      },
+    },
+  }));
+
+  assertNotEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
+});
+
+Deno.test("shared manifest normalization preserves digest-bearing capabilities", () => {
+  const capability = globalCapabilityName(
+    "digest.normalization@v1",
+    "read",
+  );
+  const contract = defineServiceContract({
+    schemas: baseSchemas,
+    capabilities: {
+      read: {
+        displayName: "Read",
+        description: "Read records.",
+      },
+    },
+  }, (ref) => ({
+    id: "digest.normalization@v1",
+    displayName: "Digest Normalization",
+    description: "Verify shared contract manifest normalization.",
+    rpc: {
+      "Normalization.Read": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("StringValue"),
+        capabilities: { call: ["read"] },
+      },
+    },
+  }));
+
+  const raw = {
+    ...contract.CONTRACT,
+    unknownFutureField: true,
+  } as typeof contract.CONTRACT;
+  const normalized = normalizeContractManifest(raw);
+
+  assertEquals(Object.hasOwn(normalized, "unknownFutureField"), false);
+  assertEquals(normalized.capabilities, {
+    [capability]: {
+      displayName: "Read",
+      description: "Read records.",
+    },
+  });
+  assertEquals(
+    digestContractManifest(raw),
+    digestContractManifest(normalized),
+  );
 });
 
 Deno.test("contract digest normalizes uses logical-name order and duplicates", () => {
@@ -557,7 +954,16 @@ Deno.test("contract digest normalizes RPC error order and duplicates", () => {
 });
 
 Deno.test("contract digest changes for meaningful interface changes", () => {
-  const first = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+  const digestReadCapability = {
+    "digest.read": {
+      displayName: "Read digest",
+      description: "Read digest records.",
+    },
+  } as const;
+  const first = defineServiceContract({
+    schemas: baseSchemas,
+    capabilities: digestReadCapability,
+  }, (ref) => ({
     id: "digest.meaningful@v1",
     displayName: "Digest Meaningful",
     description: "First interface.",
@@ -570,7 +976,10 @@ Deno.test("contract digest changes for meaningful interface changes", () => {
     },
   }));
 
-  const second = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+  const second = defineServiceContract({
+    schemas: baseSchemas,
+    capabilities: digestReadCapability,
+  }, (ref) => ({
     id: "digest.meaningful@v1",
     displayName: "Digest Meaningful",
     description: "First interface.",
@@ -929,8 +1338,22 @@ Deno.test("locally defined contracts can be reused as dependencies", () => {
 });
 
 Deno.test("defineServiceContract emits owned and used operations", () => {
+  const billingCapabilities = {
+    "billing.refund": {
+      displayName: "Refund billing",
+      description: "Start billing refunds.",
+    },
+    "billing.read": {
+      displayName: "Read billing",
+      description: "Read billing operation status.",
+    },
+    "billing.cancel": {
+      displayName: "Cancel billing",
+      description: "Cancel billing operations.",
+    },
+  } as const;
   const billing = defineServiceContract(
-    { schemas: baseSchemas },
+    { schemas: baseSchemas, capabilities: billingCapabilities },
     () => ({
       id: "trellis.billing@v1",
       displayName: "Billing",

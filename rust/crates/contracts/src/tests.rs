@@ -53,6 +53,22 @@ fn canonicalize_matches_shared_conformance_vector() {
 }
 
 #[test]
+fn contract_digest_matches_shared_conformance_vector() {
+    let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../conformance/contract-digest/vectors.json");
+    let fixtures: Vec<Value> =
+        serde_json::from_str(&fs::read_to_string(fixture_path).unwrap()).unwrap();
+
+    for fixture in fixtures {
+        let name = fixture.get("name").and_then(Value::as_str).unwrap();
+        let input = fixture.get("input").cloned().unwrap();
+        let digest = fixture.get("digest").and_then(Value::as_str).unwrap();
+
+        assert_eq!(digest_contract_value(&input).unwrap(), digest, "{name}");
+    }
+}
+
+#[test]
 fn pack_trellis_owned_contracts_matches_shared_fixture() {
     let root = unique_temp_dir("trellis-owned-contracts");
     fs::create_dir_all(&root).unwrap();
@@ -252,6 +268,47 @@ fn loaded_manifest_digest_uses_contract_identity_projection() {
 }
 
 #[test]
+fn public_contract_digest_helpers_match_loaded_manifest_and_include_capabilities() {
+    let root = unique_temp_dir("public-digest-helpers");
+    fs::create_dir_all(&root).expect("create temp dir");
+    let manifest_path = root.join("example.capabilities@v1.json");
+    let mut manifest = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.capabilities@v1",
+        "displayName": "Capabilities",
+        "description": "Contract with capability metadata.",
+        "kind": "service",
+        "capabilities": {
+            "example.capabilities::read": {
+                "displayName": "Read",
+                "description": "Read example data."
+            }
+        }
+    });
+    let manifest_json = serde_json::to_string(&manifest).expect("manifest json");
+    fs::write(&manifest_path, &manifest_json).expect("write manifest");
+
+    let loaded = load_manifest(&manifest_path).expect("load manifest");
+    assert_eq!(
+        digest_contract_json(&manifest_json).expect("digest json"),
+        loaded.digest
+    );
+    assert_eq!(
+        digest_contract_value(&manifest).expect("digest value"),
+        loaded.digest
+    );
+
+    manifest["capabilities"]["example.capabilities::read"]["description"] =
+        json!("Read example data with changed approval meaning.");
+    assert_ne!(
+        digest_contract_value(&manifest).expect("changed digest"),
+        loaded.digest
+    );
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[test]
 fn embedded_schemas_match_shared_source_of_truth() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     for schema_name in [
@@ -314,7 +371,7 @@ fn manifest_parses_kv_resources_with_schema() {
         "description": "Expose kv resources",
         "kind": "service",
         "schemas": {
-            "JobState": {
+            "CacheState": {
                 "type": "object",
                 "required": ["status"],
                 "properties": {"status": {"type": "string"}},
@@ -323,9 +380,9 @@ fn manifest_parses_kv_resources_with_schema() {
         },
         "resources": {
             "kv": {
-                "jobsState": {
-                    "purpose": "Store projected job state",
-                    "schema": {"schema": "JobState"},
+                "cacheState": {
+                    "purpose": "Store projected cache state",
+                    "schema": {"schema": "CacheState"},
                     "required": true,
                     "history": 1,
                     "ttlMs": 0
@@ -335,16 +392,16 @@ fn manifest_parses_kv_resources_with_schema() {
     }))
     .expect("manifest with kv resources should parse");
 
-    let jobs_state = manifest
+    let cache_state = manifest
         .resources
         .kv
-        .get("jobsState")
-        .expect("jobsState kv resource");
-    assert_eq!(jobs_state.purpose, "Store projected job state");
-    assert_eq!(jobs_state.schema.schema, "JobState");
-    assert_eq!(jobs_state.required, Some(true));
-    assert_eq!(jobs_state.history, Some(1));
-    assert_eq!(jobs_state.ttl_ms, Some(0));
+        .get("cacheState")
+        .expect("cacheState kv resource");
+    assert_eq!(cache_state.purpose, "Store projected cache state");
+    assert_eq!(cache_state.schema.schema, "CacheState");
+    assert_eq!(cache_state.required, Some(true));
+    assert_eq!(cache_state.history, Some(1));
+    assert_eq!(cache_state.ttl_ms, Some(0));
 }
 
 #[test]
@@ -357,8 +414,8 @@ fn manifest_validation_rejects_unknown_kv_schema_refs() {
         "kind": "service",
         "resources": {
             "kv": {
-                "jobsState": {
-                    "purpose": "Store projected job state",
+                "cacheState": {
+                    "purpose": "Store projected cache state",
                     "schema": {"schema": "MissingState"}
                 }
             }

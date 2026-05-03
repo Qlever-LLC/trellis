@@ -129,6 +129,12 @@ A `trellis.contract.v1` manifest has this top-level structure:
   "displayName": "Graph Service",
   "description": "Serve graph RPCs and publish graph change events.",
   "kind": "service",
+  "capabilities": {
+    "graph::users.read": {
+      "displayName": "Read users",
+      "description": "View user records exposed by the graph service."
+    }
+  },
   "schemas": {
     "Checkpoint": { "type": "object" }
   },
@@ -165,16 +171,17 @@ Top-level fields:
 | `displayName` | yes      | string | Human-facing contract name shown in tooling and approval UIs       |
 | `description` | yes      | string | Human-facing explanation of the contract's purpose                 |
 | `kind`        | yes      | string | Contract role such as `service`, `app`, `agent`, or `device`       |
-| `schemas`     | no       | object | Reusable self-contained JSON Schema values keyed by schema name    |
-| `exports`     | no       | object | Canonical public exports made available to dependent contracts     |
-| `uses`        | no       | object | Explicit cross-contract operation/RPC/event dependencies           |
-| `jobs`        | no       | object | Map of first-class service-private job queue descriptors           |
-| `operations`  | no       | object | Map of logical operation names to operation descriptors            |
-| `rpc`         | no       | object | Map of logical RPC names to RPC operation descriptors              |
-| `events`      | no       | object | Map of logical event names to event descriptors                    |
-| `state`       | no       | object | Map of named Trellis-managed state stores                          |
-| `resources`   | no       | object | Map of declarative cloud resource requests                         |
-| `errors`      | no       | object | Map of declared error types to error descriptors                   |
+| `capabilities` | no       | object | Human-facing metadata for contract-owned capability keys           |
+| `schemas`      | no       | object | Reusable self-contained JSON Schema values keyed by schema name    |
+| `exports`      | no       | object | Canonical public exports made available to dependent contracts     |
+| `uses`         | no       | object | Explicit cross-contract operation/RPC/event dependencies           |
+| `jobs`         | no       | object | Map of first-class service-private job queue descriptors           |
+| `operations`   | no       | object | Map of logical operation names to operation descriptors            |
+| `rpc`          | no       | object | Map of logical RPC names to RPC operation descriptors              |
+| `events`       | no       | object | Map of logical event names to event descriptors                    |
+| `state`        | no       | object | Map of named Trellis-managed state stores                          |
+| `resources`    | no       | object | Map of declarative cloud resource requests                         |
+| `errors`       | no       | object | Map of declared error types to error descriptors                   |
 
 Rules:
 
@@ -192,6 +199,10 @@ Rules:
   contracts are verified.
 - `displayName` and `description` are human-facing manifest metadata for
   catalog, docs, and approval UI. They are not part of contract digest identity.
+- `capabilities` is human-facing approval metadata, but it is runtime authority
+  metadata rather than display-only contract metadata. It participates in the
+  contract digest because changing a capability's meaning changes what users and
+  operators approve.
 - runtime service identity, install routing, and authorization boundaries MUST
   NOT be inferred from manifest metadata.
 - top-level object members not defined by the current runtime MAY be present for
@@ -230,6 +241,7 @@ manifest, not from every byte in the submitted JSON document.
 The digest projection includes:
 
 - `format`, `id`, and `kind`
+- top-level `capabilities`
 - reachable schemas referenced by state, RPCs, operations, events, jobs,
   schema-backed KV resources, and declared RPC error schemas
 - state, `uses`, RPCs, operations, events, jobs, declared RPC errors, and
@@ -238,7 +250,8 @@ The digest projection includes:
 
 The digest projection excludes:
 
-- `displayName`, `description`, and other human-facing review metadata
+- contract-level `displayName`, `description`, and other display-only review
+  metadata
 - `exports` and other code-generation metadata that does not change runtime
   permissions or wire surfaces
 - unused schemas and undeclared error definitions
@@ -248,14 +261,38 @@ Rules:
 
 - tooling and runtime implementations MUST use the same digest projection before
   comparing reviewed and installed manifests
+- digest projection and manifest normalization are Trellis protocol rules, not
+  language-helper rules; every supported implementation MUST either call the
+  shared contract utilities for its language or pass shared conformance vectors
+  that prove the same projection
+- runtimes MUST NOT compute a digest from a service-local normalized copy of a
+  manifest unless that normalization is the shared contract manifest
+  normalization for the current Trellis protocol version
 - deployment apply requests MUST carry the locally reviewed `expectedDigest` and
   auth MUST reject the request if install computes a different digest
 - digest-stable metadata edits may update catalog display information without
-  requiring new runtime permissions or new app approvals
+  requiring new runtime permissions or new app approvals, but capability metadata
+  edits are not digest-stable
 - multiple active digests for one `id` remain valid only while active compatible
   digest validation can produce an additive, unambiguous surface projection
 - install records bind one exact digest to one service principal public key,
   even when multiple digests in the same lineage are active at once
+
+Manifest normalization is separate from digest projection:
+
+- manifest normalization produces the canonical supported manifest shape used
+  for validation, persistence, code generation, and runtime install; it preserves
+  human-facing fields such as `displayName` and `description`
+- digest projection starts from the normalized manifest and keeps only fields
+  that define runtime identity, authority, resources, dependencies, or wire
+  shape
+- unknown top-level extension fields MAY appear in submitted manifests for
+  forward compatibility, but current runtimes MUST drop them during manifest
+  normalization and MUST NOT let them affect the digest until the Trellis
+  protocol explicitly defines their semantics
+- adding a supported top-level manifest field requires updating the shared
+  manifest normalization and digest projection/conformance vectors in the same
+  change whenever the field has runtime or authority semantics
 
 This allows rolling upgrades where some service instances still run the old
 digest while newer instances have already switched to the new digest. The same
@@ -340,6 +377,52 @@ to activate a new same-lineage digest only when the replaced digest is removed
 from the deployment's active allowed set and no incompatible same-lineage digest
 remains concurrently active.
 
+### 6.2) Capability metadata and global keys
+
+Contract manifests may declare top-level capability metadata keyed by global
+capability key.
+
+Example:
+
+```json
+{
+  "capabilities": {
+    "trellis.jobs::jobs.admin.read": {
+      "displayName": "Read jobs admin data",
+      "description": "View Jobs service health, services, jobs, and dead-letter queues."
+    },
+    "trellis.jobs::jobs.admin.mutate": {
+      "displayName": "Mutate jobs admin data",
+      "description": "Cancel, retry, replay, or dismiss Jobs service work items.",
+      "consequence": "Can change background job execution state."
+    }
+  }
+}
+```
+
+The global key format is `<capability namespace>::<local capability>`. The
+capability namespace is the contract `id` with a trailing `@vN` major-version
+suffix removed. For example, `trellis.jobs@v1` emits capability keys in the
+`trellis.jobs::` namespace.
+
+Rules:
+
+- top-level capability entries require `displayName` and `description`; they MAY
+  include `consequence` for concise user-facing risk or effect copy
+- capability metadata is authored by the contract that owns the authority
+- capability metadata is included in the digest projection because approval copy
+  defines the meaning of the authority being granted
+- canonical manifests SHOULD use global keys in top-level `capabilities` and in
+  RPC, operation, and event capability lists
+- language authoring helpers MAY let authors write local capability names and
+  project them into global keys during manifest emission
+- only declared local capability names are projected; undeclared strings remain
+  raw platform or external capabilities
+- dependency contracts are selected through `uses`; callers do not redeclare a
+  dependency's capability metadata
+- approval UIs should render capability metadata first and treat raw keys,
+  contract ids, and digests as technical detail
+
 ### Declared dependencies (`uses`)
 
 Contracts MAY declare explicit dependencies on other contracts through a
@@ -378,6 +461,13 @@ Rules:
 - a service contract MUST NOT receive cross-contract runtime permissions unless
   that access is declared in `uses` or is a Trellis-defined baseline surface
   automatically available to that participant kind
+- connected service and device manifests receive the Trellis-defined baseline
+  `health` use automatically, targeting `trellis.health@v1` with
+  `events.publish: ["Health.Heartbeat"]`; `trellis.health@v1` itself is excluded
+  from this self-use
+- if a service or device author explicitly declares `uses.health` for
+  `trellis.health@v1`, authoring helpers merge the baseline heartbeat publish
+  selector into that alias rather than requiring a second alias
 - validation, install, or upgrade MUST fail if a referenced contract is
   unavailable or if any referenced operation, RPC, or event name does not exist
   on that contract
@@ -414,7 +504,7 @@ Example:
     "input": { "schema": "FindUserRequest" },
     "output": { "schema": "FindUserResponse" },
     "capabilities": {
-      "call": ["users.read"]
+      "call": ["graph::users.read"]
     },
     "errors": [{ "type": "ValidationError" }, { "type": "NotFoundError" }]
   }
@@ -440,6 +530,8 @@ Rules:
   `schemas` map
 - `capabilities.call` is an all-of requirement; the caller must hold every
   listed capability
+- declared contract-owned capabilities SHOULD appear as global capability keys in
+  canonical manifests
 - if `capabilities.call` is omitted, the RPC is callable without extra
   capability grants
 - `errors` enumerates known typed error payloads but does not close the wire
@@ -461,9 +553,9 @@ Example:
     "progress": { "schema": "BillingRefundProgress" },
     "output": { "schema": "BillingRefundResult" },
     "capabilities": {
-      "call": ["billing.refund"],
-      "read": ["billing.refund"],
-      "cancel": ["billing.refund.cancel"]
+      "call": ["billing::billing.refund"],
+      "read": ["billing::billing.refund"],
+      "cancel": ["billing::billing.refund.cancel"]
     },
     "cancel": true
   }
@@ -503,8 +595,8 @@ Example:
     "params": ["/partner/id/origin", "/partner/id/id"],
     "event": { "schema": "PartnerChanged" },
     "capabilities": {
-      "publish": ["partners.write"],
-      "subscribe": ["partners.read"]
+      "publish": ["partners::partners.write"],
+      "subscribe": ["partners::partners.read"]
     }
   }
 }
@@ -750,6 +842,12 @@ Rules:
 - admin inspection remains a separate API surface from the normal runtime state
   helpers
 
+Implementation note:
+
+- Rust manifest parsing and builder validation must validate both the primary
+  state store schema ref and any `acceptedVersions` schema refs, matching the
+  TypeScript-generated manifest semantics
+
 ### 11) Error declarations
 
 The optional top-level `errors` map declares named serializable error payloads.
@@ -797,13 +895,15 @@ Digest rules for v1:
 - algorithm: SHA-256 over the canonical JSON string for the digest projection
 - encoding: base64url without padding
 - the digest projection includes runtime identity and behavior: `format`, `id`,
-  `kind`, `state`, `uses`, `rpc`, `operations`, `events`, `jobs`,
-  `resources.kv`, `resources.store`, reachable schemas, and RPC-declared
-  reachable errors
+  `kind`, `capabilities`, `state`, `uses`, `rpc`, `operations`, `events`,
+  `jobs`, `resources.kv`, `resources.store`, reachable schemas, and
+  RPC-declared reachable errors
 - resource `required` flags participate in the digest because they change
   install, activation, and binding behavior
-- the digest projection excludes `displayName`, `description`, `exports`, unused
-  schemas, and unused error declarations
+- the digest projection excludes contract-level `displayName`, `description`,
+  `exports`, unused schemas, and unused error declarations
+- capability metadata is not display-only contract metadata; it participates in
+  the digest because it defines the human meaning of granted authority
 - set-like arrays such as capabilities, `uses.*` logical-name lists, and RPC
   error lists are sorted and deduplicated before digesting
 - order-sensitive arrays such as event params, job backoff schedules, and JSON
@@ -954,6 +1054,13 @@ Binding rules:
 - higher-level runtimes typically call `Trellis.Bindings.Get` during connect or
   bootstrap, then expose the resolved bindings or typed resource handles
   directly to service code
+- authenticated service bootstrap MAY return the resolved binding payload
+  directly; in that mode the bootstrapped service runtime MUST use the bootstrap
+  binding instead of requiring the service principal to call `Trellis.Catalog` or
+  `Trellis.Bindings.Get` after connect
+- service principals only call discovery RPCs when their active contract grants
+  the relevant Trellis-owned `uses` surface; resource bindings alone do not grant
+  general core discovery access
 
 ### 15) Installation and activation rules
 
@@ -1072,6 +1179,9 @@ For each installed resource binding:
 - higher-level runtimes typically call `Trellis.Bindings.Get` during connect or
   bootstrap and expose the resulting bindings or typed resource handles to
   service code
+- if authenticated service bootstrap already returned the resolved binding,
+  higher-level runtimes use that payload as the binding source of truth rather
+  than issuing service-principal discovery RPCs during startup
 
 Rules:
 

@@ -8,6 +8,7 @@ import {
   digestContractManifest,
   isJsonValue,
   type JsonValue,
+  normalizeContractManifest,
 } from "@qlever-llc/trellis/contracts";
 import { compileSchema, draft2019, type JsonSchema } from "json-schema-library";
 import { Type } from "typebox";
@@ -218,26 +219,6 @@ function validateEventTemplateParams(contract: TrellisContractV1): void {
       }
     }
   }
-}
-
-function normalizeContract(contract: TrellisContractV1): TrellisContractV1 {
-  return {
-    format: contract.format,
-    id: contract.id,
-    displayName: contract.displayName,
-    description: contract.description,
-    kind: contract.kind,
-    ...(contract.schemas ? { schemas: contract.schemas } : {}),
-    ...(contract.exports ? { exports: contract.exports } : {}),
-    ...(contract.uses ? { uses: contract.uses } : {}),
-    ...(contract.state ? { state: contract.state } : {}),
-    ...(contract.rpc ? { rpc: contract.rpc } : {}),
-    ...(contract.operations ? { operations: contract.operations } : {}),
-    ...(contract.events ? { events: contract.events } : {}),
-    ...(contract.jobs ? { jobs: contract.jobs } : {}),
-    ...(contract.resources ? { resources: contract.resources } : {}),
-    ...(contract.errors ? { errors: contract.errors } : {}),
-  };
 }
 
 function assertSchemaRefExists(
@@ -678,7 +659,7 @@ export class ContractStore {
     }
 
     assertValidContractValue(raw);
-    const contract = normalizeContract(raw);
+    const contract = normalizeContractManifest(raw);
     validateEmbeddedSchemas(contract);
     validateSchemaRefs(contract);
     validateEventTemplateParams(contract);

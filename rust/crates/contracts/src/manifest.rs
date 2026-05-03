@@ -28,7 +28,7 @@ pub fn load_manifest(path: impl AsRef<Path>) -> Result<LoadedManifest, Contracts
     let value = load_json_value(path)?;
     let manifest = parse_manifest(value.clone())?;
     let canonical = canonicalize_json(&value)?;
-    let digest = sha256_base64url(&canonicalize_json(&contract_digest_projection(&value))?);
+    let digest = digest_contract_value(&value)?;
 
     Ok(LoadedManifest {
         path: path.to_path_buf(),
@@ -394,12 +394,20 @@ fn insert_if_present(target: &mut serde_json::Map<String, Value>, key: &str, val
     }
 }
 
-fn contract_digest_projection(contract: &Value) -> Value {
+/// Build the canonical semantic projection used for Trellis contract identity.
+///
+/// This projection is language-neutral and intentionally differs from the full
+/// manifest: display-only metadata and unknown extension fields are excluded,
+/// while runtime authority metadata such as top-level capabilities is included.
+pub fn project_contract_digest_manifest(contract: &Value) -> Value {
     let mut projected = serde_json::Map::new();
     for key in ["format", "id", "kind"] {
         if let Some(value) = contract.get(key) {
             projected.insert(key.to_string(), value.clone());
         }
+    }
+    if let Some(capabilities) = contract.get("capabilities") {
+        projected.insert("capabilities".to_string(), capabilities.clone());
     }
     insert_if_present(
         &mut projected,
@@ -435,6 +443,19 @@ fn contract_digest_projection(contract: &Value) -> Value {
         project_resources(contract.get("resources")),
     );
     Value::Object(projected)
+}
+
+/// Compute the v1 contract digest for a JSON manifest value.
+pub fn digest_contract_value(contract: &Value) -> Result<String, ContractsError> {
+    Ok(sha256_base64url(&canonicalize_json(
+        &project_contract_digest_manifest(contract),
+    )?))
+}
+
+/// Parse and compute the v1 contract digest for a JSON manifest string.
+pub fn digest_contract_json(contract_json: &str) -> Result<String, ContractsError> {
+    let contract: Value = serde_json::from_str(contract_json)?;
+    digest_contract_value(&contract)
 }
 
 /// Collect contract manifest candidates from one directory.
@@ -502,6 +523,17 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
 
     for (name, event) in &manifest.events {
         assert_schema_ref_exists(manifest, &event.event.schema, &format!("event '{name}'"))?;
+    }
+
+    for (name, state) in &manifest.state {
+        assert_schema_ref_exists(manifest, &state.schema.schema, &format!("state '{name}'"))?;
+        for (version, schema) in &state.accepted_versions {
+            assert_schema_ref_exists(
+                manifest,
+                &schema.schema,
+                &format!("state '{name}' accepted version '{version}'"),
+            )?;
+        }
     }
 
     for (name, error) in &manifest.errors {

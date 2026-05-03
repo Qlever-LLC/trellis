@@ -1,7 +1,10 @@
 import { assert, assertEquals } from "@std/assert";
 import { AsyncResult, isErr, Result } from "@qlever-llc/result";
 import type { OperationSnapshot } from "@qlever-llc/trellis";
-import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import {
+  digestContractManifest,
+  type TrellisContractV1,
+} from "@qlever-llc/trellis/contracts";
 import Value from "typebox/value";
 import {
   AuthListConnectionsResponseSchema,
@@ -47,6 +50,7 @@ import {
   createAuthUnapplyServiceDeploymentContractHandler,
   type ServiceAdminRpcDeps,
 } from "./service_rpc.ts";
+import { ContractStore } from "../../catalog/store.ts";
 
 async function* emptyKeys(): AsyncIterable<string> {}
 
@@ -394,6 +398,65 @@ Deno.test("Auth.ApplyServiceDeploymentContract refreshes active contracts after 
     contractId: "acme.billing@v1",
     allowedDigests: ["digest-a"],
     resourceBindingsByDigest: { "digest-a": {} },
+  }]);
+});
+
+Deno.test("Auth.ApplyServiceDeploymentContract uses canonical digest including top-level capabilities", async () => {
+  const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
+  serviceDeploymentStorage.seed({
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [],
+  });
+  const contractStore = new ContractStore();
+  const capabilityContract: TrellisContractV1 = {
+    ...serviceContract,
+    capabilities: {
+      "acme.billing::admin.read": {
+        displayName: "Read billing admin data",
+        description: "View billing administrative state.",
+      },
+    },
+  };
+  const expectedDigest = digestContractManifest(capabilityContract);
+
+  const handler = createAuthApplyServiceDeploymentContractHandler({
+    serviceDeploymentStorage,
+    installServiceContract: async (contract) => {
+      const validated = await contractStore.validate(contract);
+      return {
+        id: validated.contract.id,
+        digest: validated.digest,
+        displayName: validated.contract.displayName,
+        description: validated.contract.description,
+        contract: validated.contract,
+        usedNamespaces: ["billing"],
+      };
+    },
+    refreshActiveContracts: async () => {},
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      contract: capabilityContract,
+      expectedDigest,
+    },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  const value = result.take() as {
+    deployment: ServiceDeployment;
+    contract: { digest: string };
+  };
+  assertEquals(value.contract.digest, expectedDigest);
+  assertEquals(value.deployment.appliedContracts, [{
+    contractId: "acme.billing@v1",
+    allowedDigests: [expectedDigest],
+    resourceBindingsByDigest: { [expectedDigest]: {} },
   }]);
 });
 

@@ -213,13 +213,18 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    const applied = deployment.appliedContracts.find((entry) =>
+    const contract = deps.contractStore.getContract(request.contractDigest, {
+      includeInactive: true,
+    });
+    const exactApplied = deployment.appliedContracts.find((entry) =>
+      entry.contractId === request.contractId &&
       entry.allowedDigests.includes(request.contractDigest)
     );
-    if (!applied || applied.contractId !== request.contractId) {
-      const matchingLineage = deployment.appliedContracts.find((entry) =>
-        entry.contractId === request.contractId
-      );
+    const matchingLineage = deployment.appliedContracts.find((entry) =>
+      entry.contractId === request.contractId
+    );
+    const applied = exactApplied;
+    if (!applied) {
       const allowedDigests = matchingLineage?.allowedDigests ?? [];
       const message = allowedDigests.length > 0
         ? `Service instance '${service.instanceId}' under deployment '${deployment.deploymentId}' is not allowed to run digest '${request.contractDigest}' for contract '${request.contractId}'. Allowed digests: ${
@@ -244,9 +249,6 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    const contract = deps.contractStore.getContract(request.contractDigest, {
-      includeInactive: true,
-    });
     if (!contract || contract.id !== request.contractId) {
       return c.json(
         bootstrapFailure(
