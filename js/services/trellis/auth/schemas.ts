@@ -4,6 +4,7 @@ import {
   type BindResponse,
   BindResponseSchema,
   BindSuccessResponseSchema,
+  type ContractApproval as AuthContractApproval,
   ContractApprovalSchema,
   type SentinelCreds,
   SentinelCredsSchema,
@@ -197,7 +198,7 @@ export type DeviceActivationReviewRecord = StaticDecode<
 >;
 
 export type ApprovalDecision = StaticDecode<typeof ApprovalDecisionSchema>;
-export type ContractApproval = StaticDecode<typeof ContractApprovalSchema>;
+export type ContractApproval = AuthContractApproval;
 export type UserParticipantKind = StaticDecode<
   typeof UserParticipantKindSchema
 >;
@@ -226,9 +227,17 @@ export const ContractApprovalRecordSchema = Type.Object({
   publishSubjects: Type.Array(Type.String()),
   subscribeSubjects: Type.Array(Type.String()),
 }, { additionalProperties: false });
-export type ContractApprovalRecord = StaticDecode<
-  typeof ContractApprovalRecordSchema
->;
+export type ContractApprovalRecord = {
+  userTrellisId: string;
+  origin: string;
+  id: string;
+  answer: ApprovalDecision;
+  answeredAt: Date;
+  updatedAt: Date;
+  approval: ContractApproval;
+  publishSubjects: string[];
+  subscribeSubjects: string[];
+};
 
 export type BindSuccessResponse = StaticDecode<
   typeof BindSuccessResponseSchema

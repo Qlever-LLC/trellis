@@ -1,5 +1,17 @@
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertThrows } from "@std/assert";
+import {
+  CONTRACT as TRELLIS_JOBS_CONTRACT,
+  CONTRACT_DIGEST as TRELLIS_JOBS_CONTRACT_DIGEST,
+} from "#trellis-generated-sdk/jobs";
+import {
+  CONTRACT as TRELLIS_CORE_CONTRACT,
+  CONTRACT_DIGEST as TRELLIS_CORE_CONTRACT_DIGEST,
+} from "#trellis-generated-sdk/core";
+import {
+  CONTRACT as TRELLIS_HEALTH_CONTRACT,
+  CONTRACT_DIGEST as TRELLIS_HEALTH_CONTRACT_DIGEST,
+} from "#trellis-generated-sdk/health";
 
 import {
   getContracts,
@@ -624,6 +636,83 @@ Deno.test("service cannot call undeclared cross-contract RPCs by capability alon
       publishSubjects.includes("rpc.v1.Trellis.Contract.Get"),
       false,
     );
+  });
+});
+
+Deno.test("jobs admin service receives built-in Jobs runtime subjects", () => {
+  const jobsContract = {
+    digest: TRELLIS_JOBS_CONTRACT_DIGEST,
+    contract: TRELLIS_JOBS_CONTRACT,
+  } satisfies { digest: string; contract: TrellisContractV1 };
+  const coreContract = {
+    digest: TRELLIS_CORE_CONTRACT_DIGEST,
+    contract: TRELLIS_CORE_CONTRACT,
+  } satisfies { digest: string; contract: TrellisContractV1 };
+  const healthContract = {
+    digest: TRELLIS_HEALTH_CONTRACT_DIGEST,
+    contract: TRELLIS_HEALTH_CONTRACT,
+  } satisfies { digest: string; contract: TrellisContractV1 };
+
+  withContracts([
+    ...TEST_CONTRACTS.filter((entry) =>
+      entry.contract.id !== "trellis.core@v1" &&
+      entry.contract.id !== "trellis.health@v1"
+    ),
+    coreContract,
+    healthContract,
+    jobsContract,
+  ], () => {
+    const publishSubjects = getServicePublishSubjects(["service"], {
+      sessionKey: "jobs-key",
+      contractDigest: TRELLIS_JOBS_CONTRACT_DIGEST,
+    });
+    assertEquals(publishSubjects.includes("$JS.API.STREAM.INFO.JOBS"), true);
+    assertEquals(
+      publishSubjects.includes("$JS.API.CONSUMER.DURABLE.CREATE.JOBS.>"),
+      true,
+    );
+    assertEquals(
+      publishSubjects.includes("$JS.API.STREAM.INFO.JOBS_ADVISORIES"),
+      true,
+    );
+    assertEquals(
+      publishSubjects.includes(
+        "$JS.API.CONSUMER.DURABLE.CREATE.JOBS_ADVISORIES.>",
+      ),
+      true,
+    );
+    assertEquals(
+      publishSubjects.includes("$JS.API.STREAM.MSG.GET.JOBS_WORK"),
+      true,
+    );
+    assertEquals(
+      publishSubjects.includes("$JS.API.STREAM.CREATE.KV_JOBS_WORKER_PRESENCE"),
+      true,
+    );
+    assertEquals(publishSubjects.includes("trellis.jobs.>"), true);
+  });
+});
+
+Deno.test("forged jobs contract digest does not receive built-in Jobs runtime subjects", () => {
+  const forgedJobsContract = {
+    digest: "forged-jobs-digest",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.jobs@v1",
+      displayName: "Forged Jobs",
+      description: "Not the canonical Jobs admin service.",
+      kind: "service",
+      schemas: {},
+    },
+  } satisfies { digest: string; contract: TrellisContractV1 };
+
+  withContracts([...TEST_CONTRACTS, forgedJobsContract], () => {
+    const publishSubjects = getServicePublishSubjects(["service"], {
+      sessionKey: "jobs-key",
+      contractDigest: "forged-jobs-digest",
+    });
+    assertEquals(publishSubjects.includes("$JS.API.STREAM.INFO.JOBS"), false);
+    assertEquals(publishSubjects.includes("trellis.jobs.>"), false);
   });
 });
 

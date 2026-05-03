@@ -10,6 +10,12 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     displayName: "Example Auth",
     description: "Auth API",
     kind: "service",
+    capabilities: {
+      "users:read": {
+        displayName: "Read users",
+        description: "Read user profile data.",
+      },
+    },
     schemas: {
       EmptyInput: { type: "object" },
       EmptyOutput: { type: "object" },
@@ -90,12 +96,24 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
   });
 
   assertEquals(plan.approval.contractId, "example.console@v1");
-  assertEquals(plan.approval.capabilities, [
-    "audit:read",
-    "evidence:read",
-    "evidence:write",
-    "users:read",
-  ]);
+  assertEquals(plan.approval.capabilities, {
+    "audit:read": {
+      displayName: "audit:read",
+      description: "Requires audit:read.",
+    },
+    "evidence:read": {
+      displayName: "evidence:read",
+      description: "Requires evidence:read.",
+    },
+    "evidence:write": {
+      displayName: "evidence:write",
+      description: "Requires evidence:write.",
+    },
+    "users:read": {
+      displayName: "Read users",
+      description: "Read user profile data.",
+    },
+  });
   assertEquals(plan.publishSubjects, [
     "operations.v1.example.Evidence.Upload",
     "operations.v1.example.Evidence.Upload.control",
@@ -154,11 +172,20 @@ Deno.test("planUserContractApproval includes operation read and declared cancel 
     },
   });
 
-  assertEquals(plan.approval.capabilities, [
-    "jobs:cancel",
-    "jobs:read",
-    "jobs:write",
-  ]);
+  assertEquals(plan.approval.capabilities, {
+    "jobs:cancel": {
+      displayName: "jobs:cancel",
+      description: "Requires jobs:cancel.",
+    },
+    "jobs:read": {
+      displayName: "jobs:read",
+      description: "Requires jobs:read.",
+    },
+    "jobs:write": {
+      displayName: "jobs:write",
+      description: "Requires jobs:write.",
+    },
+  });
   assertEquals(plan.publishSubjects, [
     "operations.v1.example.Jobs.Run",
     "operations.v1.example.Jobs.Run.control",
@@ -404,6 +431,6 @@ Deno.test("planUserContractApproval still rejects invalid active dependencies", 
         },
       }),
     Error,
-    "Dependency 'auth' references missing RPC 'Auth.Missing' on 'example.auth@v1'",
+    "Dependency 'auth' references missing rpc 'Auth.Missing' on 'example.auth@v1'",
   );
 });

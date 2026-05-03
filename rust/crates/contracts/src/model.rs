@@ -49,6 +49,19 @@ pub struct RpcCapabilities {
     pub call: Option<Vec<String>>,
 }
 
+/// Human-facing metadata for one contract-declared capability.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractCapabilityMetadata {
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consequence: Option<String>,
+}
+
+/// Contract-declared capability metadata, keyed by capability name.
+pub type ContractCapabilities = BTreeMap<String, ContractCapabilityMetadata>;
+
 /// Capability requirements for publishing or subscribing to a surface.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PubSubCapabilities {
@@ -91,6 +104,29 @@ pub struct ContractUseRef {
     pub operations: Option<ContractUseOperation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub events: Option<ContractUsePubSub>,
+}
+
+/// Supported Trellis-managed state store shapes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ContractStateKind {
+    Value,
+    Map,
+}
+
+/// One Trellis-managed state store declaration in a contract manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractStateStore {
+    pub kind: ContractStateKind,
+    pub schema: ContractSchemaRef,
+    #[serde(rename = "stateVersion", skip_serializing_if = "Option::is_none")]
+    pub state_version: Option<String>,
+    #[serde(
+        rename = "acceptedVersions",
+        skip_serializing_if = "BTreeMap::is_empty",
+        default
+    )]
+    pub accepted_versions: BTreeMap<String, ContractSchemaRef>,
 }
 
 /// Capability requirements for invoking and observing an operation.
@@ -263,11 +299,15 @@ pub struct ContractManifest {
     pub description: String,
     pub kind: ContractKind,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub capabilities: ContractCapabilities,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub schemas: BTreeMap<String, Value>,
     #[serde(default, skip_serializing_if = "ContractExports::is_empty")]
     pub exports: ContractExports,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub uses: BTreeMap<String, ContractUseRef>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub state: BTreeMap<String, ContractStateStore>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rpc: BTreeMap<String, ContractRpcMethod>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

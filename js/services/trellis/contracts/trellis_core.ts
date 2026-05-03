@@ -22,7 +22,19 @@ const schemas = {
 } as const;
 
 export const trellisCore = defineServiceContract(
-  { schemas },
+  {
+    schemas,
+    capabilities: {
+      "trellis.catalog.read": {
+        displayName: "Read contract catalog",
+        description: "List the installed Trellis contract catalog.",
+      },
+      "trellis.contract.read": {
+        displayName: "Read installed contracts",
+        description: "Read installed contract manifests and metadata.",
+      },
+    },
+  },
   (ref) => ({
     id: "trellis.core@v1",
     displayName: "Trellis Core",

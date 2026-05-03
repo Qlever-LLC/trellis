@@ -846,32 +846,32 @@ export const TRELLIS_AUTH_EVENTS = {
     version: "v1",
     event: schemaRef("AuthConnectEvent"),
     capabilities: {
-      publish: ["service:events:auth"],
-      subscribe: ["service:events:auth"],
+      publish: ["events.auth"],
+      subscribe: ["events.auth"],
     },
   },
   "Auth.ConnectionKicked": {
     version: "v1",
     event: schemaRef("AuthConnectionKickedEvent"),
     capabilities: {
-      publish: ["service:events:auth"],
-      subscribe: ["service:events:auth"],
+      publish: ["events.auth"],
+      subscribe: ["events.auth"],
     },
   },
   "Auth.Disconnect": {
     version: "v1",
     event: schemaRef("AuthDisconnectEvent"),
     capabilities: {
-      publish: ["service:events:auth"],
-      subscribe: ["service:events:auth"],
+      publish: ["events.auth"],
+      subscribe: ["events.auth"],
     },
   },
   "Auth.SessionRevoked": {
     version: "v1",
     event: schemaRef("AuthSessionRevokedEvent"),
     capabilities: {
-      publish: ["service:events:auth"],
-      subscribe: ["service:events:auth"],
+      publish: ["events.auth"],
+      subscribe: ["events.auth"],
     },
   },
   "Auth.DeviceActivationReviewRequested": {
@@ -879,7 +879,7 @@ export const TRELLIS_AUTH_EVENTS = {
     event: schemaRef("AuthDeviceActivationReviewRequestedEvent"),
     params: ["/deploymentId"],
     capabilities: {
-      publish: ["service:events:auth"],
+      publish: ["events.auth"],
       subscribe: ["device.review"],
     },
   },
@@ -888,7 +888,7 @@ export const TRELLIS_AUTH_EVENTS = {
     event: schemaRef("AuthDeviceActivationRequestedEvent"),
     params: ["/deploymentId"],
     capabilities: {
-      publish: ["service:events:auth"],
+      publish: ["events.auth"],
       subscribe: ["device.review"],
     },
   },
@@ -897,7 +897,7 @@ export const TRELLIS_AUTH_EVENTS = {
     event: schemaRef("AuthDeviceActivationApprovedEvent"),
     params: ["/deploymentId"],
     capabilities: {
-      publish: ["service:events:auth"],
+      publish: ["events.auth"],
       subscribe: ["device.review"],
     },
   },
@@ -906,14 +906,26 @@ export const TRELLIS_AUTH_EVENTS = {
     event: schemaRef("AuthDeviceActivatedEvent"),
     params: ["/deploymentId"],
     capabilities: {
-      publish: ["service:events:auth"],
-      subscribe: ["service:events:auth", "device.review"],
+      publish: ["events.auth"],
+      subscribe: ["events.auth", "device.review"],
     },
   },
 } as const;
 
 const baseTrellisAuth = defineServiceContract(
-  { schemas },
+  {
+    schemas,
+    capabilities: {
+      "device.review": {
+        displayName: "Review device activation",
+        description: "Review and decide pending device activation requests.",
+      },
+      "events.auth": {
+        displayName: "Observe auth events",
+        description: "Publish or subscribe to Trellis auth lifecycle events.",
+      },
+    },
+  },
   () => ({
     id: "trellis.auth@v1",
     displayName: "Trellis Auth",

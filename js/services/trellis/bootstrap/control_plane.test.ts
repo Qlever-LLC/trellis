@@ -23,7 +23,11 @@ Deno.test("console approval resolves Jobs access from built-in contracts", async
   const plan = await planUserContractApproval(store, consoleContract.CONTRACT);
 
   assertEquals(plan.contract.id, "trellis.console@v1");
-  assert(plan.approval.capabilities.includes("jobs.admin.read"));
+  assert(
+    Object.keys(plan.approval.capabilities).includes(
+      "trellis.jobs::jobs.admin.read",
+    ),
+  );
   assert(plan.publishSubjects.includes("rpc.v1.Jobs.List"));
   assert(plan.publishSubjects.includes("rpc.v1.Jobs.ListServices"));
 });

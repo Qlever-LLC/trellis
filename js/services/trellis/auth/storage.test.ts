@@ -332,7 +332,12 @@ function makeApproval(
       displayName: "Test App",
       description: "Test app contract",
       participantKind: "app",
-      capabilities: ["items.read"],
+      capabilities: {
+        "items.read": {
+          displayName: "Read items",
+          description: "View item records.",
+        },
+      },
     },
     publishSubjects: ["events.v1.Items.Updated"],
     subscribeSubjects: ["rpc.v1.Items.Get"],

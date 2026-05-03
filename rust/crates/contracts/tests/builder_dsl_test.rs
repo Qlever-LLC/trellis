@@ -1,6 +1,7 @@
 use serde_json::json;
 use trellis_contracts::{
-    schema_ref, store, use_contract, ContractKind, ContractManifestBuilder, CONTRACT_FORMAT_V1,
+    schema_ref, state, store, use_contract, ContractCapabilityMetadata, ContractKind,
+    ContractManifestBuilder, ContractStateKind, ContractsError, CONTRACT_FORMAT_V1,
 };
 
 #[test]
@@ -16,6 +17,112 @@ fn builder_minimal_manifest_defaults_format_and_validates() {
 
     assert_eq!(manifest.format, CONTRACT_FORMAT_V1);
     assert_eq!(manifest.id, "example.contract@v1");
+}
+
+#[test]
+fn builder_adds_baseline_health_for_service_contracts() {
+    let manifest = ContractManifestBuilder::new(
+        "example.service@v1",
+        "Example Service",
+        "Example service description.",
+        ContractKind::Service,
+    )
+    .build()
+    .expect("builder should produce a valid service manifest");
+
+    let health = manifest.uses.get("health").expect("baseline health use");
+    assert_eq!(health.contract, "trellis.health@v1");
+    assert_eq!(
+        health
+            .events
+            .as_ref()
+            .and_then(|events| events.publish.as_ref()),
+        Some(&vec!["Health.Heartbeat".to_string()])
+    );
+}
+
+#[test]
+fn builder_does_not_add_baseline_health_to_health_contract_itself() {
+    let manifest = ContractManifestBuilder::new(
+        "trellis.health@v1",
+        "Trellis Health",
+        "Expose shared Trellis heartbeat events.",
+        ContractKind::Service,
+    )
+    .build()
+    .expect("health contract should build without self-use");
+
+    assert!(!manifest.uses.contains_key("health"));
+}
+
+#[test]
+fn builder_adds_baseline_health_for_device_contracts_with_state() {
+    let manifest = ContractManifestBuilder::new(
+        "example.device@v1",
+        "Example Device",
+        "Example device manifest.",
+        ContractKind::Device,
+    )
+    .schema(
+        "Preferences",
+        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+    )
+    .state(
+        "preferences",
+        state(ContractStateKind::Value, "Preferences"),
+    )
+    .build()
+    .expect("builder should produce a valid device manifest");
+
+    assert!(manifest.uses.contains_key("health"));
+}
+
+#[test]
+fn builder_merges_explicit_health_use_with_baseline_heartbeat() {
+    let manifest = ContractManifestBuilder::new(
+        "example.explicit-health@v1",
+        "Example Explicit Health",
+        "Example explicit health manifest.",
+        ContractKind::Service,
+    )
+    .use_ref(
+        "health",
+        use_contract("trellis.health@v1").with_event_subscribe(["Health.Heartbeat"]),
+    )
+    .build()
+    .expect("builder should produce a valid service manifest");
+
+    let events = manifest.uses["health"]
+        .events
+        .as_ref()
+        .expect("health events");
+    assert_eq!(events.publish, Some(vec!["Health.Heartbeat".to_string()]));
+    assert_eq!(events.subscribe, Some(vec!["Health.Heartbeat".to_string()]));
+}
+
+#[test]
+fn builder_returns_error_for_conflicting_implicit_health_alias() {
+    let error = ContractManifestBuilder::new(
+        "example.bad-health@v1",
+        "Example Bad Health",
+        "Example bad health manifest.",
+        ContractKind::Service,
+    )
+    .use_ref("health", use_contract("example.health@v1"))
+    .build()
+    .expect_err("conflicting implicit health alias should fail");
+
+    let ContractsError::ContractUseConflict {
+        alias,
+        existing_contract,
+        new_contract,
+    } = error
+    else {
+        panic!("expected contract use conflict error");
+    };
+    assert_eq!(alias, "health");
+    assert_eq!(existing_contract, "example.health@v1");
+    assert_eq!(new_contract, "trellis.health@v1");
 }
 
 #[test]
@@ -40,7 +147,7 @@ fn builder_supports_uses_rpc_kv_store_and_job_queue_resources() {
         }),
     )
     .schema(
-        "JobState",
+        "CacheState",
         json!({
             "type": "object",
             "required": ["status"],
@@ -52,6 +159,14 @@ fn builder_supports_uses_rpc_kv_store_and_job_queue_resources() {
         "core",
         use_contract("trellis.core@v1").with_rpc_call(["Trellis.Catalog"]),
     )
+    .capability(
+        "jobs.admin.read",
+        ContractCapabilityMetadata {
+            display_name: "Read jobs".to_string(),
+            description: "View jobs.".to_string(),
+            consequence: None,
+        },
+    )
     .rpc(
         "Jobs.Health",
         trellis_contracts::rpc(
@@ -60,12 +175,12 @@ fn builder_supports_uses_rpc_kv_store_and_job_queue_resources() {
             "HealthRequest",
             "HealthResponse",
         )
-        .with_call_capabilities(["jobs.admin.read"])
+        .with_call_capabilities(["jobs.admin.read", "service"])
         .with_error_types(["UnexpectedError"]),
     )
     .kv_resource(
-        "jobsState",
-        trellis_contracts::kv("Store projected job state", "JobState")
+        "cacheState",
+        trellis_contracts::kv("Store projected cache state", "CacheState")
             .required(true)
             .history(1)
             .ttl_ms(0),
@@ -83,8 +198,25 @@ fn builder_supports_uses_rpc_kv_store_and_job_queue_resources() {
 
     assert!(manifest.uses.contains_key("core"));
     assert!(manifest.rpc.contains_key("Jobs.Health"));
-    assert!(manifest.resources.kv.contains_key("jobsState"));
-    assert_eq!(manifest.resources.kv["jobsState"].schema.schema, "JobState");
+    assert!(manifest
+        .capabilities
+        .contains_key("example.jobs::jobs.admin.read"));
+    assert_eq!(
+        manifest
+            .rpc
+            .get("Jobs.Health")
+            .and_then(|rpc| rpc.capabilities.as_ref())
+            .and_then(|capabilities| capabilities.call.as_ref()),
+        Some(&vec![
+            "example.jobs::jobs.admin.read".to_string(),
+            "service".to_string()
+        ])
+    );
+    assert!(manifest.resources.kv.contains_key("cacheState"));
+    assert_eq!(
+        manifest.resources.kv["cacheState"].schema.schema,
+        "CacheState"
+    );
     assert!(manifest.resources.store.contains_key("uploads"));
     assert!(manifest.jobs.contains_key("document-process"));
 }
@@ -121,6 +253,56 @@ fn builder_supports_store_resources() {
 }
 
 #[test]
+fn builder_supports_state_stores_exports_and_events() {
+    let manifest = ContractManifestBuilder::new(
+        "example.device@v1",
+        "Example Device",
+        "Example device manifest.",
+        ContractKind::Device,
+    )
+    .schema(
+        "Preferences",
+        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+    )
+    .schema(
+        "Changed",
+        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+    )
+    .export_schema("Preferences")
+    .state(
+        "preferences",
+        state(ContractStateKind::Value, "Preferences").state_version("preferences.v1"),
+    )
+    .event(
+        "Preferences.Changed",
+        trellis_contracts::event("v1", "events.v1.Preferences.Changed", "Changed"),
+    )
+    .build()
+    .expect("builder should produce a valid state manifest");
+
+    assert_eq!(manifest.exports.schemas, vec!["Preferences"]);
+    assert_eq!(manifest.state["preferences"].schema.schema, "Preferences");
+    assert!(manifest.events.contains_key("Preferences.Changed"));
+}
+
+#[test]
+fn builder_build_returns_validation_error_for_unknown_state_schema_ref() {
+    let error = ContractManifestBuilder::new(
+        "example.device@v1",
+        "Example Device",
+        "Example device manifest.",
+        ContractKind::Device,
+    )
+    .state("preferences", state(ContractStateKind::Value, "Missing"))
+    .build()
+    .expect_err("builder should reuse state schema validation");
+
+    let message = error.to_string();
+    assert!(message.contains("state"));
+    assert!(message.contains("unknown schema"));
+}
+
+#[test]
 fn builder_build_returns_validation_error_for_unknown_schema_ref() {
     let error = ContractManifestBuilder::new(
         "example.contract@v1",
@@ -152,8 +334,8 @@ fn builder_build_returns_validation_error_for_unknown_kv_schema_ref() {
         ContractKind::Service,
     )
     .kv_resource(
-        "jobsState",
-        trellis_contracts::kv("Store projected job state", "MissingState"),
+        "cacheState",
+        trellis_contracts::kv("Store projected cache state", "MissingState"),
     )
     .build()
     .expect_err("builder should reuse kv schema validation");
@@ -186,6 +368,30 @@ fn builder_supports_owned_and_used_operations() {
     .use_ref(
         "billing",
         use_contract("billing@v1").with_operation_call(["Billing.Refund"]),
+    )
+    .capability(
+        "payments.capture",
+        trellis_contracts::ContractCapabilityMetadata {
+            display_name: "Capture payments".to_string(),
+            description: "Start payment capture operations.".to_string(),
+            consequence: None,
+        },
+    )
+    .capability(
+        "payments.read",
+        trellis_contracts::ContractCapabilityMetadata {
+            display_name: "Read payments".to_string(),
+            description: "Read payment operation status.".to_string(),
+            consequence: None,
+        },
+    )
+    .capability(
+        "payments.cancel",
+        trellis_contracts::ContractCapabilityMetadata {
+            display_name: "Cancel payments".to_string(),
+            description: "Cancel payment operations.".to_string(),
+            consequence: None,
+        },
     )
     .operation(
         "Payments.Capture",

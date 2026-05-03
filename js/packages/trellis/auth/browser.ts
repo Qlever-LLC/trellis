@@ -42,6 +42,7 @@ export {
 } from "./browser/session.ts";
 export { deleteKeyPair, hasKeyPair } from "./browser/storage.ts";
 export {
+  approvalCapabilityKeys,
   type ApprovalDecision as ApprovalDecisionData,
   ApprovalDecisionSchema,
   type AuthStartFlowResponse as AuthStartFlowResponseData,
@@ -59,6 +60,7 @@ export {
   type ClientTransports as ClientTransportsData,
   ClientTransportsSchema,
   type ContractApproval as ContractApprovalData,
+  type ContractApprovalCapability as ContractApprovalCapabilityData,
   ContractApprovalSchema,
   type NatsAuthTokenV1 as NatsAuthTokenV1Data,
   NatsAuthTokenV1Schema,

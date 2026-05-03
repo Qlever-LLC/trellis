@@ -1,4 +1,7 @@
-import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
+import {
+  approvalCapabilityKeys,
+  trellisIdFromOriginId,
+} from "@qlever-llc/trellis/auth";
 import type { AsyncResult, BaseError } from "@qlever-llc/result";
 
 import { planUserContractApproval } from "../approval/plan.ts";
@@ -314,7 +317,7 @@ export async function getApprovalResolution(
     matchedPolicies,
   });
   const unresolvedCapabilities = missingCapabilities({
-    requiredCapabilities: plan.approval.capabilities,
+    requiredCapabilities: approvalCapabilityKeys(plan.approval),
     effectiveCapabilities: resolvedCapabilities,
   });
 

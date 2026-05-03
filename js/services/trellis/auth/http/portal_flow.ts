@@ -49,15 +49,6 @@ export async function buildPortalFlowState(args: {
     capabilities: approval.capabilities,
   };
 
-  if (args.resolution.storedApproval?.answer === "denied") {
-    return {
-      status: "approval_denied",
-      flowId: args.flowId,
-      approval: approvalView,
-      ...(args.returnLocation ? { returnLocation: args.returnLocation } : {}),
-    };
-  }
-
   if (args.resolution.missingCapabilities.length > 0) {
     return {
       status: "insufficient_capabilities",

@@ -69,5 +69,7 @@ export async function submitPortalApproval(
 export function portalRedirectLocation(
   state: PortalFlowState | null,
 ): string | null {
-  return state?.status === "redirect" ? state.location : null;
+  if (state?.status === "redirect") return state.location;
+  if (state?.status === "approval_denied") return state.returnLocation ?? null;
+  return null;
 }

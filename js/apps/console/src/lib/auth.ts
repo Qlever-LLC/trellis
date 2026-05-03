@@ -33,6 +33,14 @@ class ConsoleAuthState {
     callbackUrl: string,
   ): Promise<AuthCallbackResult | null> {
     const url = new URL(callbackUrl);
+    const authError = url.searchParams.get("authError");
+    if (authError === "approval_denied") {
+      return { status: "approval_denied" };
+    }
+    if (authError) {
+      return { status: "error", message: authError };
+    }
+
     const flowId = url.searchParams.get("flowId");
     if (!flowId) return null;
 

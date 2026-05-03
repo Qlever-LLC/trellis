@@ -133,6 +133,47 @@ The required user-facing contract metadata is:
 - `displayName`
 - `description`
 
+Contracts that own capability-gated surfaces SHOULD also declare top-level
+capability metadata. TypeScript authors write local capability keys in the
+contract source; emission projects declared local keys to global capability keys
+using `<contract id without @vN>::<local capability>`.
+
+Example shape:
+
+```ts
+export const jobs = defineServiceContract(
+  { schemas },
+  (ref) => ({
+    id: "trellis.jobs@v1",
+    displayName: "Trellis Jobs",
+    description: "Trellis-managed background job administration API.",
+    capabilities: {
+      "jobs.admin.read": {
+        displayName: "Read jobs admin data",
+        description: "View Jobs service health, services, jobs, and dead-letter queues.",
+      },
+      "jobs.admin.mutate": {
+        displayName: "Mutate jobs admin data",
+        description: "Cancel, retry, replay, or dismiss Jobs service work items.",
+        consequence: "Can change background job execution state.",
+      },
+    },
+    rpc: {
+      "Jobs.List": {
+        version: "v1",
+        input: ref.schema("JobsListRequest"),
+        output: ref.schema("JobsListResponse"),
+        capabilities: { call: ["jobs.admin.read"] },
+      },
+    },
+  }),
+);
+```
+
+The emitted manifest contains `trellis.jobs::jobs.admin.read` in both the
+top-level `capabilities` map and the RPC capability list. Undeclared platform
+capabilities such as `service` remain raw strings.
+
 Example shape:
 
 ```ts
@@ -207,6 +248,8 @@ multi-contract layout:
   `./types`, or `./contract`
 - local `operations`, `rpc`, `events`, `state`, `errors`, and `resources` remain
   the source for emitted owned contract content
+- local top-level `capabilities` metadata remains the source for emitted global
+  capability metadata and approval copy
 - a participant may omit owned `operations`, `rpc`, or `events`, and may omit
   `uses`
 - the defined contract computes and exposes the manifest digest from the emitted
@@ -587,6 +630,8 @@ Rules:
 
 - `displayName` and `description` are what approval and session-management UIs
   show to the user
+- top-level `capabilities` metadata is what approval UIs show for requested
+  capability-level authority; raw global capability keys are technical detail
 - browser apps send their contract manifest during login so auth can plan
   routing and approval; they are approved per-user and are not installed like
   services

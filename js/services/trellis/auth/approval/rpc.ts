@@ -114,7 +114,7 @@ export function createAuthListApprovalsHandler(deps: {
           contractId: string;
           displayName: string;
           description: string;
-          capabilities: string[];
+          capabilities: ContractApprovalRecord["approval"]["capabilities"];
         };
       }>;
 

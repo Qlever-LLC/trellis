@@ -53,16 +53,31 @@ export type UserParticipantKind = StaticDecode<
   typeof UserParticipantKindSchema
 >;
 
+export const ContractApprovalCapabilitySchema = Type.Object({
+  displayName: Type.String(),
+  description: Type.String(),
+  consequence: Type.Optional(Type.String()),
+}, { additionalProperties: false });
+
+export type ContractApprovalCapability = StaticDecode<
+  typeof ContractApprovalCapabilitySchema
+>;
+
 export const ContractApprovalSchema = Type.Object({
   contractDigest: ContractDigestSchema,
   contractId: Type.String(),
   displayName: Type.String(),
   description: Type.String(),
   participantKind: UserParticipantKindSchema,
-  capabilities: Type.Array(Type.String()),
+  capabilities: Type.Record(Type.String(), ContractApprovalCapabilitySchema),
 });
 
 export type ContractApproval = StaticDecode<typeof ContractApprovalSchema>;
+
+/** Returns the raw global capability keys required by an approval. */
+export function approvalCapabilityKeys(approval: ContractApproval): string[] {
+  return Object.keys(approval.capabilities);
+}
 
 export const BindSuccessResponseSchema = Type.Object({
   status: Type.Literal("bound"),

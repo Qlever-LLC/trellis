@@ -40,6 +40,11 @@
       }[];
     };
   };
+  interface CapabilityMetadata {
+    displayName: string;
+    description: string;
+    consequence?: string;
+  }
 
   let analysisSection = $state<string | null>(null);
 
@@ -62,6 +67,32 @@
 
   function serviceV1Analysis(analysis?: ContractDetail["analysis"]): ServiceV1Analysis | undefined {
     return analysis as ServiceV1Analysis | undefined;
+  }
+
+  function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  function isCapabilityMetadata(value: unknown): value is CapabilityMetadata {
+    if (!isPlainObject(value)) return false;
+    return (
+      typeof value.displayName === "string" &&
+      typeof value.description === "string" &&
+      (value.consequence === undefined || typeof value.consequence === "string")
+    );
+  }
+
+  function contractCapabilityEntries(
+    contract: unknown,
+  ): { key: string; capability: CapabilityMetadata }[] {
+    if (!isPlainObject(contract) || !isPlainObject(contract.capabilities)) {
+      return [];
+    }
+    return Object.entries(contract.capabilities)
+      .filter((entry): entry is [string, CapabilityMetadata] =>
+        isCapabilityMetadata(entry[1])
+      )
+      .map(([key, capability]) => ({ key, capability }));
   }
 
   let loading = $state(true);
@@ -181,6 +212,32 @@
                 <div class="col-span-2"><span class="text-base-content/50">Digest:</span> <span class="trellis-identifier">{detail.digest}</span></div>
                 <div><span class="text-base-content/50">Installed:</span> {formatDate(detail.installedAt)}</div>
               </div>
+
+              {@const capabilityRows = contractCapabilityEntries(detail.contract)}
+              {#if capabilityRows.length}
+                <div>
+                  <h4 class="text-xs font-semibold uppercase text-base-content/50 mb-2">Capabilities</h4>
+                  <div class="overflow-x-auto rounded-box bg-base-200">
+                    <table class="table table-xs trellis-table">
+                      <thead><tr><th>Capability</th><th>Description</th><th>Global key</th></tr></thead>
+                      <tbody>
+                        {#each capabilityRows as row (row.key)}
+                          <tr>
+                            <td class="font-medium">
+                              {row.capability.displayName}
+                              {#if row.capability.consequence}
+                                <div class="mt-1 text-xs font-normal text-base-content/50">{row.capability.consequence}</div>
+                              {/if}
+                            </td>
+                            <td class="text-base-content/60">{row.capability.description}</td>
+                            <td class="trellis-identifier text-base-content/50">{row.key}</td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              {/if}
 
               {#if detail.analysisSummary}
                 {@const summary = serviceV1Summary(detail.analysisSummary)}

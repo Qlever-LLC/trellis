@@ -273,7 +273,12 @@ Deno.test("BindResponseSchema validates insufficient-capabilities responses", ()
         displayName: "Trellis Console",
         description: "Admin app",
         participantKind: "app",
-        capabilities: ["admin"],
+        capabilities: {
+          admin: {
+            displayName: "Admin",
+            description: "Use administrator actions.",
+          },
+        },
       },
       missingCapabilities: ["admin"],
       userCapabilities: ["users.read"],
@@ -326,7 +331,12 @@ Deno.test("ContractApprovalRecordSchema validates stored app approvals", () => {
         displayName: "Trellis Console",
         description: "Admin app",
         participantKind: "app",
-        capabilities: ["admin"],
+        capabilities: {
+          admin: {
+            displayName: "Admin",
+            description: "Use administrator actions.",
+          },
+        },
       },
       publishSubjects: ["rpc.v1.Auth.ListServices"],
       subscribeSubjects: ["_INBOX.example.>"],

@@ -42,6 +42,22 @@ Deno.test("portalRedirectLocation returns auth-owned redirect locations", () => 
     }),
     "https://app.example.com/callback?flowId=flow-1",
   );
+  assertEquals(
+    portalRedirectLocation({
+      status: "approval_denied",
+      flowId: "flow-1",
+      approval: {
+        contractId: "trellis.console@v1",
+        contractDigest: "digest",
+        displayName: "Trellis Console",
+        description: "Admin console",
+        capabilities: {},
+      },
+      returnLocation:
+        "https://app.example.com/callback?authError=approval_denied",
+    }),
+    "https://app.example.com/callback?authError=approval_denied",
+  );
   assertEquals(portalRedirectLocation({ status: "expired" }), null);
 });
 

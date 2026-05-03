@@ -1,4 +1,5 @@
 import { HTTPException } from "@hono/hono/http-exception";
+import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
 
 import type { PendingAuth, SessionApprovalSource } from "../schemas.ts";
 import {
@@ -109,7 +110,7 @@ export function canAutoApproveFromCurrentSession(
   }
   if (
     !isSubset(
-      resolution.plan.approval.capabilities,
+      approvalCapabilityKeys(resolution.plan.approval),
       session.delegatedCapabilities,
     )
   ) {

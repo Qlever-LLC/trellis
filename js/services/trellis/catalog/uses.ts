@@ -52,6 +52,7 @@ export type ContractUseRef = {
 export type ResolvedRpcUse = {
   alias: string;
   contractId: string;
+  contract: TrellisContractV1;
   key: string;
   method: ContractRpcMethod;
 };
@@ -59,6 +60,7 @@ export type ResolvedRpcUse = {
 export type ResolvedEventUse = {
   alias: string;
   contractId: string;
+  contract: TrellisContractV1;
   key: string;
   event: ContractEvent;
 };
@@ -66,6 +68,7 @@ export type ResolvedEventUse = {
 export type ResolvedOperationUse = {
   alias: string;
   contractId: string;
+  contract: TrellisContractV1;
   key: string;
   operation: ContractOperation;
 };
@@ -586,7 +589,13 @@ export function resolveContractUses(
           key,
         });
       }
-      resolved.rpcCalls.push({ alias, contractId: target.id, key, method });
+      resolved.rpcCalls.push({
+        alias,
+        contractId: target.id,
+        contract: target,
+        key,
+        method,
+      });
     }
 
     for (const key of use.operations?.call ?? []) {
@@ -603,6 +612,7 @@ export function resolveContractUses(
       resolved.operationCalls.push({
         alias,
         contractId: target.id,
+        contract: target,
         key,
         operation,
       });
@@ -622,6 +632,7 @@ export function resolveContractUses(
       resolved.eventPublishes.push({
         alias,
         contractId: target.id,
+        contract: target,
         key,
         event,
       });
@@ -641,6 +652,7 @@ export function resolveContractUses(
       resolved.eventSubscribes.push({
         alias,
         contractId: target.id,
+        contract: target,
         key,
         event,
       });

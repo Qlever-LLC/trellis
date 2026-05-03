@@ -1,12 +1,13 @@
 use serde_json::Value;
 
 use crate::{
-    parse_manifest, ContractErrorRef, ContractExports, ContractJobQueueResource, ContractKind,
-    ContractKvResource, ContractManifest, ContractOperation, ContractOperationTransfer,
+    parse_manifest, ContractCapabilities, ContractCapabilityMetadata, ContractErrorRef,
+    ContractEvent, ContractExports, ContractJobQueueResource, ContractKind, ContractKvResource,
+    ContractManifest, ContractOperation, ContractOperationTransfer,
     ContractOperationTransferDirection, ContractResources, ContractRpcMethod, ContractRpcTransfer,
-    ContractRpcTransferDirection, ContractSchemaRef, ContractStoreResource, ContractUseOperation,
-    ContractUsePubSub, ContractUseRef, ContractUseRpc, ContractsError, OperationCapabilities,
-    RpcCapabilities, CONTRACT_FORMAT_V1,
+    ContractRpcTransferDirection, ContractSchemaRef, ContractStateKind, ContractStateStore,
+    ContractStoreResource, ContractUseOperation, ContractUsePubSub, ContractUseRef, ContractUseRpc,
+    ContractsError, OperationCapabilities, PubSubCapabilities, RpcCapabilities, CONTRACT_FORMAT_V1,
 };
 
 /// Thin builder over `ContractManifest` for Rust-authored contracts.
@@ -28,9 +29,11 @@ impl ContractManifestBuilder {
                 display_name: display_name.into(),
                 description: description.into(),
                 kind,
+                capabilities: Default::default(),
                 schemas: Default::default(),
                 exports: ContractExports::default(),
                 uses: Default::default(),
+                state: Default::default(),
                 rpc: Default::default(),
                 operations: Default::default(),
                 events: Default::default(),
@@ -46,8 +49,28 @@ impl ContractManifestBuilder {
         self
     }
 
+    /// Declare human-facing metadata for a contract-local capability.
+    pub fn capability(
+        mut self,
+        name: impl Into<String>,
+        metadata: ContractCapabilityMetadata,
+    ) -> Self {
+        self.manifest.capabilities.insert(name.into(), metadata);
+        self
+    }
+
     pub fn use_ref(mut self, alias: impl Into<String>, use_ref: ContractUseRef) -> Self {
         self.manifest.uses.insert(alias.into(), use_ref);
+        self
+    }
+
+    pub fn export_schema(mut self, name: impl Into<String>) -> Self {
+        self.manifest.exports.schemas.push(name.into());
+        self
+    }
+
+    pub fn state(mut self, name: impl Into<String>, state: ContractStateStore) -> Self {
+        self.manifest.state.insert(name.into(), state);
         self
     }
 
@@ -58,6 +81,11 @@ impl ContractManifestBuilder {
 
     pub fn operation(mut self, name: impl Into<String>, operation: ContractOperation) -> Self {
         self.manifest.operations.insert(name.into(), operation);
+        self
+    }
+
+    pub fn event(mut self, name: impl Into<String>, event: ContractEvent) -> Self {
+        self.manifest.events.insert(name.into(), event);
         self
     }
 
@@ -80,20 +108,265 @@ impl ContractManifestBuilder {
         self
     }
 
-    pub fn build(self) -> Result<ContractManifest, ContractsError> {
+    pub fn build(mut self) -> Result<ContractManifest, ContractsError> {
+        self.apply_baseline_uses()?;
+        self.project_declared_capabilities()?;
         let value = serde_json::to_value(self.manifest)?;
         parse_manifest(value)
     }
 
-    pub fn build_unvalidated(self) -> ContractManifest {
+    pub fn build_unvalidated(mut self) -> ContractManifest {
+        let _ = self.apply_baseline_uses();
+        let _ = self.project_declared_capabilities();
         self.manifest
     }
+
+    fn apply_baseline_uses(&mut self) -> Result<(), ContractsError> {
+        if matches!(
+            self.manifest.kind,
+            ContractKind::Service | ContractKind::Device
+        ) && self.manifest.id != "trellis.health@v1"
+        {
+            merge_use_ref(
+                &mut self.manifest.uses,
+                "health",
+                use_contract("trellis.health@v1").with_event_publish(["Health.Heartbeat"]),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn project_declared_capabilities(&mut self) -> Result<(), ContractsError> {
+        if self.manifest.capabilities.is_empty() {
+            assert_no_undeclared_local_capabilities(&self.manifest)?;
+            return Ok(());
+        }
+
+        let declared = self.manifest.capabilities.clone();
+        project_contract_capabilities(&mut self.manifest, &declared)?;
+        Ok(())
+    }
+}
+
+fn project_contract_capabilities(
+    manifest: &mut ContractManifest,
+    declared: &ContractCapabilities,
+) -> Result<(), ContractsError> {
+    let contract_id = manifest.id.clone();
+    manifest.capabilities = declared
+        .iter()
+        .map(|(name, metadata)| (global_capability_name(&contract_id, name), metadata.clone()))
+        .collect();
+
+    for method in manifest.rpc.values_mut() {
+        if let Some(capabilities) = method.capabilities.as_mut() {
+            project_capability_list(
+                &mut capabilities.call,
+                &contract_id,
+                declared,
+                "rpc call capabilities",
+            )?;
+        }
+    }
+    for operation in manifest.operations.values_mut() {
+        if let Some(capabilities) = operation.capabilities.as_mut() {
+            project_capability_list(
+                &mut capabilities.call,
+                &contract_id,
+                declared,
+                "operation call capabilities",
+            )?;
+            project_capability_list(
+                &mut capabilities.read,
+                &contract_id,
+                declared,
+                "operation read capabilities",
+            )?;
+            project_capability_list(
+                &mut capabilities.cancel,
+                &contract_id,
+                declared,
+                "operation cancel capabilities",
+            )?;
+        }
+    }
+    for event in manifest.events.values_mut() {
+        if let Some(capabilities) = event.capabilities.as_mut() {
+            project_capability_list(
+                &mut capabilities.publish,
+                &contract_id,
+                declared,
+                "event publish capabilities",
+            )?;
+            project_capability_list(
+                &mut capabilities.subscribe,
+                &contract_id,
+                declared,
+                "event subscribe capabilities",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn project_capability_list(
+    capabilities: &mut Option<Vec<String>>,
+    contract_id: &str,
+    declared: &ContractCapabilities,
+    context: &str,
+) -> Result<(), ContractsError> {
+    let Some(capabilities) = capabilities else {
+        return Ok(());
+    };
+    for capability in &mut *capabilities {
+        if declared.contains_key(capability) {
+            *capability = global_capability_name(contract_id, capability);
+        } else if !is_external_capability_ref(capability) {
+            return Err(ContractsError::UndeclaredCapability {
+                context: context.to_string(),
+                capability: capability.clone(),
+            });
+        }
+    }
+    capabilities.sort();
+    capabilities.dedup();
+    Ok(())
+}
+
+fn is_external_capability_ref(capability: &str) -> bool {
+    matches!(capability, "admin" | "service") || capability.contains("::")
+}
+
+fn assert_no_undeclared_local_capabilities(
+    manifest: &ContractManifest,
+) -> Result<(), ContractsError> {
+    for method in manifest.rpc.values() {
+        if let Some(capabilities) = method.capabilities.as_ref() {
+            assert_capability_list_external(&capabilities.call, "rpc call capabilities")?;
+        }
+    }
+    for operation in manifest.operations.values() {
+        if let Some(capabilities) = operation.capabilities.as_ref() {
+            assert_capability_list_external(&capabilities.call, "operation call capabilities")?;
+            assert_capability_list_external(&capabilities.read, "operation read capabilities")?;
+            assert_capability_list_external(&capabilities.cancel, "operation cancel capabilities")?;
+        }
+    }
+    for event in manifest.events.values() {
+        if let Some(capabilities) = event.capabilities.as_ref() {
+            assert_capability_list_external(&capabilities.publish, "event publish capabilities")?;
+            assert_capability_list_external(
+                &capabilities.subscribe,
+                "event subscribe capabilities",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn assert_capability_list_external(
+    capabilities: &Option<Vec<String>>,
+    context: &str,
+) -> Result<(), ContractsError> {
+    let Some(capabilities) = capabilities else {
+        return Ok(());
+    };
+    for capability in capabilities {
+        if !is_external_capability_ref(capability) {
+            return Err(ContractsError::UndeclaredCapability {
+                context: context.to_string(),
+                capability: capability.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn add_unique_strings(target: &mut Vec<String>, values: impl IntoIterator<Item = String>) {
+    for value in values {
+        if !target.contains(&value) {
+            target.push(value);
+        }
+    }
+}
+
+fn merge_use_ref(
+    uses: &mut std::collections::BTreeMap<String, ContractUseRef>,
+    alias: impl Into<String>,
+    use_ref: ContractUseRef,
+) -> Result<(), ContractsError> {
+    let alias = alias.into();
+    let Some(existing) = uses.get_mut(&alias) else {
+        uses.insert(alias, use_ref);
+        return Ok(());
+    };
+
+    if existing.contract != use_ref.contract {
+        return Err(ContractsError::ContractUseConflict {
+            alias,
+            existing_contract: existing.contract.clone(),
+            new_contract: use_ref.contract,
+        });
+    }
+
+    if let Some(rpc) = use_ref.rpc {
+        let existing_rpc = existing.rpc.get_or_insert_with(ContractUseRpc::default);
+        if let Some(next_call) = rpc.call {
+            let call = existing_rpc.call.get_or_insert_with(Vec::new);
+            add_unique_strings(call, next_call);
+        }
+    }
+
+    if let Some(operations) = use_ref.operations {
+        let existing_operations = existing
+            .operations
+            .get_or_insert_with(ContractUseOperation::default);
+        if let Some(next_call) = operations.call {
+            let call = existing_operations.call.get_or_insert_with(Vec::new);
+            add_unique_strings(call, next_call);
+        }
+    }
+
+    if let Some(events) = use_ref.events {
+        let existing_events = existing
+            .events
+            .get_or_insert_with(ContractUsePubSub::default);
+        if let Some(next_publish) = events.publish {
+            let publish = existing_events.publish.get_or_insert_with(Vec::new);
+            add_unique_strings(publish, next_publish);
+        }
+        if let Some(next_subscribe) = events.subscribe {
+            let subscribe = existing_events.subscribe.get_or_insert_with(Vec::new);
+            add_unique_strings(subscribe, next_subscribe);
+        }
+    }
+    Ok(())
 }
 
 pub fn schema_ref(name: impl Into<String>) -> ContractSchemaRef {
     ContractSchemaRef {
         schema: name.into(),
     }
+}
+
+/// Return the global capability namespace for a contract id.
+pub fn contract_capability_namespace(contract_id: &str) -> String {
+    let Some((namespace, version)) = contract_id.rsplit_once("@v") else {
+        return contract_id.to_string();
+    };
+    if version.chars().all(|char| char.is_ascii_digit()) && !version.is_empty() {
+        namespace.to_string()
+    } else {
+        contract_id.to_string()
+    }
+}
+
+/// Return the globally qualified name for a contract-local capability.
+pub fn global_capability_name(contract_id: &str, local_capability: &str) -> String {
+    format!(
+        "{}::{local_capability}",
+        contract_capability_namespace(contract_id)
+    )
 }
 
 pub fn rpc(
@@ -129,6 +402,29 @@ pub fn operation(
         transfer: None,
         capabilities: None,
         cancel: None,
+    }
+}
+
+pub fn event(
+    version: impl Into<String>,
+    subject: impl Into<String>,
+    event_schema: impl Into<String>,
+) -> ContractEvent {
+    ContractEvent {
+        version: version.into(),
+        subject: subject.into(),
+        params: None,
+        event: schema_ref(event_schema),
+        capabilities: None,
+    }
+}
+
+pub fn state(kind: ContractStateKind, schema: impl Into<String>) -> ContractStateStore {
+    ContractStateStore {
+        kind,
+        schema: schema_ref(schema),
+        state_version: None,
+        accepted_versions: Default::default(),
     }
 }
 
@@ -271,6 +567,47 @@ impl ContractOperation {
 
     pub fn cancel(mut self, cancel: bool) -> Self {
         self.cancel = Some(cancel);
+        self
+    }
+}
+
+impl ContractEvent {
+    pub fn with_publish_capabilities(
+        mut self,
+        publish: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let capabilities = self
+            .capabilities
+            .get_or_insert_with(PubSubCapabilities::default);
+        capabilities.publish = Some(publish.into_iter().map(Into::into).collect());
+        self
+    }
+
+    pub fn with_subscribe_capabilities(
+        mut self,
+        subscribe: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let capabilities = self
+            .capabilities
+            .get_or_insert_with(PubSubCapabilities::default);
+        capabilities.subscribe = Some(subscribe.into_iter().map(Into::into).collect());
+        self
+    }
+}
+
+impl ContractStateStore {
+    pub fn state_version(mut self, state_version: impl Into<String>) -> Self {
+        self.state_version = Some(state_version.into());
+        self
+    }
+
+    pub fn accepted_version(
+        mut self,
+        version: impl Into<String>,
+        schema: impl Into<String>,
+    ) -> Self {
+        self.accepted_versions
+            .insert(version.into(), schema_ref(schema));
         self
     }
 }

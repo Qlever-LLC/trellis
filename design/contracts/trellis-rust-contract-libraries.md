@@ -28,9 +28,13 @@ Today:
   logic
 - `trellis-client` exposes generic request and publish helpers over descriptor
   traits
-- `trellis-server` exposes a minimal router and event publisher
+- `trellis-service` exposes service-side routing, operation registration, and
+  event publishing primitives
 - generated Rust SDK crates expose owned contract constants, types, descriptors,
   and thin client/server helpers for a single manifest
+- Rust contract authoring helpers can build canonical manifests, including
+  top-level state declarations, schema exports, events, resources, jobs, RPCs,
+  operations, and contract-owned capability metadata
 
 That is not yet enough to express the contract ergonomics we want.
 
@@ -46,6 +50,8 @@ The gaps are:
   templated event subjects and operation control subjects
 - the current Rust shape does not provide an idiomatic equivalent of a local
   participant contract that defines both owned and used surfaces
+- Rust device activation has protocol helpers but not yet a full activated-device
+  runtime connect facade
 
 Rust should solve the same architectural problem as TypeScript, but with
 Rust-native ergonomics.
@@ -92,6 +98,9 @@ Rules:
 - generated Rust SDK crates and participant facades derive from manifests
 - native Rust authoring helpers or macros MAY exist later, but they are
   implementation details around deterministic manifest emission
+- Rust authoring helpers may accept local capability names and must emit the same
+  global capability keys as TypeScript helpers for declared contract-owned
+  capabilities
 
 ### 2) Primary Rust usage model
 
@@ -112,10 +121,10 @@ participant facade.
 Rust crate boundaries are:
 
 - `trellis-contracts` - canonical manifest, catalog, digest, and contract
-  metadata model
+  metadata model, including capability metadata and global capability key helpers
 - `trellis-client` - low-level outbound runtime primitives and typed descriptor
   traits used by generated code
-- `trellis-server` - low-level inbound runtime primitives and typed descriptor
+- `trellis-service` - low-level inbound runtime primitives and typed descriptor
   traits used by generated code
 - generated SDK crates - one crate per contract manifest, describing owned RPCs,
   operations, events, types, and metadata for that contract
@@ -134,11 +143,11 @@ Rules:
   primitives; generic operation, RPC, event, and derived runtime-subject client
   primitives; operation-native transfer execution helpers; and descriptor traits
   required by generated outbound code
-- `trellis-server` owns authenticated service-side runtime primitives, handler
+- `trellis-service` owns authenticated service-side runtime primitives, handler
   registration for owned operations and RPCs, owned event publish helpers,
   operation control/reply and transfer subject helpers derived from owned
   surfaces, and descriptor traits required by generated inbound code
-- `trellis-client` and `trellis-server` are stable generator targets, not the
+- `trellis-client` and `trellis-service` are stable generator targets, not the
   primary user authoring surface
 - generated participant facades are the supported ergonomic entrypoint for
   normal Rust participant code
@@ -229,13 +238,19 @@ Required descriptor semantics:
   publish subject from an event value when the subject is templated
 
 Generated participant facades expose contract-driven connection helpers that
-wrap stable `trellis-client` and `trellis-server` runtime primitives.
+wrap stable `trellis-client` and `trellis-service` runtime primitives.
 
 Rules:
 
 - helpers produce contract-shaped facades, not unfiltered transport clients
 - helpers do not implicitly inject extra contract SDKs beyond those declared by
   the local participant
+- service connection helpers retain the resource binding returned by authenticated
+  service bootstrap and use it to construct typed KV, store, jobs, and transfer
+  runtime handles
+- bootstrapped service principals should not perform a second discovery pass via
+  `Trellis.Catalog` or `Trellis.Bindings.Get` unless their contract explicitly
+  declares and receives that Trellis-owned surface
 - transfer execution should hang off transfer-capable operation refs rather than
   a standalone grant-transfer helper
 - exact helper names and option types belong in Rustdoc
@@ -249,6 +264,10 @@ Rules:
 - local participant-facade generation requires explicit mapping from `uses`
   aliases to SDK crates or module paths
 - generation fails if an alias mapping is missing or mismatched
+- generation does not require local SDK mappings for runtime-owned baseline
+  surfaces that already have native Rust runtime support, such as baseline
+  `health` heartbeat publishing or generated state helpers for
+  `trellis.state@v1`
 
 ## Normative Surface Ownership
 
@@ -258,7 +277,7 @@ examples, helper names, option types, and runtime helper surfaces belong in
 Rustdoc.
 
 - the public Rust contract/runtime surface remains split across
-  `trellis-contracts`, `trellis-client`, `trellis-server`, generated SDK crates,
+  `trellis-contracts`, `trellis-client`, `trellis-service`, generated SDK crates,
   and generated local participant facades
 - generated SDK crates describe only the owned surface of one contract and
   remain valid dependency vocabulary for participant-facade generation
@@ -268,11 +287,14 @@ Rustdoc.
 - local participant facades remain generated from the local manifest plus
   explicit alias-to-SDK mappings because manifest contract ids do not determine
   Cargo crate names
+- generation tooling may discover built-in Trellis SDK crate paths for declared
+  Trellis-owned aliases, but those mappings still follow the same explicit
+  alias-to-SDK model in the generated facade
 - alias-based facade access remains the primary ergonomic Rust surface; normal
   Rust code should not reconstruct a flat merged runtime namespace by hand
 - compile-time filtering remains contract-driven: absent aliases and unselected
   remote APIs do not produce generated accessors or methods
-- `trellis-client` and `trellis-server` remain lower-level generator targets and
+- `trellis-client` and `trellis-service` remain lower-level generator targets and
   advanced escape hatches rather than the primary user-facing ergonomic surface
 - descriptor traits in those runtime crates must remain rich enough for
   operations, RPCs, events, operation control subjects, and transfer/runtime
@@ -291,7 +313,7 @@ contract-owned APIs once participant facades are fully capable.
 
 Implementation should proceed in this order:
 
-1. strengthen `trellis-client` and `trellis-server` so they are stable generator
+1. strengthen `trellis-client` and `trellis-service` so they are stable generator
    targets for operations, RPCs, and events
 2. enrich Rust SDK generation so each contract SDK crate exports the full
    owned-surface module shape

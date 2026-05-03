@@ -148,7 +148,12 @@ function makeApproval(
       displayName: "Trellis Agent",
       description: "Local delegated tooling",
       participantKind: "agent",
-      capabilities: ["jobs.read"],
+      capabilities: {
+        "jobs.read": {
+          displayName: "Read jobs",
+          description: "View job status.",
+        },
+      },
     },
     publishSubjects: [],
     subscribeSubjects: [],
@@ -168,7 +173,12 @@ Deno.test("Auth.ListUserGrants returns the caller's approved app and agent grant
         displayName: "Console",
         description: "Admin app",
         participantKind: "app",
-        capabilities: ["admin"],
+        capabilities: {
+          admin: {
+            displayName: "Admin",
+            description: "Use administrator actions.",
+          },
+        },
       },
     }));
 

@@ -348,7 +348,9 @@ function buildDeviceWaitProofInput(
 
 sig = ed25519_sign(
   identityPrivateKey,
-  SHA256(buildDeviceWaitProofInput(publicIdentityKey, nonce, iat, contractDigest)),
+  SHA256(
+    buildDeviceWaitProofInput(publicIdentityKey, nonce, iat, contractDigest),
+  ),
 );
 ```
 
@@ -455,8 +457,9 @@ Flow summary:
    projection, stores the resulting `authToken` server-side against the browser
    flow, and redirects back to the portal with the same `flowId`.
 4. `GET /auth/flow/:flowId` returns `PortalFlowState`.
-5. `POST /auth/flow/:flowId/approval` records the approval decision in the
-   Trellis-owned flow.
+5. `POST /auth/flow/:flowId/approval` records durable approval when the user
+   approves, or ends the browser flow and redirects to the caller with
+   `authError=approval_denied` when the user denies.
 6. `POST /auth/flow/:flowId/bind` completes the browser bind from
    `{ sessionKey, sig }`.
 
@@ -478,13 +481,13 @@ Bind proof rules:
 
 Runtime storage responsibilities:
 
-| Storage                    | Logical contents                                                                                                              | TTL                                          |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| SQL                        | Users, sessions, approval decisions, grant policies, portals, service records, device records, and installed contract records | Durable, with session expiry from `lastAuth` |
-| `trellis_oauth_states` KV  | OAuth state mapping keyed by `hash(state)`                                                                                    | 5 min                                        |
-| `trellis_pending_auth` KV  | Pending authenticated bind keyed by `hash(authToken)`                                                                         | 5 min                                        |
-| `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"`                              | Browser-flow TTL                             |
-| `trellis_connections` KV   | Active connection presence keyed by session, principal, and NATS user key                                                     | Connection TTL                               |
+| Storage                    | Logical contents                                                                                                                       | TTL                                          |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| SQL                        | Users, sessions, approved contract decisions, grant policies, portals, service records, device records, and installed contract records | Durable, with session expiry from `lastAuth` |
+| `trellis_oauth_states` KV  | OAuth state mapping keyed by `hash(state)`                                                                                             | 5 min                                        |
+| `trellis_pending_auth` KV  | Pending authenticated bind keyed by `hash(authToken)`                                                                                  | 5 min                                        |
+| `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"`                                       | Browser-flow TTL                             |
+| `trellis_connections` KV   | Active connection presence keyed by session, principal, and NATS user key                                                              | Connection TTL                               |
 
 Ephemeral tokens (`state`, `authToken`) are stored by `hash(token)` rather than
 raw token value.
@@ -606,7 +609,13 @@ Rules:
 }
 ```
 
-Trellis stores one approval record per `user <-> contractDigest` pair.
+Trellis stores one approval record per `user <-> contractDigest` pair when a
+durable contract approval decision exists. The normal portal denial path does
+not create or update a stored denial record; it is returned to the originating
+app as an `authError=approval_denied` browser callback so a later sign-in
+attempt can present the permission prompt again. Stored denial records may exist
+only from older data or explicit administrative surfaces, and the portal
+approval screen must allow a fresh user decision to replace them.
 
 ### Instance Grant Policy Object
 

@@ -148,7 +148,8 @@ export function registerFlowRoutes(
     if (isErr(pendingEntry)) {
       return c.json({ status: "expired" });
     }
-    const pending = pendingEntry.value as PendingAuth;
+    const pendingRecord = pendingEntry as PendingAuthEntry;
+    const pending = pendingRecord.value as PendingAuth;
     const resolution = await context.requireApprovalResolution(pending);
     const providersList = Object.entries(providers).map(([id, provider]) => ({
       id,
@@ -201,6 +202,22 @@ export function registerFlowRoutes(
       );
     }
 
+    if (!approved) {
+      await pendingRecord.delete(true);
+      return c.json(
+        await buildPortalFlowState({
+          flowId,
+          flow,
+          app: appMeta,
+          providers: providersList,
+          resolution,
+          redirectLocation: buildRedirectLocation(pending.redirectTo, {
+            authError: "approval_denied",
+          }),
+        }),
+      );
+    }
+
     const now = new Date();
     const updatedResolution = applyApprovalDecision({
       resolution,
@@ -208,19 +225,6 @@ export function registerFlowRoutes(
       answeredAt: now,
     });
     await opts.contractApprovalStorage.put(updatedResolution.storedApproval);
-
-    if (!approved) {
-      return c.json(
-        await buildPortalFlowState({
-          flowId,
-          flow,
-          app: appMeta,
-          providers: providersList,
-          resolution: updatedResolution,
-          returnLocation,
-        }),
-      );
-    }
 
     return c.json(
       await buildPortalFlowState({

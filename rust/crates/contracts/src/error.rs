@@ -34,4 +34,14 @@ pub enum ContractsError {
         first_contract: String,
         second_contract: String,
     },
+
+    #[error("contract use '{alias}' references both '{existing_contract}' and '{new_contract}'")]
+    ContractUseConflict {
+        alias: String,
+        existing_contract: String,
+        new_contract: String,
+    },
+
+    #[error("{context} references undeclared local capability '{capability}'")]
+    UndeclaredCapability { context: String, capability: String },
 }

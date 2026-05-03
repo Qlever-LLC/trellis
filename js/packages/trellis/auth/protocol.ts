@@ -6,6 +6,7 @@ import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
 import {
   ClientTransportsSchema,
+  ContractApprovalCapabilitySchema,
   SentinelCredsSchema,
   UserParticipantKindSchema,
 } from "./schemas.ts";
@@ -67,7 +68,7 @@ export const ContractApprovalViewSchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
-  capabilities: Type.Array(Type.String()),
+  capabilities: Type.Record(Type.String(), ContractApprovalCapabilitySchema),
 });
 
 export const ApprovalRecordViewSchema = Type.Object({

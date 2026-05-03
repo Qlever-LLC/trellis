@@ -293,13 +293,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
       },
     } satisfies Parameters<typeof buildPortalFlowState>[0],
   );
-  assertEquals(denied.status, "approval_denied");
-  if (denied.status === "approval_denied") {
-    assertEquals(
-      denied.returnLocation,
-      "http://localhost:5173/callback?flowId=flow-3",
-    );
-  }
+  assertEquals(denied.status, "approval_required");
 
   const insufficient = await buildPortalFlowState(
     {
@@ -455,7 +449,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
   assertEquals(expired.status, "expired");
 });
 
-Deno.test("applyApprovalDecision returns a denied portal state immediately", async () => {
+Deno.test("buildPortalFlowState asks again after a stored denial", async () => {
   const now = new Date();
   const resolution = applyApprovalDecision({
     resolution: {
@@ -523,7 +517,7 @@ Deno.test("applyApprovalDecision returns a denied portal state immediately", asy
     resolution,
   });
 
-  assertEquals(state.status, "approval_denied");
+  assertEquals(state.status, "approval_required");
 });
 
 Deno.test("getApprovalResolution uses injected loaders", async () => {

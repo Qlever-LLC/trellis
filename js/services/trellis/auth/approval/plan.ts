@@ -4,6 +4,7 @@ import type {
   ContractRpcMethod,
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
+import type { ContractApprovalCapability } from "@qlever-llc/trellis/auth";
 import {
   resolveContractUsesFromStore,
   sortUniqueStrings,
@@ -24,6 +25,24 @@ export type UserContractApprovalPlan = {
 const TRANSFER_UPLOAD_SUBJECT = "transfer.v1.upload.*.*";
 const TRANSFER_DOWNLOAD_SUBJECT = "transfer.v1.download.*.*";
 
+function fallbackCapabilityMetadata(key: string): ContractApprovalCapability {
+  return {
+    displayName: key,
+    description: `Requires ${key}.`,
+  };
+}
+
+function approvalCapabilitiesObject(
+  capabilities: Map<string, ContractApprovalCapability>,
+): Record<string, ContractApprovalCapability> {
+  const result: Record<string, ContractApprovalCapability> = {};
+  for (const key of sortUniqueStrings(capabilities.keys())) {
+    const metadata = capabilities.get(key);
+    if (metadata) result[key] = metadata;
+  }
+  return result;
+}
+
 export async function planUserContractApproval(
   contractStore: ContractStore,
   rawContract: unknown,
@@ -39,14 +58,22 @@ export async function planUserContractApproval(
   }
   const publishSubjects = new Set<string>();
   const subscribeSubjects = new Set<string>();
-  const capabilities = new Set<string>();
+  const capabilities = new Map<string, ContractApprovalCapability>();
+  const addCapability = (key: string, contract: TrellisContractV1) => {
+    if (!capabilities.has(key)) {
+      capabilities.set(
+        key,
+        contract.capabilities?.[key] ?? fallbackCapabilityMetadata(key),
+      );
+    }
+  };
 
   for (
     const event of Object.values<ContractEvent>(validated.contract.events ?? {})
   ) {
     publishSubjects.add(templateToWildcard(event.subject));
     for (const capability of event.capabilities?.publish ?? []) {
-      capabilities.add(capability);
+      addCapability(capability, validated.contract);
     }
   }
 
@@ -56,7 +83,7 @@ export async function planUserContractApproval(
       publishSubjects.add(TRANSFER_DOWNLOAD_SUBJECT);
     }
     for (const capability of method.method.capabilities?.call ?? []) {
-      capabilities.add(capability);
+      addCapability(capability, method.contract);
     }
   }
 
@@ -74,11 +101,11 @@ export async function planUserContractApproval(
       publishSubjects.add(TRANSFER_UPLOAD_SUBJECT);
     }
     for (const capability of operation.operation.capabilities?.call ?? []) {
-      capabilities.add(capability);
+      addCapability(capability, operation.contract);
     }
     for (const requiredCapabilities of operationControlRules) {
       for (const capability of requiredCapabilities) {
-        capabilities.add(capability);
+        addCapability(capability, operation.contract);
       }
     }
   }
@@ -106,14 +133,14 @@ export async function planUserContractApproval(
   for (const event of uses.eventPublishes) {
     publishSubjects.add(templateToWildcard(event.event.subject));
     for (const capability of event.event.capabilities?.publish ?? []) {
-      capabilities.add(capability);
+      addCapability(capability, event.contract);
     }
   }
 
   for (const event of uses.eventSubscribes) {
     subscribeSubjects.add(templateToWildcard(event.event.subject));
     for (const capability of event.event.capabilities?.subscribe ?? []) {
-      capabilities.add(capability);
+      addCapability(capability, event.contract);
     }
   }
 
@@ -126,7 +153,7 @@ export async function planUserContractApproval(
       displayName: validated.contract.displayName,
       description: validated.contract.description,
       participantKind: validated.contract.kind,
-      capabilities: sortUniqueStrings(capabilities),
+      capabilities: approvalCapabilitiesObject(capabilities),
     },
     publishSubjects: sortUniqueStrings(publishSubjects),
     subscribeSubjects: sortUniqueStrings(subscribeSubjects),

@@ -1733,6 +1733,71 @@ Deno.test("connectClientWithDeps cleans up stale browser callback URLs when bind
   }
 });
 
+Deno.test("connectClientWithDeps surfaces browser authError callbacks without starting reauth", async () => {
+  const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
+  const currentUrl = new URL(
+    "https://app.example.com/dashboard?authError=approval_denied#section",
+  );
+  const replaceStateCalls: Array<{ url?: string | URL | null }> = [];
+  const handle = await createBrowserHandle();
+
+  try {
+    Object.defineProperty(globalThis, "window", {
+      value: {
+        history: {
+          replaceState: (_: unknown, __: string, url?: string | URL | null) => {
+            replaceStateCalls.push({ url });
+          },
+        },
+      },
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "document", {
+      value: {},
+      configurable: true,
+      writable: true,
+    });
+
+    const error = await assertRejects(
+      () =>
+        connectClientWithDeps({
+          trellisUrl: "https://trellis.example.com",
+          contract: testContract,
+          auth: {
+            handle,
+            currentUrl,
+          },
+        }, {
+          loadTransport: async () => {
+            throw new Error("loadTransport should not be called");
+          },
+          now: () => 1_700_000_000_000,
+        }),
+      TransportError,
+    );
+
+    assertEquals(error.code, "trellis.auth.approval_denied");
+    assertEquals(
+      currentUrl.toString(),
+      "https://app.example.com/dashboard#section",
+    );
+    assertEquals(replaceStateCalls, [{ url: "/dashboard#section" }]);
+  } finally {
+    Object.defineProperty(globalThis, "window", {
+      value: originalWindow,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "document", {
+      value: originalDocument,
+      configurable: true,
+      writable: true,
+    });
+  }
+});
+
 Deno.test("connectClientWithDeps reauths when bootstrap resolves a different contract", async () => {
   const originalFetch = globalThis.fetch;
   const fetchUrls: string[] = [];

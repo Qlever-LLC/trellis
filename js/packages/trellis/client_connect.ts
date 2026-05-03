@@ -947,7 +947,20 @@ export async function connectClientWithDeps<
     ? args.auth.flowId
     : browserAuth?.flowId ?? currentUrl?.searchParams.get("flowId") ??
       undefined;
+  const callbackAuthError = args.auth?.mode === "session_key"
+    ? undefined
+    : currentUrl?.searchParams.get("authError") ?? undefined;
   const offsetState: ClockOffsetState = { serverClockOffsetMs: 0 };
+
+  if (callbackAuthError) {
+    if (currentUrl) cleanupBrowserCallbackUrl(currentUrl);
+    throw createTransportError({
+      code: `trellis.auth.${callbackAuthError}`,
+      message: "Trellis sign-in did not complete.",
+      hint: "Start sign-in again if you want to approve access.",
+      context: { reason: callbackAuthError, trellisUrl },
+    });
+  }
 
   if (callbackFlowId) {
     try {

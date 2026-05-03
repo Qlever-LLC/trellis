@@ -1,5 +1,6 @@
 import { HTTPException } from "@hono/hono/http-exception";
 import { isErr } from "@qlever-llc/result";
+import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
 
 import type { Config } from "../../config.ts";
 import type { ContractStore } from "../../catalog/store.ts";
@@ -322,7 +323,9 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
         : args.resolution.effectiveApproval.kind !== "none"
         ? { approvalSource: args.resolution.effectiveApproval.kind }
         : {}),
-      delegatedCapabilities: args.resolution.plan.approval.capabilities,
+      delegatedCapabilities: approvalCapabilityKeys(
+        args.resolution.plan.approval,
+      ),
       delegatedPublishSubjects: args.resolution.plan.publishSubjects,
       delegatedSubscribeSubjects: args.resolution.plan.subscribeSubjects,
     });

@@ -243,6 +243,7 @@ export {
   WaitForDeviceActivationResponseSchema,
 } from "./protocol.ts";
 export {
+  approvalCapabilityKeys,
   type ApprovalDecision,
   ApprovalDecisionSchema,
   type AuthStartFlowResponse,
@@ -260,6 +261,7 @@ export {
   type ClientTransports,
   ClientTransportsSchema,
   type ContractApproval,
+  type ContractApprovalCapability,
   ContractApprovalSchema,
   type NatsAuthTokenV1,
   NatsAuthTokenV1Schema,

@@ -207,6 +207,7 @@ type PortalFlowState =
   | {
     status: "approval_denied";
     flowId: string;
+    returnLocation?: string;
     approval: {
       contractId: string;
       contractDigest: string;
@@ -247,6 +248,10 @@ Rules:
 - portal MUST treat `redirect.location` as an opaque next auth step
 - `redirect.location` may point back to the originating browser app or to
   another auth-owned step in the same login flow
+- `approval_denied` is a compatibility/fallback state for already-materialized
+  denied flow state; normal user denial returns `redirect` to the originating
+  app with `authError=approval_denied`, and portal helpers MAY treat an
+  `approval_denied.returnLocation` as an immediate redirect target
 - for detached agent login, `redirect.location` may resolve to the same portal
   login page; the built-in Trellis portal treats that same-page redirect as
   completion UX and tells the user to return to the Trellis CLI rather than
@@ -261,9 +266,9 @@ Rules:
 
 ### POST /auth/flow/:flowId/approval
 
-Records an approval decision for the contract attached to the browser flow and
-returns the next `PortalFlowState`. This endpoint replaces server-rendered
-approval forms.
+Accepts the portal approval decision for the contract attached to the browser
+flow and returns the next `PortalFlowState`. This endpoint replaces
+server-rendered approval forms.
 
 Rules:
 
@@ -272,6 +277,14 @@ Rules:
   server-owned state attached to that flow
 - public portal helpers may expose decisions as `"approved" | "denied"`, but the
   HTTP request body remains the canonical boolean shape below
+- `approved: true` persists the approved contract decision when no policy source
+  already covers the request, then returns the normal redirect/bind continuation
+- `approved: false` does not persist a denied contract decision; it consumes the
+  pending browser flow and returns a redirect to the caller's `redirectTo` with
+  `authError=approval_denied`
+- callers that receive `authError=approval_denied` SHOULD surface a denial
+  result and clean the callback query parameters rather than immediately
+  starting another sign-in flow
 
 Request:
 
@@ -715,6 +728,11 @@ durable deployment record:
   runtime digest enforcement before persisting `currentContractDigest` or
   resource binding state. Instance state affects runtime availability; it does
   not activate catalog/auth surfaces.
+- the successful service bootstrap response includes the resolved resource
+  binding payload for the presented digest; service runtimes use that binding to
+  initialize KV, store, jobs, and transfer helpers without requiring a
+  post-connect `Trellis.Catalog` or `Trellis.Bindings.Get` call from the service
+  principal.
 
 ```ts
 type UnapplyServiceDeploymentContractRequest = {

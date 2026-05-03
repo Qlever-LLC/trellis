@@ -96,6 +96,12 @@ import {
 } from "./mod.ts";
 
 const now = new Date().toISOString();
+const adminApprovalCapabilities = {
+  admin: {
+    displayName: "Admin",
+    description: "Requires admin.",
+  },
+};
 
 Deno.test("PortalFlowStateSchema tolerates additive portal app fields", () => {
   assert(Value.Check(PortalFlowStateSchema, {
@@ -130,7 +136,7 @@ Deno.test("auth schemas keep contractDigest consistently typed", () => {
     displayName: "Console",
     description: "Admin app",
     participantKind: "app",
-    capabilities: ["admin"],
+    capabilities: adminApprovalCapabilities,
   }));
   assert(Value.Check(NatsAuthTokenV1Schema, {
     v: 1,
@@ -191,7 +197,7 @@ Deno.test("PortalFlowStateSchema accepts returnLocation for restartable portal s
       contractDigest: "digest",
       displayName: "Trellis Console",
       description: "Admin app",
-      capabilities: ["admin"],
+      capabilities: adminApprovalCapabilities,
     },
     returnLocation: "https://app.example.com/callback?flowId=flow_1",
   }));
@@ -208,7 +214,7 @@ Deno.test("PortalFlowStateSchema accepts returnLocation for restartable portal s
       contractDigest: "digest",
       displayName: "Trellis Console",
       description: "Admin app",
-      capabilities: ["admin"],
+      capabilities: adminApprovalCapabilities,
     },
     missingCapabilities: ["audit"],
     userCapabilities: ["admin"],

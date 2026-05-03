@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import PortalBrand from "$lib/components/PortalBrand.svelte";
   import { trellisUrl } from "$lib/config";
   import { createPortalDeviceActivationController } from "$lib/device_activation";
 
@@ -12,29 +13,48 @@
 </script>
 
 <svelte:head>
-  <title>Approve Device · Trellis</title>
+  <title>Approve device · Trellis</title>
 </svelte:head>
 
+{#snippet technicalDetails(items: { label: string; value: string }[])}
+  <details class="portal-details border-t border-base-300 pt-4">
+    <summary
+      class="flex cursor-pointer items-center gap-3 rounded-field py-2 text-sm font-medium text-base-content/65"
+    >
+      Technical details
+    </summary>
+    <dl class="mt-3 grid gap-3 text-xs text-base-content/60">
+      {#each items as item (item.label)}
+        <div>
+          <dt class="font-medium text-base-content/45">{item.label}</dt>
+          <dd class="mono mt-1 break-all leading-5">{item.value}</dd>
+        </div>
+      {/each}
+    </dl>
+  </details>
+{/snippet}
+
 <div
-  class="flex min-h-screen flex-col items-center justify-center gap-6 px-4 py-10"
+  class="portal-shell flex min-h-screen flex-col items-center justify-center gap-7 px-4 py-10 sm:px-6"
   data-theme="portal"
 >
-  <div class="flex items-center gap-2">
-    <span class="inline-block h-2 w-2 rounded-full bg-primary"></span>
-    <span class="text-sm font-semibold text-base-content/55">Trellis</span>
-  </div>
+  <PortalBrand subtitle="Device approval" />
 
   <div
-    class="card w-full max-w-md border border-base-300 bg-base-100 shadow-md"
+    class="portal-card card w-full max-w-lg border border-base-300"
   >
-    <div class="card-body gap-5 p-6">
+    <div class="card-body gap-6 p-7 sm:p-8">
       {#if controller.loading}
-        <div class="flex items-center justify-center py-4">
-          <span class="loading loading-ring loading-md"></span>
+        <div class="flex items-center gap-4 py-3">
+          <span class="loading loading-ring loading-lg"></span>
+          <div>
+            <p class="text-sm font-medium text-base-content">Loading activation</p>
+            <p class="portal-copy text-xs">Checking request state and reviewer context.</p>
+          </div>
         </div>
       {:else}
         <div>
-          <h1 class="text-lg font-bold text-base-content">
+          <h1 class="text-2xl font-semibold tracking-[-0.035em] text-base-content">
             {#if controller.view?.mode === "sign_in_required"}
               Sign in to continue
             {:else if controller.view?.mode === "ready"}
@@ -52,24 +72,25 @@
             {/if}
           </h1>
 
-          <p class="mt-1 text-sm text-base-content/60">
+          <p class="portal-copy mt-2 max-w-[58ch] text-sm">
             {#if controller.view?.mode === "sign_in_required"}
-              Sign in to approve this device.
+              Sign in to review this deployment request.
             {:else if controller.view?.mode === "ready"}
-              You are signed in and can approve this exact device deployment and
-              contract digest now.
+              You are signed in and can approve this deployment request now.
             {:else if controller.view?.mode === "pending_review"}
-              A reviewer still needs to approve this device. This page is
-              waiting on the same activation operation the device started.
+              A reviewer still needs to approve this deployment request. This
+              page is waiting on the same activation operation the device
+              started.
             {:else if controller.view?.mode === "activated"}
-              This exact device deployment and contract digest have been
-              approved and can finish setup.
+              This deployment request has been approved and can finish setup.
             {:else if controller.view?.mode === "rejected"}
-              This device was not approved.
+              This deployment request was not approved. Start again if you want
+              to submit a new request.
             {:else if controller.view?.mode === "expired"}
-              This approval link has expired. Start again from your app.
+              This approval link has expired. Start again from the device or CLI.
             {:else}
-              This approval link is missing or no longer valid.
+              This approval link is missing or no longer valid. Start again from
+              the device or CLI.
             {/if}
           </p>
         </div>
@@ -80,6 +101,26 @@
             onclick={() => void controller.signIn()}>Continue to sign in</button
           >
         {:else if controller.view?.mode === "ready"}
+          <div class="portal-subtle-panel rounded-box p-4">
+            <p class="portal-section-label">
+              Activation request
+            </p>
+            <dl class="mt-3 flex flex-col gap-2 text-sm">
+              <div>
+                <dt class="text-xs font-medium text-base-content/45">
+                  Request handle
+                </dt>
+                <dd class="mono mt-0.5 break-all text-base-content">
+                  {controller.view.flowId}
+                </dd>
+              </div>
+            </dl>
+            <p class="portal-copy mt-3 text-xs">
+              Trellis verifies the deployment and device identity when this
+              request is submitted. If review is required, or after approval,
+              Trellis shows the verified deployment and device details here.
+            </p>
+          </div>
           <button
             class="btn btn-primary btn-block"
             disabled={controller.requestPending}
@@ -93,76 +134,53 @@
             {/if}
           </button>
         {:else if controller.view?.mode === "pending_review"}
-          <div class="alert alert-info text-sm">
+          <div class="alert alert-info text-sm leading-6">
+            <span class="portal-status-dot size-2 rounded-full" aria-hidden="true"></span>
             <span>Approval has been requested and is waiting for review.</span>
           </div>
 
-          <div class="rounded-box border border-base-300 bg-base-100 p-4">
-            <p
-              class="text-xs font-bold uppercase tracking-widest text-base-content/45"
-            >
-              Exact deployment and contract digest
-            </p>
-            <p class="mono mt-2 break-all text-sm text-base-content">
-              {controller.view.deploymentId}
-            </p>
-            <p class="mt-1 text-xs text-base-content/55">
-              Device <span class="mono break-all"
-                >{controller.view.instanceId}</span
-              >
-            </p>
-            <p class="mt-3 text-xs text-base-content/55">
-              Activation is bound to this deployment request. A review decision
-              completes this activation operation; Trellis will not choose
-              another allowed contract digest during approval.
-            </p>
-          </div>
+          {@render technicalDetails([
+            { label: "Deployment id", value: controller.view.deploymentId },
+            { label: "Device id", value: controller.view.instanceId },
+          ])}
+          <p class="portal-copy text-xs">
+            Activation is bound to this deployment request and contract digest.
+            A review decision completes the original activation operation.
+          </p>
         {:else if controller.view?.mode === "activated"}
-          <div class="alert alert-success text-sm">
+          <div class="alert alert-success text-sm leading-6">
+            <span class="portal-status-dot size-2 rounded-full" aria-hidden="true"></span>
             <span>Approval complete.</span>
           </div>
 
           {#if controller.view.confirmationCode}
             <div
-              class="rounded-box border border-success/30 bg-success/10 p-5 text-center"
+              class="portal-subtle-panel rounded-box p-5 text-center"
             >
-              <p
-                class="text-xs font-bold uppercase tracking-[0.2em] text-base-content/45"
-              >
+              <p class="portal-section-label">
                 Confirmation code
               </p>
               <p
-                class="mono mt-3 break-all text-3xl font-semibold tracking-[0.3em] text-base-content sm:text-4xl"
+                class="mono mt-3 break-all text-3xl font-semibold tracking-[0.18em] text-base-content sm:text-4xl"
               >
                 {controller.view.confirmationCode}
+              </p>
+              <p class="portal-copy mt-3 text-xs">
+                Return this code to the device or CLI if it is waiting for one.
               </p>
             </div>
           {/if}
 
-          <div class="rounded-box border border-base-300 bg-base-100 p-4">
-            <p
-              class="text-xs font-bold uppercase tracking-widest text-base-content/45"
-            >
-              Exact deployment and contract digest
-            </p>
-            <p class="mono mt-2 break-all text-sm text-base-content">
-              {controller.view.deploymentId}
-            </p>
-            <p
-              class="mt-4 text-xs font-bold uppercase tracking-widest text-base-content/35"
-            >
-              Device id
-            </p>
-            <p class="mono mt-1 break-all text-xs text-base-content/50">
-              {controller.view.instanceId}
-            </p>
-            <p class="mt-3 text-xs text-base-content/55">
-              Approval completed the original activation operation for this
-              deployment request; no alternate allowed digest was selected.
-            </p>
-          </div>
+          {@render technicalDetails([
+            { label: "Deployment id", value: controller.view.deploymentId },
+            { label: "Device id", value: controller.view.instanceId },
+          ])}
+          <p class="portal-copy text-xs">
+            Approval completed the original activation operation for this
+            deployment request and contract digest.
+          </p>
         {:else if controller.view?.mode === "rejected"}
-          <div class="alert alert-error text-sm">
+          <div class="alert alert-error text-sm leading-6">
             <span
               >{controller.view.reason ??
                 "This approval request was denied."}</span
@@ -173,14 +191,14 @@
             onclick={() => void controller.signIn()}>Sign in again</button
           >
         {:else if controller.view?.mode === "expired"}
-          <div class="alert alert-error text-sm">
+          <div class="alert alert-error text-sm leading-6">
             <span>{controller.view.reason}</span>
           </div>
           <a class="btn btn-outline btn-block" href={trellisUrl}
             >Return to app</a
           >
         {:else if controller.view?.mode === "invalid_flow"}
-          <div class="alert alert-error text-sm">
+          <div class="alert alert-error text-sm leading-6">
             <span>{controller.view.reason}</span>
           </div>
           <a class="btn btn-outline btn-block" href={trellisUrl}
@@ -190,10 +208,8 @@
       {/if}
 
       {#if controller.authError}
-        <div class="flex items-center justify-center py-4">
-          <div class="alert alert-error text-sm">
-            <span>{controller.authError}</span>
-          </div>
+        <div class="alert alert-error text-sm leading-6">
+          <span>{controller.authError}</span>
         </div>
       {/if}
     </div>

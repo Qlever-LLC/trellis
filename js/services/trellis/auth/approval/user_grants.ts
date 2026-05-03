@@ -72,7 +72,7 @@ function toUserGrant(approval: ContractApprovalRecord) {
     displayName: contractApproval.displayName,
     description: contractApproval.description,
     participantKind: contractApproval.participantKind,
-    capabilities: contractApproval.capabilities,
+    capabilities: Object.keys(contractApproval.capabilities),
     grantedAt: approval.answeredAt.toISOString(),
     updatedAt: approval.updatedAt.toISOString(),
   };

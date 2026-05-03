@@ -232,6 +232,11 @@ Rules:
   portals can coordinate UX without introducing portal-specific app APIs
 - the approval key is `user <-> contractDigest`, not merely
   `user <-> contractId`
+- approval payloads expose `approval.capabilities` as an object keyed by global
+  capability key, with `displayName`, `description`, and optional `consequence`
+  metadata from the owning contract
+- approval UIs should render capability metadata as the primary decision content
+  and keep raw capability keys, contract ids, and digests as technical details
 - contract changes create a new digest and therefore require a fresh approval
   decision unless auth can prove the new delegated envelope is a strict subset
   of the currently delegated envelope for the same app identity and contract
@@ -250,7 +255,15 @@ Rules:
   denial for that app lineage while the policy remains enabled
 - approval scopes are derived from declared contract APIs; there is no separate
   scope DSL
-- Trellis stores both `approved` and `denied` decisions
+- stored grants, sessions, users, services, and devices continue to store
+  effective capability keys as string arrays; the richer approval capability
+  object is for approval review and stored approval records
+- Trellis stores durable `approved` decisions; user denial in the portal is a
+  one-time browser-flow outcome that redirects the caller back with
+  `authError=approval_denied` and does not create a durable denial record
+- a later sign-in attempt after user denial MUST ask for permission again unless
+  another approval source, such as an instance grant policy, already covers the
+  requested delegated envelope
 - if the user's capabilities no longer satisfy the delegated contract, the
   delegated session becomes invalid until re-approval
 - if a policy change removes implied approval or implied capabilities, Trellis
@@ -402,6 +415,12 @@ Rules:
 - user approval planning and active-catalog refresh both resolve `uses`
   dependencies against currently active contracts. Inactive or missing
   dependencies fail closed instead of being treated as advisory metadata.
+- user approval planning collects required capability keys from declared RPC,
+  operation, and event capability lists and attaches the owning contract's
+  capability metadata when available
+- if a required capability key has no contract-authored metadata, auth may
+  expose fallback metadata for completeness, but contract authors should not
+  rely on that fallback for production approval copy
 - operation, RPC, and event access are contract-level authorization concerns;
   runtime subject permissions are derived from those surfaces, transfer
   declarations, and installed resource bindings
