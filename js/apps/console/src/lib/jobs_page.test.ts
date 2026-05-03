@@ -1,12 +1,24 @@
 import { AsyncResult, BaseError, UnexpectedError } from "@qlever-llc/result";
 import { deepEqual } from "node:assert/strict";
 import type {
+  JobsCancelOutput,
+  JobsDismissDLQOutput,
+  JobsGetOutput,
   JobsListInput,
   JobsListOutput,
   JobsListServicesOutput,
+  JobsReplayDLQOutput,
+  JobsRetryOutput,
 } from "@qlever-llc/trellis/sdk/jobs";
 
-import { loadJobsPageData } from "./jobs_page.ts";
+import {
+  cancelJob,
+  dismissDlqJob,
+  loadJobDetailData,
+  loadJobsPageData,
+  replayDlqJob,
+  retryJob,
+} from "./jobs_page.ts";
 
 declare const Deno: {
   test(name: string, fn: () => void | Promise<void>): void;
@@ -34,6 +46,8 @@ Deno.test("loadJobsPageData requests jobs and services with the provided filter"
     }
 
     return AsyncResult.ok<JobsListOutput>({
+      hasMore: true,
+      nextCursor: "cursor-2",
       jobs: [
         {
           id: "job-1",
@@ -52,14 +66,24 @@ Deno.test("loadJobsPageData requests jobs and services with the provided filter"
   const data = await loadJobsPageData({
     listServices: () => request("Jobs.ListServices", {}),
     listJobs: (filter) => request("Jobs.List", filter),
-  }, { service: "documents", state: "pending" });
+  }, { service: "documents", state: "pending", limit: 50, cursor: "cursor-1" });
 
   deepEqual(calls, [
     { method: "Jobs.ListServices", input: {} },
-    { method: "Jobs.List", input: { service: "documents", state: "pending" } },
+    {
+      method: "Jobs.List",
+      input: {
+        service: "documents",
+        state: "pending",
+        limit: 50,
+        cursor: "cursor-1",
+      },
+    },
   ]);
   deepEqual(data.services[0]?.name, "documents");
   deepEqual(data.jobs[0]?.id, "job-1");
+  deepEqual(data.hasMore, true);
+  deepEqual(data.nextCursor, "cursor-2");
 });
 
 Deno.test("loadJobsPageData reports Jobs admin runtime as unavailable when Jobs RPCs have no responders", async () => {
@@ -83,7 +107,7 @@ Deno.test("loadJobsPageData reports Jobs admin runtime as unavailable when Jobs 
       );
     }
 
-    return AsyncResult.ok<JobsListOutput>({ jobs: [] });
+    return AsyncResult.ok<JobsListOutput>({ hasMore: false, jobs: [] });
   }
   const data = await loadJobsPageData({
     listServices: () => request("Jobs.ListServices", {}),
@@ -120,7 +144,7 @@ Deno.test("loadJobsPageData reports lowercase NATS no responders as unavailable"
       );
     }
 
-    return AsyncResult.ok<JobsListOutput>({ jobs: [] });
+    return AsyncResult.ok<JobsListOutput>({ hasMore: false, jobs: [] });
   }
   const data = await loadJobsPageData({
     listServices: () => request("Jobs.ListServices", {}),
@@ -157,7 +181,7 @@ Deno.test("loadJobsPageData reports missing Jobs permissions with re-auth guidan
       );
     }
 
-    return AsyncResult.ok<JobsListOutput>({ jobs: [] });
+    return AsyncResult.ok<JobsListOutput>({ hasMore: false, jobs: [] });
   }
   const data = await loadJobsPageData({
     listServices: () => request("Jobs.ListServices", {}),
@@ -171,4 +195,127 @@ Deno.test("loadJobsPageData reports missing Jobs permissions with re-auth guidan
   );
   deepEqual(data.jobs, []);
   deepEqual(data.services, []);
+});
+
+Deno.test("loadJobDetailData requests detail by id", async () => {
+  const calls: Array<{ method: string; input: unknown }> = [];
+  const data = await loadJobDetailData({
+    getJob: (input) => {
+      calls.push({ method: "Jobs.Get", input });
+      return AsyncResult.ok<JobsGetOutput>({
+        job: {
+          id: "job-1",
+          service: "documents",
+          type: "document-process",
+          state: "failed",
+          payload: { documentId: "doc-1" },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+          tries: 3,
+          maxTries: 3,
+          lastError: "boom",
+        },
+      });
+    },
+  }, "job-1");
+
+  deepEqual(calls, [{ method: "Jobs.Get", input: { id: "job-1" } }]);
+  deepEqual(data.available, true);
+  deepEqual(data.job?.id, "job-1");
+});
+
+Deno.test("cancelJob sends id-only action input", async () => {
+  const calls: Array<{ method: string; input: unknown }> = [];
+  await cancelJob({
+    action: (input) => {
+      calls.push({ method: "Jobs.Cancel", input });
+      return AsyncResult.ok<JobsCancelOutput>({
+        job: {
+          id: "job-1",
+          service: "documents",
+          type: "document-process",
+          state: "cancelled",
+          payload: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+          tries: 0,
+          maxTries: 3,
+        },
+      });
+    },
+  }, "job-1");
+
+  deepEqual(calls, [{ method: "Jobs.Cancel", input: { id: "job-1" } }]);
+});
+
+Deno.test("retryJob sends id-only action input", async () => {
+  const calls: Array<{ method: string; input: unknown }> = [];
+  await retryJob({
+    action: (input) => {
+      calls.push({ method: "Jobs.Retry", input });
+      return AsyncResult.ok<JobsRetryOutput>({
+        job: {
+          id: "job-1",
+          service: "documents",
+          type: "document-process",
+          state: "retry",
+          payload: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+          tries: 3,
+          maxTries: 3,
+        },
+      });
+    },
+  }, "job-1");
+
+  deepEqual(calls, [{ method: "Jobs.Retry", input: { id: "job-1" } }]);
+});
+
+Deno.test("replayDlqJob sends id-only action input", async () => {
+  const calls: Array<{ method: string; input: unknown }> = [];
+  await replayDlqJob({
+    action: (input) => {
+      calls.push({ method: "Jobs.ReplayDLQ", input });
+      return AsyncResult.ok<JobsReplayDLQOutput>({
+        job: {
+          id: "job-1",
+          service: "documents",
+          type: "document-process",
+          state: "retry",
+          payload: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+          tries: 3,
+          maxTries: 3,
+        },
+      });
+    },
+  }, "job-1");
+
+  deepEqual(calls, [{ method: "Jobs.ReplayDLQ", input: { id: "job-1" } }]);
+});
+
+Deno.test("dismissDlqJob sends id-only action input", async () => {
+  const calls: Array<{ method: string; input: unknown }> = [];
+  await dismissDlqJob({
+    action: (input) => {
+      calls.push({ method: "Jobs.DismissDLQ", input });
+      return AsyncResult.ok<JobsDismissDLQOutput>({
+        job: {
+          id: "job-1",
+          service: "documents",
+          type: "document-process",
+          state: "dismissed",
+          payload: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+          tries: 3,
+          maxTries: 3,
+        },
+      });
+    },
+  }, "job-1");
+
+  deepEqual(calls, [{ method: "Jobs.DismissDLQ", input: { id: "job-1" } }]);
 });

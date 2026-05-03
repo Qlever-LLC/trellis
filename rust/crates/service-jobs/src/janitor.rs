@@ -1,8 +1,8 @@
-use async_nats::jetstream;
-use futures_util::TryStreamExt;
 use trellis_jobs::types::{Job, JobEvent};
-use trellis_jobs::{expired_event, is_terminal, job_event_subject};
-use trellis_server::ServerError;
+use trellis_jobs::{expired_event, is_terminal, job_event_subject, job_key};
+use trellis_service::ServerError;
+
+use crate::storage::{ListJobsFilter, SqliteJobsStore, SqliteJobsStoreError};
 
 const EXPIRED_REASON: &str = "job exceeded deadline";
 
@@ -21,17 +21,27 @@ pub struct JanitorRunStats {
 }
 
 pub struct JanitorHandle {
-    task: tokio::task::JoinHandle<Result<(), ServerError>>,
+    task: Option<tokio::task::JoinHandle<Result<(), ServerError>>>,
 }
 
 impl JanitorHandle {
     pub async fn stop(self) {
-        self.task.abort();
-        let _ = self.task.await;
+        let Some(task) = self.task else {
+            return;
+        };
+        task.abort();
+        let _ = task.await;
+    }
+
+    pub(crate) fn discard_completed(&mut self) {
+        self.task = None;
     }
 
     pub async fn wait(&mut self) -> Result<(), ServerError> {
-        match (&mut self.task).await {
+        let Some(task) = self.task.as_mut() else {
+            return Ok(());
+        };
+        match task.await {
             Ok(result) => result,
             Err(error) if error.is_cancelled() => Ok(()),
             Err(error) => Err(ServerError::Nats(format!(
@@ -43,16 +53,8 @@ impl JanitorHandle {
 
 #[derive(Debug, thiserror::Error)]
 pub enum JanitorError {
-    #[error("failed to open jobsState bucket '{bucket}': {details}")]
-    OpenBucket { bucket: String, details: String },
-    #[error("failed to list keys in jobsState bucket '{bucket}': {details}")]
-    ListKeys { bucket: String, details: String },
-    #[error("failed to read key '{key}' from bucket '{bucket}': {details}")]
-    ReadKey {
-        bucket: String,
-        key: String,
-        details: String,
-    },
+    #[error("failed to scan jobs SQLite projection: {0}")]
+    Store(#[from] SqliteJobsStoreError),
     #[error("failed to publish expired event on subject '{subject}': {details}")]
     Publish { subject: String, details: String },
     #[error("failed to encode expired event payload for key '{key}': {details}")]
@@ -96,49 +98,10 @@ pub fn plan_expired_events(
 
 pub async fn run_janitor_once(
     nats: async_nats::Client,
-    jobs_state_bucket: &str,
+    store: &SqliteJobsStore,
     now_iso: &str,
 ) -> Result<JanitorRunStats, JanitorError> {
-    let jetstream = jetstream::new(nats.clone());
-    let kv = jetstream
-        .get_key_value(jobs_state_bucket)
-        .await
-        .map_err(|error| JanitorError::OpenBucket {
-            bucket: jobs_state_bucket.to_string(),
-            details: error.to_string(),
-        })?;
-
-    let mut keys = kv.keys().await.map_err(|error| JanitorError::ListKeys {
-        bucket: jobs_state_bucket.to_string(),
-        details: error.to_string(),
-    })?;
-
-    let mut jobs_by_key = Vec::new();
-    while let Some(key) = keys
-        .try_next()
-        .await
-        .map_err(|error| JanitorError::ListKeys {
-            bucket: jobs_state_bucket.to_string(),
-            details: error.to_string(),
-        })?
-    {
-        let payload = kv.get(&key).await.map_err(|error| JanitorError::ReadKey {
-            bucket: jobs_state_bucket.to_string(),
-            key: key.clone(),
-            details: error.to_string(),
-        })?;
-
-        let Some(payload) = payload else {
-            continue;
-        };
-        let Ok(job) = serde_json::from_slice::<Job>(&payload) else {
-            continue;
-        };
-        jobs_by_key.push((key, job));
-    }
-
-    let scanned = jobs_by_key.len();
-    let planned = plan_expired_events(&jobs_by_key, now_iso, EXPIRED_REASON);
+    let (scanned, planned) = plan_expired_events_from_store(store, now_iso)?;
     let eligible = planned.len();
 
     let mut published = 0usize;
@@ -164,9 +127,84 @@ pub async fn run_janitor_once(
     })
 }
 
+fn plan_expired_events_from_store(
+    store: &SqliteJobsStore,
+    now_iso: &str,
+) -> Result<(usize, Vec<PlannedExpiredEvent>), JanitorError> {
+    let jobs = store.list_jobs(&ListJobsFilter::default())?.jobs;
+    let jobs_by_key = jobs
+        .into_iter()
+        .map(|job| (job_key(&job.service, &job.job_type, &job.id), job))
+        .collect::<Vec<_>>();
+    let scanned = jobs_by_key.len();
+    let planned = plan_expired_events(&jobs_by_key, now_iso, EXPIRED_REASON);
+    Ok((scanned, planned))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use trellis_jobs::types::JobState;
+
+    use super::*;
+
+    fn job(id: &str, state: JobState, deadline: Option<&str>) -> Job {
+        Job {
+            id: id.to_string(),
+            service: "documents".to_string(),
+            job_type: "document-process".to_string(),
+            state,
+            payload: json!({ "id": id }),
+            result: None,
+            created_at: "2026-03-28T11:00:00.000Z".to_string(),
+            updated_at: "2026-03-28T11:59:00.000Z".to_string(),
+            started_at: None,
+            completed_at: None,
+            tries: 1,
+            max_tries: 3,
+            last_error: None,
+            deadline: deadline.map(str::to_string),
+            progress: None,
+            logs: None,
+        }
+    }
+
+    #[test]
+    fn janitor_plans_expired_events_from_sql_projection() {
+        let store = SqliteJobsStore::open_in_memory().expect("store should open");
+        for projected in [
+            job(
+                "overdue-active",
+                JobState::Active,
+                Some("2026-03-28T12:00:00.000Z"),
+            ),
+            job(
+                "future-active",
+                JobState::Active,
+                Some("2026-03-28T12:10:00.000Z"),
+            ),
+            job(
+                "overdue-completed",
+                JobState::Completed,
+                Some("2026-03-28T12:00:00.000Z"),
+            ),
+        ] {
+            store.upsert_job(&projected).expect("upsert should succeed");
+        }
+
+        let (scanned, planned) = plan_expired_events_from_store(&store, "2026-03-28T12:01:00.000Z")
+            .expect("planning should succeed");
+
+        assert_eq!(scanned, 3);
+        assert_eq!(planned.len(), 1);
+        assert_eq!(planned[0].event.job_id, "overdue-active");
+        assert_eq!(planned[0].event.state, JobState::Expired);
+    }
+}
+
 pub async fn start_janitor_loop(
     nats: async_nats::Client,
-    jobs_state_bucket: String,
+    store: SqliteJobsStore,
     interval: std::time::Duration,
 ) -> Result<JanitorHandle, ServerError> {
     let task = tokio::spawn(async move {
@@ -176,11 +214,15 @@ pub async fn start_janitor_loop(
             let now = time::OffsetDateTime::now_utc()
                 .format(&time::format_description::well_known::Rfc3339)
                 .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
-            run_janitor_once(nats.clone(), &jobs_state_bucket, &now)
+            run_janitor_once(nats.clone(), &store, &now)
                 .await
-                .map_err(|error| ServerError::Nats(error.to_string()))?;
+                .map_err(|error| {
+                    ServerError::Nats(format!(
+                        "jobs janitor loop failed for SQLite projection: {error}"
+                    ))
+                })?;
         }
     });
 
-    Ok(JanitorHandle { task })
+    Ok(JanitorHandle { task: Some(task) })
 }

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_nats::header::HeaderMap;
-use async_nats::jetstream::{self, kv, stream};
+use async_nats::jetstream::{self, stream};
 use bytes::Bytes;
 use futures_util::{
     future::{ready, BoxFuture, FutureExt},
@@ -16,7 +16,9 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use trellis_client::TrellisClientError;
 use trellis_jobs::bindings::{JobsBinding, JobsQueueBinding, JobsRuntimeBinding};
-use trellis_jobs::events::created_event;
+use trellis_jobs::events::{
+    completed_event, created_event, dead_event, failed_event, started_event,
+};
 use trellis_jobs::manager::{JobManager, JobMetaSource, JobProcessError};
 use trellis_jobs::runtime_worker::{
     run_single_queue_worker_from_binding, run_single_queue_worker_from_binding_with_context,
@@ -31,7 +33,7 @@ use trellis_sdk_jobs::types::{
 };
 use trellis_service_jobs::{
     rpc, run_janitor_once, run_jobs_service_with_clients, run_jobs_service_with_clients_with_mode,
-    JobsServiceMode,
+    JobsServiceMode, SqliteJobsStore,
 };
 
 use trellis_auth::{AuthValidateRequestRequest, AuthValidateRequestResponse};
@@ -41,17 +43,12 @@ use trellis_sdk_core::types::{
     TrellisBindingsGetRequest, TrellisBindingsGetResponse, TrellisBindingsGetResponseBinding,
     TrellisBindingsGetResponseBindingResources, TrellisBindingsGetResponseBindingResourcesJobs,
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValue,
-    TrellisBindingsGetResponseBindingResourcesJobsQueuesValuePayload,
-    TrellisBindingsGetResponseBindingResourcesKvValue, TrellisCatalogResponse,
+    TrellisBindingsGetResponseBindingResourcesJobsQueuesValuePayload, TrellisCatalogResponse,
     TrellisCatalogResponseCatalog, TrellisCatalogResponseCatalogContractsItem,
 };
-use trellis_server::RpcDescriptor;
+use trellis_service::RpcDescriptor;
 
-struct FakeCoreClient {
-    jobs_state_bucket: String,
-    #[allow(dead_code)]
-    service_instances_bucket: String,
-}
+struct FakeCoreClient;
 
 impl FakeCoreClient {
     fn binding(&self) -> TrellisBindingsGetResponseBinding {
@@ -85,15 +82,7 @@ impl FakeCoreClient {
                         },
                     )]),
                 }),
-                kv: Some(BTreeMap::from([(
-                    "jobsState".to_string(),
-                    TrellisBindingsGetResponseBindingResourcesKvValue {
-                        bucket: self.jobs_state_bucket.clone(),
-                        history: 1,
-                        max_value_bytes: None,
-                        ttl_ms: 0,
-                    },
-                )])),
+                kv: None,
                 store: None,
             },
         }
@@ -304,16 +293,6 @@ fn sample_job(id: &str, updated_at: &str, state: JobState) -> Job {
     }
 }
 
-async fn create_bucket(js: &jetstream::Context, bucket: &str) -> jetstream::kv::Store {
-    js.create_key_value(kv::Config {
-        bucket: bucket.to_string(),
-        history: 1,
-        ..Default::default()
-    })
-    .await
-    .expect("kv bucket should be created")
-}
-
 async fn ensure_stream(
     js: &jetstream::Context,
     name: &str,
@@ -331,35 +310,155 @@ async fn ensure_stream(
     .expect("stream should be created")
 }
 
-async fn seed_kv_data(
-    nats_client: &async_nats::Client,
-    jobs_state_bucket: &str,
-    service_instances_bucket: &str,
-) {
+async fn seed_projection_events(nats_client: &async_nats::Client) {
     let js = jetstream::new(nats_client.clone());
-    let (jobs_kv, _service_instances_kv) =
-        seed_jobs_infrastructure(&js, jobs_state_bucket, service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
 
     let older = sample_job("job-1", "2026-01-02T00:00:00Z", JobState::Completed);
     let newer = sample_job("job-2", "2026-01-03T00:00:00Z", JobState::Failed);
 
-    jobs_kv
-        .put(
-            "documents.document-process.job-1",
-            serde_json::to_vec(&older).expect("serialize job").into(),
-        )
-        .await
-        .expect("seed first job");
-    jobs_kv
-        .put(
-            "documents.document-process.job-2",
-            serde_json::to_vec(&newer).expect("serialize job").into(),
-        )
-        .await
-        .expect("seed second job");
+    publish_job_projection(nats_client, &older).await;
+    publish_job_projection(nats_client, &newer).await;
 
     publish_fresh_worker_heartbeat(nats_client, "documents", "document-process", "documents-1")
         .await;
+}
+
+async fn publish_job_projection(nats_client: &async_nats::Client, job: &Job) {
+    let created_at = if matches!(job.state, JobState::Pending | JobState::Retry) {
+        job.updated_at.as_str()
+    } else {
+        job.created_at.as_str()
+    };
+    let created = created_event(
+        &job.service,
+        &job.job_type,
+        &job.id,
+        job.payload.clone(),
+        job.max_tries,
+        created_at,
+        job.deadline.as_deref(),
+    );
+    publish_job_lifecycle_event(nats_client, created).await;
+
+    match job.state {
+        JobState::Pending | JobState::Retry => {}
+        JobState::Active => {
+            publish_job_lifecycle_event(
+                nats_client,
+                started_event(
+                    &job.service,
+                    &job.job_type,
+                    &job.id,
+                    JobState::Pending,
+                    job.tries,
+                    &job.updated_at,
+                ),
+            )
+            .await;
+        }
+        JobState::Completed => {
+            publish_job_lifecycle_event(
+                nats_client,
+                started_event(
+                    &job.service,
+                    &job.job_type,
+                    &job.id,
+                    JobState::Pending,
+                    job.tries,
+                    &job.updated_at,
+                ),
+            )
+            .await;
+            publish_job_lifecycle_event(
+                nats_client,
+                completed_event(
+                    &job.service,
+                    &job.job_type,
+                    &job.id,
+                    job.tries,
+                    &job.updated_at,
+                    job.result.clone().unwrap_or_else(|| json!({ "ok": true })),
+                ),
+            )
+            .await;
+        }
+        JobState::Failed => {
+            publish_job_lifecycle_event(
+                nats_client,
+                started_event(
+                    &job.service,
+                    &job.job_type,
+                    &job.id,
+                    JobState::Pending,
+                    job.tries,
+                    &job.updated_at,
+                ),
+            )
+            .await;
+            publish_job_lifecycle_event(
+                nats_client,
+                failed_event(
+                    &job.service,
+                    &job.job_type,
+                    &job.id,
+                    JobState::Active,
+                    job.tries,
+                    &job.updated_at,
+                    job.last_error.as_deref().unwrap_or("failed"),
+                ),
+            )
+            .await;
+        }
+        JobState::Dead => {
+            publish_job_lifecycle_event(
+                nats_client,
+                started_event(
+                    &job.service,
+                    &job.job_type,
+                    &job.id,
+                    JobState::Pending,
+                    job.tries,
+                    &job.updated_at,
+                ),
+            )
+            .await;
+            publish_job_lifecycle_event(
+                nats_client,
+                dead_event(
+                    &job.service,
+                    &job.job_type,
+                    &job.id,
+                    JobState::Active,
+                    job.tries,
+                    &job.updated_at,
+                    job.last_error.as_deref().unwrap_or("dead"),
+                ),
+            )
+            .await;
+        }
+        JobState::Cancelled | JobState::Expired | JobState::Dismissed => {}
+    }
+}
+
+async fn publish_job_lifecycle_event(
+    nats_client: &async_nats::Client,
+    event: trellis_jobs::JobEvent,
+) {
+    nats_client
+        .publish(
+            job_event_subject(
+                &event.service,
+                &event.job_type,
+                &event.job_id,
+                event.event_type,
+            ),
+            serde_json::to_vec(&event)
+                .expect("serialize job lifecycle event")
+                .into(),
+        )
+        .await
+        .expect("publish job lifecycle event");
 }
 
 async fn publish_fresh_worker_heartbeat(
@@ -389,13 +488,7 @@ async fn publish_fresh_worker_heartbeat(
         .expect("publish worker heartbeat");
 }
 
-async fn seed_jobs_infrastructure(
-    js: &jetstream::Context,
-    jobs_state_bucket: &str,
-    service_instances_bucket: &str,
-) -> (jetstream::kv::Store, jetstream::kv::Store) {
-    let jobs_kv = create_bucket(js, jobs_state_bucket).await;
-    let service_instances_kv = create_bucket(js, service_instances_bucket).await;
+async fn seed_jobs_infrastructure(js: &jetstream::Context) {
     let _jobs_stream = ensure_stream(js, "JOBS", vec!["trellis.jobs.>".to_string()]).await;
     let _work_stream = ensure_stream(js, "JOBS_WORK", vec!["trellis.work.>".to_string()]).await;
     let _advisories_stream = ensure_stream(
@@ -404,7 +497,6 @@ async fn seed_jobs_infrastructure(
         vec!["$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>".to_string()],
     )
     .await;
-    (jobs_kv, service_instances_kv)
 }
 
 async fn await_projected_job(
@@ -413,12 +505,8 @@ async fn await_projected_job(
     id: &str,
 ) -> Job {
     for _ in 0..40 {
-        let get_request_payload = serde_json::to_vec(&JobsGetRequest {
-            service: "documents".to_string(),
-            job_type: "document-process".to_string(),
-            id: id.to_string(),
-        })
-        .expect("serialize jobs get request");
+        let get_request_payload = serde_json::to_vec(&JobsGetRequest { id: id.to_string() })
+            .expect("serialize jobs get request");
         let get_response = match requester_client
             .request_with_headers(
                 rpc::JobsGetRpc::SUBJECT.to_string(),
@@ -540,7 +628,6 @@ async fn await_worker_presence(
 fn sample_jobs_binding() -> JobsBinding {
     JobsBinding {
         namespace: "documents".to_string(),
-        jobs_state_bucket: None,
         queues: BTreeMap::from([(
             "document-process".to_string(),
             JobsQueueBinding {
@@ -566,21 +653,13 @@ async fn run_jobs_service_with_clients_serves_jobs_health_list_services_list_and
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
-    seed_kv_data(
-        &service_client,
-        &jobs_state_bucket,
-        &service_instances_bucket,
-    )
-    .await;
+    seed_projection_events(&service_client).await;
+    let jobs_db_path = format!("/tmp/{}.sqlite", unique_name("jobs_sql"));
+    std::env::set_var("TRELLIS_JOBS_DB_PATH", &jobs_db_path);
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client,
-        FakeCoreClient {
-            jobs_state_bucket,
-            service_instances_bucket,
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -618,6 +697,7 @@ async fn run_jobs_service_with_clients_serves_jobs_health_list_services_list_and
     assert_eq!(list_payload.services[0].workers.len(), 1);
 
     let list_request_payload = serde_json::to_vec(&JobsListRequest {
+        cursor: None,
         limit: None,
         service: None,
         since: None,
@@ -641,8 +721,6 @@ async fn run_jobs_service_with_clients_serves_jobs_health_list_services_list_and
     assert_eq!(list_response_payload.jobs[1].id, "job-1");
 
     let get_request_payload = serde_json::to_vec(&JobsGetRequest {
-        service: "documents".to_string(),
-        job_type: "document-process".to_string(),
         id: "job-1".to_string(),
     })
     .expect("serialize jobs get request");
@@ -673,27 +751,18 @@ async fn worker_presence_projection_survives_owner_restart_and_rpc_only_reads_du
     let rpc_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
-    seed_kv_data(&owner_client, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_projection_events(&owner_client).await;
+    let jobs_db_path = format!("/tmp/{}.sqlite", unique_name("jobs_sql"));
+    std::env::set_var("TRELLIS_JOBS_DB_PATH", &jobs_db_path);
 
     let owner_task = tokio::spawn(run_jobs_service_with_clients(
         owner_client,
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
-    let runtime_binding = JobsRuntimeBinding::try_from(
-        &FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        }
-        .binding(),
-    )
-    .expect("runtime binding");
+    let runtime_binding =
+        JobsRuntimeBinding::try_from(&FakeCoreClient.binding()).expect("runtime binding");
     let worker_host = start_worker_host_from_binding(
         requester_client.clone(),
         runtime_binding,
@@ -733,10 +802,7 @@ async fn worker_presence_projection_survives_owner_restart_and_rpc_only_reads_du
 
     let rpc_only_task = tokio::spawn(run_jobs_service_with_clients_with_mode(
         rpc_client,
-        FakeCoreClient {
-            jobs_state_bucket,
-            service_instances_bucket,
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
         JobsServiceMode::RpcOnly,
     ));
@@ -761,22 +827,19 @@ async fn worker_presence_projection_survives_owner_restart_and_rpc_only_reads_du
 }
 
 #[tokio::test]
-async fn run_jobs_service_with_clients_projects_stream_events_into_jobs_state_kv() {
+async fn run_jobs_service_with_clients_projects_stream_events_into_sql_state() {
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let _infra = seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
+    let jobs_db_path = format!("/tmp/{}.sqlite", unique_name("jobs_sql"));
+    std::env::set_var("TRELLIS_JOBS_DB_PATH", &jobs_db_path);
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client.clone(),
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -831,38 +894,16 @@ async fn run_jobs_service_with_clients_serves_jobs_cancel_and_retry_mutations() 
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let (jobs_kv, _service_instances_kv) =
-        seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
 
     let pending = sample_job("job-pending-1", "2026-01-02T00:00:00Z", JobState::Pending);
     let failed = sample_job("job-failed-1", "2026-01-03T00:00:00Z", JobState::Failed);
-    jobs_kv
-        .put(
-            "documents.document-process.job-pending-1",
-            serde_json::to_vec(&pending)
-                .expect("serialize pending job")
-                .into(),
-        )
-        .await
-        .expect("seed pending job");
-    jobs_kv
-        .put(
-            "documents.document-process.job-failed-1",
-            serde_json::to_vec(&failed)
-                .expect("serialize failed job")
-                .into(),
-        )
-        .await
-        .expect("seed failed job");
+    publish_job_projection(&service_client, &pending).await;
+    publish_job_projection(&service_client, &failed).await;
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client,
-        FakeCoreClient {
-            jobs_state_bucket,
-            service_instances_bucket,
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -872,8 +913,6 @@ async fn run_jobs_service_with_clients_serves_jobs_cancel_and_retry_mutations() 
     headers.insert("proof", "proof");
 
     let mutate_payload = serde_json::to_vec(&json!({
-        "service": "documents",
-        "jobType": "document-process",
         "id": "job-pending-1"
     }))
     .expect("serialize mutate payload");
@@ -896,8 +935,6 @@ async fn run_jobs_service_with_clients_serves_jobs_cancel_and_retry_mutations() 
             rpc::JobsRetryRpc::SUBJECT.to_string(),
             headers.clone(),
             serde_json::to_vec(&json!({
-                "service": "documents",
-                "jobType": "document-process",
                 "id": "job-failed-1"
             }))
             .expect("serialize retry payload")
@@ -916,8 +953,6 @@ async fn run_jobs_service_with_clients_serves_jobs_cancel_and_retry_mutations() 
     assert!(retry_json["job"].get("progress").is_none());
 
     let get_request_payload = serde_json::to_vec(&JobsGetRequest {
-        service: "documents".to_string(),
-        job_type: "document-process".to_string(),
         id: "job-failed-1".to_string(),
     })
     .expect("serialize jobs get request");
@@ -944,11 +979,8 @@ async fn run_jobs_service_with_clients_filters_jobs_list_results() {
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let (jobs_kv, _service_instances_kv) =
-        seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
 
     let pending_old = sample_job("job-pending-old", "2026-01-02T00:00:00Z", JobState::Pending);
     let pending_new = sample_job("job-pending-new", "2026-01-04T00:00:00Z", JobState::Pending);
@@ -959,23 +991,14 @@ async fn run_jobs_service_with_clients_filters_jobs_list_results() {
     };
 
     for job in [&pending_old, &pending_new, &failed_job, &other_service] {
-        jobs_kv
-            .put(
-                format!("{}.{}.{}", job.service, job.job_type, job.id),
-                serde_json::to_vec(job)
-                    .expect("serialize seeded job")
-                    .into(),
-            )
-            .await
-            .expect("seed job");
+        publish_job_projection(&service_client, job).await;
     }
+    let jobs_db_path = format!("/tmp/{}.sqlite", unique_name("jobs_sql"));
+    std::env::set_var("TRELLIS_JOBS_DB_PATH", &jobs_db_path);
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client,
-        FakeCoreClient {
-            jobs_state_bucket,
-            service_instances_bucket,
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -989,6 +1012,7 @@ async fn run_jobs_service_with_clients_filters_jobs_list_results() {
             rpc::JobsListRpc::SUBJECT.to_string(),
             headers,
             serde_json::to_vec(&JobsListRequest {
+                cursor: None,
                 service: Some("documents".to_string()),
                 r#type: Some("document-process".to_string()),
                 state: Some(json!(["pending", "failed"])),
@@ -1021,17 +1045,14 @@ async fn run_jobs_service_with_clients_worker_creates_and_processes_job_using_tr
     let requester_client = connect_with_retry(&server).await;
     let worker_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let _infra = seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
+    let jobs_db_path = format!("/tmp/{}.sqlite", unique_name("jobs_sql"));
+    std::env::set_var("TRELLIS_JOBS_DB_PATH", &jobs_db_path);
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client.clone(),
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1041,14 +1062,8 @@ async fn run_jobs_service_with_clients_worker_creates_and_processes_job_using_tr
     headers.insert("proof", "proof");
     await_jobs_health(&requester_client, headers.clone()).await;
 
-    let mut runtime_binding = JobsRuntimeBinding::try_from(
-        &FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        }
-        .binding(),
-    )
-    .expect("runtime binding");
+    let mut runtime_binding =
+        JobsRuntimeBinding::try_from(&FakeCoreClient.binding()).expect("runtime binding");
     let queue = runtime_binding
         .jobs
         .queues
@@ -1172,17 +1187,12 @@ async fn run_jobs_service_with_clients_rpc_only_serves_rpcs_without_owning_proje
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let _infra = seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients_with_mode(
         service_client.clone(),
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
         JobsServiceMode::RpcOnly,
     ));
@@ -1212,8 +1222,6 @@ async fn run_jobs_service_with_clients_rpc_only_serves_rpcs_without_owning_proje
             rpc::JobsGetRpc::SUBJECT.to_string(),
             headers,
             serde_json::to_vec(&JobsGetRequest {
-                service: "documents".to_string(),
-                job_type: "document-process".to_string(),
                 id: "job-rpc-only-1".to_string(),
             })
             .expect("serialize jobs get request")
@@ -1239,26 +1247,18 @@ async fn run_jobs_service_owner_and_rpc_only_coexist_with_shared_projected_state
     let rpc_only_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(owner_client.clone());
-    let _infra = seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
 
     let owner_task = tokio::spawn(run_jobs_service_with_clients_with_mode(
         owner_client.clone(),
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
         JobsServiceMode::Owner,
     ));
     let rpc_only_task = tokio::spawn(run_jobs_service_with_clients_with_mode(
         rpc_only_client,
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
         JobsServiceMode::RpcOnly,
     ));
@@ -1296,8 +1296,6 @@ async fn run_jobs_service_owner_and_rpc_only_coexist_with_shared_projected_state
             rpc::JobsGetRpc::SUBJECT.to_string(),
             headers,
             serde_json::to_vec(&JobsGetRequest {
-                service: "documents".to_string(),
-                job_type: "document-process".to_string(),
                 id: "job-owner-rpc-only-1".to_string(),
             })
             .expect("serialize jobs get request")
@@ -1325,17 +1323,12 @@ async fn run_single_queue_worker_host_shutdown_requeues_work_end_to_end() {
     let worker_a_client = connect_with_retry(&server).await;
     let worker_b_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let _infra = seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
 
     let owner_task = tokio::spawn(run_jobs_service_with_clients_with_mode(
         service_client.clone(),
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
         JobsServiceMode::Owner,
     ));
@@ -1346,14 +1339,8 @@ async fn run_single_queue_worker_host_shutdown_requeues_work_end_to_end() {
     headers.insert("proof", "proof");
     await_jobs_health(&requester_client, headers.clone()).await;
 
-    let runtime_binding = JobsRuntimeBinding::try_from(
-        &FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        }
-        .binding(),
-    )
-    .expect("runtime binding");
+    let runtime_binding =
+        JobsRuntimeBinding::try_from(&FakeCoreClient.binding()).expect("runtime binding");
 
     let create_manager = JobManager::new(
         NatsJobEventPublisher::new(service_client.clone()),
@@ -1469,18 +1456,12 @@ async fn run_jobs_service_with_clients_cancels_active_worker_job() {
     let requester_client = connect_with_retry(&server).await;
     let worker_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let (_jobs_kv, _services_kv) =
-        seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client.clone(),
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1490,14 +1471,8 @@ async fn run_jobs_service_with_clients_cancels_active_worker_job() {
     headers.insert("proof", "proof");
     await_jobs_health(&requester_client, headers.clone()).await;
 
-    let runtime_binding = JobsRuntimeBinding::try_from(
-        &FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        }
-        .binding(),
-    )
-    .expect("runtime binding");
+    let runtime_binding =
+        JobsRuntimeBinding::try_from(&FakeCoreClient.binding()).expect("runtime binding");
     let worker_task = tokio::spawn(run_single_queue_worker_from_binding(
         worker_client.clone(),
         runtime_binding,
@@ -1563,8 +1538,6 @@ async fn run_jobs_service_with_clients_cancels_active_worker_job() {
             rpc::JobsCancelRpc::SUBJECT.to_string(),
             headers.clone(),
             serde_json::to_vec(&json!({
-                "service": "documents",
-                "jobType": "document-process",
                 "id": "job-active-cancel-1"
             }))
             .expect("serialize cancel payload")
@@ -1598,17 +1571,14 @@ async fn start_worker_host_from_binding_projects_worker_presence_and_processes_j
     let requester_client = connect_with_retry(&server).await;
     let worker_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let _infra = seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
+    let jobs_db_path = format!("/tmp/{}.sqlite", unique_name("jobs_sql"));
+    std::env::set_var("TRELLIS_JOBS_DB_PATH", &jobs_db_path);
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client.clone(),
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1618,14 +1588,8 @@ async fn start_worker_host_from_binding_projects_worker_presence_and_processes_j
     headers.insert("proof", "proof");
     await_jobs_health(&requester_client, headers.clone()).await;
 
-    let runtime_binding = JobsRuntimeBinding::try_from(
-        &FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        }
-        .binding(),
-    )
-    .expect("runtime binding");
+    let runtime_binding =
+        JobsRuntimeBinding::try_from(&FakeCoreClient.binding()).expect("runtime binding");
     let worker_host = start_worker_host_from_binding(
         worker_client.clone(),
         runtime_binding,
@@ -1715,17 +1679,12 @@ async fn start_worker_host_from_binding_honors_queue_concurrency() {
     let requester_client = connect_with_retry(&server).await;
     let worker_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let _infra = seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client.clone(),
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1735,14 +1694,8 @@ async fn start_worker_host_from_binding_honors_queue_concurrency() {
     headers.insert("proof", "proof");
     await_jobs_health(&requester_client, headers.clone()).await;
 
-    let mut runtime_binding = JobsRuntimeBinding::try_from(
-        &FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        }
-        .binding(),
-    )
-    .expect("runtime binding");
+    let mut runtime_binding =
+        JobsRuntimeBinding::try_from(&FakeCoreClient.binding()).expect("runtime binding");
     runtime_binding
         .jobs
         .queues
@@ -1874,18 +1827,12 @@ async fn run_jobs_service_with_clients_does_not_process_work_if_job_was_cancelle
     let requester_client = connect_with_retry(&server).await;
     let worker_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let (_jobs_kv, _services_kv) =
-        seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client.clone(),
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1943,8 +1890,6 @@ async fn run_jobs_service_with_clients_does_not_process_work_if_job_was_cancelle
             rpc::JobsCancelRpc::SUBJECT.to_string(),
             headers.clone(),
             serde_json::to_vec(&json!({
-                "service": "documents",
-                "jobType": "document-process",
                 "id": "job-cancel-before-worker-1"
             }))
             .expect("serialize cancel payload")
@@ -1963,14 +1908,8 @@ async fn run_jobs_service_with_clients_does_not_process_work_if_job_was_cancelle
     assert_eq!(cancelled.state, JobState::Cancelled);
 
     let handler_calls = Arc::new(AtomicUsize::new(0));
-    let runtime_binding = JobsRuntimeBinding::try_from(
-        &FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket: service_instances_bucket.clone(),
-        }
-        .binding(),
-    )
-    .expect("runtime binding");
+    let runtime_binding =
+        JobsRuntimeBinding::try_from(&FakeCoreClient.binding()).expect("runtime binding");
     let started_subject = job_event_subject(
         "documents",
         "document-process",
@@ -2025,11 +1964,11 @@ async fn run_janitor_once_publishes_expired_events_and_projector_materializes_st
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let (jobs_kv, _services_kv) =
-        seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
+    let jobs_db_path = format!("/tmp/{}.sqlite", unique_name("jobs_sql"));
+    std::env::set_var("TRELLIS_JOBS_DB_PATH", &jobs_db_path);
+    let store = SqliteJobsStore::open(&jobs_db_path).expect("open jobs sqlite store");
 
     let mut overdue_active = sample_job(
         "job-overdue-active",
@@ -2052,40 +1991,19 @@ async fn run_janitor_once_publishes_expired_events_and_projector_materializes_st
     );
     overdue_completed.deadline = Some("2026-03-28T12:00:00.000Z".to_string());
 
-    jobs_kv
-        .put(
-            "documents.document-process.job-overdue-active",
-            serde_json::to_vec(&overdue_active)
-                .expect("serialize overdue active job")
-                .into(),
-        )
-        .await
+    store
+        .upsert_job(&overdue_active)
         .expect("seed overdue active job");
-    jobs_kv
-        .put(
-            "documents.document-process.job-future-active",
-            serde_json::to_vec(&future_active)
-                .expect("serialize future active job")
-                .into(),
-        )
-        .await
+    store
+        .upsert_job(&future_active)
         .expect("seed future active job");
-    jobs_kv
-        .put(
-            "documents.document-process.job-overdue-completed",
-            serde_json::to_vec(&overdue_completed)
-                .expect("serialize overdue completed job")
-                .into(),
-        )
-        .await
+    store
+        .upsert_job(&overdue_completed)
         .expect("seed overdue completed job");
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client.clone(),
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket,
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -2095,13 +2013,9 @@ async fn run_janitor_once_publishes_expired_events_and_projector_materializes_st
     headers.insert("proof", "proof");
     await_jobs_health(&requester_client, headers.clone()).await;
 
-    let stats = run_janitor_once(
-        service_client.clone(),
-        &jobs_state_bucket,
-        "2026-03-28T12:01:00.000Z",
-    )
-    .await
-    .expect("janitor run should succeed");
+    let stats = run_janitor_once(service_client.clone(), &store, "2026-03-28T12:01:00.000Z")
+        .await
+        .expect("janitor run should succeed");
 
     assert_eq!(stats.scanned, 3);
     assert_eq!(stats.eligible, 1);
@@ -2138,11 +2052,11 @@ async fn run_jobs_service_with_clients_maps_max_deliveries_advisory_to_dead_even
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let (jobs_kv, _services_kv) =
-        seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
+    let jobs_db_path = format!("/tmp/{}.sqlite", unique_name("jobs_sql"));
+    std::env::set_var("TRELLIS_JOBS_DB_PATH", &jobs_db_path);
+    let store = SqliteJobsStore::open(&jobs_db_path).expect("open jobs sqlite store");
 
     let mut current = sample_job(
         "job-advisory-dead-1",
@@ -2150,22 +2064,13 @@ async fn run_jobs_service_with_clients_maps_max_deliveries_advisory_to_dead_even
         JobState::Active,
     );
     current.tries = 2;
-    jobs_kv
-        .put(
-            "documents.document-process.job-advisory-dead-1",
-            serde_json::to_vec(&current)
-                .expect("serialize current job")
-                .into(),
-        )
-        .await
+    store
+        .upsert_job(&current)
         .expect("seed active projected job");
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client.clone(),
-        FakeCoreClient {
-            jobs_state_bucket: jobs_state_bucket.clone(),
-            service_instances_bucket,
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -2254,11 +2159,8 @@ async fn run_jobs_service_with_clients_serves_jobs_dlq_list_replay_and_dismiss()
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let (jobs_kv, _services_kv) =
-        seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
 
     let mut dead1 = sample_job("job-dead-1", "2026-03-28T11:59:00.000Z", JobState::Dead);
     dead1.last_error = Some("dlq-1".to_string());
@@ -2268,36 +2170,13 @@ async fn run_jobs_service_with_clients_serves_jobs_dlq_list_replay_and_dismiss()
     dead2.tries = 5;
     let active = sample_job("job-active-1", "2026-03-28T11:59:00.000Z", JobState::Active);
 
-    jobs_kv
-        .put(
-            "documents.document-process.job-dead-1",
-            serde_json::to_vec(&dead1).expect("serialize dead1").into(),
-        )
-        .await
-        .expect("seed dead1");
-    jobs_kv
-        .put(
-            "documents.document-process.job-dead-2",
-            serde_json::to_vec(&dead2).expect("serialize dead2").into(),
-        )
-        .await
-        .expect("seed dead2");
-    jobs_kv
-        .put(
-            "documents.document-process.job-active-1",
-            serde_json::to_vec(&active)
-                .expect("serialize active")
-                .into(),
-        )
-        .await
-        .expect("seed active");
+    for job in [&dead1, &dead2, &active] {
+        publish_job_projection(&service_client, job).await;
+    }
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client,
-        FakeCoreClient {
-            jobs_state_bucket,
-            service_instances_bucket,
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -2323,8 +2202,6 @@ async fn run_jobs_service_with_clients_serves_jobs_dlq_list_replay_and_dismiss()
         .all(|job| map_job_from_wire(job).state == JobState::Dead));
 
     let replay_payload = serde_json::to_vec(&json!({
-        "service": "documents",
-        "jobType": "document-process",
         "id": "job-dead-1"
     }))
     .expect("serialize replay payload");
@@ -2341,8 +2218,6 @@ async fn run_jobs_service_with_clients_serves_jobs_dlq_list_replay_and_dismiss()
     assert_eq!(replay_json["job"]["state"], json!("pending"));
 
     let dismiss_payload = serde_json::to_vec(&json!({
-        "service": "documents",
-        "jobType": "document-process",
         "id": "job-dead-2"
     }))
     .expect("serialize dismiss payload");
@@ -2371,8 +2246,6 @@ async fn run_jobs_service_with_clients_serves_jobs_dlq_list_replay_and_dismiss()
     assert_eq!(list_after_payload.jobs.len(), 0);
 
     let get_removed_payload = serde_json::to_vec(&JobsGetRequest {
-        service: "documents".to_string(),
-        job_type: "document-process".to_string(),
         id: "job-dead-2".to_string(),
     })
     .expect("serialize get removed payload");
@@ -2401,11 +2274,8 @@ async fn run_jobs_service_with_clients_rejects_invalid_mutation_states() {
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
 
-    let jobs_state_bucket = unique_name("jobs_state");
-    let service_instances_bucket = unique_name("service_instances");
     let js = jetstream::new(service_client.clone());
-    let (jobs_kv, _services_kv) =
-        seed_jobs_infrastructure(&js, &jobs_state_bucket, &service_instances_bucket).await;
+    seed_jobs_infrastructure(&js).await;
 
     let completed = sample_job(
         "job-completed-1",
@@ -2416,23 +2286,12 @@ async fn run_jobs_service_with_clients_rejects_invalid_mutation_states() {
     let active = sample_job("job-active-1", "2026-01-03T00:00:00Z", JobState::Active);
 
     for job in [&completed, &pending, &active] {
-        jobs_kv
-            .put(
-                format!("{}.{}.{}", job.service, job.job_type, job.id),
-                serde_json::to_vec(job)
-                    .expect("serialize seeded job")
-                    .into(),
-            )
-            .await
-            .expect("seed job");
+        publish_job_projection(&service_client, job).await;
     }
 
     let loop_task = tokio::spawn(run_jobs_service_with_clients(
         service_client,
-        FakeCoreClient {
-            jobs_state_bucket,
-            service_instances_bucket,
-        },
+        FakeCoreClient,
         FakeAuthValidateClient,
     ));
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -2446,8 +2305,6 @@ async fn run_jobs_service_with_clients_rejects_invalid_mutation_states() {
             rpc::JobsCancelRpc::SUBJECT.to_string(),
             headers.clone(),
             serde_json::to_vec(&json!({
-                "service": "documents",
-                "jobType": "document-process",
                 "id": "job-completed-1"
             }))
             .expect("serialize cancel payload")
@@ -2462,7 +2319,12 @@ async fn run_jobs_service_with_clients_rejects_invalid_mutation_states() {
         cancel_completed_headers.get("status").unwrap().as_str(),
         "error"
     );
-    let cancel_completed_error = cancel_completed_json["error"]
+    assert_eq!(cancel_completed_json["type"], "UnexpectedError");
+    assert_eq!(
+        cancel_completed_json["message"],
+        "An unexpected error has occurred"
+    );
+    let cancel_completed_error = cancel_completed_json["context"]["causeMessage"]
         .as_str()
         .expect("cancel error string");
     assert!(cancel_completed_error.contains("job state conflict"));
@@ -2473,8 +2335,6 @@ async fn run_jobs_service_with_clients_rejects_invalid_mutation_states() {
             rpc::JobsRetryRpc::SUBJECT.to_string(),
             headers.clone(),
             serde_json::to_vec(&json!({
-                "service": "documents",
-                "jobType": "document-process",
                 "id": "job-pending-1"
             }))
             .expect("serialize retry payload")
@@ -2489,7 +2349,12 @@ async fn run_jobs_service_with_clients_rejects_invalid_mutation_states() {
         retry_pending_headers.get("status").unwrap().as_str(),
         "error"
     );
-    let retry_pending_error = retry_pending_json["error"]
+    assert_eq!(retry_pending_json["type"], "UnexpectedError");
+    assert_eq!(
+        retry_pending_json["message"],
+        "An unexpected error has occurred"
+    );
+    let retry_pending_error = retry_pending_json["context"]["causeMessage"]
         .as_str()
         .expect("retry error string");
     assert!(retry_pending_error.contains("job state conflict"));
@@ -2500,8 +2365,6 @@ async fn run_jobs_service_with_clients_rejects_invalid_mutation_states() {
             rpc::JobsDismissDLQRpc::SUBJECT.to_string(),
             headers,
             serde_json::to_vec(&json!({
-                "service": "documents",
-                "jobType": "document-process",
                 "id": "job-active-1"
             }))
             .expect("serialize dismiss payload")
@@ -2516,7 +2379,12 @@ async fn run_jobs_service_with_clients_rejects_invalid_mutation_states() {
         dismiss_active_headers.get("status").unwrap().as_str(),
         "error"
     );
-    let dismiss_active_error = dismiss_active_json["error"]
+    assert_eq!(dismiss_active_json["type"], "UnexpectedError");
+    assert_eq!(
+        dismiss_active_json["message"],
+        "An unexpected error has occurred"
+    );
+    let dismiss_active_error = dismiss_active_json["context"]["causeMessage"]
         .as_str()
         .expect("dismiss error string");
     assert!(dismiss_active_error.contains("job state conflict"));

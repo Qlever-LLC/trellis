@@ -12,8 +12,6 @@ order: 10
   service-author patterns and jobs vs operations boundary
 - [../core/type-system-patterns.md](./../core/type-system-patterns.md) - Result,
   error, and weak-type guidance
-- [../core/kv-resource-patterns.md](./../core/kv-resource-patterns.md) - KV
-  naming and projection patterns
 
 ## Context
 
@@ -52,7 +50,7 @@ and the standard Trellis Jobs admin RPC contract lives in
   typically through generated jobs SDK types or client wrappers
 
 This document also defines the shared Trellis-owned jobs infrastructure plus a
-separate `jobs` admin runtime implementation for admin queries, janitor, and KV
+separate Jobs admin runtime implementation for admin queries, janitor, and SQL
 projection. The `trellis.jobs@v1` contract is a built-in Trellis API; it is not
 owned by that runtime implementation.
 
@@ -60,19 +58,21 @@ Caller-visible asynchronous APIs are defined separately in
 [../operations/trellis-operations.md](./../operations/trellis-operations.md).
 Jobs remain service-private execution machinery.
 
-The shared streams and projected-state KV bucket used by jobs are Trellis-owned
-runtime infrastructure. Trellis provisions or binds those resources during
-service apply/install for jobs-enabled services. The Jobs admin runtime may host
-the built-in `trellis.jobs@v1` RPCs, but it does not own or control the
-contract. Ordinary services and demos should not need an extra manual
-`trellis.jobs@v1` install step just to create or process jobs.
+The shared streams used by jobs are Trellis-owned runtime infrastructure.
+Trellis provisions or binds those resources during service apply/install for
+jobs-enabled services. The Jobs admin runtime may host the built-in
+`trellis.jobs@v1` RPCs, but it does not own or control the contract. Ordinary
+services and demos should not need an extra manual `trellis.jobs@v1` install
+step just to create or process jobs.
 
 ### Design Principles
 
-1. **Stream-first architecture** — JetStream stream is the source of truth. KV
-   is a derived projection for queries.
-2. **Jobs admin runtime** — Implements janitor, global RPC handlers, and KV
-   projection for the built-in Jobs API. Stateless and horizontally scalable.
+1. **Stream-first architecture** — The `JOBS` JetStream stream is the source of
+   truth. SQL is a disposable derived projection for queries and admin actions.
+2. **Jobs admin runtime** — Implements janitor, global RPC handlers, and SQL
+   projection for the built-in Jobs API. Runtime replicas may share the same
+   projection database or run with one owner for projector/janitor/advisory
+   loops plus RPC-only replicas.
 3. **Service-local processing** — Each service processes its own jobs via its
    own consumer.
 4. **Passive worker heartbeats** — Workers emit per-job-type heartbeat subjects
@@ -223,25 +223,27 @@ When a work message exhausts `MaxDeliver`, NATS emits an advisory. By capturing
 these in a stream, the `jobs` service can reliably detect exhausted jobs even if
 it was temporarily unavailable.
 
-**KV Buckets**
+**Jobs Admin Projection: SQLite**
 
-The shared jobs subsystem requires one projected-state bucket:
+The shared jobs subsystem stores query state in an internal SQLite projection
+owned by the Jobs admin runtime.
 
-**`trellis_jobs`** — Projected job state
+- Default path: `/var/lib/trellis/jobs.sqlite`
+- Override: `TRELLIS_JOBS_DB_PATH`
+- Tables:
+  - `jobs_projection` for current job state and query fields
+  - `worker_presence_projection` for latest worker heartbeat state
+  - `projection_metadata` for projection bookkeeping
 
-- Keys: `<service>.<job-type>.<job-id>` → Job JSON
-- No TTL (jobs persist until explicitly cleaned up)
-- Maintained by `jobs` service projector
+The jobs projection is a strict view of the event stream. Job state in SQLite
+changes only by projecting job events from `JOBS`; neither the Jobs admin runtime
+nor an admin RPC mutates projected job state directly. Admin mutations publish
+real lifecycle events and then observe those events through the projection.
 
-The jobs projection is a strict view of the event stream. Job state in KV
-changes only by projecting job events from `JOBS`; neither the `jobs` service
-nor an admin mutates projected job state directly.
-
-Worker-presence projection is intentionally an implementation detail of the
-`jobs` service. Recommended default: the `jobs` service should persist that
-derived worker-presence view in a service-private durable replicated JetStream
-KV bucket so admin visibility survives restarts and replica failover. Ordinary
-services do not bind to or write any registry KV bucket.
+Worker presence is also an internal SQL projection. Workers emit passive
+heartbeat subjects; the Jobs admin runtime stores the latest heartbeat per
+service/job-type/instance and applies freshness filtering at query time.
+Ordinary services do not bind to or write any admin projection storage.
 
 ### Provisioning Model
 
@@ -251,10 +253,9 @@ requiring a separate manual jobs install step or first-bootstrap side effect.
 
 - normal services declare top-level `jobs` to participate in jobs processing
   without owning the shared stream topology directly
-- Trellis owns the shared streams and projected-state KV bucket needed by the
-  jobs subsystem
+- Trellis owns the shared streams needed by the jobs subsystem
 - a separate jobs admin runtime may still implement centralized queries, janitor
-  work, and projections for the built-in Jobs API, but ordinary service-local
+  work, and SQL projections for the built-in Jobs API, but ordinary service-local
   workers do not depend on a manual jobs service deployment to start
 - the `trellis` service provisions or binds the shared jobs resources during
   service apply/install before jobs-enabled services start
@@ -263,8 +264,8 @@ requiring a separate manual jobs install step or first-bootstrap side effect.
 - the runtime should consume those bindings, rather than hard-coding an
   imperative infrastructure setup path
 - resolved runtime bindings may still include internal work-stream details
-  needed by the host runtime, but they do not expose the projected-state KV
-  bucket to ordinary services. Public service-author APIs should use
+  needed by the host runtime, but they do not expose admin projection storage to
+  ordinary services. Public service-author APIs should use
   `service.jobs.<queue>.handle(...)`, `service.wait()`, and `JobRef` helpers
   rather than runtime stream bindings directly
 
@@ -275,26 +276,62 @@ streams and stream source transforms are Trellis-owned runtime details, not
 service-declared contract resources.
 
 Normal consuming service contracts should declare top-level `jobs`. The JSON
-examples below show the resolved JetStream or KV configuration the jobs runtime
-expects after binding. Trellis should provision these shared resources during
-service apply/install so service-local workers can rely on the bindings without
-a separate infrastructure install step.
+examples below show the resolved JetStream configuration the jobs runtime expects
+after binding. Trellis should provision these shared resources during service
+apply/install so service-local workers can rely on the bindings without a
+separate infrastructure install step.
 
 Trellis jobs require `nats-server` 2.10.0 or newer. This is the runtime floor
 for JetStream source subject transforms and filtered consumer create API
 permissions; older durable consumer-create subjects are not part of the v1 jobs
 permission model.
 
-Trellis-created Jobs streams and KV buckets use the configured JetStream replica
-count for the deployment. Standalone/local NATS deployments should use `1`;
-production clustered deployments should normally use `3`. The examples below use
-`3` to show the recommended production shape.
+### Canonical Worker Runtime Flow
+
+All Trellis language runtimes MUST use the same service-local jobs worker flow.
+Library-specific JetStream helper behavior is not a runtime contract and must not
+add extra permissions or alter worker semantics.
+
+For each bound queue, the connected service runtime MUST:
+
+- validate the resolved queue binding and configured concurrency before starting
+  worker tasks
+- ensure the per-queue durable consumer directly against the bound `workStream`
+  and queue `consumerName` using the NATS 2.10 filtered consumer create API
+- avoid preflighting or opening `JOBS_WORK` through stream-info APIs during
+  service-local worker startup
+- fetch direct consumer info by `workStream` and `consumerName` only as the
+  fallback for an existing compatible consumer
+- fail worker startup synchronously if the durable consumer cannot be created or
+  attached
+- consume work messages from the ensured consumer handle
+- before processing a work item, read the latest lifecycle event from `JOBS` with
+  JetStream direct get by fully qualified lifecycle subject
+- ack without processing when the latest lifecycle event is terminal
+- subscribe to the queue cancellation subject for live cooperative cancellation
+
+This canonical path is intentionally language-neutral. TypeScript, Rust, and any
+future runtime must converge on this flow even when their underlying NATS client
+libraries expose different helper APIs.
+
+The service-local jobs permission set therefore includes the concrete subjects
+needed for this canonical flow: filtered consumer create/info for the bound work
+stream, pull-message and ack subjects for that consumer, direct get on the `JOBS`
+stream for lifecycle reads, service-local lifecycle publish/subscribe subjects,
+and service-local worker heartbeat subjects. It does not include broad stream
+management, `JOBS_WORK` stream-info preflight, or legacy durable-consumer-create
+subjects for ordinary services.
+
+Trellis-created Jobs streams use the configured JetStream replica count for the
+deployment. Standalone/local NATS deployments should use `1`; production
+clustered deployments should normally use `3`. The examples below use `3` to
+show the recommended production shape.
 
 Resolved service bindings may still include internal runtime-generated work
 stream details such as `JOBS_WORK`, but ordinary service code should treat those
-as Trellis internals rather than as public contract-authored stream aliases. The
-`trellis_jobs` projected-state KV bucket remains Trellis-owned infrastructure
-and is not part of the service-visible jobs binding.
+as Trellis internals rather than as public contract-authored stream aliases. Jobs
+admin projection storage is internal to the Jobs admin runtime and is not part of
+the service-visible jobs binding.
 
 **Stream: `JOBS`**
 
@@ -354,16 +391,6 @@ events from `JOBS` into `JOBS_WORK` with a subject transform:
 }
 ```
 
-**KV Bucket: `trellis_jobs`**
-
-```json
-{
-  "bucket": "trellis_jobs",
-  "storage": "file",
-  "num_replicas": 3
-}
-```
-
 **Consumer: Per job-type (created dynamically)**
 
 Each service creates a durable consumer for its job types:
@@ -396,10 +423,10 @@ A dedicated `jobs` service provides observability and management. It is **not
 required for job processing**—services can create and process jobs
 independently. The `jobs` service adds:
 
-1. **KV Projection** — Consumes `JOBS` stream via single durable consumer,
-   updates `trellis_jobs` KV bucket
+1. **SQL Projection** — Consumes `JOBS` stream via durable consumer and updates
+   the internal SQLite query projection
 2. **Worker Presence Projection** — Passively consumes worker heartbeat subjects
-   and derives admin-facing live-worker views
+   and derives admin-facing live-worker views in SQLite
 3. **Janitor** — Enforces business `deadline` expiry (not AckWait—JetStream
    handles redelivery)
 4. **Advisory Consumer** — Consumes `JOBS_ADVISORIES` and maps exhausted
@@ -407,9 +434,10 @@ independently. The `jobs` service adds:
 5. **Global RPCs** — ListServices, ListJobs, GetJob, Cancel, Retry, DLQ
    management
 
-The jobs admin runtime is stateless. If it's unavailable, job processing
-continues normally; only UI visibility and deadline enforcement pause until it
-recovers.
+The jobs admin runtime is stateless with respect to source-of-truth job state.
+If it's unavailable, job processing continues normally; only UI visibility and
+deadline enforcement pause until it recovers and rebuilds or catches up the SQL
+projection.
 
 ### Worker Heartbeats
 
@@ -432,7 +460,7 @@ type WorkerHeartbeat = {
   from per-job lifecycle subjects.
 - Emitting heartbeats is optional for job correctness. Jobs continue to run even
   if heartbeats are absent or the `jobs` service is not deployed.
-- The `jobs` service may project heartbeats into a durable, freshness-filtered
+- The Jobs admin runtime projects heartbeats into a durable, freshness-filtered
   live-worker view for admin screens and service summaries.
 - `listServices()` and related admin views aggregate that derived
   worker-presence projection rather than reading direct service-written registry
@@ -507,8 +535,8 @@ Job state changes are published to the `JOBS` stream:
 - `retry` — Worker requested redelivery via NAK/backoff
 - `progress` — Progress update (structured: step/message/current/total, all
   optional)
-- `logged` — Log entry added (contains only new entries; `jobs` service
-  aggregates full history to KV)
+- `logged` — Log entry added (contains only new entries; the SQL projection
+  aggregates the current log view)
 - `completed` — Successfully finished (includes result)
 - `failed` — Non-retryable failure
 - `cancelled` — Job was cancelled
@@ -686,10 +714,10 @@ source.
 
 ### RPC Endpoints
 
-All job RPCs are centralized in the `jobs` service. The service reads from
-derived projections (KV for job state plus implementation-specific
-worker-presence projection) and publishes administrative events or commands to
-the appropriate jobs subjects. It does not mutate projected job state directly.
+All job RPCs are centralized in the Jobs admin service. The service reads from
+derived SQL projections for job state and worker presence, then publishes
+administrative events or commands to the appropriate jobs subjects. It does not
+mutate projected job state directly.
 
 | RPC                 | Input                      | Output          | Description                                |
 | ------------------- | -------------------------- | --------------- | ------------------------------------------ |
@@ -716,7 +744,7 @@ The janitor enforces the `deadline` field on jobs—a business-level SLA (e.g.,
 "must complete within 24 hours"). It does NOT compete with JetStream's
 `AckWait`/redelivery mechanism.
 
-1. Periodically scans `trellis_jobs` KV for jobs where `deadline < now` and
+1. Periodically scans the SQL projection for jobs where `deadline < now` and
    state is not terminal
 2. Emits `.expired` event for matching jobs
 3. Does NOT touch `active` jobs based on worker-heartbeat staleness—JetStream
@@ -741,7 +769,7 @@ advisories accumulate in the stream and are processed on recovery.
   `dead` back into the normal processing lifecycle.
 - `DismissDLQ` emits a real `dismissed` event that moves a `dead` job into
   terminal `dismissed` state.
-- Neither operation alters KV directly; the projector updates the query view by
+- Neither operation alters SQL directly; the projector updates the query view by
   consuming those events.
 
 ### Authorization
@@ -803,7 +831,7 @@ rust/crates/jobs/
     ├── types.rs        # Shared models and serde types
     ├── events.rs       # Event constructors and helpers
     ├── projection.rs   # Reducer / projector logic
-    ├── keys.rs         # KV key derivation
+    ├── keys.rs         # Job identity key derivation
     ├── subjects.rs     # Subject derivation
     ├── manager.rs      # Service-local job lifecycle publishing
     ├── active_job.rs   # Worker-facing active job helper
@@ -818,11 +846,12 @@ rust/crates/service-jobs/
     ├── main.rs         # Service entrypoint
     ├── bootstrap.rs    # Service host bootstrap/run orchestration
     ├── contract.rs     # Contract metadata / generated contract adapter
-    ├── projector.rs    # JOBS stream → KV projection
+    ├── projector.rs    # JOBS stream → SQL projection
     ├── janitor.rs      # Business deadline enforcement
     ├── advisory.rs     # MaxDeliver advisory consumer
-    ├── kv_query.rs     # KV-backed query + mutation operations
-    ├── kv_query/       # Query resource, state, and wire helpers
+    ├── query.rs        # SQL-backed query + mutation operations
+    ├── query/          # Query resource, state, and wire helpers
+    ├── storage/        # SQLite schema and projection store
     └── router.rs       # Global RPC handlers
 ```
 
@@ -833,7 +862,7 @@ images), store in Object Store and pass references in the payload.
 
 **Progress events:** Services should be mindful of progress event frequency.
 While not enforced, high-frequency updates (e.g., every millisecond) create
-unnecessary stream volume. KV only stores the latest progress state.
+unnecessary stream volume. The SQL projection stores the latest progress state.
 
 **Retry vs redelivery:** The `retry` state indicates "NAK sent, awaiting
 JetStream redelivery"—the worker is NOT running. When JetStream redelivers the

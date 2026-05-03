@@ -84,7 +84,16 @@ export const contract = defineAppContract(
       }),
       jobs: trellisJobs.use({
         rpc: {
-          call: ["Jobs.List", "Jobs.ListServices"],
+          call: [
+            "Jobs.Get",
+            "Jobs.Cancel",
+            "Jobs.Retry",
+            "Jobs.List",
+            "Jobs.ListServices",
+            "Jobs.ListDLQ",
+            "Jobs.ReplayDLQ",
+            "Jobs.DismissDLQ",
+          ],
         },
       }),
     },

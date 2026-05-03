@@ -9,6 +9,7 @@ description = "Rust jobs admin service bootstrap scaffold for Trellis."
 [dependencies]
 async-nats.workspace = true
 futures-util.workspace = true
+rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -21,9 +22,9 @@ trellis-core-bootstrap = { path = "../core-bootstrap", version = "0.8.4" }
 trellis-sdk-auth.workspace = true
 trellis-sdk-core.workspace = true
 trellis-sdk-jobs.workspace = true
-trellis-server = { path = "../server", version = "0.8.4" }
-trellis-contracts = { path = "../contracts", version = "0.8.4" }
-trellis-jobs = { path = "../jobs", version = "0.8.4" }
+trellis-service = { path = "../service", version = "0.8.2" }
+trellis-contracts = { path = "../contracts", version = "0.8.2" }
+trellis-jobs = { path = "../jobs", version = "0.8.2" }
 
 [dev-dependencies]
 bytes.workspace = true

@@ -10,13 +10,13 @@ use trellis_sdk_jobs::types::{
     JobsHealthResponse, JobsListDLQRequest, JobsListRequest, JobsListServicesRequest,
     JobsReplayDLQRequest, JobsRetryRequest,
 };
-use trellis_server::Router;
+use trellis_service::Router;
 
 use crate::contract::SERVICE_NAME;
-use crate::kv_query::JobsKvQuery;
+use crate::query::JobsQuery;
 
-/// Build the Jobs admin RPC router backed by a KV query adapter.
-pub fn build_router_with_query(query: JobsKvQuery) -> Router {
+/// Build the Jobs admin RPC router backed by a SQL projection query adapter.
+pub fn build_router_with_query(query: JobsQuery) -> Router {
     let mut router = Router::new();
     router.register_rpc::<JobsHealthRpc, _, _>(|_ctx, _input: JobsHealthRequest| async move {
         Ok(JobsHealthResponse {
@@ -85,8 +85,8 @@ pub fn build_router_with_query(query: JobsKvQuery) -> Router {
     router
 }
 
-fn map_query_error(error: crate::kv_query::JobsQueryError) -> trellis_server::ServerError {
-    trellis_server::ServerError::Nats(error.to_string())
+fn map_query_error(error: crate::query::JobsQueryError) -> trellis_service::ServerError {
+    trellis_service::ServerError::Nats(format!("jobs RPC query failed: {error}"))
 }
 
 fn now_timestamp_string() -> String {

@@ -3,7 +3,9 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 use trellis_jobs::types::{Job, JobEvent};
 use trellis_jobs::{dead_event, is_terminal, job_event_subject, job_from_work_event};
-use trellis_server::ServerError;
+use trellis_service::ServerError;
+
+use crate::storage::SqliteJobsStore;
 
 const MAX_DELIVERIES_ADVISORY_SUBJECT_WILDCARD: &str =
     "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>";
@@ -27,17 +29,27 @@ pub struct MaxDeliveriesAdvisory {
 }
 
 pub struct AdvisoryHandle {
-    task: tokio::task::JoinHandle<Result<(), ServerError>>,
+    task: Option<tokio::task::JoinHandle<Result<(), ServerError>>>,
 }
 
 impl AdvisoryHandle {
     pub async fn stop(self) {
-        self.task.abort();
-        let _ = self.task.await;
+        let Some(task) = self.task else {
+            return;
+        };
+        task.abort();
+        let _ = task.await;
+    }
+
+    pub(crate) fn discard_completed(&mut self) {
+        self.task = None;
     }
 
     pub async fn wait(&mut self) -> Result<(), ServerError> {
-        match (&mut self.task).await {
+        let Some(task) = self.task.as_mut() else {
+            return Ok(());
+        };
+        match task.await {
             Ok(result) => result,
             Err(error) if error.is_cancelled() => Ok(()),
             Err(error) => Err(ServerError::Nats(format!(
@@ -87,18 +99,18 @@ pub fn map_dead_event_from_advisory_job(
 
 pub async fn start_advisory_loop(
     nats: async_nats::Client,
-    jobs_state_bucket: String,
+    store: SqliteJobsStore,
     jobs_advisories_stream: String,
 ) -> Result<AdvisoryHandle, ServerError> {
     let jetstream = jetstream::new(nats.clone());
-    let jobs_kv = jetstream
-        .get_key_value(&jobs_state_bucket)
-        .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
     let stream = jetstream
         .get_stream(&jobs_advisories_stream)
         .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
+        .map_err(|error| {
+            ServerError::Nats(format!(
+                "failed to open jobs advisory stream '{jobs_advisories_stream}': {error}"
+            ))
+        })?;
     let consumer = stream
         .get_or_create_consumer(
             ADVISORY_CONSUMER_NAME,
@@ -110,15 +122,27 @@ pub async fn start_advisory_loop(
             },
         )
         .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
+        .map_err(|error| {
+            ServerError::Nats(format!(
+                "failed to create jobs advisory consumer '{ADVISORY_CONSUMER_NAME}' on stream '{jobs_advisories_stream}': {error}"
+            ))
+        })?;
     let mut messages = consumer
         .messages()
         .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
+        .map_err(|error| {
+            ServerError::Nats(format!(
+                "failed to start jobs advisory consumer '{ADVISORY_CONSUMER_NAME}' message stream: {error}"
+            ))
+        })?;
 
     let task = tokio::spawn(async move {
         while let Some(message) = messages.next().await {
-            let message = message.map_err(|error| ServerError::Nats(error.to_string()))?;
+            let message = message.map_err(|error| {
+                ServerError::Nats(format!(
+                    "jobs advisory loop failed to pull from consumer '{ADVISORY_CONSUMER_NAME}' on stream '{jobs_advisories_stream}': {error}"
+                ))
+            })?;
             let Ok(advisory) = serde_json::from_slice::<MaxDeliveriesAdvisory>(&message.payload)
             else {
                 let _ = message.ack().await;
@@ -128,11 +152,22 @@ pub async fn start_advisory_loop(
             let stream = jetstream
                 .get_stream(&advisory.stream)
                 .await
-                .map_err(|error| ServerError::Nats(error.to_string()))?;
-            let raw_message = stream
-                .get_raw_message(advisory.stream_seq)
-                .await
-                .map_err(|error| ServerError::Nats(error.to_string()))?;
+                .map_err(|error| {
+                    ServerError::Nats(format!(
+                        "jobs advisory loop failed to open work stream '{}': {error}",
+                        advisory.stream
+                    ))
+                })?;
+            let raw_message =
+                stream
+                    .get_raw_message(advisory.stream_seq)
+                    .await
+                    .map_err(|error| {
+                        ServerError::Nats(format!(
+                            "jobs advisory loop failed to read stream '{}' sequence {}: {error}",
+                            advisory.stream, advisory.stream_seq
+                        ))
+                    })?;
             let Ok(work_event) = serde_json::from_slice::<JobEvent>(&raw_message.payload) else {
                 let _ = message.ack().await;
                 continue;
@@ -142,16 +177,14 @@ pub async fn start_advisory_loop(
                 continue;
             };
 
-            let key = trellis_jobs::job_key(&work_job.service, &work_job.job_type, &work_job.id);
-            let current = match jobs_kv.get(&key).await {
-                Ok(Some(bytes)) => serde_json::from_slice::<Job>(&bytes).ok(),
-                Ok(None) => None,
-                Err(error) => return Err(ServerError::Nats(error.to_string())),
-            };
-
-            let Some(mapped) =
-                map_dead_event_from_advisory_job(current.as_ref(), &work_job, &advisory)
-            else {
+            let Some(mapped) = map_dead_event_from_store(&store, &work_job, &advisory).map_err(
+                |error| {
+                    ServerError::Nats(format!(
+                        "jobs advisory loop failed to read SQLite projection for '{}/{}/{}': {error}",
+                        work_job.service, work_job.job_type, work_job.id
+                    ))
+                },
+            )? else {
                 let _ = message.ack().await;
                 continue;
             };
@@ -162,11 +195,95 @@ pub async fn start_advisory_loop(
             };
             nats.publish(mapped.subject, payload.into())
                 .await
-                .map_err(|error| ServerError::Nats(error.to_string()))?;
+                .map_err(|error| {
+                    ServerError::Nats(format!(
+                        "jobs advisory loop failed to publish dead event: {error}"
+                    ))
+                })?;
             let _ = message.ack().await;
         }
         Ok(())
     });
 
-    Ok(AdvisoryHandle { task })
+    Ok(AdvisoryHandle { task: Some(task) })
+}
+
+fn map_dead_event_from_store(
+    store: &SqliteJobsStore,
+    work_job: &Job,
+    advisory: &MaxDeliveriesAdvisory,
+) -> Result<Option<MappedDeadEvent>, crate::storage::SqliteJobsStoreError> {
+    let current = store.get_job(&work_job.service, &work_job.job_type, &work_job.id)?;
+    Ok(map_dead_event_from_advisory_job(
+        current.as_ref(),
+        work_job,
+        advisory,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use trellis_jobs::types::JobState;
+
+    use super::*;
+
+    fn job(id: &str, state: JobState) -> Job {
+        Job {
+            id: id.to_string(),
+            service: "documents".to_string(),
+            job_type: "document-process".to_string(),
+            state,
+            payload: json!({ "id": id }),
+            result: None,
+            created_at: "2026-03-28T11:00:00.000Z".to_string(),
+            updated_at: "2026-03-28T11:59:00.000Z".to_string(),
+            started_at: None,
+            completed_at: None,
+            tries: 2,
+            max_tries: 5,
+            last_error: None,
+            deadline: None,
+            progress: None,
+            logs: None,
+        }
+    }
+
+    fn advisory() -> MaxDeliveriesAdvisory {
+        MaxDeliveriesAdvisory {
+            stream: "JOBS_WORK".to_string(),
+            consumer: "documents-document-process".to_string(),
+            stream_seq: 42,
+            deliveries: 5,
+            timestamp: "2026-03-28T12:03:00.000Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn advisory_maps_dead_event_using_sql_current_state() {
+        let store = SqliteJobsStore::open_in_memory().expect("store should open");
+        let current = job("job-1", JobState::Active);
+        store.upsert_job(&current).expect("upsert should succeed");
+
+        let mapped = map_dead_event_from_store(&store, &current, &advisory())
+            .expect("mapping should succeed")
+            .expect("active job should map");
+
+        assert_eq!(mapped.event.job_id, "job-1");
+        assert_eq!(mapped.event.previous_state, Some(JobState::Active));
+        assert_eq!(mapped.event.state, JobState::Dead);
+        assert_eq!(mapped.event.tries, 5);
+    }
+
+    #[test]
+    fn advisory_skips_terminal_sql_current_state() {
+        let store = SqliteJobsStore::open_in_memory().expect("store should open");
+        let completed = job("job-1", JobState::Completed);
+        store.upsert_job(&completed).expect("upsert should succeed");
+
+        let mapped = map_dead_event_from_store(&store, &completed, &advisory())
+            .expect("mapping should succeed");
+
+        assert!(mapped.is_none());
+    }
 }

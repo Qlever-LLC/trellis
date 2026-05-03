@@ -1,24 +1,36 @@
 use async_nats::jetstream::{self, consumer};
 use futures_util::StreamExt;
+use trellis_jobs::reduce_job_event;
 use trellis_jobs::types::{Job, JobEvent};
-use trellis_jobs::{job_key, reduce_job_event};
-use trellis_server::ServerError;
+use trellis_service::ServerError;
+
+use crate::storage::{SqliteJobsStore, SqliteJobsStoreError};
 
 const JOBS_EVENTS_SUBJECT_WILDCARD: &str = "trellis.jobs.>";
 const PROJECTOR_CONSUMER_NAME: &str = "jobs-projector";
 
 pub struct JobsProjectorHandle {
-    task: tokio::task::JoinHandle<Result<(), ServerError>>,
+    task: Option<tokio::task::JoinHandle<Result<(), ServerError>>>,
 }
 
 impl JobsProjectorHandle {
     pub async fn stop(self) {
-        self.task.abort();
-        let _ = self.task.await;
+        let Some(task) = self.task else {
+            return;
+        };
+        task.abort();
+        let _ = task.await;
+    }
+
+    pub(crate) fn discard_completed(&mut self) {
+        self.task = None;
     }
 
     pub async fn wait(&mut self) -> Result<(), ServerError> {
-        match (&mut self.task).await {
+        let Some(task) = self.task.as_mut() else {
+            return Ok(());
+        };
+        match task.await {
             Ok(result) => result,
             Err(error) if error.is_cancelled() => Ok(()),
             Err(error) => Err(ServerError::Nats(format!(
@@ -30,18 +42,15 @@ impl JobsProjectorHandle {
 
 pub async fn start_jobs_projector(
     nats: async_nats::Client,
-    jobs_state_bucket: String,
+    store: SqliteJobsStore,
     jobs_stream: String,
 ) -> Result<JobsProjectorHandle, ServerError> {
     let jetstream = jetstream::new(nats);
-    let kv = jetstream
-        .get_key_value(&jobs_state_bucket)
-        .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
-    let stream = jetstream
-        .get_stream(&jobs_stream)
-        .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
+    let stream = jetstream.get_stream(&jobs_stream).await.map_err(|error| {
+        ServerError::Nats(format!(
+            "failed to open jobs projector stream '{jobs_stream}': {error}"
+        ))
+    })?;
     let consumer = stream
         .get_or_create_consumer(
             PROJECTOR_CONSUMER_NAME,
@@ -53,15 +62,27 @@ pub async fn start_jobs_projector(
             },
         )
         .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
+        .map_err(|error| {
+            ServerError::Nats(format!(
+                "failed to create jobs projector consumer '{PROJECTOR_CONSUMER_NAME}' on stream '{jobs_stream}': {error}"
+            ))
+        })?;
     let mut messages = consumer
         .messages()
         .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
+        .map_err(|error| {
+            ServerError::Nats(format!(
+                "failed to start jobs projector consumer '{PROJECTOR_CONSUMER_NAME}' message stream: {error}"
+            ))
+        })?;
 
     let task = tokio::spawn(async move {
         while let Some(message) = messages.next().await {
-            let message = message.map_err(|error| ServerError::Nats(error.to_string()))?;
+            let message = message.map_err(|error| {
+                ServerError::Nats(format!(
+                    "jobs projector failed to pull from consumer '{PROJECTOR_CONSUMER_NAME}' on stream '{jobs_stream}': {error}"
+                ))
+            })?;
             let event = match serde_json::from_slice::<JobEvent>(&message.payload) {
                 Ok(event) => event,
                 Err(_) => {
@@ -70,33 +91,63 @@ pub async fn start_jobs_projector(
                 }
             };
 
-            let key = job_key(&event.service, &event.job_type, &event.job_id);
-            let current = match kv.get(&key).await {
-                Ok(Some(bytes)) => serde_json::from_slice::<Job>(&bytes).ok(),
-                Ok(None) => None,
-                Err(error) => return Err(ServerError::Nats(error.to_string())),
-            };
-
-            let Some(next) = reduce_job_event(current.as_ref(), &event) else {
-                let _ = message.ack().await;
-                continue;
-            };
-
-            let payload = match serde_json::to_vec(&next) {
-                Ok(payload) => payload,
-                Err(_) => {
-                    let _ = message.ack().await;
-                    continue;
-                }
-            };
-
-            kv.put(&key, payload.into())
-                .await
-                .map_err(|error| ServerError::Nats(error.to_string()))?;
+            project_job_event(&store, &event).map_err(|error| {
+                ServerError::Nats(format!(
+                    "jobs projector failed to project job '{}/{}/{}': {error}",
+                    event.service, event.job_type, event.job_id
+                ))
+            })?;
             let _ = message.ack().await;
         }
         Ok(())
     });
 
-    Ok(JobsProjectorHandle { task })
+    Ok(JobsProjectorHandle { task: Some(task) })
+}
+
+pub fn project_job_event(
+    store: &SqliteJobsStore,
+    event: &JobEvent,
+) -> Result<Option<Job>, SqliteJobsStoreError> {
+    let current = store.get_job(&event.service, &event.job_type, &event.job_id)?;
+    let Some(next) = reduce_job_event(current.as_ref(), event) else {
+        return Ok(None);
+    };
+    store.upsert_job(&next)?;
+    Ok(Some(next))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use trellis_jobs::events::created_event;
+    use trellis_jobs::types::JobState;
+
+    use super::*;
+
+    #[test]
+    fn project_job_event_upserts_sql_projection() {
+        let store = SqliteJobsStore::open_in_memory().expect("store should open");
+        let event = created_event(
+            "documents",
+            "document-process",
+            "job-1",
+            json!({ "documentId": "doc-1" }),
+            3,
+            "2026-03-28T12:00:00.000Z",
+            None,
+        );
+
+        let projected = project_job_event(&store, &event)
+            .expect("projection should succeed")
+            .expect("event should reduce");
+
+        assert_eq!(projected.state, JobState::Pending);
+        let stored = store
+            .get_job("documents", "document-process", "job-1")
+            .expect("get should succeed")
+            .expect("job should be stored");
+        assert_eq!(stored.id, "job-1");
+        assert_eq!(stored.payload, json!({ "documentId": "doc-1" }));
+    }
 }

@@ -123,7 +123,7 @@ trait WireLogItem {
 }
 
 trait WireProgressItem {
-    fn from_progress(progress: &JobProgress, current: i64, total: i64) -> Self;
+    fn from_progress(progress: &JobProgress, current: Option<i64>, total: Option<i64>) -> Self;
 }
 
 macro_rules! impl_wire_log_item {
@@ -143,10 +143,15 @@ macro_rules! impl_wire_log_item {
 macro_rules! impl_wire_progress_item {
     ($type_name:ty) => {
         impl WireProgressItem for $type_name {
-            fn from_progress(progress: &JobProgress, current: i64, total: i64) -> Self {
+            fn from_progress(
+                progress: &JobProgress,
+                current: Option<i64>,
+                total: Option<i64>,
+            ) -> Self {
                 Self {
                     current,
                     message: progress.message.clone(),
+                    step: progress.step.clone(),
                     total,
                 }
             }
@@ -195,22 +200,16 @@ where
     progress
         .as_ref()
         .map(|progress| {
-            let current = progress
-                .current
-                .ok_or_else(|| JobsQueryError::ConvertWireModel {
-                    model: "job progress current",
-                    details: "missing required field".to_string(),
-                })?;
-            let total = progress
-                .total
-                .ok_or_else(|| JobsQueryError::ConvertWireModel {
-                    model: "job progress total",
-                    details: "missing required field".to_string(),
-                })?;
             Ok(T::from_progress(
                 progress,
-                map_count(current, "job progress current")?,
-                map_count(total, "job progress total")?,
+                progress
+                    .current
+                    .map(|current| map_count(current, "job progress current"))
+                    .transpose()?,
+                progress
+                    .total
+                    .map(|total| map_count(total, "job progress total"))
+                    .transpose()?,
             ))
         })
         .transpose()
@@ -231,4 +230,68 @@ where
         model,
         details: error.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use trellis_jobs::types::{JobProgress, JobState};
+
+    use super::*;
+
+    fn job_with_progress(progress: JobProgress) -> Job {
+        Job {
+            id: "job-1".to_string(),
+            service: "documents".to_string(),
+            job_type: "document-process".to_string(),
+            state: JobState::Active,
+            payload: json!({ "documentId": "doc-1" }),
+            result: None,
+            created_at: "2026-03-28T12:00:00.000Z".to_string(),
+            updated_at: "2026-03-28T12:01:00.000Z".to_string(),
+            started_at: Some("2026-03-28T12:00:30.000Z".to_string()),
+            completed_at: None,
+            tries: 1,
+            max_tries: 5,
+            last_error: None,
+            deadline: None,
+            progress: Some(progress),
+            logs: None,
+        }
+    }
+
+    #[test]
+    fn job_progress_wire_mapping_allows_message_only_progress() {
+        let job = job_with_progress(JobProgress {
+            step: None,
+            message: Some("Scanning".to_string()),
+            current: None,
+            total: None,
+        });
+
+        let item = job_to_list_item(&job).expect("map job");
+
+        let progress = item.progress.expect("progress should be present");
+        assert_eq!(progress.message.as_deref(), Some("Scanning"));
+        assert_eq!(progress.current, None);
+        assert_eq!(progress.total, None);
+    }
+
+    #[test]
+    fn job_progress_wire_mapping_preserves_step_current_and_total() {
+        let job = job_with_progress(JobProgress {
+            step: Some("scan".to_string()),
+            message: Some("Scanning".to_string()),
+            current: Some(2),
+            total: Some(10),
+        });
+
+        let item = job_to_list_item(&job).expect("map job");
+
+        let progress = item.progress.expect("progress should be present");
+        assert_eq!(progress.step.as_deref(), Some("scan"));
+        assert_eq!(progress.message.as_deref(), Some("Scanning"));
+        assert_eq!(progress.current, Some(2));
+        assert_eq!(progress.total, Some(10));
+    }
 }

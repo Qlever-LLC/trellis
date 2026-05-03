@@ -1,11 +1,13 @@
 use std::time::Duration;
 
-use async_nats::jetstream::{self, consumer, kv};
+use async_nats::jetstream::{self, consumer};
 use futures_util::StreamExt;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use trellis_jobs::{worker_presence_key, WorkerHeartbeat, WORKER_HEARTBEATS_WILDCARD};
-use trellis_server::ServerError;
+use trellis_jobs::{WorkerHeartbeat, WORKER_HEARTBEATS_WILDCARD};
+use trellis_service::ServerError;
+
+use crate::storage::{SqliteJobsStore, SqliteJobsStoreError};
 
 pub const WORKER_PRESENCE_CONSUMER_NAME: &str = "jobs-worker-presence-projector";
 pub const WORKER_PRESENCE_FRESH_FOR: Duration = Duration::from_secs(90);
@@ -24,17 +26,27 @@ pub struct WorkerPresenceRecord {
 }
 
 pub struct WorkerPresenceProjectorHandle {
-    task: tokio::task::JoinHandle<Result<(), ServerError>>,
+    task: Option<tokio::task::JoinHandle<Result<(), ServerError>>>,
 }
 
 impl WorkerPresenceProjectorHandle {
     pub async fn stop(self) {
-        self.task.abort();
-        let _ = self.task.await;
+        let Some(task) = self.task else {
+            return;
+        };
+        task.abort();
+        let _ = task.await;
+    }
+
+    pub(crate) fn discard_completed(&mut self) {
+        self.task = None;
     }
 
     pub async fn wait(&mut self) -> Result<(), ServerError> {
-        match (&mut self.task).await {
+        let Some(task) = self.task.as_mut() else {
+            return Ok(());
+        };
+        match task.await {
             Ok(result) => result,
             Err(error) if error.is_cancelled() => Ok(()),
             Err(error) => Err(ServerError::Nats(format!(
@@ -42,10 +54,6 @@ impl WorkerPresenceProjectorHandle {
             ))),
         }
     }
-}
-
-pub fn worker_presence_bucket_name(jobs_stream: &str) -> String {
-    format!("{jobs_stream}_WORKER_PRESENCE")
 }
 
 pub fn worker_presence_from_heartbeat(heartbeat: &WorkerHeartbeat) -> WorkerPresenceRecord {
@@ -77,59 +85,17 @@ pub fn worker_presence_is_fresh(record: &WorkerPresenceRecord, now: OffsetDateTi
     parse_timestamp(&record.heartbeat_at) >= now - WORKER_PRESENCE_FRESH_FOR
 }
 
-pub async fn ensure_worker_presence_bucket(
-    jetstream: &jetstream::Context,
-    bucket: &str,
-    replicas: usize,
-) -> Result<jetstream::kv::Store, ServerError> {
-    if let Ok(store) = jetstream.get_key_value(bucket).await {
-        return Ok(store);
-    }
-
-    match jetstream
-        .create_key_value(kv::Config {
-            bucket: bucket.to_string(),
-            history: 1,
-            num_replicas: replicas,
-            ..Default::default()
-        })
-        .await
-    {
-        Ok(store) => Ok(store),
-        Err(error) if replicas > 1 => jetstream
-            .create_key_value(kv::Config {
-                bucket: bucket.to_string(),
-                history: 1,
-                num_replicas: 1,
-                ..Default::default()
-            })
-            .await
-            .map_err(|fallback| {
-                ServerError::Nats(format!(
-                    "failed to create worker presence bucket with {replicas} replicas ({error}); fallback with 1 replica also failed: {fallback}"
-                ))
-            }),
-        Err(error) => Err(ServerError::Nats(error.to_string())),
-    }
-}
-
 pub async fn start_worker_presence_projector(
     nats: async_nats::Client,
     jobs_stream: String,
-    worker_presence_bucket: String,
-    worker_presence_replicas: usize,
+    store: SqliteJobsStore,
 ) -> Result<WorkerPresenceProjectorHandle, ServerError> {
     let jetstream = jetstream::new(nats);
-    let kv = ensure_worker_presence_bucket(
-        &jetstream,
-        &worker_presence_bucket,
-        worker_presence_replicas,
-    )
-    .await?;
-    let stream = jetstream
-        .get_stream(&jobs_stream)
-        .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
+    let stream = jetstream.get_stream(&jobs_stream).await.map_err(|error| {
+        ServerError::Nats(format!(
+            "failed to open worker presence stream '{jobs_stream}': {error}"
+        ))
+    })?;
     let consumer = stream
         .get_or_create_consumer(
             WORKER_PRESENCE_CONSUMER_NAME,
@@ -141,15 +107,27 @@ pub async fn start_worker_presence_projector(
             },
         )
         .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
+        .map_err(|error| {
+            ServerError::Nats(format!(
+                "failed to create worker presence consumer '{WORKER_PRESENCE_CONSUMER_NAME}' on stream '{jobs_stream}': {error}"
+            ))
+        })?;
     let mut messages = consumer
         .messages()
         .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
+        .map_err(|error| {
+            ServerError::Nats(format!(
+                "failed to start worker presence consumer '{WORKER_PRESENCE_CONSUMER_NAME}' message stream: {error}"
+            ))
+        })?;
 
     let task = tokio::spawn(async move {
         while let Some(message) = messages.next().await {
-            let message = message.map_err(|error| ServerError::Nats(error.to_string()))?;
+            let message = message.map_err(|error| {
+                ServerError::Nats(format!(
+                    "worker presence projector failed to pull from consumer '{WORKER_PRESENCE_CONSUMER_NAME}' on stream '{jobs_stream}': {error}"
+                ))
+            })?;
             let Some((service, job_type, instance_id)) =
                 parse_worker_heartbeat_subject(&message.subject)
             else {
@@ -170,28 +148,34 @@ pub async fn start_worker_presence_projector(
                 }
             };
 
-            let key = worker_presence_key(&service, &job_type, &instance_id);
-            let current = match kv.get(&key).await {
-                Ok(Some(bytes)) => serde_json::from_slice::<WorkerPresenceRecord>(&bytes).ok(),
-                Ok(None) => None,
-                Err(error) => return Err(ServerError::Nats(error.to_string())),
-            };
-            let next = worker_presence_from_heartbeat(&heartbeat);
-            let Some(next) = reduce_worker_presence(current.as_ref(), &next) else {
-                let _ = message.ack().await;
-                continue;
-            };
-            let payload =
-                serde_json::to_vec(&next).map_err(|error| ServerError::Nats(error.to_string()))?;
-            kv.put(&key, payload.into())
-                .await
-                .map_err(|error| ServerError::Nats(error.to_string()))?;
+            project_worker_heartbeat(&store, &heartbeat).map_err(|error| {
+                ServerError::Nats(format!(
+                    "worker presence projector failed to project worker '{service}/{job_type}/{instance_id}': {error}"
+                ))
+            })?;
             let _ = message.ack().await;
         }
         Ok(())
     });
 
-    Ok(WorkerPresenceProjectorHandle { task })
+    Ok(WorkerPresenceProjectorHandle { task: Some(task) })
+}
+
+pub fn project_worker_heartbeat(
+    store: &SqliteJobsStore,
+    heartbeat: &WorkerHeartbeat,
+) -> Result<Option<WorkerPresenceRecord>, SqliteJobsStoreError> {
+    let current = store.get_worker_presence(
+        &heartbeat.service,
+        &heartbeat.job_type,
+        &heartbeat.instance_id,
+    )?;
+    let next = worker_presence_from_heartbeat(heartbeat);
+    let Some(next) = reduce_worker_presence(current.as_ref(), &next) else {
+        return Ok(None);
+    };
+    store.upsert_worker_presence(&next)?;
+    Ok(Some(next))
 }
 
 fn parse_timestamp(value: &str) -> OffsetDateTime {
@@ -228,7 +212,13 @@ fn parse_worker_heartbeat_subject(subject: &str) -> Option<(String, String, Stri
 
 #[cfg(test)]
 mod tests {
-    use super::parse_worker_heartbeat_subject;
+    use time::OffsetDateTime;
+    use trellis_jobs::WorkerHeartbeat;
+
+    use super::{
+        parse_worker_heartbeat_subject, project_worker_heartbeat, WORKER_PRESENCE_FRESH_FOR,
+    };
+    use crate::storage::SqliteJobsStore;
     use trellis_jobs::worker_heartbeat_subject;
 
     #[test]
@@ -243,5 +233,45 @@ mod tests {
         assert_eq!(parsed.0, "documents");
         assert_eq!(parsed.1, "document-process");
         assert_eq!(parsed.2, "instance-1");
+    }
+
+    #[test]
+    fn project_worker_heartbeat_upserts_sql_presence_and_ignores_stale_heartbeat() {
+        let store = SqliteJobsStore::open_in_memory().expect("store should open");
+        let fresh = WorkerHeartbeat {
+            service: "documents".to_string(),
+            job_type: "document-process".to_string(),
+            instance_id: "instance-1".to_string(),
+            concurrency: Some(4),
+            version: Some("1.2.3".to_string()),
+            timestamp: "2026-03-28T12:00:00.000Z".to_string(),
+        };
+
+        let projected = project_worker_heartbeat(&store, &fresh)
+            .expect("projection should succeed")
+            .expect("fresh heartbeat should project");
+        assert_eq!(projected.concurrency, Some(4));
+
+        let stale = WorkerHeartbeat {
+            timestamp: "2026-03-28T11:59:00.000Z".to_string(),
+            concurrency: Some(1),
+            ..fresh
+        };
+        assert!(project_worker_heartbeat(&store, &stale)
+            .expect("projection should succeed")
+            .is_none());
+
+        let workers = store
+            .list_fresh_workers(
+                OffsetDateTime::parse(
+                    "2026-03-28T12:00:30.000Z",
+                    &time::format_description::well_known::Rfc3339,
+                )
+                .expect("timestamp should parse"),
+                WORKER_PRESENCE_FRESH_FOR,
+            )
+            .expect("fresh worker list should succeed");
+        assert_eq!(workers.len(), 1);
+        assert_eq!(workers[0].concurrency, Some(4));
     }
 }

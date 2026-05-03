@@ -1,25 +1,30 @@
 //! Service bootstrap helpers for the Jobs admin service.
 
+use std::path::Path;
+
 use trellis_auth::AuthClient;
 use trellis_auth_adapters::{AuthRequestValidatorAdapter, AuthRequestValidatorClientPort};
 use trellis_client::{ServiceConnectOptions, TrellisClient, TrellisClientError};
 use trellis_core_bootstrap::{CoreBootstrapAdapter, CoreBootstrapBinding, CoreBootstrapClientPort};
-use trellis_sdk_core::CoreClient;
-use trellis_server::{
-    bootstrap_service_host, connect_service as connect_bound_service, resolve_bootstrap_binding,
-    run_single_subject_service, BootstrapBindingInfo, ConnectServiceError, ConnectedService,
-    ConnectedServiceHostWithValidator, ConnectedServiceParts, Router, ServerError,
+use trellis_sdk_core::{types::TrellisBindingsGetResponseBinding, CoreClient};
+use trellis_service::{
+    bootstrap_service_host, connect_service as connect_bound_service, run_multi_subject_service,
+    BootstrapBindingInfo, ConnectServiceError, ConnectedService, ConnectedServiceHostWithValidator,
+    ConnectedServiceParts, Router, ServerError,
 };
 
 use crate::advisory::{start_advisory_loop, AdvisoryHandle};
-use crate::contract::{expected_contract, JOBS_RPC_SUBJECT_WILDCARD, SERVICE_NAME};
+use crate::contract::{expected_contract, JOBS_RPC_SUBJECTS, SERVICE_NAME};
 use crate::janitor::{start_janitor_loop, JanitorHandle};
-use crate::kv_query::{
-    jobs_admin_resources_from_binding, JobsAdminResources, JobsKvQuery, JobsQueryError,
-};
 use crate::projector::{start_jobs_projector, JobsProjectorHandle};
+use crate::query::{
+    jobs_admin_resources_from_binding, JobsAdminResources, JobsQuery, JobsQueryError,
+};
 use crate::router::build_router_with_query;
+use crate::storage::SqliteJobsStore;
 use crate::worker_presence::{start_worker_presence_projector, WorkerPresenceProjectorHandle};
+
+const DEFAULT_JOBS_DB_PATH: &str = "/var/lib/trellis/jobs.sqlite";
 
 /// Controls whether this process owns background jobs-service loops or only RPC serving.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +42,25 @@ struct RuntimeLoops {
     worker_presence: WorkerPresenceProjectorHandle,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum RuntimeLoopName {
+    Advisory,
+    Janitor,
+    Projector,
+    WorkerPresence,
+}
+
+impl RuntimeLoopName {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Advisory => "advisory",
+            Self::Janitor => "janitor",
+            Self::Projector => "projector",
+            Self::WorkerPresence => "worker presence",
+        }
+    }
+}
+
 impl JobsServiceMode {
     fn starts_runtime_loops(self) -> bool {
         matches!(self, Self::Owner)
@@ -47,32 +71,26 @@ impl RuntimeLoops {
     async fn start(
         nats: async_nats::Client,
         resources: &JobsAdminResources,
+        store: SqliteJobsStore,
     ) -> Result<Self, ServerError> {
         let advisory = start_advisory_loop(
             nats.clone(),
-            resources.jobs_state_bucket.clone(),
+            store.clone(),
             resources.jobs_advisories_stream.clone(),
         )
         .await?;
         let janitor = start_janitor_loop(
             nats.clone(),
-            resources.jobs_state_bucket.clone(),
+            store.clone(),
             std::time::Duration::from_secs(30),
         )
         .await?;
-        let projector = start_jobs_projector(
-            nats.clone(),
-            resources.jobs_state_bucket.clone(),
-            resources.jobs_stream.clone(),
-        )
-        .await?;
-        let worker_presence = start_worker_presence_projector(
-            nats.clone(),
-            resources.jobs_stream.clone(),
-            resources.worker_presence_bucket.clone(),
-            resources.worker_presence_replicas,
-        )
-        .await?;
+        let projector =
+            start_jobs_projector(nats.clone(), store.clone(), resources.jobs_stream.clone())
+                .await?;
+        let worker_presence =
+            start_worker_presence_projector(nats.clone(), resources.jobs_stream.clone(), store)
+                .await?;
         Ok(Self {
             advisory,
             janitor,
@@ -91,12 +109,21 @@ impl RuntimeLoops {
     }
 
     async fn wait_for_failure(&mut self) -> Result<(), ServerError> {
-        tokio::select! {
-            result = self.projector.wait() => map_runtime_loop_result("projector", result),
-            result = self.worker_presence.wait() => map_runtime_loop_result("worker presence", result),
-            result = self.janitor.wait() => map_runtime_loop_result("janitor", result),
-            result = self.advisory.wait() => map_runtime_loop_result("advisory", result),
+        let (loop_name, result) = tokio::select! {
+            result = self.projector.wait() => (RuntimeLoopName::Projector, result),
+            result = self.worker_presence.wait() => (RuntimeLoopName::WorkerPresence, result),
+            result = self.janitor.wait() => (RuntimeLoopName::Janitor, result),
+            result = self.advisory.wait() => (RuntimeLoopName::Advisory, result),
+        };
+
+        match loop_name {
+            RuntimeLoopName::Advisory => self.advisory.discard_completed(),
+            RuntimeLoopName::Janitor => self.janitor.discard_completed(),
+            RuntimeLoopName::Projector => self.projector.discard_completed(),
+            RuntimeLoopName::WorkerPresence => self.worker_presence.discard_completed(),
         }
+
+        map_runtime_loop_result(loop_name.as_str(), result)
     }
 }
 
@@ -121,12 +148,17 @@ pub type JobsServiceHostWithValidator<Avc> =
 pub struct ConnectedJobsService {
     client: TrellisClient,
     binding: CoreBootstrapBinding,
+    jobs_store: SqliteJobsStore,
 }
 
 impl ConnectedJobsService {
     /// Construct a connected Jobs service wrapper from a Trellis client and binding.
-    pub fn new(client: TrellisClient, binding: CoreBootstrapBinding) -> Self {
-        Self { client, binding }
+    pub fn new(client: TrellisClient, binding: CoreBootstrapBinding) -> Result<Self, ServerError> {
+        Ok(Self {
+            client,
+            binding,
+            jobs_store: open_jobs_store_from_env()?,
+        })
     }
 
     /// Return the resolved bindings snapshot for this service.
@@ -136,7 +168,11 @@ impl ConnectedJobsService {
 
     /// Bootstrap an authenticated service host without starting background loops.
     pub async fn bootstrap(&self) -> Result<JobsServiceHost<'_>, ServerError> {
-        let (_, router) = build_jobs_runtime(self.client.nats().clone(), self.binding())?;
+        let (_, router, _) = build_jobs_runtime(
+            self.client.nats().clone(),
+            self.binding(),
+            self.jobs_store.clone(),
+        )?;
         Ok(bootstrap_service_host(
             SERVICE_NAME,
             self.binding.bootstrap_binding(),
@@ -152,7 +188,11 @@ impl ConnectedJobsService {
 
     /// Run the Jobs admin service with an explicit loop ownership mode.
     pub async fn run_with_mode(&self, mode: JobsServiceMode) -> Result<(), ServerError> {
-        let (resources, router) = build_jobs_runtime(self.client.nats().clone(), self.binding())?;
+        let (resources, router, store) = build_jobs_runtime(
+            self.client.nats().clone(),
+            self.binding(),
+            self.jobs_store.clone(),
+        )?;
         let host = bootstrap_service_host(
             SERVICE_NAME,
             self.binding.bootstrap_binding(),
@@ -162,8 +202,9 @@ impl ConnectedJobsService {
         run_jobs_service_runtime(
             self.client.nats().clone(),
             resources,
+            store,
             mode,
-            run_single_subject_service(self.client.nats().clone(), JOBS_RPC_SUBJECT_WILDCARD, host),
+            run_multi_subject_service(self.client.nats().clone(), JOBS_RPC_SUBJECTS, host),
         )
         .await
     }
@@ -172,15 +213,44 @@ impl ConnectedJobsService {
 fn build_jobs_runtime(
     runtime_client: async_nats::Client,
     binding: &trellis_sdk_core::types::TrellisBindingsGetResponseBinding,
-) -> Result<(JobsAdminResources, Router), ServerError> {
+    store: SqliteJobsStore,
+) -> Result<(JobsAdminResources, Router, SqliteJobsStore), ServerError> {
     let resources = jobs_admin_resources_from_binding(binding).map_err(map_query_error)?;
-    let router = build_router_with_query(JobsKvQuery::new(runtime_client, resources.kv_buckets()));
-    Ok((resources, router))
+    let router = build_router_with_query(JobsQuery::with_store(runtime_client, store.clone()));
+    Ok((resources, router, store))
+}
+
+fn open_jobs_store_from_env() -> Result<SqliteJobsStore, ServerError> {
+    let db_path =
+        std::env::var("TRELLIS_JOBS_DB_PATH").unwrap_or_else(|_| DEFAULT_JOBS_DB_PATH.to_string());
+    open_jobs_store(Path::new(&db_path))
+}
+
+fn open_jobs_store(path: &Path) -> Result<SqliteJobsStore, ServerError> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            ServerError::Nats(format!(
+                "failed to create Jobs SQLite projection directory '{}': {error}",
+                parent.display()
+            ))
+        })?;
+    }
+
+    SqliteJobsStore::open(path).map_err(|error| {
+        ServerError::Nats(format!(
+            "failed to open Jobs SQLite projection at '{}': {error}",
+            path.display()
+        ))
+    })
 }
 
 async fn run_jobs_service_runtime<F>(
     runtime_client: async_nats::Client,
     resources: JobsAdminResources,
+    store: SqliteJobsStore,
     mode: JobsServiceMode,
     service_run: F,
 ) -> Result<(), ServerError>
@@ -188,7 +258,7 @@ where
     F: std::future::Future<Output = Result<(), ServerError>>,
 {
     let mut loops = if mode.starts_runtime_loops() {
-        Some(RuntimeLoops::start(runtime_client, &resources).await?)
+        Some(RuntimeLoops::start(runtime_client, &resources, store).await?)
     } else {
         None
     };
@@ -259,15 +329,15 @@ where
 }
 
 async fn connect_jobs_service<'meta, Conn, BuildParts, C, V>(
-    expected_contract: &'meta trellis_server::BootstrapContractRef,
+    expected_contract: &'meta trellis_service::BootstrapContractRef,
     connector: Conn,
     build_parts: BuildParts,
 ) -> Result<ConnectedService<'meta, C::Binding, V, async_nats::Client>, ServerError>
 where
-    Conn: trellis_server::AsyncConnector<Error = std::convert::Infallible>,
+    Conn: trellis_service::AsyncConnector<Error = std::convert::Infallible>,
     BuildParts: FnOnce(Conn::Output) -> ConnectedServiceParts<C, V, async_nats::Client>,
-    C: trellis_server::CoreBootstrapPort,
-    V: trellis_server::RequestValidator,
+    C: trellis_service::CoreBootstrapPort,
+    V: trellis_service::RequestValidator,
 {
     map_infallible_connect_error(
         connect_bound_service(SERVICE_NAME, expected_contract, connector, build_parts).await,
@@ -279,11 +349,12 @@ fn bootstrap_connected_jobs_service<'meta, B, V>(
 ) -> Result<ConnectedServiceHostWithValidator<V>, ServerError>
 where
     B: BootstrapBindingInfo + AsRef<trellis_sdk_core::types::TrellisBindingsGetResponseBinding>,
-    V: trellis_server::RequestValidator,
+    V: trellis_service::RequestValidator,
 {
-    let (_, router) = build_jobs_runtime(
+    let (_, router, _) = build_jobs_runtime(
         connected.runtime_client().clone(),
         connected.binding().as_ref(),
+        open_jobs_store_from_env()?,
     )?;
     connected.bootstrap(router)
 }
@@ -330,17 +401,23 @@ async fn run_connected_jobs_service<B, V>(
 ) -> Result<(), ServerError>
 where
     B: BootstrapBindingInfo + AsRef<trellis_sdk_core::types::TrellisBindingsGetResponseBinding>,
-    V: trellis_server::RequestValidator,
+    V: trellis_service::RequestValidator,
 {
-    let (resources, router) = build_jobs_runtime(
+    let (resources, router, store) = build_jobs_runtime(
         connected.runtime_client().clone(),
         connected.binding().as_ref(),
+        open_jobs_store_from_env()?,
     )?;
     run_jobs_service_runtime(
         connected.runtime_client().clone(),
         resources,
+        store,
         mode,
-        connected.run(JOBS_RPC_SUBJECT_WILDCARD, router),
+        {
+            let runtime_client = connected.runtime_client().clone();
+            let host = connected.bootstrap(router)?;
+            run_multi_subject_service(runtime_client, JOBS_RPC_SUBJECTS, host)
+        },
     )
     .await
 }
@@ -408,7 +485,7 @@ where
 }
 
 fn map_query_error(error: JobsQueryError) -> ServerError {
-    ServerError::Nats(error.to_string())
+    ServerError::Nats(format!("jobs query failed: {error}"))
 }
 
 /// Connect a Jobs admin service client and eagerly resolve its bindings.
@@ -416,13 +493,17 @@ pub async fn connect_service(
     opts: ServiceConnectOptions<'_>,
 ) -> Result<ConnectedJobsService, JobsServiceError> {
     let client = TrellisClient::connect_service(opts).await?;
-    let binding = resolve_bootstrap_binding(
-        SERVICE_NAME,
-        &expected_contract(),
-        &CoreBootstrapAdapter::new(CoreClient::new(&client)),
-    )
-    .await?;
-    Ok(ConnectedJobsService::new(client, binding))
+    let binding = service_bootstrap_binding(&client)?;
+    ConnectedJobsService::new(client, binding).map_err(JobsServiceError::Server)
+}
+
+fn service_bootstrap_binding(client: &TrellisClient) -> Result<CoreBootstrapBinding, ServerError> {
+    let binding = client.service_bootstrap_binding().cloned().ok_or_else(|| {
+        ServerError::Nats("service bootstrap response did not include bindings".into())
+    })?;
+    serde_json::from_value::<TrellisBindingsGetResponseBinding>(binding)
+        .map(CoreBootstrapBinding::new)
+        .map_err(|error| ServerError::Nats(format!("invalid service bootstrap binding: {error}")))
 }
 
 /// Convenience helper that connects and immediately runs the Jobs admin service.
@@ -440,18 +521,12 @@ mod tests {
 
     const VALID_SEED_BASE64URL: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
-    fn missing_creds_path() -> String {
-        format!(
-            "/tmp/trellis-service-jobs-missing-creds-{}",
-            std::process::id()
-        )
-    }
-
     #[tokio::test]
     async fn connect_service_rejects_invalid_session_seed_before_network() {
         let result = connect_service(ServiceConnectOptions {
-            servers: "nats://127.0.0.1:4222",
-            sentinel_creds_path: "/tmp/unused-creds-file",
+            trellis_url: "http://127.0.0.1:1",
+            contract_id: "trellis.jobs@v1",
+            contract_digest: "digest-alpha",
             session_key_seed_base64url: "not-base64url",
             timeout_ms: 1_000,
         })
@@ -468,11 +543,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn connect_service_returns_io_error_for_missing_creds_file() {
-        let missing_path = missing_creds_path();
+    async fn connect_service_returns_bootstrap_error_for_invalid_trellis_url() {
         let result = connect_service(ServiceConnectOptions {
-            servers: "nats://127.0.0.1:4222",
-            sentinel_creds_path: &missing_path,
+            trellis_url: "not a url",
+            contract_id: "trellis.jobs@v1",
+            contract_digest: "digest-alpha",
             session_key_seed_base64url: VALID_SEED_BASE64URL,
             timeout_ms: 1_000,
         })
@@ -480,15 +555,18 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(super::JobsServiceError::Client(TrellisClientError::Io(_)))
+            Err(super::JobsServiceError::Client(
+                TrellisClientError::Bootstrap(_)
+            ))
         ));
     }
 
     #[tokio::test]
     async fn connect_and_run_propagates_connect_error() {
         let result = connect_and_run(ServiceConnectOptions {
-            servers: "nats://127.0.0.1:4222",
-            sentinel_creds_path: "/tmp/unused-creds-file",
+            trellis_url: "http://127.0.0.1:1",
+            contract_id: "trellis.jobs@v1",
+            contract_digest: "digest-alpha",
             session_key_seed_base64url: "not-base64url",
             timeout_ms: 1_000,
         })

@@ -1,7 +1,7 @@
 //! Jobs admin service runtime for Trellis.
 //!
 //! This crate implements the admin-side loops and RPC hosting for the standard
-//! `trellis.jobs@v1` Trellis API: KV-backed queries, stream projection, janitor
+//! `trellis.jobs@v1` Trellis API: SQLite-backed queries, stream projection, janitor
 //! expiry, and advisory handling. Service-local job execution lives in
 //! [`trellis_jobs`].
 
@@ -9,9 +9,10 @@ mod advisory;
 mod bootstrap;
 mod contract;
 mod janitor;
-mod kv_query;
 mod projector;
+mod query;
 mod router;
+pub mod storage;
 pub mod worker_presence;
 
 pub use advisory::{
@@ -26,15 +27,13 @@ pub use bootstrap::{
     JobsServiceHost, JobsServiceHostWithValidator, JobsServiceMode,
 };
 pub use contract::{
-    contract_manifest, expected_contract, rpc, CONTRACT_DIGEST, CONTRACT_ID,
-    JOBS_RPC_SUBJECT_WILDCARD, SERVICE_NAME,
+    contract_manifest, expected_contract, rpc, CONTRACT_DIGEST, CONTRACT_ID, JOBS_RPC_SUBJECTS,
+    SERVICE_NAME,
 };
 pub use janitor::{
     plan_expired_events, run_janitor_once, start_janitor_loop, JanitorError, JanitorHandle,
     JanitorRunStats, PlannedExpiredEvent,
 };
-pub use kv_query::{
-    resolve_jobs_admin_resources, resolve_jobs_kv_buckets, JobsAdminResources, JobsKvBuckets,
-    JobsKvQuery, JobsQueryError,
-};
+pub use query::{resolve_jobs_admin_resources, JobsAdminResources, JobsQuery, JobsQueryError};
 pub use router::build_router_with_query;
+pub use storage::{ListJobsFilter, SqliteJobsStore, SqliteJobsStoreError};

@@ -1,8 +1,8 @@
 use time::OffsetDateTime;
 use trellis_jobs::types::WorkerHeartbeat;
 use trellis_service_jobs::worker_presence::{
-    reduce_worker_presence, worker_presence_bucket_name, worker_presence_from_heartbeat,
-    worker_presence_is_fresh, WorkerPresenceRecord,
+    reduce_worker_presence, worker_presence_from_heartbeat, worker_presence_is_fresh,
+    WorkerPresenceRecord,
 };
 
 fn sample_heartbeat(timestamp: &str) -> WorkerHeartbeat {
@@ -14,11 +14,6 @@ fn sample_heartbeat(timestamp: &str) -> WorkerHeartbeat {
         version: Some("0.6.1".to_string()),
         timestamp: timestamp.to_string(),
     }
-}
-
-#[test]
-fn worker_presence_bucket_name_derives_internal_bucket_from_jobs_stream() {
-    assert_eq!(worker_presence_bucket_name("JOBS"), "JOBS_WORKER_PRESENCE");
 }
 
 #[test]
