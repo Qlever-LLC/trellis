@@ -16,6 +16,7 @@ use trellis_service::{
 use crate::advisory::{start_advisory_loop, AdvisoryHandle};
 use crate::contract::{expected_contract, JOBS_RPC_SUBJECTS, SERVICE_NAME};
 use crate::janitor::{start_janitor_loop, JanitorHandle};
+use crate::paths::jobs_db_path_from_env;
 use crate::projector::{start_jobs_projector, JobsProjectorHandle};
 use crate::query::{
     jobs_admin_resources_from_binding, JobsAdminResources, JobsQuery, JobsQueryError,
@@ -23,8 +24,6 @@ use crate::query::{
 use crate::router::build_router_with_query;
 use crate::storage::SqliteJobsStore;
 use crate::worker_presence::{start_worker_presence_projector, WorkerPresenceProjectorHandle};
-
-const DEFAULT_JOBS_DB_PATH: &str = "/var/lib/trellis/jobs.sqlite";
 
 /// Controls whether this process owns background jobs-service loops or only RPC serving.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,9 +220,8 @@ fn build_jobs_runtime(
 }
 
 fn open_jobs_store_from_env() -> Result<SqliteJobsStore, ServerError> {
-    let db_path =
-        std::env::var("TRELLIS_JOBS_DB_PATH").unwrap_or_else(|_| DEFAULT_JOBS_DB_PATH.to_string());
-    open_jobs_store(Path::new(&db_path))
+    let db_path = jobs_db_path_from_env();
+    open_jobs_store(&db_path)
 }
 
 fn open_jobs_store(path: &Path) -> Result<SqliteJobsStore, ServerError> {

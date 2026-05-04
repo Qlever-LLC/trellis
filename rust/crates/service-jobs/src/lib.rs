@@ -9,6 +9,7 @@ mod advisory;
 mod bootstrap;
 mod contract;
 mod janitor;
+mod paths;
 mod projector;
 mod query;
 mod router;

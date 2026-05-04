@@ -1,7 +1,6 @@
 //! SQLite-backed query and mutation helpers for the Jobs admin service.
 
 use std::collections::BTreeMap;
-use std::env;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
@@ -24,6 +23,7 @@ use trellis_sdk_jobs::types::{
 mod resources;
 mod state;
 mod wire;
+use crate::paths::jobs_db_path_from_env;
 use crate::storage::{ListJobsFilter, SqliteJobsStore, SqliteJobsStoreError};
 use crate::worker_presence::WORKER_PRESENCE_FRESH_FOR;
 
@@ -77,8 +77,7 @@ pub struct JobsQuery {
 impl JobsQuery {
     /// Create a SQLite-backed Jobs query adapter from a NATS client and resolved resources.
     pub fn new(nats: async_nats::Client) -> Self {
-        let db_path = env::var("TRELLIS_JOBS_DB_PATH")
-            .unwrap_or_else(|_| "/var/lib/trellis/jobs.sqlite".to_string());
+        let db_path = jobs_db_path_from_env();
         let store = open_default_store(&db_path);
         Self::with_store(nats, store)
     }
@@ -380,8 +379,7 @@ fn projection_key(job: &Job) -> String {
     format!("{}/{}/{}", job.service, job.job_type, job.id)
 }
 
-fn open_default_store(db_path: &str) -> SqliteJobsStore {
-    let path = Path::new(db_path);
+fn open_default_store(path: &Path) -> SqliteJobsStore {
     if let Some(parent) = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -394,7 +392,10 @@ fn open_default_store(db_path: &str) -> SqliteJobsStore {
         });
     }
     SqliteJobsStore::open(path).unwrap_or_else(|error| {
-        panic!("failed to open Jobs SQLite projection at '{db_path}': {error}")
+        panic!(
+            "failed to open Jobs SQLite projection at '{}': {error}",
+            path.display()
+        )
     })
 }
 
