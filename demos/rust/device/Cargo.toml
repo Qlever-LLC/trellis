@@ -1,0 +1,18 @@
+[package]
+name = "trellis-rust-demo-device"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+futures-util.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+trellis-auth.workspace = true
+trellis-client.workspace = true
+trellis-participant-demo-device.workspace = true
+trellis-sdk-demo-service.workspace = true

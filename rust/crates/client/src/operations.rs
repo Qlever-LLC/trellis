@@ -111,6 +111,9 @@ pub trait OperationDescriptor {
     const CANCELABLE: bool;
 }
 
+/// Marker trait for operations that declare an upload transfer.
+pub trait TransferOperationDescriptor: OperationDescriptor {}
+
 #[doc(hidden)]
 pub trait OperationTransport {
     fn request_json_value<'a>(
@@ -135,9 +138,65 @@ pub trait OperationTransport {
     ) -> impl Future<Output = Result<FileInfo, TrellisClientError>> + Send + 'a;
 }
 
+#[derive(Debug)]
 pub struct OperationInvoker<'a, T, D> {
     transport: &'a T,
     _descriptor: PhantomData<D>,
+}
+
+/// Builder for operation calls with a captured input payload.
+#[derive(Debug)]
+pub struct OperationInputBuilder<'a, 'b, T, D: OperationDescriptor> {
+    invoker: &'b OperationInvoker<'a, T, D>,
+    input: &'b D::Input,
+}
+
+/// Builder for operation calls that upload bytes after the operation is accepted.
+#[derive(Debug)]
+pub struct OperationTransferInputBuilder<'a, 'b, T, D: OperationDescriptor> {
+    invoker: &'b OperationInvoker<'a, T, D>,
+    input: &'b D::Input,
+    body: Vec<u8>,
+}
+
+/// Successful result for starting an operation and uploading its transfer body.
+pub struct StartedOperationTransfer<'a, T, D> {
+    operation_ref: OperationRef<'a, T, D>,
+    file_info: FileInfo,
+}
+
+/// Error returned when starting or uploading an operation transfer fails.
+pub enum OperationTransferStartError<'a, T, D> {
+    Start(TrellisClientError),
+    Upload {
+        operation_ref: OperationRef<'a, T, D>,
+        source: TrellisClientError,
+    },
+}
+
+impl<'a, T, D> std::fmt::Debug for StartedOperationTransfer<'a, T, D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StartedOperationTransfer")
+            .field("operation_ref", &self.operation_ref)
+            .field("file_info", &self.file_info)
+            .finish()
+    }
+}
+
+impl<'a, T, D> std::fmt::Debug for OperationTransferStartError<'a, T, D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Start(source) => f.debug_tuple("Start").field(source).finish(),
+            Self::Upload {
+                operation_ref,
+                source,
+            } => f
+                .debug_struct("Upload")
+                .field("operation_ref", operation_ref)
+                .field("source", source)
+                .finish(),
+        }
+    }
 }
 
 pub struct OperationRef<'a, T, D> {
@@ -145,6 +204,15 @@ pub struct OperationRef<'a, T, D> {
     data: OperationRefData,
     accepted_transfer: Option<UploadTransferGrant>,
     _descriptor: PhantomData<D>,
+}
+
+impl<'a, T, D> std::fmt::Debug for OperationRef<'a, T, D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OperationRef")
+            .field("data", &self.data)
+            .field("accepted_transfer", &self.accepted_transfer)
+            .finish_non_exhaustive()
+    }
 }
 
 fn is_terminal_state(state: &OperationState) -> bool {
@@ -159,6 +227,17 @@ impl<'a, T, D> OperationInvoker<'a, T, D> {
         Self {
             transport,
             _descriptor: PhantomData,
+        }
+    }
+
+    /// Captures an operation input for ergonomic chained calls.
+    pub fn input<'b>(&'b self, input: &'b D::Input) -> OperationInputBuilder<'a, 'b, T, D>
+    where
+        D: OperationDescriptor,
+    {
+        OperationInputBuilder {
+            invoker: self,
+            input,
         }
     }
 }
@@ -192,6 +271,97 @@ where
             accepted_transfer: accepted.transfer,
             _descriptor: PhantomData,
         })
+    }
+}
+
+impl<'a, 'b, T, D> OperationInputBuilder<'a, 'b, T, D>
+where
+    T: OperationTransport,
+    D: OperationDescriptor,
+    D::Progress: Send,
+    D::Output: Send,
+{
+    /// Starts the operation with the captured input.
+    pub async fn start(self) -> Result<OperationRef<'a, T, D>, TrellisClientError> {
+        self.invoker.start(self.input).await
+    }
+
+    /// Captures upload bytes to send after the operation is accepted.
+    pub fn transfer(self, body: impl AsRef<[u8]>) -> OperationTransferInputBuilder<'a, 'b, T, D>
+    where
+        D: TransferOperationDescriptor,
+    {
+        OperationTransferInputBuilder {
+            invoker: self.invoker,
+            input: self.input,
+            body: body.as_ref().to_vec(),
+        }
+    }
+}
+
+impl<'a, 'b, T, D> OperationTransferInputBuilder<'a, 'b, T, D>
+where
+    T: OperationTransport,
+    D: TransferOperationDescriptor,
+    D::Progress: Send,
+    D::Output: Send,
+{
+    /// Starts the operation, uploads the captured bytes, and returns the operation and file info.
+    pub async fn start(
+        self,
+    ) -> Result<StartedOperationTransfer<'a, T, D>, OperationTransferStartError<'a, T, D>> {
+        let operation_ref = self
+            .invoker
+            .start(self.input)
+            .await
+            .map_err(OperationTransferStartError::Start)?;
+        let file_info = match operation_ref.transfer_vec(self.body).await {
+            Ok(file_info) => file_info,
+            Err(source) => {
+                return Err(OperationTransferStartError::Upload {
+                    operation_ref,
+                    source,
+                })
+            }
+        };
+        Ok(StartedOperationTransfer {
+            operation_ref,
+            file_info,
+        })
+    }
+}
+
+impl<'a, T, D> StartedOperationTransfer<'a, T, D> {
+    /// Return the accepted operation reference.
+    pub fn operation_ref(&self) -> &OperationRef<'a, T, D> {
+        &self.operation_ref
+    }
+
+    /// Return information about the uploaded transfer body.
+    pub fn file_info(&self) -> &FileInfo {
+        &self.file_info
+    }
+
+    /// Consume the result and return the accepted operation reference.
+    pub fn into_operation_ref(self) -> OperationRef<'a, T, D> {
+        self.operation_ref
+    }
+}
+
+impl<'a, T, D> OperationTransferStartError<'a, T, D> {
+    /// Return the accepted operation reference when the operation was accepted before upload failed.
+    pub fn operation_ref(&self) -> Option<&OperationRef<'a, T, D>> {
+        match self {
+            Self::Start(_) => None,
+            Self::Upload { operation_ref, .. } => Some(operation_ref),
+        }
+    }
+
+    /// Return the underlying client error.
+    pub fn source(&self) -> &TrellisClientError {
+        match self {
+            Self::Start(source) | Self::Upload { source, .. } => source,
+        }
     }
 }
 
@@ -326,14 +496,16 @@ where
     }
 
     pub async fn transfer(&self, body: impl AsRef<[u8]>) -> Result<FileInfo, TrellisClientError> {
+        self.transfer_vec(body.as_ref().to_vec()).await
+    }
+
+    async fn transfer_vec(&self, body: Vec<u8>) -> Result<FileInfo, TrellisClientError> {
         let grant = self.accepted_transfer.clone().ok_or_else(|| {
             TrellisClientError::OperationProtocol(
                 "operation does not have an accepted transfer session".into(),
             )
         })?;
-        self.transport
-            .put_upload_transfer(grant, body.as_ref().to_vec())
-            .await
+        self.transport.put_upload_transfer(grant, body).await
     }
 }
 

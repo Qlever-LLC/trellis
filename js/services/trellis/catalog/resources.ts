@@ -55,6 +55,7 @@ type BuiltinStreamBinding = {
   maxBytes?: number;
   maxMsgs?: number;
   discard?: StreamDiscardPolicy;
+  allowDirect?: boolean;
   subjects: string[];
   sources?: StreamResourceSourceBinding[];
 };
@@ -124,6 +125,9 @@ export function getKvPermissionGrants(
       `$JS.API.STREAM.INFO.${stream}`,
       ...(options.allowCreate ? [`$JS.API.STREAM.CREATE.${stream}`] : []),
       `$JS.API.STREAM.MSG.GET.${stream}`,
+      `$JS.API.DIRECT.GET.${stream}`,
+      `$JS.API.DIRECT.GET.${stream}.>`,
+      `$JS.API.CONSUMER.CREATE.${stream}`,
       `$JS.API.CONSUMER.CREATE.${stream}.>`,
       `$JS.API.CONSUMER.INFO.${stream}.>`,
       `$JS.API.CONSUMER.DELETE.${stream}.>`,
@@ -135,7 +139,6 @@ export function getKvPermissionGrants(
   };
 }
 
-const BUILTIN_JOBS_STATE_BUCKET = "trellis_jobs";
 const BUILTIN_JOBS_STREAMS: Record<string, BuiltinStreamBinding> = {
   jobs: {
     name: "JOBS",
@@ -146,6 +149,7 @@ const BUILTIN_JOBS_STREAMS: Record<string, BuiltinStreamBinding> = {
     maxBytes: -1,
     maxMsgs: -1,
     discard: "old",
+    allowDirect: true,
     subjects: ["trellis.jobs.>"],
   },
   jobsWork: {
@@ -395,6 +399,9 @@ function toJetStreamStreamConfig(
     ...(stream.maxBytes !== undefined ? { max_bytes: stream.maxBytes } : {}),
     ...(stream.maxMsgs !== undefined ? { max_msgs: stream.maxMsgs } : {}),
     ...(stream.discard ? { discard: stream.discard } : {}),
+    ...(stream.allowDirect !== undefined
+      ? { allow_direct: stream.allowDirect }
+      : {}),
     ...(stream.sources
       ? {
         sources: stream.sources.map((source) => ({
@@ -426,13 +433,13 @@ async function ensureBuiltinJobsInfrastructure(
   nats: NatsConnection,
   options: ResourceProvisioningOptions = {},
 ): Promise<void> {
-  await ensureKvResource(nats, BUILTIN_JOBS_STATE_BUCKET, {
-    history: 1,
-    ttlMs: 0,
-  }, options);
   await ensureStreamResource(nats, BUILTIN_JOBS_STREAMS.jobs, options);
   await ensureStreamResource(nats, BUILTIN_JOBS_STREAMS.jobsWork, options);
-  await ensureStreamResource(nats, BUILTIN_JOBS_STREAMS.jobsAdvisories, options);
+  await ensureStreamResource(
+    nats,
+    BUILTIN_JOBS_STREAMS.jobsAdvisories,
+    options,
+  );
 }
 
 function sanitizeToken(value: string): string {
@@ -720,6 +727,7 @@ export function getResourcePermissionGrants(
     publish.add(`$JS.API.STREAM.INFO.${stream}`);
     publish.add(`$JS.API.STREAM.MSG.GET.${stream}`);
     publish.add(`$JS.API.STREAM.PURGE.${stream}`);
+    publish.add(`$JS.API.CONSUMER.CREATE.${stream}`);
     publish.add(`$JS.API.CONSUMER.CREATE.${stream}.>`);
     publish.add(`$JS.API.CONSUMER.DELETE.${stream}.>`);
     publish.add(`$JS.FC.${stream}.>`);
@@ -731,6 +739,9 @@ export function getResourcePermissionGrants(
     publish.add(`trellis.jobs.${namespace}.>`);
     publish.add(`trellis.jobs.workers.${namespace}.>`);
     publish.add(`trellis.work.${namespace}.>`);
+    publish.add("$JS.API.DIRECT.GET.JOBS");
+    publish.add("$JS.API.DIRECT.GET.JOBS.>");
+    publish.add("$JS.API.STREAM.MSG.GET.JOBS");
     publish.add(`$JS.API.CONSUMER.CREATE.${workStream}.>`);
     publish.add(`$JS.API.CONSUMER.INFO.${workStream}.>`);
     publish.add(`$JS.API.CONSUMER.MSG.NEXT.${workStream}.>`);

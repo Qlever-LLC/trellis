@@ -1,5 +1,4 @@
 import { jetstreamManager } from "@nats-io/jetstream";
-import { Kvm } from "@nats-io/kv";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { Objm } from "@nats-io/obj";
 import { TypedStore } from "@qlever-llc/trellis";
@@ -197,10 +196,28 @@ Deno.test("resource permission grants include only bound KV usage subjects", () 
     true,
   );
   assertEquals(
+    grants.publish.includes(
+      "$JS.API.DIRECT.GET.KV_svc_test_activity_v1_activity",
+    ),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.DIRECT.GET.KV_svc_test_activity_v1_activity.>",
+    ),
+    true,
+  );
+  assertEquals(
     grants.publish.includes("$JS.API.$KV.svc_test_activity_v1_activity.>"),
     true,
   );
   // KV watches in the current NATS client create and delete ephemeral consumers.
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.CONSUMER.CREATE.KV_svc_test_activity_v1_activity",
+    ),
+    true,
+  );
   assertEquals(
     grants.publish.includes(
       "$JS.API.CONSUMER.CREATE.KV_svc_test_activity_v1_activity.>",
@@ -364,6 +381,12 @@ Deno.test("resource permission grants include store object subjects and subscrib
   assertEquals(
     grants.publish.includes(
       "$JS.API.STREAM.PURGE.OBJ_svc_test_activity_v1_uploads",
+    ),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.CONSUMER.CREATE.OBJ_svc_test_activity_v1_uploads",
     ),
     true,
   );
@@ -598,16 +621,11 @@ Deno.test("jobs resource grants use service-visible queue bindings", () => {
     grants.publish.includes("$JS.API.CONSUMER.DURABLE.CREATE.JOBS_WORK.>"),
     false,
   );
-  assertEquals(
-    grants.publish.includes("$JS.API.STREAM.MSG.GET.KV_trellis_jobs"),
-    false,
-  );
-  assertEquals(
-    grants.publish.includes("$JS.API.STREAM.INFO.KV_trellis_jobs"),
-    false,
-  );
-  assertEquals(grants.publish.includes("$KV.trellis_jobs.>"), false);
-  assertEquals(grants.publish.includes("$JS.API.$KV.trellis_jobs.>"), false);
+  assertEquals(grants.publish.includes("$JS.API.STREAM.INFO.JOBS_WORK"), false);
+  assertEquals(grants.publish.includes("$JS.API.STREAM.MSG.GET.JOBS"), true);
+  assertEquals(grants.publish.includes("$JS.API.STREAM.INFO.JOBS"), false);
+  assertEquals(grants.publish.includes("$JS.API.DIRECT.GET.JOBS"), true);
+  assertEquals(grants.publish.includes("$JS.API.DIRECT.GET.JOBS.>"), true);
 });
 
 Deno.test({
@@ -767,17 +785,15 @@ Deno.test({
     const jobs = await jsm.streams.info("JOBS");
     const jobsWork = await jsm.streams.info("JOBS_WORK");
     const jobsAdvisories = await jsm.streams.info("JOBS_ADVISORIES");
-    const jobsState = await new Kvm(nats.nc).open("trellis_jobs");
-    const jobsStateStatus = await jobsState.status();
 
     assertEquals(jobs.config.subjects, ["trellis.jobs.>"]);
     assertEquals(jobs.config.retention, "limits");
+    assertEquals(jobs.config.allow_direct, true);
     assertEquals(jobsWork.config.subjects, ["trellis.work.>"]);
     assertEquals(jobsWork.config.retention, "workqueue");
     assertEquals(Array.isArray(jobsWork.config.sources), true);
     assertEquals(jobsAdvisories.config.subjects, [
       "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.JOBS_WORK.>",
     ]);
-    assertEquals(jobsStateStatus.bucket, "trellis_jobs");
   },
 });

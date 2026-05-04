@@ -617,23 +617,44 @@ class RuntimeOperationRef<
     TransportError | UnexpectedError
   > {
     return AsyncResult.from((async () => {
-      const snapshotValue = await this.#controlSnapshot("get").take();
-      if (isErr(snapshotValue)) {
-        return snapshotValue;
+      const initialTerminal = await this.#terminalSnapshotFromGet().take();
+      if (isErr(initialTerminal)) {
+        return initialTerminal;
       }
-      if (isTerminalState(snapshotValue.state)) {
-        return ok(snapshotValue as TerminalOperation<TProgress, TOutput>);
+      if (initialTerminal !== null) {
+        return ok(initialTerminal);
       }
 
       const eventsValue = await this.watch().take();
       if (isErr(eventsValue)) {
+        const terminal = await this.#terminalSnapshotFromGet().take();
+        if (!isErr(terminal) && terminal !== null) {
+          return ok(terminal);
+        }
         return eventsValue;
       }
 
-      for await (const event of eventsValue) {
-        if (isTerminalEvent(event)) {
-          return ok(event.snapshot);
+      try {
+        for await (const event of eventsValue) {
+          if (isTerminalEvent(event)) {
+            return ok(event.snapshot);
+          }
         }
+      } catch (cause) {
+        const terminal = await this.#terminalSnapshotFromGet().take();
+        if (!isErr(terminal) && terminal !== null) {
+          return ok(terminal);
+        }
+        return err(
+          cause instanceof TransportError || cause instanceof UnexpectedError
+            ? cause
+            : new UnexpectedError({ cause }),
+        );
+      }
+
+      const terminal = await this.#terminalSnapshotFromGet().take();
+      if (!isErr(terminal) && terminal !== null) {
+        return ok(terminal);
       }
 
       return err(createTransportError({
@@ -643,6 +664,22 @@ class RuntimeOperationRef<
           "Retry the operation wait. If it keeps happening, reconnect to Trellis and try again.",
         context: { operationId: this.id, operation: this.operation },
       }));
+    })());
+  }
+
+  #terminalSnapshotFromGet(): AsyncResult<
+    TerminalOperation<TProgress, TOutput> | null,
+    TransportError | UnexpectedError
+  > {
+    return AsyncResult.from((async () => {
+      const snapshotValue = await this.#controlSnapshot("get").take();
+      if (isErr(snapshotValue)) {
+        return snapshotValue;
+      }
+      if (isTerminalState(snapshotValue.state)) {
+        return ok(snapshotValue as TerminalOperation<TProgress, TOutput>);
+      }
+      return ok(null);
     })());
   }
 

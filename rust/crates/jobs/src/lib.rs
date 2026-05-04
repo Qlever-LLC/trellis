@@ -13,6 +13,7 @@ pub mod manager;
 pub mod projection;
 pub mod publisher;
 pub mod registry;
+pub mod runtime_ref;
 pub mod runtime_worker;
 pub mod subjects;
 pub mod types;
@@ -28,6 +29,7 @@ pub use registry::{
     new_worker_heartbeat, publish_worker_heartbeat, start_worker_heartbeat_loop,
     ActiveJobCancellationRegistry, WorkerHeartbeatHandle,
 };
+pub use runtime_ref::NatsJobWaiter;
 pub use runtime_worker::{start_worker_host_from_binding, WorkerHostHandle, WorkerHostOptions};
 pub use subjects::{job_event_subject, worker_heartbeat_subject, WORKER_HEARTBEATS_WILDCARD};
 pub use types::{
