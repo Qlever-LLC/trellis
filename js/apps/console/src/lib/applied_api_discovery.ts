@@ -89,6 +89,38 @@ export type AppliedApiDependencyGraph = {
   edges: AppliedApiGraphEdge[];
 };
 
+export type AppliedApiCatalogKind = "rpc" | "operation" | "event" | "schema";
+
+export type AppliedApiCatalogRow = {
+  id: string;
+  kind: AppliedApiCatalogKind;
+  name: string;
+  contractId: string;
+  contractDisplayName: string;
+  contractDescription?: string;
+  digest: string;
+  subject?: string;
+  wildcardSubject?: string;
+  inputSchemaName?: string;
+  outputSchemaName?: string;
+  eventSchemaName?: string;
+  progressSchemaName?: string;
+  schemaName?: string;
+  schemaType?: string;
+  schema?: JsonValue;
+  exported?: boolean;
+  title?: string;
+  description?: string;
+  documentation?: string;
+  callCapabilities: string[];
+  readCapabilities: string[];
+  publishCapabilities: string[];
+  subscribeCapabilities: string[];
+  providerDeploymentIds: string[];
+  activeInstances: number;
+  namespaces: string[];
+};
+
 function isJsonObject(value: unknown): value is JsonObject {
   return isJsonValue(value) && typeof value === "object" && value !== null &&
     !Array.isArray(value);
@@ -114,6 +146,33 @@ function getStringArrayProperty(source: JsonObject, key: string): string[] {
   const value = source[key];
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function schemaRefName(value: unknown): string | undefined {
+  return isJsonObject(value) ? getStringProperty(value, "schema") : undefined;
+}
+
+function optionalDocumentation(value: unknown): string | undefined {
+  if (!isJsonObject(value)) return undefined;
+  return getStringProperty(value, "documentation") ??
+    getStringProperty(value, "docs");
+}
+
+function objectRows(source?: JsonObject): { key: string; value: JsonObject }[] {
+  if (!source) return [];
+  return Object.entries(source).flatMap(([key, value]) =>
+    isJsonObject(value) ? [{ key, value }] : []
+  );
+}
+
+function capabilitiesFor(
+  descriptor: JsonObject | undefined,
+  key: string,
+): string[] {
+  const capabilities = descriptor
+    ? getObjectProperty(descriptor, "capabilities")
+    : undefined;
+  return capabilities ? getStringArrayProperty(capabilities, key) : [];
 }
 
 function manifestObject(detail: ContractDetail): JsonObject | undefined {
@@ -188,6 +247,57 @@ function providerDeploymentIdsByContract(
       contractId,
       [...deploymentIds].sort((left, right) => left.localeCompare(right)),
     ]),
+  );
+}
+
+function providerContextByDigest(
+  deployments: readonly ServiceDeployment[],
+  instances: readonly AuthListServiceInstancesOutput["instances"][number][],
+): Map<string, { deploymentIds: string[]; activeInstances: number }> {
+  const enabledDeploymentIds = new Set(
+    deployments.filter((deployment) => !deployment.disabled).map((deployment) =>
+      deployment.deploymentId
+    ),
+  );
+  const context = new Map<
+    string,
+    { deploymentIds: Set<string>; activeInstances: number }
+  >();
+
+  for (const deployment of deployments) {
+    if (deployment.disabled) continue;
+    for (const applied of deployment.appliedContracts) {
+      for (const digest of applied.allowedDigests) {
+        const current = context.get(digest) ?? {
+          deploymentIds: new Set<string>(),
+          activeInstances: 0,
+        };
+        current.deploymentIds.add(deployment.deploymentId);
+        context.set(digest, current);
+      }
+    }
+  }
+
+  for (const instance of instances) {
+    if (
+      instance.disabled || !instance.currentContractDigest ||
+      !enabledDeploymentIds.has(instance.deploymentId)
+    ) continue;
+    const current = context.get(instance.currentContractDigest) ?? {
+      deploymentIds: new Set<string>(),
+      activeInstances: 0,
+    };
+    current.activeInstances += 1;
+    context.set(instance.currentContractDigest, current);
+  }
+
+  return new Map(
+    [...context.entries()].map(([digest, value]) => [digest, {
+      deploymentIds: [...value.deploymentIds].sort((left, right) =>
+        left.localeCompare(right)
+      ),
+      activeInstances: value.activeInstances,
+    }]),
   );
 }
 
@@ -316,6 +426,224 @@ export function getAppliedApiUseRows(
       }];
     })
     .sort((left, right) => left.alias.localeCompare(right.alias));
+}
+
+/**
+ * Builds endpoint-first API catalog rows from installed contract details.
+ */
+export function getAppliedApiCatalogRows(
+  deploymentsOutput: AuthListServiceDeploymentsOutput,
+  instancesOutput: AuthListServiceInstancesOutput,
+  contractDetails: readonly ContractDetail[] = [],
+): AppliedApiCatalogRow[] {
+  const providersByDigest = providerContextByDigest(
+    deploymentsOutput.deployments,
+    instancesOutput.instances,
+  );
+
+  const rows = contractDetails.flatMap((detail) => {
+    const manifest = manifestObject(detail);
+    const schemas = manifest
+      ? getObjectProperty(manifest, "schemas")
+      : undefined;
+    const rpcDescriptors = manifest
+      ? getObjectProperty(manifest, "rpc")
+      : undefined;
+    const operationDescriptors = manifest
+      ? getObjectProperty(manifest, "operations")
+      : undefined;
+    const eventDescriptors = manifest
+      ? getObjectProperty(manifest, "events")
+      : undefined;
+    const providerContext = providersByDigest.get(detail.digest) ?? {
+      deploymentIds: [],
+      activeInstances: 0,
+    };
+    const base = {
+      contractId: detail.id,
+      contractDisplayName: detail.displayName,
+      contractDescription: detail.description,
+      digest: detail.digest,
+      providerDeploymentIds: providerContext.deploymentIds,
+      activeInstances: providerContext.activeInstances,
+      namespaces: detail.analysisSummary?.namespaces ??
+        detail.analysis?.namespaces ?? [],
+    };
+
+    const rpcRows: AppliedApiCatalogRow[] = (detail.analysis?.rpc.methods ?? [])
+      .map((method) => {
+        const descriptor = rpcDescriptors
+          ? getObjectProperty(rpcDescriptors, method.key)
+          : undefined;
+        return {
+          ...base,
+          id: `rpc:${detail.digest}:${method.key}`,
+          kind: "rpc" as const,
+          name: method.key,
+          subject: method.subject,
+          wildcardSubject: method.wildcardSubject,
+          inputSchemaName: schemaRefName(descriptor?.input),
+          outputSchemaName: schemaRefName(descriptor?.output),
+          title: descriptor
+            ? getStringProperty(descriptor, "title")
+            : undefined,
+          description: descriptor
+            ? getStringProperty(descriptor, "description")
+            : undefined,
+          documentation: optionalDocumentation(descriptor),
+          callCapabilities: method.callerCapabilities,
+          readCapabilities: [],
+          publishCapabilities: [],
+          subscribeCapabilities: [],
+        };
+      }).concat(
+        detail.analysis?.rpc.methods.length
+          ? []
+          : objectRows(rpcDescriptors).map(({ key, value }) => ({
+            ...base,
+            id: `rpc:${detail.digest}:${key}`,
+            kind: "rpc" as const,
+            name: key,
+            subject: getStringProperty(value, "subject") ?? "",
+            wildcardSubject: getStringProperty(value, "subject") ?? "",
+            inputSchemaName: schemaRefName(value.input),
+            outputSchemaName: schemaRefName(value.output),
+            title: getStringProperty(value, "title"),
+            description: getStringProperty(value, "description"),
+            documentation: optionalDocumentation(value),
+            callCapabilities: capabilitiesFor(value, "call"),
+            readCapabilities: [],
+            publishCapabilities: [],
+            subscribeCapabilities: [],
+          })),
+      );
+
+    const operationRows: AppliedApiCatalogRow[] =
+      (detail.analysis?.operations.operations ?? []).map((operation) => {
+        const descriptor = operationDescriptors
+          ? getObjectProperty(operationDescriptors, operation.key)
+          : undefined;
+        return {
+          ...base,
+          id: `operation:${detail.digest}:${operation.key}`,
+          kind: "operation" as const,
+          name: operation.key,
+          subject: operation.subject,
+          wildcardSubject: operation.wildcardSubject,
+          inputSchemaName: schemaRefName(descriptor?.input),
+          outputSchemaName: schemaRefName(descriptor?.output),
+          progressSchemaName: schemaRefName(descriptor?.progress),
+          title: descriptor
+            ? getStringProperty(descriptor, "title")
+            : undefined,
+          description: descriptor
+            ? getStringProperty(descriptor, "description")
+            : undefined,
+          documentation: optionalDocumentation(descriptor),
+          callCapabilities: operation.callCapabilities,
+          readCapabilities: operation.readCapabilities,
+          publishCapabilities: [],
+          subscribeCapabilities: [],
+        };
+      }).concat(
+        detail.analysis?.operations.operations.length
+          ? []
+          : objectRows(operationDescriptors).map(({ key, value }) => ({
+            ...base,
+            id: `operation:${detail.digest}:${key}`,
+            kind: "operation" as const,
+            name: key,
+            subject: getStringProperty(value, "subject") ?? "",
+            wildcardSubject: getStringProperty(value, "subject") ?? "",
+            inputSchemaName: schemaRefName(value.input),
+            outputSchemaName: schemaRefName(value.output),
+            progressSchemaName: schemaRefName(value.progress),
+            title: getStringProperty(value, "title"),
+            description: getStringProperty(value, "description"),
+            documentation: optionalDocumentation(value),
+            callCapabilities: capabilitiesFor(value, "call"),
+            readCapabilities: capabilitiesFor(value, "read"),
+            publishCapabilities: [],
+            subscribeCapabilities: [],
+          })),
+      );
+
+    const eventRows: AppliedApiCatalogRow[] =
+      (detail.analysis?.events.events ?? [])
+        .map((event) => {
+          const descriptor = eventDescriptors
+            ? getObjectProperty(eventDescriptors, event.key)
+            : undefined;
+          return {
+            ...base,
+            id: `event:${detail.digest}:${event.key}`,
+            kind: "event" as const,
+            name: event.key,
+            subject: event.subject,
+            wildcardSubject: event.wildcardSubject,
+            eventSchemaName: schemaRefName(descriptor?.event),
+            title: descriptor
+              ? getStringProperty(descriptor, "title")
+              : undefined,
+            description: descriptor
+              ? getStringProperty(descriptor, "description")
+              : undefined,
+            documentation: optionalDocumentation(descriptor),
+            callCapabilities: [],
+            readCapabilities: [],
+            publishCapabilities: event.publishCapabilities,
+            subscribeCapabilities: event.subscribeCapabilities,
+          };
+        }).concat(
+          detail.analysis?.events.events.length
+            ? []
+            : objectRows(eventDescriptors).map(({ key, value }) => ({
+              ...base,
+              id: `event:${detail.digest}:${key}`,
+              kind: "event" as const,
+              name: key,
+              subject: getStringProperty(value, "subject") ?? "",
+              wildcardSubject: getStringProperty(value, "subject") ?? "",
+              eventSchemaName: schemaRefName(value.event),
+              title: getStringProperty(value, "title"),
+              description: getStringProperty(value, "description"),
+              documentation: optionalDocumentation(value),
+              callCapabilities: [],
+              readCapabilities: [],
+              publishCapabilities: capabilitiesFor(value, "publish"),
+              subscribeCapabilities: capabilitiesFor(value, "subscribe"),
+            })),
+        );
+
+    const schemaRows: AppliedApiCatalogRow[] = getAppliedApiSchemaRows(detail)
+      .map(
+        (schema) => ({
+          ...base,
+          id: `schema:${detail.digest}:${schema.name}`,
+          kind: "schema" as const,
+          name: schema.name,
+          schemaName: schema.name,
+          schemaType: schema.type,
+          schema: schemas?.[schema.name] ?? schema.schema,
+          exported: schema.exported,
+          title: schema.title,
+          description: schema.description,
+          documentation: undefined,
+          callCapabilities: [],
+          readCapabilities: [],
+          publishCapabilities: [],
+          subscribeCapabilities: [],
+        }),
+      );
+
+    return [...rpcRows, ...operationRows, ...eventRows, ...schemaRows];
+  });
+
+  return rows.sort((left, right) =>
+    `${left.kind}:${left.name}:${left.contractId}`.localeCompare(
+      `${right.kind}:${right.name}:${right.contractId}`,
+    )
+  );
 }
 
 /**

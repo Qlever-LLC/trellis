@@ -1,11 +1,14 @@
-type Profile = {
-  active?: boolean;
-  capabilities?: readonly string[];
-  email?: string;
-  id?: string;
-  name?: string | null;
-  origin?: string;
-} | null | undefined;
+type Profile =
+  | {
+    active?: boolean;
+    capabilities?: readonly string[];
+    email?: string;
+    id?: string;
+    name?: string | null;
+    origin?: string;
+  }
+  | null
+  | undefined;
 
 export const routeTitles = {
   "/profile": "Profile",
@@ -25,6 +28,7 @@ export const routeTitles = {
   "/admin/services/instances": "Service Instances",
   "/admin/health-events": "Health",
   "/admin/contracts": "Contracts",
+  "/admin/apis": "API Catalog",
   "/admin/apps": "Apps",
   "/admin/apps/revoke": "Revoke App Approval",
   "/admin/jobs": "Jobs",
@@ -75,6 +79,7 @@ const navSections: NavSection[] = [
       { href: "/admin/sessions", label: "Sessions", icon: "activity" },
       { href: "/admin/jobs", label: "Jobs", icon: "clipboard" },
       { href: "/admin/contracts", label: "Contracts", icon: "shield" },
+      { href: "/admin/apis", label: "API Catalog", icon: "database" },
     ],
   },
   {
@@ -82,6 +87,11 @@ const navSections: NavSection[] = [
     adminOnly: true,
     items: [
       { href: "/admin/deployments", label: "Deployments", icon: "server" },
+      {
+        href: "/admin/services",
+        label: "Service Deployments",
+        icon: "server",
+      },
       {
         href: "/admin/services/instances",
         label: "Service Instances",

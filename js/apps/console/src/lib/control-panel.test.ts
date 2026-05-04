@@ -28,12 +28,19 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
     label: "Deployments",
     icon: "server",
   });
+  deepEqual(manageSection?.items[1], {
+    href: "/admin/services",
+    label: "Service Deployments",
+    icon: "server",
+  });
   ok(labels.includes("Jobs"));
+  ok(labels.includes("API Catalog"));
   ok(labels.includes("Profile"));
   ok(!labels.includes("Settings"));
-  ok(!labels.includes("Service Deployments"));
   ok(!labels.includes("Device Deployments"));
+  ok(hrefs.includes("/admin/services"));
   ok(hrefs.includes("/admin/services/instances"));
+  ok(hrefs.includes("/admin/apis"));
   ok(hrefs.includes("/admin/devices/activations"));
   ok(hrefs.includes("/admin/devices/instances"));
   ok(hrefs.includes("/admin/devices/reviews"));
@@ -44,4 +51,5 @@ Deno.test("control panel titles cover new admin routes", () => {
   deepEqual(getPageTitle("/admin/services"), "Service Deployments");
   deepEqual(getPageTitle("/admin/devices/profiles"), "Device Deployments");
   deepEqual(getPageTitle("/admin/jobs"), "Jobs");
+  deepEqual(getPageTitle("/admin/apis"), "API Catalog");
 });
