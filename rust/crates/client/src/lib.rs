@@ -11,19 +11,28 @@ mod descriptor;
 mod error;
 mod operations;
 mod proof;
+mod state;
 mod transfer;
 
 pub use auth::SessionAuth;
-pub use client::{ServiceConnectOptions, TrellisClient, UserConnectOptions};
+pub use client::{DeviceConnectOptions, ServiceConnectOptions, TrellisClient, UserConnectOptions};
 pub use descriptor::{EventDescriptor, RpcDescriptor};
 pub use error::TrellisClientError;
 pub use operations::{
-    control_subject, OperationDescriptor, OperationEvent, OperationInvoker, OperationRef,
-    OperationRefData, OperationSnapshot, OperationState, OperationTransferProgress,
-    OperationTransport,
+    control_subject, OperationDescriptor, OperationEvent, OperationInputBuilder, OperationInvoker,
+    OperationRef, OperationRefData, OperationSnapshot, OperationState,
+    OperationTransferInputBuilder, OperationTransferProgress, OperationTransferStartError,
+    OperationTransport, StartedOperationTransfer, TransferOperationDescriptor,
 };
 pub use proof::verify_proof;
-pub use transfer::{DownloadTransferGrant, FileInfo, UploadTransferGrant};
+pub use state::{
+    DeleteStateOptions, ExpectedPutRevision, ListStateOptions, MapStateEntry, MapStateListResult,
+    MapStateStore, PutStateOptions, StateDeleteResult, StateEntry, StateGetResult,
+    StateMigrationRequired, StatePutResult, StateTransport, StateValue, ValueStateStore,
+};
+pub use transfer::{
+    download_transfer_grant_from_value, DownloadTransferGrant, FileInfo, UploadTransferGrant,
+};
 
 #[cfg(test)]
 mod tests;

@@ -29,6 +29,7 @@ pub struct FileInfo {
 pub struct UploadTransferGrant {
     #[serde(rename = "type")]
     pub type_name: String,
+    #[serde(rename = "direction", alias = "kind")]
     pub kind: String,
     pub service: String,
     pub session_key: String,
@@ -49,6 +50,7 @@ pub struct UploadTransferGrant {
 pub struct DownloadTransferGrant {
     #[serde(rename = "type")]
     pub type_name: String,
+    #[serde(rename = "direction", alias = "kind")]
     pub kind: String,
     pub service: String,
     pub session_key: String,
@@ -139,7 +141,6 @@ pub(crate) async fn put_upload_grant(
     }
 }
 
-#[allow(dead_code)]
 pub(crate) async fn get_download_grant(
     client: &TrellisClient,
     grant: &DownloadTransferGrant,
@@ -209,6 +210,13 @@ pub(crate) async fn get_download_grant(
             return Ok(out);
         }
     }
+}
+
+/// Parse a receive transfer grant from generated SDK or raw JSON values.
+pub fn download_transfer_grant_from_value(
+    value: serde_json::Value,
+) -> Result<DownloadTransferGrant, TrellisClientError> {
+    Ok(serde_json::from_value(value)?)
 }
 
 fn validate_grant(

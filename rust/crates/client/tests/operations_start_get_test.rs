@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use trellis_client::{
     control_subject, FileInfo, OperationDescriptor, OperationEvent, OperationState,
-    OperationTransport, TrellisClientError, UploadTransferGrant,
+    OperationTransferStartError, OperationTransport, TransferOperationDescriptor,
+    TrellisClientError, UploadTransferGrant,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -40,10 +41,29 @@ impl OperationDescriptor for RefundOperation {
     const CANCELABLE: bool = true;
 }
 
+struct ReceiptUploadOperation;
+
+impl OperationDescriptor for ReceiptUploadOperation {
+    type Input = RefundInput;
+    type Progress = RefundProgress;
+    type Output = RefundOutput;
+
+    const KEY: &'static str = "Billing.ReceiptUpload";
+    const SUBJECT: &'static str = "operations.v1.Billing.ReceiptUpload";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["billing.receipt.upload"];
+    const READ_CAPABILITIES: &'static [&'static str] = &["billing.read"];
+    const CANCEL_CAPABILITIES: &'static [&'static str] = &[];
+    const CANCELABLE: bool = false;
+}
+
+impl TransferOperationDescriptor for ReceiptUploadOperation {}
+
 #[derive(Clone)]
 struct FakeTransport {
     seen: Arc<Mutex<Vec<(String, Value)>>>,
     responses: Arc<Mutex<Vec<Value>>>,
+    uploads: Arc<Mutex<Vec<(UploadTransferGrant, Vec<u8>)>>>,
+    fail_upload: bool,
 }
 
 impl FakeTransport {
@@ -51,11 +71,24 @@ impl FakeTransport {
         Self {
             seen: Arc::new(Mutex::new(Vec::new())),
             responses: Arc::new(Mutex::new(responses.into_iter().rev().collect())),
+            uploads: Arc::new(Mutex::new(Vec::new())),
+            fail_upload: false,
+        }
+    }
+
+    fn failing_upload(responses: Vec<Value>) -> Self {
+        Self {
+            fail_upload: true,
+            ..Self::new(responses)
         }
     }
 
     fn seen(&self) -> Vec<(String, Value)> {
         self.seen.lock().expect("lock seen").clone()
+    }
+
+    fn uploads(&self) -> Vec<(UploadTransferGrant, Vec<u8>)> {
+        self.uploads.lock().expect("lock uploads").clone()
     }
 }
 
@@ -109,19 +142,163 @@ impl OperationTransport for FakeTransport {
 
     fn put_upload_transfer<'a>(
         &'a self,
-        _grant: UploadTransferGrant,
-        _body: Vec<u8>,
+        grant: UploadTransferGrant,
+        body: Vec<u8>,
     ) -> impl Future<Output = Result<FileInfo, TrellisClientError>> + Send + 'a {
         async move {
+            self.uploads
+                .lock()
+                .expect("lock uploads")
+                .push((grant, body.clone()));
+            if self.fail_upload {
+                return Err(TrellisClientError::TransferProtocol(
+                    "upload failed".to_string(),
+                ));
+            }
             Ok(FileInfo {
                 key: "incoming/test.txt".to_string(),
-                size: 11,
+                size: body.len() as u64,
                 updated_at: "2026-01-01T00:00:00.000Z".to_string(),
                 digest: None,
                 content_type: None,
                 metadata: Default::default(),
             })
         }
+    }
+}
+
+#[tokio::test]
+async fn operation_input_builder_start_posts_input() {
+    let transport = FakeTransport::new(vec![json!({
+        "kind": "accepted",
+        "ref": {
+            "id": "op_123",
+            "service": "billing",
+            "operation": "Billing.Refund"
+        },
+        "snapshot": {
+            "revision": 1,
+            "state": "pending"
+        }
+    })]);
+
+    let operation = trellis_client::OperationInvoker::<_, RefundOperation>::new(&transport);
+    let input = RefundInput {
+        charge_id: "ch_123".to_string(),
+    };
+    let reference = operation
+        .input(&input)
+        .start()
+        .await
+        .expect("builder start should succeed");
+
+    assert_eq!(reference.id(), "op_123");
+    assert_eq!(
+        transport.seen(),
+        vec![(
+            RefundOperation::SUBJECT.to_string(),
+            json!({ "charge_id": "ch_123" }),
+        ),]
+    );
+}
+
+#[tokio::test]
+async fn operation_input_transfer_builder_uploads_after_accept() {
+    let transport = FakeTransport::new(vec![json!({
+        "kind": "accepted",
+        "ref": {
+            "id": "op_123",
+            "service": "billing",
+            "operation": "Billing.ReceiptUpload"
+        },
+        "snapshot": {
+            "revision": 1,
+            "state": "pending"
+        },
+        "transfer": {
+            "type": "TransferGrant",
+            "kind": "upload",
+            "service": "billing",
+            "sessionKey": "session-key",
+            "transferId": "tx1",
+            "subject": "transfer.v1.upload.test.tx1",
+            "expiresAt": "2099-01-01T00:00:00.000Z",
+            "chunkBytes": 6
+        }
+    })]);
+
+    let operation = trellis_client::OperationInvoker::<_, ReceiptUploadOperation>::new(&transport);
+    let input = RefundInput {
+        charge_id: "ch_123".to_string(),
+    };
+    let started = operation
+        .input(&input)
+        .transfer("hello world")
+        .start()
+        .await
+        .expect("builder transfer start should succeed");
+    let reference = started.operation_ref();
+
+    assert_eq!(reference.id(), "op_123");
+    assert_eq!(
+        transport.seen(),
+        vec![(
+            ReceiptUploadOperation::SUBJECT.to_string(),
+            json!({ "charge_id": "ch_123" }),
+        ),]
+    );
+    assert_eq!(started.file_info().key, "incoming/test.txt");
+    assert_eq!(transport.uploads().len(), 1);
+    let (grant, body) = transport.uploads().pop().expect("one upload");
+    assert_eq!(grant.subject, "transfer.v1.upload.test.tx1");
+    assert_eq!(body, b"hello world".to_vec());
+}
+
+#[tokio::test]
+async fn operation_input_transfer_builder_error_keeps_accepted_operation_ref() {
+    let transport = FakeTransport::failing_upload(vec![json!({
+        "kind": "accepted",
+        "ref": {
+            "id": "op_accepted",
+            "service": "billing",
+            "operation": "Billing.ReceiptUpload"
+        },
+        "snapshot": {
+            "revision": 1,
+            "state": "pending"
+        },
+        "transfer": {
+            "type": "TransferGrant",
+            "kind": "upload",
+            "service": "billing",
+            "sessionKey": "session-key",
+            "transferId": "tx1",
+            "subject": "transfer.v1.upload.test.tx1",
+            "expiresAt": "2099-01-01T00:00:00.000Z",
+            "chunkBytes": 6
+        }
+    })]);
+
+    let operation = trellis_client::OperationInvoker::<_, ReceiptUploadOperation>::new(&transport);
+    let input = RefundInput {
+        charge_id: "ch_123".to_string(),
+    };
+    let error = operation
+        .input(&input)
+        .transfer("hello world")
+        .start()
+        .await
+        .expect_err("builder transfer upload should fail");
+
+    match error {
+        OperationTransferStartError::Upload {
+            operation_ref,
+            source,
+        } => {
+            assert_eq!(operation_ref.id(), "op_accepted");
+            assert!(matches!(source, TrellisClientError::TransferProtocol(_)));
+        }
+        OperationTransferStartError::Start(_) => panic!("expected upload failure"),
     }
 }
 

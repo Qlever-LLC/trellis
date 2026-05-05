@@ -13,7 +13,7 @@ use trellis_sdk_core::types::{
     TrellisCatalogResponseCatalog, TrellisCatalogResponseCatalogContractsItem,
     TrellisContractGetResponse, TrellisContractGetResponseContractResources,
 };
-use trellis_server::{BootstrapContractRef, CoreBootstrapPort, ServerError};
+use trellis_service::{BootstrapBindingInfo, BootstrapContractRef, CoreBootstrapPort, ServerError};
 
 struct FakeCoreClient {
     catalog_result: Mutex<Option<Result<TrellisCatalogResponse, TrellisClientError>>>,
@@ -212,13 +212,7 @@ fn jobs_binding_types_deserialize_with_work_stream() {
                         }
                     }
                 },
-                "kv": {
-                    "jobsState": {
-                        "bucket": "trellis_jobs",
-                        "history": 1,
-                        "ttlMs": 0
-                    }
-                }
+                "kv": {}
             }
         }
     }))
@@ -232,11 +226,10 @@ fn jobs_binding_types_deserialize_with_work_stream() {
         .expect("document-process queue");
     assert_eq!(jobs.work_stream.as_deref(), Some("JOBS_WORK"));
     assert_eq!(queue.consumer_name, "documents-document-process");
-    let kv = binding.resources.kv.as_ref().expect("kv binding");
-    assert_eq!(
-        kv.get("jobsState").expect("jobsState").bucket,
-        "trellis_jobs"
-    );
+    assert_eq!(queue.payload.schema, "DocumentPayload");
+    assert!(queue.result.is_none());
+    assert!(queue.dlq);
+    assert!(binding.resources.kv.as_ref().is_none_or(|kv| kv.is_empty()));
     let contract: TrellisContractGetResponse = serde_json::from_value(json!({
         "contract": {
             "id": "trellis.jobs@v1",
@@ -256,16 +249,7 @@ fn jobs_binding_types_deserialize_with_work_stream() {
                     "concurrency": 2
                 }
             },
-            "resources": {
-                "kv": {
-                    "jobsState": {
-                        "purpose": "Projected job state",
-                        "schema": { "schema": "JobState" },
-                        "history": 1,
-                        "ttlMs": 0
-                    }
-                }
-            }
+            "resources": { "kv": {} }
         }
     }))
     .expect("deserialize contract response without stream resources");
@@ -280,14 +264,75 @@ fn jobs_binding_types_deserialize_with_work_stream() {
     );
     let resources: TrellisContractGetResponseContractResources =
         contract.contract.resources.expect("resources");
+    assert!(resources.kv.as_ref().is_none_or(|kv| kv.is_empty()));
+}
+
+#[test]
+fn core_bootstrap_binding_maps_generated_resources_to_service_resource_bindings() {
+    let response: TrellisBindingsGetResponse = serde_json::from_value(json!({
+        "binding": {
+            "contractId": "field-ops@v1",
+            "digest": "sha256:fieldops",
+            "resources": {
+                "kv": {
+                    "drafts": {
+                        "bucket": "svc_drafts",
+                        "history": 10,
+                        "maxValueBytes": 16384,
+                        "ttlMs": 86400000
+                    }
+                },
+                "store": {
+                    "evidence": {
+                        "name": "svc_evidence",
+                        "maxObjectBytes": 10485760,
+                        "ttlMs": 0
+                    }
+                },
+                "jobs": {
+                    "namespace": "field-ops",
+                    "workStream": "JOBS_WORK",
+                    "queues": {
+                        "report-finalize": {
+                            "queueType": "report-finalize",
+                            "publishPrefix": "trellis.jobs.field-ops.report-finalize",
+                            "workSubject": "trellis.work.field-ops.report-finalize",
+                            "consumerName": "field-ops-report-finalize",
+                            "payload": { "schema": "ReportFinalizePayload" },
+                            "result": { "schema": "ReportFinalizeResult" },
+                            "maxDeliver": 5,
+                            "backoffMs": [5000, 30000],
+                            "ackWaitMs": 60000,
+                            "defaultDeadlineMs": 120000,
+                            "progress": true,
+                            "logs": true,
+                            "dlq": true,
+                            "concurrency": 2
+                        }
+                    }
+                }
+            }
+        }
+    }))
+    .expect("deserialize binding resources");
+    let binding = CoreBootstrapBinding::new(response.binding.expect("binding"));
+
+    let resources = binding.resource_bindings();
+
+    assert_eq!(resources.kv.get("drafts").expect("kv").bucket, "svc_drafts");
     assert_eq!(
-        resources
-            .kv
-            .as_ref()
-            .expect("kv resources")
-            .get("jobsState")
-            .expect("jobsState")
-            .purpose,
-        "Projected job state"
+        resources.store.get("evidence").expect("store").name,
+        "svc_evidence"
     );
+    let jobs = resources.jobs.expect("jobs");
+    assert_eq!(jobs.namespace, "field-ops");
+    assert_eq!(jobs.work_stream.as_deref(), Some("JOBS_WORK"));
+    let queue = jobs.queues.get("report-finalize").expect("queue");
+    assert_eq!(queue.consumer_name, "field-ops-report-finalize");
+    assert_eq!(queue.payload.schema, "ReportFinalizePayload");
+    assert_eq!(
+        queue.result.as_ref().expect("result schema").schema,
+        "ReportFinalizeResult"
+    );
+    assert!(queue.dlq);
 }

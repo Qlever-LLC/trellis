@@ -4,7 +4,7 @@ use trellis_auth::{
     AuthClient, AuthGetInstalledContractRequest, AuthGetInstalledContractResponse, TrellisAuthError,
 };
 use trellis_client::TrellisClientError;
-use trellis_server::{BootstrapContractRef, ServerError};
+use trellis_service::{BootstrapContractRef, ServerError};
 
 pub trait AuthBootstrapClientPort: Send + Sync {
     fn auth_get_installed_contract<'a>(

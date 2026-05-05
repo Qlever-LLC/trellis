@@ -6,8 +6,10 @@ use trellis_sdk_core::types::{
     TrellisCatalogRequest, TrellisCatalogResponse,
 };
 use trellis_sdk_core::CoreClient;
-use trellis_server::{
-    BootstrapBinding, BootstrapBindingInfo, BootstrapContractRef, CoreBootstrapPort, ServerError,
+use trellis_service::{
+    BootstrapBinding, BootstrapBindingInfo, BootstrapContractRef, CoreBootstrapPort,
+    JobsQueueResourceBinding, JobsResourceBinding, JobsSchemaRef, KvResourceBinding, ServerError,
+    ServiceResourceBindings, StoreResourceBinding,
 };
 
 pub trait CoreBootstrapClientPort: Send + Sync {
@@ -71,6 +73,91 @@ impl BootstrapBindingInfo for CoreBootstrapBinding {
             contract_id: self.0.contract_id.clone(),
             digest: self.0.digest.clone(),
         }
+    }
+
+    fn resource_bindings(&self) -> ServiceResourceBindings {
+        resource_bindings_from_core_binding(&self.0)
+    }
+}
+
+/// Map generated Trellis core bootstrap resources into service-owned binding types.
+pub fn resource_bindings_from_core_binding(
+    binding: &TrellisBindingsGetResponseBinding,
+) -> ServiceResourceBindings {
+    ServiceResourceBindings {
+        kv: binding
+            .resources
+            .kv
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(name, kv)| {
+                (
+                    name,
+                    KvResourceBinding {
+                        bucket: kv.bucket,
+                        history: kv.history,
+                        max_value_bytes: kv.max_value_bytes,
+                        ttl_ms: kv.ttl_ms,
+                    },
+                )
+            })
+            .collect(),
+        store: binding
+            .resources
+            .store
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(name, store)| {
+                (
+                    name,
+                    StoreResourceBinding {
+                        name: store.name,
+                        max_object_bytes: store.max_object_bytes,
+                        max_total_bytes: store.max_total_bytes,
+                        ttl_ms: store.ttl_ms,
+                    },
+                )
+            })
+            .collect(),
+        jobs: binding
+            .resources
+            .jobs
+            .clone()
+            .map(|jobs| JobsResourceBinding {
+                namespace: jobs.namespace,
+                work_stream: jobs.work_stream,
+                queues: jobs
+                    .queues
+                    .into_iter()
+                    .map(|(name, queue)| {
+                        (
+                            name,
+                            JobsQueueResourceBinding {
+                                queue_type: queue.queue_type,
+                                publish_prefix: queue.publish_prefix,
+                                work_subject: queue.work_subject,
+                                consumer_name: queue.consumer_name,
+                                payload: JobsSchemaRef {
+                                    schema: queue.payload.schema,
+                                },
+                                result: queue.result.map(|result| JobsSchemaRef {
+                                    schema: result.schema,
+                                }),
+                                max_deliver: queue.max_deliver,
+                                backoff_ms: queue.backoff_ms,
+                                ack_wait_ms: queue.ack_wait_ms,
+                                default_deadline_ms: queue.default_deadline_ms,
+                                progress: queue.progress,
+                                logs: queue.logs,
+                                dlq: queue.dlq,
+                                concurrency: queue.concurrency,
+                            },
+                        )
+                    })
+                    .collect(),
+            }),
     }
 }
 

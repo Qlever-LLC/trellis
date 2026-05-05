@@ -9,7 +9,7 @@ use trellis_auth_adapters::request_validator::{
     AuthRequestValidatorClientPort,
 };
 use trellis_client::TrellisClientError;
-use trellis_server::{RequestContext, RequestValidator, ServerError};
+use trellis_service::{RequestContext, RequestValidator, ServerError};
 
 #[test]
 fn payload_hash_base64url_hashes_payload_bytes() {

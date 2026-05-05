@@ -11,7 +11,8 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::models::{
-    DeviceActivationPayload, DeviceActivationWaitRequest, DeviceIdentity,
+    DeviceActivationPayload, DeviceActivationWaitRequest, DeviceConnectInfoRequest,
+    DeviceConnectInfoResponse, DeviceIdentity, GetDeviceConnectInfoOpts,
     WaitForDeviceActivationOpts, WaitForDeviceActivationResponse,
 };
 use crate::TrellisAuthError;
@@ -179,6 +180,250 @@ pub struct DeviceActivationStartResponse {
     pub activation_url: String,
 }
 
+/// Local activation status tracked by the Rust convenience facade.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DeviceActivationStatus {
+    /// The device has started activation but has not observed approval yet.
+    Pending,
+    /// The device has locally observed activation completion.
+    Activated,
+}
+
+/// Serializable local activation state owned by the application.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct DeviceActivationLocalState {
+    /// Current local activation status.
+    pub status: DeviceActivationStatus,
+    /// Contract digest this activation state belongs to.
+    #[serde(rename = "contractDigest")]
+    pub contract_digest: String,
+    /// Public device identity key derived from the root secret.
+    #[serde(rename = "publicIdentityKey")]
+    pub public_identity_key: String,
+    /// Auth activation flow id returned by activation start.
+    #[serde(rename = "flowId")]
+    pub flow_id: String,
+    /// Auth-owned device instance id returned by activation start.
+    #[serde(rename = "instanceId")]
+    pub instance_id: String,
+    /// Device deployment id returned by activation start.
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    /// Activation nonce included in the outbound payload.
+    pub nonce: String,
+    /// Browser URL the device should display for activation.
+    #[serde(rename = "activationUrl")]
+    pub activation_url: String,
+}
+
+/// Request-free activation builder for deriving identity and outbound payload data.
+#[derive(Debug, Clone)]
+pub struct DeviceActivationSessionBuilder {
+    identity: DeviceIdentity,
+    nonce: String,
+    payload: DeviceActivationPayload,
+    encoded_payload: String,
+    confirmation_code: String,
+}
+
+impl DeviceActivationSessionBuilder {
+    /// Derive device identity and build the activation payload from a root secret.
+    pub fn new(
+        device_root_secret: &[u8],
+        nonce: impl Into<String>,
+    ) -> Result<Self, TrellisAuthError> {
+        let nonce = nonce.into();
+        let identity = derive_device_identity(device_root_secret)?;
+        let payload = build_device_activation_payload(
+            &identity.activation_key_base64url,
+            &identity.public_identity_key,
+            &nonce,
+        )?;
+        let encoded_payload = encode_device_activation_payload(&payload)?;
+        let confirmation_code = derive_device_confirmation_code(
+            &identity.activation_key_base64url,
+            &identity.public_identity_key,
+            &nonce,
+        )?;
+
+        Ok(Self {
+            identity,
+            nonce,
+            payload,
+            encoded_payload,
+            confirmation_code,
+        })
+    }
+
+    /// Return the derived public identity key for preregistration and display context.
+    pub fn public_identity_key(&self) -> &str {
+        &self.identity.public_identity_key
+    }
+
+    /// Return the activation payload to send to the auth start endpoint.
+    pub fn payload(&self) -> &DeviceActivationPayload {
+        &self.payload
+    }
+
+    /// Return the base64url-encoded activation payload for QR or URL embedding.
+    pub fn encoded_payload(&self) -> &str {
+        &self.encoded_payload
+    }
+
+    /// Return the local confirmation code for offline approval checks.
+    pub fn confirmation_code(&self) -> &str {
+        &self.confirmation_code
+    }
+
+    /// Build a pending local activation session from an injected start response.
+    pub fn pending_session(
+        self,
+        trellis_url: impl Into<String>,
+        contract_digest: impl Into<String>,
+        start_response: DeviceActivationStartResponse,
+    ) -> Result<DeviceActivationSession, TrellisAuthError> {
+        let contract_digest = contract_digest.into();
+        if contract_digest.is_empty() {
+            return Err(TrellisAuthError::InvalidArgument(
+                "contract digest must not be empty".to_string(),
+            ));
+        }
+
+        let activation_key_base64url = self.identity.activation_key_base64url.clone();
+
+        Ok(DeviceActivationSession {
+            trellis_url: trellis_url.into(),
+            identity: self.identity,
+            activation_key_base64url,
+            confirmation_code: self.confirmation_code,
+            local_state: DeviceActivationLocalState {
+                status: DeviceActivationStatus::Pending,
+                contract_digest,
+                public_identity_key: self.payload.public_identity_key,
+                flow_id: start_response.flow_id,
+                instance_id: start_response.instance_id,
+                deployment_id: start_response.deployment_id,
+                nonce: self.nonce,
+                activation_url: start_response.activation_url,
+            },
+        })
+    }
+}
+
+/// Local device activation session facade for status, confirmation, and wait signing.
+#[derive(Debug, Clone)]
+pub struct DeviceActivationSession {
+    trellis_url: String,
+    identity: DeviceIdentity,
+    activation_key_base64url: String,
+    confirmation_code: String,
+    local_state: DeviceActivationLocalState,
+}
+
+impl DeviceActivationSession {
+    /// Rebuild a local activation session from caller-persisted state.
+    pub fn from_local_state(
+        trellis_url: impl Into<String>,
+        device_root_secret: &[u8],
+        expected_contract_digest: &str,
+        local_state: DeviceActivationLocalState,
+    ) -> Result<Self, TrellisAuthError> {
+        let identity = derive_device_identity(device_root_secret)?;
+        if identity.public_identity_key != local_state.public_identity_key {
+            return Err(TrellisAuthError::InvalidArgument(
+                "public identity key mismatch for device activation local state".to_string(),
+            ));
+        }
+        if local_state.contract_digest != expected_contract_digest {
+            return Err(TrellisAuthError::InvalidArgument(
+                "contract digest mismatch for device activation local state".to_string(),
+            ));
+        }
+
+        let activation_key_base64url = identity.activation_key_base64url.clone();
+        let confirmation_code = derive_device_confirmation_code(
+            &activation_key_base64url,
+            &identity.public_identity_key,
+            &local_state.nonce,
+        )?;
+
+        Ok(Self {
+            trellis_url: trellis_url.into(),
+            identity,
+            activation_key_base64url,
+            confirmation_code,
+            local_state,
+        })
+    }
+
+    /// Return the Trellis deployment URL this activation session belongs to.
+    pub fn trellis_url(&self) -> &str {
+        &self.trellis_url
+    }
+
+    /// Return the browser URL the user should open to approve activation.
+    pub fn activation_url(&self) -> &str {
+        &self.local_state.activation_url
+    }
+
+    /// Return the public identity key derived from the device root secret.
+    pub fn public_identity_key(&self) -> &str {
+        &self.identity.public_identity_key
+    }
+
+    /// Return the local confirmation code for offline approval.
+    pub fn confirmation_code(&self) -> &str {
+        &self.confirmation_code
+    }
+
+    /// Return the serializable local activation state for caller-owned persistence.
+    pub fn local_state(&self) -> &DeviceActivationLocalState {
+        &self.local_state
+    }
+
+    /// Build a signed wait request for the auth activation wait endpoint.
+    pub fn build_wait_request(
+        &self,
+        iat: u64,
+    ) -> Result<DeviceActivationWaitRequest, TrellisAuthError> {
+        sign_device_wait_request(
+            &self.identity.public_identity_key,
+            &self.local_state.nonce,
+            &self.identity.identity_seed_base64url,
+            Some(&self.local_state.contract_digest),
+            iat,
+        )
+    }
+
+    /// Verify an offline confirmation code and mark the pending local state activated.
+    pub fn accept_confirmation_code(
+        &mut self,
+        confirmation_code: &str,
+    ) -> Result<(), TrellisAuthError> {
+        if self.local_state.status != DeviceActivationStatus::Pending {
+            return Err(TrellisAuthError::InvalidArgument(
+                "device activation session is not pending".to_string(),
+            ));
+        }
+
+        let ok = verify_device_confirmation_code(
+            &self.activation_key_base64url,
+            &self.identity.public_identity_key,
+            &self.local_state.nonce,
+            confirmation_code,
+        )?;
+        if !ok {
+            return Err(TrellisAuthError::InvalidArgument(
+                "invalid device confirmation code".to_string(),
+            ));
+        }
+
+        self.local_state.status = DeviceActivationStatus::Activated;
+        Ok(())
+    }
+}
+
 pub async fn start_device_activation_request(
     trellis_url: &str,
     payload: &DeviceActivationPayload,
@@ -198,23 +443,34 @@ pub async fn start_device_activation_request(
     response.json().await.map_err(TrellisAuthError::from)
 }
 
-pub fn build_device_wait_proof_input(public_identity_key: &str, nonce: &str, iat: u64) -> Vec<u8> {
+/// Build the length-prefixed byte input signed by device activation wait requests.
+pub fn build_device_wait_proof_input(
+    public_identity_key: &str,
+    nonce: &str,
+    iat: u64,
+    contract_digest: Option<&str>,
+) -> Vec<u8> {
     let public_identity_key = public_identity_key.as_bytes();
     let nonce = nonce.as_bytes();
     let iat = iat.to_string();
     let iat = iat.as_bytes();
+    let contract_digest = contract_digest.unwrap_or_default().as_bytes();
 
-    let mut out =
-        Vec::with_capacity(4 + public_identity_key.len() + 4 + nonce.len() + 4 + iat.len());
+    let mut out = Vec::with_capacity(
+        4 + public_identity_key.len() + 4 + nonce.len() + 4 + iat.len() + 4 + contract_digest.len(),
+    );
     out.extend_from_slice(&(public_identity_key.len() as u32).to_be_bytes());
     out.extend_from_slice(public_identity_key);
     out.extend_from_slice(&(nonce.len() as u32).to_be_bytes());
     out.extend_from_slice(nonce);
     out.extend_from_slice(&(iat.len() as u32).to_be_bytes());
     out.extend_from_slice(iat);
+    out.extend_from_slice(&(contract_digest.len() as u32).to_be_bytes());
+    out.extend_from_slice(contract_digest);
     out
 }
 
+/// Build and sign a pre-auth device activation wait request.
 pub fn sign_device_wait_request(
     public_identity_key: &str,
     nonce: &str,
@@ -236,6 +492,7 @@ pub fn sign_device_wait_request(
         public_identity_key,
         nonce,
         iat,
+        contract_digest,
     ));
     let signature = signing_key.sign(&digest);
 
@@ -261,6 +518,75 @@ pub async fn wait_for_device_activation_response(
     }
 
     response.json().await.map_err(TrellisAuthError::from)
+}
+
+/// Fetch current runtime connect info for an already activated device.
+pub async fn get_device_connect_info(
+    opts: GetDeviceConnectInfoOpts<'_>,
+) -> Result<DeviceConnectInfoResponse, TrellisAuthError> {
+    let signed = sign_device_wait_request(
+        opts.public_identity_key,
+        "connect-info",
+        opts.identity_seed_base64url,
+        Some(opts.contract_digest),
+        opts.iat,
+    )?;
+    let request = DeviceConnectInfoRequest {
+        public_identity_key: signed.public_identity_key,
+        contract_digest: signed.contract_digest.ok_or_else(|| {
+            TrellisAuthError::InvalidArgument("contract digest must not be empty".to_string())
+        })?,
+        iat: signed.iat,
+        sig: signed.sig,
+    };
+
+    let url = Url::parse(opts.trellis_url)?.join("/auth/devices/connect-info")?;
+    let response = Client::new().post(url).json(&request).send().await?;
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().await.unwrap_or_default();
+        return Err(TrellisAuthError::DeviceConnectInfoFailure(status, body));
+    }
+
+    let response: DeviceConnectInfoResponse = response.json().await?;
+    validate_device_connect_info_response(opts.contract_digest, &response)?;
+
+    Ok(response)
+}
+
+fn validate_device_connect_info_response(
+    expected_contract_digest: &str,
+    response: &DeviceConnectInfoResponse,
+) -> Result<(), TrellisAuthError> {
+    if response.status != "ready" {
+        return Err(TrellisAuthError::UnexpectedDeviceConnectInfoStatus(
+            response.status.clone(),
+        ));
+    }
+    if response.connect_info.contract_digest != expected_contract_digest {
+        return Err(TrellisAuthError::InvalidArgument(format!(
+            "device connect info contract digest mismatch: expected '{expected_contract_digest}', got '{}'",
+            response.connect_info.contract_digest
+        )));
+    }
+    if response.connect_info.auth.mode != crate::models::DeviceConnectInfoAuthMode::DeviceIdentity {
+        return Err(TrellisAuthError::InvalidArgument(
+            "unexpected device connect info auth mode".to_string(),
+        ));
+    }
+    let native = response
+        .connect_info
+        .transports
+        .native
+        .as_ref()
+        .ok_or_else(|| TrellisAuthError::InvalidArgument("missing native NATS transport".into()))?;
+    if native.nats_servers.is_empty() {
+        return Err(TrellisAuthError::InvalidArgument(
+            "native NATS transport has no servers".into(),
+        ));
+    }
+
+    Ok(())
 }
 
 pub async fn wait_for_device_activation(

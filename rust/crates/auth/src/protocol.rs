@@ -232,6 +232,7 @@ pub struct AuthGetInstalledContractResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 /// Request payload for `Auth.ValidateRequest`.
 pub struct AuthValidateRequestRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
     #[serde(rename = "payloadHash")]
     pub payload_hash: String,

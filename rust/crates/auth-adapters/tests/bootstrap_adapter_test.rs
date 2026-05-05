@@ -12,7 +12,7 @@ use trellis_auth_adapters::bootstrap::{
     AuthBootstrapClientPort,
 };
 use trellis_client::TrellisClientError;
-use trellis_server::{BootstrapContractRef, ServerError};
+use trellis_service::{BootstrapContractRef, ServerError};
 
 struct FakeAuthClient {
     result: Mutex<Option<Result<AuthGetInstalledContractResponse, TrellisClientError>>>,
@@ -159,7 +159,7 @@ fn installed_contract_types_deserialize_jobs_bindings_and_summary_counts() {
                 "analysisSummary": {
                     "events": 0,
                     "jobsQueues": 1,
-                    "kvResources": 2,
+                    "kvResources": 0,
                     "storeResources": 0,
                     "namespaces": ["jobs"],
                     "natsPublish": 4,
@@ -189,13 +189,6 @@ fn installed_contract_types_deserialize_jobs_bindings_and_summary_counts() {
                             }
                         }
                     },
-                    "kv": {
-                        "jobsState": {
-                            "bucket": "trellis_jobs",
-                            "history": 1,
-                            "ttlMs": 0
-                        }
-                    }
                 },
                 "resources": {
                     "jobs": {
@@ -212,14 +205,7 @@ fn installed_contract_types_deserialize_jobs_bindings_and_summary_counts() {
                             }
                         }
                     },
-                    "kv": {
-                        "jobsState": {
-                            "purpose": "Projected job state",
-                            "schema": { "schema": "JobState" },
-                            "history": 1,
-                            "ttlMs": 0
-                        }
-                    }
+                    "kv": {}
                 }
             }
         }))
@@ -230,19 +216,10 @@ fn installed_contract_types_deserialize_jobs_bindings_and_summary_counts() {
         .analysis_summary
         .expect("analysis summary");
     assert_eq!(summary.jobs_queues, 1.0);
-    assert_eq!(summary.kv_resources, 2.0);
+    assert_eq!(summary.kv_resources, 0.0);
 
     let resources = response.contract.resources.expect("resources");
-    assert_eq!(
-        resources
-            .kv
-            .as_ref()
-            .expect("kv resources")
-            .get("jobsState")
-            .expect("jobsState")
-            .purpose,
-        "Projected job state"
-    );
+    assert!(resources.kv.as_ref().is_none_or(|kv| kv.is_empty()));
 }
 
 #[test]
@@ -280,8 +257,8 @@ fn install_service_response_deserializes_typed_resource_bindings() {
                         }
                     },
                     "kv": {
-                        "jobsState": {
-                            "bucket": "trellis_jobs",
+                        "cacheState": {
+                            "bucket": "example_cache",
                             "history": 1,
                             "ttlMs": 0
                         }
@@ -308,9 +285,9 @@ fn install_service_response_deserializes_typed_resource_bindings() {
         resource_bindings
             .kv
             .expect("kv bindings")
-            .get("jobsState")
-            .expect("jobsState")
+            .get("cacheState")
+            .expect("cacheState")
             .bucket,
-        "trellis_jobs"
+        "example_cache"
     );
 }

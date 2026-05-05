@@ -133,6 +133,88 @@ pub struct DeviceActivationWaitRequest {
     pub sig: String,
 }
 
+/// Signed pre-auth request sent to `/auth/devices/connect-info`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceConnectInfoRequest {
+    pub public_identity_key: String,
+    pub contract_digest: String,
+    pub iat: u64,
+    pub sig: String,
+}
+
+/// Native NATS transport endpoints returned for an activated device.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceConnectInfoNativeTransport {
+    pub nats_servers: Vec<String>,
+}
+
+/// Transport endpoints returned for an activated device.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct DeviceConnectInfoTransports {
+    pub native: Option<DeviceConnectInfoNativeTransport>,
+}
+
+/// Sentinel credentials returned for an activated device connection.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct DeviceConnectInfoSentinel {
+    pub jwt: String,
+    pub seed: String,
+}
+
+/// Selected runtime transport credentials for an activated device.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct DeviceConnectInfoTransport {
+    pub sentinel: DeviceConnectInfoSentinel,
+}
+
+/// Activated-device runtime auth settings returned by auth.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceConnectInfoAuthMode {
+    /// Device authenticates with its durable device identity key.
+    DeviceIdentity,
+}
+
+/// Activated-device runtime auth settings returned by auth.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceConnectInfoAuth {
+    pub mode: DeviceConnectInfoAuthMode,
+    pub iat_skew_seconds: i64,
+}
+
+/// Current runtime connection information for an activated device.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceConnectInfo {
+    pub instance_id: String,
+    pub deployment_id: String,
+    pub contract_id: String,
+    pub contract_digest: String,
+    pub transports: DeviceConnectInfoTransports,
+    pub transport: DeviceConnectInfoTransport,
+    pub auth: DeviceConnectInfoAuth,
+}
+
+/// Ready response returned by `/auth/devices/connect-info`.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceConnectInfoResponse {
+    pub status: String,
+    pub connect_info: DeviceConnectInfo,
+}
+
+/// Options for refreshing activated-device runtime connection information.
+pub struct GetDeviceConnectInfoOpts<'a> {
+    pub trellis_url: &'a str,
+    pub public_identity_key: &'a str,
+    pub identity_seed_base64url: &'a str,
+    pub contract_digest: &'a str,
+    pub iat: u64,
+}
+
 /// Activated wait response returned by auth.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DeviceActivationActivatedResponse {

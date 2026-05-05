@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use bytes::Bytes;
@@ -7,8 +9,8 @@ use sha2::{Digest, Sha256};
 use trellis_auth::{
     AuthClient, AuthValidateRequestRequest, AuthValidateRequestResponse, TrellisAuthError,
 };
-use trellis_client::TrellisClientError;
-use trellis_server::{RequestContext, RequestValidator, ServerError};
+use trellis_client::{TrellisClient, TrellisClientError};
+use trellis_service::{RequestContext, RequestValidator, ServerError};
 
 pub trait AuthRequestValidatorClientPort: Send + Sync {
     fn auth_validate_request<'a>(
@@ -26,6 +28,20 @@ impl<'a> AuthRequestValidatorClientPort for AuthClient<'a> {
     }
 }
 
+impl AuthRequestValidatorClientPort for Arc<TrellisClient> {
+    fn auth_validate_request<'a>(
+        &'a self,
+        input: &'a AuthValidateRequestRequest,
+    ) -> BoxFuture<'a, Result<AuthValidateRequestResponse, TrellisClientError>> {
+        Box::pin(async move {
+            AuthClient::new(self.as_ref())
+                .validate_request(input)
+                .await
+                .map_err(map_auth_error)
+        })
+    }
+}
+
 fn map_auth_error(error: TrellisAuthError) -> TrellisClientError {
     match error {
         TrellisAuthError::TrellisClient(error) => error,
@@ -33,6 +49,7 @@ fn map_auth_error(error: TrellisAuthError) -> TrellisClientError {
     }
 }
 
+#[derive(Clone)]
 pub struct AuthRequestValidatorAdapter<C> {
     client: C,
 }
