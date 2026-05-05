@@ -255,10 +255,10 @@ Behavior:
 - when a contract declares top-level `jobs`, `TrellisService.connect(...)`
   resolves a typed `service.jobs` facade for job creation, handler registration,
   and worker startup
-- the shared jobs streams and projected-state KV are Trellis-owned
-  infrastructure; service apply/install provisions or binds them before
-  jobs-enabled services start, so bootstrap consumes existing bindings rather
-  than provisioning shared jobs infrastructure
+- the shared jobs streams are Trellis-owned infrastructure; service
+  apply/install provisions or binds them before jobs-enabled services start, so
+  bootstrap consumes existing bindings rather than provisioning shared jobs
+  infrastructure. Jobs admin projections are internal to the Jobs admin runtime.
 - when an RPC needs to start caller-visible follow-up work after a transfer,
   prefer a transfer-capable operation over an RPC-started workflow
 - the `trellis` control-plane service is the one bootstrap exception and may use

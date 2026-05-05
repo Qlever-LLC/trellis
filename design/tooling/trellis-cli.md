@@ -109,7 +109,7 @@ These commands:
 - compute canonical JSON and digests
 - generate language SDKs from the resolved contract inputs
 - preserve the current TypeScript generated surface where practical
-- generate Rust SDK crates that target `trellis-client` and `trellis-server`
+- generate Rust SDK crates that target `trellis-client` and `trellis-service`
 - use required contract `kind` metadata to decide discovery behavior: `service`
   generates manifest, TypeScript SDK, and Rust SDK artifacts; `app` generates
   manifest and TypeScript SDK artifacts; `agent` and `device` contracts are
@@ -293,9 +293,10 @@ The developer-facing CLI boundary is the contract source.
   module that `trellis-generate` should load
 - multi-contract TypeScript/Deno projects use `contracts/*.ts`, and those files
   default export the contract module that `trellis-generate` should load
-- Rust projects use `contracts/*.rs` wrappers that export `CONTRACT` or
-  `CONTRACT_JSON` via `include_str!(...)`, usually backed by a sibling manifest
-  JSON file in the same `contracts/` directory
+- Rust projects use `contracts/*.rs` source modules with a `contract_manifest()`
+  function, or another explicitly selected function, returning
+  `ContractManifest` or `Result<ContractManifest, ContractsError>`; those
+  modules may build manifests with Rust code or wrap checked-in manifest JSON
 - every contract source must declare a required `kind`
 - the `trellis` runtime service may own multiple logical contracts such as
   `trellis.core@v1`, `trellis.auth@v1`, and `trellis.state@v1`
@@ -332,7 +333,7 @@ lives in dedicated Rust crates:
 - `trellis-codegen-ts`
 - `trellis-codegen-rust`
 - `trellis-client`
-- `trellis-server`
+- `trellis-service`
 - generated SDK crates for Trellis-owned contracts such as `trellis-sdk-core`
   and `trellis-sdk-auth`
 

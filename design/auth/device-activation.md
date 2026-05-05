@@ -522,6 +522,16 @@ Rules:
   connect pattern as the TypeScript device runtime helper and remain a thin
   wrapper over the public auth HTTP and RPC surfaces
 
+Implementation status:
+
+- TypeScript currently provides the full activated-device connection path through
+  `checkDeviceActivation(...)` and `TrellisDevice.connect(...)`
+- Rust currently has deterministic identity, activation payload, wait signing,
+  wait polling, and confirmation-code helpers, but does not yet have the full
+  activated-device runtime connect facade
+- generated Rust device/state participant facades are still pending, so Rust
+  demos may use lower-level session or offline flows until those facades exist
+
 ### Minimal activated device example
 
 ```ts

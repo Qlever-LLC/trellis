@@ -20,14 +20,16 @@ This document defines Trellis observability, documentation, tracing, and request
 Every service exposes:
 
 - `<Service>.Health` RPC
-- optional `Health.Heartbeat` event publishing through the shared Trellis health contract
+- baseline `Health.Heartbeat` event publishing through the shared Trellis health
+  contract
 - optional `<Service>.Stats` RPC
 - OpenTelemetry tracing
 - structured logging
 
-Activated devices may also publish `Health.Heartbeat` through the same shared
-contract when their device contract declares the appropriate `uses.health`
-permission.
+Activated devices publish `Health.Heartbeat` through the same shared contract.
+The required `uses.health` permission is a Trellis baseline manifest surface for
+connected service and device participants, not something every contract author
+must manually repeat.
 
 Health example:
 
@@ -59,9 +61,11 @@ service.health.add("db", async () => ({
 Heartbeat behavior:
 
 - if the connected service contract uses the shared `Health.Heartbeat` event,
-  `TrellisService.connect(...)` publishes baseline heartbeats automatically
+  `TrellisService.connect(...)` and Rust `TrellisClient::connect_service(...)`
+  publish baseline heartbeats automatically
 - if the connected device contract uses the shared `Health.Heartbeat` event,
-  `TrellisDevice.connect(...)` publishes baseline heartbeats automatically
+  `TrellisDevice.connect(...)` and Rust `TrellisClient::connect_device(...)`
+  publish baseline heartbeats automatically
 - baseline heartbeats include runtime metadata, instance identity, publish
   interval, and a built-in NATS connectivity check
 - `service.health.setInfo(...)` and `service.health.add(...)` extend service
