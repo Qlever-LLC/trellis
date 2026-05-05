@@ -192,7 +192,7 @@ jobs:
           # rewriting those SDK manifests to use registry dependencies.
           publish_workspace_crate trellis-client
           publish_workspace_crate trellis-contracts
-          publish_workspace_crate trellis-server
+          publish_workspace_crate trellis-service
 
           publish_workspace_crate trellis-codegen-rust
           publish_workspace_crate trellis-codegen-ts

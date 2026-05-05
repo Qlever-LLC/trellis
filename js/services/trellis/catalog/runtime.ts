@@ -478,6 +478,9 @@ export function createContractsModule(opts: {
 
     const active = collectActiveContractDigests({
       builtinDigests: contractStore.getBuiltinDigests(),
+      builtinContractIds: opts.builtinContracts.map(({ contract }) =>
+        contract.id
+      ),
       serviceDeployments,
       deviceDeployments,
       deviceInstances,

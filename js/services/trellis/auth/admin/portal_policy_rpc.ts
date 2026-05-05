@@ -1,5 +1,6 @@
 import { AuthError } from "@qlever-llc/trellis";
 import { Result } from "@qlever-llc/result";
+import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
 
 import type { ContractStore } from "../../catalog/store.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
@@ -297,7 +298,7 @@ async function derivePortalProfileCapabilities(args: {
           reason: "portal_contract_not_browser_app",
         });
       }
-      for (const capability of plan.approval.capabilities) {
+      for (const capability of approvalCapabilityKeys(plan.approval)) {
         impliedCapabilities.add(capability);
       }
     }

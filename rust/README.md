@@ -15,7 +15,7 @@ Rust crates for the Trellis platform.
 | `trellis-contracts`    | Contract manifest model and validation                                  |
 | `trellis-core-bootstrap` | Bootstrap helpers for Trellis-owned infrastructure state             |
 | `trellis-jobs`         | Shared jobs runtime and admin support                                   |
-| `trellis-server`       | Rust server runtime                                                     |
+| `trellis-service`      | Rust service runtime                                                    |
 | `trellis-service-jobs` | Service-side jobs integration helpers                                   |
 
 See `../design/tooling/trellis-cli.md` and `../design/contracts/trellis-rust-contract-libraries.md`.

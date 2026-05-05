@@ -19,7 +19,7 @@ const INTERNAL_RUST_CRATES = new Set([
   "trellis-sdk-auth",
   "trellis-sdk-core",
   "trellis-sdk-jobs",
-  "trellis-server",
+  "trellis-service",
   "trellis-service-jobs",
   "trellis-tooling-support",
 ]);

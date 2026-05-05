@@ -1,5 +1,5 @@
 export type ActiveDeploymentContractRecord = {
-  appliedContracts: Array<{ allowedDigests: string[] }>;
+  appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
 };
 
 export type ActiveServiceDeploymentRecord = ActiveDeploymentContractRecord & {
@@ -18,6 +18,7 @@ export type ActiveDeviceInstanceRecord = {
 
 export type ActiveCatalogRecordSet = {
   builtinDigests: Iterable<string>;
+  builtinContractIds?: Iterable<string>;
   serviceDeployments: Iterable<ActiveServiceDeploymentRecord>;
   deviceDeployments: Iterable<ActiveDeviceDeploymentRecord>;
   deviceInstances?: Iterable<ActiveDeviceInstanceRecord>;
@@ -30,10 +31,12 @@ export function addDeploymentAllowedDigests<
   active: Set<string>,
   records: Iterable<T>,
   isActive: (record: T) => boolean,
+  opts?: { skipContractIds?: ReadonlySet<string> },
 ): void {
   for (const record of records) {
     if (!isActive(record)) continue;
     for (const applied of record.appliedContracts) {
+      if (opts?.skipContractIds?.has(applied.contractId)) continue;
       for (const digest of applied.allowedDigests) active.add(digest);
     }
   }
@@ -57,11 +60,13 @@ export function collectActiveContractDigests(
 ): Set<string> {
   const active = new Set<string>();
   for (const digest of records.builtinDigests) active.add(digest);
+  const builtinContractIds = new Set(records.builtinContractIds ?? []);
 
   addDeploymentAllowedDigests(
     active,
     records.serviceDeployments,
     (deployment) => !deployment.disabled,
+    { skipContractIds: builtinContractIds },
   );
 
   addDeploymentAllowedDigests(
@@ -69,6 +74,7 @@ export function collectActiveContractDigests(
     records.deviceDeployments,
     (deployment) =>
       !deployment.disabled && deployment.appliedContracts.length > 0,
+    { skipContractIds: builtinContractIds },
   );
 
   return active;

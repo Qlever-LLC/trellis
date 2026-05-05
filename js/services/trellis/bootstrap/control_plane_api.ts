@@ -27,6 +27,36 @@ function assertNoOverlap(
   }
 }
 
+function subjectOf(value: unknown): string | undefined {
+  return typeof value === "object" && value !== null && "subject" in value &&
+      typeof value.subject === "string"
+    ? value.subject
+    : undefined;
+}
+
+function assertNoConflictingOverlap(
+  kind: string,
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+) {
+  for (const [key, leftValue] of Object.entries(left)) {
+    const rightValue = right[key];
+    if (rightValue === undefined) {
+      continue;
+    }
+
+    const leftSubject = subjectOf(leftValue);
+    const rightSubject = subjectOf(rightValue);
+    if (leftSubject !== undefined && leftSubject === rightSubject) {
+      continue;
+    }
+
+    throw new Error(
+      `Duplicate ${kind} key '${key}' in Trellis control-plane API`,
+    );
+  }
+}
+
 function assertComposableApi() {
   for (
     let leftIndex = 0;
@@ -48,7 +78,7 @@ function assertComposableApi() {
         );
       }
       for (const kind of TRELLIS_API_KINDS) {
-        assertNoOverlap(
+        assertNoConflictingOverlap(
           kind === "operations" ? "operation" : kind.slice(0, -1),
           left.trellis[kind],
           right.trellis[kind],

@@ -15,13 +15,19 @@ Deno.test("addDeploymentAllowedDigests includes every active deployment digest",
       {
         disabled: false,
         appliedContracts: [
-          { allowedDigests: ["digest-a", "digest-b"] },
-          { allowedDigests: ["digest-c"] },
+          {
+            contractId: "service-a@v1",
+            allowedDigests: ["digest-a", "digest-b"],
+          },
+          { contractId: "service-b@v1", allowedDigests: ["digest-c"] },
         ],
       },
       {
         disabled: true,
-        appliedContracts: [{ allowedDigests: ["digest-d"] }],
+        appliedContracts: [{
+          contractId: "service-c@v1",
+          allowedDigests: ["digest-d"],
+        }],
       },
       { disabled: false, appliedContracts: [] },
     ],
@@ -59,23 +65,33 @@ Deno.test("overlayStagedRecords replaces persisted records by key", () => {
 Deno.test("collectActiveContractDigests builds candidate active set", () => {
   const active = collectActiveContractDigests({
     builtinDigests: ["builtin"],
+    builtinContractIds: ["trellis.core@v1"],
     serviceDeployments: [
       {
         deploymentId: "service.enabled",
         disabled: false,
-        appliedContracts: [{ allowedDigests: ["service-digest"] }],
+        appliedContracts: [{
+          contractId: "service@v1",
+          allowedDigests: ["service-digest"],
+        }],
       },
       {
         deploymentId: "service.disabled",
         disabled: true,
-        appliedContracts: [{ allowedDigests: ["disabled-parent-digest"] }],
+        appliedContracts: [{
+          contractId: "disabled@v1",
+          allowedDigests: ["disabled-parent-digest"],
+        }],
       },
     ],
     deviceDeployments: [
       {
         deploymentId: "device.enabled",
         disabled: false,
-        appliedContracts: [{ allowedDigests: ["device-digest"] }],
+        appliedContracts: [{
+          contractId: "device@v1",
+          allowedDigests: ["device-digest"],
+        }],
       },
     ],
   });
@@ -93,7 +109,10 @@ Deno.test("collectActiveContractDigests includes enabled service deployment allo
     serviceDeployments: [{
       deploymentId: "service.enabled",
       disabled: false,
-      appliedContracts: [{ allowedDigests: ["service-digest"] }],
+      appliedContracts: [{
+        contractId: "service@v1",
+        allowedDigests: ["service-digest"],
+      }],
     }],
     deviceDeployments: [],
   });
@@ -107,10 +126,34 @@ Deno.test("collectActiveContractDigests excludes disabled service deployment all
     serviceDeployments: [{
       deploymentId: "service.disabled",
       disabled: true,
-      appliedContracts: [{ allowedDigests: ["service-digest"] }],
+      appliedContracts: [{
+        contractId: "service@v1",
+        allowedDigests: ["service-digest"],
+      }],
     }],
     deviceDeployments: [],
   });
 
   assertEquals([...active], []);
+});
+
+Deno.test("collectActiveContractDigests skips deployment digests for built-in lineages", () => {
+  const active = collectActiveContractDigests({
+    builtinDigests: ["builtin-current"],
+    builtinContractIds: ["trellis.jobs@v1"],
+    serviceDeployments: [{
+      deploymentId: "service.jobs",
+      disabled: false,
+      appliedContracts: [{
+        contractId: "trellis.jobs@v1",
+        allowedDigests: ["builtin-old"],
+      }, {
+        contractId: "app@v1",
+        allowedDigests: ["app-digest"],
+      }],
+    }],
+    deviceDeployments: [],
+  });
+
+  assertEquals([...active].sort(), ["app-digest", "builtin-current"]);
 });

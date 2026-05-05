@@ -93,12 +93,20 @@ type StartNatsConsumerDeps = {
       ): Promise<ConsumerInfoLike>;
       info(stream: string, consumer: string): Promise<ConsumerInfoLike>;
     };
+    direct?: DirectMessageReader;
   };
   js: {
     consumers: {
       getConsumerFromInfo(info: ConsumerInfoLike): WorkerConsumerLike;
     };
   };
+};
+
+type DirectMessageReader = {
+  getMessage(
+    stream: string,
+    query: { last_by_subj: string },
+  ): Promise<{ data: Uint8Array } | null>;
 };
 
 type StartNatsConnectionDeps = {
@@ -141,6 +149,9 @@ type StartNatsWorkerHostOptions<TResult> =
     getProjectedJob?: (
       job: Job<unknown, TResult>,
     ) => Promise<Job<unknown, TResult> | undefined>;
+    getLatestLifecycleEvent?: (
+      job: Job<unknown, TResult>,
+    ) => Promise<JobEvent | undefined>;
     validatePayload?: (
       args: PayloadValidationArgs<TResult>,
     ) => Promise<void> | void;
@@ -158,6 +169,9 @@ type StartQueueWorkerLoopOptions<TResult> = {
   getProjectedJob?: (
     job: Job<unknown, TResult>,
   ) => Promise<Job<unknown, TResult> | undefined>;
+  getLatestLifecycleEvent?: (
+    job: Job<unknown, TResult>,
+  ) => Promise<JobEvent | undefined>;
   payloadSchema?: SchemaRef;
   validatePayload?: (
     args: PayloadValidationArgs<TResult>,
@@ -179,6 +193,9 @@ type StartNatsQueueWorkerOptions<TResult> =
     getProjectedJob?: (
       job: Job<unknown, TResult>,
     ) => Promise<Job<unknown, TResult> | undefined>;
+    getLatestLifecycleEvent?: (
+      job: Job<unknown, TResult>,
+    ) => Promise<JobEvent | undefined>;
     validatePayload?: (
       args: PayloadValidationArgs<TResult>,
     ) => Promise<void> | void;
@@ -292,6 +309,15 @@ export function projectedWorkDecision(
   return isTerminal(projected.state) ? "skip-ack" : "process";
 }
 
+export function lifecycleWorkDecision(
+  latest: JobEvent | undefined,
+): ProjectedWorkDecision {
+  if (!latest) {
+    return "process";
+  }
+  return isTerminal(latest.state) ? "skip-ack" : "process";
+}
+
 export function ackActionForOutcome(
   outcome: JobProcessOutcome<unknown> | undefined,
 ): WorkerAckAction {
@@ -351,17 +377,31 @@ export async function startQueueWorkerLoop<TResult>(
         await msg.nak();
         continue;
       }
-      const projected = options.getProjectedJob
-        ? await options.getProjectedJob(job)
+      const latestLifecycle = options.getLatestLifecycleEvent
+        ? await options.getLatestLifecycleEvent(job)
         : undefined;
       if (hostCancellation?.isHostShutdown()) {
         await msg.nak();
         continue;
       }
-      if (projectedWorkDecision(projected, job) === "skip-ack") {
+      if (lifecycleWorkDecision(latestLifecycle) === "skip-ack") {
         registry.clearPending(key);
         await msg.ack();
         continue;
+      }
+      if (!latestLifecycle) {
+        const projected = options.getProjectedJob
+          ? await options.getProjectedJob(job)
+          : undefined;
+        if (hostCancellation?.isHostShutdown()) {
+          await msg.nak();
+          continue;
+        }
+        if (projectedWorkDecision(projected, job) === "skip-ack") {
+          registry.clearPending(key);
+          await msg.ack();
+          continue;
+        }
       }
 
       const token = new JobCancellationToken();
@@ -459,6 +499,7 @@ export async function startNatsQueueWorker<TResult>(
   const cancelSubscription = options.nats.subscribe(
     `${queue.publishPrefix}.*.cancelled`,
   ) as Subscription as CancelSubscriptionLike;
+  const direct = jsm.direct;
 
   return await startQueueWorkerLoop({
     manager: options.manager,
@@ -466,6 +507,10 @@ export async function startNatsQueueWorker<TResult>(
     cancelSubscription,
     hostCancellation: options.hostCancellation,
     getProjectedJob: options.getProjectedJob,
+    getLatestLifecycleEvent: options.getLatestLifecycleEvent ??
+      (direct
+        ? (job) => getLatestLifecycleEvent(direct, "JOBS", job)
+        : undefined),
     payloadSchema: queue.payload,
     validatePayload: options.validatePayload,
     resultSchema: queue.result,
@@ -572,6 +617,7 @@ export async function startNatsWorkerHostFromBinding<TResult>(
         queueType,
         hostCancellation: cancellation,
         getProjectedJob: options.getProjectedJob,
+        getLatestLifecycleEvent: options.getLatestLifecycleEvent,
         validatePayload: options.validatePayload,
         validateResult: options.validateResult,
         handler: options.handler,
@@ -645,6 +691,38 @@ function getQueueBinding(
     );
   }
   return queue;
+}
+
+async function getLatestLifecycleEvent(
+  direct: DirectMessageReader,
+  stream: string,
+  job: Job,
+): Promise<JobEvent | undefined> {
+  try {
+    const msg = await direct.getMessage(stream, {
+      last_by_subj: `trellis.jobs.${job.service}.${job.type}.${job.id}.*`,
+    });
+    if (!msg) {
+      return undefined;
+    }
+    return parseWorkPayloadEvent(msg.data);
+  } catch (error) {
+    if (isMessageNotFoundError(error)) {
+      return undefined;
+    }
+    if (isStreamNotFoundError(error)) {
+      throw new JobsInfrastructureMissingError(stream, job.type);
+    }
+    throw error;
+  }
+}
+
+function isMessageNotFoundError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.name === "MessageNotFoundError" ||
+    error.message.includes("message not found") ||
+    error.message.includes("no message found")
+  );
 }
 
 function parseWorkPayloadEvent(payload: Uint8Array): JobEvent | undefined {

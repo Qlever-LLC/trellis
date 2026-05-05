@@ -1,3 +1,5 @@
+import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
+
 import type { ContractStore } from "../../catalog/store.ts";
 import type {
   ContractApprovalRecord,
@@ -87,7 +89,7 @@ export async function resolveUserReconnectSession(args: {
   }
   if (
     missingCapabilities({
-      requiredCapabilities: plan.approval.capabilities,
+      requiredCapabilities: approvalCapabilityKeys(plan.approval),
       effectiveCapabilities: resolvedCapabilities,
     }).length > 0
   ) {
@@ -103,7 +105,7 @@ export async function resolveUserReconnectSession(args: {
       contractDisplayName: plan.contract.displayName,
       contractDescription: plan.contract.description,
       approvalSource: resolvedApproval.kind,
-      delegatedCapabilities: plan.approval.capabilities,
+      delegatedCapabilities: approvalCapabilityKeys(plan.approval),
       delegatedPublishSubjects: plan.publishSubjects,
       delegatedSubscribeSubjects: plan.subscribeSubjects,
     },

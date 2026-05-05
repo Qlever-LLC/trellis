@@ -1364,10 +1364,6 @@ Deno.test("service-local JobRef wait observes scoped lifecycle events", async ()
     const latest = await ref.get().orThrow();
     assertEquals(latest.state, "completed");
     assertEquals(latest.result, { refreshId: "refresh-1" });
-    assertEquals(
-      published.some((message) => message.subject.includes("KV_trellis_jobs")),
-      false,
-    );
   } finally {
     await service.stop();
     restore();

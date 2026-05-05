@@ -2,6 +2,7 @@ import {
   digestContractManifest,
   type TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
+import { CONTRACT as trellisJobsContract } from "#trellis-generated-sdk/jobs";
 
 import {
   startAuthCallout,
@@ -10,7 +11,6 @@ import {
 import { CONTRACT as trellisAuthContract } from "../contracts/trellis_auth.ts";
 import { CONTRACT as trellisCoreContract } from "../contracts/trellis_core.ts";
 import { CONTRACT as trellisHealthContract } from "../contracts/trellis_health.ts";
-import { CONTRACT as trellisJobsContract } from "../contracts/trellis_jobs.ts";
 import { CONTRACT as trellisStateContract } from "../contracts/trellis_state.ts";
 import type { ContractStore } from "../catalog/store.ts";
 import type { SqlContractStorageRepository } from "../catalog/storage.ts";

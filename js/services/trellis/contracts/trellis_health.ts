@@ -5,21 +5,18 @@ const schemas = {
   HealthHeartbeat: HealthHeartbeatSchema,
 } as const;
 
-export const health = defineServiceContract(
-  { schemas },
-  (ref) => ({
-    id: "trellis.health@v1",
-    displayName: "Trellis Health",
-    description:
-      "Expose shared Trellis heartbeat events for service observability.",
-    events: {
-      "Health.Heartbeat": {
-        version: "v1",
-        event: ref.schema("HealthHeartbeat"),
-      },
+export const health = defineServiceContract({ schemas }, (ref) => ({
+  id: "trellis.health@v1",
+  displayName: "Trellis Health",
+  description:
+    "Expose shared Trellis heartbeat events for service observability.",
+  events: {
+    "Health.Heartbeat": {
+      version: "v1",
+      event: ref.schema("HealthHeartbeat"),
     },
-  }),
-);
+  },
+}));
 
 export const CONTRACT_ID = health.CONTRACT_ID;
 export const CONTRACT = health.CONTRACT;

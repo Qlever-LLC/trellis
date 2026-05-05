@@ -10,6 +10,7 @@ import {
   templateToWildcard,
 } from "./uses.ts";
 import { getKvPermissionGrants } from "./resources.ts";
+import { CONTRACT_DIGEST as TRELLIS_JOBS_CONTRACT_DIGEST } from "#trellis-generated-sdk/jobs";
 import { CONTRACT as trellisAuthContract } from "../contracts/trellis_auth.ts";
 import { CONTRACT as trellisCoreContract } from "../contracts/trellis_core.ts";
 import { CONTRACT as trellisStateContract } from "../contracts/trellis_state.ts";
@@ -45,6 +46,11 @@ const AUTH_VALIDATE_SUBJECT = trellisAuthContract.rpc?.["Auth.ValidateRequest"]
   ?.subject;
 const TRANSFER_UPLOAD_SUBJECT_PREFIX = "transfer.v1.upload";
 const TRANSFER_DOWNLOAD_SUBJECT_PREFIX = "transfer.v1.download";
+const TRELLIS_JOBS_CONTRACT_ID = "trellis.jobs@v1";
+const JOBS_STREAM = "JOBS";
+const JOBS_WORK_STREAM = "JOBS_WORK";
+const JOBS_ADVISORIES_STREAM = "JOBS_ADVISORIES";
+const JOBS_WORKER_PRESENCE_BUCKET = "JOBS_WORKER_PRESENCE";
 
 function operationStoreBucket(sessionKey: string): string {
   return `trellis_operations_${sessionKey.slice(0, 16)}`;
@@ -238,6 +244,33 @@ function handledTransferSubjects(service: ServiceDescriptor): string[] {
   ]);
 }
 
+function implementsJobsAdminService(service: ServiceDescriptor): boolean {
+  return implementedContracts(service).some((entry) =>
+    entry.contract.id === TRELLIS_JOBS_CONTRACT_ID &&
+    entry.digest === TRELLIS_JOBS_CONTRACT_DIGEST
+  );
+}
+
+function jobsAdminRuntimePublishSubjects(): string[] {
+  return [
+    "trellis.jobs.>",
+    "$JS.API.INFO",
+    ...[JOBS_STREAM, JOBS_ADVISORIES_STREAM].flatMap((stream) => [
+      `$JS.API.STREAM.INFO.${stream}`,
+      `$JS.API.CONSUMER.CREATE.${stream}.>`,
+      `$JS.API.CONSUMER.DURABLE.CREATE.${stream}.>`,
+      `$JS.API.CONSUMER.INFO.${stream}.>`,
+      `$JS.API.CONSUMER.MSG.NEXT.${stream}.>`,
+      `$JS.ACK.${stream}.>`,
+    ]),
+    `$JS.API.STREAM.INFO.${JOBS_WORK_STREAM}`,
+    `$JS.API.STREAM.MSG.GET.${JOBS_WORK_STREAM}`,
+    ...getKvPermissionGrants(JOBS_WORKER_PRESENCE_BUCKET, {
+      allowCreate: true,
+    }).publish,
+  ];
+}
+
 function hasDeclaredEventSubscriptions(
   capabilities: string[],
   service: ServiceDescriptor,
@@ -322,6 +355,10 @@ export function getServicePublishSubjects(
       : []),
     ...(hasDeclaredEventSubscriptions(capabilities, service)
       ? JETSTREAM_EVENT_CONTROL_SUBJECTS
+      : []),
+    ...(hasRequiredCapabilities(capabilities, ["service"]) &&
+        implementsJobsAdminService(service)
+      ? jobsAdminRuntimePublishSubjects()
       : []),
   ]);
 }

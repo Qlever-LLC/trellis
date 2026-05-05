@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { digestContractManifest } from "@qlever-llc/trellis/contracts";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 import {
@@ -501,6 +502,71 @@ Deno.test("contracts runtime refresh fails closed before activating divergent co
       "different capabilities",
     );
     assertEquals(module.contractStore.getActiveCatalog().contracts, []);
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
+Deno.test("contracts runtime refresh ignores stale deployment digests for built-in lineages", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-catalog-runtime-builtin-replace-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    const { createContractsModule } = await import("./runtime.ts");
+    await initializeTrellisStorageSchema(storage);
+    const contractStorage = new SqlContractStorageRepository(storage.db);
+    const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
+    const current = makeOperationContract(
+      "trellis.builtin@v1",
+      "operations.v1.TrellisBuiltin.Refresh",
+    );
+    current.operations!.Refund!.capabilities = {
+      call: ["trellis.builtin.refresh.v2"],
+    };
+    const currentDigest = digestContractManifest(current);
+    const module = createContractsModule({
+      builtinContracts: [{ digest: currentDigest, contract: current }],
+      contractStorage,
+      serviceInstanceStorage,
+      serviceDeploymentStorage,
+      deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
+      deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
+    });
+    const old = makeOperationContract(
+      "trellis.builtin@v1",
+      "operations.v1.TrellisBuiltin.Refresh",
+    );
+    old.operations!.Refund!.capabilities = {
+      call: ["trellis.builtin.refresh"],
+    };
+    const oldInstalled = await module.installServiceContract(old);
+
+    await serviceDeploymentStorage.put({
+      deploymentId: "trellis.builtin",
+      namespaces: ["TrellisBuiltin"],
+      disabled: false,
+      appliedContracts: [{
+        contractId: "trellis.builtin@v1",
+        allowedDigests: [oldInstalled.digest],
+      }],
+    });
+
+    await module.refreshActiveContracts();
+
+    assertEquals(
+      module.contractStore.getActiveCatalog().contracts.map((entry) =>
+        entry.digest
+      ),
+      [currentDigest],
+    );
   } finally {
     storage.client.close();
     await Deno.remove(dbPath).catch(() => undefined);
