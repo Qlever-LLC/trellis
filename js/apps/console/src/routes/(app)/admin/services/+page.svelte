@@ -11,6 +11,7 @@
     JobsListOutput,
   } from "@qlever-llc/trellis/sdk/jobs";
   import { resolve } from "$app/paths";
+  import { page } from "$app/state";
   import { onMount } from "svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import DeploymentUsesGraph from "$lib/components/DeploymentUsesGraph.svelte";
@@ -100,6 +101,12 @@
   });
 
   function syncSelectedDeployment(nextDeployments: Deployment[]) {
+    const requestedDeploymentId = page.url.searchParams.get("deployment");
+    if (requestedDeploymentId && nextDeployments.some((deployment) => deployment.deploymentId === requestedDeploymentId)) {
+      selectedDeploymentId = requestedDeploymentId;
+      return;
+    }
+
     if (nextDeployments.some((deployment) => deployment.deploymentId === selectedDeploymentId)) return;
     selectedDeploymentId = nextDeployments[0]?.deploymentId ?? "";
   }
@@ -323,28 +330,20 @@
         {:else}
           <Panel title="Deployment summary" eyebrow="Runtime drill-in" class="min-w-0">
             {#snippet actions()}
-              <details class="dropdown dropdown-end">
-                <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-                <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
-                  <li><a href={resolve("/admin/services/new")}>Create service deployment</a></li>
-                  <li><a href={resolve("/admin/services/instances")}>Manage service instances</a></li>
-                  <li><a href={resolve(`/admin/services/contracts?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Manage service contracts</a></li>
-                  <li><a href={resolve("/admin/jobs")}>View deployment jobs</a></li>
-                  <li><a href={resolve("/admin/health-events")}>View heartbeat stream</a></li>
-                </ul>
-              </details>
+              <a class="btn btn-outline btn-sm" href={resolve("/admin/services/new")}>Create</a>
+              <a class="btn btn-ghost btn-sm" href={resolve("/admin/services/instances")}>Instances</a>
+              <a class="btn btn-ghost btn-sm" href={resolve(`/admin/services/contracts?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Contracts</a>
             {/snippet}
 
-            <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
               <div class="flex min-w-0 items-start gap-3">
-                <div class="rounded-box bg-primary/10 p-3 text-primary"><Icon name="server" size={24} /></div>
+                <div class="rounded-box bg-primary/10 p-2.5 text-primary"><Icon name="server" size={22} /></div>
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
-                    <h2 class="trellis-identifier truncate text-xl font-semibold">{selectedDeployment.deploymentId}</h2>
+                    <h2 class="trellis-identifier truncate text-lg font-semibold">{selectedDeployment.deploymentId}</h2>
                     <StatusBadge label={selectedStatus.label} status={selectedStatus.status} />
                   </div>
-                  <div class="trellis-identifier mt-1 text-base-content/60">Deployment ID: {selectedDeployment.deploymentId}</div>
-                  <div class="mt-2 flex flex-wrap gap-1">
+                  <div class="mt-1 flex flex-wrap gap-1">
                     {#each selectedDeployment.namespaces as namespace (namespace)}
                       <span class="badge badge-outline badge-xs">{namespace}</span>
                     {:else}
@@ -355,16 +354,22 @@
               </div>
             </div>
 
-            <dl class="mt-5 divide-y divide-base-300 rounded-box border border-base-300 text-sm">
-              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Last heartbeat</dt><dd class="font-medium">{formatSeenAt(selectedHealthService?.lastSeenAt)}</dd></div>
-              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Version / runtime</dt><dd><div class="font-medium">{selectedHealthService?.version ?? "Not instrumented"}</div><div class="text-xs text-base-content/60">{formatRuntime(selectedHealthService?.runtime, selectedHealthService?.instances[0]?.runtimeVersion)}</div></dd></div>
-              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Instances</dt><dd class="font-medium">{activeInstances.length}/{selectedInstances.length} active / total</dd></div>
-              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Contracts</dt><dd class="font-medium">{selectedDeployment.appliedContracts.length}</dd></div>
-              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Applied APIs</dt><dd class="font-medium">{selectedAppliedApiSummaries.length}</dd></div>
-              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Jobs</dt><dd class="font-medium">{jobsUnavailableMessage ? "Unavailable" : selectedJobs.length}</dd></div>
-              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Capabilities</dt><dd class="font-medium">{new Set(selectedInstances.flatMap((instance) => instance.capabilities)).size}</dd></div>
-              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Telemetry</dt><dd class="font-medium">{selectedHealthService ? "Heartbeat instrumented" : "No heartbeat yet / Not instrumented"}</dd></div>
+            <dl class="mt-4 grid gap-px overflow-hidden rounded-box border border-base-300 bg-base-300 text-sm sm:grid-cols-2 xl:grid-cols-4">
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Last heartbeat</dt><dd class="mt-1 truncate font-medium">{formatSeenAt(selectedHealthService?.lastSeenAt)}</dd></div>
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Runtime</dt><dd class="mt-1 min-w-0"><div class="truncate font-medium">{selectedHealthService?.version ?? "Not instrumented"}</div><div class="truncate text-xs text-base-content/60">{formatRuntime(selectedHealthService?.runtime, selectedHealthService?.instances[0]?.runtimeVersion)}</div></dd></div>
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Instances</dt><dd class="mt-1 font-medium">{activeInstances.length}/{selectedInstances.length} active</dd></div>
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Contracts</dt><dd class="mt-1 font-medium">{selectedDeployment.appliedContracts.length} applied</dd></div>
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Applied APIs</dt><dd class="mt-1 font-medium">{selectedAppliedApiSummaries.length}</dd></div>
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Jobs</dt><dd class="mt-1 font-medium">{jobsUnavailableMessage ? "Unavailable" : selectedJobs.length}</dd></div>
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Capabilities</dt><dd class="mt-1 font-medium">{new Set(selectedInstances.flatMap((instance) => instance.capabilities)).size}</dd></div>
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Telemetry</dt><dd class="mt-1 font-medium">{selectedHealthService ? "Instrumented" : "No heartbeat"}</dd></div>
             </dl>
+
+            <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
+              <span class="text-xs font-semibold uppercase tracking-[0.08em] text-base-content/50">Workflows</span>
+              <a class="btn btn-ghost btn-xs" href={resolve("/admin/jobs")}>Jobs</a>
+              <a class="btn btn-ghost btn-xs" href={resolve("/admin/health-events")}>Heartbeat stream</a>
+            </div>
           </Panel>
 
           {#if dependencyGraph.nodes.length > 1}

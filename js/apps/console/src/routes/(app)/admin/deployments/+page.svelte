@@ -350,47 +350,48 @@
         {:else}
           <Panel title="Deployment summary" eyebrow={`${selectedDeployment.kind} detail`} class="min-w-0">
             {#snippet actions()}
-              <details class="dropdown dropdown-end">
-                <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-                <ul class="menu dropdown-content z-10 mt-2 w-80 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
-                  {#if selectedDeployment.kind === "service"}
-                    <li><a href={resolve("/admin/services")}>Service deployments</a></li>
-                    <li><a href={resolve("/admin/services/instances")}>Service instances</a></li>
-                    <li><a href={resolve(`/admin/services/contracts?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Applied contracts</a></li>
-                    <li><a href={resolve("/admin/services/new")}>Create service deployment</a></li>
-                  {:else}
-                    <li><a href={resolve("/admin/devices/profiles")}>Device deployments</a></li>
-                    <li><a href={resolve("/admin/devices/instances")}>Device instances</a></li>
-                    <li><a href={resolve("/admin/devices/activations")}>Device activations</a></li>
-                    <li><a href={resolve("/admin/devices/reviews")}>Device reviews</a></li>
-                    <li><a href={resolve("/admin/devices/profiles/new")}>Create device deployment</a></li>
-                  {/if}
-                </ul>
-              </details>
+              {#if selectedDeployment.kind === "service"}
+                <a class="btn btn-outline btn-sm" href={resolve(`/admin/services?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Service detail</a>
+                <a class="btn btn-ghost btn-sm" href={resolve("/admin/services/instances")}>Instances</a>
+                <a class="btn btn-ghost btn-sm" href={resolve(`/admin/services/contracts?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Contracts</a>
+              {:else}
+                <a class="btn btn-outline btn-sm" href={resolve("/admin/devices/profiles")}>Device detail</a>
+                <a class="btn btn-ghost btn-sm" href={resolve("/admin/devices/instances")}>Instances</a>
+                <a class="btn btn-ghost btn-sm" href={resolve("/admin/devices/reviews")}>Reviews</a>
+              {/if}
             {/snippet}
 
-            <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
               <div class="flex min-w-0 items-start gap-3">
-                <div class="rounded-box bg-base-200 p-3 text-base-content/70">
-                  <Icon name={selectedDeployment.kind === "service" ? "server" : "cpu"} size={24} />
+                <div class="rounded-box bg-base-200 p-2.5 text-base-content/70">
+                  <Icon name={selectedDeployment.kind === "service" ? "server" : "cpu"} size={22} />
                 </div>
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
-                    <h2 class="trellis-identifier truncate text-xl font-semibold">{selectedDeployment.deploymentId}</h2>
+                    <h2 class="trellis-identifier truncate text-lg font-semibold">{selectedDeployment.deploymentId}</h2>
                     <span class="badge badge-outline badge-sm capitalize">{selectedDeployment.kind}</span>
                     <StatusBadge label={selectedDeployment.statusLabel} status={selectedDeployment.statusVariant} />
                   </div>
-                  <div class="trellis-identifier mt-1 text-base-content/60">Deployment ID: {selectedDeployment.deploymentId}</div>
                 </div>
               </div>
             </div>
 
-            <dl class="mt-5 divide-y divide-base-300 rounded-box border border-base-300 text-sm">
-              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Kind</dt><dd class="font-medium capitalize">{selectedDeployment.kind}</dd></div>
-              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Status</dt><dd><StatusBadge label={selectedDeployment.statusLabel} status={selectedDeployment.statusVariant} /></dd></div>
-              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Instances</dt><dd class="font-medium">{selectedDeployment.activeInstanceCount}/{selectedDeployment.totalInstanceCount} active / total</dd></div>
-              <div class="grid grid-cols-[11rem_minmax(0,1fr)] gap-4 px-4 py-3"><dt class="text-base-content/60">Contracts</dt><dd class="font-medium">{selectedDeployment.contractCount}</dd></div>
+            <dl class="mt-4 grid gap-px overflow-hidden rounded-box border border-base-300 bg-base-300 text-sm sm:grid-cols-2 xl:grid-cols-4">
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Kind</dt><dd class="mt-1 font-medium capitalize">{selectedDeployment.kind}</dd></div>
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Status</dt><dd class="mt-1"><StatusBadge label={selectedDeployment.statusLabel} status={selectedDeployment.statusVariant} /></dd></div>
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Instances</dt><dd class="mt-1 font-medium">{selectedDeployment.activeInstanceCount}/{selectedDeployment.totalInstanceCount} active</dd></div>
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Contracts</dt><dd class="mt-1 font-medium">{selectedDeployment.contractCount} applied</dd></div>
             </dl>
+
+            <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
+              <span class="text-xs font-semibold uppercase tracking-[0.08em] text-base-content/50">Workflows</span>
+              {#if selectedDeployment.kind === "service"}
+                <a class="btn btn-ghost btn-xs" href={resolve("/admin/services/new")}>Create service</a>
+              {:else}
+                <a class="btn btn-ghost btn-xs" href={resolve("/admin/devices/activations")}>Activations</a>
+                <a class="btn btn-ghost btn-xs" href={resolve("/admin/devices/profiles/new")}>Create device</a>
+              {/if}
+            </div>
           </Panel>
 
           {#if selectedServiceDeployment}
