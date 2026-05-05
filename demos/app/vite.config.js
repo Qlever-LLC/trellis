@@ -4,7 +4,7 @@ import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(rootDir, "../../..");
+const repoRoot = resolve(rootDir, "../..");
 
 const config = {
   plugins: [tailwindcss(), sveltekit()],

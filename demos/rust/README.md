@@ -18,7 +18,7 @@ canonical service/device manifests and digests. The parity test lives in
 From the repository root:
 
 ```sh
-deno task -c demos/deno.json prepare:rust
+cargo run --manifest-path rust/tools/generate/Cargo.toml --bin trellis-generate -- prepare demos/rust
 cargo test --manifest-path rust/tools/generate/Cargo.toml --test demo_contract_parity_test
 cargo test --manifest-path demos/rust/Cargo.toml --workspace
 ```

@@ -5,17 +5,15 @@
     "../../js/packages/trellis",
     "../../js/packages/trellis-svelte"
   ],
-  "workspace": ["./service", "./device", "./app"],
+  "workspace": ["./service", "./device"],
   "tasks": {
-    "prepare": "deno run -A ../../js/packages/trellis/generate.ts prepare ..",
-    "prepare:watch": "deno run -A ../../js/packages/trellis/generate.ts prepare --watch ..",
-    "check": "deno task prepare && deno task check:service && deno task check:device && deno task check:app",
+    "prepare": "cargo run --manifest-path ../../rust/tools/generate/Cargo.toml --bin trellis-generate -- prepare .",
+    "prepare:watch": "cargo run --manifest-path ../../rust/tools/generate/Cargo.toml --bin trellis-generate -- prepare --watch .",
+    "check": "deno task prepare && deno task check:service && deno task check:device",
     "check:service": "deno task -c service/deno.json check:prepared",
     "check:device": "deno task -c device/deno.json check:prepared",
-    "check:app": "deno task -c app/deno.json check:prepared",
     "service": "deno task -c service/deno.json start",
-    "device": "deno task -c device/deno.json start",
-    "app": "deno task -c app/deno.json dev"
+    "device": "deno task -c device/deno.json start"
   },
   "imports": {
     "@trellis-sdk/trellis-demo-service": "./generated/js/sdks/demo-service/mod.ts",

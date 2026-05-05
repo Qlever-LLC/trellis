@@ -140,7 +140,7 @@
 
     for (const event of liveEvents) {
       const relatedOperationId = event.name === "Sites.Refreshed" && event.refreshId
-        ? refreshOperationIds[event.refreshId]
+        ? refreshOperationIds[event.refreshId] ?? event.operationId
         : event.operationId;
 
       if (isGroupedOperationUpdate(event)) {
@@ -311,6 +311,7 @@
         {},
         (event: unknown) => {
           if (isSitesRefreshedEvent(event)) {
+            const relatedOperationId = activeRefreshOperationId ?? undefined;
             addEvent({
               id: `${event.refreshId}-${event.refreshedAt}`,
               kind: "event",
@@ -318,6 +319,7 @@
               action: "Site Status Refreshed",
               subject: `${event.site.siteName}: ${event.site.latestStatus}`,
               occurredAt: event.refreshedAt,
+              operationId: relatedOperationId,
               refreshId: event.refreshId,
             });
           }

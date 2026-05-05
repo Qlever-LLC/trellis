@@ -16,71 +16,71 @@ const config = {
     alias: {
       "@qlever-llc/result": resolve(
         rootDir,
-        "../../../js/packages/result/mod.ts",
+        "../../js/packages/result/mod.ts",
       ),
       "@qlever-llc/trellis/auth/browser": resolve(
         rootDir,
-        "../../../js/packages/trellis/auth/browser.ts",
+        "../../js/packages/trellis/auth/browser.ts",
       ),
       "@qlever-llc/trellis/auth": resolve(
         rootDir,
-        "../../../js/packages/trellis/auth.ts",
+        "../../js/packages/trellis/auth.ts",
       ),
       "@qlever-llc/trellis/contracts": resolve(
         rootDir,
-        "../../../js/packages/trellis/contracts.ts",
+        "../../js/packages/trellis/contracts.ts",
       ),
       "@qlever-llc/trellis/device/deno": resolve(
         rootDir,
-        "../../../js/packages/trellis/device/deno.ts",
+        "../../js/packages/trellis/device/deno.ts",
       ),
       "@qlever-llc/trellis/errors": resolve(
         rootDir,
-        "../../../js/packages/trellis/errors/index.ts",
+        "../../js/packages/trellis/errors/index.ts",
       ),
       "@qlever-llc/trellis/service/deno": resolve(
         rootDir,
-        "../../../js/packages/trellis/service/deno.ts",
+        "../../js/packages/trellis/service/deno.ts",
       ),
       "@qlever-llc/trellis/service": resolve(
         rootDir,
-        "../../../js/packages/trellis/service/mod.ts",
+        "../../js/packages/trellis/service/mod.ts",
       ),
       "@qlever-llc/trellis-svelte": resolve(
         rootDir,
-        "../../../js/packages/trellis-svelte/src/index.ts",
+        "../../js/packages/trellis-svelte/src/index.ts",
       ),
       "@qlever-llc/trellis/sdk/activity": resolve(
         rootDir,
-        "../../../generated/js/sdks/activity/mod.ts",
+        "../../generated/js/sdks/activity/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/auth": resolve(
         rootDir,
-        "../../../generated/js/sdks/auth/mod.ts",
+        "../../generated/js/sdks/auth/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/core": resolve(
         rootDir,
-        "../../../generated/js/sdks/trellis-core/mod.ts",
+        "../../generated/js/sdks/trellis-core/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/health": resolve(
         rootDir,
-        "../../../generated/js/sdks/health/mod.ts",
+        "../../generated/js/sdks/health/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/jobs": resolve(
         rootDir,
-        "../../../generated/js/sdks/jobs/mod.ts",
+        "../../generated/js/sdks/jobs/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/state": resolve(
         rootDir,
-        "../../../generated/js/sdks/state/mod.ts",
+        "../../generated/js/sdks/state/mod.ts",
       ),
       "@qlever-llc/trellis": resolve(
         rootDir,
-        "../../../js/packages/trellis/index.ts",
+        "../../js/packages/trellis/index.ts",
       ),
       "@trellis-sdk/trellis-demo-service": resolve(
         rootDir,
-        "../generated/js/sdks/demo-service/mod.ts",
+        "../js/generated/js/sdks/demo-service/mod.ts",
       ),
     },
   },

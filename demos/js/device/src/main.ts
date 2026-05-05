@@ -74,10 +74,13 @@ async function main(): Promise<void> {
         case "8":
           await saveAndListDraftState(device);
           break;
+        case "9":
+          await runGuidedInspectionWizard(device);
+          break;
         case "0":
           return;
         default:
-          console.info("Choose a menu number from 0 through 8.");
+          console.info("Choose a menu number from 0 through 9.");
       }
     }
   } finally {
@@ -105,7 +108,63 @@ function printMenu(): void {
   console.log("6. List/download evidence files");
   console.log("7. Watch activity events briefly");
   console.log("8. Save/list draft state");
+  console.log(chalk.bold("9. Guided inspection wizard"));
   console.log("0. Quit");
+}
+
+async function runGuidedInspectionWizard(device: Device): Promise<void> {
+  console.log(chalk.green.bold("== Guided Inspection Wizard"));
+  console.info("Step 1: choose an assigned inspection.");
+  const assignments =
+    (await device.request("Assignments.List", {}).orThrow()).assignments;
+  if (assignments.length === 0) {
+    console.info("No assignments are available for the guided workflow.");
+    return;
+  }
+
+  assignments.forEach((assignment, index) => {
+    console.info(
+      `${index + 1}. ${assignment.inspectionId}: ${assignment.siteName} / ${assignment.assetName} (${assignment.priority})`,
+    );
+  });
+  const selectedIndex = Number(prompt("Inspection number", "1")?.trim() || "1") - 1;
+  const selected = assignments[selectedIndex] ?? assignments[0];
+
+  await device.state.selectedSite.put({
+    siteId: selected.siteId,
+    siteName: selected.siteName,
+    selectedAt: new Date().toISOString(),
+  }).orThrow();
+
+  console.info("Step 2: review and refresh the selected site.");
+  const site = await device.request("Sites.Get", { siteId: selected.siteId })
+    .orThrow();
+  if (site.site) printSite(site.site);
+  await refreshSiteById(device, selected.siteId);
+
+  console.info("Step 3: attach optional evidence.");
+  const evidencePath = prompt("Evidence file path, or Enter to skip")?.trim();
+  if (evidencePath) {
+    await uploadEvidenceFile(device, evidencePath);
+  }
+
+  console.info("Step 4: generate the inspection report.");
+  const reportComment = prompt("Report comment")?.trim() ||
+    "Guided field inspection completed.";
+  await generateReportForInspection(device, selected.inspectionId, reportComment);
+
+  console.info("Step 5: save local draft notes.");
+  const notes = prompt("Draft notes")?.trim() ||
+    "Guided workflow notes captured from the field device.";
+  await device.state.draftInspections.put(selected.inspectionId, {
+    inspectionId: selected.inspectionId,
+    siteId: selected.siteId,
+    checklistName: selected.checklistName,
+    notes,
+    updatedAt: new Date().toISOString(),
+  }).orThrow();
+
+  console.info(chalk.green("Guided inspection workflow complete."));
 }
 
 function contentTypeForFile(fileName: string): string {
@@ -169,6 +228,10 @@ async function refreshSite(device: Device): Promise<void> {
     return;
   }
 
+  await refreshSiteById(device, siteId);
+}
+
+async function refreshSiteById(device: Device, siteId: string): Promise<void> {
   console.log(chalk.green.bold("== Refreshing Site Summary"));
   const operation = await device.operation("Sites.Refresh")
     .input({ siteId })
@@ -205,6 +268,14 @@ async function generateReport(device: Device): Promise<void> {
     return;
   }
 
+  await generateReportForInspection(device, inspectionId, reportComment);
+}
+
+async function generateReportForInspection(
+  device: Device,
+  inspectionId: string,
+  reportComment: string,
+): Promise<void> {
   console.log(chalk.green.bold("== Generating Inspection Report"));
   const operation = await device.operation("Reports.Generate")
     .input({ inspectionId, reportComment })
@@ -235,6 +306,10 @@ async function uploadEvidence(device: Device): Promise<void> {
     return;
   }
 
+  await uploadEvidenceFile(device, filePath);
+}
+
+async function uploadEvidenceFile(device: Device, filePath: string): Promise<void> {
   const bytes = await Deno.readFile(filePath);
   const originalFileName = filePath.split(/[\\/]/).at(-1) || "evidence.bin";
   const evidenceId = crypto.randomUUID();

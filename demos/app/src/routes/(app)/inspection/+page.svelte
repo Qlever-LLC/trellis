@@ -27,7 +27,7 @@
   type SitesRefreshResponse = { refreshId: string; site: SiteSummary; status: string };
   type RefreshEvent = {
     type: string;
-    snapshot: { state: string };
+    snapshot: { state: string; output?: SitesRefreshResponse };
     progress?: SitesRefreshProgress;
   };
   type RefreshTerminal = { state: string; output?: SitesRefreshResponse };
@@ -92,12 +92,13 @@
   function dispatchLiveUpdate(update: Omit<LocalOperationUpdate, "id" | "occurredAt">): void {
     if (typeof window === "undefined") return;
     const occurredAt = new Date().toISOString();
+    const detail = {
+      ...update,
+      id: `${update.operationId}-${update.state}-${occurredAt}`,
+      occurredAt,
+    };
     window.dispatchEvent(new CustomEvent<LocalOperationUpdate>("trellisoperationupdate", {
-      detail: {
-        ...update,
-        id: `${update.operationId}-${update.state}-${occurredAt}`,
-        occurredAt,
-      },
+      detail,
     }));
   }
 
@@ -156,12 +157,22 @@
     }
   }
 
-  async function watchRefresh(ref: RefreshOperationRef, runId: number): Promise<void> {
+  function isTerminalState(state: string): boolean {
+    return state === "completed" || state === "failed" || state === "cancelled";
+  }
+
+  async function watchRefresh(ref: RefreshOperationRef, runId: number, onTerminal: (terminal: RefreshTerminal) => void): Promise<void> {
     const stream = await ref.watch().orThrow();
     for await (const event of stream) {
-      if (!mounted || runId !== refreshRunId) return;
+      if (!mounted || runId !== refreshRunId) {
+        return;
+      }
+      if (isTerminalState(event.snapshot.state)) {
+        onTerminal({ state: event.snapshot.state, output: event.snapshot.output });
+        return;
+      }
       if (!event.progress) continue;
-      const label = event.progress ? `${event.progress.stage}: ${event.progress.message}` : `${event.type} update`;
+      const label = `${event.progress.stage}: ${event.progress.message}`;
       dispatchLiveUpdate({
         kind: "operation",
         operationId: ref.id,
@@ -180,7 +191,29 @@
     error = null;
     const runId = ++refreshRunId;
     let terminalReached = false;
+    let completionUpdateDispatched = false;
     let operationId = `Sites.Refresh-${runId}`;
+
+    const applyTerminal = (terminal: RefreshTerminal): void => {
+      terminalReached = true;
+      refreshing = false;
+      if (completionUpdateDispatched) return;
+      completionUpdateDispatched = true;
+      dispatchLiveUpdate({
+        kind: "operation",
+        operationId,
+        name: "Sites.Refresh",
+        action: terminal.state === "completed" ? "Completed field status refresh" : "Field status refresh ended",
+        subject: terminal.output?.site.siteName ?? selectedSite?.siteName ?? selectedSiteId ?? "Selected site",
+        state: terminal.state,
+        refreshId: terminal.output?.refreshId,
+      });
+      if (terminal.output) {
+        const refreshedSite = terminal.output.site;
+        selectedSite = refreshedSite;
+        sites = sites.map((site) => site.siteId === refreshedSite.siteId ? refreshedSite : site);
+      }
+    };
 
     try {
       const ref = await trellis.operation("Sites.Refresh").input({ siteId: selectedSiteId }).start().orThrow();
@@ -194,7 +227,7 @@
         subject: selectedSite?.siteName ?? selectedSiteId ?? "Selected site",
         state: "started",
       });
-      void watchRefresh(ref, runId).catch((cause) => {
+      void watchRefresh(ref, runId, applyTerminal).catch((cause) => {
         if (!mounted || runId !== refreshRunId) return;
         if (terminalReached) {
           error = `Sites.Refresh completed, but the progress watch failed: ${cause instanceof Error ? cause.message : String(cause)}`;
@@ -214,22 +247,13 @@
       if (!mounted || runId !== refreshRunId) return;
       terminalReached = true;
       error = null;
-      dispatchLiveUpdate({
-        kind: "operation",
-        operationId: ref.id,
-        name: "Sites.Refresh",
-        action: "Completed field status refresh",
-        subject: terminal.output?.site.siteName ?? selectedSite?.siteName ?? selectedSiteId ?? "Selected site",
-        state: terminal.state,
-        refreshId: terminal.output?.refreshId,
-      });
-      if (terminal.output) {
-        const refreshedSite = terminal.output.site;
-        selectedSite = refreshedSite;
-        sites = sites.map((site) => site.siteId === refreshedSite.siteId ? refreshedSite : site);
-      }
+      applyTerminal(terminal);
     } catch (cause) {
       if (!mounted || runId !== refreshRunId) return;
+      if (terminalReached) {
+        error = `Sites.Refresh completed, but the wait request failed: ${cause instanceof Error ? cause.message : String(cause)}`;
+        return;
+      }
       error = cause instanceof Error ? cause.message : String(cause);
       dispatchLiveUpdate({
         kind: "operation",

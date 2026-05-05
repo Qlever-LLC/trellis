@@ -1,11 +1,16 @@
-# JS Demo
+# TypeScript Demo
 
 This workspace contains one consolidated Field Ops demo:
 
 - `demos/js/service`: an installable Field Ops service.
 - `demos/js/device`: an activated field-device TUI.
-- `demos/js/app`: a browser Field Inspection Desk.
+- `demos/app`: a separate shared browser Field Inspection Desk with its own
+  Deno config.
 - `demos/js/shared`: sample data and helpers used by the demo participants.
+
+Use `demos/README.md` as the cross-language entrypoint. This file documents the
+TypeScript service and device path, which is the complete end-to-end runtime path
+today.
 
 The demo is product-oriented instead of split by Trellis primitive. The browser
 app is the Field Inspection Desk demo client: a branded coordinator desk for
@@ -20,7 +25,7 @@ secondary Trellis callout for the platform concept it exercises.
 1. Make sure Trellis is running at `http://localhost:3000`.
 2. Make sure the `trellis` CLI is logged in as an admin.
 3. If the browser app should use a non-default Trellis URL, set
-   `PUBLIC_TRELLIS_URL` in `demos/js/app/.env`. The default is
+   `PUBLIC_TRELLIS_URL` in `demos/app/.env`. The default is
    `http://localhost:3000`.
 4. Prepare generated contracts and SDKs once:
 
@@ -35,9 +40,10 @@ the watch task instead:
 deno task -c demos/js/deno.json prepare:watch
 ```
 
-The prepare step generates the service SDK used by both `demos/js/app` and
-`demos/js/device`. Rerun prepare after changing `demos/js/service/contract.ts`,
-`demos/js/device/contract.ts`, or `demos/js/app/contract.ts`. Trellis computes
+The TypeScript prepare step generates the service SDK used by both `demos/app`
+and `demos/js/device`. Rerun prepare after changing
+`demos/js/service/contract.ts` or `demos/js/device/contract.ts`. Run the app's
+own prepare task after changing `demos/app/contract.ts`. Trellis computes
 approval identity from the normalized contract interface: editing display-only
 metadata such as `displayName` or `description` updates portal/catalog copy but
 does not force a new browser, CLI, or device approval digest.
@@ -94,14 +100,15 @@ root secret should reconnect without another approval step.
 
 ## Start The Browser App
 
-Start the Svelte Field Inspection Desk after prepare has generated the app SDK.
-The app defaults to `http://localhost:3000` for its Trellis server and can be
-pointed at another server with `PUBLIC_TRELLIS_URL`. It keeps local Trellis
-package and generated SDK aliases explicitly in `demos/js/app/svelte.config.js`;
-`vite.config.js` should not duplicate those local package mappings.
+Start the Svelte Field Inspection Desk from its own Deno config after prepare has
+generated the app SDK. The app defaults to `http://localhost:3000` for its
+Trellis server and can be pointed at another server with `PUBLIC_TRELLIS_URL`.
+It keeps local Trellis package and generated SDK aliases explicitly in
+`demos/app/svelte.config.js`; `vite.config.js` should not duplicate those local
+package mappings.
 
 ```sh
-deno task -c demos/js/deno.json app
+deno task -c demos/app/deno.json dev
 ```
 
 If you change the app contract's requested RPC, operation, event, or state
@@ -113,7 +120,7 @@ For ad hoc runs against a non-default Trellis URL, set the env var from the
 shell:
 
 ```sh
-PUBLIC_TRELLIS_URL=http://localhost:3000 deno task -c demos/js/deno.json app
+PUBLIC_TRELLIS_URL=http://localhost:3000 deno task -c demos/app/deno.json dev
 ```
 
 ## Field Desk Routes And Trellis Callouts
@@ -138,7 +145,9 @@ Trellis" and route callouts.
 
 The device TUI exposes the same concepts as menu actions: list assignments, view
 the selected site, refresh a site, generate a report, upload evidence, watch
-activity events briefly, and save or list draft state.
+activity events briefly, and save or list draft state. The guided inspection
+wizard groups those actions into a task-oriented flow so device runs can exercise
+the same Trellis surfaces without stepping through each primitive manually.
 
 Both the browser app and activated device declare `read` for operations they
 watch and `cancel` only for `Reports.Generate`. This mirrors runtime permission
