@@ -114,6 +114,7 @@ mod tests {
 
     #[test]
     fn discovers_typescript_metadata_via_deno_resolution() {
+        let _env_lock = crate::contract_input::test_env_lock();
         let temp = TempDir::new().unwrap();
         let project = temp.path().join("node-service");
         let contracts = project.join("contracts");
@@ -153,6 +154,7 @@ mod tests {
 
     #[test]
     fn falls_back_to_static_typescript_metadata_when_runtime_resolution_fails() {
+        let _env_lock = crate::contract_input::test_env_lock();
         let temp = TempDir::new().unwrap();
         let project = temp.path().join("activity-app");
         let contracts = project.join("contracts");
@@ -192,6 +194,7 @@ mod tests {
 
     #[test]
     fn helper_inference_wins_over_nested_state_kind_in_typescript_fallback() {
+        let _env_lock = crate::contract_input::test_env_lock();
         let temp = TempDir::new().unwrap();
         let project = temp.path().join("inspection-app");
         let contracts = project.join("contracts");

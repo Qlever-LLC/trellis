@@ -991,6 +991,7 @@ mod tests {
             out_manifest: None,
             ts_out: None,
             rust_out: None,
+            rust_participant_out: None,
             runtime_source: RuntimeSource::Local,
             runtime_repo_root: Some(PathBuf::from(".")),
         }

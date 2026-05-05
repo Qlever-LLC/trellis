@@ -11,8 +11,6 @@ use trellis_sdk_core::types::TrellisBindingsGetResponseBinding;
 pub struct JobsBinding {
     /// Service namespace used in job subjects.
     pub namespace: String,
-    /// Optional projected jobs-state bucket used for preflight state checks.
-    pub jobs_state_bucket: Option<String>,
     /// Queue bindings keyed by logical queue type.
     pub queues: BTreeMap<String, JobsQueueBinding>,
 }
@@ -104,7 +102,7 @@ pub fn parse_jobs_binding(
         .map(|(queue_type, value)| normalize_json_queue_binding(queue_type, value))
         .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(build_jobs_binding(namespace.to_string(), None, normalized))
+    Ok(build_jobs_binding(namespace.to_string(), normalized))
 }
 
 impl TryFrom<&TrellisBindingsGetResponseBinding> for JobsRuntimeBinding {
@@ -128,29 +126,15 @@ impl TryFrom<&TrellisBindingsGetResponseBinding> for JobsRuntimeBinding {
             .ok_or(JobsBindingError::MissingWorkStream)?;
 
         Ok(Self {
-            jobs: build_jobs_binding(
-                jobs.namespace.clone(),
-                binding
-                    .resources
-                    .kv
-                    .as_ref()
-                    .and_then(|kv| kv.get("jobsState"))
-                    .map(|value| value.bucket.clone()),
-                normalized,
-            ),
+            jobs: build_jobs_binding(jobs.namespace.clone(), normalized),
             work_stream,
         })
     }
 }
 
-fn build_jobs_binding(
-    namespace: String,
-    jobs_state_bucket: Option<String>,
-    queues: Vec<NormalizedJobsQueueBinding>,
-) -> JobsBinding {
+fn build_jobs_binding(namespace: String, queues: Vec<NormalizedJobsQueueBinding>) -> JobsBinding {
     JobsBinding {
         namespace,
-        jobs_state_bucket,
         queues: queues
             .into_iter()
             .map(|queue| {

@@ -196,73 +196,274 @@ fn resolve_rust_source_contract(
     source_path: &Path,
     source_export: &str,
 ) -> miette::Result<ResolvedContractInput> {
+    let requested_source_path = source_path.to_path_buf();
+    let source_path = resolve_rust_contract_source_path(source_path, source_export)?;
     let temp_dir = TempDir::new().into_diagnostic()?;
     let manifest_path = temp_dir.path().join("contract.json");
-    let source = fs::read_to_string(source_path).into_diagnostic()?;
-    let contract_json = extract_rust_contract_json(&source, source_export, source_path)?;
+    let contract_json =
+        evaluate_rust_contract_manifest_builder(&source_path, source_export, temp_dir.path())?;
 
     fs::write(&manifest_path, contract_json).into_diagnostic()?;
     let loaded = load_manifest(&manifest_path).into_diagnostic()?;
     Ok(ResolvedContractInput {
         loaded,
         manifest_path,
-        owner_version: infer_owner_version(source_path),
+        owner_version: infer_owner_version(&requested_source_path),
         _temp_dir: Some(temp_dir),
     })
 }
 
-fn extract_rust_contract_json(
-    source: &str,
-    source_export: &str,
+fn resolve_rust_contract_source_path(
     source_path: &Path,
-) -> miette::Result<String> {
-    let mut names = vec![source_export.to_string()];
-    if !source_export.ends_with("_JSON") {
-        names.push(format!("{source_export}_JSON"));
+    source_export: &str,
+) -> miette::Result<PathBuf> {
+    let source = fs::read_to_string(source_path).into_diagnostic()?;
+    if rust_source_has_contract_export(&source, source_export)? {
+        return Ok(source_path.to_path_buf());
     }
 
-    for name in names {
-        if let Some(include_path) = extract_rust_const_include_path(source, &name) {
-            let include_path = source_path
-                .parent()
-                .unwrap_or_else(|| Path::new("."))
-                .join(include_path);
-            let contract_json = fs::read_to_string(&include_path).into_diagnostic()?;
-            return Ok(contract_json);
-        }
+    if let Some(contract_source) = find_associated_rust_contract_source(source_path)? {
+        return Ok(contract_source);
     }
 
+    let builder_fn = rust_builder_function_name(source_export)?;
     Err(miette::miette!(
-        "failed to resolve Rust contract source: expected `const {source_export}` or `const {source_export}_JSON` as include_str!(...)"
+        "failed to resolve Rust contract source {}: expected `{builder_fn}` in the source or an associated contracts/<package>.rs contract builder source",
+        source_path.display()
     ))
 }
 
-fn extract_rust_const_include_path(source: &str, const_name: &str) -> Option<String> {
-    let rhs = extract_rust_const_rhs(source, const_name)?;
-    parse_rust_include_str(rhs)
+fn rust_source_has_contract_export(source: &str, source_export: &str) -> miette::Result<bool> {
+    Ok(rust_source_has_function(
+        source,
+        rust_builder_function_name(source_export)?,
+    ))
 }
 
-fn extract_rust_const_rhs<'a>(source: &'a str, const_name: &str) -> Option<&'a str> {
+fn rust_source_has_function(source: &str, function_name: &str) -> bool {
     for line in source.lines() {
         let mut trimmed = line.trim_start();
         trimmed = strip_rust_visibility_prefix(trimmed);
-        let Some(after_const) = trimmed.strip_prefix("const ") else {
+        let Some(after_fn) = trimmed.strip_prefix("fn ") else {
             continue;
         };
-        let Some(after_name) = after_const.strip_prefix(const_name) else {
+        let Some(after_name) = after_fn.strip_prefix(function_name) else {
             continue;
         };
         if after_name
             .chars()
             .next()
-            .is_some_and(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+            .is_none_or(|ch| ch == '<' || ch == '(' || ch.is_whitespace())
         {
-            continue;
+            return true;
         }
-        let equals = after_name.find('=')?;
-        return Some(after_name[equals + 1..].trim_start());
+    }
+    false
+}
+
+fn find_associated_rust_contract_source(source_path: &Path) -> miette::Result<Option<PathBuf>> {
+    let Some(package_dir) = find_nearest_rust_package_dir(source_path) else {
+        return Ok(None);
+    };
+    let package_dir_name = package_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(ToString::to_string);
+
+    if let Some(package_dir_name) = &package_dir_name {
+        let mut current = Some(package_dir.as_path());
+        while let Some(dir) = current {
+            let candidate = dir.join("contracts").join(format!("{package_dir_name}.rs"));
+            if candidate.exists() && candidate.is_file() {
+                return candidate.canonicalize().map(Some).into_diagnostic();
+            }
+            current = dir.parent();
+        }
+    }
+
+    let mut unique_contract_sources = Vec::new();
+    let mut current = Some(package_dir.as_path());
+    while let Some(dir) = current {
+        let contracts_dir = dir.join("contracts");
+        if contracts_dir.exists() && contracts_dir.is_dir() {
+            for entry in fs::read_dir(&contracts_dir).into_diagnostic()? {
+                let entry = entry.into_diagnostic()?;
+                let path = entry.path();
+                if entry.file_type().into_diagnostic()?.is_file()
+                    && path.extension().and_then(|value| value.to_str()) == Some("rs")
+                {
+                    unique_contract_sources.push(path.canonicalize().into_diagnostic()?);
+                }
+            }
+        }
+        current = dir.parent();
+    }
+
+    unique_contract_sources.sort();
+    unique_contract_sources.dedup();
+    if unique_contract_sources.len() == 1 {
+        return Ok(unique_contract_sources.pop());
+    }
+
+    Ok(None)
+}
+
+fn find_nearest_rust_package_dir(source_path: &Path) -> Option<PathBuf> {
+    let mut current = source_path.parent();
+    while let Some(dir) = current {
+        let manifest = dir.join("Cargo.toml");
+        if manifest.exists() && manifest.is_file() {
+            return Some(dir.to_path_buf());
+        }
+        current = dir.parent();
     }
     None
+}
+
+fn evaluate_rust_contract_manifest_builder(
+    source_path: &Path,
+    source_export: &str,
+    _temp_dir: &Path,
+) -> miette::Result<String> {
+    let resolver_key = stable_resolver_key(source_path, source_export);
+    let helper_dir = rust_contract_resolver_project_dir(&resolver_key);
+    let src_dir = helper_dir.join("src");
+    fs::create_dir_all(&src_dir).into_diagnostic()?;
+    let contracts_crate = contracts_crate_path()?;
+    let builder_fn = rust_builder_function_name(source_export)?;
+
+    fs::write(
+        helper_dir.join("Cargo.toml"),
+        format!(
+            r#"[package]
+name = "trellis-rust-contract-resolver-{resolver_key}"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+serde_json = "1.0.149"
+trellis-contracts = {{ path = {} }}
+"#,
+            toml_string_literal(&contracts_crate)
+        ),
+    )
+    .into_diagnostic()?;
+
+    fs::write(
+        src_dir.join("main.rs"),
+        format!(
+            r#"#[path = {}]
+mod contract_source;
+
+trait IntoManifestResult {{
+    fn into_manifest_result(self) -> Result<trellis_contracts::ContractManifest, trellis_contracts::ContractsError>;
+}}
+
+impl IntoManifestResult for trellis_contracts::ContractManifest {{
+    fn into_manifest_result(self) -> Result<trellis_contracts::ContractManifest, trellis_contracts::ContractsError> {{
+        Ok(self)
+    }}
+}}
+
+impl IntoManifestResult for Result<trellis_contracts::ContractManifest, trellis_contracts::ContractsError> {{
+    fn into_manifest_result(self) -> Result<trellis_contracts::ContractManifest, trellis_contracts::ContractsError> {{
+        self
+    }}
+}}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {{
+    let manifest = IntoManifestResult::into_manifest_result(contract_source::{builder_fn}())?;
+    print!("{{}}", serde_json::to_string(&manifest)?);
+    Ok(())
+}}
+"#,
+            rust_string_literal(source_path)
+        ),
+    )
+    .into_diagnostic()?;
+
+    let output = Command::new(cargo_binary())
+        .arg("run")
+        .arg("--quiet")
+        .arg("--manifest-path")
+        .arg(helper_dir.join("Cargo.toml"))
+        .env("CARGO_TARGET_DIR", rust_contract_resolver_target_dir())
+        .output()
+        .into_diagnostic()?;
+    miette::ensure!(
+        output.status.success(),
+        "failed to resolve Rust contract source {} by executing trusted local Rust code through a temporary Cargo helper: {}",
+        source_path.display(),
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+
+    String::from_utf8(output.stdout).into_diagnostic()
+}
+
+fn rust_builder_function_name(source_export: &str) -> miette::Result<&str> {
+    if source_export == "CONTRACT" {
+        return Ok("contract_manifest");
+    }
+    miette::ensure!(
+        is_simple_rust_identifier(source_export),
+        "Rust contract source export `{source_export}` cannot be used as a builder function name; use `CONTRACT` for `contract_manifest` or pass a simple Rust function identifier"
+    );
+    Ok(source_export)
+}
+
+fn is_simple_rust_identifier(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if first != '_' && !first.is_ascii_alphabetic() {
+        return false;
+    }
+    chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn contracts_crate_path() -> miette::Result<PathBuf> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/contracts");
+    path.canonicalize().into_diagnostic()
+}
+
+fn rust_contract_resolver_target_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("target/rust-contract-resolver")
+}
+
+fn rust_contract_resolver_project_dir(resolver_key: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target/rust-contract-resolver/projects")
+        .join(resolver_key)
+}
+
+fn stable_resolver_key(source_path: &Path, source_export: &str) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in source_path
+        .to_string_lossy()
+        .bytes()
+        .chain([0x1f])
+        .chain(source_export.bytes())
+    {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn cargo_binary() -> String {
+    env::var("CARGO").unwrap_or_else(|_| "cargo".to_string())
+}
+
+fn rust_string_literal(path: &Path) -> String {
+    serde_json::to_string(&path.to_string_lossy()).expect("path string should serialize")
+}
+
+fn toml_string_literal(path: &Path) -> String {
+    serde_json::to_string(&path.to_string_lossy()).expect("path string should serialize")
 }
 
 fn strip_rust_visibility_prefix(mut value: &str) -> &str {
@@ -280,56 +481,6 @@ fn strip_rust_visibility_prefix(mut value: &str) -> &str {
         }
         return trimmed;
     }
-}
-
-fn parse_rust_include_str(value: &str) -> Option<String> {
-    let trimmed = value.trim_start();
-    let after_macro = trimmed.strip_prefix("include_str!")?.trim_start();
-    let inner = after_macro.strip_prefix('(')?;
-    let close = inner.find(')')?;
-    let arg = inner[..close].trim();
-    parse_rust_string_literal(arg)
-}
-
-fn parse_rust_string_literal(value: &str) -> Option<String> {
-    if value.starts_with('r') {
-        return parse_rust_raw_string_literal(value);
-    }
-    if !value.starts_with('"') {
-        return None;
-    }
-
-    let mut escaped = false;
-    let mut content = String::new();
-    for ch in value[1..].chars() {
-        if escaped {
-            content.push(ch);
-            escaped = false;
-            continue;
-        }
-        match ch {
-            '\\' => escaped = true,
-            '"' => return Some(content),
-            _ => content.push(ch),
-        }
-    }
-    None
-}
-
-fn parse_rust_raw_string_literal(value: &str) -> Option<String> {
-    if !value.starts_with('r') {
-        return None;
-    }
-    let after_r = &value[1..];
-    let hashes = after_r.chars().take_while(|ch| *ch == '#').count();
-    let after_hashes = &after_r[hashes..];
-    if !after_hashes.starts_with('"') {
-        return None;
-    }
-    let content = &after_hashes[1..];
-    let closing = format!("\"{}", "#".repeat(hashes));
-    let end = content.find(&closing)?;
-    Some(content[..end].to_string())
 }
 
 fn resolve_image_contract(
@@ -789,16 +940,19 @@ fn find_package_json(path: &Path) -> Option<PathBuf> {
     None
 }
 
-#[cfg(any())]
+#[cfg(test)]
+pub(crate) fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::ffi::OsStr;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
+    use std::sync::MutexGuard;
 
     struct EnvGuard {
         key: &'static str,
@@ -813,7 +967,7 @@ mod tests {
 
     impl EnvGuard {
         fn set(key: &'static str, value: impl AsRef<OsStr>) -> Self {
-            let lock = env_lock().lock().unwrap();
+            let lock = test_env_lock();
             let original = env::var_os(key);
             env::set_var(key, value);
             Self {
@@ -838,7 +992,7 @@ mod tests {
         fn new() -> Self {
             Self {
                 originals: Vec::new(),
-                _lock: env_lock().lock().unwrap(),
+                _lock: test_env_lock(),
             }
         }
 
@@ -873,66 +1027,170 @@ mod tests {
     }
 
     #[test]
-    fn rejects_rust_source_raw_string_contract_exports() {
-        let source = r##"
+    fn resolve_contract_input_falls_back_to_rust_contract_manifest_builder() {
+        let temp = TempDir::new().unwrap();
+        let source_path = temp.path().join("contract.rs");
+        fs::write(
+            &source_path,
+            r#"
+use trellis_contracts::{ContractKind, ContractManifest, ContractManifestBuilder, ContractsError};
+
+pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
+    ContractManifestBuilder::new(
+        "trellis.builder@v1",
+        "Builder",
+        "Builder contract",
+        ContractKind::Service,
+    )
+    .build()
+}
+"#,
+        )
+        .unwrap();
+
+        let resolved = resolve_contract_input(
+            None,
+            Some(&source_path),
+            None,
+            "CONTRACT",
+            default_image_contract_path(),
+        )
+        .unwrap();
+
+        assert_eq!(resolved.loaded.manifest.id, "trellis.builder@v1");
+    }
+
+    #[test]
+    fn resolve_contract_input_uses_associated_rust_contract_builder_for_runtime_source() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().join("demo");
+        let service = root.join("service");
+        fs::create_dir_all(root.join("contracts")).unwrap();
+        fs::create_dir_all(service.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"service\"]\n",
+        )
+        .unwrap();
+        fs::write(
+            service.join("Cargo.toml"),
+            "[package]\nname = \"demo-service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(service.join("src/main.rs"), "fn main() {}\n").unwrap();
+        fs::write(
+            root.join("contracts/service.rs"),
+            r#"
+use trellis_contracts::{ContractKind, ContractManifest, ContractManifestBuilder, ContractsError};
+
+pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
+    ContractManifestBuilder::new(
+        "trellis.associated-service@v1",
+        "Associated Service",
+        "Associated contract",
+        ContractKind::Service,
+    )
+    .build()
+}
+"#,
+        )
+        .unwrap();
+
+        let resolved = resolve_contract_input(
+            None,
+            Some(&service.join("src/main.rs")),
+            None,
+            "CONTRACT",
+            default_image_contract_path(),
+        )
+        .unwrap();
+
+        assert_eq!(resolved.loaded.manifest.id, "trellis.associated-service@v1");
+    }
+
+    #[test]
+    fn resolve_contract_input_uses_requested_rust_builder_export() {
+        let temp = TempDir::new().unwrap();
+        let source_path = temp.path().join("contract.rs");
+        fs::write(
+            &source_path,
+            r#"
+use trellis_contracts::{ContractKind, ContractManifest, ContractManifestBuilder, ContractsError};
+
+pub fn custom_manifest() -> Result<ContractManifest, ContractsError> {
+    ContractManifestBuilder::new(
+        "trellis.custom@v1",
+        "Custom",
+        "Custom contract",
+        ContractKind::Service,
+    )
+    .build()
+}
+"#,
+        )
+        .unwrap();
+
+        let resolved = resolve_contract_input(
+            None,
+            Some(&source_path),
+            None,
+            "custom_manifest",
+            default_image_contract_path(),
+        )
+        .unwrap();
+
+        assert_eq!(resolved.loaded.manifest.id, "trellis.custom@v1");
+    }
+
+    #[test]
+    fn rust_builder_resolution_failure_mentions_trusted_local_code_execution() {
+        let temp = TempDir::new().unwrap();
+        let source_path = temp.path().join("contract.rs");
+        fs::write(
+            &source_path,
+            r#"
+pub fn contract_manifest() -> trellis_contracts::ContractManifest {
+    panic!("simulated builder failure")
+}
+"#,
+        )
+        .unwrap();
+
+        let error = resolve_contract_input(
+            None,
+            Some(&source_path),
+            None,
+            "CONTRACT",
+            default_image_contract_path(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("trusted local Rust code"));
+        assert!(error.to_string().contains("simulated builder failure"));
+    }
+
+    #[test]
+    fn resolve_contract_input_rejects_static_only_rust_contract_json_source() {
+        let temp = TempDir::new().unwrap();
+        let source_path = temp.path().join("contract.rs");
+        fs::write(
+            &source_path,
+            r##"
 pub const CONTRACT_JSON: &str = r#"{"format":"trellis.contract.v1"}"#;
-"##;
-        let error =
-            extract_rust_contract_json(source, "CONTRACT", Path::new("contract.rs")).unwrap_err();
-        assert!(error.to_string().contains("include_str!"));
-    }
-
-    #[test]
-    fn resolves_contract_json_from_rust_source_include_str() {
-        let temp = TempDir::new().unwrap();
-        let source_path = temp.path().join("contract.rs");
-        let manifest_path = temp.path().join("contract.manifest.json");
-        fs::write(
-            &manifest_path,
-            "{\"format\":\"trellis.contract.v1\",\"id\":\"x\",\"displayName\":\"x\",\"description\":\"x\",\"kind\":\"service\"}",
+"##,
         )
         .unwrap();
-        let source = "pub const CONTRACT_JSON: &str = include_str!(\"contract.manifest.json\");";
 
-        let json = extract_rust_contract_json(source, "CONTRACT", &source_path).unwrap();
-        assert!(json.contains("trellis.contract.v1"));
-    }
-
-    #[test]
-    fn resolves_contract_json_from_exact_rust_export_name_include_str() {
-        let temp = TempDir::new().unwrap();
-        let source_path = temp.path().join("contract.rs");
-        let manifest_path = temp.path().join("contract.manifest.json");
-        fs::write(
-            &manifest_path,
-            "{\"format\":\"trellis.contract.v1\",\"id\":\"x\",\"displayName\":\"x\",\"description\":\"x\",\"kind\":\"service\"}",
+        let error = resolve_contract_input(
+            None,
+            Some(&source_path),
+            None,
+            "CONTRACT",
+            default_image_contract_path(),
         )
-        .unwrap();
-        let source = "pub const CONTRACT: &str = include_str!(\"contract.manifest.json\");";
+        .unwrap_err();
 
-        let json = extract_rust_contract_json(source, "CONTRACT", &source_path).unwrap();
-        assert!(json.contains("trellis.contract.v1"));
-    }
-
-    #[test]
-    fn rejects_rust_source_without_supported_contract_const_expression() {
-        let source = r#"
-pub const CONTRACT_JSON: &str = "{\"format\":\"trellis.contract.v1\"}";
-"#;
-        let error =
-            extract_rust_contract_json(source, "CONTRACT", Path::new("contract.rs")).unwrap_err();
-        assert!(error.to_string().contains("include_str!"));
-    }
-
-    #[test]
-    fn resolves_exact_const_name_without_matching_prefixed_constants() {
-        let source = r#"
-pub const CONTRACT_ID: &str = "trellis.jobs@v1";
-pub const CONTRACT: &str = include_str!("contract.manifest.json");
-"#;
-        let include = extract_rust_const_include_path(source, "CONTRACT")
-            .expect("should resolve exact CONTRACT const");
-        assert_eq!(include, "contract.manifest.json");
+        assert!(error.to_string().contains("contract builder source"));
     }
 
     #[test]

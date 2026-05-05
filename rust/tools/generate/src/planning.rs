@@ -1,15 +1,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use miette::IntoDiagnostic;
 use serde_json::Value;
 use trellis_contracts::ContractKind;
 
 use crate::artifacts::{
     current_generator_fingerprint, default_rust_crate_name_from_id, detect_output_root,
     detect_runtime_source, generated_artifacts_are_fresh, generated_artifacts_metadata,
-    generated_artifacts_metadata_path, required_owner_version, sdk_output_stem,
-    trellis_package_version, ts_package_name_from_id, write_contract_outputs,
-    write_contract_shell_outputs,
+    required_owner_version, sdk_output_stem, trellis_package_version, ts_package_name_from_id,
+    write_contract_outputs, write_participant_facade_outputs,
 };
 use crate::cli::RuntimeSource;
 use crate::contract_input;
@@ -31,6 +31,7 @@ pub struct AutoPlanEntry {
     pub out_manifest: Option<PathBuf>,
     pub ts_out: Option<PathBuf>,
     pub rust_out: Option<PathBuf>,
+    pub rust_participant_out: Option<PathBuf>,
     pub runtime_source: RuntimeSource,
     pub runtime_repo_root: Option<PathBuf>,
 }
@@ -50,7 +51,7 @@ pub fn build_auto_plan(
     let mut plan = Vec::new();
     for contract in discovered {
         let (contract_id, contract_kind) = discover_contract_metadata(&contract)?;
-        let action = action_for_kind(&contract_kind);
+        let action = action_for_discovered_kind(&contract, &contract_kind);
         let output_root = shared_output_root
             .map(Path::to_path_buf)
             .unwrap_or_else(|| detect_output_root(&contract.project_root));
@@ -60,7 +61,7 @@ pub fn build_auto_plan(
         } else {
             RuntimeSource::Registry
         };
-        let (out_manifest, ts_out, rust_out) = match action {
+        let (out_manifest, ts_out, rust_out, rust_participant_out) = match action {
             AutoAction::Generate => {
                 let sdk_stem = sdk_output_stem(&contract_id);
                 let ts_sdk_root = resolve_typescript_sdk_root(
@@ -68,21 +69,34 @@ pub fn build_auto_plan(
                     &contract.project_root,
                     runtime_repo_root.as_deref(),
                 );
-                (
-                    Some(
-                        output_root
-                            .join("generated/contracts/manifests")
-                            .join(format!("{}.json", &contract_id)),
-                    ),
-                    Some(ts_sdk_root.join(&sdk_stem)),
-                    if matches!(contract_kind, ContractKind::Service) {
-                        Some(output_root.join("generated/rust/sdks").join(&sdk_stem))
+                let out_manifest = output_root
+                    .join("generated/contracts/manifests")
+                    .join(format!("{}.json", &contract_id));
+                let ts_out = if matches!(contract_kind, ContractKind::Service | ContractKind::App) {
+                    Some(ts_sdk_root.join(&sdk_stem))
+                } else {
+                    None
+                };
+                let rust_out = if matches!(contract_kind, ContractKind::Service) {
+                    Some(output_root.join("generated/rust/sdks").join(&sdk_stem))
+                } else {
+                    None
+                };
+                let rust_participant_out =
+                    if matches!(contract_kind, ContractKind::Device | ContractKind::Agent)
+                        && matches!(contract.language, crate::discovery::SourceLanguage::Rust)
+                    {
+                        Some(
+                            output_root
+                                .join("generated/rust/participants")
+                                .join(&sdk_stem),
+                        )
                     } else {
                         None
-                    },
-                )
+                    };
+                (Some(out_manifest), ts_out, rust_out, rust_participant_out)
             }
-            AutoAction::Verify => (None, None, None),
+            AutoAction::Verify => (None, None, None, None),
         };
         plan.push(AutoPlanEntry {
             discovered: contract,
@@ -92,6 +106,7 @@ pub fn build_auto_plan(
             out_manifest,
             ts_out,
             rust_out,
+            rust_participant_out,
             runtime_source,
             runtime_repo_root,
         });
@@ -281,6 +296,7 @@ pub fn execute_auto_plan(
                     generator_fingerprint,
                 );
                 if !force
+                    && entry.rust_participant_out.is_none()
                     && generated_artifacts_are_fresh(
                         &metadata,
                         out_manifest,
@@ -298,7 +314,7 @@ pub fn execute_auto_plan(
                 print_auto_entry(entry);
                 write_contract_outputs(
                     &resolved,
-                    artifact_version,
+                    artifact_version.clone(),
                     out_manifest,
                     entry.ts_out.as_deref(),
                     entry.rust_out.as_deref(),
@@ -309,6 +325,28 @@ pub fn execute_auto_plan(
                     generator_fingerprint,
                     "generated contract artifacts",
                 )?;
+                if let Some(rust_participant_out) = &entry.rust_participant_out {
+                    if let Some(mappings) = participant_alias_mappings(entry, plan) {
+                        write_participant_facade_outputs(
+                            out_manifest,
+                            rust_participant_out,
+                            &format!(
+                                "trellis-participant-{}",
+                                sdk_output_stem(&resolved.loaded.manifest.id)
+                            ),
+                            &artifact_version,
+                            entry.runtime_source,
+                            entry.runtime_repo_root.clone(),
+                            mappings,
+                        )?;
+                    } else {
+                        remove_stale_participant_facade_outputs(rust_participant_out)?;
+                        output::print_info(&format!(
+                            "skipped Rust participant facade for {} because no uses aliases have local Rust SDK mappings",
+                            resolved.loaded.manifest.id
+                        ));
+                    }
+                }
                 summary.generated += 1;
             }
             AutoAction::Verify => {
@@ -402,6 +440,92 @@ pub fn action_for_kind(kind: &ContractKind) -> AutoAction {
     }
 }
 
+fn action_for_discovered_kind(
+    contract: &DiscoveredContractSource,
+    kind: &ContractKind,
+) -> AutoAction {
+    if matches!(contract.language, crate::discovery::SourceLanguage::Rust)
+        && matches!(kind, ContractKind::Device | ContractKind::Agent)
+    {
+        AutoAction::Generate
+    } else {
+        action_for_kind(kind)
+    }
+}
+
+fn participant_alias_mappings(
+    entry: &AutoPlanEntry,
+    plan: &[AutoPlanEntry],
+) -> Option<Vec<trellis_codegen_rust::ParticipantAliasMapping>> {
+    let local_manifest = entry.out_manifest.as_ref()?;
+    let loaded = trellis_contracts::load_manifest(local_manifest).ok()?;
+    let mut mappings = Vec::new();
+    for (alias, use_ref) in &loaded.manifest.uses {
+        if let Some(mapped) = plan.iter().find(|candidate| {
+            candidate.contract_id == use_ref.contract && candidate.rust_out.is_some()
+        }) {
+            let manifest_path = mapped.out_manifest.as_ref()?.clone();
+            mappings.push(trellis_codegen_rust::ParticipantAliasMapping {
+                alias: alias.clone(),
+                crate_name: default_rust_crate_name_from_id(&mapped.contract_id),
+                manifest_path,
+                crate_path: mapped.rust_out.clone(),
+            });
+            continue;
+        }
+
+        if !trellis_codegen_rust::participant_use_requires_mapping(&loaded, alias, use_ref) {
+            continue;
+        }
+
+        if let Some(mapping) = built_in_rust_alias_mapping(entry, alias, &use_ref.contract) {
+            mappings.push(mapping);
+            continue;
+        }
+
+        return None;
+    }
+    if mappings.is_empty() {
+        return None;
+    }
+    Some(mappings)
+}
+
+fn built_in_rust_alias_mapping(
+    entry: &AutoPlanEntry,
+    alias: &str,
+    contract_id: &str,
+) -> Option<trellis_codegen_rust::ParticipantAliasMapping> {
+    if !contract_id.starts_with("trellis.") {
+        return None;
+    }
+
+    let repo_root = entry.runtime_repo_root.as_ref()?;
+    let sdk_root = repo_root
+        .join("generated/rust/sdks")
+        .join(sdk_output_stem(contract_id));
+    let manifest_path = repo_root
+        .join("generated/contracts/manifests")
+        .join(format!("{contract_id}.json"));
+    if !sdk_root.join("Cargo.toml").exists() || !manifest_path.exists() {
+        return None;
+    }
+
+    Some(trellis_codegen_rust::ParticipantAliasMapping {
+        alias: alias.to_string(),
+        crate_name: default_rust_crate_name_from_id(contract_id),
+        manifest_path,
+        crate_path: Some(sdk_root),
+    })
+}
+
+fn remove_stale_participant_facade_outputs(out: &Path) -> miette::Result<()> {
+    if out.exists() {
+        fs::remove_dir_all(out).into_diagnostic()?;
+    }
+    Ok(())
+}
+
 pub fn contract_kind_label(kind: &ContractKind) -> &'static str {
     #[allow(unreachable_patterns)]
     match kind {
@@ -429,6 +553,12 @@ fn print_auto_entry(entry: &AutoPlanEntry) {
     }
     if let Some(rust_out) = &entry.rust_out {
         output::print_detail("rust sdk", rust_out.display().to_string());
+    }
+    if let Some(rust_participant_out) = &entry.rust_participant_out {
+        output::print_detail(
+            "rust participant",
+            rust_participant_out.display().to_string(),
+        );
     }
 }
 

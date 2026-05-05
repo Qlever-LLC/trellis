@@ -63,7 +63,6 @@ impl JobMetaSource for FixedMetaSource {
 fn sample_bindings() -> JobsBinding {
     JobsBinding {
         namespace: "documents".to_string(),
-        jobs_state_bucket: None,
         queues: BTreeMap::from([(
             "document-process".to_string(),
             JobsQueueBinding {
@@ -89,7 +88,6 @@ async fn create_errors_when_queue_binding_missing() {
         RecordingPublisher::default(),
         JobsBinding {
             namespace: "documents".to_string(),
-            jobs_state_bucket: None,
             queues: BTreeMap::new(),
         },
         FixedMetaSource,

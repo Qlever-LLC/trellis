@@ -33,7 +33,6 @@ fn parse_jobs_binding_maps_queue_values() {
     .expect("binding should parse");
 
     assert_eq!(binding.namespace, "documents");
-    assert_eq!(binding.jobs_state_bucket, None);
     let queue = binding
         .queues
         .get("document-process")
@@ -108,9 +107,9 @@ fn sample_core_binding() -> TrellisBindingsGetResponseBinding {
                 )]),
             }),
             kv: Some(BTreeMap::from([(
-                "jobsState".to_string(),
+                "unrelated".to_string(),
                 trellis_sdk_core::types::TrellisBindingsGetResponseBindingResourcesKvValue {
-                    bucket: "trellis_jobs".to_string(),
+                    bucket: "unrelated_bucket".to_string(),
                     history: 1,
                     max_value_bytes: None,
                     ttl_ms: 0,
@@ -127,10 +126,6 @@ fn jobs_runtime_binding_try_from_core_binding_maps_jobs_and_work_stream() {
 
     assert_eq!(runtime.work_stream, "JOBS_WORK");
     assert_eq!(runtime.jobs.namespace, "documents");
-    assert_eq!(
-        runtime.jobs.jobs_state_bucket.as_deref(),
-        Some("trellis_jobs")
-    );
     let queue = runtime.jobs.queues.get("document-process").expect("queue");
     assert_eq!(queue.max_deliver, 5);
     assert_eq!(queue.default_deadline_ms, Some(120_000));

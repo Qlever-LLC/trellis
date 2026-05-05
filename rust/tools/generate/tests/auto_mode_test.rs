@@ -15,9 +15,29 @@ fn write_ts_contract(path: &Path, id: &str, display_name: &str, kind: &str) {
 fn write_rust_contract(path: &Path, manifest_name: &str) {
     fs::write(
         path,
-        format!("pub const CONTRACT_JSON: &str = include_str!(\"{manifest_name}\");\n"),
+        format!(
+            r#"pub fn contract_manifest() -> trellis_contracts::ContractManifest {{
+    serde_json::from_str(include_str!("{manifest_name}")).expect("fixture manifest")
+}}
+"#
+        ),
     )
     .unwrap();
+}
+
+fn write_rust_manifest(path: &Path, version: &str) {
+    fs::write(
+        path,
+        format!("[package]\nname = \"fixture\"\nversion = \"{version}\"\nedition = \"2021\"\n"),
+    )
+    .unwrap();
+}
+
+fn run_prepare(root: &Path) -> std::process::Output {
+    trellis_generate()
+        .args(["prepare", root.to_str().unwrap()])
+        .output()
+        .unwrap()
 }
 
 fn trellis_generate() -> Command {
@@ -126,10 +146,7 @@ fn explicit_generate_all_defaults_out_of_tree_package_to_trellis_sdk_scope() {
 
     let deno = fs::read_to_string(ts_out.join("deno.json")).unwrap();
     assert!(deno.contains("\"name\": \"@trellis-sdk/krishi-cloud\""));
-    assert!(deno.contains(&format!(
-        "npm:@qlever-llc/trellis@^{}",
-        env!("CARGO_PKG_VERSION")
-    )));
+    assert!(deno.contains("npm:@qlever-llc/trellis@^0.8.2"));
     assert!(!deno.contains("jsr:@qlever-llc/trellis"));
     assert!(!deno.contains("@qlever-llc/trellis-generated-krishi-cloud"));
 }
@@ -249,133 +266,216 @@ export default contract;
 }
 
 #[test]
-fn prepare_bootstraps_typescript_sdk_import_dependencies() {
+fn prepare_generates_rust_participant_facade_for_local_device_uses() {
     let temp = tempfile::tempdir().unwrap();
-    let sherpa = temp.path().join("services/sherpa");
-    let notifications = temp.path().join("services/notifications");
-    fs::create_dir_all(sherpa.join("contracts")).unwrap();
-    fs::create_dir_all(notifications.join("contracts")).unwrap();
-    fs::write(sherpa.join("deno.json"), "{\n  \"version\": \"0.4.0\"\n}\n").unwrap();
-    let trellis_package = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../js/packages/trellis")
-        .canonicalize()
-        .unwrap();
-    let trellis_js_config = trellis_package
-        .join("../../deno.json")
-        .canonicalize()
-        .unwrap()
-        .to_string_lossy()
-        .replace('\\', "/");
-    let trellis_package_url = format!(
-        "file://{}/",
-        trellis_package.to_string_lossy().replace('\\', "/")
-    );
-    let trellis_contracts_url = format!(
-        "file://{}",
-        trellis_package
-            .join("contracts.ts")
-            .to_string_lossy()
-            .replace('\\', "/")
-    );
-    let result_package_url = format!(
-        "file://{}",
-        trellis_package
-            .join("../result/mod.ts")
-            .canonicalize()
-            .unwrap()
-            .to_string_lossy()
-            .replace('\\', "/")
-    );
+    let service = temp.path().join("service");
+    let inventory = temp.path().join("inventory");
+    let device = temp.path().join("device");
+    fs::create_dir_all(service.join("contracts")).unwrap();
+    fs::create_dir_all(inventory.join("contracts")).unwrap();
+    fs::create_dir_all(device.join("contracts")).unwrap();
+    write_rust_manifest(&service.join("Cargo.toml"), "0.4.0");
+    write_rust_manifest(&inventory.join("Cargo.toml"), "0.4.0");
+    write_rust_manifest(&device.join("Cargo.toml"), "0.4.0");
     fs::write(
-        notifications.join("deno.json"),
-        format!(
-            r#"{{
-  "extends": "{trellis_js_config}",
-  "version": "0.4.0",
-  "imports": {{
-    "@qlever-llc/trellis/": "{trellis_package_url}",
-    "@qlever-llc/trellis/contracts": "{trellis_contracts_url}",
-    "@qlever-llc/result": "{result_package_url}",
-    "typebox": "npm:typebox@^1.1.33",
-    "json-schema-library": "npm:json-schema-library@^11.4.0",
-    "ulid": "npm:ulid@^3.0.2",
-    "@trellis-sdk/krishi-sherpa": "../../generated/js/sdks/krishi-sherpa/mod.ts"
-  }}
-}}
-"#
-        ),
+        service.join("contracts/orders.json"),
+        r#"{
+  "format": "trellis.contract.v1",
+  "id": "trellis.orders@v1",
+  "displayName": "Orders",
+  "description": "Fixture service contract",
+  "kind": "service",
+  "schemas": {
+    "Empty": { "type": "object", "properties": {}, "required": [], "additionalProperties": false },
+    "Order": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"], "additionalProperties": false }
+  },
+  "rpc": {
+    "Orders.Get": {
+      "version": "v1",
+      "subject": "rpc.v1.Orders.Get",
+      "input": { "schema": "Empty" },
+      "output": { "schema": "Order" }
+    }
+  }
+}
+"#,
     )
     .unwrap();
     fs::write(
-        sherpa.join("contracts/sherpa.ts"),
-        r#"const contract = {
-  format: "trellis.contract.v1",
-  id: "krishi.sherpa@v1",
-  displayName: "Sherpa",
-  description: "Fixture contract",
-  kind: "service",
-  schemas: {
-    Empty: { type: "object", properties: {}, required: [], additionalProperties: false },
-    Run: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },
+        inventory.join("contracts/inventory.json"),
+        r#"{
+  "format": "trellis.contract.v1",
+  "id": "trellis.inventory@v1",
+  "displayName": "Inventory",
+  "description": "Fixture inventory contract",
+  "kind": "service",
+  "schemas": {
+    "Empty": { "type": "object", "properties": {}, "required": [], "additionalProperties": false },
+    "Stock": { "type": "object", "properties": { "sku": { "type": "string" } }, "required": ["sku"], "additionalProperties": false }
   },
-  rpc: {
-    "Sherpa.Get": {
-      version: "v1",
-      subject: "rpc.v1.Sherpa.Get",
-      input: { schema: "Empty" },
-      output: { schema: "Run" },
+  "rpc": {
+    "Inventory.Get": {
+      "version": "v1",
+      "subject": "rpc.v1.Inventory.Get",
+      "input": { "schema": "Empty" },
+      "output": { "schema": "Stock" }
+    }
+  }
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        device.join("contracts/device.json"),
+        r#"{
+  "format": "trellis.contract.v1",
+  "id": "trellis.device@v1",
+  "displayName": "Device",
+  "description": "Fixture device contract",
+  "kind": "device",
+  "uses": {
+    "orders": {
+      "contract": "trellis.orders@v1",
+      "rpc": { "call": ["Orders.Get"] }
     },
-  },
-};
-
-export default contract;
+    "inventory": {
+      "contract": "trellis.inventory@v1",
+      "rpc": { "call": ["Inventory.Get"] }
+    }
+  }
+}
 "#,
     )
     .unwrap();
-    fs::write(
-        notifications.join("contracts/notifications.ts"),
-        r#"import { use as useSherpa } from "@trellis-sdk/krishi-sherpa";
+    write_rust_contract(&service.join("contracts/orders.rs"), "orders.json");
+    write_rust_contract(&inventory.join("contracts/inventory.rs"), "inventory.json");
+    write_rust_contract(&device.join("contracts/device.rs"), "device.json");
 
-const contract = {
-  format: "trellis.contract.v1",
-  id: "krishi.notifications@v1",
-  displayName: "Notifications",
-  description: "Fixture contract",
-  kind: "service",
-  uses: {
-    sherpa: useSherpa({ rpc: { call: ["Sherpa.Get"] } }),
-  },
-};
-
-export default contract;
-"#,
-    )
-    .unwrap();
-
-    let output = Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
-        .args(["prepare", temp.path().to_str().unwrap()])
-        .output()
-        .unwrap();
+    let output = run_prepare(temp.path());
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let sherpa_contract = fs::read_to_string(
-        temp.path()
-            .join("generated/js/sdks/krishi-sherpa/contract.ts"),
-    )
-    .unwrap();
-    assert!(sherpa_contract.contains("CONTRACT_DIGEST"));
-    assert!(!sherpa_contract.contains("\"shell\""));
+    assert!(temp
+        .path()
+        .join("generated/rust/sdks/orders/Cargo.toml")
+        .exists());
+    let participant = temp.path().join("generated/rust/participants/device");
+    assert!(participant.join("Cargo.toml").exists());
+    assert!(participant.join("src/lib.rs").exists());
+    assert!(participant.join("contracts/orders.json").exists());
+    assert!(participant.join("contracts/inventory.json").exists());
+    assert!(!temp
+        .path()
+        .join("generated/rust/sdks/device/Cargo.toml")
+        .exists());
 
-    let notifications_api = fs::read_to_string(
-        temp.path()
-            .join("generated/js/sdks/krishi-notifications/api.ts"),
+    let cargo_toml = fs::read_to_string(participant.join("Cargo.toml")).unwrap();
+    assert!(cargo_toml.contains("name = \"trellis-participant-device\""));
+    assert!(cargo_toml.contains("trellis-sdk-orders = { path = "));
+    assert!(cargo_toml.contains("trellis-sdk-inventory = { path = "));
+    assert!(!cargo_toml.contains("trellis-sdk-auth"));
+
+    let build_rs = fs::read_to_string(participant.join("build.rs")).unwrap();
+    assert!(build_rs.contains("alias: \"orders\".to_string()"));
+    assert!(build_rs.contains("alias: \"inventory\".to_string()"));
+    assert!(!build_rs.contains("alias: \"auth\".to_string()"));
+
+    fs::write(
+        device.join("contracts/device.json"),
+        r#"{
+  "format": "trellis.contract.v1",
+  "id": "trellis.device@v1",
+  "displayName": "Device",
+  "description": "Fixture device contract",
+  "kind": "device",
+  "uses": {
+    "orders": {
+      "contract": "trellis.orders-remote@v1",
+      "rpc": { "call": ["Orders.Get"] }
+    },
+    "inventory": {
+      "contract": "trellis.inventory@v1",
+      "rpc": { "call": ["Inventory.Get"] }
+    }
+  }
+}
+"#,
     )
     .unwrap();
-    assert!(notifications_api.contains("Sherpa.Get"));
+
+    let output = run_prepare(temp.path());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!participant.exists());
+
+    fs::write(
+        device.join("contracts/device.json"),
+        r#"{
+  "format": "trellis.contract.v1",
+  "id": "trellis.device@v1",
+  "displayName": "Device",
+  "description": "Fixture device contract",
+  "kind": "device",
+  "uses": {
+    "orders": {
+      "contract": "trellis.orders-remote@v1",
+      "rpc": { "call": ["Orders.Get"] }
+    },
+    "inventory": {
+      "contract": "trellis.inventory-remote@v1",
+      "rpc": { "call": ["Inventory.Get"] }
+    }
+  }
+}
+"#,
+    )
+    .unwrap();
+
+    let output = run_prepare(temp.path());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!participant.exists());
+}
+
+#[test]
+fn prepare_skips_rust_participant_facade_without_local_uses_mappings() {
+    let temp = tempfile::tempdir().unwrap();
+    let device = temp.path().join("device");
+    fs::create_dir_all(device.join("contracts")).unwrap();
+    write_rust_manifest(&device.join("Cargo.toml"), "0.4.0");
+    fs::write(
+        device.join("contracts/device.json"),
+        r#"{
+  "format": "trellis.contract.v1",
+  "id": "trellis.device@v1",
+  "displayName": "Device",
+  "description": "Fixture device contract",
+  "kind": "device"
+}
+"#,
+    )
+    .unwrap();
+    write_rust_contract(&device.join("contracts/device.rs"), "device.json");
+
+    let output = run_prepare(temp.path());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!temp
+        .path()
+        .join("generated/rust/participants/device/Cargo.toml")
+        .exists());
 }
 
 #[test]
@@ -1142,7 +1242,7 @@ fn local_mode_regenerates_when_rust_sdk_cargo_toml_is_invalid() {
     assert!(repaired.contains("serde_json = \"1.0\""));
     assert!(repaired.contains("trellis-client = \"0.4.0\""));
     assert!(repaired.contains("trellis-contracts = \"0.4.0\""));
-    assert!(repaired.contains("trellis-server = \"0.4.0\""));
+    assert!(repaired.contains("trellis-service = \"0.4.0\""));
 }
 
 #[test]

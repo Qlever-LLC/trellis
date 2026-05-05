@@ -64,7 +64,6 @@ impl JobMetaSource for SequenceMetaSource {
 fn sample_bindings() -> JobsBinding {
     JobsBinding {
         namespace: "documents".to_string(),
-        jobs_state_bucket: None,
         queues: BTreeMap::from([(
             "document-process".to_string(),
             JobsQueueBinding {

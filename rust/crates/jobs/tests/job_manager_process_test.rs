@@ -77,7 +77,6 @@ impl JobMetaSource for SequenceMetaSource {
 fn sample_bindings() -> JobsBinding {
     JobsBinding {
         namespace: "documents".to_string(),
-        jobs_state_bucket: None,
         queues: BTreeMap::from([(
             "document-process".to_string(),
             JobsQueueBinding {
@@ -124,7 +123,6 @@ async fn process_errors_when_queue_binding_missing() {
         RecordingPublisher::default(),
         JobsBinding {
             namespace: "documents".to_string(),
-            jobs_state_bucket: None,
             queues: BTreeMap::new(),
         },
         SequenceMetaSource::new("job-1", vec!["2026-03-28T12:00:00.000Z"]),
