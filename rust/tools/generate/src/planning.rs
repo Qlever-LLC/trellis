@@ -9,7 +9,7 @@ use crate::artifacts::{
     current_generator_fingerprint, default_rust_crate_name_from_id, detect_output_root,
     detect_runtime_source, generated_artifacts_are_fresh, generated_artifacts_metadata,
     required_owner_version, sdk_output_stem, trellis_package_version, ts_package_name_from_id,
-    write_contract_outputs, write_participant_facade_outputs,
+    write_contract_outputs, write_contract_shell_outputs, write_participant_facade_outputs,
 };
 use crate::cli::RuntimeSource;
 use crate::contract_input;
@@ -366,9 +366,6 @@ fn write_auto_plan_shells(plan: &[AutoPlanEntry], prefix: &str) -> miette::Resul
         if !matches!(entry.action, AutoAction::Generate) {
             continue;
         }
-        if shell_outputs_are_not_needed(entry) {
-            continue;
-        }
         let package_name = ts_package_name_from_id(&entry.contract_id, prefix);
         let crate_name = default_rust_crate_name_from_id(&entry.contract_id);
         write_contract_shell_outputs(
@@ -384,32 +381,6 @@ fn write_auto_plan_shells(plan: &[AutoPlanEntry], prefix: &str) -> miette::Resul
         )?;
     }
     Ok(())
-}
-
-fn shell_outputs_are_not_needed(entry: &AutoPlanEntry) -> bool {
-    let Some(out_manifest) = &entry.out_manifest else {
-        return false;
-    };
-    generated_artifacts_metadata_path(out_manifest).exists()
-        && ts_shell_key_outputs_exist(entry.ts_out.as_deref())
-        && rust_shell_key_outputs_exist(entry.rust_out.as_deref())
-}
-
-fn ts_shell_key_outputs_exist(ts_out: Option<&Path>) -> bool {
-    let Some(ts_out) = ts_out else {
-        return true;
-    };
-    ts_out.join("mod.ts").exists()
-        && ts_out.join("api.ts").exists()
-        && ts_out.join("contract.ts").exists()
-        && ts_out.join("client.ts").exists()
-}
-
-fn rust_shell_key_outputs_exist(rust_out: Option<&Path>) -> bool {
-    let Some(rust_out) = rust_out else {
-        return true;
-    };
-    rust_out.join("Cargo.toml").exists() && rust_out.join("src/lib.rs").exists()
 }
 
 pub fn discover_summary_lines(plan: &[AutoPlanEntry]) -> Vec<String> {
