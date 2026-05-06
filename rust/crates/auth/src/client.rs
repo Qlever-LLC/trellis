@@ -161,6 +161,26 @@ pub struct AuthClient<'a> {
     inner: &'a TrellisClient,
 }
 
+/// Options for removing a device deployment.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RemoveDeviceDeploymentOptions {
+    /// Also remove dependent device instances and activation records.
+    pub cascade: Option<bool>,
+    /// Garbage-collect installed contract records that are no longer referenced.
+    pub purge_unused_contracts: Option<bool>,
+}
+
+/// Options for removing a service deployment.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RemoveServiceDeploymentOptions {
+    /// Also remove dependent service instances and activation records.
+    pub cascade: Option<bool>,
+    /// Delete service-owned physical resource bindings before durable removal.
+    pub purge_resources: Option<bool>,
+    /// Garbage-collect installed contract records that are no longer referenced.
+    pub purge_unused_contracts: Option<bool>,
+}
+
 impl<'a> AuthClient<'a> {
     /// Wrap an already-connected low-level Trellis client.
     pub fn new(inner: &'a TrellisClient) -> Self {
@@ -658,11 +678,28 @@ impl<'a> AuthClient<'a> {
         deployment_id: &str,
         cascade: Option<bool>,
     ) -> Result<bool, TrellisAuthError> {
+        self.remove_device_deployment_with_remove_options(
+            deployment_id,
+            RemoveDeviceDeploymentOptions {
+                cascade,
+                purge_unused_contracts: None,
+            },
+        )
+        .await
+    }
+
+    /// Remove a device deployment with explicit remove options.
+    pub async fn remove_device_deployment_with_remove_options(
+        &self,
+        deployment_id: &str,
+        options: RemoveDeviceDeploymentOptions,
+    ) -> Result<bool, TrellisAuthError> {
         let response = self
             .call_rpc::<trellis_sdk_auth::rpc::AuthRemoveDeviceDeploymentRpc>(
                 &trellis_sdk_auth::AuthRemoveDeviceDeploymentRequest {
-                    cascade,
+                    cascade: options.cascade,
                     deployment_id: deployment_id.to_string(),
+                    purge_unused_contracts: options.purge_unused_contracts,
                 },
             )
             .await?;
@@ -936,11 +973,30 @@ impl<'a> AuthClient<'a> {
         deployment_id: &str,
         cascade: Option<bool>,
     ) -> Result<bool, TrellisAuthError> {
+        self.remove_service_deployment_with_remove_options(
+            deployment_id,
+            RemoveServiceDeploymentOptions {
+                cascade,
+                purge_resources: None,
+                purge_unused_contracts: None,
+            },
+        )
+        .await
+    }
+
+    /// Remove one service deployment with explicit remove options.
+    pub async fn remove_service_deployment_with_remove_options(
+        &self,
+        deployment_id: &str,
+        options: RemoveServiceDeploymentOptions,
+    ) -> Result<bool, TrellisAuthError> {
         Ok(self
             .call_rpc::<trellis_sdk_auth::rpc::AuthRemoveServiceDeploymentRpc>(
                 &trellis_sdk_auth::AuthRemoveServiceDeploymentRequest {
-                    cascade,
+                    cascade: options.cascade,
                     deployment_id: deployment_id.to_string(),
+                    purge_resources: options.purge_resources,
+                    purge_unused_contracts: options.purge_unused_contracts,
                 },
             )
             .await?
@@ -1253,6 +1309,8 @@ mod tests {
             serde_json::to_value(trellis_sdk_auth::AuthRemoveServiceDeploymentRequest {
                 cascade: None,
                 deployment_id: "api".to_string(),
+                purge_resources: None,
+                purge_unused_contracts: None,
             })
             .expect("serialize service remove request");
         assert_eq!(service_without_cascade, json!({ "deploymentId": "api" }));
@@ -1261,6 +1319,8 @@ mod tests {
             serde_json::to_value(trellis_sdk_auth::AuthRemoveServiceDeploymentRequest {
                 cascade: Some(true),
                 deployment_id: "api".to_string(),
+                purge_resources: None,
+                purge_unused_contracts: None,
             })
             .expect("serialize service cascade remove request");
         assert_eq!(
@@ -1272,11 +1332,46 @@ mod tests {
             serde_json::to_value(trellis_sdk_auth::AuthRemoveDeviceDeploymentRequest {
                 cascade: Some(true),
                 deployment_id: "reader".to_string(),
+                purge_unused_contracts: None,
             })
             .expect("serialize device cascade remove request");
         assert_eq!(
             device_with_cascade,
             json!({ "cascade": true, "deploymentId": "reader" })
+        );
+
+        let service_with_purge =
+            serde_json::to_value(trellis_sdk_auth::AuthRemoveServiceDeploymentRequest {
+                cascade: Some(true),
+                deployment_id: "api".to_string(),
+                purge_resources: Some(true),
+                purge_unused_contracts: Some(true),
+            })
+            .expect("serialize service purge remove request");
+        assert_eq!(
+            service_with_purge,
+            json!({
+                "cascade": true,
+                "deploymentId": "api",
+                "purgeResources": true,
+                "purgeUnusedContracts": true
+            })
+        );
+
+        let device_with_purge =
+            serde_json::to_value(trellis_sdk_auth::AuthRemoveDeviceDeploymentRequest {
+                cascade: Some(true),
+                deployment_id: "reader".to_string(),
+                purge_unused_contracts: Some(true),
+            })
+            .expect("serialize device purge remove request");
+        assert_eq!(
+            device_with_purge,
+            json!({
+                "cascade": true,
+                "deploymentId": "reader",
+                "purgeUnusedContracts": true
+            })
         );
     }
 }

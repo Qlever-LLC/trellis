@@ -396,7 +396,16 @@ fn parses_deploy_alias_and_device_ref() {
 
 #[test]
 fn parses_deploy_remove_force_and_cascade_separately() {
-    let cli = Cli::parse_from(["trellis", "deploy", "remove", "svc/api", "-f", "--cascade"]);
+    let cli = Cli::parse_from([
+        "trellis",
+        "deploy",
+        "remove",
+        "svc/api",
+        "-f",
+        "--cascade",
+        "--purge-resources",
+        "--purge-unused-contracts",
+    ]);
     match cli.command {
         TopLevelCommand::Deploy(command) => match command.command {
             DeploySubcommand::Remove(args) => {
@@ -404,6 +413,9 @@ fn parses_deploy_remove_force_and_cascade_separately() {
                 assert_eq!(args.reference.id, "api");
                 assert!(args.force);
                 assert!(args.cascade);
+                assert!(args.purge_resources);
+                assert!(args.purge_unused_contracts);
+                args.validate().expect("service purge flags are valid");
             }
             other => panic!("unexpected deploy command: {other:?}"),
         },
@@ -418,6 +430,115 @@ fn parses_deploy_remove_force_and_cascade_separately() {
                 assert_eq!(args.reference.id, "reader");
                 assert!(!args.force);
                 assert!(args.cascade);
+                assert!(!args.purge);
+                assert!(!args.purge_resources);
+                assert!(!args.purge_unused_contracts);
+            }
+            other => panic!("unexpected deploy command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_deploy_remove_purge_flags_without_cascade() {
+    let resource_error = Cli::try_parse_from([
+        "trellis",
+        "deploy",
+        "remove",
+        "svc/api",
+        "--purge-resources",
+    ])
+    .expect_err("resource purge should require cascade");
+    assert_eq!(
+        resource_error.kind(),
+        clap::error::ErrorKind::MissingRequiredArgument
+    );
+    assert!(resource_error.to_string().contains("--cascade"));
+
+    let contracts_error = Cli::try_parse_from([
+        "trellis",
+        "deploy",
+        "remove",
+        "svc/api",
+        "--purge-unused-contracts",
+    ])
+    .expect_err("unused contract purge should require cascade");
+    assert_eq!(
+        contracts_error.kind(),
+        clap::error::ErrorKind::MissingRequiredArgument
+    );
+    assert!(contracts_error.to_string().contains("--cascade"));
+
+    let purge_error = Cli::try_parse_from(["trellis", "deploy", "remove", "svc/api", "--purge"])
+        .expect_err("purge should require cascade");
+    assert_eq!(
+        purge_error.kind(),
+        clap::error::ErrorKind::MissingRequiredArgument
+    );
+    assert!(purge_error.to_string().contains("--cascade"));
+}
+
+#[test]
+fn rejects_deploy_remove_resource_purge_for_device_refs() {
+    let args = DeployRemoveArgs {
+        reference: DeployRef {
+            kind: DeployKind::Device,
+            id: "reader".to_string(),
+        },
+        force: true,
+        cascade: true,
+        purge: false,
+        purge_resources: true,
+        purge_unused_contracts: false,
+    };
+
+    let error = args
+        .validate()
+        .expect_err("device resource purge should fail before RPC");
+    assert!(error.contains("--purge-resources"));
+}
+
+#[test]
+fn deploy_remove_purge_expands_to_target_supported_purge_options() {
+    let service = Cli::parse_from([
+        "trellis",
+        "deploy",
+        "remove",
+        "svc/api",
+        "--cascade",
+        "--purge",
+    ]);
+    match service.command {
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Remove(args) => {
+                assert_eq!(args.reference.kind, DeployKind::Service);
+                assert!(args.purge);
+                assert!(args.should_purge_resources());
+                assert!(args.should_purge_unused_contracts());
+                args.validate().expect("service --purge is valid");
+            }
+            other => panic!("unexpected deploy command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+
+    let device = Cli::parse_from([
+        "trellis",
+        "deploy",
+        "remove",
+        "dev/reader",
+        "--cascade",
+        "--purge",
+    ]);
+    match device.command {
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Remove(args) => {
+                assert_eq!(args.reference.kind, DeployKind::Device);
+                assert!(args.purge);
+                assert!(!args.should_purge_resources());
+                assert!(args.should_purge_unused_contracts());
+                args.validate().expect("device --purge is valid");
             }
             other => panic!("unexpected deploy command: {other:?}"),
         },

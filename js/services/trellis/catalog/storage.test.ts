@@ -185,6 +185,20 @@ Deno.test("contract storage lists all records in digest order", async () => {
   });
 });
 
+Deno.test("contract storage deletes records by digest", async () => {
+  await withRepository(async (repo) => {
+    const keep = makeRecord({ digest: "sha256-keep", id: "keep@v1" });
+    const remove = makeRecord({ digest: "sha256-remove", id: "remove@v1" });
+    await repo.put(keep);
+    await repo.put(remove);
+
+    await repo.delete(remove.digest);
+
+    assertEquals(await repo.get(remove.digest), undefined);
+    assertEquals(await repo.list(), [keep]);
+  });
+});
+
 Deno.test("contract storage round-trips absent optional JSON fields", async () => {
   await withRepository(async (repo) => {
     const record = makeRecord({

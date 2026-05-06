@@ -11,7 +11,10 @@ mod session_store;
 pub use browser_login::{
     contract_digest, generate_session_keypair, start_admin_reauth, start_agent_login,
 };
-pub use client::{connect_admin_client_async, AuthClient};
+pub use client::{
+    connect_admin_client_async, AuthClient, RemoveDeviceDeploymentOptions,
+    RemoveServiceDeploymentOptions,
+};
 pub use device_activation::{
     build_device_activation_payload, build_device_wait_proof_input,
     derive_device_confirmation_code, derive_device_identity, derive_device_qr_mac,

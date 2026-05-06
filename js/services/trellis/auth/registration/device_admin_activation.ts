@@ -8,6 +8,11 @@ import { createEffectiveGrantPolicyLoader } from "../grants/store.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type { AuthContractsRuntime, AuthRuntime } from "./types.ts";
 import type { Config } from "../../config.ts";
+import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
+import type {
+  SqlServiceDeploymentRepository,
+  SqlServiceInstanceRepository,
+} from "../storage.ts";
 
 export async function registerDeviceAdminAndActivation(
   deps:
@@ -16,9 +21,12 @@ export async function registerDeviceAdminAndActivation(
       config: Config;
       contracts: Pick<
         AuthContractsRuntime,
+        | "contractStore"
         | "installDeviceContract"
         | "refreshActiveContracts"
+        | "refreshActiveContractsForRemoval"
         | "validateActiveCatalog"
+        | "validateActiveCatalogForRemoval"
       >;
       publishSessionRevoked: (
         event: {
@@ -28,6 +36,9 @@ export async function registerDeviceAdminAndActivation(
           revokedBy: string;
         },
       ) => Promise<void>;
+      contractStorage: SqlContractStorageRepository;
+      serviceDeploymentStorage: SqlServiceDeploymentRepository;
+      serviceInstanceStorage: SqlServiceInstanceRepository;
     }
     & Pick<
       AuthRuntimeDeps,
@@ -60,7 +71,12 @@ export async function registerDeviceAdminAndActivation(
     operationCompletion: deps.trellis.operationCompletion,
     installDeviceContract: deps.contracts.installDeviceContract,
     refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    refreshActiveContractsForRemoval:
+      deps.contracts.refreshActiveContractsForRemoval,
     validateActiveCatalog: deps.contracts.validateActiveCatalog,
+    validateActiveCatalogForRemoval:
+      deps.contracts.validateActiveCatalogForRemoval,
+    builtinContractDigests: deps.contracts.contractStore.getBuiltinDigests(),
   });
   await deps.trellis.mount(
     "Auth.CreateDeviceDeployment",

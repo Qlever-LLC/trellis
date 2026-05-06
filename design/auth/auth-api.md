@@ -717,6 +717,11 @@ durable deployment record:
 - service and device deployment mutations fail closed when the proposed active
   set has inactive or missing `uses` dependencies; Trellis validates that staged
   catalog state before exposing it to runtime permissions.
+- service and device deployment removal is the narrow exception: removal still
+  validates active digests and active contract compatibility, but it may refresh
+  the post-removal catalog without active `uses` validation so operators can
+  tear down an already-broken active graph instead of being trapped by stale
+  dependencies.
 - service and device apply calls are race-safe review submissions: the caller
   must send the digest that was reviewed locally, and auth must compare it with
   the digest produced by install before mutating durable deployment state.

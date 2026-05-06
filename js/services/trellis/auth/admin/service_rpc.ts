@@ -13,15 +13,26 @@ import type { NatsConnection } from "@nats-io/nats-core";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import {
   type ContractResourceBindings,
+  createNatsResourcePurgeManager,
   provisionContractResourceBindings,
+  type PurgeableContractResourceBindings,
+  purgeContractResourceBindings,
   type ResourceProvisioningOptions,
 } from "../../catalog/resources.ts";
 
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
-import { type Connection, ServiceInstanceSchema } from "../schemas.ts";
+import {
+  type Connection,
+  type ContractApprovalRecord,
+  ServiceInstanceSchema,
+} from "../schemas.ts";
 import type { SqlSessionRepository } from "../storage.ts";
 import type { StaticDecode } from "typebox";
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
+import {
+  collectAppliedContractDigests,
+  purgeUnusedInstalledContracts,
+} from "./contract_gc.ts";
 import {
   applyInstalledServiceDeploymentContract,
   normalizeAppliedContracts,
@@ -50,16 +61,32 @@ type ServiceInstanceStorage = {
 };
 type RuntimeKickDeps = {
   connectionsKV: KVLike<Connection>;
-  sessionStorage: Pick<SqlSessionRepository, "deleteByInstanceKey">;
+  sessionStorage:
+    & Pick<SqlSessionRepository, "deleteByInstanceKey">
+    & Partial<Pick<SqlSessionRepository, "listEntries">>;
+};
+type InstalledContractGcDeps = {
+  builtinContractDigests?: Iterable<string>;
+  contractStorage?: { delete(digest: string): Promise<void> };
+  deviceDeploymentStorage?: {
+    list(): Promise<
+      Array<{ appliedContracts: Array<{ allowedDigests: string[] }> }>
+    >;
+  };
+  contractApprovalStorage?: { list(): Promise<ContractApprovalRecord[]> };
 };
 type ActiveCatalogValidator = (validationOpts: {
   extraActiveDigests?: Iterable<string>;
   stagedServiceDeployments?: Iterable<ServiceDeployment>;
   stagedServiceInstances?: Iterable<ServiceInstance>;
 }) => Promise<unknown>;
+type ActiveContractsRefresher = (
+  validationOpts?: Parameters<ActiveCatalogValidator>[0],
+) => Promise<void>;
 
 export type ServiceAdminRpcDeps = {
-  logger: Pick<AuthRuntimeDeps["logger"], "trace">;
+  logger: Pick<AuthRuntimeDeps["logger"], "trace"> &
+    Partial<Pick<AuthRuntimeDeps["logger"], "warn">>;
   serviceDeploymentStorage: ServiceDeploymentStorage;
   serviceInstanceStorage: ServiceInstanceStorage;
 };
@@ -124,10 +151,11 @@ async function instancesForDeployment(
 }
 
 async function refreshActiveContracts(
-  refresh: () => Promise<void>,
+  refresh: ActiveContractsRefresher,
+  validationOpts?: Parameters<ActiveCatalogValidator>[0],
 ): Promise<Result<void, UnexpectedError>> {
   try {
-    await refresh();
+    await refresh(validationOpts);
     return Result.ok(undefined);
   } catch (error) {
     return Result.err(new UnexpectedError({ cause: toError(error) }));
@@ -167,6 +195,52 @@ async function rollbackRefreshFailure<T>(
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function missingGcDependency(name: string): UnexpectedError {
+  return new UnexpectedError({
+    cause: new Error(`unused contract purge requires ${name}`),
+  });
+}
+
+function buildInstalledContractGcDeps(
+  deps:
+    & {
+      serviceDeploymentStorage: ServiceDeploymentStorage;
+      serviceInstanceStorage: ServiceInstanceStorage;
+    }
+    & RuntimeKickDeps
+    & InstalledContractGcDeps,
+):
+  | { ok: true; deps: Parameters<typeof purgeUnusedInstalledContracts>[1] }
+  | { ok: false; error: UnexpectedError } {
+  if (!deps.contractStorage) {
+    return { ok: false, error: missingGcDependency("contractStorage") };
+  }
+  if (!deps.deviceDeploymentStorage) {
+    return { ok: false, error: missingGcDependency("deviceDeploymentStorage") };
+  }
+  if (!deps.contractApprovalStorage) {
+    return { ok: false, error: missingGcDependency("contractApprovalStorage") };
+  }
+  if (!deps.sessionStorage.listEntries) {
+    return {
+      ok: false,
+      error: missingGcDependency("sessionStorage.listEntries"),
+    };
+  }
+  return {
+    ok: true,
+    deps: {
+      builtinContractDigests: deps.builtinContractDigests ?? [],
+      contractStorage: deps.contractStorage,
+      serviceDeploymentStorage: deps.serviceDeploymentStorage,
+      deviceDeploymentStorage: deps.deviceDeploymentStorage,
+      serviceInstanceStorage: deps.serviceInstanceStorage,
+      sessionStorage: { listEntries: deps.sessionStorage.listEntries },
+      contractApprovalStorage: deps.contractApprovalStorage,
+    },
+  };
 }
 
 export function createAuthListServiceDeploymentsHandler(
@@ -583,19 +657,35 @@ export function createAuthEnableServiceDeploymentHandler(deps: {
 export function createAuthRemoveServiceDeploymentHandler(
   deps:
     & {
-      refreshActiveContracts: () => Promise<void>;
+      refreshActiveContracts: ActiveContractsRefresher;
+      refreshActiveContractsForRemoval?: ActiveContractsRefresher;
       validateActiveCatalog: ActiveCatalogValidator;
+      validateActiveCatalogForRemoval?: ActiveCatalogValidator;
       serviceDeploymentStorage: ServiceDeploymentStorage;
       serviceInstanceStorage: ServiceInstanceStorage;
+      nats?: NatsConnection;
+      logger?: {
+        trace?: AuthRuntimeDeps["logger"]["trace"];
+        warn?: AuthRuntimeDeps["logger"]["warn"];
+      };
+      purgeResourceBindings?: (
+        bindings: Iterable<PurgeableContractResourceBindings>,
+      ) => Promise<void>;
     }
     & RuntimeKickDeps
     & {
       kick: (serverId: string, clientId: number) => Promise<void>;
-    },
+    }
+    & InstalledContractGcDeps,
 ) {
   return async (
     { input: req, context: { caller } }: {
-      input: { deploymentId: string; cascade?: boolean };
+      input: {
+        deploymentId: string;
+        cascade?: boolean;
+        purgeResources?: boolean;
+        purgeUnusedContracts?: boolean;
+      };
       context: { caller: RpcUser };
     },
   ): Promise<
@@ -603,6 +693,20 @@ export function createAuthRemoveServiceDeploymentHandler(
   > => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const { serviceDeploymentStorage, serviceInstanceStorage } = deps;
+    if (req.purgeResources === true && req.cascade !== true) {
+      return invalid(
+        "/purgeResources",
+        "resource purge requires cascade removal",
+        { deploymentId: req.deploymentId },
+      );
+    }
+    if (req.purgeUnusedContracts === true && req.cascade !== true) {
+      return invalid(
+        "/purgeUnusedContracts",
+        "unused contract purge requires cascade removal",
+        { deploymentId: req.deploymentId },
+      );
+    }
     const instances = await instancesForDeployment(
       req.deploymentId,
       serviceInstanceStorage,
@@ -636,16 +740,44 @@ export function createAuthRemoveServiceDeploymentHandler(
       }));
     }
     const validated = await validateActiveCatalog(
-      deps.validateActiveCatalog,
+      deps.validateActiveCatalogForRemoval ?? deps.validateActiveCatalog,
       validationOpts,
     );
     if (isErr(validated)) return validated;
+    let installedGcDeps:
+      | Parameters<typeof purgeUnusedInstalledContracts>[1]
+      | undefined;
+    if (req.purgeUnusedContracts === true) {
+      const gcDeps = buildInstalledContractGcDeps(deps);
+      if (!gcDeps.ok) return Result.err(gcDeps.error);
+      installedGcDeps = gcDeps.deps;
+    }
     const restoreDeletedRecords = async () => {
       await serviceDeploymentStorage.put(existing);
       for (const instance of instances) {
         await serviceInstanceStorage.put(instance);
       }
     };
+    if (req.purgeResources === true) {
+      const bindings = existing.appliedContracts.flatMap((applied) =>
+        Object.values(applied.resourceBindingsByDigest ?? {})
+      );
+      try {
+        if (deps.purgeResourceBindings) {
+          await deps.purgeResourceBindings(bindings);
+        } else {
+          if (!deps.nats) {
+            throw new Error("NATS connection is required to purge resources");
+          }
+          await purgeContractResourceBindings(
+            bindings,
+            createNatsResourcePurgeManager(deps.nats),
+          );
+        }
+      } catch (error) {
+        return Result.err(new UnexpectedError({ cause: toError(error) }));
+      }
+    }
     try {
       for (const instance of instances) {
         await kickInstanceRuntimeAccess({
@@ -656,7 +788,18 @@ export function createAuthRemoveServiceDeploymentHandler(
         });
       }
     } catch (error) {
-      return Result.err(new UnexpectedError({ cause: toError(error) }));
+      if (req.purgeResources === true) {
+        void error;
+        for (const instance of instances) {
+          try {
+            await deps.sessionStorage.deleteByInstanceKey(instance.instanceKey);
+          } catch {
+            // Resource purge already succeeded; session deletion is best-effort.
+          }
+        }
+      } else {
+        return Result.err(new UnexpectedError({ cause: toError(error) }));
+      }
     }
     try {
       for (const instance of instances) {
@@ -678,12 +821,30 @@ export function createAuthRemoveServiceDeploymentHandler(
       }
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
-    const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
+    const refreshed = await refreshActiveContracts(
+      deps.refreshActiveContractsForRemoval ?? deps.refreshActiveContracts,
+    );
     if (isErr(refreshed)) {
       return await rollbackRefreshFailure(
         refreshed.error,
         restoreDeletedRecords,
       );
+    }
+    if (req.purgeUnusedContracts === true) {
+      if (!installedGcDeps) {
+        return Result.err(missingGcDependency("installedContractGcDeps"));
+      }
+      try {
+        await purgeUnusedInstalledContracts(
+          collectAppliedContractDigests(existing),
+          installedGcDeps,
+        );
+      } catch (error) {
+        deps.logger?.warn?.(
+          { deploymentId: req.deploymentId, error: toError(error) },
+          "Failed to purge unused installed contracts after service deployment removal",
+        );
+      }
     }
     return Result.ok({ success: true });
   };

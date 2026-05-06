@@ -162,7 +162,7 @@ trellis deploy apply <svc/id|dev/id> (--source <file> | --manifest <file> | --im
 trellis deploy unapply <svc/id|dev/id> <contractId> [--digest <digest>...]
 trellis deploy disable <svc/id|dev/id>
 trellis deploy enable <svc/id|dev/id>
-trellis deploy remove <svc/id|dev/id> [-f]
+trellis deploy remove <svc/id|dev/id> [-f] [--cascade] [--purge] [--purge-resources] [--purge-unused-contracts]
 trellis deploy instances <svc|dev|svc/id|dev/id> [--disabled] [--state <registered|activated|revoked|disabled>] [--show-metadata]
 trellis deploy provision <svc/id|dev/id> [--instance-seed <seed>] [--name <name>] [--serial-number <serial>] [--model-number <model>] [--metadata <key=value>...]
 trellis deploy activation list [--instance <id>] [--deployment <id>] [--state <activated|revoked>]

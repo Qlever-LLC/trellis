@@ -105,4 +105,9 @@ export class SqlContractStorageRepository {
     ).where(eq(contracts.digest, digest)).limit(1);
     return rows.length > 0;
   }
+
+  /** Deletes a contract record by digest. */
+  async delete(digest: string): Promise<void> {
+    await this.#db.delete(contracts).where(eq(contracts.digest, digest));
+  }
 }

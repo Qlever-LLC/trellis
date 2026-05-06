@@ -33,6 +33,10 @@ import type {
   SqlUserProjectionRepository,
 } from "../storage.ts";
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
+import {
+  collectAppliedContractDigests,
+  purgeUnusedInstalledContracts,
+} from "./contract_gc.ts";
 export {
   authClearDevicePortalSelectionHandler,
   authClearLoginPortalSelectionHandler,
@@ -114,19 +118,29 @@ type OperationCompletion = {
   ): AsyncResult<unknown, BaseError>;
 };
 
-type ActiveContractsDeps = { refreshActiveContracts: () => Promise<void> };
+type ActiveContractsDeps = {
+  refreshActiveContracts: (
+    opts?: Parameters<ActiveCatalogValidator>[0],
+  ) => Promise<void>;
+  refreshActiveContractsForRemoval?: (
+    opts?: Parameters<ActiveCatalogValidator>[0],
+  ) => Promise<void>;
+};
 type ActiveCatalogValidator = (opts: {
   stagedDeviceDeployments?: Iterable<DeviceDeployment>;
   stagedDeviceInstances?: Iterable<DeviceInstance>;
 }) => Promise<unknown>;
 type ActiveCatalogDeps = ActiveContractsDeps & {
   validateActiveCatalog: ActiveCatalogValidator;
+  validateActiveCatalogForRemoval?: ActiveCatalogValidator;
 };
 
 export type AdminRpcDeps = {
   browserFlowsKV: RuntimeKV<unknown>;
+  builtinContractDigests?: Iterable<string>;
   connectionsKV: RuntimeKV<Connection>;
-  contractApprovalStorage: Pick<SqlContractApprovalRepository, "get">;
+  contractApprovalStorage: Pick<SqlContractApprovalRepository, "get" | "list">;
+  contractStorage?: { delete(digest: string): Promise<void> };
   deviceActivationReviewStorage: {
     get(reviewId: string): Promise<DeviceActivationReviewRecord | undefined>;
     getByFlowId(
@@ -199,6 +213,14 @@ export type AdminRpcDeps = {
     | "deleteBySessionKey"
     | "listEntries"
   >;
+  serviceDeploymentStorage?: {
+    list(): Promise<
+      Array<{ appliedContracts: Array<{ allowedDigests: string[] }> }>
+    >;
+  };
+  serviceInstanceStorage?: {
+    list(): Promise<Array<{ currentContractDigest?: string | null }>>;
+  };
   eventPublisher?: {
     publish(event: string, payload: unknown): AsyncResult<unknown, BaseError>;
   };
@@ -262,9 +284,52 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-async function refreshActiveContracts(deps: ActiveContractsDeps) {
+function missingGcDependency(name: string): UnexpectedError {
+  return new UnexpectedError({
+    cause: new Error(`unused contract purge requires ${name}`),
+  });
+}
+
+function buildInstalledContractGcDeps(
+  ctx: AdminRpcContext,
+):
+  | { ok: true; deps: Parameters<typeof purgeUnusedInstalledContracts>[1] }
+  | { ok: false; error: UnexpectedError } {
+  if (!ctx.contractStorage) {
+    return { ok: false, error: missingGcDependency("contractStorage") };
+  }
+  if (!ctx.serviceDeploymentStorage) {
+    return {
+      ok: false,
+      error: missingGcDependency("serviceDeploymentStorage"),
+    };
+  }
+  if (!ctx.serviceInstanceStorage) {
+    return {
+      ok: false,
+      error: missingGcDependency("serviceInstanceStorage"),
+    };
+  }
+  return {
+    ok: true,
+    deps: {
+      builtinContractDigests: ctx.builtinContractDigests ?? [],
+      contractStorage: ctx.contractStorage,
+      serviceDeploymentStorage: ctx.serviceDeploymentStorage,
+      deviceDeploymentStorage: ctx.deviceDeploymentStorage,
+      serviceInstanceStorage: ctx.serviceInstanceStorage,
+      sessionStorage: ctx.sessionStorage,
+      contractApprovalStorage: ctx.contractApprovalStorage,
+    },
+  };
+}
+
+async function refreshActiveContracts(
+  deps: ActiveContractsDeps,
+  opts?: Parameters<ActiveCatalogValidator>[0],
+) {
   try {
-    await deps.refreshActiveContracts();
+    await deps.refreshActiveContracts(opts);
     return Result.ok(undefined);
   } catch (error) {
     return Result.err(
@@ -827,10 +892,20 @@ export function createAuthRemoveDeviceDeploymentHandler(
   deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
-    input: { deploymentId: string; cascade?: boolean };
+    input: {
+      deploymentId: string;
+      cascade?: boolean;
+      purgeUnusedContracts?: boolean;
+    };
     context: { caller: RpcUser };
   }, ctx: AdminRpcContext) => {
     if (!isAdmin(caller)) return insufficientPermissions();
+    if (req.purgeUnusedContracts === true && req.cascade !== true) {
+      return invalidRequest({
+        deploymentId: req.deploymentId,
+        reason: "unused_contract_purge_requires_cascade",
+      });
+    }
     const instances = (await listDeviceInstances(ctx)).filter((instance) =>
       instance.deploymentId === req.deploymentId
     );
@@ -860,8 +935,22 @@ export function createAuthRemoveDeviceDeploymentHandler(
         state: "disabled" as const,
       }));
     }
-    const validated = await validateActiveCatalog(deps, validationOpts);
+    const removalDeps: ActiveCatalogDeps = {
+      refreshActiveContracts: deps.refreshActiveContractsForRemoval ??
+        deps.refreshActiveContracts,
+      validateActiveCatalog: deps.validateActiveCatalogForRemoval ??
+        deps.validateActiveCatalog,
+    };
+    const validated = await validateActiveCatalog(removalDeps, validationOpts);
     if (isErr(validated)) return validated;
+    let installedGcDeps:
+      | Parameters<typeof purgeUnusedInstalledContracts>[1]
+      | undefined;
+    if (req.purgeUnusedContracts === true) {
+      const gcDeps = buildInstalledContractGcDeps(ctx);
+      if (!gcDeps.ok) return Result.err(gcDeps.error);
+      installedGcDeps = gcDeps.deps;
+    }
     const provisioningSecrets: DeviceProvisioningSecret[] = [];
     const activations: DeviceActivation[] = [];
     const portalSelection = await ctx.devicePortalSelectionStorage.get(
@@ -942,12 +1031,28 @@ export function createAuthRemoveDeviceDeploymentHandler(
       }
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
-    const refreshed = await refreshActiveContracts(deps);
+    const refreshed = await refreshActiveContracts(removalDeps);
     if (isErr(refreshed)) {
       return await rollbackRefreshFailure<{ success: boolean }>(
         refreshed.error,
         restoreDeletedRecords,
       );
+    }
+    if (req.purgeUnusedContracts === true) {
+      if (!installedGcDeps) {
+        return Result.err(missingGcDependency("installedContractGcDeps"));
+      }
+      try {
+        await purgeUnusedInstalledContracts(
+          collectAppliedContractDigests(deployment),
+          installedGcDeps,
+        );
+      } catch (error) {
+        ctx.logger.warn(
+          { deploymentId: req.deploymentId, error: toError(error) },
+          "Failed to purge unused installed contracts after device deployment removal",
+        );
+      }
     }
     for (const review of activationReviews) {
       await deleteBrowserFlow(ctx, review.flowId);
@@ -1368,13 +1473,19 @@ export function createDeviceAdminHandlers(
     ) => Promise<
       { id: string; digest: string; displayName: string; description: string }
     >;
-    refreshActiveContracts: () => Promise<void>;
+    refreshActiveContracts: ActiveContractsDeps["refreshActiveContracts"];
+    refreshActiveContractsForRemoval?: ActiveContractsDeps[
+      "refreshActiveContractsForRemoval"
+    ];
     validateActiveCatalog: ActiveCatalogValidator;
+    validateActiveCatalogForRemoval?: ActiveCatalogValidator;
   },
 ) {
   const activeContractsDeps = {
     refreshActiveContracts: deps.refreshActiveContracts,
+    refreshActiveContractsForRemoval: deps.refreshActiveContractsForRemoval,
     validateActiveCatalog: deps.validateActiveCatalog,
+    validateActiveCatalogForRemoval: deps.validateActiveCatalogForRemoval,
   };
   return {
     createDeviceDeployment: bindAdminRpcHandler(

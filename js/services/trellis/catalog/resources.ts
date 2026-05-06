@@ -110,6 +110,63 @@ export type InstalledServiceContractBinding = {
   resources: ContractResourceBindings;
 };
 
+export type ResourcePurgeManager = {
+  deleteKvBucket(bucket: string): Promise<void>;
+  deleteObjectStore(name: string): Promise<void>;
+};
+
+export type PurgeableContractResourceBindings = {
+  kv?: ContractResourceBindings["kv"];
+  store?: ContractResourceBindings["store"];
+  jobs?: unknown;
+};
+
+/**
+ * Creates a NATS-backed resource purge manager for deleting physical KV buckets
+ * and object stores by their persisted binding names.
+ */
+export function createNatsResourcePurgeManager(
+  nats: NatsConnection,
+): ResourcePurgeManager {
+  return {
+    async deleteKvBucket(bucket) {
+      const kv = await new Kvm(nats).open(bucket);
+      await kv.destroy();
+    },
+    async deleteObjectStore(name) {
+      const store = await new Objm(nats).open(name);
+      await store.destroy();
+    },
+  };
+}
+
+/**
+ * Deletes physical KV and object-store resources referenced by persisted service
+ * contract bindings. Jobs bindings are intentionally ignored because they use
+ * shared platform streams.
+ */
+export async function purgeContractResourceBindings(
+  bindings: Iterable<PurgeableContractResourceBindings>,
+  manager: ResourcePurgeManager,
+): Promise<void> {
+  const kvBuckets = new Set<string>();
+  const objectStores = new Set<string>();
+  for (const binding of bindings) {
+    for (const kvBinding of Object.values(binding.kv ?? {})) {
+      kvBuckets.add(kvBinding.bucket);
+    }
+    for (const storeBinding of Object.values(binding.store ?? {})) {
+      objectStores.add(storeBinding.name);
+    }
+  }
+  for (const bucket of kvBuckets) {
+    await manager.deleteKvBucket(bucket);
+  }
+  for (const name of objectStores) {
+    await manager.deleteObjectStore(name);
+  }
+}
+
 export function getKvPermissionGrants(
   bucket: string,
   options: { allowCreate?: boolean } = {},

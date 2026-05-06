@@ -189,6 +189,8 @@ export const AuthEnableServiceDeploymentResponseSchema = Type.Object({
 export const AuthRemoveServiceDeploymentSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   cascade: Type.Optional(Type.Boolean()),
+  purgeResources: Type.Optional(Type.Boolean()),
+  purgeUnusedContracts: Type.Optional(Type.Boolean()),
 });
 export const AuthRemoveServiceDeploymentResponseSchema = Type.Object({
   success: Type.Boolean(),
@@ -934,6 +936,7 @@ export const AuthEnableDeviceDeploymentResponseSchema = Type.Object({
 export const AuthRemoveDeviceDeploymentSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   cascade: Type.Optional(Type.Boolean()),
+  purgeUnusedContracts: Type.Optional(Type.Boolean()),
 });
 export const AuthRemoveDeviceDeploymentResponseSchema = Type.Object({
   success: Type.Boolean(),

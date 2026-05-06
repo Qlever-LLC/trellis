@@ -244,6 +244,38 @@ pub struct DeployRemoveArgs {
 
     #[arg(long)]
     pub cascade: bool,
+
+    #[arg(long, requires = "cascade")]
+    pub purge: bool,
+
+    #[arg(long = "purge-resources", requires = "cascade")]
+    pub purge_resources: bool,
+
+    #[arg(long = "purge-unused-contracts", requires = "cascade")]
+    pub purge_unused_contracts: bool,
+}
+
+impl DeployRemoveArgs {
+    /// Validate remove options that depend on the parsed deployment kind.
+    pub fn validate(&self) -> Result<(), String> {
+        if (self.purge || self.purge_resources || self.purge_unused_contracts) && !self.cascade {
+            return Err("purge flags require --cascade".to_string());
+        }
+        if self.reference.kind == DeployKind::Device && self.purge_resources {
+            return Err("--purge-resources is only supported for service deployments".to_string());
+        }
+        Ok(())
+    }
+
+    /// Returns whether service-owned physical resources should be purged.
+    pub fn should_purge_resources(&self) -> bool {
+        self.reference.kind == DeployKind::Service && (self.purge || self.purge_resources)
+    }
+
+    /// Returns whether unused installed contract records should be purged.
+    pub fn should_purge_unused_contracts(&self) -> bool {
+        self.purge || self.purge_unused_contracts
+    }
 }
 
 #[derive(Debug, Args)]

@@ -17,10 +17,13 @@ import type { AuthContractsRuntime, RpcRegistrar } from "./types.ts";
 import type { AuthRuntimeDeps, RuntimeKV } from "../runtime_deps.ts";
 import type { Connection } from "../schemas.ts";
 import type {
+  SqlContractApprovalRepository,
+  SqlDeviceDeploymentRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
 } from "../storage.ts";
+import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import type { Config } from "../../config.ts";
 
 export async function registerServiceAdminRpcs(deps: {
@@ -28,6 +31,9 @@ export async function registerServiceAdminRpcs(deps: {
   trellis: RpcRegistrar;
   connectionsKV: RuntimeKV<Connection>;
   sessionStorage: SqlSessionRepository;
+  contractStorage: SqlContractStorageRepository;
+  contractApprovalStorage: SqlContractApprovalRepository;
+  deviceDeploymentStorage: SqlDeviceDeploymentRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
   serviceInstanceStorage: SqlServiceInstanceRepository;
   natsAuth: {
@@ -39,9 +45,12 @@ export async function registerServiceAdminRpcs(deps: {
   logger: Pick<AuthRuntimeDeps["logger"], "debug" | "trace" | "warn">;
   contracts: Pick<
     AuthContractsRuntime,
+    | "contractStore"
     | "installServiceContract"
     | "refreshActiveContracts"
+    | "refreshActiveContractsForRemoval"
     | "validateActiveCatalog"
+    | "validateActiveCatalogForRemoval"
   >;
 }): Promise<void> {
   const kick = createKick({ logger: deps.logger, natsAuth: deps.natsAuth });
@@ -111,11 +120,21 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthRemoveServiceDeploymentHandler({
       connectionsKV: deps.connectionsKV,
       kick,
+      nats: deps.natsTrellis,
+      logger: deps.logger,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      refreshActiveContractsForRemoval:
+        deps.contracts.refreshActiveContractsForRemoval,
       sessionStorage: deps.sessionStorage,
       validateActiveCatalog: deps.contracts.validateActiveCatalog,
+      validateActiveCatalogForRemoval:
+        deps.contracts.validateActiveCatalogForRemoval,
       serviceDeploymentStorage: deps.serviceDeploymentStorage,
       serviceInstanceStorage: deps.serviceInstanceStorage,
+      builtinContractDigests: deps.contracts.contractStore.getBuiltinDigests(),
+      contractApprovalStorage: deps.contractApprovalStorage,
+      contractStorage: deps.contractStorage,
+      deviceDeploymentStorage: deps.deviceDeploymentStorage,
     }),
   );
   await deps.trellis.mount(

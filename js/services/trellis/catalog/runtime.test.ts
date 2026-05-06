@@ -293,6 +293,55 @@ Deno.test("contracts runtime validates uses against active contracts", async () 
   });
 });
 
+Deno.test("contracts runtime can refresh removal catalogs with existing inactive uses", async () => {
+  await withContractsModule(
+    async (module, _contractStorage, serviceDeployments) => {
+      const billing = await module.installServiceContract(
+        makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
+      );
+      module.contractStore.activateDigest(billing.digest);
+
+      const portal = await module.installServiceContract({
+        format: "trellis.contract.v1",
+        id: "portal@v1",
+        displayName: "Portal",
+        description: "Calls billing operations.",
+        kind: "service",
+        uses: {
+          billing: {
+            contract: "billing@v1",
+            operations: { call: ["Refund"] },
+          },
+        },
+      });
+      await serviceDeployments.put({
+        deploymentId: "portal.default",
+        namespaces: ["Portal"],
+        disabled: false,
+        appliedContracts: [{
+          contractId: portal.id,
+          allowedDigests: [portal.digest],
+        }],
+      });
+
+      await assertRejects(
+        () => module.refreshActiveContracts(),
+        Error,
+        "inactive contract 'billing@v1'",
+      );
+
+      await module.refreshActiveContractsForRemoval();
+
+      assertEquals(
+        module.contractStore.getActiveCatalog().contracts.map((entry) =>
+          entry.digest
+        ),
+        [portal.digest],
+      );
+    },
+  );
+});
+
 Deno.test("contracts runtime fails closed when an active digest is missing", async () => {
   await withContractsModule(async (module) => {
     await module.refreshActiveContracts();

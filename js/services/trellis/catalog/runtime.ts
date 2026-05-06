@@ -488,21 +488,52 @@ export function createContractsModule(opts: {
     return active;
   }
 
-  async function validateActiveCatalog(
+  async function validateActiveCatalogEntries(
     validationOpts?: ActiveCatalogValidationOptions,
+    opts?: { skipActiveUsesValidation?: boolean },
   ): Promise<Array<{ digest: string; contract: TrellisContractV1 }>> {
     const active = await collectProposedActiveDigests(validationOpts);
     const activeEntries = contractStore.validateActiveDigests(active);
     validateActiveContractCompatibility(activeEntries);
-    validateActiveContractUses(activeEntries);
+    if (opts?.skipActiveUsesValidation !== true) {
+      validateActiveContractUses(activeEntries);
+    }
     return activeEntries;
   }
 
-  async function refreshActiveContracts(): Promise<void> {
-    const activeEntries = await validateActiveCatalog();
+  async function validateActiveCatalog(
+    validationOpts?: ActiveCatalogValidationOptions,
+  ): Promise<Array<{ digest: string; contract: TrellisContractV1 }>> {
+    return await validateActiveCatalogEntries(validationOpts);
+  }
 
+  async function validateActiveCatalogForRemoval(
+    validationOpts?: ActiveCatalogValidationOptions,
+  ): Promise<Array<{ digest: string; contract: TrellisContractV1 }>> {
+    return await validateActiveCatalogEntries(validationOpts, {
+      skipActiveUsesValidation: true,
+    });
+  }
+
+  function activateEntries(
+    activeEntries: Array<{ digest: string; contract: TrellisContractV1 }>,
+  ): void {
     contractStore.setActiveDigests(activeEntries.map((entry) => entry.digest));
     setPermissionContracts(activeEntries);
+  }
+
+  async function refreshActiveContracts(
+    validationOpts?: ActiveCatalogValidationOptions,
+  ): Promise<void> {
+    const activeEntries = await validateActiveCatalog(validationOpts);
+    activateEntries(activeEntries);
+  }
+
+  async function refreshActiveContractsForRemoval(
+    validationOpts?: ActiveCatalogValidationOptions,
+  ): Promise<void> {
+    const activeEntries = await validateActiveCatalogForRemoval(validationOpts);
+    activateEntries(activeEntries);
   }
 
   return {
@@ -510,7 +541,9 @@ export function createContractsModule(opts: {
     installDeviceContract,
     installServiceContract,
     refreshActiveContracts,
+    refreshActiveContractsForRemoval,
     validateActiveCatalog,
+    validateActiveCatalogForRemoval,
   };
 }
 

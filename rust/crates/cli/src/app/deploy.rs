@@ -313,6 +313,8 @@ async fn toggle_command(
 }
 
 async fn remove_command(format: OutputFormat, args: &DeployRemoveArgs) -> miette::Result<()> {
+    args.validate()
+        .map_err(|message| miette::miette!(message))?;
     miette::ensure!(
         !output::is_json(format) || args.force,
         "use -f with --format json to skip the interactive removal review"
@@ -328,17 +330,28 @@ async fn remove_command(format: OutputFormat, args: &DeployRemoveArgs) -> miette
     let success = match args.reference.kind {
         DeployKind::Service => {
             auth_client
-                .remove_service_deployment_with_options(
+                .remove_service_deployment_with_remove_options(
                     &args.reference.id,
-                    args.cascade.then_some(true),
+                    authlib::RemoveServiceDeploymentOptions {
+                        cascade: args.cascade.then_some(true),
+                        purge_resources: args.should_purge_resources().then_some(true),
+                        purge_unused_contracts: args
+                            .should_purge_unused_contracts()
+                            .then_some(true),
+                    },
                 )
                 .await
         }
         DeployKind::Device => {
             auth_client
-                .remove_device_deployment_with_options(
+                .remove_device_deployment_with_remove_options(
                     &args.reference.id,
-                    args.cascade.then_some(true),
+                    authlib::RemoveDeviceDeploymentOptions {
+                        cascade: args.cascade.then_some(true),
+                        purge_unused_contracts: args
+                            .should_purge_unused_contracts()
+                            .then_some(true),
+                    },
                 )
                 .await
         }

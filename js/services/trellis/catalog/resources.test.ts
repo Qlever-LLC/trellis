@@ -11,8 +11,10 @@ import {
   getResourcePermissionGrants,
   getStoreResourceRequests,
   provisionContractResourceBindings,
+  purgeContractResourceBindings,
   reconcileKvResourceConfig,
   reconcileStoreResourceConfig,
+  type ResourcePurgeManager,
 } from "./resources.ts";
 
 const CONTRACT = {
@@ -34,7 +36,15 @@ const CONTRACT = {
   },
 } as TrellisContractV1;
 
-const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
+function isEnvFlagEnabled(name: string): boolean {
+  try {
+    return Deno.env.get(name) === "1";
+  } catch {
+    return false;
+  }
+}
+
+const RUN_NATS_TESTS = isEnvFlagEnabled("TRELLIS_TEST_NATS");
 
 Deno.test("resource requests apply KV defaults", () => {
   assertEquals(getKvResourceRequests(CONTRACT), [
@@ -124,6 +134,111 @@ Deno.test("optional resources do not require NATS and do not create bindings", a
     ),
     {},
   );
+});
+
+Deno.test("resource purge deletes bound KV buckets and object stores", async () => {
+  const deletedKvBuckets: string[] = [];
+  const deletedObjectStores: string[] = [];
+  const manager: ResourcePurgeManager = {
+    async deleteKvBucket(bucket) {
+      deletedKvBuckets.push(bucket);
+    },
+    async deleteObjectStore(name) {
+      deletedObjectStores.push(name);
+    },
+  };
+
+  await purgeContractResourceBindings([
+    {
+      kv: {
+        cache: { bucket: "svc_billing_cache", history: 1, ttlMs: 0 },
+        state: { bucket: "svc_billing_state", history: 3, ttlMs: 1000 },
+      },
+      store: {
+        uploads: { name: "svc_billing_uploads", ttlMs: 0 },
+      },
+    },
+    {
+      kv: {
+        audit: { bucket: "svc_billing_audit", history: 1, ttlMs: 0 },
+      },
+      store: {
+        exports: { name: "svc_billing_exports", ttlMs: 60_000 },
+      },
+    },
+  ], manager);
+
+  assertEquals(deletedKvBuckets, [
+    "svc_billing_cache",
+    "svc_billing_state",
+    "svc_billing_audit",
+  ]);
+  assertEquals(deletedObjectStores, [
+    "svc_billing_uploads",
+    "svc_billing_exports",
+  ]);
+});
+
+Deno.test("resource purge deletes duplicate physical resources once", async () => {
+  const deletedKvBuckets: string[] = [];
+  const deletedObjectStores: string[] = [];
+  const manager: ResourcePurgeManager = {
+    async deleteKvBucket(bucket) {
+      deletedKvBuckets.push(bucket);
+    },
+    async deleteObjectStore(name) {
+      deletedObjectStores.push(name);
+    },
+  };
+
+  await purgeContractResourceBindings([
+    {
+      kv: {
+        cache: { bucket: "svc_billing_shared", history: 1, ttlMs: 0 },
+        state: { bucket: "svc_billing_shared", history: 3, ttlMs: 1000 },
+      },
+      store: {
+        uploads: { name: "svc_billing_files", ttlMs: 0 },
+      },
+    },
+    {
+      kv: {
+        cache: { bucket: "svc_billing_shared", history: 1, ttlMs: 0 },
+      },
+      store: {
+        exports: { name: "svc_billing_files", ttlMs: 60_000 },
+      },
+    },
+  ], manager);
+
+  assertEquals(deletedKvBuckets, ["svc_billing_shared"]);
+  assertEquals(deletedObjectStores, ["svc_billing_files"]);
+});
+
+Deno.test("resource purge ignores jobs bindings", async () => {
+  const deletedKvBuckets: string[] = [];
+  const deletedObjectStores: string[] = [];
+  const manager: ResourcePurgeManager = {
+    async deleteKvBucket(bucket) {
+      deletedKvBuckets.push(bucket);
+    },
+    async deleteObjectStore(name) {
+      deletedObjectStores.push(name);
+    },
+  };
+
+  await purgeContractResourceBindings([
+    {
+      jobs: {
+        namespace: "billing_jobs",
+        workStream: "JOBS_WORK",
+        queues: {},
+      },
+    },
+  ], manager);
+
+  assertEquals(deletedKvBuckets, []);
+  assertEquals(deletedObjectStores, []);
 });
 
 Deno.test("required resources still require NATS when optional resources are present", async () => {
