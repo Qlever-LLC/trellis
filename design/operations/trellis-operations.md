@@ -68,7 +68,13 @@ Example:
       "capabilities": {
         "call": ["billing.refund"],
         "read": ["billing.refund"],
-        "cancel": ["billing.refund.cancel"]
+        "cancel": ["billing.refund.cancel"],
+        "control": ["billing.refund.control"]
+      },
+      "signals": {
+        "approveRefund": {
+          "input": { "schema": "BillingRefundApproval" }
+        }
       },
       "cancel": true
     }
@@ -87,14 +93,23 @@ Descriptor rules:
   to `capabilities.call`
 - `capabilities.cancel` gates `cancel`; if omitted, cancellation is not
   caller-accessible unless the runtime is acting as the owning service
+- `capabilities.control` gates named operation signals; if omitted, signal
+  submission does not require additional Trellis capabilities beyond
+  authentication and operation ownership, but services SHOULD declare explicit
+  control capabilities for caller-visible workflows that accept post-start input
+- `signals` declares named post-start inputs for schema validation, docs,
+  authorization review, and generated SDK aliases
 - `cancel: true` means the operation exposes cancellation semantics; omitted or
   `false` means callers cannot cancel it
 - operations are always authenticated; invoking or observing an operation always
   requires an authenticated caller plus operation authorization
 
-`uses` MUST support operations the same way it supports RPCs, events, and
-subjects. A participant may only invoke, read, or cancel remote operations that
-it explicitly declares in `uses` and that its current auth state authorizes.
+`uses` MUST support operation invocation the same way it supports RPC calls,
+events, and subjects. A participant may only start remote operations that it
+explicitly declares in `uses` and that its current auth state authorizes.
+Follow-up reads, waits, watches, cancels, and signals are authorized against the
+specific operation id, creator/owner metadata, and action-specific operation
+capabilities.
 
 ### 3) Operations are durable by default
 
@@ -145,20 +160,23 @@ Rules:
   need to know hidden `*.Start`, `*.Get`, `*.Wait`, or `*.Watch` wire names
 - public APIs MUST NOT expose hidden control subjects, caller reply subjects,
   reply-stream mechanics, or runtime control envelopes
-- generated runtimes SHOULD omit cancellation helpers and service-side
-  cancellation affordances for non-cancelable operations rather than exposing
-  methods that always fail
-- event streams and generated callbacks MUST filter cancellation affordances
-  according to the descriptor: public cancellation helpers and cancellation
-  handler controls exist only for operations declared cancelable, while runtime
-  control frames remain hidden
+- the TypeScript runtime exposes universal `cancel()` and `signal(...)` helpers
+  on operation references; unsupported cancel or signal attempts MUST return an
+  expected failure (`Result.err` / language equivalent), not throw as a normal
+  control-flow path and not mutate operation state
+- non-TypeScript generated runtimes SHOULD expose equivalent operation-reference
+  control helpers as their operation runtime support catches up; exact current
+  language support belongs in `/api` and Rustdoc
+- event streams and generated callbacks MUST keep runtime control frames hidden;
+  public cancellation and signal affordances are operation-reference methods, not
+  lifecycle watch events
 
 Caller surface:
 
 - callers start async workflows with `operation(key).input(input).start()` and
   receive an `OperationRef`
 - callers observe the operation through `get()`, `wait()`, `watch()`, and
-  optional `cancel()`
+  operation-reference control helpers such as `cancel()` and `signal(...)`
 - callers send bytes for transfer-backed operations through
   `operation(key).input(input).transfer(body).start()`
 
@@ -174,6 +192,9 @@ Owning-service surface:
 - handler-visible active operation handles are the only service-side public path
   for publishing lifecycle changes, progress, terminal success, terminal
   failure, cancellation, or job attachment
+- handler-visible active operation handles expose a durable private signal stream
+  for named caller inputs submitted after start; handlers consume it through
+  runtime helpers such as `signals()` or `nextSignal(name?)`
 - handlers that intentionally leave terminal completion to another control path
   return `op.defer()` after recording any durable progress they own. The runtime
   MUST NOT auto-complete, auto-fail, or keep the handler promise pending for a
@@ -182,7 +203,7 @@ Owning-service surface:
   never-resolving promise.
 
 Generated operation runtimes MUST derive input, progress, output, cancelability,
-transfer behavior, and provider-side transfer helpers from the operation
+signals, transfer behavior, and provider-side transfer helpers from the operation
 descriptor. They MUST expose typed operation helpers only for operations the
 participant owns or explicitly declares in `uses`, and they MUST preserve enough
 descriptor metadata for language-specific generated facades. For exact
@@ -198,7 +219,8 @@ runtime MUST preserve these logical fields and semantics:
 - operation state is one of pending, running, completed, failed, or cancelled
 - an operation reference identifies the operation id, owning service, and
   operation key, and supports current-state reads, terminal waits, live watches,
-  and cancellation only when the descriptor allows cancellation
+  cancellation, and named signals; unsupported cancellation or signal submission
+  returns an expected failure rather than silently succeeding
 - a durable snapshot carries operation identity, a monotonic revision,
   timestamps, current state, optional typed progress, optional transfer
   progress, optional typed output, and an error view for failed terminal
@@ -212,12 +234,17 @@ runtime MUST preserve these logical fields and semantics:
   transfer progress
 - runtime control events that are not part of this public lifecycle remain
   hidden behind the operation reference
+- accepted operation signals are private operation-control inputs; they are not
+  public lifecycle events and do not appear on `watch()` unless the service later
+  reflects their effects through progress or terminal snapshots
 
 Lifecycle rules:
 
 - the first externally visible event MUST be `accepted`
 - `accepted` creates a durable operation snapshot in `pending`
 - every durable snapshot exposes a monotonic public `revision`
+- accepted signals are persisted with a private monotonic signal sequence and do
+  not increment the public snapshot `revision`
 - `started` transitions the snapshot to `running`
 - `transfer` updates the stored transfer progress payload, emits once per
   acknowledged chunk, and MUST carry that payload as both `event.transfer` and
@@ -250,20 +277,21 @@ general-purpose cross-service subscribe grants.
 
 ### 7) Operation wire model
 
-The public API is `operation(...).input(...).start()` plus
-`OperationRef.get/wait/watch/cancel`. Those methods are part of the normal
-generated Trellis API surface, while the underlying wire model is standardized
-enough for auth and codegen.
+The TypeScript public API is `operation(...).input(...).start()` plus
+`OperationRef.get/wait/watch/cancel/signal`. Other language runtimes expose the
+same protocol through their generated facade support as it lands. The underlying
+wire model is standardized enough for auth and codegen.
 
 Rules:
 
 - invoking an operation publishes the input payload to the operation's declared
   `subject`
 - every operation also has a derived control subject: `<subject>.control`
-- the runtime uses the control subject for `get`, `wait`, `watch`, and `cancel`
+- the runtime uses the control subject for `get`, `wait`, `watch`, `cancel`, and
+  `signal`
 - `watch` and `wait` send a reply subject under the caller's `_INBOX` prefix and
   receive responses on that subject
-- `get` and `cancel` are single-response control requests
+- `get`, `cancel`, and `signal` are single-response control requests
 - `watch` is a streaming control request
 - `wait` is a streaming or long-poll control request that terminates on the
   first terminal snapshot
@@ -325,20 +353,29 @@ type OperationControlRequest =
   | {
     action: "cancel";
     operationId: string;
+  }
+  | {
+    action: "signal";
+    operationId: string;
+    signal: string;
+    input?: JsonValue;
   };
 ```
 
 Rules:
 
 - `operationId` is always required for control requests
+- `signal` is the contract-declared signal name for `action: "signal"`
+- `input` is validated against the matching signal descriptor's input schema;
+  rejected signals are not persisted
 - the public runtime owns this envelope; user code never constructs it directly
 - every control request MUST be authenticated and authorization-checked against
   the referenced operation id
 
 #### 7c) Internal control response frames
 
-`get`, `wait`, `watch`, and `cancel` all respond with standardized internal
-frames on the validated caller reply subject.
+`get`, `wait`, `watch`, `cancel`, and `signal` all respond with standardized
+internal frames on the validated caller reply subject.
 
 ```ts
 type OperationControlFrame<TProgress, TOutput> =
@@ -359,6 +396,14 @@ type OperationControlFrame<TProgress, TOutput> =
     event: OperationEvent<TProgress, TOutput>;
   }
   | {
+    kind: "signal-accepted";
+    operationId: string;
+    signal: string;
+    signalSequence: number;
+    acceptedAt: string;
+    snapshot: OperationSnapshot<TProgress, TOutput>;
+  }
+  | {
     kind: "keepalive";
   }
   | {
@@ -376,8 +421,11 @@ Rules:
   one operation id
 - `sequence` is a monotonically increasing stream sequence scoped to one
   operation id
-- `error` frames are runtime/internal protocol failures; domain failure outcomes
-  remain normal terminal operation snapshots with state `failed`
+- `signalSequence` is a private monotonically increasing signal-log sequence
+  scoped to one operation id and is independent of public snapshot `revision`
+- `error` frames are expected control-request failures or runtime/internal
+  protocol failures; domain failure outcomes remain normal terminal operation
+  snapshots with state `failed`
 - runtimes MUST hide these internal frames behind `OperationRef` methods
 
 #### 7d) Internal method behavior
@@ -409,6 +457,20 @@ Rules:
 - sends one `OperationControlRequest` with `action: "cancel"`
 - receives exactly one `snapshot` frame containing the post-cancel durable
   state, or one `error` frame
+- if the descriptor is not cancelable, the service MUST return an `error` frame
+  and MUST NOT mutate the durable operation state
+- cancel authorization uses `capabilities.cancel`, not `capabilities.control`
+- MUST then close the reply stream
+
+`signal`:
+
+- sends one `OperationControlRequest` with `action: "signal"`
+- receives exactly one `signal-accepted` frame containing the accepted signal
+  sequence and current durable snapshot, or one `error` frame
+- the service MUST persist the accepted signal before acknowledging it
+- the service MUST reject unknown signal names, invalid signal payloads,
+  terminal operations, and operations not running in the current service process
+- accepted signals MUST NOT emit public watch events by themselves
 - MUST then close the reply stream
 
 Keepalive rules:
@@ -429,6 +491,8 @@ Authorization rules:
   `capabilities.read`, and the owning service's operation-level authorization
   logic
 - cancel access is gated by authentication, `capabilities.cancel`, and the
+  owning service's operation-level authorization logic
+- signal access is gated by authentication, `capabilities.control`, and the
   owning service's operation-level authorization logic
 - the owning service MUST persist enough operation ownership metadata to
   authorize follow-up access to a specific operation id

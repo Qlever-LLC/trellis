@@ -2,9 +2,11 @@ import { assert, assertEquals, assertFalse, assertRejects } from "@std/assert";
 import { AsyncResult } from "@qlever-llc/result";
 import type {
   OperationEvent,
+  OperationSignalAck,
   OperationSnapshot,
   TerminalOperation,
 } from "../operations.ts";
+import { UnexpectedError } from "../errors/index.ts";
 
 import {
   type AuthActivateDeviceInput,
@@ -39,6 +41,14 @@ function okResult<T>(value: T) {
   return {
     take: () => value,
   };
+}
+
+function unsupportedActivationOperationControl() {
+  return AsyncResult.err(
+    new UnexpectedError({
+      cause: new Error("fake activation operation control is unsupported"),
+    }),
+  );
 }
 
 Deno.test("device activation payload helpers round-trip encoded payloads", async () => {
@@ -530,6 +540,21 @@ Deno.test("device activation client wrappers hide method strings", async () => {
                     },
                   };
                 })());
+              },
+              cancel() {
+                return unsupportedActivationOperationControl();
+              },
+              signal(
+                _signal: string,
+                _input?: unknown,
+              ): AsyncResult<
+                OperationSignalAck<
+                  AuthActivateDeviceProgress,
+                  AuthActivateDeviceOutput
+                >,
+                UnexpectedError
+              > {
+                return unsupportedActivationOperationControl();
               },
             });
           },

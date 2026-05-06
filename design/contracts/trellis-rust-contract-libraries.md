@@ -164,6 +164,8 @@ Generated SDK crates must expose:
 - stable contract identity and digest metadata
 - access to the canonical contract manifest
 - owned request, response, event, and message types
+- owned operation input, progress, output, terminal, operation-ref, and signal
+  payload aliases where the manifest declares those schemas
 - owned operation, RPC, and event descriptors
 - thin outbound client helper modules for the owned surface
 - thin inbound server helper modules for the owned surface
@@ -229,8 +231,9 @@ semantic requirements.
 Required descriptor semantics:
 
 - operation descriptors expose logical key, invoke subject, derived control
-  subject, input type, progress type if any, output type, declared capability
-  requirements, and enough metadata to drive typed operation helpers
+  subject, input type, progress type if any, output type, declared signal input
+  schemas, declared capability requirements, and enough metadata to drive typed
+  operation helpers
 - RPC descriptors expose logical key, concrete subject, request type, response
   type, declared caller capabilities, and declared known errors
 - event descriptors expose logical key, event type, subject template metadata,

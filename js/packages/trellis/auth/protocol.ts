@@ -1079,6 +1079,22 @@ export const AuthListUsersResponseSchema = Type.Object({
   users: Type.Array(UserViewSchema),
 });
 
+export const CapabilityDefinitionSchema = Type.Object({
+  key: Type.String({ minLength: 1 }),
+  displayName: Type.String({ minLength: 1 }),
+  description: Type.String({ minLength: 1 }),
+  consequence: Type.Optional(Type.String({ minLength: 1 })),
+  source: Type.Union([Type.Literal("contract"), Type.Literal("platform")]),
+  contractId: Type.Optional(Type.String({ minLength: 1 })),
+  contractDigest: Type.Optional(DigestSchema),
+  contractDisplayName: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export const AuthListCapabilitiesSchema = Type.Object({});
+export const AuthListCapabilitiesResponseSchema = Type.Object({
+  capabilities: Type.Array(CapabilityDefinitionSchema),
+});
+
 export const AuthUpdateUserSchema = Type.Object({
   origin: Type.String(),
   id: Type.String(),

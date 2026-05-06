@@ -129,6 +129,8 @@ export {
   AuthGetLoginPortalDefaultSchema,
   AuthListApprovalsResponseSchema,
   AuthListApprovalsSchema,
+  AuthListCapabilitiesResponseSchema,
+  AuthListCapabilitiesSchema,
   AuthListDeviceActivationReviewsResponseSchema,
   AuthListDeviceActivationReviewsSchema,
   AuthListDeviceActivationsResponseSchema,

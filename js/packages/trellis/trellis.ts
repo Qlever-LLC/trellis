@@ -498,6 +498,10 @@ export type OperationRuntimeHandle<TProgress = unknown, TOutput = unknown> = {
   attach(
     job: { wait(): AsyncResult<unknown, BaseError> },
   ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  signals(): AsyncIterable<RuntimeOperationSignal>;
+  nextSignal(
+    name?: string,
+  ): AsyncResult<RuntimeOperationSignal, BaseError>;
   defer(): OperationDeferred;
 };
 export type OperationDeferred = {
@@ -679,6 +683,9 @@ export type RuntimeOperationDesc = {
   input: unknown;
   progress?: unknown;
   output?: unknown;
+  signals?: Record<string, { input: unknown }>;
+  cancelCapabilities?: readonly string[];
+  controlCapabilities?: readonly string[];
   transfer?: {
     store: string;
     key: `/${string}`;
@@ -689,6 +696,18 @@ export type RuntimeOperationDesc = {
   };
   cancel?: boolean;
 };
+
+export type RuntimeOperationSignal = {
+  operationId: string;
+  sequence: number;
+  signal: string;
+  input?: JsonValue;
+  acceptedAt: string;
+};
+
+export type RuntimeOperationSignalWaiter = (
+  result: Result<RuntimeOperationSignal, BaseError>,
+) => void;
 
 export type RuntimeOperationTransferProgress = {
   chunkIndex: number;
@@ -728,16 +747,29 @@ export type RuntimeOperationRecord = {
   ownerSessionKey: string;
   snapshot: RuntimeOperationSnapshot;
   sequence: number;
+  signalSequence: number;
+  signals: RuntimeOperationSignal[];
   terminal: boolean;
   watchers: Set<string>;
   waiters: Set<string>;
+  signalWaiters: Set<RuntimeOperationSignalWaiter>;
 };
 
 export type DurableOperationRecord = {
   ownerSessionKey: string;
   sequence: number;
+  signalSequence?: number;
+  signals?: RuntimeOperationSignal[];
   snapshot: RuntimeOperationSnapshot;
 };
+
+const DurableOperationSignalSchema = Type.Object({
+  operationId: Type.String(),
+  sequence: Type.Number(),
+  signal: Type.String(),
+  input: Type.Optional(Type.Any()),
+  acceptedAt: Type.String(),
+});
 
 const DurableOperationSnapshotSchema = Type.Object({
   id: Type.String(),
@@ -770,6 +802,8 @@ const DurableOperationSnapshotSchema = Type.Object({
 export const DurableOperationRecordSchema = Type.Object({
   ownerSessionKey: Type.String(),
   sequence: Type.Number(),
+  signalSequence: Type.Optional(Type.Number()),
+  signals: Type.Optional(Type.Array(DurableOperationSignalSchema)),
   snapshot: DurableOperationSnapshotSchema,
 });
 
@@ -780,10 +814,17 @@ export type RuntimeOperationAcceptedEnvelope = {
   transfer?: SendTransferGrant;
 };
 
-export type RuntimeOperationControlRequest = {
-  action: "get" | "wait" | "watch" | "cancel";
-  operationId: string;
-};
+export type RuntimeOperationControlRequest =
+  | {
+    action: "get" | "wait" | "watch" | "cancel";
+    operationId: string;
+  }
+  | {
+    action: "signal";
+    operationId: string;
+    signal: string;
+    input?: JsonValue;
+  };
 
 export type RuntimeOperationController = {
   get(
@@ -807,6 +848,11 @@ export type RuntimeOperationController = {
   cancel(
     operationId: string,
   ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  signals(operationId: string): AsyncIterable<RuntimeOperationSignal>;
+  nextSignal(
+    operationId: string,
+    name?: string,
+  ): AsyncResult<RuntimeOperationSignal, BaseError>;
 };
 
 export function buildRuntimeOperationSnapshot(
@@ -1723,6 +1769,8 @@ export class Trellis<
     const record: DurableOperationRecord = {
       ownerSessionKey: runtime.ownerSessionKey,
       sequence: runtime.sequence,
+      signalSequence: runtime.signalSequence,
+      signals: runtime.signals,
       snapshot: runtime.snapshot,
     };
     await store.put(runtime.id, record);

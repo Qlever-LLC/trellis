@@ -174,6 +174,71 @@ The emitted manifest contains `trellis.jobs::jobs.admin.read` in both the
 top-level `capabilities` map and the RPC capability list. Undeclared platform
 capabilities such as `service` remain raw strings.
 
+Operations that accept post-start caller input declare named signals in the
+operation descriptor. Signal input schemas live in the local schema registry and
+are referenced with the same `ref.schema(...)` pattern as operation input,
+progress, and output schemas.
+
+Example shape:
+
+```ts
+const schemas = {
+  RefundInput: Type.Object({ chargeId: Type.String() }),
+  RefundProgress: Type.Object({ message: Type.String() }),
+  RefundOutput: Type.Object({ refundId: Type.String() }),
+  ApproveRefundSignal: Type.Object({ approvedBy: Type.String() }),
+} as const;
+
+export const billing = defineServiceContract(
+  { schemas },
+  (ref) => ({
+    id: "billing@v1",
+    displayName: "Billing",
+    description: "Billing operations.",
+    capabilities: {
+      "billing.refund": {
+        displayName: "Refund billing",
+        description: "Start and read refund operations.",
+      },
+      "billing.refund.control": {
+        displayName: "Control refund operations",
+        description: "Submit post-start refund operation input.",
+      },
+    },
+    operations: {
+      "Billing.Refund": {
+        version: "v1",
+        input: ref.schema("RefundInput"),
+        progress: ref.schema("RefundProgress"),
+        output: ref.schema("RefundOutput"),
+        capabilities: {
+          call: ["billing.refund"],
+          read: ["billing.refund"],
+          control: ["billing.refund.control"],
+        },
+        signals: {
+          approveRefund: { input: ref.schema("ApproveRefundSignal") },
+        },
+      },
+    },
+  }),
+);
+```
+
+Rules:
+
+- `signals` is an operation-local map of named post-start inputs.
+- each signal requires an `input` schema reference from the local schema registry.
+- signal schemas are reachable contract schemas and therefore participate in
+  manifest emission, digest projection, validation, docs, and generated SDK
+  aliases.
+- `capabilities.control` is the coarse capability gate for signal submission;
+  `capabilities.cancel` remains the coarse gate for cancellation only.
+- TypeScript operation references expose universal `cancel()` and `signal(...)`
+  helpers for ergonomic wrappers. Unsupported cancel or signal attempts are
+  expected runtime failures returned through `Result` / `AsyncResult`, not
+  omitted protocol semantics.
+
 Example shape:
 
 ```ts

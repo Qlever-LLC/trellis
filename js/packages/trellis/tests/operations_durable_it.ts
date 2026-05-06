@@ -82,8 +82,24 @@ function startPermissiveAuthResponder(
   })();
 }
 
+const billingCapabilities = {
+  "billing.refund": {
+    displayName: "Refund billing",
+    description: "Start billing refund operations.",
+  },
+  "billing.read": {
+    displayName: "Read billing",
+    description: "Read billing refund operations.",
+  },
+  "billing.cancel": {
+    displayName: "Cancel billing",
+    description: "Cancel billing refund operations.",
+  },
+} as const;
+
 const billing = defineServiceContract(
   {
+    capabilities: billingCapabilities,
     schemas: {
       RefundInput: Type.Object({ chargeId: Type.String() }, {
         additionalProperties: false,

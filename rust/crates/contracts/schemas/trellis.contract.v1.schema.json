@@ -523,6 +523,22 @@
             },
             "cancel": {
               "$ref": "#/$defs/capabilities"
+            },
+            "control": {
+              "$ref": "#/$defs/capabilities"
+            }
+          }
+        },
+        "signals": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["input"],
+            "properties": {
+              "input": {
+                "$ref": "#/$defs/schemaRef"
+              }
             }
           }
         },

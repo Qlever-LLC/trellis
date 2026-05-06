@@ -264,7 +264,9 @@ export type ContractOperation = {
     call?: Capability[];
     read?: Capability[];
     cancel?: Capability[];
+    control?: Capability[];
   };
+  signals?: Record<string, { input: ContractSchemaRef }>;
   cancel?: boolean;
 };
 
@@ -621,7 +623,9 @@ export type ContractSourceOperation<
     call?: readonly TCapability[];
     read?: readonly TCapability[];
     cancel?: readonly TCapability[];
+    control?: readonly TCapability[];
   };
+  signals?: Record<string, { input: ContractSchemaRef<TSchemaName> }>;
   cancel?: boolean;
   subject?: string;
 };
@@ -2088,6 +2092,9 @@ function collectReachableSchemaNames(contract: TrellisContractV1): Set<string> {
     collectSchemaRef(reachableSchemas, operation.input);
     collectSchemaRef(reachableSchemas, operation.progress);
     collectSchemaRef(reachableSchemas, operation.output);
+    for (const signal of Object.values(operation.signals ?? {})) {
+      collectSchemaRef(reachableSchemas, signal.input);
+    }
   }
 
   for (const event of Object.values(contract.events ?? {})) {
@@ -2225,7 +2232,7 @@ function projectDigestOperations(
       {
         ...operation,
         ...((operation.capabilities?.call || operation.capabilities?.read ||
-            operation.capabilities?.cancel)
+            operation.capabilities?.cancel || operation.capabilities?.control)
           ? {
             capabilities: {
               ...(operation.capabilities.call
@@ -2236,6 +2243,9 @@ function projectDigestOperations(
                 : {}),
               ...(operation.capabilities.cancel
                 ? { cancel: sortedUnique(operation.capabilities.cancel) }
+                : {}),
+              ...(operation.capabilities.control
+                ? { control: sortedUnique(operation.capabilities.control) }
                 : {}),
             },
           }
@@ -2659,7 +2669,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
         }
         if (
           operation.capabilities?.call || operation.capabilities?.read ||
-          operation.capabilities?.cancel
+          operation.capabilities?.cancel || operation.capabilities?.control
         ) {
           emitted.capabilities = {
             ...(operation.capabilities.call
@@ -2692,7 +2702,25 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
                 ) ?? [],
               }
               : {}),
+            ...(operation.capabilities.control
+              ? {
+                control: projectCapabilities(
+                  operation.capabilities.control,
+                  source.id,
+                  source.capabilities,
+                  `operation '${name}' control capabilities`,
+                ) ?? [],
+              }
+              : {}),
           };
+        }
+        if (operation.signals) {
+          emitted.signals = Object.fromEntries(
+            Object.entries(operation.signals).map(([signalName, signal]) => [
+              signalName,
+              { input: { ...signal.input } },
+            ]),
+          );
         }
         if (operation.cancel !== undefined) {
           emitted.cancel = operation.cancel;
@@ -2895,6 +2923,22 @@ function buildOwnedApi(source: TrellisContractSource): ApiShape {
         transfer: operation.transfer
           ? { ...operation.transfer, direction: "send" }
           : undefined,
+        signals: operation.signals
+          ? Object.fromEntries(
+            Object.entries(operation.signals).map(([signalName, signal]) => [
+              signalName,
+              {
+                input: schema(
+                  resolveSchemaRef(
+                    source.schemas,
+                    signal.input,
+                    `operation '${name}' signal '${signalName}' input`,
+                  ),
+                ),
+              },
+            ]),
+          )
+          : undefined,
         callerCapabilities: projectCapabilities(
           operation.capabilities?.call,
           source.id,
@@ -2912,6 +2956,12 @@ function buildOwnedApi(source: TrellisContractSource): ApiShape {
           source.id,
           source.capabilities,
           `operation '${name}' cancel capabilities`,
+        ) ?? [],
+        controlCapabilities: projectCapabilities(
+          operation.capabilities?.control,
+          source.id,
+          source.capabilities,
+          `operation '${name}' control capabilities`,
         ) ?? [],
         cancel: operation.cancel,
       },

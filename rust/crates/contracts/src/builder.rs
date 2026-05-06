@@ -3,7 +3,7 @@ use serde_json::Value;
 use crate::{
     parse_manifest, ContractCapabilities, ContractCapabilityMetadata, ContractErrorRef,
     ContractEvent, ContractExports, ContractJobQueueResource, ContractKind, ContractKvResource,
-    ContractManifest, ContractOperation, ContractOperationTransfer,
+    ContractManifest, ContractOperation, ContractOperationSignal, ContractOperationTransfer,
     ContractOperationTransferDirection, ContractResources, ContractRpcMethod, ContractRpcTransfer,
     ContractRpcTransferDirection, ContractSchemaRef, ContractStateKind, ContractStateStore,
     ContractStoreResource, ContractUseOperation, ContractUsePubSub, ContractUseRef, ContractUseRpc,
@@ -402,6 +402,7 @@ pub fn operation(
         transfer: None,
         capabilities: None,
         cancel: None,
+        signals: Default::default(),
     }
 }
 
@@ -565,8 +566,29 @@ impl ContractOperation {
         self
     }
 
+    pub fn with_control_capabilities(
+        mut self,
+        control_capabilities: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let capabilities = self
+            .capabilities
+            .get_or_insert_with(OperationCapabilities::default);
+        capabilities.control = Some(control_capabilities.into_iter().map(Into::into).collect());
+        self
+    }
+
     pub fn cancel(mut self, cancel: bool) -> Self {
         self.cancel = Some(cancel);
+        self
+    }
+
+    pub fn signal(mut self, name: impl Into<String>, input: impl Into<String>) -> Self {
+        self.signals.insert(
+            name.into(),
+            ContractOperationSignal {
+                input: schema_ref(input),
+            },
+        );
         self
     }
 }

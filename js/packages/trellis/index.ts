@@ -168,6 +168,7 @@ export type {
   OperationObserverCallbacks,
   OperationRef,
   OperationRefData,
+  OperationSignalAck,
   OperationSnapshot,
   OperationState,
   OperationTransferProgress,

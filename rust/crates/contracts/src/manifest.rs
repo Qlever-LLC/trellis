@@ -134,6 +134,16 @@ fn collect_reachable_schema_names(contract: &Value) -> std::collections::BTreeSe
             &mut reachable,
             operation.and_then(|value| value.get("output")),
         );
+        for signal in object(operation.and_then(|value| value.get("signals")))
+            .map(|value| value.values())
+            .into_iter()
+            .flatten()
+        {
+            collect_schema_ref(
+                &mut reachable,
+                object(Some(signal)).and_then(|value| value.get("input")),
+            );
+        }
     }
 
     for event in object(contract.get("events"))
@@ -361,7 +371,7 @@ fn project_operations(operations: Option<&Value>) -> Option<Value> {
         let mut projected = operation_object.clone();
         if let Some(capabilities) = project_capabilities(
             operation_object.get("capabilities"),
-            &["call", "read", "cancel"],
+            &["call", "read", "cancel", "control"],
         ) {
             projected.insert("capabilities".to_string(), capabilities);
         }
@@ -517,6 +527,13 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
                 manifest,
                 &output.schema,
                 &format!("operation '{name}' output"),
+            )?;
+        }
+        for (signal_name, signal) in &operation.signals {
+            assert_schema_ref_exists(
+                manifest,
+                &signal.input.schema,
+                &format!("operation '{name}' signal '{signal_name}' input"),
             )?;
         }
     }

@@ -204,10 +204,30 @@ const billingSchemas = {
   Empty: EmptySchema,
   Progress: StringSchema,
   Result: StringSchema,
+  SelectReason: Type.Object({ reason: Type.String() }),
+} as const;
+
+const billingCapabilities = {
+  "billing.refund": {
+    displayName: "Refund billing",
+    description: "Start billing refunds.",
+  },
+  "billing.read": {
+    displayName: "Read billing",
+    description: "Read billing operation status.",
+  },
+  "billing.cancel": {
+    displayName: "Cancel billing",
+    description: "Cancel billing operations.",
+  },
+  "billing.control": {
+    displayName: "Control billing",
+    description: "Control billing operations.",
+  },
 } as const;
 
 const billing = defineServiceContract(
-  { schemas: billingSchemas },
+  { schemas: billingSchemas, capabilities: billingCapabilities },
   () => ({
     id: "trellis.billing@v1",
     displayName: "Billing",
@@ -222,6 +242,14 @@ const billing = defineServiceContract(
           call: ["billing.refund"],
           read: ["billing.read"],
           cancel: ["billing.cancel"],
+          control: ["billing.control"],
+        },
+        signals: {
+          selectReason: {
+            input: schemaRef<typeof billingSchemas, "SelectReason">(
+              "SelectReason",
+            ),
+          },
         },
         cancel: true,
       },
@@ -259,6 +287,7 @@ payments.API.owned.operations["Payments.Capture"].subject;
 payments.API.used.operations["Billing.Refund"].subject;
 payments.API.trellis.operations["Payments.Capture"].subject;
 payments.API.trellis.operations["Billing.Refund"].subject;
+payments.API.used.operations["Billing.Refund"].signals?.selectReason.input;
 
 type _PaymentsDoesNotExposeBillingWriteoff = Assert<
   Not<HasKey<typeof payments.API.trellis.operations, "Billing.Writeoff">>

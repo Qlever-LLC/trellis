@@ -13,6 +13,28 @@ import { TrellisService } from "./service.ts";
 
 const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
 
+const billingCapabilities = {
+  "billing.refund": {
+    displayName: "Refund billing",
+    description: "Start billing refunds.",
+  },
+  "billing.read": {
+    displayName: "Read billing",
+    description: "Read billing operation status.",
+  },
+  "billing.cancel": {
+    displayName: "Cancel billing",
+    description: "Cancel billing operations.",
+  },
+} as const;
+
+const uploadCapabilities = {
+  uploader: {
+    displayName: "Upload files",
+    description: "Start and read file upload operations.",
+  },
+} as const;
+
 function base64urlEncode(data: Uint8Array): string {
   const b64 = btoa(String.fromCharCode(...data));
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -20,6 +42,7 @@ function base64urlEncode(data: Uint8Array): string {
 
 const billing = defineServiceContract(
   {
+    capabilities: billingCapabilities,
     schemas: {
       RefundInput: Type.Object({ chargeId: Type.String() }),
       RefundProgress: Type.Object({ message: Type.String() }),
@@ -49,6 +72,7 @@ const billing = defineServiceContract(
 
 const demoFiles = defineServiceContract(
   {
+    capabilities: uploadCapabilities,
     schemas: {
       UploadInput: Type.Object({
         key: Type.String(),

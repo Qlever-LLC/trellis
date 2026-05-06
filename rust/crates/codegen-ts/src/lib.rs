@@ -509,6 +509,17 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
                 )
             ));
         }
+        for (signal_name, signal) in &operation.signals {
+            let signal_base = format!("{base}{}", key_to_pascal(signal_name));
+            lines.push(format!(
+                "export type {signal_base}Signal = {};",
+                schema_to_ts_with_aliases(
+                    resolve_schema_ref(loaded, &signal.input.schema),
+                    &schema_type_aliases,
+                    None,
+                )
+            ));
+        }
         lines.push(String::new());
     }
 
@@ -674,6 +685,9 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         }
         if let Some(output) = &operation.output {
             api_schema_imports.insert(output.schema.as_str());
+        }
+        for signal in operation.signals.values() {
+            api_schema_imports.insert(signal.input.schema.as_str());
         }
     }
     for event in loaded.manifest.events.values() {
@@ -870,6 +884,21 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
                     .expect("missing public schema export for operation output")
             ));
         }
+        if !operation.signals.is_empty() {
+            lines.push("      signals: {".to_string());
+            for (signal_name, signal) in &operation.signals {
+                let signal_base = format!("{base}{}", key_to_pascal(signal_name));
+                lines.push(format!("        {}: {{", js_string(signal_name)));
+                lines.push(format!(
+                    "          input: schema<Types.{signal_base}Signal>({}),",
+                    schema_const_names
+                        .get(signal.input.schema.as_str())
+                        .expect("missing public schema export for operation signal input")
+                ));
+                lines.push("        },".to_string());
+            }
+            lines.push("      },".to_string());
+        }
         if let Some(transfer) = &operation.transfer {
             lines.push("      transfer: {".to_string());
             lines.push("        direction: \"send\",".to_string());
@@ -904,6 +933,11 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
             .as_ref()
             .and_then(|caps| caps.cancel.clone())
             .unwrap_or_default();
+        let control = operation
+            .capabilities
+            .as_ref()
+            .and_then(|caps| caps.control.clone())
+            .unwrap_or_default();
         lines.push(format!(
             "      callerCapabilities: {},",
             serde_json::to_string(&caller).unwrap()
@@ -915,6 +949,10 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         lines.push(format!(
             "      cancelCapabilities: {},",
             serde_json::to_string(&cancel).unwrap()
+        ));
+        lines.push(format!(
+            "      controlCapabilities: {},",
+            serde_json::to_string(&control).unwrap()
         ));
         if let Some(cancelable) = operation.cancel {
             lines.push(format!(
@@ -1249,7 +1287,7 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
         format!(
-            "import type {{ AsyncResult, BaseError, EventOpts, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationRef, OperationRefData, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, SendTransferGrant, SendTransferHandle, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
+            "import type {{ AsyncResult, BaseError, EventOpts, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationRef, OperationRefData, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, SendTransferGrant, SendTransferHandle, TerminalOperation, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
             js_string(&trellis_import)
         ),
         "import type { API } from \"./api.ts\";".to_string(),
@@ -1466,7 +1504,7 @@ fn render_client_operation_interface(
     };
 
     format!(
-        "type {base}OperationDesc = {desc_type};\nexport interface {base}Operation {{\n  resume(ref: OperationRefData): OperationRef<{base}OperationDesc, {progress}, {output}>;\n  input(input: {type_prefix}{type_base}Input): {builder}<{base}OperationDesc, {progress}, {output}>;\n}}"
+        "type {base}OperationDesc = {desc_type};\nexport type {base}OperationRef = OperationRef<{base}OperationDesc, {progress}, {output}>;\nexport type {base}Terminal = TerminalOperation<{progress}, {output}>;\nexport interface {base}Operation {{\n  resume(ref: OperationRefData): {base}OperationRef;\n  input(input: {type_prefix}{type_base}Input): {builder}<{base}OperationDesc, {progress}, {output}>;\n}}"
     )
 }
 
@@ -1944,15 +1982,51 @@ fn is_safe_js_ident(value: &str) -> bool {
     chars.all(|ch| ch == '_' || ch == '$' || ch.is_ascii_alphanumeric())
 }
 
-fn render_mod_ts(_opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
+fn render_mod_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let client_interface = client_interface_name(&loaded.manifest.id);
     let client_state = client_state_type_name(&loaded.manifest.id);
-    format!(
-        "export {{ API, OWNED_API }} from \"./api.ts\";\nexport type {{ Api, ApiViews, OwnedApi }} from \"./api.ts\";\nexport * from \"./types.ts\";\nexport * from \"./schemas.ts\";\nexport type {{ Client, {}, {} }} from \"./client.ts\";\nexport {{ {} }} from \"./contract.ts\";\n",
-        client_interface,
-        client_state,
-        "CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, sdk",
-    )
+    let operation_client_exports = operation_client_type_exports(opts, loaded);
+    let mut lines = vec![
+        "export { API, OWNED_API } from \"./api.ts\";".to_string(),
+        "export type { Api, ApiViews, OwnedApi } from \"./api.ts\";".to_string(),
+        "export * from \"./types.ts\";".to_string(),
+        "export * from \"./schemas.ts\";".to_string(),
+        format!(
+            "export type {{ Client, {client_interface}, {client_state} }} from \"./client.ts\";"
+        ),
+    ];
+    if !operation_client_exports.is_empty() {
+        lines.push(format!(
+            "export type {{ {} }} from \"./client.ts\";",
+            operation_client_exports.join(", ")
+        ));
+    }
+    lines.push(
+        "export { CONTRACT, CONTRACT_DIGEST, CONTRACT_ID, use, sdk } from \"./contract.ts\";"
+            .to_string(),
+    );
+    format!("{}\n", lines.join("\n"))
+}
+
+fn operation_client_type_exports(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Vec<String> {
+    let mut exports = Vec::new();
+    for key in loaded.manifest.operations.keys() {
+        let base = key_to_pascal(key);
+        exports.push(format!("{base}Operation"));
+        exports.push(format!("{base}OperationRef"));
+        exports.push(format!("{base}Terminal"));
+    }
+    for use_dep in client_uses(opts, loaded) {
+        for key in use_dep.operation_call_keys() {
+            if use_dep.manifest.manifest.operations.contains_key(key) {
+                let base = format!("{}{}", use_dep.prefix, key_to_pascal(key));
+                exports.push(format!("{base}Operation"));
+                exports.push(format!("{base}OperationRef"));
+                exports.push(format!("{base}Terminal"));
+            }
+        }
+    }
+    exports
 }
 
 fn client_interface_name(contract_id: &str) -> String {
@@ -2020,6 +2094,9 @@ fn public_schema_keys(loaded: &LoadedManifest) -> BTreeSet<String> {
         if let Some(output) = &operation.output {
             keys.insert(output.schema.clone());
         }
+        for signal in operation.signals.values() {
+            keys.insert(signal.input.schema.clone());
+        }
     }
 
     for event in loaded.manifest.events.values() {
@@ -2062,13 +2139,18 @@ fn generated_type_names(loaded: &LoadedManifest) -> BTreeSet<String> {
         names.insert(format!("{base}Handler"));
     }
 
-    for key in loaded.manifest.operations.keys() {
+    for (key, operation) in &loaded.manifest.operations {
         let base = key_to_pascal(key);
         names.insert(format!("{base}Input"));
         names.insert(format!("{base}Progress"));
         names.insert(format!("{base}Output"));
         names.insert(format!("{base}Operation"));
+        names.insert(format!("{base}OperationRef"));
+        names.insert(format!("{base}Terminal"));
         names.insert(format!("{base}OperationDesc"));
+        for signal_name in operation.signals.keys() {
+            names.insert(format!("{base}{}Signal", key_to_pascal(signal_name)));
+        }
     }
 
     for key in loaded.manifest.events.keys() {
@@ -2190,6 +2272,14 @@ mod tests {
                         },
                         "required": ["ok"],
                         "additionalProperties": false
+                    },
+                    "ProcessContinue": {
+                        "type": "object",
+                        "properties": {
+                            "confirmed": { "type": "boolean" }
+                        },
+                        "required": ["confirmed"],
+                        "additionalProperties": false
                     }
                 },
                 "rpc": {
@@ -2210,7 +2300,13 @@ mod tests {
                         "capabilities": {
                             "call": ["service"],
                             "read": ["service"],
-                            "cancel": ["service"]
+                            "cancel": ["service"],
+                            "control": ["service"]
+                        },
+                        "signals": {
+                            "continue": {
+                                "input": { "schema": "ProcessContinue" }
+                            }
                         },
                         "cancel": true
                     }
@@ -2391,6 +2487,10 @@ mod tests {
         assert!(api.contains("callerCapabilities: [\"service\"]"));
         assert!(api.contains("readCapabilities: [\"service\"]"));
         assert!(api.contains("cancelCapabilities: [\"service\"]"));
+        assert!(api.contains("controlCapabilities: [\"service\"]"));
+        assert!(api.contains("signals: {"));
+        assert!(api.contains("\"continue\": {"));
+        assert!(api.contains("input: schema<Types.ExampleProcessContinueSignal>"));
         assert!(api.contains("cancel: true"));
         assert!(api.contains("export type Api = typeof API.trellis;"));
 
@@ -2448,6 +2548,7 @@ mod tests {
         );
         let client = render_client_ts(&opts, &loaded);
         let mod_ts = render_mod_ts(&opts, &loaded);
+        let types = render_types_ts(&opts, &loaded);
         let deno = deno_json(&opts, &loaded).unwrap();
 
         assert_eq!(
@@ -2460,19 +2561,30 @@ mod tests {
         assert!(client.contains("export interface TrellisDemoKvServiceClient {"));
         assert!(client.contains("import type { API } from \"./api.ts\";"));
         assert!(client.contains("import type * as Types from \"./types.ts\";"));
+        assert!(client.contains("TerminalOperation"));
         assert!(client.contains(
             "request(method: \"Example.Ping\", input: Types.ExamplePingInput, opts?: RequestOpts): AsyncResult<Types.ExamplePingOutput, BaseError>;"
         ));
         assert!(client.contains("export interface ExampleProcessOperation {"));
         assert!(client.contains(
-            "resume(ref: OperationRefData): OperationRef<ExampleProcessOperationDesc, Types.ExampleProcessProgress, Types.ExampleProcessOutput>;"
+            "export type ExampleProcessOperationRef = OperationRef<ExampleProcessOperationDesc, Types.ExampleProcessProgress, Types.ExampleProcessOutput>;"
         ));
+        assert!(client.contains(
+            "export type ExampleProcessTerminal = TerminalOperation<Types.ExampleProcessProgress, Types.ExampleProcessOutput>;"
+        ));
+        assert!(client.contains("resume(ref: OperationRefData): ExampleProcessOperationRef;"));
         assert!(client.contains(
             "input(input: Types.ExampleProcessInput): OperationInputBuilder<ExampleProcessOperationDesc, Types.ExampleProcessProgress, Types.ExampleProcessOutput>;"
         ));
+        assert!(
+            types.contains("export type ExampleProcessContinueSignal = { confirmed: boolean; };")
+        );
         assert!(client.contains("export type Client = TrellisDemoKvServiceClient;"));
         assert!(mod_ts
             .contains("export type { Client, TrellisDemoKvServiceClient, TrellisDemoKvServiceState } from \"./client.ts\";"));
+        assert!(mod_ts.contains(
+            "export type { ExampleProcessOperation, ExampleProcessOperationRef, ExampleProcessTerminal } from \"./client.ts\";"
+        ));
 
         fs::remove_dir_all(root).unwrap();
     }

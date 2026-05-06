@@ -138,6 +138,8 @@ pub struct OperationCapabilities {
     pub read: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancel: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub control: Option<Vec<String>>,
 }
 
 /// Transfer direction for operation-backed file uploads.
@@ -178,6 +180,14 @@ pub struct ContractOperation {
     pub capabilities: Option<OperationCapabilities>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancel: Option<bool>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub signals: BTreeMap<String, ContractOperationSignal>,
+}
+
+/// One named signal declaration for a running operation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractOperationSignal {
+    pub input: ContractSchemaRef,
 }
 
 /// Transfer direction for RPC-backed receive grants.

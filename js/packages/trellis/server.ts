@@ -11,7 +11,7 @@ import {
 } from "@qlever-llc/result";
 import { ulid } from "ulid";
 
-import { parseSchema } from "./codec.ts";
+import { type JsonValue, parseSchema } from "./codec.ts";
 import {
   AuthError,
   TransferError,
@@ -48,6 +48,7 @@ import {
   type RuntimeOperationControlRequest,
   type RuntimeOperationDesc,
   type RuntimeOperationRecord,
+  type RuntimeOperationSignal,
   type RuntimeOperationSnapshot,
   type RuntimeOperationState,
   safeJson,
@@ -236,7 +237,80 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
         this.#applyOperationUpdate(operationId, "cancelled", {
           event: { type: "cancelled" },
         }),
+      signals: (operationId) => this.#signals(operationId),
+      nextSignal: (operationId, name) => this.#nextSignal(operationId, name),
     };
+  }
+
+  async *#signals(operationId: string): AsyncIterable<RuntimeOperationSignal> {
+    let cursor = 0;
+    while (true) {
+      const next = await this.#nextSignalAfter(operationId, cursor).take();
+      if (isErr(next)) {
+        throw next.error;
+      }
+      cursor = next.sequence;
+      yield next;
+    }
+  }
+
+  #nextSignal(
+    operationId: string,
+    name?: string,
+  ): AsyncResult<RuntimeOperationSignal, BaseError> {
+    return AsyncResult.from((async () => {
+      let cursor = 0;
+      while (true) {
+        const next = await this.#nextSignalAfter(operationId, cursor).take();
+        if (isErr(next)) return next;
+        cursor = next.sequence;
+        if (!name || next.signal === name) return ok(next);
+      }
+    })());
+  }
+
+  #nextSignalAfter(
+    operationId: string,
+    afterSequence: number,
+  ): AsyncResult<RuntimeOperationSignal, BaseError> {
+    return AsyncResult.from((async () => {
+      const runtime = await this.#resolveOperation(operationId);
+      if (!runtime) {
+        return err(
+          new UnexpectedError({
+            cause: new Error(`Unknown operation '${operationId}'`),
+          }),
+        );
+      }
+
+      const queued = runtime.signals.find((signal) =>
+        signal.sequence > afterSequence
+      );
+      if (queued) return ok(queued);
+      if (runtime.terminal) {
+        return err(
+          new UnexpectedError({
+            cause: new Error("operation already terminal"),
+          }),
+        );
+      }
+
+      return await new Promise<Result<RuntimeOperationSignal, BaseError>>(
+        (resolve) => {
+          const waiter = (
+            result: Result<RuntimeOperationSignal, BaseError>,
+          ) => {
+            const value = result.take();
+            if (!isErr(value) && value.sequence <= afterSequence) {
+              return;
+            }
+            runtime.signalWaiters.delete(waiter);
+            resolve(result);
+          };
+          runtime.signalWaiters.add(waiter);
+        },
+      );
+    })());
   }
 
   async #resolveOperation(
@@ -258,8 +332,11 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
       terminal: durable.snapshot.state === "completed" ||
         durable.snapshot.state === "failed" ||
         durable.snapshot.state === "cancelled",
+      signalSequence: durable.signalSequence ?? 0,
+      signals: durable.signals ?? [],
       watchers: new Set(),
       waiters: new Set(),
+      signalWaiters: new Set(),
     };
     this.#operations.set(operationId, runtime);
     return runtime;
@@ -320,6 +397,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
           await this.nats.publish(reply, JSON.stringify(terminalFrame));
         }
         runtime.waiters.clear();
+        this.#rejectSignalWaiters(runtime);
       }
 
       return ok(runtime.snapshot);
@@ -363,8 +441,103 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
 
           return ok(finalRuntime.snapshot);
         })()),
+      signals: () => this.#signals(runtime.id),
+      nextSignal: (name?: string) => this.#nextSignal(runtime.id, name),
       defer: () => ({ kind: "deferred" as const }),
     };
+  }
+
+  #controlAuthContext(
+    ctx: RegisteredRuntimeOperationDesc,
+    action: RuntimeOperationControlRequest["action"],
+  ): RegisteredRuntimeOperationDesc {
+    if (action === "signal" && ctx.controlCapabilities !== undefined) {
+      return { ...ctx, callerCapabilities: ctx.controlCapabilities };
+    }
+    if (action === "cancel" && ctx.cancelCapabilities !== undefined) {
+      return { ...ctx, callerCapabilities: ctx.cancelCapabilities };
+    }
+    return ctx;
+  }
+
+  #terminalSignalError(): UnexpectedError {
+    return new UnexpectedError({
+      cause: new Error("operation already terminal"),
+    });
+  }
+
+  #rejectSignalWaiters(runtime: RuntimeOperationRecord): void {
+    const result = err(this.#terminalSignalError());
+    for (const waiter of runtime.signalWaiters) {
+      waiter(result);
+    }
+    runtime.signalWaiters.clear();
+  }
+
+  async #acceptSignal(
+    runtime: RuntimeOperationRecord,
+    ctx: RegisteredRuntimeOperationDesc,
+    control: Extract<RuntimeOperationControlRequest, { action: "signal" }>,
+  ): Promise<
+    Result<{
+      kind: "signal-accepted";
+      operationId: string;
+      signal: string;
+      signalSequence: number;
+      acceptedAt: string;
+      snapshot: RuntimeOperationSnapshot;
+    }, ValidationError | UnexpectedError>
+  > {
+    if (runtime.terminal) {
+      return err(this.#terminalSignalError());
+    }
+
+    const descriptor = ctx.signals?.[control.signal];
+    if (!descriptor) {
+      return err(
+        new ValidationError({
+          errors: [{
+            path: "/signal",
+            message: `Unknown operation signal '${control.signal}'`,
+          }],
+          context: { operation: runtime.operation, signal: control.signal },
+        }),
+      );
+    }
+
+    const input = control.input as JsonValue;
+    const parsed = parseSchema(
+      descriptor.input as Parameters<typeof parseSchema>[0],
+      input,
+    ).take();
+    if (isErr(parsed)) {
+      return err(parsed.error as ValidationError | UnexpectedError);
+    }
+
+    runtime.signalSequence += 1;
+    const acceptedAt = new Date().toISOString();
+    const signal: RuntimeOperationSignal = {
+      operationId: runtime.id,
+      sequence: runtime.signalSequence,
+      signal: control.signal,
+      ...(control.input !== undefined ? { input: control.input } : {}),
+      acceptedAt,
+    };
+    runtime.signals.push(signal);
+    await this.saveOperationRecord(runtime);
+    const result = ok(signal);
+    for (const waiter of runtime.signalWaiters) {
+      waiter(result);
+    }
+
+    return ok({
+      kind: "signal-accepted",
+      operationId: runtime.id,
+      signal: signal.signal,
+      signalSequence: signal.sequence,
+      acceptedAt,
+      snapshot: runtime.snapshot,
+    });
   }
 
   async #acceptOperation(
@@ -388,9 +561,12 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
         updatedAt: createdAt,
       },
       sequence: 0,
+      signalSequence: 0,
+      signals: [],
       terminal: false,
       watchers: new Set(),
       waiters: new Set(),
+      signalWaiters: new Set(),
     };
     this.#operations.set(operationId, runtime);
     await this.saveOperationRecord(runtime);
@@ -539,23 +715,19 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
       await publishFrame(reply, { kind: "snapshot", snapshot });
     };
 
+    const respondControlError = (msg: Msg, error: Error | BaseError) => {
+      msg.respond(JSON.stringify({
+        kind: "error",
+        error: { type: error.name, message: error.message },
+      }));
+    };
+
     const controlSub = this.nats.subscribe(controlSubject);
     void (async () => {
       for await (const msg of controlSub) {
-        const validated = await this.#authenticateOperationMessage(
-          msg,
-          ctx,
-          false,
-        );
-        const value = validated.take();
-        if (isErr(value)) {
-          this.respondWithError(msg, value.error);
-          continue;
-        }
-
         const request = safeJson(msg).take();
         if (isErr(request)) {
-          this.respondWithError(msg, request.error);
+          respondControlError(msg, request.error);
           continue;
         }
 
@@ -567,7 +739,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
           typeof (request as RuntimeOperationControlRequest).operationId !==
             "string"
         ) {
-          this.respondWithError(
+          respondControlError(
             msg,
             new UnexpectedError({
               cause: new Error("Invalid operation control request"),
@@ -577,12 +749,23 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
         }
 
         const control = request as RuntimeOperationControlRequest;
+        const validated = await this.#authenticateOperationMessage(
+          msg,
+          this.#controlAuthContext(ctx, control.action),
+          false,
+        );
+        const value = validated.take();
+        if (isErr(value)) {
+          respondControlError(msg, value.error);
+          continue;
+        }
+
         const runtime = this.#operations.get(control.operationId);
         const durableRecord = runtime
           ? null
           : await this.loadOperationRecord(control.operationId);
         if (!runtime && !durableRecord) {
-          this.respondWithError(
+          respondControlError(
             msg,
             new UnexpectedError({
               cause: new Error(`Unknown operation '${control.operationId}'`),
@@ -596,7 +779,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
           durableRecord!.ownerSessionKey;
 
         if (ownerSessionKey !== value.sessionKey) {
-          this.respondWithError(
+          respondControlError(
             msg,
             new AuthError({
               reason: "forbidden",
@@ -624,14 +807,14 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
           } else if (runtime && msg.reply) {
             runtime.waiters.add(msg.reply);
           } else if (msg.reply) {
-            this.respondWithError(
+            respondControlError(
               msg,
               new UnexpectedError({
                 cause: new Error("operation is not running in this process"),
               }),
             );
           } else {
-            this.respondWithError(
+            respondControlError(
               msg,
               new UnexpectedError({
                 cause: new Error("missing reply subject for wait request"),
@@ -647,6 +830,19 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
         }
 
         if (control.action === "cancel") {
+          if (ctx.cancel !== true) {
+            respondControlError(
+              msg,
+              new ValidationError({
+                errors: [{
+                  path: "/action",
+                  message: `Operation '${operation}' does not support cancel`,
+                }],
+                context: { operation, action: control.action },
+              }),
+            );
+            continue;
+          }
           if (!runtime) {
             msg.respond(JSON.stringify({ kind: "snapshot", snapshot }));
             continue;
@@ -679,13 +875,35 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
             );
           }
           runtime.waiters.clear();
+          this.#rejectSignalWaiters(runtime);
           msg.respond(
             JSON.stringify({ kind: "snapshot", snapshot: runtime.snapshot }),
           );
           continue;
         }
 
-        this.respondWithError(
+        if (control.action === "signal") {
+          if (!runtime) {
+            respondControlError(
+              msg,
+              new UnexpectedError({
+                cause: new Error("operation is not running in this process"),
+              }),
+            );
+            continue;
+          }
+
+          const accepted = await this.#acceptSignal(runtime, ctx, control);
+          const acceptedValue = accepted.take();
+          if (isErr(acceptedValue)) {
+            respondControlError(msg, acceptedValue.error);
+            continue;
+          }
+          msg.respond(JSON.stringify(acceptedValue));
+          continue;
+        }
+
+        respondControlError(
           msg,
           new UnexpectedError({
             cause: new Error(
@@ -868,6 +1086,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                   snapshot,
                 });
                 await flushWaiters(runtime);
+                this.#rejectSignalWaiters(runtime);
                 return ok(snapshot);
               })()),
             fail: (error: BaseError) =>
@@ -891,6 +1110,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                   snapshot,
                 });
                 await flushWaiters(runtime);
+                this.#rejectSignalWaiters(runtime);
                 return ok(snapshot);
               })()),
             cancel: () =>
@@ -913,6 +1133,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                   snapshot,
                 });
                 await flushWaiters(runtime);
+                this.#rejectSignalWaiters(runtime);
                 return ok(snapshot);
               })()),
             attach: (job: { wait: () => AsyncResult<unknown, BaseError> }) =>
@@ -936,6 +1157,8 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
 
                 return ok(finalRuntime.snapshot);
               })()),
+            signals: () => this.#signals(runtime.id),
+            nextSignal: (name?: string) => this.#nextSignal(runtime.id, name),
             defer: () => ({ kind: "deferred" as const }),
           };
         };
@@ -1161,9 +1384,12 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                 updatedAt: createdAt,
               },
               sequence: 0,
+              signalSequence: 0,
+              signals: [],
               terminal: false,
               watchers: new Set(),
               waiters: new Set(),
+              signalWaiters: new Set(),
             };
             this.#operations.set(operationId, runtime);
             await this.saveOperationRecord(runtime);

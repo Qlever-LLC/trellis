@@ -242,8 +242,8 @@ The digest projection includes:
 
 - `format`, `id`, and `kind`
 - top-level `capabilities`
-- reachable schemas referenced by state, RPCs, operations, events, jobs,
-  schema-backed KV resources, and declared RPC error schemas
+- reachable schemas referenced by state, RPCs, operations, operation signals,
+  events, jobs, schema-backed KV resources, and declared RPC error schemas
 - state, `uses`, RPCs, operations, events, jobs, declared RPC errors, and
   KV/store resource requests
 - sorted and deduplicated capability and `uses` selector lists
@@ -555,7 +555,13 @@ Example:
     "capabilities": {
       "call": ["billing::billing.refund"],
       "read": ["billing::billing.refund"],
-      "cancel": ["billing::billing.refund.cancel"]
+      "cancel": ["billing::billing.refund.cancel"],
+      "control": ["billing::billing.refund.control"]
+    },
+    "signals": {
+      "approveRefund": {
+        "input": { "schema": "BillingRefundApproval" }
+      }
     },
     "cancel": true
   }
@@ -572,6 +578,18 @@ Rules:
   to `capabilities.call`
 - `capabilities.cancel` gates `cancel`; if omitted, callers do not receive
   cancel rights by default
+- `capabilities.control` gates named operation signals; if omitted, signal
+  submission has no extra capability gate beyond authentication and operation
+  ownership, so user-facing post-start inputs SHOULD declare explicit control
+  capabilities
+- `signals` declares named post-start input schemas for validation, review,
+  documentation, digest projection, and generated SDK aliases
+- accepted signals are private operation-control inputs; they are persisted with
+  an operation-local signal sequence and do not increment the public operation
+  snapshot revision
+- `cancel: true` declares cancellation support; callers may still have a
+  language-level `cancel()` helper, but unsupported cancellation MUST return a
+  runtime error frame and MUST NOT mutate operation state
 - operations are always authenticated; omitting a capability list removes only
   additional capability grants, not the authentication requirement itself
 - operations are durable async contracts, not raw jobs and not unary RPCs
@@ -1152,7 +1170,7 @@ Authorization is derived from the active contract set.
 For each active contract:
 
 - operations contribute publish permissions for callers via `capabilities.call`
-  on the declared operation subject, plus `capabilities.read` /
+  on the declared operation subject, plus `capabilities.read` and
   `capabilities.cancel` on the derived control subject as applicable
 - RPCs contribute publish permissions for callers via `capabilities.call`
 - events contribute publish permissions via `capabilities.publish`
@@ -1188,15 +1206,22 @@ Rules:
 - each capability list is an all-of requirement
 - operation control subjects MUST be derived deterministically from the declared
   operation subject so auth and SDK generation remain contract-driven
-- operation control publish grants use `capabilities.read` and
+- operation control publish grants currently use `capabilities.read` and
   `capabilities.cancel` as applicable; holding only `capabilities.call` does not
   grant broad control-subject access beyond the operation-specific control
   subject
+- `capabilities.cancel` gates only cancellation; it is not a fallback for named
+  signals
+- `capabilities.control` gates named signals; it is not a fallback for
+  cancellation
+- deployments that need signal-only callers, with neither read nor cancel rights,
+  need capability-derived control-subject grants for `capabilities.control`; that
+  NATS permission derivation is not yet part of the current catalog analysis
 - omitted `capabilities.read` defaults to `capabilities.call`, so callers that
   can start an operation can also observe that operation unless the contract
   declares a different read list
-- an explicit empty `read` or `cancel` capability list means authenticated
-  callers need no additional Trellis capability for that action
+- an explicit empty `read`, `cancel`, or `control` capability list means
+  authenticated callers need no additional Trellis capability for that action
 - templated event subjects are authorized using wildcard subjects derived by
   replacing each template token with `*`
 - service sessions receive cross-contract permissions only from explicit `uses`,

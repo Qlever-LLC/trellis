@@ -47,10 +47,18 @@ export type OperationTransferProgress = {
 };
 
 export type TerminalOperation<TProgress = unknown, TOutput = unknown> =
-  & OperationSnapshot<TProgress, TOutput>
-  & {
-    state: "completed" | "failed" | "cancelled";
-  };
+  | (OperationSnapshot<TProgress, TOutput> & { state: "completed" })
+  | (OperationSnapshot<TProgress, TOutput> & { state: "failed" })
+  | (OperationSnapshot<TProgress, TOutput> & { state: "cancelled" });
+
+export type OperationSignalAck<TProgress = unknown, TOutput = unknown> = {
+  kind: "signal-accepted";
+  operationId: string;
+  signal: string;
+  signalSequence: number;
+  acceptedAt: string;
+  snapshot: OperationSnapshot<TProgress, TOutput>;
+};
 
 export type CompletedTransfer<
   TDesc extends OperationShape,
@@ -77,40 +85,38 @@ export type StartedTransfer<
   >;
 };
 
-type OperationRefCanCancel<TDesc extends OperationShape> = "cancel" extends
-  keyof TDesc ? TDesc extends { cancel: false | undefined } ? false
-  : true
-  : false;
-
 export type OperationRef<
   TDesc extends OperationShape,
   TProgress = OperationProgressOf<TDesc>,
   TOutput = OperationOutputOf<TDesc>,
-> =
-  & {
-    id: string;
-    service: string;
-    operation: string;
-    get(): AsyncResult<
-      OperationSnapshot<TProgress, TOutput>,
-      TransportError | UnexpectedError
-    >;
-    wait(): AsyncResult<
-      TerminalOperation<TProgress, TOutput>,
-      TransportError | UnexpectedError
-    >;
-    watch(): AsyncResult<
-      AsyncIterable<OperationEvent<TProgress, TOutput>>,
-      TransportError | UnexpectedError
-    >;
-  }
-  & (OperationRefCanCancel<TDesc> extends true ? {
-      cancel(): AsyncResult<
-        OperationSnapshot<TProgress, TOutput>,
-        TransportError | UnexpectedError
-      >;
-    }
-    : {});
+> = {
+  id: string;
+  service: string;
+  operation: string;
+  get(): AsyncResult<
+    OperationSnapshot<TProgress, TOutput>,
+    TransportError | UnexpectedError
+  >;
+  wait(): AsyncResult<
+    TerminalOperation<TProgress, TOutput>,
+    TransportError | UnexpectedError
+  >;
+  watch(): AsyncResult<
+    AsyncIterable<OperationEvent<TProgress, TOutput>>,
+    TransportError | UnexpectedError
+  >;
+  cancel(): AsyncResult<
+    OperationSnapshot<TProgress, TOutput>,
+    TransportError | UnexpectedError
+  >;
+  signal(
+    signal: string,
+    input?: unknown,
+  ): AsyncResult<
+    OperationSignalAck<TProgress, TOutput>,
+    TransportError | UnexpectedError
+  >;
+};
 
 export type AcceptedOperationEvent<TProgress = unknown, TOutput = unknown> = {
   type: "accepted";
@@ -309,6 +315,9 @@ type OperationSnapshotFrame<TProgress = unknown, TOutput = unknown> = {
   kind: "snapshot";
   snapshot: OperationSnapshot<TProgress, TOutput>;
 };
+
+type OperationSignalAckFrame<TProgress = unknown, TOutput = unknown> =
+  OperationSignalAck<TProgress, TOutput>;
 
 type OperationControlErrorFrame = {
   kind: "error";
@@ -574,6 +583,37 @@ function decodeSnapshotFrame<TProgress, TOutput>(
   }
 }
 
+function decodeSignalAckFrame<TProgress, TOutput>(
+  value: JsonValue,
+): Result<OperationSignalAckFrame<TProgress, TOutput>, TransportError> {
+  try {
+    if (isOperationControlErrorFrame(value)) {
+      return err(controlFrameToTransportError(value));
+    }
+
+    const frame = value as OperationSignalAckFrame<TProgress, TOutput>;
+    if (
+      frame?.kind !== "signal-accepted" ||
+      typeof frame.operationId !== "string" ||
+      typeof frame.signal !== "string" ||
+      typeof frame.signalSequence !== "number" ||
+      typeof frame.acceptedAt !== "string" ||
+      !frame.snapshot
+    ) {
+      throw new Error("Expected signal-accepted operation frame");
+    }
+    return ok(frame);
+  } catch (cause) {
+    return err(createTransportError({
+      code: "trellis.operation.invalid_signal_ack",
+      message: "Trellis returned an invalid operation signal response.",
+      hint:
+        "Retry the operation signal. If it keeps failing, reconnect to Trellis and try again.",
+      cause,
+    }));
+  }
+}
+
 class RuntimeOperationRef<
   TDesc extends OperationShape,
   TProgress = OperationProgressOf<TDesc>,
@@ -599,10 +639,6 @@ class RuntimeOperationRef<
     this.service = ref.service;
     this.operation = ref.operation;
     this.#acceptedTransfer = acceptedTransfer;
-  }
-
-  isCancelable(): boolean {
-    return this.#descriptor.cancel === true;
   }
 
   get(): AsyncResult<
@@ -688,6 +724,40 @@ class RuntimeOperationRef<
     TransportError | UnexpectedError
   > {
     return this.#controlSnapshot("cancel");
+  }
+
+  signal(
+    signal: string,
+    input?: unknown,
+  ): AsyncResult<
+    OperationSignalAck<TProgress, TOutput>,
+    TransportError | UnexpectedError
+  > {
+    return AsyncResult.from((async () => {
+      const body: {
+        action: "signal";
+        operationId: string;
+        signal: string;
+        input?: JsonValue;
+      } = {
+        action: "signal",
+        operationId: this.id,
+        signal,
+      };
+      if (input !== undefined) {
+        body.input = input as JsonValue;
+      }
+
+      const responseValue = await this.#transport.requestJson(
+        controlSubject(this.#descriptor.subject),
+        body,
+      ).take();
+      if (isErr(responseValue)) {
+        return responseValue;
+      }
+
+      return decodeSignalAckFrame<TProgress, TOutput>(responseValue);
+    })());
   }
 
   startTransfer(body: TransferBody): AsyncResult<FileInfo, TransferError> {
@@ -1140,16 +1210,12 @@ function createPublicOperationRef<
         return await operation.wait();
       })()),
     watch: () => operation.watch(),
+    cancel: () => operation.cancel(),
+    signal: (signal: string, input?: unknown) =>
+      operation.signal(signal, input),
   };
 
-  if (!operation.isCancelable()) {
-    return base as OperationRef<TDesc, TProgress, TOutput>;
-  }
-
-  return {
-    ...base,
-    cancel: () => operation.cancel(),
-  } as OperationRef<TDesc, TProgress, TOutput>;
+  return base as OperationRef<TDesc, TProgress, TOutput>;
 }
 
 function createOperationInputBuilder<

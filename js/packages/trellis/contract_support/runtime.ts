@@ -102,9 +102,11 @@ export type OperationDesc<
     expiresInMs?: number;
     maxBytes?: number;
   };
+  signals?: Record<string, { input: SchemaLike }>;
   callerCapabilities: readonly string[];
   readCapabilities: readonly string[];
   cancelCapabilities: readonly string[];
+  controlCapabilities: readonly string[];
   cancel?: boolean;
 };
 

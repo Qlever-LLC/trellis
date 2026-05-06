@@ -8,6 +8,7 @@ import {
   type OperationEvent,
   OperationInvoker,
   type OperationRef,
+  type OperationSignalAck,
   type OperationTransferProgress,
   type OperationTransport,
   type StartedTransfer,
@@ -25,6 +26,21 @@ const schemas = {
   RefundOutput: Type.Object({ refundId: Type.String() }),
 } as const;
 
+const capabilities = {
+  "billing.refund": {
+    displayName: "Refund billing",
+    description: "Start billing refund operations.",
+  },
+  "billing.read": {
+    displayName: "Read billing",
+    description: "Read billing operation state.",
+  },
+  "billing.cancel": {
+    displayName: "Cancel billing",
+    description: "Cancel billing operations.",
+  },
+} as const;
+
 function schemaRef<const TName extends keyof typeof schemas & string>(
   schema: TName,
 ) {
@@ -32,7 +48,7 @@ function schemaRef<const TName extends keyof typeof schemas & string>(
 }
 
 const billing = defineServiceContract(
-  { schemas },
+  { schemas, capabilities },
   () => ({
     id: "trellis.billing.test@v1",
     displayName: "Billing Test",
@@ -341,8 +357,16 @@ Deno.test("OperationInvoker.resume() on a transfer-capable operation keeps trans
   resumed.transfer;
 });
 
-Deno.test("OperationInvoker.resume() omits cancel() for non-cancelable operations", () => {
-  const transport = new FakeOperationTransport([]);
+Deno.test("OperationInvoker.resume() exposes cancel() for operations without descriptor cancel metadata", async () => {
+  const transport = new FakeOperationTransport([
+    {
+      kind: "error",
+      error: {
+        type: "ValidationError",
+        message: "cancel is not supported",
+      },
+    },
+  ]);
   const operation = new OperationInvoker(transport, nonCancelableOperation);
   const resumed = operation.resume({
     id: "op_status_123",
@@ -350,10 +374,21 @@ Deno.test("OperationInvoker.resume() omits cancel() for non-cancelable operation
     operation: "Billing.Status",
   });
 
-  assertEquals("cancel" in resumed, false);
+  assertEquals("cancel" in resumed, true);
+  const result = await resumed.cancel();
+  const error = result.match({
+    ok: () => {
+      throw new Error("expected cancel() to fail");
+    },
+    err: (value) => value,
+  });
 
-  // @ts-expect-error non-cancelable refs do not expose cancel
-  resumed.cancel;
+  assertEquals(transport.seen, [{
+    subject: controlSubject("operations.v1.Billing.Status"),
+    body: { action: "cancel", operationId: "op_status_123" },
+  }]);
+  assertEquals(error.name, "TransportError");
+  assertEquals(Reflect.get(error, "code"), "trellis.operation.control_error");
 });
 
 Deno.test("OperationInvoker.input().transfer().start() dispatches terminal callbacks", async () => {
@@ -1072,6 +1107,141 @@ Deno.test("OperationRef.cancel() surfaces control error frames with the runtime 
   const context = error.getContext();
   assertEquals(context.controlErrorType, "ValidationError");
   assertEquals(context.controlErrorMessage, "cannot cancel now");
+});
+
+Deno.test("OperationRef.signal() sends action:signal with input and decodes signal-accepted ack", async () => {
+  const transport = new FakeOperationTransport([
+    {
+      kind: "accepted",
+      ref: {
+        id: "op_123",
+        service: "billing",
+        operation: "Billing.Refund",
+      },
+      snapshot: {
+        revision: 1,
+        state: "pending",
+      },
+    },
+    {
+      kind: "signal-accepted",
+      operationId: "op_123",
+      signal: "approveRefund",
+      signalSequence: 7,
+      acceptedAt: "2026-01-01T00:00:03.000Z",
+      snapshot: {
+        id: "op_123",
+        service: "billing",
+        operation: "Billing.Refund",
+        revision: 2,
+        state: "running",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:02.000Z",
+        progress: {
+          message: "waiting",
+        },
+      },
+    },
+  ]);
+
+  const operation = new OperationInvoker(transport, refundOperation);
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match(
+    {
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
+    },
+  );
+  const ack: OperationSignalAck = await reference
+    .signal("approveRefund", { approvedBy: "acct_123" })
+    .match({
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
+    });
+
+  assertEquals(transport.seen, [
+    {
+      subject: "operations.v1.Billing.Refund",
+      body: { chargeId: "ch_123" },
+    },
+    {
+      subject: controlSubject("operations.v1.Billing.Refund"),
+      body: {
+        action: "signal",
+        operationId: "op_123",
+        signal: "approveRefund",
+        input: { approvedBy: "acct_123" },
+      },
+    },
+  ]);
+  assertEquals(ack.operationId, "op_123");
+  assertEquals(ack.signal, "approveRefund");
+  assertEquals(ack.signalSequence, 7);
+  assertEquals(ack.acceptedAt, "2026-01-01T00:00:03.000Z");
+  assertEquals(ack.snapshot.progress, { message: "waiting" });
+});
+
+Deno.test("OperationRef.signal() omits input from the control body when no input is provided", async () => {
+  const transport = new FakeOperationTransport([
+    {
+      kind: "accepted",
+      ref: {
+        id: "op_123",
+        service: "billing",
+        operation: "Billing.Refund",
+      },
+      snapshot: {
+        revision: 1,
+        state: "pending",
+      },
+    },
+    {
+      kind: "signal-accepted",
+      operationId: "op_123",
+      signal: "continue",
+      signalSequence: 1,
+      acceptedAt: "2026-01-01T00:00:03.000Z",
+      snapshot: {
+        revision: 2,
+        state: "running",
+      },
+    },
+  ]);
+
+  const operation = new OperationInvoker(transport, refundOperation);
+  const reference = await operation.input({ chargeId: "ch_123" }).start().match(
+    {
+      ok: (value) => value,
+      err: (error) => {
+        throw error;
+      },
+    },
+  );
+  const ack = await reference.signal("continue").match({
+    ok: (value) => value,
+    err: (error) => {
+      throw error;
+    },
+  });
+
+  assertEquals(transport.seen, [
+    {
+      subject: "operations.v1.Billing.Refund",
+      body: { chargeId: "ch_123" },
+    },
+    {
+      subject: controlSubject("operations.v1.Billing.Refund"),
+      body: {
+        action: "signal",
+        operationId: "op_123",
+        signal: "continue",
+      },
+    },
+  ]);
+  assertEquals(ack.signal, "continue");
 });
 
 Deno.test("OperationRef.wait() watches until a terminal snapshot without a request timeout", async () => {

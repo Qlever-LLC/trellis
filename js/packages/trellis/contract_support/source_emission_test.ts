@@ -568,6 +568,10 @@ Deno.test("contract digest normalizes capability order and duplicates", () => {
       displayName: "Write events",
       description: "Write events.",
     },
+    "operations.control": {
+      displayName: "Control operations",
+      description: "Control operations.",
+    },
   } as const;
   const first = defineServiceContract({
     schemas: baseSchemas,
@@ -595,6 +599,10 @@ Deno.test("contract digest normalizes capability order and duplicates", () => {
         displayName: "Write events",
         description: "Write events.",
       },
+      "operations.control": {
+        displayName: "Control operations",
+        description: "Control operations.",
+      },
     },
     rpc: {
       "Digest.Read": {
@@ -611,6 +619,20 @@ Deno.test("contract digest normalizes capability order and duplicates", () => {
         capabilities: {
           publish: ["events.write", "events.admin", "events.write"],
           subscribe: ["events.read", "events.audit", "events.read"],
+        },
+      },
+    },
+    operations: {
+      "Digest.Import": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("StringValue"),
+        capabilities: {
+          control: [
+            "operations.control",
+            "b",
+            "operations.control",
+          ],
         },
       },
     },
@@ -638,6 +660,10 @@ Deno.test("contract digest normalizes capability order and duplicates", () => {
         displayName: "Admin events",
         description: "Administer events.",
       },
+      "operations.control": {
+        displayName: "Control operations",
+        description: "Control operations.",
+      },
       "events.audit": {
         displayName: "Audit events",
         description: "Audit events.",
@@ -661,13 +687,76 @@ Deno.test("contract digest normalizes capability order and duplicates", () => {
         },
       },
     },
+    operations: {
+      "Digest.Import": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("StringValue"),
+        capabilities: { control: ["b", "operations.control"] },
+      },
+    },
   }));
 
   assertEquals(first.CONTRACT.rpc?.["Digest.Read"]?.capabilities?.call, [
     globalCapabilityName("digest.capabilities@v1", "a"),
     globalCapabilityName("digest.capabilities@v1", "b"),
   ]);
+  assertEquals(
+    first.CONTRACT.operations?.["Digest.Import"]?.capabilities?.control,
+    [
+      globalCapabilityName("digest.capabilities@v1", "b"),
+      globalCapabilityName("digest.capabilities@v1", "operations.control"),
+    ],
+  );
   assertEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
+});
+
+Deno.test("contract digest includes operation signal input schemas", () => {
+  const schemas = {
+    Empty: EmptySchema,
+    Result: StringSchema,
+    FirstSignal: Type.Object({ value: Type.String() }),
+    SecondSignal: Type.Object({ value: Type.Number() }),
+  } as const;
+
+  const first = defineServiceContract({ schemas }, (ref) => ({
+    id: "digest.operation-signals@v1",
+    displayName: "Operation Signals",
+    description: "Digest operation signals.",
+    operations: {
+      "Signals.Run": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("Result"),
+        signals: {
+          continue: { input: ref.schema("FirstSignal") },
+        },
+      },
+    },
+  }));
+
+  const second = defineServiceContract({ schemas }, (ref) => ({
+    id: "digest.operation-signals@v1",
+    displayName: "Operation Signals",
+    description: "Digest operation signals.",
+    operations: {
+      "Signals.Run": {
+        version: "v1",
+        input: ref.schema("Empty"),
+        output: ref.schema("Result"),
+        signals: {
+          continue: { input: ref.schema("SecondSignal") },
+        },
+      },
+    },
+  }));
+
+  assertEquals(first.CONTRACT.schemas?.FirstSignal, {
+    properties: { value: { type: "string" } },
+    required: ["value"],
+    type: "object",
+  });
+  assertNotEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
 });
 
 Deno.test("defineServiceContract emits top-level capabilities with global names", () => {
@@ -1351,9 +1440,17 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
       displayName: "Cancel billing",
       description: "Cancel billing operations.",
     },
+    "billing.control": {
+      displayName: "Control billing",
+      description: "Control billing operations.",
+    },
+  } as const;
+  const billingSchemas = {
+    ...baseSchemas,
+    SelectReason: Type.Object({ reason: Type.String() }),
   } as const;
   const billing = defineServiceContract(
-    { schemas: baseSchemas, capabilities: billingCapabilities },
+    { schemas: billingSchemas, capabilities: billingCapabilities },
     () => ({
       id: "trellis.billing@v1",
       displayName: "Billing",
@@ -1368,6 +1465,14 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
             call: ["billing.refund"],
             read: ["billing.read"],
             cancel: ["billing.cancel"],
+            control: ["billing.control"],
+          },
+          signals: {
+            selectReason: {
+              input: schemaRef<typeof billingSchemas, "SelectReason">(
+                "SelectReason",
+              ),
+            },
           },
           cancel: true,
         },
@@ -1415,6 +1520,28 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
   assertEquals(
     payments.API.used.operations["Billing.Refund"].subject,
     "operations.v1.Billing.Refund",
+  );
+  const refundOperation = billing.CONTRACT.operations?.["Billing.Refund"];
+  assertEquals(refundOperation?.signals, {
+    selectReason: { input: { schema: "SelectReason" } },
+  });
+  assertEquals(refundOperation?.capabilities?.control, [
+    globalCapabilityName("trellis.billing@v1", "billing.control"),
+  ]);
+  assertEquals(
+    unwrapSchema(
+      billing.API.owned.operations["Billing.Refund"].signals
+        ?.selectReason.input ?? {},
+    ),
+    {
+      properties: { reason: { type: "string" } },
+      required: ["reason"],
+      type: "object",
+    },
+  );
+  assertEquals(
+    billing.API.owned.operations["Billing.Refund"].controlCapabilities,
+    [globalCapabilityName("trellis.billing@v1", "billing.control")],
   );
 });
 
