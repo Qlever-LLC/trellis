@@ -97,7 +97,7 @@
         >
           <Icon name="menu" size={20} />
         </button>
-        <label class="input input-bordered input-sm hidden w-[420px] items-center gap-2 bg-base-100 shadow-sm md:flex">
+        <label class="input input-bordered input-sm hidden w-[420px] items-center gap-2 bg-base-100 md:flex">
           <Icon name="search" size={16} class="opacity-50" />
           <input type="search" class="grow" placeholder="Search or run command..." aria-label="Search or run command" readonly />
           <kbd class="kbd kbd-xs">⌘ K</kbd>

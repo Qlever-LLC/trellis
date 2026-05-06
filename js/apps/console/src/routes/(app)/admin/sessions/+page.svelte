@@ -78,7 +78,7 @@
       <button class="btn btn-ghost btn-sm" onclick={loadActive} disabled={loading}>Refresh</button>
       <details class="dropdown dropdown-end">
         <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-        <ul class="menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
+        <ul class="menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2">
           <li><a href={resolve("/admin/sessions/revoke")}>Revoke a session</a></li>
           <li><a href={resolve("/admin/sessions/kick")}>Kick a connection</a></li>
         </ul>
@@ -154,7 +154,7 @@
                 <td class="text-right">
                   <details class="dropdown dropdown-end">
                     <summary class="btn btn-ghost btn-xs">Actions</summary>
-                    <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
+                    <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2">
                       <li><a class="text-error" href={resolve(`/admin/sessions/revoke?sessionKey=${encodeURIComponent(session.sessionKey)}`)}>Revoke</a></li>
                     </ul>
                   </details>
@@ -222,7 +222,7 @@
                 <td class="text-right">
                   <details class="dropdown dropdown-end">
                     <summary class="btn btn-ghost btn-xs">Actions</summary>
-                    <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
+                    <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2">
                       <li><a class="text-error" href={resolve(`/admin/sessions/kick?userNkey=${encodeURIComponent(connection.userNkey)}`)}>Kick</a></li>
                     </ul>
                   </details>

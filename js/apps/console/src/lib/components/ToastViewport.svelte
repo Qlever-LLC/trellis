@@ -9,7 +9,7 @@
     {#each notifications.items as item (item.id)}
       <div
         class={[
-          "alert max-w-sm border border-base-300 shadow-sm",
+          "alert max-w-sm border border-base-300",
           item.tone === "success" && "alert-success",
           item.tone === "error" && "alert-error",
           item.tone === "info" && "alert-info",

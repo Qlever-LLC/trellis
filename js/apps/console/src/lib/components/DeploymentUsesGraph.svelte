@@ -273,7 +273,7 @@
           </div>
         {/if}
         {#if error}
-          <div class="absolute inset-x-3 bottom-3 rounded-box border border-warning/35 bg-base-100 p-3 text-sm text-base-content shadow-sm">
+          <div class="absolute inset-x-3 bottom-3 rounded-box border border-warning/35 bg-base-100 p-3 text-sm text-base-content">
             <span class="font-medium text-warning">Graph unavailable.</span> {error}
           </div>
         {/if}

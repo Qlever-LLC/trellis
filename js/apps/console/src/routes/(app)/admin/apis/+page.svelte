@@ -351,7 +351,7 @@
         <button class="btn btn-outline btn-sm" type="button">
           Kinds: {selectedKinds.length === 0 ? "None" : selectedKinds.length}
         </button>
-        <div class="dropdown-content z-[1] mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow">
+        <div class="dropdown-content z-[1] mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2">
           <div class="mb-1 px-2 text-[0.68rem] font-semibold uppercase text-base-content/50">Kinds</div>
           {#each kindOptions as option (option.value)}
             <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-base-200">
@@ -373,7 +373,7 @@
         <button class="btn btn-outline btn-sm" type="button">
           {statusFilterLabel()}
         </button>
-        <div class="dropdown-content z-[1] mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2 shadow">
+        <div class="dropdown-content z-[1] mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2">
           <div class="mb-1 px-2 text-[0.68rem] font-semibold uppercase text-base-content/50">Status</div>
           {#each activityOptions as option (option.value)}
             <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-base-200">
@@ -395,7 +395,7 @@
         <button class="btn btn-outline btn-sm max-w-44 truncate" type="button" disabled={serviceOptions.length === 0}>
           Services: {selectedServiceIds.length === 0 ? "All" : selectedServiceIds.length}
         </button>
-        <div class="dropdown-content z-[1] mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-box border border-base-300 bg-base-100 p-2 shadow">
+        <div class="dropdown-content z-[1] mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-box border border-base-300 bg-base-100 p-2">
           <div class="mb-1 px-2 text-[0.68rem] font-semibold uppercase text-base-content/50">Deployments</div>
           <div class="max-h-64 overflow-y-auto">
             {#each serviceOptions as serviceId (serviceId)}

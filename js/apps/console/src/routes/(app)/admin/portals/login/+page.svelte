@@ -84,7 +84,7 @@
     {#snippet actions()}
       <details class="dropdown dropdown-end">
         <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
+        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2">
           <li><a href={resolve("/admin/portals/login/default")}>Set default login portal</a></li>
           <li><a href={resolve("/admin/portals/login/selection")}>Manage login portal selections</a></li>
         </ul>
@@ -133,7 +133,7 @@
               <td class="text-right">
                 <details class="dropdown dropdown-end">
                   <summary class="btn btn-ghost btn-xs">Actions <Icon name="chevronDown" size={12} /></summary>
-                  <ul class="menu dropdown-content z-10 mt-2 w-60 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
+                  <ul class="menu dropdown-content z-10 mt-2 w-60 rounded-box border border-base-300 bg-base-100 p-2">
                     <li><a href={resolve(`/admin/portals/login/selection?contract=${encodeURIComponent(contract.id)}`)}>Set selection</a></li>
                     {#if selectionByContractId.get(contract.id)}
                       <li><a href={resolve(`/admin/portals/login/selection?contract=${encodeURIComponent(contract.id)}&mode=clear`)}>Clear selection</a></li>

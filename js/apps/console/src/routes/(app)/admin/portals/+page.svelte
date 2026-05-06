@@ -83,7 +83,7 @@
     {#snippet actions()}
       <details class="dropdown dropdown-end">
         <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
+        <ul class="menu dropdown-content z-10 mt-2 w-72 rounded-box border border-base-300 bg-base-100 p-2">
           <li><a href={resolve("/admin/portals/profiles/edit")}>Create portal profile</a></li>
           <li><a href={resolve("/admin/portals/profiles/edit")}>Edit portal profile</a></li>
           <li><a href={resolve("/admin/portals/profiles/disable")}>Disable portal profile</a></li>
@@ -150,7 +150,7 @@
                   <td class="text-right">
                     <details class="dropdown dropdown-end">
                       <summary class="btn btn-ghost btn-xs">Actions <Icon name="chevronDown" size={12} /></summary>
-                      <ul class="menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-sm">
+                      <ul class="menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2">
                         <li><a href={resolve(`/admin/portals/profiles/edit?portal=${encodeURIComponent(profile.portalId)}`)}>Edit profile</a></li>
                         {#if profile.disabled}
                           <li class="disabled"><span>Disable profile</span></li>

@@ -110,23 +110,59 @@ select {
 }
 
 .trellis-card {
-  border: 1px solid var(--color-base-300);
+  background-color: color-mix(in oklab, var(--color-base-100) 86%, var(--color-base-200));
+  border: 1px solid color-mix(in oklab, var(--color-base-300) 82%, transparent);
   border-radius: 1rem;
-  box-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 8px 24px rgb(42 37 33 / 0.04);
-}
-
-[data-theme="trellis-dark"] .trellis-card {
-  box-shadow: 0 1px 0 rgb(255 255 255 / 0.03), 0 14px 32px rgb(0 0 0 / 0.18);
+  box-shadow: none;
 }
 
 .trellis-card > .card-body {
   gap: 1rem;
 }
 
+.trellis-panel {
+  background: transparent;
+  border-block: 1px solid color-mix(in oklab, var(--color-base-300) 82%, transparent);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.trellis-panel-header {
+  background-color: color-mix(in oklab, var(--color-base-100) 52%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--color-base-300) 76%, transparent);
+}
+
+.trellis-panel > .card-body {
+  background-color: color-mix(in oklab, var(--color-base-100) 52%, transparent);
+}
+
+.trellis-panel-footer {
+  background-color: color-mix(in oklab, var(--color-base-100) 52%, transparent);
+  border-top: 1px solid color-mix(in oklab, var(--color-base-300) 76%, transparent);
+}
+
 .trellis-table {
+  background: transparent;
   table-layout: auto;
   min-width: 100%;
   width: max-content;
+}
+
+.overflow-x-auto:has(> .trellis-table) {
+  background: transparent;
+  border-radius: 0;
+}
+
+.overflow-x-auto:has(> .trellis-table):not(:has(.dropdown-content)) {
+  border-block: 1px solid color-mix(in oklab, var(--color-base-300) 72%, transparent);
+}
+
+.trellis-table :where(thead) {
+  background-color: color-mix(
+    in oklab,
+    var(--color-base-content) 3%,
+    transparent
+  );
 }
 
 .trellis-table :where(th) {
@@ -355,21 +391,22 @@ select {
   background: var(--color-base-100);
   border: 1px solid color-mix(in oklab, var(--color-base-300) 86%, transparent);
   border-radius: 0.9rem;
-  box-shadow:
-    0 1px 2px color-mix(in oklab, var(--color-base-content) 7%, transparent),
-    0 18px 44px color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  box-shadow: none;
   margin-top: 0.55rem;
   padding: 0.45rem;
   z-index: var(--trellis-z-dropdown);
+}
+
+.dropdown-content {
+  box-shadow: none !important;
+  filter: none;
 }
 
 .dropdown-content.menu:not(.trellis-dropdown-menu) {
   background: var(--color-base-100);
   border-color: color-mix(in oklab, var(--color-base-300) 86%, transparent);
   border-radius: 0.9rem;
-  box-shadow:
-    0 1px 2px color-mix(in oklab, var(--color-base-content) 7%, transparent),
-    0 18px 44px color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  box-shadow: none;
   margin-top: 0.55rem;
   padding: 0.45rem;
   z-index: var(--trellis-z-dropdown);
@@ -427,7 +464,7 @@ select {
 }
 
 .trellis-topbar {
-  box-shadow: 0 1px 4px rgb(16 24 40 / 0.12);
+  box-shadow: none;
 }
 
 .trellis-badge-soft.badge-success {
