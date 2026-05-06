@@ -241,6 +241,9 @@ pub struct DeployRemoveArgs {
 
     #[arg(short = 'f', long)]
     pub force: bool,
+
+    #[arg(long)]
+    pub cascade: bool,
 }
 
 #[derive(Debug, Args)]

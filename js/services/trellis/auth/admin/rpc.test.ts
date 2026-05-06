@@ -54,6 +54,10 @@ import { ContractStore } from "../../catalog/store.ts";
 
 async function* emptyKeys(): AsyncIterable<string> {}
 
+async function* oneConnectionKey(): AsyncIterable<string> {
+  yield "connection-1";
+}
+
 function throwingStoreAccess(): never {
   throw new Error("service admin storage should not be touched");
 }
@@ -1326,6 +1330,395 @@ Deno.test("Auth.DisableServiceDeployment validates staged deployment before pers
   assertEquals(stored, original);
 });
 
+Deno.test("Auth.RemoveServiceDeployment without cascade rejects deployments with instances", async () => {
+  const original: ServiceDeployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [],
+  };
+  let deletedDeployment = false;
+  let refreshCount = 0;
+  const deletedInstances: string[] = [];
+  const serviceDeps: ServiceAdminRpcDeps = {
+    logger: { trace: () => {} },
+    serviceDeploymentStorage: {
+      get: async () => original,
+      put: async () => throwingStoreAccess(),
+      delete: async () => {
+        deletedDeployment = true;
+      },
+      list: async () => throwingStoreAccess(),
+    },
+    serviceInstanceStorage: {
+      get: async () => throwingStoreAccess(),
+      getByInstanceKey: async () => throwingStoreAccess(),
+      put: async () => throwingStoreAccess(),
+      delete: async (instanceId) => {
+        deletedInstances.push(instanceId);
+      },
+      list: async () => throwingStoreAccess(),
+      listByDeployment: async () => [{
+        instanceId: "svc_1",
+        deploymentId: "billing.default",
+        instanceKey: "session-key-1",
+        disabled: false,
+        capabilities: ["service"],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }],
+    },
+  };
+
+  const result = await createAuthRemoveServiceDeploymentHandler({
+    ...kickDeps(serviceDeps),
+    refreshActiveContracts: async () => {
+      refreshCount += 1;
+    },
+    validateActiveCatalog: async () => {},
+  })({
+    input: { deploymentId: "billing.default" },
+    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(result.isErr());
+  assertEquals(deletedInstances, []);
+  assertEquals(deletedDeployment, false);
+  assertEquals(refreshCount, 0);
+});
+
+Deno.test("Auth.RemoveServiceDeployment cascades instances, sessions, and runtime access", async () => {
+  const original: ServiceDeployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: "billing@v1",
+      allowedDigests: ["digest-a"],
+    }],
+  };
+  const instances: ServiceInstance[] = [
+    {
+      instanceId: "svc_1",
+      deploymentId: "billing.default",
+      instanceKey: "session-key-1",
+      disabled: false,
+      currentContractId: "billing@v1",
+      currentContractDigest: "digest-a",
+      capabilities: ["service"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      instanceId: "svc_2",
+      deploymentId: "billing.default",
+      instanceKey: "session-key-2",
+      disabled: false,
+      currentContractId: "billing@v1",
+      currentContractDigest: "digest-a",
+      capabilities: ["service"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+  ];
+  let storedDeployment: ServiceDeployment | undefined = original;
+  let storedInstances = [...instances];
+  const deletedSessions: string[] = [];
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
+  const stagedInstances: ServiceInstance[] = [];
+  const serviceDeps: ServiceAdminRpcDeps = {
+    logger: { trace: () => {} },
+    serviceDeploymentStorage: {
+      get: async () => storedDeployment,
+      put: async (deployment) => {
+        storedDeployment = deployment;
+      },
+      delete: async () => {
+        storedDeployment = undefined;
+      },
+      list: async () => throwingStoreAccess(),
+    },
+    serviceInstanceStorage: {
+      get: async () => throwingStoreAccess(),
+      getByInstanceKey: async () => throwingStoreAccess(),
+      put: async (instance) => {
+        storedInstances = [
+          ...storedInstances.filter((entry) =>
+            entry.instanceId !== instance.instanceId
+          ),
+          instance,
+        ];
+      },
+      delete: async (instanceId) => {
+        storedInstances = storedInstances.filter((entry) =>
+          entry.instanceId !== instanceId
+        );
+      },
+      list: async () => throwingStoreAccess(),
+      listByDeployment: async () =>
+        storedInstances.filter((instance) =>
+          instance.deploymentId === "billing.default"
+        ),
+    },
+  };
+
+  const result = await createAuthRemoveServiceDeploymentHandler({
+    ...kickDeps(serviceDeps),
+    kick: async (serverId, clientId) => {
+      kicked.push({ serverId, clientId });
+    },
+    connectionsKV: {
+      get: () =>
+        AsyncResult.ok({
+          value: {
+            serverId: "server-1",
+            clientId: 1,
+            connectedAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        }),
+      put: () => AsyncResult.ok(undefined),
+      delete: () => AsyncResult.ok(undefined),
+      keys: () => AsyncResult.ok(oneConnectionKey()),
+    },
+    sessionStorage: {
+      deleteByInstanceKey: async (instanceKey) => {
+        deletedSessions.push(instanceKey);
+      },
+    },
+    refreshActiveContracts: async () => {},
+    validateActiveCatalog: async (
+      { stagedServiceDeployments, stagedServiceInstances },
+    ) => {
+      assertEquals([...stagedServiceDeployments ?? []], [{
+        ...original,
+        disabled: true,
+        appliedContracts: [],
+      }]);
+      stagedInstances.push(...stagedServiceInstances ?? []);
+    },
+  })({
+    input: { deploymentId: "billing.default", cascade: true },
+    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(!result.isErr());
+  assertEquals(
+    stagedInstances,
+    instances.map((instance) => ({
+      ...instance,
+      disabled: true,
+    })),
+  );
+  assertEquals(storedDeployment, undefined);
+  assertEquals(storedInstances, []);
+  assertEquals(deletedSessions, ["session-key-1", "session-key-2"]);
+  assertEquals(kicked, [
+    { serverId: "server-1", clientId: 1 },
+    { serverId: "server-1", clientId: 1 },
+  ]);
+});
+
+Deno.test("Auth.RemoveServiceDeployment does not delete or refresh when cascade kick fails", async () => {
+  const original: ServiceDeployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: "billing@v1",
+      allowedDigests: ["digest-a"],
+    }],
+  };
+  const instances: ServiceInstance[] = [
+    {
+      instanceId: "svc_1",
+      deploymentId: "billing.default",
+      instanceKey: "session-key-1",
+      disabled: false,
+      currentContractId: "billing@v1",
+      currentContractDigest: "digest-a",
+      capabilities: ["service"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+  ];
+  let storedDeployment: ServiceDeployment | undefined = original;
+  let storedInstances = [...instances];
+  let refreshCount = 0;
+  const serviceDeps: ServiceAdminRpcDeps = {
+    logger: { trace: () => {} },
+    serviceDeploymentStorage: {
+      get: async () => storedDeployment,
+      put: async (deployment) => {
+        storedDeployment = deployment;
+      },
+      delete: async () => {
+        storedDeployment = undefined;
+      },
+      list: async () => throwingStoreAccess(),
+    },
+    serviceInstanceStorage: {
+      get: async () => throwingStoreAccess(),
+      getByInstanceKey: async () => throwingStoreAccess(),
+      put: async (instance) => {
+        storedInstances = [
+          ...storedInstances.filter((entry) =>
+            entry.instanceId !== instance.instanceId
+          ),
+          instance,
+        ];
+      },
+      delete: async (instanceId) => {
+        storedInstances = storedInstances.filter((entry) =>
+          entry.instanceId !== instanceId
+        );
+      },
+      list: async () => throwingStoreAccess(),
+      listByDeployment: async () =>
+        storedInstances.filter((instance) =>
+          instance.deploymentId === "billing.default"
+        ),
+    },
+  };
+
+  const result = await createAuthRemoveServiceDeploymentHandler({
+    ...kickDeps(serviceDeps),
+    kick: async () => {
+      throw new Error("kick failed");
+    },
+    connectionsKV: {
+      get: () =>
+        AsyncResult.ok({
+          value: {
+            serverId: "server-1",
+            clientId: 1,
+            connectedAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        }),
+      put: () => AsyncResult.ok(undefined),
+      delete: () => AsyncResult.ok(undefined),
+      keys: () => AsyncResult.ok(oneConnectionKey()),
+    },
+    refreshActiveContracts: async () => {
+      refreshCount += 1;
+    },
+    validateActiveCatalog: async () => {},
+  })({
+    input: { deploymentId: "billing.default", cascade: true },
+    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(result.isErr());
+  assertEquals(storedDeployment, original);
+  assertEquals(storedInstances, instances);
+  assertEquals(refreshCount, 0);
+});
+
+Deno.test("Auth.RemoveServiceDeployment rolls back cascade deletes when an instance delete fails", async () => {
+  const original: ServiceDeployment = {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: false,
+    appliedContracts: [{
+      contractId: "billing@v1",
+      allowedDigests: ["digest-a"],
+    }],
+  };
+  const instances: ServiceInstance[] = [
+    {
+      instanceId: "svc_1",
+      deploymentId: "billing.default",
+      instanceKey: "session-key-1",
+      disabled: false,
+      currentContractId: "billing@v1",
+      currentContractDigest: "digest-a",
+      capabilities: ["service"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      instanceId: "svc_2",
+      deploymentId: "billing.default",
+      instanceKey: "session-key-2",
+      disabled: false,
+      currentContractId: "billing@v1",
+      currentContractDigest: "digest-a",
+      capabilities: ["service"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+  ];
+  let storedDeployment: ServiceDeployment | undefined = original;
+  let storedInstances = [...instances];
+  const deletedInstances: string[] = [];
+  let refreshCount = 0;
+  const serviceDeps: ServiceAdminRpcDeps = {
+    logger: { trace: () => {} },
+    serviceDeploymentStorage: {
+      get: async () => storedDeployment,
+      put: async (deployment) => {
+        storedDeployment = deployment;
+      },
+      delete: async () => {
+        storedDeployment = undefined;
+      },
+      list: async () => throwingStoreAccess(),
+    },
+    serviceInstanceStorage: {
+      get: async () => throwingStoreAccess(),
+      getByInstanceKey: async () => throwingStoreAccess(),
+      put: async (instance) => {
+        storedInstances = [
+          ...storedInstances.filter((entry) =>
+            entry.instanceId !== instance.instanceId
+          ),
+          instance,
+        ];
+      },
+      delete: async (instanceId) => {
+        deletedInstances.push(instanceId);
+        if (instanceId === "svc_2") {
+          throw new Error("delete failed");
+        }
+        storedInstances = storedInstances.filter((entry) =>
+          entry.instanceId !== instanceId
+        );
+      },
+      list: async () => throwingStoreAccess(),
+      listByDeployment: async () =>
+        storedInstances.filter((instance) =>
+          instance.deploymentId === "billing.default"
+        ),
+    },
+  };
+
+  const result = await createAuthRemoveServiceDeploymentHandler({
+    ...kickDeps(serviceDeps),
+    connectionsKV: {
+      get: () =>
+        AsyncResult.ok({
+          value: {
+            serverId: "server-1",
+            clientId: 1,
+            connectedAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        }),
+      put: () => AsyncResult.ok(undefined),
+      delete: () => AsyncResult.ok(undefined),
+      keys: () => AsyncResult.ok(emptyKeys()),
+    },
+    sessionStorage: {
+      deleteByInstanceKey: async () => {},
+    },
+    refreshActiveContracts: async () => {
+      refreshCount += 1;
+    },
+    validateActiveCatalog: async () => {},
+  })({
+    input: { deploymentId: "billing.default", cascade: true },
+    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(result.isErr());
+  assertEquals(deletedInstances, ["svc_1", "svc_2"]);
+  assertEquals(storedDeployment, original);
+  assertEquals(storedInstances, instances);
+  assertEquals(refreshCount, 0);
+});
+
 Deno.test("Auth.EnableServiceInstance rolls back instance and does not kick when refresh fails", async () => {
   const original: ServiceDeployment = {
     deploymentId: "billing.default",
@@ -1402,9 +1795,20 @@ function deviceAdminDeps(args: {
   provisioningSecret?: Parameters<
     AdminRpcDeps["deviceProvisioningSecretStorage"]["put"]
   >[0];
+  provisioningSecrets?: Parameters<
+    AdminRpcDeps["deviceProvisioningSecretStorage"]["put"]
+  >[0][];
   activation?: DeviceActivationRecord;
+  activations?: DeviceActivationRecord[];
+  activationReviews?: DeviceActivationReviewRecord[];
+  browserFlowDeletes?: string[];
+  deletedActivationReviews?: string[];
   publishes?: Array<{ event: string; payload: unknown }>;
   kicked?: Array<{ serverId: string; clientId: number }>;
+  portalSelection?: Parameters<
+    AdminRpcDeps["devicePortalSelectionStorage"]["put"]
+  >[0];
+  deletedPortalSelections?: string[];
   installDeviceContract?: (contract: unknown) => Promise<{
     id: string;
     digest: string;
@@ -1416,12 +1820,17 @@ function deviceAdminDeps(args: {
     stagedDeviceDeployments?: Iterable<DeviceDeployment>;
     stagedDeviceInstances?: Iterable<DeviceInstance>;
   }) => Promise<unknown>;
+  kick?: (serverId: string, clientId: number) => Promise<void>;
 }) {
-  let stored = args.deployment;
+  let stored: DeviceDeployment | undefined = args.deployment;
   let instances = args.instances ?? [];
-  let provisioningSecret = args.provisioningSecret;
-  let activation = args.activation;
-  const kv = {
+  let provisioningSecrets = args.provisioningSecrets ??
+    (args.provisioningSecret ? [args.provisioningSecret] : []);
+  let activations = args.activations ??
+    (args.activation ? [args.activation] : []);
+  let activationReviews = args.activationReviews ?? [];
+  let portalSelection = args.portalSelection;
+  const connectionsKV = {
     get: () =>
       AsyncResult.ok({
         value: {
@@ -1433,6 +1842,19 @@ function deviceAdminDeps(args: {
     put: () => AsyncResult.ok(undefined),
     create: () => AsyncResult.ok(undefined),
     delete: () => AsyncResult.ok(undefined),
+    keys: () =>
+      AsyncResult.ok(
+        args.kicked || args.kick ? oneConnectionKey() : emptyKeys(),
+      ),
+  };
+  const browserFlowsKV = {
+    get: () => AsyncResult.ok({ value: {} }),
+    put: () => AsyncResult.ok(undefined),
+    create: () => AsyncResult.ok(undefined),
+    delete: (flowId: string) => {
+      args.browserFlowDeletes?.push(flowId);
+      return AsyncResult.ok(undefined);
+    },
     keys: () => AsyncResult.ok(emptyKeys()),
   };
   const deps: AdminRpcDeps & {
@@ -1448,24 +1870,47 @@ function deviceAdminDeps(args: {
       stagedDeviceInstances?: Iterable<DeviceInstance>;
     }) => Promise<unknown>;
   } = {
-    browserFlowsKV: kv,
-    connectionsKV: kv,
+    browserFlowsKV,
+    connectionsKV,
     contractApprovalStorage: { get: async () => undefined },
     deviceActivationReviewStorage: {
-      get: async () => undefined,
-      getByFlowId: async () => undefined,
-      put: async () => throwingStoreAccess(),
-      list: async () => [],
+      get: async (reviewId) =>
+        activationReviews.find((review) => review.reviewId === reviewId),
+      getByFlowId: async (flowId) =>
+        activationReviews.find((review) => review.flowId === flowId),
+      put: async (review) => {
+        activationReviews = [
+          ...activationReviews.filter((entry) =>
+            entry.reviewId !== review.reviewId
+          ),
+          review,
+        ];
+      },
+      delete: async (reviewId) => {
+        args.deletedActivationReviews?.push(reviewId);
+        activationReviews = activationReviews.filter((review) =>
+          review.reviewId !== reviewId
+        );
+      },
+      list: async () => activationReviews,
     },
     deviceActivationStorage: {
-      get: async () => activation,
+      get: async (instanceId) =>
+        activations.find((record) => record.instanceId === instanceId),
       put: async (record) => {
-        activation = record;
+        activations = [
+          ...activations.filter((entry) =>
+            entry.instanceId !== record.instanceId
+          ),
+          record,
+        ];
       },
-      delete: async () => {
-        activation = undefined;
+      delete: async (instanceId) => {
+        activations = activations.filter((record) =>
+          record.instanceId !== instanceId
+        );
       },
-      list: async () => [],
+      list: async () => activations,
     },
     deviceDeploymentStorage: {
       get: async () => stored,
@@ -1473,8 +1918,10 @@ function deviceAdminDeps(args: {
         args.putDeployments?.push(deployment);
         stored = deployment;
       },
-      delete: async () => throwingStoreAccess(),
-      list: async () => [stored],
+      delete: async () => {
+        stored = undefined;
+      },
+      list: async () => stored ? [stored] : [],
     },
     deviceInstanceStorage: {
       get: async (instanceId) =>
@@ -1497,18 +1944,36 @@ function deviceAdminDeps(args: {
       list: async () => instances,
     },
     devicePortalSelectionStorage: {
-      get: async () => undefined,
-      put: async () => throwingStoreAccess(),
-      delete: async () => throwingStoreAccess(),
-      list: async () => [],
+      get: async (deploymentId) =>
+        portalSelection?.deploymentId === deploymentId
+          ? portalSelection
+          : undefined,
+      put: async (selection) => {
+        portalSelection = selection;
+      },
+      delete: async (deploymentId) => {
+        args.deletedPortalSelections?.push(deploymentId);
+        if (portalSelection?.deploymentId === deploymentId) {
+          portalSelection = undefined;
+        }
+      },
+      list: async () => portalSelection ? [portalSelection] : [],
     },
     deviceProvisioningSecretStorage: {
-      get: async () => provisioningSecret,
+      get: async (instanceId) =>
+        provisioningSecrets.find((secret) => secret.instanceId === instanceId),
       put: async (record) => {
-        provisioningSecret = record;
+        provisioningSecrets = [
+          ...provisioningSecrets.filter((entry) =>
+            entry.instanceId !== record.instanceId
+          ),
+          record,
+        ];
       },
-      delete: async () => {
-        provisioningSecret = undefined;
+      delete: async (instanceId) => {
+        provisioningSecrets = provisioningSecrets.filter((secret) =>
+          secret.instanceId !== instanceId
+        );
       },
     },
     instanceGrantPolicyStorage: {
@@ -1516,9 +1981,10 @@ function deviceAdminDeps(args: {
       put: async () => throwingStoreAccess(),
       list: async () => [],
     },
-    kick: async (serverId, clientId) => {
-      args.kicked?.push({ serverId, clientId });
-    },
+    kick: args.kick ??
+      (async (serverId, clientId) => {
+        args.kicked?.push({ serverId, clientId });
+      }),
     loadEffectiveGrantPolicies: async () => [],
     logger: { trace: () => {}, warn: () => {} },
     operationCompletion: {
@@ -1573,8 +2039,12 @@ function deviceAdminDeps(args: {
     deps,
     getStored: () => stored,
     getInstances: () => instances,
-    getProvisioningSecret: () => provisioningSecret,
-    getActivation: () => activation,
+    getProvisioningSecret: () => provisioningSecrets[0],
+    getProvisioningSecrets: () => provisioningSecrets,
+    getActivation: () => activations[0],
+    getActivations: () => activations,
+    getActivationReviews: () => activationReviews,
+    getPortalSelection: () => portalSelection,
   };
 }
 
@@ -1887,6 +2357,339 @@ Deno.test("Auth.EnableDeviceDeployment validates staged deployment before persis
   assertEquals(getStored(), original);
 });
 
+Deno.test("Auth.RemoveDeviceDeployment without cascade rejects deployments with instances", async () => {
+  const deployment: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "none",
+    disabled: false,
+    appliedContracts: [],
+  };
+  const instance: DeviceInstance = {
+    instanceId: "device_1",
+    publicIdentityKey: "public-key-1",
+    deploymentId: "reader.default",
+    state: "registered",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    activatedAt: null,
+    revokedAt: null,
+  };
+  const portalSelection = {
+    deploymentId: "reader.default",
+    portalId: "device-portal",
+  };
+  const deletedInstances: string[] = [];
+  const deletedPortalSelections: string[] = [];
+  const { deps, getStored, getInstances, getPortalSelection } = deviceAdminDeps(
+    {
+      deployment,
+      instances: [instance],
+      portalSelection,
+      deletedInstances,
+      deletedPortalSelections,
+      refreshActiveContracts: async () => {
+        throw new Error("should not refresh");
+      },
+      validateActiveCatalog: async () => {
+        throw new Error("should not validate");
+      },
+    },
+  );
+
+  const result = await createDeviceAdminHandlers(deps).removeDeviceDeployment({
+    input: { deploymentId: "reader.default" },
+    context: { caller: { id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(result.isErr());
+  assertEquals(getStored(), deployment);
+  assertEquals(getInstances(), [instance]);
+  assertEquals(getPortalSelection(), portalSelection);
+  assertEquals(deletedInstances, []);
+  assertEquals(deletedPortalSelections, []);
+});
+
+Deno.test("Auth.RemoveDeviceDeployment cascades instances and deployment-scoped auth state", async () => {
+  const deployment: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "none",
+    disabled: false,
+    appliedContracts: [{
+      contractId: "reader@v1",
+      allowedDigests: ["digest-a"],
+    }],
+  };
+  const instances: DeviceInstance[] = [
+    {
+      instanceId: "device_1",
+      publicIdentityKey: "public-key-1",
+      deploymentId: "reader.default",
+      state: "activated",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      activatedAt: "2026-01-01T00:00:00.000Z",
+      revokedAt: null,
+    },
+    {
+      instanceId: "device_2",
+      publicIdentityKey: "public-key-2",
+      deploymentId: "reader.default",
+      state: "registered",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      activatedAt: null,
+      revokedAt: null,
+    },
+  ];
+  const provisioningSecrets = instances.map((instance, index) => ({
+    instanceId: instance.instanceId,
+    activationKey: `activation-key-${index + 1}`,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  }));
+  const activations: DeviceActivationRecord[] = [{
+    instanceId: "device_1",
+    publicIdentityKey: "public-key-1",
+    deploymentId: "reader.default",
+    state: "activated",
+    activatedAt: "2026-01-01T00:00:00.000Z",
+    revokedAt: null,
+  }];
+  const activationReviews: DeviceActivationReviewRecord[] = [{
+    reviewId: "review_1",
+    operationId: "operation_1",
+    flowId: "flow_1",
+    instanceId: "device_2",
+    publicIdentityKey: "public-key-2",
+    deploymentId: "reader.default",
+    state: "pending",
+    requestedAt: "2026-01-01T00:00:00.000Z",
+    decidedAt: null,
+    requestedBy: { origin: "portal", id: "main" },
+  }];
+  const portalSelection = {
+    deploymentId: "reader.default",
+    portalId: "device-portal",
+  };
+  const browserFlowDeletes: string[] = [];
+  const deletedInstances: string[] = [];
+  const deletedActivationReviews: string[] = [];
+  const deletedPortalSelections: string[] = [];
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
+  const stagedInstances: DeviceInstance[] = [];
+  const {
+    deps,
+    getStored,
+    getInstances,
+    getProvisioningSecrets,
+    getActivations,
+    getActivationReviews,
+    getPortalSelection,
+  } = deviceAdminDeps({
+    deployment,
+    instances,
+    provisioningSecrets,
+    activations,
+    activationReviews,
+    portalSelection,
+    browserFlowDeletes,
+    deletedInstances,
+    deletedActivationReviews,
+    deletedPortalSelections,
+    kicked,
+    validateActiveCatalog: async (
+      { stagedDeviceDeployments, stagedDeviceInstances },
+    ) => {
+      assertEquals([...stagedDeviceDeployments ?? []], [{
+        ...deployment,
+        disabled: true,
+        appliedContracts: [],
+      }]);
+      stagedInstances.push(...stagedDeviceInstances ?? []);
+    },
+  });
+
+  const result = await createDeviceAdminHandlers(deps).removeDeviceDeployment({
+    input: { deploymentId: "reader.default", cascade: true },
+    context: { caller: { id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(!result.isErr());
+  assertEquals(
+    stagedInstances,
+    instances.map((instance) => ({
+      ...instance,
+      state: "disabled",
+    })),
+  );
+  assertEquals(getStored(), undefined);
+  assertEquals(getInstances(), []);
+  assertEquals(getProvisioningSecrets(), []);
+  assertEquals(getActivations(), []);
+  assertEquals(getActivationReviews(), []);
+  assertEquals(getPortalSelection(), undefined);
+  assertEquals(deletedInstances, ["device_1", "device_2"]);
+  assertEquals(deletedActivationReviews, ["review_1"]);
+  assertEquals(deletedPortalSelections, ["reader.default"]);
+  assertEquals(browserFlowDeletes, ["flow_1"]);
+  assertEquals(kicked, [
+    { serverId: "server-1", clientId: 1 },
+    { serverId: "server-1", clientId: 1 },
+  ]);
+});
+
+Deno.test("Auth.RemoveDeviceDeployment does not delete auth state or refresh when cascade kick fails", async () => {
+  const deployment: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "none",
+    disabled: false,
+    appliedContracts: [{
+      contractId: "reader@v1",
+      allowedDigests: ["digest-a"],
+    }],
+  };
+  const instances: DeviceInstance[] = [{
+    instanceId: "device_1",
+    publicIdentityKey: "public-key-1",
+    deploymentId: "reader.default",
+    state: "activated",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    activatedAt: "2026-01-01T00:00:00.000Z",
+    revokedAt: null,
+  }];
+  const provisioningSecrets = [{
+    instanceId: "device_1",
+    activationKey: "activation-key-1",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  }];
+  const activations: DeviceActivationRecord[] = [{
+    instanceId: "device_1",
+    publicIdentityKey: "public-key-1",
+    deploymentId: "reader.default",
+    state: "activated",
+    activatedAt: "2026-01-01T00:00:00.000Z",
+    revokedAt: null,
+  }];
+  const activationReviews: DeviceActivationReviewRecord[] = [{
+    reviewId: "review_1",
+    operationId: "operation_1",
+    flowId: "flow_1",
+    instanceId: "device_1",
+    publicIdentityKey: "public-key-1",
+    deploymentId: "reader.default",
+    state: "pending",
+    requestedAt: "2026-01-01T00:00:00.000Z",
+    decidedAt: null,
+    requestedBy: { origin: "portal", id: "main" },
+  }];
+  const portalSelection = {
+    deploymentId: "reader.default",
+    portalId: "device-portal",
+  };
+  const browserFlowDeletes: string[] = [];
+  const deletedInstances: string[] = [];
+  const deletedActivationReviews: string[] = [];
+  const deletedPortalSelections: string[] = [];
+  let refreshCount = 0;
+  const {
+    deps,
+    getStored,
+    getInstances,
+    getProvisioningSecrets,
+    getActivations,
+    getActivationReviews,
+    getPortalSelection,
+  } = deviceAdminDeps({
+    deployment,
+    instances,
+    provisioningSecrets,
+    activations,
+    activationReviews,
+    portalSelection,
+    browserFlowDeletes,
+    deletedInstances,
+    deletedActivationReviews,
+    deletedPortalSelections,
+    kick: async () => {
+      throw new Error("kick failed");
+    },
+    refreshActiveContracts: async () => {
+      refreshCount += 1;
+    },
+  });
+
+  const result = await createDeviceAdminHandlers(deps).removeDeviceDeployment({
+    input: { deploymentId: "reader.default", cascade: true },
+    context: { caller: { id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(result.isErr());
+  assertEquals(getStored(), deployment);
+  assertEquals(getInstances(), instances);
+  assertEquals(getProvisioningSecrets(), provisioningSecrets);
+  assertEquals(getActivations(), activations);
+  assertEquals(getActivationReviews(), activationReviews);
+  assertEquals(getPortalSelection(), portalSelection);
+  assertEquals(deletedInstances, []);
+  assertEquals(deletedActivationReviews, []);
+  assertEquals(deletedPortalSelections, []);
+  assertEquals(browserFlowDeletes, []);
+  assertEquals(refreshCount, 0);
+});
+
+Deno.test("Auth.RemoveDeviceDeployment restores portal selection when refresh fails", async () => {
+  const deployment: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "none",
+    disabled: false,
+    appliedContracts: [],
+  };
+  const instance: DeviceInstance = {
+    instanceId: "device_1",
+    publicIdentityKey: "public-key-1",
+    deploymentId: "reader.default",
+    state: "registered",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    activatedAt: null,
+    revokedAt: null,
+  };
+  const activationReviews: DeviceActivationReviewRecord[] = [{
+    reviewId: "review_1",
+    operationId: "operation_1",
+    flowId: "flow_1",
+    instanceId: "device_1",
+    publicIdentityKey: "public-key-1",
+    deploymentId: "reader.default",
+    state: "pending",
+    requestedAt: "2026-01-01T00:00:00.000Z",
+    decidedAt: null,
+    requestedBy: { origin: "portal", id: "main" },
+  }];
+  const portalSelection = {
+    deploymentId: "reader.default",
+    portalId: "device-portal",
+  };
+  const browserFlowDeletes: string[] = [];
+  const deletedPortalSelections: string[] = [];
+  const { deps, getPortalSelection } = deviceAdminDeps({
+    deployment,
+    instances: [instance],
+    activationReviews,
+    portalSelection,
+    browserFlowDeletes,
+    deletedPortalSelections,
+    refreshActiveContracts: async () => {
+      throw new Error("refresh failed");
+    },
+  });
+
+  const result = await createDeviceAdminHandlers(deps).removeDeviceDeployment({
+    input: { deploymentId: "reader.default", cascade: true },
+    context: { caller: { id: "admin", capabilities: ["admin"] } },
+  });
+
+  assert(result.isErr());
+  assertEquals(deletedPortalSelections, ["reader.default"]);
+  assertEquals(getPortalSelection(), portalSelection);
+  assertEquals(browserFlowDeletes, []);
+});
+
 Deno.test("Auth.RemoveDeviceInstance rolls back durable records and does not kick when refresh fails", async () => {
   const deployment: DeviceDeployment = {
     deploymentId: "reader.default",
@@ -2024,6 +2827,7 @@ Deno.test("Auth.DecideDeviceActivationReview completes approve decision through 
       put: async (record) => {
         putReviews.push(record);
       },
+      delete: async () => {},
       list: async () => [review],
     },
     deviceActivationStorage: {
@@ -2125,6 +2929,7 @@ Deno.test("Auth.DecideDeviceActivationReview completes reject decision through o
       put: async (record) => {
         putReviews.push(record);
       },
+      delete: async () => {},
       list: async () => [review],
     },
   }).decideDeviceActivationReview({
@@ -2188,6 +2993,7 @@ Deno.test("Auth.DecideDeviceActivationReview retries completion for already-appr
       put: async (record) => {
         putReviews.push(record);
       },
+      delete: async () => {},
       list: async () => [review],
     },
     deviceActivationStorage: {
@@ -2256,6 +3062,7 @@ Deno.test("Auth.DecideDeviceActivationReview retries completion for already-reje
       put: async (record) => {
         putReviews.push(record);
       },
+      delete: async () => {},
       list: async () => [review],
     },
   }).decideDeviceActivationReview({
@@ -2313,6 +3120,7 @@ Deno.test("Auth.DecideDeviceActivationReview does not mutate when operation comp
       put: async (record) => {
         putReviews.push(record);
       },
+      delete: async () => {},
       list: async () => [review],
     },
     deviceActivationStorage: {

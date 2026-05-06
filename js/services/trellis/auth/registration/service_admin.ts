@@ -109,7 +109,10 @@ export async function registerServiceAdminRpcs(deps: {
   await deps.trellis.mount(
     "Auth.RemoveServiceDeployment",
     createAuthRemoveServiceDeploymentHandler({
+      connectionsKV: deps.connectionsKV,
+      kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
+      sessionStorage: deps.sessionStorage,
       validateActiveCatalog: deps.contracts.validateActiveCatalog,
       serviceDeploymentStorage: deps.serviceDeploymentStorage,
       serviceInstanceStorage: deps.serviceInstanceStorage,

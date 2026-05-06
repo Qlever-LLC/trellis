@@ -133,6 +133,7 @@ export type AdminRpcDeps = {
       flowId: string,
     ): Promise<DeviceActivationReviewRecord | undefined>;
     put(record: DeviceActivationReviewRecord): Promise<void>;
+    delete(reviewId: string): Promise<void>;
     list(): Promise<DeviceActivationReviewRecord[]>;
   };
   deviceActivationStorage: {
@@ -257,6 +258,10 @@ function invalidRequest(context?: Record<string, unknown>) {
   return Result.err(new AuthError({ reason: "invalid_request", context }));
 }
 
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 async function refreshActiveContracts(deps: ActiveContractsDeps) {
   try {
     await deps.refreshActiveContracts();
@@ -282,6 +287,19 @@ async function validateActiveCatalog(
       new UnexpectedError({
         cause: error instanceof Error ? error : new Error(String(error)),
       }),
+    );
+  }
+}
+
+async function deleteBrowserFlow(
+  ctx: AdminRpcContext,
+  flowId: string,
+): Promise<void> {
+  const deleted = await ctx.browserFlowsKV.delete(flowId).take();
+  if (isErr(deleted)) {
+    ctx.logger.warn(
+      { error: deleted.error, flowId },
+      "Failed to delete device activation browser flow",
     );
   }
 }
@@ -809,14 +827,14 @@ export function createAuthRemoveDeviceDeploymentHandler(
   deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
-    input: { deploymentId: string };
+    input: { deploymentId: string; cascade?: boolean };
     context: { caller: RpcUser };
   }, ctx: AdminRpcContext) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const inUse = (await listDeviceInstances(ctx)).some((instance) =>
+    const instances = (await listDeviceInstances(ctx)).filter((instance) =>
       instance.deploymentId === req.deploymentId
     );
-    if (inUse) {
+    if (instances.length > 0 && req.cascade !== true) {
       return invalidRequest({
         deploymentId: req.deploymentId,
         reason: "device_deployment_in_use",
@@ -829,21 +847,110 @@ export function createAuthRemoveDeviceDeploymentHandler(
         reason: "device_deployment_not_found",
       });
     }
-    const validated = await validateActiveCatalog(deps, {
+    const validationOpts: Parameters<ActiveCatalogValidator>[0] = {
       stagedDeviceDeployments: [{
         ...deployment,
         disabled: true,
         appliedContracts: [],
       }],
-    });
+    };
+    if (instances.length > 0) {
+      validationOpts.stagedDeviceInstances = instances.map((instance) => ({
+        ...instance,
+        state: "disabled" as const,
+      }));
+    }
+    const validated = await validateActiveCatalog(deps, validationOpts);
     if (isErr(validated)) return validated;
-    await ctx.deviceDeploymentStorage.delete(req.deploymentId);
+    const provisioningSecrets: DeviceProvisioningSecret[] = [];
+    const activations: DeviceActivation[] = [];
+    const portalSelection = await ctx.devicePortalSelectionStorage.get(
+      req.deploymentId,
+    );
+    for (const instance of instances) {
+      const provisioningSecret = await loadDeviceProvisioningSecret(
+        ctx,
+        instance.instanceId,
+      );
+      if (provisioningSecret) provisioningSecrets.push(provisioningSecret);
+      const activation = await loadDeviceActivation(ctx, instance.instanceId);
+      if (activation) activations.push(activation);
+    }
+    const instanceIds = new Set(
+      instances.map((instance) => instance.instanceId),
+    );
+    const activationReviews = (await listDeviceActivationReviews(ctx)).filter(
+      (review) =>
+        review.deploymentId === req.deploymentId ||
+        instanceIds.has(review.instanceId),
+    );
+    try {
+      for (const instance of instances) {
+        await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
+      }
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+    const restoreDeletedRecords = async () => {
+      await ctx.deviceDeploymentStorage.put(deployment);
+      for (const instance of instances) {
+        await ctx.deviceInstanceStorage.put(instance);
+      }
+      for (const provisioningSecret of provisioningSecrets) {
+        await ctx.deviceProvisioningSecretStorage.put({
+          ...provisioningSecret,
+          createdAt: provisioningSecret.createdAt instanceof Date
+            ? provisioningSecret.createdAt
+            : new Date(provisioningSecret.createdAt),
+        });
+      }
+      for (const activation of activations) {
+        await ctx.deviceActivationStorage.put(activation);
+      }
+      for (const review of activationReviews) {
+        await ctx.deviceActivationReviewStorage.put(review);
+      }
+      if (portalSelection) {
+        await ctx.devicePortalSelectionStorage.put(portalSelection);
+      }
+    };
+    try {
+      for (const instance of instances) {
+        await ctx.deviceInstanceStorage.delete(instance.instanceId);
+        await ctx.deviceProvisioningSecretStorage.delete(instance.instanceId);
+        await ctx.deviceActivationStorage.delete(instance.instanceId);
+      }
+      for (const review of activationReviews) {
+        await ctx.deviceActivationReviewStorage.delete(review.reviewId);
+      }
+      if (portalSelection) {
+        await ctx.devicePortalSelectionStorage.delete(req.deploymentId);
+      }
+      await ctx.deviceDeploymentStorage.delete(req.deploymentId);
+    } catch (error) {
+      try {
+        await restoreDeletedRecords();
+      } catch (rollbackError) {
+        return Result.err(
+          new UnexpectedError({
+            cause: new AggregateError(
+              [toError(error), toError(rollbackError)],
+              "device deployment removal failed and rollback failed",
+            ),
+          }),
+        );
+      }
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) {
       return await rollbackRefreshFailure<{ success: boolean }>(
         refreshed.error,
-        () => ctx.deviceDeploymentStorage.put(deployment),
+        restoreDeletedRecords,
       );
+    }
+    for (const review of activationReviews) {
+      await deleteBrowserFlow(ctx, review.flowId);
     }
     return Result.ok({ success: true });
   };

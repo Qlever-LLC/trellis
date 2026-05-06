@@ -580,15 +580,22 @@ export function createAuthEnableServiceDeploymentHandler(deps: {
   };
 }
 
-export function createAuthRemoveServiceDeploymentHandler(deps: {
-  refreshActiveContracts: () => Promise<void>;
-  validateActiveCatalog: ActiveCatalogValidator;
-  serviceDeploymentStorage: ServiceDeploymentStorage;
-  serviceInstanceStorage: ServiceInstanceStorage;
-}) {
+export function createAuthRemoveServiceDeploymentHandler(
+  deps:
+    & {
+      refreshActiveContracts: () => Promise<void>;
+      validateActiveCatalog: ActiveCatalogValidator;
+      serviceDeploymentStorage: ServiceDeploymentStorage;
+      serviceInstanceStorage: ServiceInstanceStorage;
+    }
+    & RuntimeKickDeps
+    & {
+      kick: (serverId: string, clientId: number) => Promise<void>;
+    },
+) {
   return async (
     { input: req, context: { caller } }: {
-      input: { deploymentId: string };
+      input: { deploymentId: string; cascade?: boolean };
       context: { caller: RpcUser };
     },
   ): Promise<
@@ -600,7 +607,7 @@ export function createAuthRemoveServiceDeploymentHandler(deps: {
       req.deploymentId,
       serviceInstanceStorage,
     );
-    if (instances.length > 0) {
+    if (instances.length > 0 && req.cascade !== true) {
       return invalid(
         "/deploymentId",
         "service deployment still has instances",
@@ -615,24 +622,67 @@ export function createAuthRemoveServiceDeploymentHandler(deps: {
         deploymentId: req.deploymentId,
       });
     }
-    const validated = await validateActiveCatalog(deps.validateActiveCatalog, {
+    const validationOpts: Parameters<ActiveCatalogValidator>[0] = {
       stagedServiceDeployments: [{
         ...existing,
         disabled: true,
         appliedContracts: [],
       }],
-    });
+    };
+    if (instances.length > 0) {
+      validationOpts.stagedServiceInstances = instances.map((instance) => ({
+        ...instance,
+        disabled: true,
+      }));
+    }
+    const validated = await validateActiveCatalog(
+      deps.validateActiveCatalog,
+      validationOpts,
+    );
     if (isErr(validated)) return validated;
+    const restoreDeletedRecords = async () => {
+      await serviceDeploymentStorage.put(existing);
+      for (const instance of instances) {
+        await serviceInstanceStorage.put(instance);
+      }
+    };
     try {
+      for (const instance of instances) {
+        await kickInstanceRuntimeAccess({
+          instanceKey: instance.instanceKey,
+          kick: deps.kick,
+          connectionsKV: deps.connectionsKV,
+          sessionStorage: deps.sessionStorage,
+        });
+      }
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+    try {
+      for (const instance of instances) {
+        await serviceInstanceStorage.delete(instance.instanceId);
+      }
       await serviceDeploymentStorage.delete(req.deploymentId);
     } catch (error) {
+      try {
+        await restoreDeletedRecords();
+      } catch (rollbackError) {
+        return Result.err(
+          new UnexpectedError({
+            cause: new AggregateError(
+              [toError(error), toError(rollbackError)],
+              "service deployment removal failed and rollback failed",
+            ),
+          }),
+        );
+      }
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
     const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
     if (isErr(refreshed)) {
       return await rollbackRefreshFailure(
         refreshed.error,
-        () => serviceDeploymentStorage.put(existing),
+        restoreDeletedRecords,
       );
     }
     return Result.ok({ success: true });

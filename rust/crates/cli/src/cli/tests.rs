@@ -395,6 +395,37 @@ fn parses_deploy_alias_and_device_ref() {
 }
 
 #[test]
+fn parses_deploy_remove_force_and_cascade_separately() {
+    let cli = Cli::parse_from(["trellis", "deploy", "remove", "svc/api", "-f", "--cascade"]);
+    match cli.command {
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Remove(args) => {
+                assert_eq!(args.reference.kind, DeployKind::Service);
+                assert_eq!(args.reference.id, "api");
+                assert!(args.force);
+                assert!(args.cascade);
+            }
+            other => panic!("unexpected deploy command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+
+    let cli = Cli::parse_from(["trellis", "deploy", "remove", "dev/reader", "--cascade"]);
+    match cli.command {
+        TopLevelCommand::Deploy(command) => match command.command {
+            DeploySubcommand::Remove(args) => {
+                assert_eq!(args.reference.kind, DeployKind::Device);
+                assert_eq!(args.reference.id, "reader");
+                assert!(!args.force);
+                assert!(args.cascade);
+            }
+            other => panic!("unexpected deploy command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_deploy_friendly_explicit_ref() {
     let cli = Cli::parse_from(["trellis", "deployment", "show", "service/api"]);
     match cli.command {

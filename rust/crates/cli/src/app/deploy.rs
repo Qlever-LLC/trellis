@@ -328,12 +328,18 @@ async fn remove_command(format: OutputFormat, args: &DeployRemoveArgs) -> miette
     let success = match args.reference.kind {
         DeployKind::Service => {
             auth_client
-                .remove_service_deployment(&args.reference.id)
+                .remove_service_deployment_with_options(
+                    &args.reference.id,
+                    args.cascade.then_some(true),
+                )
                 .await
         }
         DeployKind::Device => {
             auth_client
-                .remove_device_deployment(&args.reference.id)
+                .remove_device_deployment_with_options(
+                    &args.reference.id,
+                    args.cascade.then_some(true),
+                )
                 .await
         }
     }
