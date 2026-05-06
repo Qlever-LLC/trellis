@@ -221,7 +221,34 @@ fn write_ts_sdk_shell(
     )?;
     write_if_changed(
         &out.join("api.ts"),
-        "export const OWNED_API = { rpc: {}, operations: {}, events: {}, state: {}, jobs: {}, kv: {}, store: {} } as const;\nexport const API = { owned: OWNED_API, used: {}, merged: OWNED_API } as const;\nexport type OwnedApi = typeof OWNED_API;\nexport type Api = typeof API;\nexport type ApiViews = typeof API;\n",
+        r#"type PermissiveApiRecord = Record<string, unknown>;
+
+function permissiveApiRecord(): PermissiveApiRecord {
+  return new Proxy({}, {
+    get: () => ({}),
+    has: () => true,
+    getOwnPropertyDescriptor: (_target, property) => typeof property === "string"
+      ? { configurable: true, enumerable: true, value: {} }
+      : undefined,
+  }) as PermissiveApiRecord;
+}
+
+export const OWNED_API = {
+  rpc: permissiveApiRecord(),
+  operations: permissiveApiRecord(),
+  events: permissiveApiRecord(),
+  feeds: permissiveApiRecord(),
+  subjects: {},
+  state: {},
+  jobs: {},
+  kv: {},
+  store: {},
+} as const;
+export const API = { owned: OWNED_API, used: {}, merged: OWNED_API } as const;
+export type OwnedApi = typeof OWNED_API;
+export type Api = typeof API;
+export type ApiViews = typeof API;
+"#,
     )?;
     write_if_changed(&out.join("types.ts"), &format!("export const CONTRACT_ID = {} as const;\nexport const CONTRACT_DIGEST = \"shell\" as const;\n", js_string(contract_id)))?;
     write_if_changed(&out.join("schemas.ts"), "")?;
@@ -231,7 +258,7 @@ fn write_ts_sdk_shell(
 
 fn render_ts_contract_shell(contract_id: &str, trellis_import: &str) -> String {
     format!(
-        "import type {{ ContractDependencyUse, SdkContractModule, UseSpec }} from {};\n\nconst CONTRACT_MODULE_METADATA = Symbol.for(\"@qlever-llc/trellis/contracts/contract-module\");\n\nexport const CONTRACT_ID = {} as const;\nexport const CONTRACT_DIGEST = \"shell\" as const;\nexport const CONTRACT = {{ format: \"trellis.contract.v1\", id: CONTRACT_ID }};\nexport const API = {{ owned: {{ rpc: {{}}, operations: {{}}, events: {{}} }} }} as const;\n\nexport const sdk: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {{\n  CONTRACT_ID,\n  CONTRACT_DIGEST,\n  CONTRACT: CONTRACT as never,\n  API: API as never,\n  use: (<const TSpec extends UseSpec<typeof API.owned>>(spec: TSpec) => {{\n    const dependencyUse = {{\n      contract: CONTRACT_ID,\n      ...(spec.rpc?.call ? {{ rpc: {{ call: [...spec.rpc.call] }} }} : {{}}),\n      ...(spec.operations?.call ? {{ operations: {{ call: [...spec.operations.call] }} }} : {{}}),\n      ...((spec.events?.publish || spec.events?.subscribe) ? {{ events: {{ ...(spec.events.publish ? {{ publish: [...spec.events.publish] }} : {{}}), ...(spec.events.subscribe ? {{ subscribe: [...spec.events.subscribe] }} : {{}}) }} }} : {{}}),\n    }};\n    Object.defineProperty(dependencyUse, CONTRACT_MODULE_METADATA, {{ value: sdk, enumerable: false }});\n    return dependencyUse as ContractDependencyUse<typeof CONTRACT_ID, typeof API.owned, TSpec>;\n  }}),\n}};\n\nexport const use = sdk.use;\n",
+        "import type {{ ContractDependencyUse, SdkContractModule, UseSpec }} from {};\n\nconst CONTRACT_MODULE_METADATA = Symbol.for(\"@qlever-llc/trellis/contracts/contract-module\");\n\ntype PermissiveApiRecord = Record<string, unknown>;\n\nfunction permissiveApiRecord(): PermissiveApiRecord {{\n  return new Proxy({{}}, {{\n    get: () => ({{}}),\n    has: () => true,\n    getOwnPropertyDescriptor: (_target, property) => typeof property === \"string\"\n      ? {{ configurable: true, enumerable: true, value: {{}} }}\n      : undefined,\n  }}) as PermissiveApiRecord;\n}}\n\nexport const CONTRACT_ID = {} as const;\nexport const CONTRACT_DIGEST = \"shell\" as const;\nexport const CONTRACT = {{ format: \"trellis.contract.v1\", id: CONTRACT_ID }};\nexport const API = {{\n  owned: {{\n    rpc: permissiveApiRecord(),\n    operations: permissiveApiRecord(),\n    events: permissiveApiRecord(),\n    feeds: permissiveApiRecord(),\n    subjects: {{}},\n  }},\n}} as const;\n\nexport const sdk: SdkContractModule<typeof CONTRACT_ID, typeof API.owned> = {{\n  CONTRACT_ID,\n  CONTRACT_DIGEST,\n  CONTRACT: CONTRACT as never,\n  API: API as never,\n  use: (<const TSpec extends UseSpec<typeof API.owned>>(spec: TSpec) => {{\n    const dependencyUse = {{\n      contract: CONTRACT_ID,\n      ...(spec.rpc?.call ? {{ rpc: {{ call: [...spec.rpc.call] }} }} : {{}}),\n      ...(spec.operations?.call ? {{ operations: {{ call: [...spec.operations.call] }} }} : {{}}),\n      ...((spec.events?.publish || spec.events?.subscribe) ? {{ events: {{ ...(spec.events.publish ? {{ publish: [...spec.events.publish] }} : {{}}), ...(spec.events.subscribe ? {{ subscribe: [...spec.events.subscribe] }} : {{}}) }} }} : {{}}),\n      ...(spec.feeds?.subscribe ? {{ feeds: {{ subscribe: [...spec.feeds.subscribe] }} }} : {{}}),\n    }};\n    Object.defineProperty(dependencyUse, CONTRACT_MODULE_METADATA, {{ value: sdk, enumerable: false }});\n    return dependencyUse as ContractDependencyUse<typeof CONTRACT_ID, typeof API.owned, TSpec>;\n  }}),\n}};\n\nexport const use = sdk.use;\n",
         js_string(trellis_import),
         js_string(contract_id)
     )
@@ -665,8 +692,13 @@ mod tests {
         .expect("write shell outputs");
 
         let contract = fs::read_to_string(ts_out.join("contract.ts")).expect("read contract shell");
+        let api = fs::read_to_string(ts_out.join("api.ts")).expect("read api shell");
         assert!(contract.contains("export const sdk"));
         assert!(contract.contains("ContractDependencyUse"));
+        assert!(contract.contains("permissiveApiRecord"));
+        assert!(contract.contains("getOwnPropertyDescriptor"));
+        assert!(api.contains("permissiveApiRecord"));
+        assert!(api.contains("getOwnPropertyDescriptor"));
         assert!(!contract.contains("assertSelectedKeysExist"));
         assert!(!metadata.exists());
     }

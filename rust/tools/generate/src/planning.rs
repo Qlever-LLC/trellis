@@ -8,8 +8,9 @@ use trellis_contracts::ContractKind;
 use crate::artifacts::{
     current_generator_fingerprint, default_rust_crate_name_from_id, detect_output_root,
     detect_runtime_source, generated_artifacts_are_fresh, generated_artifacts_metadata,
-    required_owner_version, sdk_output_stem, trellis_package_version, ts_package_name_from_id,
-    write_contract_outputs, write_contract_shell_outputs, write_participant_facade_outputs,
+    generated_artifacts_metadata_path, required_owner_version, sdk_output_stem,
+    trellis_package_version, ts_package_name_from_id, write_contract_outputs,
+    write_contract_shell_outputs, write_participant_facade_outputs,
 };
 use crate::cli::RuntimeSource;
 use crate::contract_input;
@@ -366,6 +367,9 @@ fn write_auto_plan_shells(plan: &[AutoPlanEntry], prefix: &str) -> miette::Resul
         if !matches!(entry.action, AutoAction::Generate) {
             continue;
         }
+        if shell_outputs_are_not_needed(entry) {
+            continue;
+        }
         let package_name = ts_package_name_from_id(&entry.contract_id, prefix);
         let crate_name = default_rust_crate_name_from_id(&entry.contract_id);
         write_contract_shell_outputs(
@@ -381,6 +385,32 @@ fn write_auto_plan_shells(plan: &[AutoPlanEntry], prefix: &str) -> miette::Resul
         )?;
     }
     Ok(())
+}
+
+fn shell_outputs_are_not_needed(entry: &AutoPlanEntry) -> bool {
+    let Some(out_manifest) = &entry.out_manifest else {
+        return false;
+    };
+    generated_artifacts_metadata_path(out_manifest).exists()
+        && ts_shell_key_outputs_exist(entry.ts_out.as_deref())
+        && rust_shell_key_outputs_exist(entry.rust_out.as_deref())
+}
+
+fn ts_shell_key_outputs_exist(ts_out: Option<&Path>) -> bool {
+    let Some(ts_out) = ts_out else {
+        return true;
+    };
+    ts_out.join("mod.ts").exists()
+        && ts_out.join("api.ts").exists()
+        && ts_out.join("contract.ts").exists()
+        && ts_out.join("client.ts").exists()
+}
+
+fn rust_shell_key_outputs_exist(rust_out: Option<&Path>) -> bool {
+    let Some(rust_out) = rust_out else {
+        return true;
+    };
+    rust_out.join("Cargo.toml").exists() && rust_out.join("src/lib.rs").exists()
 }
 
 pub fn discover_summary_lines(plan: &[AutoPlanEntry]) -> Vec<String> {
@@ -557,6 +587,7 @@ mod tests {
 
     #[test]
     fn auto_plan_orders_local_ts_sdk_imports_before_dependents() {
+        let _env_lock = crate::contract_input::test_env_lock();
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
         let notifications = root.join("services/notifications/contracts");
@@ -568,29 +599,29 @@ mod tests {
             notifications.join("notifications.ts"),
             concat!(
                 "import * as krishiSherpa from \"@trellis-sdk/krishi-sherpa\";\n",
-                "const contract = {\n",
-                "  format: \"trellis.contract.v1\",\n",
+                "import { defineServiceContract } from \"@qlever-llc/trellis\";\n",
+                "export const notifications = defineServiceContract(() => ({\n",
                 "  id: \"krishi.notifications@v1\",\n",
                 "  kind: \"service\",\n",
                 "  displayName: \"Notifications\",\n",
                 "  description: \"Notifications\",\n",
                 "  uses: { sherpa: krishiSherpa.use({ events: { subscribe: [\"Sherpa.RunIngested\"] } }) },\n",
-                "};\n",
-                "export default contract;\n",
+                "}));\n",
+                "export default notifications;\n",
             ),
         )
         .unwrap();
         fs::write(
             sherpa.join("sherpa.ts"),
             concat!(
-                "const contract = {\n",
-                "  format: \"trellis.contract.v1\",\n",
+                "import { defineServiceContract } from \"@qlever-llc/trellis\";\n",
+                "export const sherpa = defineServiceContract(() => ({\n",
                 "  id: \"krishi.sherpa@v1\",\n",
                 "  kind: \"service\",\n",
                 "  displayName: \"Sherpa\",\n",
                 "  description: \"Sherpa\",\n",
-                "};\n",
-                "export default contract;\n",
+                "}));\n",
+                "export default sherpa;\n",
             ),
         )
         .unwrap();

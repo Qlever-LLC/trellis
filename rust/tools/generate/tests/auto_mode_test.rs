@@ -379,9 +379,9 @@ fn prepare_generates_rust_participant_facade_for_local_device_uses() {
     assert!(!cargo_toml.contains("trellis-sdk-auth"));
 
     let build_rs = fs::read_to_string(participant.join("build.rs")).unwrap();
-    assert!(build_rs.contains("alias: \"orders\".to_string()"));
-    assert!(build_rs.contains("alias: \"inventory\".to_string()"));
-    assert!(!build_rs.contains("alias: \"auth\".to_string()"));
+    assert!(build_rs.contains("contracts/orders.json"));
+    assert!(build_rs.contains("contracts/inventory.json"));
+    assert!(!build_rs.contains("contracts/auth.json"));
 
     fs::write(
         device.join("contracts/device.json"),
