@@ -126,7 +126,7 @@ fn explicit_generate_all_defaults_out_of_tree_package_to_trellis_sdk_scope() {
 
     let deno = fs::read_to_string(ts_out.join("deno.json")).unwrap();
     assert!(deno.contains("\"name\": \"@trellis-sdk/krishi-cloud\""));
-    assert!(deno.contains("npm:@qlever-llc/trellis@^0.8.0"));
+    assert!(deno.contains("npm:@qlever-llc/trellis@^0.8.2"));
     assert!(!deno.contains("jsr:@qlever-llc/trellis"));
     assert!(!deno.contains("@qlever-llc/trellis-generated-krishi-cloud"));
 }
@@ -243,6 +243,136 @@ export default contract;
         .path()
         .join("generated/rust/sdks/dashboard/Cargo.toml")
         .exists());
+}
+
+#[test]
+fn prepare_bootstraps_typescript_sdk_import_dependencies() {
+    let temp = tempfile::tempdir().unwrap();
+    let sherpa = temp.path().join("services/sherpa");
+    let notifications = temp.path().join("services/notifications");
+    fs::create_dir_all(sherpa.join("contracts")).unwrap();
+    fs::create_dir_all(notifications.join("contracts")).unwrap();
+    fs::write(sherpa.join("deno.json"), "{\n  \"version\": \"0.4.0\"\n}\n").unwrap();
+    let trellis_package = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../js/packages/trellis")
+        .canonicalize()
+        .unwrap();
+    let trellis_js_config = trellis_package
+        .join("../../deno.json")
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
+    let trellis_package_url = format!(
+        "file://{}/",
+        trellis_package.to_string_lossy().replace('\\', "/")
+    );
+    let trellis_contracts_url = format!(
+        "file://{}",
+        trellis_package
+            .join("contracts.ts")
+            .to_string_lossy()
+            .replace('\\', "/")
+    );
+    let result_package_url = format!(
+        "file://{}",
+        trellis_package
+            .join("../result/mod.ts")
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/")
+    );
+    fs::write(
+        notifications.join("deno.json"),
+        format!(
+            r#"{{
+  "extends": "{trellis_js_config}",
+  "version": "0.4.0",
+  "imports": {{
+    "@qlever-llc/trellis/": "{trellis_package_url}",
+    "@qlever-llc/trellis/contracts": "{trellis_contracts_url}",
+    "@qlever-llc/result": "{result_package_url}",
+    "typebox": "npm:typebox@^1.1.33",
+    "json-schema-library": "npm:json-schema-library@^11.4.0",
+    "ulid": "npm:ulid@^3.0.2",
+    "@trellis-sdk/krishi-sherpa": "../../generated/js/sdks/krishi-sherpa/mod.ts"
+  }}
+}}
+"#
+        ),
+    )
+    .unwrap();
+    fs::write(
+        sherpa.join("contracts/sherpa.ts"),
+        r#"const contract = {
+  format: "trellis.contract.v1",
+  id: "krishi.sherpa@v1",
+  displayName: "Sherpa",
+  description: "Fixture contract",
+  kind: "service",
+  schemas: {
+    Empty: { type: "object", properties: {}, required: [], additionalProperties: false },
+    Run: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },
+  },
+  rpc: {
+    "Sherpa.Get": {
+      version: "v1",
+      subject: "rpc.v1.Sherpa.Get",
+      input: { schema: "Empty" },
+      output: { schema: "Run" },
+    },
+  },
+};
+
+export default contract;
+"#,
+    )
+    .unwrap();
+    fs::write(
+        notifications.join("contracts/notifications.ts"),
+        r#"import { use as useSherpa } from "@trellis-sdk/krishi-sherpa";
+
+const contract = {
+  format: "trellis.contract.v1",
+  id: "krishi.notifications@v1",
+  displayName: "Notifications",
+  description: "Fixture contract",
+  kind: "service",
+  uses: {
+    sherpa: useSherpa({ rpc: { call: ["Sherpa.Get"] } }),
+  },
+};
+
+export default contract;
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
+        .args(["prepare", temp.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let sherpa_contract = fs::read_to_string(
+        temp.path()
+            .join("generated/js/sdks/krishi-sherpa/contract.ts"),
+    )
+    .unwrap();
+    assert!(sherpa_contract.contains("CONTRACT_DIGEST"));
+    assert!(!sherpa_contract.contains("\"shell\""));
+
+    let notifications_api = fs::read_to_string(
+        temp.path()
+            .join("generated/js/sdks/krishi-notifications/api.ts"),
+    )
+    .unwrap();
+    assert!(notifications_api.contains("Sherpa.Get"));
 }
 
 #[test]

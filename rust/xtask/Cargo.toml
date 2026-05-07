@@ -5,3 +5,6 @@ edition = "2021"
 publish = false
 
 [workspace]
+
+[dependencies]
+trellis-generate-runner = { path = "../crates/generate-runner" }

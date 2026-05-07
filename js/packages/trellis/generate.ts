@@ -1,0 +1,290 @@
+const REPO_OWNER = "qlever-llc";
+const REPO_NAME = "trellis";
+const BIN_NAME = "trellis-generate";
+const SUPPORTED_TARGETS = new Set([
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+]);
+
+type PackageManifest = {
+  version?: unknown;
+};
+
+async function main(): Promise<void> {
+  const localRepoRoot = await findLocalTrellisRepoRoot();
+  if (localRepoRoot) {
+    await runLocalGenerator(localRepoRoot, Deno.args);
+    return;
+  }
+
+  const packageVersion = await readPackageVersion();
+  const binary = Deno.env.get("TRELLIS_GENERATE_BIN")?.trim() ||
+    await ensureCachedReleaseBinary(packageVersion);
+  await verifyBinaryVersion(binary, packageVersion);
+  await runBinary(binary, Deno.args);
+}
+
+async function findLocalTrellisRepoRoot(): Promise<string | undefined> {
+  let current = urlDirname(import.meta.url);
+  while (current !== dirname(current)) {
+    if (
+      await pathExists(joinPath(current, "rust/tools/generate/Cargo.toml")) &&
+      await pathExists(joinPath(current, "js/deno.json"))
+    ) {
+      return current;
+    }
+    current = dirname(current);
+  }
+  return undefined;
+}
+
+async function runLocalGenerator(
+  repoRoot: string,
+  args: string[],
+): Promise<never> {
+  return await runCommand("cargo", [
+    "run",
+    "--manifest-path",
+    joinPath(repoRoot, "rust/tools/generate/Cargo.toml"),
+    "--bin",
+    BIN_NAME,
+    "--",
+    ...args,
+  ]);
+}
+
+async function readPackageVersion(): Promise<string> {
+  const manifestUrl = new URL("./deno.json", import.meta.url);
+  const manifest = JSON.parse(
+    await Deno.readTextFile(manifestUrl),
+  ) as PackageManifest;
+  if (typeof manifest.version !== "string" || !manifest.version.trim()) {
+    throw new Error(
+      "@qlever-llc/trellis package manifest does not declare a version",
+    );
+  }
+  return manifest.version.trim();
+}
+
+async function ensureCachedReleaseBinary(version: string): Promise<string> {
+  const target = releaseTarget();
+  const cacheDir = joinPath(cacheRoot(), version, target);
+  const binary = joinPath(cacheDir, BIN_NAME);
+  if (await pathExists(binary)) {
+    return binary;
+  }
+
+  await Deno.mkdir(cacheDir, { recursive: true });
+  const tag = `v${version}`;
+  const archiveName = `${BIN_NAME}-${tag}-${target}.tar.gz`;
+  const archiveUrl =
+    `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${tag}/${archiveName}`;
+  const checksumName = `checksum-${tag}-${target}-${BIN_NAME}.sha256`;
+  const checksumUrl =
+    `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${tag}/${checksumName}`;
+
+  const [archive, checksumText] = await Promise.all([
+    downloadBytes(archiveUrl),
+    downloadText(checksumUrl),
+  ]);
+  await verifyChecksum(archive, checksumText, archiveUrl);
+
+  const archivePath = joinPath(cacheDir, archiveName);
+  await Deno.writeFile(archivePath, archive);
+  await runCommandChecked("tar", ["-xzf", archivePath, "-C", cacheDir]);
+  await Deno.chmod(binary, 0o755);
+  return binary;
+}
+
+function releaseTarget(): string {
+  if (SUPPORTED_TARGETS.has(Deno.build.target)) {
+    return Deno.build.target;
+  }
+
+  const buildArch: string = Deno.build.arch;
+  const arch = buildArch === "x86_64" || buildArch === "x64"
+    ? "x86_64"
+    : buildArch;
+  const os = Deno.build.os === "darwin"
+    ? "apple-darwin"
+    : Deno.build.os === "linux"
+    ? "unknown-linux-gnu"
+    : undefined;
+  const target = os ? `${arch}-${os}` : undefined;
+  if (target && SUPPORTED_TARGETS.has(target)) {
+    return target;
+  }
+
+  throw new Error(
+    `no ${BIN_NAME} release binary is available for ${Deno.build.target}`,
+  );
+}
+
+function cacheRoot(): string {
+  const explicit = Deno.env.get("TRELLIS_GENERATE_CACHE")?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  const xdg = Deno.env.get("XDG_CACHE_HOME")?.trim();
+  if (xdg) {
+    return joinPath(xdg, "trellis", BIN_NAME);
+  }
+  const home = Deno.env.get("HOME")?.trim();
+  if (!home) {
+    throw new Error(
+      "HOME or TRELLIS_GENERATE_CACHE must be set to cache trellis-generate",
+    );
+  }
+  return joinPath(home, ".cache", "trellis", BIN_NAME);
+}
+
+async function downloadBytes(url: string): Promise<Uint8Array> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`failed to download ${url}: HTTP ${response.status}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+async function downloadText(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`failed to download ${url}: HTTP ${response.status}`);
+  }
+  return await response.text();
+}
+
+async function verifyChecksum(
+  bytes: Uint8Array,
+  checksumText: string,
+  label: string,
+): Promise<void> {
+  const expected = checksumText.trim().split(/\s+/)[0]?.toLowerCase();
+  if (!expected || !/^[0-9a-f]{64}$/.test(expected)) {
+    throw new Error("release checksum asset did not contain a SHA-256 digest");
+  }
+
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  const actual = Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  if (actual !== expected) {
+    throw new Error(
+      `checksum mismatch for ${label}: expected ${expected}, got ${actual}`,
+    );
+  }
+}
+
+async function verifyBinaryVersion(
+  binary: string,
+  expectedVersion: string,
+): Promise<void> {
+  const output = await new Deno.Command(binary, {
+    args: ["--version"],
+    stdout: "piped",
+    stderr: "piped",
+  }).output();
+  if (!output.success) {
+    throw new Error(`failed to run ${binary} --version`);
+  }
+  const text = new TextDecoder().decode(output.stdout).trim();
+  const actualVersion = text.split(/\s+/).find((part) =>
+    /^v?\d+\.\d+\.\d+/.test(part)
+  );
+  if (
+    !actualVersion ||
+    normalizeVersion(actualVersion) !== normalizeVersion(expectedVersion)
+  ) {
+    throw new Error(
+      `${binary} is ${
+        text || "unknown version"
+      }; expected ${BIN_NAME} ${expectedVersion}`,
+    );
+  }
+}
+
+function normalizeVersion(version: string): string {
+  return version.trim().replace(/^v/, "").split("+")[0];
+}
+
+async function runBinary(binary: string, args: string[]): Promise<never> {
+  return await runCommand(binary, args);
+}
+
+async function runCommand(
+  command: string,
+  args: string[],
+  options: { cwd?: string } = {},
+): Promise<never> {
+  const status = await spawnCommand(command, args, options);
+  Deno.exit(status.code);
+}
+
+async function runCommandChecked(
+  command: string,
+  args: string[],
+  options: { cwd?: string } = {},
+): Promise<void> {
+  const status = await spawnCommand(command, args, options);
+  if (!status.success) {
+    throw new Error(`${command} failed with exit code ${status.code}`);
+  }
+}
+
+async function spawnCommand(
+  command: string,
+  args: string[],
+  options: { cwd?: string } = {},
+): Promise<Deno.CommandStatus> {
+  const status = await new Deno.Command(command, {
+    args,
+    cwd: options.cwd,
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  }).spawn().status;
+  return status;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await Deno.stat(path);
+    return true;
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function urlDirname(url: string): string {
+  return dirname(decodeURIComponent(new URL(url).pathname));
+}
+
+function dirname(path: string): string {
+  const normalized = path.replace(/\/+$/, "");
+  const index = normalized.lastIndexOf("/");
+  if (index <= 0) {
+    return "/";
+  }
+  return normalized.slice(0, index);
+}
+
+function joinPath(...parts: string[]): string {
+  return parts
+    .filter((part) => part.length > 0)
+    .join("/")
+    .replace(/\/+/g, "/");
+}
+
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error(error);
+    Deno.exit(1);
+  });
+}

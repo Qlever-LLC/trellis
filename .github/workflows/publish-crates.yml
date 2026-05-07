@@ -196,6 +196,7 @@ jobs:
 
           publish_workspace_crate trellis-codegen-rust
           publish_workspace_crate trellis-codegen-ts
+          publish_workspace_crate trellis-generate-runner
 
           # Switch the generated SDK crates to crates.io runtime dependencies only
           # after the shared runtime crates are actually available there.

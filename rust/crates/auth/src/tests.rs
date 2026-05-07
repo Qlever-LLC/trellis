@@ -1,7 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::browser_login::{
@@ -28,6 +28,11 @@ fn unique_test_dir(label: &str) -> PathBuf {
         .unwrap()
         .as_nanos();
     std::env::temp_dir().join(format!("trellis-auth-{label}-{nanos}"))
+}
+
+fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
 }
 
 #[test]
@@ -401,6 +406,7 @@ async fn agent_flow_polling_waits_for_redirect_status() {
 
 #[test]
 fn admin_session_round_trips_through_private_file() {
+    let _env_lock = env_lock();
     let test_dir = unique_test_dir("session-store");
     fs::create_dir_all(&test_dir).expect("create test dir");
     unsafe {
@@ -436,6 +442,7 @@ fn admin_session_round_trips_through_private_file() {
 
 #[test]
 fn legacy_admin_session_key_is_rejected() {
+    let _env_lock = env_lock();
     let test_dir = unique_test_dir("legacy-session-store");
     let config_dir = test_dir.join("trellis");
     fs::create_dir_all(&config_dir).expect("create test dir");

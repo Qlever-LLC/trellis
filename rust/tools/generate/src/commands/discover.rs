@@ -9,7 +9,7 @@ use crate::planning::{build_auto_plan, discover_summary_lines, execute_auto_plan
 pub fn local_generate(force: bool) -> miette::Result<()> {
     let cwd = std::env::current_dir().into_diagnostic()?;
     let discovered = discover_local_contracts(&cwd)?;
-    let plan = build_auto_plan(discovered, None)?;
+    let plan = build_auto_plan(discovered, None, "@trellis-sdk/")?;
     execute_auto_plan(
         &plan,
         Some("Trellis Generate"),
@@ -23,7 +23,11 @@ pub fn local_generate(force: bool) -> miette::Result<()> {
 pub fn discover(args: &DiscoverArgs, force: bool) -> miette::Result<()> {
     let canonical_root = args.root.canonicalize().into_diagnostic()?;
     let shared_output_root = detect_output_root(&canonical_root);
-    let plan = build_auto_plan(discover_contracts(&args.root)?, Some(&shared_output_root))?;
+    let plan = build_auto_plan(
+        discover_contracts(&args.root)?,
+        Some(&shared_output_root),
+        "@trellis-sdk/",
+    )?;
     output::print_title("Trellis Generate Discover");
     output::print_detail("root", args.root.display().to_string());
     if plan.is_empty() {

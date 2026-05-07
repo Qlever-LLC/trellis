@@ -379,6 +379,7 @@ await buildDntPackage({
     "./js/packages/trellis/contracts.ts",
     "./js/packages/trellis/device.ts",
     "./js/packages/trellis/device/deno.ts",
+    "./js/packages/trellis/generate.ts",
     "./js/packages/trellis/health.ts",
     "./js/packages/trellis/sdk/auth.ts",
     "./js/packages/trellis/sdk/core.ts",

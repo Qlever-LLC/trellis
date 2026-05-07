@@ -30,7 +30,11 @@ fn build_prepare_plan(args: &PrepareArgs) -> miette::Result<Vec<AutoPlanEntry>> 
         Some(out) => absolute_path(out)?,
         None => canonical_root,
     };
-    build_auto_plan(discover_contracts(&args.root)?, Some(&output_root))
+    build_auto_plan(
+        discover_contracts(&args.root)?,
+        Some(&output_root),
+        &args.prefix,
+    )
 }
 
 fn absolute_path(path: &Path) -> miette::Result<PathBuf> {

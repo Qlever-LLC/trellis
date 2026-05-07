@@ -7,8 +7,9 @@ use trellis_contracts::ContractKind;
 use crate::artifacts::{
     current_generator_fingerprint, default_rust_crate_name_from_id, detect_output_root,
     detect_runtime_source, generated_artifacts_are_fresh, generated_artifacts_metadata,
-    required_owner_version, sdk_output_stem, trellis_package_version, ts_package_name_from_id,
-    write_contract_outputs,
+    generated_artifacts_metadata_path, required_owner_version, sdk_output_stem,
+    trellis_package_version, ts_package_name_from_id, write_contract_outputs,
+    write_contract_shell_outputs,
 };
 use crate::cli::RuntimeSource;
 use crate::contract_input;
@@ -44,6 +45,7 @@ pub struct AutoExecutionSummary {
 pub fn build_auto_plan(
     discovered: Vec<DiscoveredContractSource>,
     shared_output_root: Option<&Path>,
+    prefix: &str,
 ) -> miette::Result<Vec<AutoPlanEntry>> {
     let mut plan = Vec::new();
     for contract in discovered {
@@ -94,16 +96,78 @@ pub fn build_auto_plan(
             runtime_repo_root,
         });
     }
-    plan.sort_by(|left, right| {
-        auto_plan_rank(left)
-            .cmp(&auto_plan_rank(right))
-            .then_with(|| {
-                left.discovered
-                    .source_path
-                    .cmp(&right.discovered.source_path)
-            })
-    });
+    sort_auto_plan(&mut plan, prefix);
     Ok(plan)
+}
+
+fn sort_auto_plan(plan: &mut Vec<AutoPlanEntry>, prefix: &str) {
+    let mut remaining = plan.clone();
+    remaining.sort_by(compare_auto_plan_entries);
+
+    let mut sorted = Vec::with_capacity(remaining.len());
+    while !remaining.is_empty() {
+        let next = remaining
+            .iter()
+            .position(|entry| {
+                local_ts_sdk_dependencies(entry, plan, prefix)
+                    .into_iter()
+                    .all(|dependency| {
+                        sorted
+                            .iter()
+                            .any(|candidate: &AutoPlanEntry| candidate.contract_id == dependency)
+                            || !remaining
+                                .iter()
+                                .any(|candidate| candidate.contract_id == dependency)
+                    })
+            })
+            .unwrap_or(0);
+        sorted.push(remaining.remove(next));
+    }
+
+    *plan = sorted;
+}
+
+fn compare_auto_plan_entries(left: &AutoPlanEntry, right: &AutoPlanEntry) -> std::cmp::Ordering {
+    auto_plan_rank(left)
+        .cmp(&auto_plan_rank(right))
+        .then_with(|| {
+            left.discovered
+                .source_path
+                .cmp(&right.discovered.source_path)
+        })
+}
+
+fn local_ts_sdk_dependencies(
+    entry: &AutoPlanEntry,
+    plan: &[AutoPlanEntry],
+    prefix: &str,
+) -> Vec<String> {
+    if entry.discovered.language != crate::discovery::SourceLanguage::TypeScript {
+        return Vec::new();
+    }
+    let Ok(source) = fs::read_to_string(&entry.discovered.source_path) else {
+        return Vec::new();
+    };
+
+    plan.iter()
+        .filter(|candidate| candidate.contract_id != entry.contract_id)
+        .filter(|candidate| candidate.ts_out.is_some())
+        .filter_map(|candidate| {
+            let package_name = ts_package_name_from_id(&candidate.contract_id, prefix);
+            source_imports_specifier(&source, &package_name).then(|| candidate.contract_id.clone())
+        })
+        .collect()
+}
+
+fn source_imports_specifier(source: &str, specifier: &str) -> bool {
+    let double_quoted = format!("from \"{specifier}\"");
+    let single_quoted = format!("from '{specifier}'");
+    let dynamic_double_quoted = format!("import(\"{specifier}\")");
+    let dynamic_single_quoted = format!("import('{specifier}')");
+    source.contains(&double_quoted)
+        || source.contains(&single_quoted)
+        || source.contains(&dynamic_double_quoted)
+        || source.contains(&dynamic_single_quoted)
 }
 
 fn resolve_typescript_sdk_root(
@@ -185,6 +249,7 @@ pub fn execute_auto_plan(
 
     let generator_fingerprint = current_generator_fingerprint();
     let mut summary = AutoExecutionSummary::default();
+    write_auto_plan_shells(plan, prefix)?;
     for entry in plan {
         let resolved = contract_input::resolve_contract_input(
             None,
@@ -256,6 +321,57 @@ pub fn execute_auto_plan(
         }
     }
     Ok(summary)
+}
+
+fn write_auto_plan_shells(plan: &[AutoPlanEntry], prefix: &str) -> miette::Result<()> {
+    for entry in plan {
+        if !matches!(entry.action, AutoAction::Generate) {
+            continue;
+        }
+        if shell_outputs_are_not_needed(entry) {
+            continue;
+        }
+        let package_name = ts_package_name_from_id(&entry.contract_id, prefix);
+        let crate_name = default_rust_crate_name_from_id(&entry.contract_id);
+        write_contract_shell_outputs(
+            &entry.contract_id,
+            "0.0.0-shell",
+            entry.out_manifest.as_deref(),
+            entry.ts_out.as_deref(),
+            entry.rust_out.as_deref(),
+            &package_name,
+            &crate_name,
+            entry.runtime_source,
+            entry.runtime_repo_root.clone(),
+        )?;
+    }
+    Ok(())
+}
+
+fn shell_outputs_are_not_needed(entry: &AutoPlanEntry) -> bool {
+    let Some(out_manifest) = &entry.out_manifest else {
+        return false;
+    };
+    generated_artifacts_metadata_path(out_manifest).exists()
+        && ts_shell_key_outputs_exist(entry.ts_out.as_deref())
+        && rust_shell_key_outputs_exist(entry.rust_out.as_deref())
+}
+
+fn ts_shell_key_outputs_exist(ts_out: Option<&Path>) -> bool {
+    let Some(ts_out) = ts_out else {
+        return true;
+    };
+    ts_out.join("mod.ts").exists()
+        && ts_out.join("api.ts").exists()
+        && ts_out.join("contract.ts").exists()
+        && ts_out.join("client.ts").exists()
+}
+
+fn rust_shell_key_outputs_exist(rust_out: Option<&Path>) -> bool {
+    let Some(rust_out) = rust_out else {
+        return true;
+    };
+    rust_out.join("Cargo.toml").exists() && rust_out.join("src/lib.rs").exists()
 }
 
 pub fn discover_summary_lines(plan: &[AutoPlanEntry]) -> Vec<String> {
@@ -330,5 +446,76 @@ fn auto_plan_rank(entry: &AutoPlanEntry) -> u8 {
         (AutoAction::Verify, _) => 2,
         #[allow(unreachable_patterns)]
         _ => 3,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::discovery::SourceLanguage;
+
+    #[test]
+    fn auto_plan_orders_local_ts_sdk_imports_before_dependents() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let notifications = root.join("services/notifications/contracts");
+        let sherpa = root.join("services/sherpa/contracts");
+        fs::create_dir_all(&notifications).unwrap();
+        fs::create_dir_all(&sherpa).unwrap();
+        fs::write(root.join("deno.json"), "{}\n").unwrap();
+        fs::write(
+            notifications.join("notifications.ts"),
+            concat!(
+                "import * as krishiSherpa from \"@trellis-sdk/krishi-sherpa\";\n",
+                "const contract = {\n",
+                "  format: \"trellis.contract.v1\",\n",
+                "  id: \"krishi.notifications@v1\",\n",
+                "  kind: \"service\",\n",
+                "  displayName: \"Notifications\",\n",
+                "  description: \"Notifications\",\n",
+                "  uses: { sherpa: krishiSherpa.use({ events: { subscribe: [\"Sherpa.RunIngested\"] } }) },\n",
+                "};\n",
+                "export default contract;\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            sherpa.join("sherpa.ts"),
+            concat!(
+                "const contract = {\n",
+                "  format: \"trellis.contract.v1\",\n",
+                "  id: \"krishi.sherpa@v1\",\n",
+                "  kind: \"service\",\n",
+                "  displayName: \"Sherpa\",\n",
+                "  description: \"Sherpa\",\n",
+                "};\n",
+                "export default contract;\n",
+            ),
+        )
+        .unwrap();
+
+        let discovered = vec![
+            DiscoveredContractSource {
+                project_root: root.join("services/notifications"),
+                manifest_path: root.join("deno.json"),
+                language: SourceLanguage::TypeScript,
+                source_path: notifications.join("notifications.ts"),
+            },
+            DiscoveredContractSource {
+                project_root: root.join("services/sherpa"),
+                manifest_path: root.join("deno.json"),
+                language: SourceLanguage::TypeScript,
+                source_path: sherpa.join("sherpa.ts"),
+            },
+        ];
+
+        let plan = build_auto_plan(discovered, Some(root), "@trellis-sdk/").unwrap();
+
+        assert_eq!(
+            plan.iter()
+                .map(|entry| entry.contract_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["krishi.sherpa@v1", "krishi.notifications@v1"]
+        );
     }
 }
