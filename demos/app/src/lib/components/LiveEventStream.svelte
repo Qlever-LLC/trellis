@@ -74,8 +74,6 @@
   let retryTimeout: ReturnType<typeof setTimeout> | null = null;
   let mounted = false;
   let localUpdateListener: EventListener | null = null;
-  let activeRefreshOperationId: string | null = null;
-  let activeReportOperation: { operationId: string; inspectionId?: string } | null = null;
 
   function isActivityRecordedEvent(value: unknown): value is ActivityRecordedEvent {
     return typeof value === "object" && value !== null &&
@@ -138,24 +136,12 @@
   }
 
   let displayItems = $derived.by((): StreamDisplayItem[] => {
-    const refreshOperationIds: Record<string, string> = {};
-    for (const event of liveEvents) {
-      if (event.name === "Sites.Refresh" && event.kind === "operation" && event.operationId && event.refreshId) {
-        refreshOperationIds[event.refreshId] = event.operationId;
-      }
-    }
-
     type DisplayBlock = { occurredAt: string; items: StreamDisplayItem[] };
 
     const groups: Record<string, OperationGroup> = {};
-    const relatedEvents: Record<string, LiveEvent[]> = {};
     const standaloneBlocks: DisplayBlock[] = [];
 
     for (const event of liveEvents) {
-      const relatedOperationId = event.name === "Sites.Refreshed" && event.refreshId
-        ? refreshOperationIds[event.refreshId] ?? event.operationId
-        : event.operationId;
-
       if (isGroupedOperationUpdate(event)) {
         let group = groups[event.operationId];
         if (!group) {
@@ -172,28 +158,16 @@
           groups[event.operationId] = group;
         }
         group.children.push(event);
-      } else if (relatedOperationId) {
-        relatedEvents[relatedOperationId] = [
-          ...(relatedEvents[relatedOperationId] ?? []),
-          event,
-        ];
       } else {
         standaloneBlocks.push({ occurredAt: event.occurredAt, items: [event] });
       }
     }
 
     const operationBlocks = Object.values(groups).map((group): DisplayBlock => {
-      const events = relatedEvents[group.operationId] ?? [];
-      const occurredAt = [group.latestOccurredAt, ...events.map((event) => event.occurredAt)]
-        .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? group.latestOccurredAt;
-      return { occurredAt, items: [{ ...group, children: [...group.children, ...events] }] };
+      return { occurredAt: group.latestOccurredAt, items: [group] };
     });
-    const groupedOperationIds = new Set(Object.keys(groups));
-    const orphanRelatedBlocks = Object.entries(relatedEvents)
-      .filter(([operationId]) => !groupedOperationIds.has(operationId))
-      .flatMap(([, events]) => events.map((event): DisplayBlock => ({ occurredAt: event.occurredAt, items: [event] })));
 
-    return [...operationBlocks, ...orphanRelatedBlocks, ...standaloneBlocks]
+    return [...operationBlocks, ...standaloneBlocks]
       .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt))
       .flatMap((block) => block.items);
   });
@@ -201,13 +175,6 @@
   function handleLocalOperationUpdate(event: Event): void {
     const detail = event instanceof CustomEvent ? event.detail : null;
     if (!isLocalOperationUpdate(detail)) return;
-    if (detail.name === "Sites.Refresh") {
-      activeRefreshOperationId = detail.state === "failed" || detail.state === "cancelled" ? null : detail.operationId;
-    } else {
-      activeReportOperation = detail.state === "failed" || detail.state === "cancelled"
-        ? null
-        : { operationId: detail.operationId, inspectionId: detail.inspectionId };
-    }
     addEvent({
       id: detail.id,
       kind: detail.kind,
@@ -254,7 +221,6 @@
   }
 
   function handleActivityRecorded(event: ActivityRecordedEvent): void {
-    const relatedOperationId = event.kind === "site-refreshed" ? activeRefreshOperationId ?? undefined : undefined;
     addEvent({
       id: `${event.activityId}-${event.occurredAt}`,
       kind: "event",
@@ -262,15 +228,10 @@
       action: formatEventKind(event.kind),
       subject: subjectFromActivity(event.message),
       occurredAt: event.occurredAt,
-      operationId: relatedOperationId,
     });
-    if (relatedOperationId) activeRefreshOperationId = null;
   }
 
   function handleReportsPublished(event: ReportsPublishedEvent): void {
-    const relatedOperationId = activeReportOperation && (!activeReportOperation.inspectionId || activeReportOperation.inspectionId === event.inspectionId)
-      ? activeReportOperation.operationId
-      : undefined;
     addEvent({
       id: `${event.reportId}-${event.publishedAt}`,
       kind: "event",
@@ -278,14 +239,11 @@
       action: "Closeout Package Published",
       subject: event.inspectionId,
       occurredAt: event.publishedAt,
-      operationId: relatedOperationId,
       inspectionId: event.inspectionId,
     });
-    if (relatedOperationId) activeReportOperation = null;
   }
 
   function handleSitesRefreshed(event: SitesRefreshedEvent): void {
-    const relatedOperationId = activeRefreshOperationId ?? undefined;
     addEvent({
       id: `${event.refreshId}-${event.refreshedAt}`,
       kind: "event",
@@ -293,7 +251,6 @@
       action: "Site Status Refreshed",
       subject: `${event.site.siteName}: ${event.site.latestStatus}`,
       occurredAt: event.refreshedAt,
-      operationId: relatedOperationId,
       refreshId: event.refreshId,
     });
   }

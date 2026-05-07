@@ -20,11 +20,12 @@ use trellis_sdk_demo_service::types::{
     EvidenceDownloadRequest, EvidenceDownloadResponse, EvidenceDownloadResponseTransfer,
     EvidenceDownloadResponseTransferInfo, EvidenceListRequest, EvidenceListResponse,
     EvidenceListResponseEvidenceItem, EvidenceUploadInput, EvidenceUploadOutput,
-    EvidenceUploadProgress, ReportsGenerateInput, ReportsGenerateOutput, ReportsGenerateProgress,
-    ReportsListRequest, ReportsListResponse, ReportsListResponseReportsItem, ReportsPublishedEvent,
-    SitesGetRequest, SitesGetResponse, SitesGetResponseSite, SitesListRequest, SitesListResponse,
-    SitesListResponseSitesItem, SitesRefreshInput, SitesRefreshOutput, SitesRefreshOutputSite,
-    SitesRefreshProgress, SitesRefreshedEvent,
+    EvidenceUploadProgress, EvidenceUploadedEvent, ReportsGenerateInput, ReportsGenerateOutput,
+    ReportsGenerateProgress, ReportsListRequest, ReportsListResponse,
+    ReportsListResponseReportsItem, ReportsPublishedEvent, SitesGetRequest, SitesGetResponse,
+    SitesGetResponseSite, SitesListRequest, SitesListResponse, SitesListResponseSitesItem,
+    SitesRefreshInput, SitesRefreshOutput, SitesRefreshOutputSite, SitesRefreshProgress,
+    SitesRefreshedEvent,
 };
 use trellis_sdk_demo_service::{operations as sdk_operations, server};
 use trellis_service::{
@@ -320,6 +321,7 @@ struct EvidenceStore {
     state: SharedState,
     upload_evidence_id: Option<String>,
     upload_operation_id: Option<String>,
+    publisher: Option<EventPublisher>,
 }
 
 #[cfg(test)]
@@ -441,38 +443,45 @@ impl StoreResourceClient for EvidenceStore {
 
     async fn write(&self, key: &str, value: Bytes) -> Result<(), ServerError> {
         self.inner.write(key, value.clone()).await?;
-        let mut state = self.state.lock().expect("demo state lock");
-        let upload_evidence_id = self.upload_evidence_id.clone().or_else(|| {
-            state
-                .pending_uploads
-                .remove(key)
-                .map(|pending| pending.evidence_id)
-        });
-        let updated = if let Some(evidence) = state.evidence.iter_mut().find(|evidence| {
-            upload_evidence_id
-                .as_ref()
-                .is_some_and(|evidence_id| evidence_id == &evidence.evidence_id)
-                || (upload_evidence_id.is_none() && evidence.key == key)
-        }) {
-            evidence.size = value.len() as i64;
-            evidence.uploaded_at = FIXED_NOW.to_string();
-            if evidence.file_name.is_none() {
-                evidence.file_name = key.rsplit('/').next().map(ToString::to_string);
+        let updated = {
+            let mut state = self.state.lock().expect("demo state lock");
+            let upload_evidence_id = self.upload_evidence_id.clone().or_else(|| {
+                state
+                    .pending_uploads
+                    .remove(key)
+                    .map(|pending| pending.evidence_id)
+            });
+            let updated = if let Some(evidence) = state.evidence.iter_mut().find(|evidence| {
+                upload_evidence_id
+                    .as_ref()
+                    .is_some_and(|evidence_id| evidence_id == &evidence.evidence_id)
+                    || (upload_evidence_id.is_none() && evidence.key == key)
+            }) {
+                evidence.size = value.len() as i64;
+                evidence.uploaded_at = now_iso();
+                if evidence.file_name.is_none() {
+                    evidence.file_name = key.rsplit('/').next().map(ToString::to_string);
+                }
+                Some(evidence.clone())
+            } else {
+                None
+            };
+            tracing::info!(
+                key,
+                bytes = value.len(),
+                evidence_id = upload_evidence_id.as_deref().unwrap_or("<unknown>"),
+                operation_id = self.upload_operation_id.as_deref().unwrap_or("<none>"),
+                "evidence bytes stored"
+            );
+            if let (Some(operation_id), Some(evidence)) =
+                (&self.upload_operation_id, updated.as_ref())
+            {
+                complete_upload_operation(&mut state, operation_id, evidence);
             }
-            Some(evidence.clone())
-        } else {
-            None
+            updated
         };
-        tracing::info!(
-            key,
-            bytes = value.len(),
-            evidence_id = upload_evidence_id.as_deref().unwrap_or("<unknown>"),
-            operation_id = self.upload_operation_id.as_deref().unwrap_or("<none>"),
-            "evidence bytes stored"
-        );
-        if let (Some(operation_id), Some(evidence)) = (&self.upload_operation_id, updated.as_ref())
-        {
-            complete_upload_operation(&mut state, operation_id, evidence);
+        if let Some(evidence) = updated.as_ref() {
+            publish_evidence_upload_events(self.publisher.as_ref(), evidence).await;
         }
         Ok(())
     }
@@ -493,6 +502,7 @@ impl EvidenceStore {
             inner: self.inner.clone(),
             upload_evidence_id: Some(evidence_id),
             upload_operation_id: Some(operation_id),
+            publisher: self.publisher.clone(),
         }
     }
 }
@@ -847,18 +857,19 @@ fn build_router_with_selected_evidence_store_and_jobs(
     transfer_validator: DemoRequestValidator,
 ) -> Router {
     let state = Arc::new(Mutex::new(sample_state()));
+    let publisher = nats.clone().map(EventPublisher::new);
     let store = EvidenceStore {
         inner,
         state: Arc::clone(&state),
         upload_evidence_id: None,
         upload_operation_id: None,
+        publisher: publisher.clone(),
     };
     let use_worker_wait = nats_site_summaries.is_some();
     let site_summaries = nats_site_summaries.map_or_else(
         || SiteSummaryStore::Memory(Arc::clone(&state)),
         SiteSummaryStore::Nats,
     );
-    let publisher = nats.clone().map(EventPublisher::new);
     let refresh_operations = InMemoryOperationRuntime::new(SERVICE_NAME)
         .operation::<sdk_operations::SitesRefreshOperation>();
     let context = AppContext {
@@ -1126,7 +1137,8 @@ async fn process_refresh_site_summary_job(
         .await
         .map_err(|error| trellis_jobs::manager::JobProcessError::failed(error.to_string()))?;
     demo_pause(REFRESH_JOB_LOAD_PAUSE_MS).await;
-    let output = refresh_site_summary(site_summaries, input)
+    let refresh_id = active_job.job().id.clone();
+    let output = refresh_site_summary(site_summaries, input, refresh_id)
         .await
         .map_err(trellis_jobs::manager::JobProcessError::failed)?;
     demo_pause(REFRESH_JOB_STORE_PAUSE_MS).await;
@@ -1288,17 +1300,28 @@ async fn evidence_delete(
     context: AppContext,
     input: EvidenceDeleteRequest,
 ) -> Result<EvidenceDeleteResponse, ServerError> {
+    let key = input.key.clone();
     let deleted = {
         let mut state = context.state.lock().expect("demo state lock");
         let before = state.evidence.len();
-        state.evidence.retain(|evidence| evidence.key != input.key);
+        state.evidence.retain(|evidence| evidence.key != key);
         before != state.evidence.len()
     };
-    context.store.delete(&input.key).await?;
-    Ok(EvidenceDeleteResponse {
-        key: input.key,
-        deleted,
-    })
+    context.store.delete(&key).await?;
+    publish_activity_event(
+        context.publisher.as_ref(),
+        ActivityRecordedEvent {
+            activity_id: format!("activity-evidence-deleted-{key}"),
+            kind: "evidence-deleted".to_string(),
+            message: format!("Deleted evidence upload {key}"),
+            occurred_at: now_iso(),
+            related_site_id: None,
+            related_inspection_id: None,
+        },
+        "Evidence.Delete activity",
+    )
+    .await;
+    Ok(EvidenceDeleteResponse { key, deleted })
 }
 
 async fn reports_list(
@@ -1512,7 +1535,7 @@ async fn run_sites_refresh(
                     .map_err(|error| {
                         trellis_jobs::manager::JobProcessError::failed(error.to_string())
                     })?;
-                refresh_site_summary(site_summaries.clone(), input)
+                refresh_site_summary(site_summaries.clone(), input, job.job().id.clone())
                     .await
                     .map_err(trellis_jobs::manager::JobProcessError::failed)
             },
@@ -1586,6 +1609,7 @@ fn refresh_output_from_terminal_job(
 async fn refresh_site_summary(
     site_summaries: SiteSummaryStore,
     input: SitesRefreshInput,
+    refresh_id: String,
 ) -> Result<SitesRefreshOutput, String> {
     tracing::debug!(site_id = %input.site_id, "refreshing site summary store");
     let mut site = site_summaries
@@ -1600,7 +1624,7 @@ async fn refresh_site_summary(
         .map_err(|error| error.to_string())?;
     tracing::debug!(site_id = %site.site_id, last_report_at = %site.last_report_at, "site summary stored");
     let output = SitesRefreshOutput {
-        refresh_id: format!("refresh-{}", site.site_id),
+        refresh_id,
         site: site_to_refresh_output(&site),
         status: "completed".to_string(),
     };
@@ -1620,25 +1644,51 @@ async fn reports_generate_start(
     _ctx: RequestContext,
     input: ReportsGenerateInput,
 ) -> Result<AcceptedOperation<ReportsGenerateProgress, ReportsGenerateOutput>, ServerError> {
-    let report_id = format!("report-{}", input.inspection_id);
+    let report_id = format!("closeout-{}", input.inspection_id);
     let inspection_id = input.inspection_id.clone();
-    let accepted_operation = {
+    let report_comment = input.report_comment.clone();
+    let (accepted_operation, assignment) = {
         let mut state = context.state.lock().expect("demo state lock");
+        let assignment = state
+            .assignments
+            .iter()
+            .find(|candidate| candidate.inspection_id == input.inspection_id)
+            .cloned();
+        let site_id = assignment
+            .as_ref()
+            .map(|assignment| assignment.site_id.clone());
+        let site_name = assignment.as_ref().map_or_else(
+            || "Unknown site".to_string(),
+            |assignment| assignment.site_name.clone(),
+        );
+        let asset_name = assignment.as_ref().map_or_else(
+            || "Unknown asset".to_string(),
+            |assignment| assignment.asset_name.clone(),
+        );
+        let summary = assignment.as_ref().map_or_else(
+            || format!("Closeout report for {}.", input.inspection_id),
+            |assignment| {
+                format!(
+                    "{} closeout for {}.",
+                    assignment.checklist_name, assignment.site_name
+                )
+            },
+        );
         state.reports.push(ReportsListResponseReportsItem {
             report_id: report_id.clone(),
             inspection_id: input.inspection_id.clone(),
-            site_id: Some("site-north".to_string()),
-            site_name: "North Ridge Substation".to_string(),
-            asset_name: "Transformer A".to_string(),
+            site_id,
+            site_name,
+            asset_name,
             status: "published".to_string(),
-            published_at: FIXED_NOW.to_string(),
-            report_comment: input.report_comment,
-            summary: "Generated by Rust demo service".to_string(),
-            readiness: "ready".to_string(),
-            evidence_status: "attached".to_string(),
+            published_at: now_iso(),
+            report_comment: report_comment.trim().to_string(),
+            summary,
+            readiness: "Site context reconciled before closeout.".to_string(),
+            evidence_status: "Evidence review completed in the inspection workflow.".to_string(),
         });
 
-        accepted(
+        let accepted_operation = accepted(
             &mut state,
             "Reports.Generate",
             ReportsGenerateOutput {
@@ -1650,10 +1700,11 @@ async fn reports_generate_start(
                 stage: "complete".to_string(),
                 message: "Report generated".to_string(),
             },
-        )
+        );
+        (accepted_operation, assignment)
     };
 
-    publish_reports_generate_events(&context, report_id, inspection_id).await;
+    publish_reports_generate_events(&context, report_id, inspection_id, assignment).await;
     Ok(accepted_operation)
 }
 
@@ -1661,26 +1712,88 @@ async fn publish_reports_generate_events(
     context: &AppContext,
     report_id: String,
     inspection_id: String,
+    assignment: Option<Assignment>,
 ) {
     let Some(publisher) = &context.publisher else {
         return;
     };
 
-    let published = report_published_event(report_id, inspection_id.clone());
+    let published = ReportsPublishedEvent {
+        report_id,
+        inspection_id: inspection_id.clone(),
+        site_id: assignment
+            .as_ref()
+            .map(|assignment| assignment.site_id.clone()),
+        published_at: now_iso(),
+    };
     if let Err(error) = server::publish_reports_published(publisher, &published).await {
         tracing::warn!(error = %error, "failed to publish Reports.Published");
     }
 
+    let inspection_label = assignment.as_ref().map_or_else(
+        || inspection_id.clone(),
+        |assignment| format!("{} / {}", assignment.site_name, assignment.asset_name),
+    );
     let activity = ActivityRecordedEvent {
         activity_id: format!("activity-closeout-{inspection_id}"),
-        kind: "report-published".to_string(),
-        message: format!("Published closeout report for {inspection_id}"),
+        kind: "closeout-published".to_string(),
+        message: format!("Published closeout status for {inspection_label}"),
         occurred_at: now_iso(),
-        related_site_id: Some("site-north".to_string()),
+        related_site_id: assignment.map(|assignment| assignment.site_id),
         related_inspection_id: Some(inspection_id),
     };
     if let Err(error) = server::publish_activity_recorded(publisher, &activity).await {
         tracing::warn!(error = %error, "failed to publish Activity.Recorded");
+    }
+}
+
+async fn publish_evidence_upload_events(publisher: Option<&EventPublisher>, evidence: &Evidence) {
+    let Some(publisher) = publisher else {
+        return;
+    };
+
+    let uploaded = EvidenceUploadedEvent {
+        evidence_id: evidence.evidence_id.clone(),
+        key: evidence.key.clone(),
+        size: evidence.size,
+        content_type: evidence.content_type.clone(),
+        file_name: evidence.file_name.clone(),
+        evidence_type: evidence.evidence_type.clone(),
+        uploaded_at: evidence.uploaded_at.clone(),
+    };
+    if let Err(error) = server::publish_evidence_uploaded(publisher, &uploaded).await {
+        tracing::warn!(error = %error, "failed to publish Evidence.Uploaded");
+    }
+
+    publish_activity_event(
+        Some(publisher),
+        ActivityRecordedEvent {
+            activity_id: format!("activity-evidence-uploaded-{}", evidence.evidence_id),
+            kind: "evidence-uploaded".to_string(),
+            message: format!(
+                "Uploaded {} evidence from {}",
+                evidence.evidence_type, evidence.key
+            ),
+            occurred_at: now_iso(),
+            related_site_id: None,
+            related_inspection_id: None,
+        },
+        "Evidence.Upload activity",
+    )
+    .await;
+}
+
+async fn publish_activity_event(
+    publisher: Option<&EventPublisher>,
+    activity: ActivityRecordedEvent,
+    context: &str,
+) {
+    let Some(publisher) = publisher else {
+        return;
+    };
+
+    if let Err(error) = server::publish_activity_recorded(publisher, &activity).await {
+        tracing::warn!(error = %error, context, "failed to publish Activity.Recorded");
     }
 }
 
@@ -3098,6 +3211,7 @@ mod tests {
             state: Arc::clone(&state),
             upload_evidence_id: Some("ev-test".to_string()),
             upload_operation_id: Some("op-upload-test".to_string()),
+            publisher: None,
         };
         let plan = plan_upload_transfer_grant(TransferUploadGrantArgs {
             service_name: SERVICE_NAME,
@@ -3212,6 +3326,7 @@ mod tests {
             state: Arc::clone(&state),
             upload_evidence_id: Some("ev-duplicate".to_string()),
             upload_operation_id: None,
+            publisher: None,
         };
         let duplicate_key = "site-north/transformer-a/photo.txt";
         {
