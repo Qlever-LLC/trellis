@@ -167,7 +167,7 @@
     <aside class="trellis-sidebar flex min-h-full w-[251px] flex-col">
       <div class="flex h-[76px] items-center gap-3 px-6">
         <a href={resolveAppPath("/admin")} aria-label="Trellis Console home">
-          <TrellisLogo subtitle="Console" titleClass="text-white" subtitleClass="text-slate-400" />
+          <TrellisLogo subtitle="Console" markClass="trellis-logo-orange" titleClass="text-white" subtitleClass="text-slate-400" />
         </a>
         <button type="button" class="btn btn-square btn-ghost btn-sm ml-auto lg:hidden" aria-label="Close navigation" onclick={closeDrawer}>
           <Icon name="menu" size={18} />

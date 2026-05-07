@@ -13,8 +13,8 @@ mod model;
 mod schema;
 
 pub use builder::{
-    contract_capability_namespace, event, global_capability_name, job_queue, kv, operation, rpc,
-    schema_ref, state, store, use_contract, ContractManifestBuilder,
+    contract_capability_namespace, event, feed, global_capability_name, job_queue, kv, operation,
+    rpc, schema_ref, state, store, use_contract, ContractManifestBuilder,
 };
 pub use canonical::{canonicalize_json, digest_json, sha256_base64url};
 pub use catalog::{
@@ -28,13 +28,15 @@ pub use manifest::{
 };
 pub use model::{
     Catalog, CatalogEntry, CatalogPack, ContractCapabilities, ContractCapabilityMetadata,
-    ContractErrorDecl, ContractErrorRef, ContractEvent, ContractExports, ContractJobQueueResource,
-    ContractKind, ContractKvResource, ContractManifest, ContractOperation, ContractOperationSignal,
-    ContractOperationTransfer, ContractOperationTransferDirection, ContractResources,
-    ContractRpcMethod, ContractRpcTransfer, ContractRpcTransferDirection, ContractSchemaRef,
-    ContractStateKind, ContractStateStore, ContractStoreResource, ContractUseOperation,
-    ContractUsePubSub, ContractUseRef, ContractUseRpc, LoadedManifest, OperationCapabilities,
-    PubSubCapabilities, RpcCapabilities, CATALOG_FORMAT_V1, CONTRACT_FORMAT_V1,
+    ContractErrorDecl, ContractErrorRef, ContractEvent, ContractExports, ContractFeed,
+    ContractJobQueueResource, ContractKind, ContractKvResource, ContractManifest,
+    ContractOperation, ContractOperationSignal, ContractOperationTransfer,
+    ContractOperationTransferDirection, ContractResources, ContractRpcMethod, ContractRpcTransfer,
+    ContractRpcTransferDirection, ContractSchemaRef, ContractStateKind, ContractStateStore,
+    ContractStoreResource, ContractUseFeed, ContractUseOperation, ContractUsePubSub,
+    ContractUseRef, ContractUseRpc, ContractUses, FeedCapabilities, LoadedManifest,
+    OperationCapabilities, PubSubCapabilities, RpcCapabilities, CATALOG_FORMAT_V1,
+    CONTRACT_FORMAT_V1,
 };
 pub use schema::{validate_catalog, validate_manifest};
 

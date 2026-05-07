@@ -5,7 +5,6 @@ import {
 } from "@nats-io/nats-core";
 import {
   type KVError,
-  type OperationRegistration as RootOperationRegistration,
   type StoreError,
   type StoreWaitOptions,
   Trellis as RootTrellis,
@@ -46,10 +45,14 @@ import { mountStandardHealthRpc } from "./health_rpc.ts";
 import type { RPCDesc } from "@qlever-llc/trellis/contracts";
 import type {
   AcceptedOperation,
+  FeedEventOf,
+  FeedInputOf,
+  FeedRegistration as RootFeedRegistration,
   HandlerTrellis,
   OperationHandlerContext,
   OperationOutputOf,
   OperationProgressOf,
+  OperationRegistration as RootOperationRegistration,
   OperationTransferContextOf,
   RpcHandlerContext,
   RpcHandlerErrorOf,
@@ -902,6 +905,11 @@ export type OperationRegistration<
   ): Promise<void>;
 };
 
+export type FeedRegistration<
+  TOwnedApi extends TrellisAPI,
+  F extends keyof TOwnedApi["feeds"] & string,
+> = RootFeedRegistration<FeedInputOf<TOwnedApi, F>, FeedEventOf<TOwnedApi, F>>;
+
 export type TrellisServiceConnectArgs<
   TContract extends ServiceContract<
     TrellisAPI,
@@ -1268,7 +1276,11 @@ function parseJobLifecycleEvent<TPayload, TResult>(
   }
 }
 
-function jobLifecycleKey(service: string, jobType: string, jobId: string): string {
+function jobLifecycleKey(
+  service: string,
+  jobType: string,
+  jobId: string,
+): string {
   return `${service}.${jobType}.${jobId}`;
 }
 
@@ -1406,11 +1418,13 @@ function createJobLifecycleTracker(nc: NatsConnection): JobLifecycleTracker {
       void (async () => {
         for await (const msg of subscription) {
           const event = parseJobLifecycleEvent(msg.data);
-          if (!event || !subjectMatchesLifecycleEvent(
-            msg.subject,
-            queueBinding,
-            event,
-          )) {
+          if (
+            !event || !subjectMatchesLifecycleEvent(
+              msg.subject,
+              queueBinding,
+              event,
+            )
+          ) {
             continue;
           }
           apply(event);
@@ -1467,7 +1481,9 @@ function createJobLifecycleTracker(nc: NatsConnection): JobLifecycleTracker {
         subscription.unsubscribe();
       }
       subscriptions.clear();
-      const error = toUnexpectedError(new Error("job lifecycle tracker stopped"));
+      const error = toUnexpectedError(
+        new Error("job lifecycle tracker stopped"),
+      );
       for (const pending of waiters.values()) {
         for (const waiter of pending) waiter.reject(error);
       }
@@ -1493,13 +1509,14 @@ function createJobRef<TPayload, TResult>(args: {
       jobType: args.queueType,
     },
     {
-      get: () => AsyncResult.ok(
-        args.lifecycle.get<TPayload, TResult>({
-          service: args.seed.service,
-          jobType: args.queueType,
-          id: args.seed.id,
-        }) ?? args.seed,
-      ),
+      get: () =>
+        AsyncResult.ok(
+          args.lifecycle.get<TPayload, TResult>({
+            service: args.seed.service,
+            jobType: args.queueType,
+            id: args.seed.id,
+          }) ?? args.seed,
+        ),
       wait: () =>
         AsyncResult.from((async () => {
           try {
@@ -2118,6 +2135,12 @@ export class TrellisService<
       RpcMethodOutput<TTrellisApi, M>,
       RpcRequestErrorOf<TTrellisApi, M>
     >;
+  }
+
+  feed<F extends keyof TOwnedApi["feeds"] & string>(
+    feed: F,
+  ): FeedRegistration<TOwnedApi, F> {
+    return this.#server.feed(feed) as FeedRegistration<TOwnedApi, F>;
   }
 
   operation<O extends keyof TOwnedApi["operations"] & string>(

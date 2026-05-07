@@ -212,8 +212,8 @@ pending-review step:
   immediately
 - auth emits `events.v1.Auth.DeviceActivationReviewRequested` for reviewer
   automation
-- a service or privileged user with `device.review` or `admin` decides the
-  review through auth RPCs
+- a service or privileged user with `trellis.auth::device.review` or `admin`
+  decides the review through auth RPCs
 - the built-in portal and custom portals observe review and completion through
   the operation's `progress`, `watch()`, and `wait()` semantics until it becomes
   `activated` or `rejected`

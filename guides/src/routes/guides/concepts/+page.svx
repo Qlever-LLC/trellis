@@ -9,6 +9,7 @@ A contract declares:
 - **RPCs** the service handles (request/reply operations)
 - **operations** the service exposes as caller-visible async workflows
 - **events** the service publishes or subscribes to
+- **feeds** the service exposes as authorized live streams for apps and services
 - **resources** the service needs Trellis to provision (KV buckets, stores, and job queues)
 - **dependencies** on other contracts via `uses`
 - **capabilities** required to call each operation
@@ -58,11 +59,11 @@ Operations are caller-visible async workflows. Unlike RPCs, they accept a reques
 - Callers receive an `OperationRef` and can call `watch()` for a progress stream or `wait()` to block until completion
 - Operation state is durable — a caller reconnecting after a disconnect can resume watching an in-flight operation
 - Callers see only their own operations; subject permissions prevent cross-caller access
-- Starting an operation is controlled by its `call` capabilities, while watching
-  and cancellation use operation-specific control subjects. If `read` is
-  omitted, Trellis defaults it to `call`; an explicit empty `read` or `cancel`
-  list means no extra capability beyond authentication is required for that
-  action.
+- Starting an operation is controlled by its `call` capabilities, while watching,
+  cancellation, and named signals use operation-specific control subjects. If
+  `read` is omitted, Trellis defaults it to `call`; an explicit empty `read`,
+  `cancel`, or `control` list means no extra capability beyond authentication is
+  required for that action.
 
 Operations are distinct from jobs. An operation is the public async surface that a caller starts and observes. A job is service-private background work, invisible to callers.
 
@@ -73,6 +74,25 @@ Events announce state changes. Publishers fire and forget; consumers receive eve
 - Subject convention: `events.v1.<Domain>.<Action>[.<tokens>]`
 - Handlers must be idempotent
 - Subject tokens enable filtered subscriptions (e.g., subscribe to `events.v1.Document.Uploaded.pdf.*` for only PDF uploads)
+
+Events are event-type authorized. They are a good fit for service-to-service
+cache invalidation, projections, and background processing. They are not the
+right security boundary for per-user object ownership, such as "only events for
+devices this user owns".
+
+### Feeds (authorized live views)
+
+Feeds expose live streams that the owning service authorizes against the caller.
+A caller sends typed input to a feed request subject and receives typed frames on
+its authenticated reply inbox.
+
+- Subject convention: `feeds.v1.<Domain>.<LiveView>`
+- Callers use `trellis.feed("Device.Events").input(...).subscribe()` rather than raw subjects
+- The service checks the authenticated caller, requested filter, and emitted frames
+- Feed permissions grant request access to the feed, not raw `events.v1.*` subscriptions
+
+Use feeds for reactive UIs and other caller-visible streams where application
+authorization matters. The service may implement the feed by listening to domain
 
 ### Cross-contract dependencies (`uses`)
 
@@ -85,6 +105,9 @@ uses: {
   }),
   auth: auth.use({
     events: { subscribe: ["Auth.Connect"] },
+  }),
+  devices: devices.use({
+    feeds: { subscribe: ["Device.Events"] },
   }),
 },
 ```
@@ -161,7 +184,13 @@ Contracts declare per-operation capability requirements:
 },
 ```
 
-Capabilities use the pattern `<domain>.<action>` (e.g., `users.read`, `partners.write`). Some operations require the `service` capability, meaning only registered services can call them. The `admin` capability grants administrative access.
+Contract-authored capability names are projected to canonical global keys using
+`<contract namespace>::<local capability>`, where the namespace is the contract id
+without the `@vN` suffix. For example, a `trellis.auth@v1` capability named
+`device.review` is assigned as `trellis.auth::device.review`. Platform
+capabilities such as `service` and `admin` remain raw strings; `service` means
+only registered services can call the surface, and `admin` grants administrative
+access.
 
 They are similar to OAuth scopes, but they are intentionally different:
 
@@ -175,6 +204,12 @@ subject permissions. That is broader than a normal OAuth client-to-API scope
 check.
 
 Capabilities are assigned to users and devices at the deployment level. Authorization changes take effect immediately because Trellis derives NATS permissions from the relevant deployment catalog entries, known approved app/agent contracts, and current grants. Service and device runtimes must also present the exact contract digest they are allowed to run; Trellis rejects stale or retired digests during NATS auth instead of substituting another allowed digest.
+
+Admin UIs discover assignable Trellis capabilities through `Auth.ListCapabilities`,
+which merges platform capability metadata with active contract capability
+metadata from the in-memory active catalog. The list is a catalog for assignment
+UX; actual authority still comes from user grants, device grants, deployment
+policy, and runtime contract proofs.
 
 For browser-app sessions, Trellis may also apply deployment-owned implied capabilities from a matching instance grant policy. Those implied capabilities are session-time policy, not user-owned grants.
 

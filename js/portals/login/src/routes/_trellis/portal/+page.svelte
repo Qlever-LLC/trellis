@@ -18,9 +18,9 @@
   class="portal-shell flex min-h-screen flex-col items-center justify-center gap-7 px-4 py-10"
   data-theme="portal"
 >
-  <PortalBrand subtitle="Login portal" />
-  <div class="portal-card card w-full max-w-sm border border-base-300">
+  <div class="portal-card card w-full max-w-md border border-base-300">
     <div class="card-body items-center gap-4 p-7 text-center">
+      <PortalBrand subtitle="Login portal" />
       <span class="loading loading-ring loading-lg"></span>
       <div>
         <p class="text-sm font-medium text-base-content">Preparing sign-in</p>

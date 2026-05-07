@@ -21,6 +21,21 @@ const exportedSchemaContract: TrellisContractV1 = {
   },
 };
 
+const capabilityContract: TrellisContractV1 = {
+  format: "trellis.contract.v1",
+  id: "capabilities@v1",
+  displayName: "Capabilities",
+  description: "Declares capabilities.",
+  kind: "service",
+  capabilities: {
+    "capabilities::items.read": {
+      displayName: "Read items",
+      description: "Read item records.",
+      consequence: "Operators can inspect item metadata.",
+    },
+  },
+};
+
 Deno.test("Trellis.Contract.Get includes canonical exports", async () => {
   const store = new ContractStore();
   store.activate("digest-exports", exportedSchemaContract);
@@ -62,4 +77,28 @@ Deno.test("Trellis.Catalog lists active contracts only", async () => {
       }],
     },
   });
+});
+
+Deno.test("ContractStore lists active contract capability definitions", () => {
+  const store = new ContractStore();
+  store.add("digest-inactive", {
+    ...capabilityContract,
+    capabilities: {
+      "capabilities::inactive": {
+        displayName: "Inactive",
+        description: "Inactive capability.",
+      },
+    },
+  });
+  store.activate("digest-capabilities", capabilityContract);
+
+  assertEquals(store.getActiveCapabilityDefinitions(), [{
+    key: "capabilities::items.read",
+    displayName: "Read items",
+    description: "Read item records.",
+    consequence: "Operators can inspect item metadata.",
+    contractId: "capabilities@v1",
+    contractDigest: "digest-capabilities",
+    contractDisplayName: "Capabilities",
+  }]);
 });

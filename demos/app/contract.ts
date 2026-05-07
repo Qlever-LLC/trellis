@@ -24,14 +24,7 @@ const contract = defineAppContract({ schemas }, (ref) => ({
         call: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
         read: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
       },
-      events: {
-        subscribe: [
-          "Activity.Recorded",
-          "Reports.Published",
-          "Evidence.Uploaded",
-          "Sites.Refreshed",
-        ],
-      },
+      feeds: { subscribe: ["Activity.Live"] },
     }),
   },
   state: {

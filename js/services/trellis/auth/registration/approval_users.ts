@@ -6,6 +6,7 @@ import {
 } from "../approval/rpc.ts";
 import { createKick } from "../callout/kick.ts";
 import {
+  createAuthListCapabilitiesHandler,
   createAuthListUsersHandler,
   createAuthUpdateUserHandler,
 } from "../session/users.ts";
@@ -19,11 +20,12 @@ import type {
   AuthRuntimeDeps,
   RuntimeKV,
 } from "../runtime_deps.ts";
-import type { RpcRegistrar } from "./types.ts";
+import type { AuthContractsRuntime, RpcRegistrar } from "./types.ts";
 import type { Connection } from "../schemas.ts";
 
 export async function registerApprovalAndUserRpcs(deps: {
   trellis: RpcRegistrar;
+  contracts: Pick<AuthContractsRuntime, "contractStore">;
   connectionsKV: RuntimeKV<Connection>;
   logger: AuthLogger;
   natsAuth: AuthRuntimeDeps["natsAuth"];
@@ -79,6 +81,10 @@ export async function registerApprovalAndUserRpcs(deps: {
   await deps.trellis.mount(
     "Auth.ListUsers",
     createAuthListUsersHandler(deps.userStorage, deps.logger),
+  );
+  await deps.trellis.mount(
+    "Auth.ListCapabilities",
+    createAuthListCapabilitiesHandler(deps.contracts.contractStore, deps.logger),
   );
   await deps.trellis.mount(
     "Auth.UpdateUser",

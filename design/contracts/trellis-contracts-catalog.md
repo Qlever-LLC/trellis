@@ -1175,7 +1175,11 @@ For each active contract:
 - RPCs contribute publish permissions for callers via `capabilities.call`
 - events contribute publish permissions via `capabilities.publish`
 - events contribute subscribe permissions via `capabilities.subscribe`
-- `uses` contributes the exact cross-contract operation/RPC/event permissions
+- feeds contribute publish permissions for feed request subjects via
+  `capabilities.subscribe`; feed responses use the caller's authenticated inbox
+  subscribe permission
+- `uses` contributes the exact cross-contract operation/RPC/event/feed
+  permissions
   the owning service may exercise at runtime after dependency resolution
   validates the referenced active catalog surfaces
 - operation uses that declare `transfer: { direction: "send", ... }` and grant
@@ -1210,6 +1214,9 @@ Rules:
   `capabilities.cancel` as applicable; holding only `capabilities.call` does not
   grant broad control-subject access beyond the operation-specific control
   subject
+- generated runtime operation descriptors include `controlCapabilities` so
+  services and clients can reason about signal gates even where catalog NATS
+  permission derivation has not yet materialized separate signal-only grants
 - `capabilities.cancel` gates only cancellation; it is not a fallback for named
   signals
 - `capabilities.control` gates named signals; it is not a fallback for

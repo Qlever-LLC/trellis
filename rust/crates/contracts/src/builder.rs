@@ -2,12 +2,14 @@ use serde_json::Value;
 
 use crate::{
     parse_manifest, ContractCapabilities, ContractCapabilityMetadata, ContractErrorRef,
-    ContractEvent, ContractExports, ContractJobQueueResource, ContractKind, ContractKvResource,
-    ContractManifest, ContractOperation, ContractOperationSignal, ContractOperationTransfer,
-    ContractOperationTransferDirection, ContractResources, ContractRpcMethod, ContractRpcTransfer,
-    ContractRpcTransferDirection, ContractSchemaRef, ContractStateKind, ContractStateStore,
-    ContractStoreResource, ContractUseOperation, ContractUsePubSub, ContractUseRef, ContractUseRpc,
-    ContractsError, OperationCapabilities, PubSubCapabilities, RpcCapabilities, CONTRACT_FORMAT_V1,
+    ContractEvent, ContractExports, ContractFeed, ContractJobQueueResource, ContractKind,
+    ContractKvResource, ContractManifest, ContractOperation, ContractOperationSignal,
+    ContractOperationTransfer, ContractOperationTransferDirection, ContractResources,
+    ContractRpcMethod, ContractRpcTransfer, ContractRpcTransferDirection, ContractSchemaRef,
+    ContractStateKind, ContractStateStore, ContractStoreResource, ContractUseFeed,
+    ContractUseOperation, ContractUsePubSub, ContractUseRef, ContractUseRpc, ContractsError,
+    FeedCapabilities, OperationCapabilities, PubSubCapabilities, RpcCapabilities,
+    CONTRACT_FORMAT_V1,
 };
 
 /// Thin builder over `ContractManifest` for Rust-authored contracts.
@@ -37,6 +39,7 @@ impl ContractManifestBuilder {
                 rpc: Default::default(),
                 operations: Default::default(),
                 events: Default::default(),
+                feeds: Default::default(),
                 errors: Default::default(),
                 jobs: Default::default(),
                 resources: ContractResources::default(),
@@ -60,7 +63,18 @@ impl ContractManifestBuilder {
     }
 
     pub fn use_ref(mut self, alias: impl Into<String>, use_ref: ContractUseRef) -> Self {
-        self.manifest.uses.insert(alias.into(), use_ref);
+        self.manifest
+            .uses
+            .required_mut()
+            .insert(alias.into(), use_ref);
+        self
+    }
+
+    pub fn optional_use_ref(mut self, alias: impl Into<String>, use_ref: ContractUseRef) -> Self {
+        self.manifest
+            .uses
+            .optional_mut()
+            .insert(alias.into(), use_ref);
         self
     }
 
@@ -86,6 +100,11 @@ impl ContractManifestBuilder {
 
     pub fn event(mut self, name: impl Into<String>, event: ContractEvent) -> Self {
         self.manifest.events.insert(name.into(), event);
+        self
+    }
+
+    pub fn feed(mut self, name: impl Into<String>, feed: ContractFeed) -> Self {
+        self.manifest.feeds.insert(name.into(), feed);
         self
     }
 
@@ -206,6 +225,16 @@ fn project_contract_capabilities(
             )?;
         }
     }
+    for feed in manifest.feeds.values_mut() {
+        if let Some(capabilities) = feed.capabilities.as_mut() {
+            project_capability_list(
+                &mut capabilities.subscribe,
+                &contract_id,
+                declared,
+                "feed subscribe capabilities",
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -261,6 +290,14 @@ fn assert_no_undeclared_local_capabilities(
             )?;
         }
     }
+    for feed in manifest.feeds.values() {
+        if let Some(capabilities) = feed.capabilities.as_ref() {
+            assert_capability_list_external(
+                &capabilities.subscribe,
+                "feed subscribe capabilities",
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -291,6 +328,14 @@ fn add_unique_strings(target: &mut Vec<String>, values: impl IntoIterator<Item =
 }
 
 fn merge_use_ref(
+    uses: &mut crate::ContractUses,
+    alias: impl Into<String>,
+    use_ref: ContractUseRef,
+) -> Result<(), ContractsError> {
+    merge_use_ref_map(uses.required_mut(), alias, use_ref)
+}
+
+fn merge_use_ref_map(
     uses: &mut std::collections::BTreeMap<String, ContractUseRef>,
     alias: impl Into<String>,
     use_ref: ContractUseRef,
@@ -337,6 +382,13 @@ fn merge_use_ref(
         }
         if let Some(next_subscribe) = events.subscribe {
             let subscribe = existing_events.subscribe.get_or_insert_with(Vec::new);
+            add_unique_strings(subscribe, next_subscribe);
+        }
+    }
+    if let Some(feeds) = use_ref.feeds {
+        let existing_feeds = existing.feeds.get_or_insert_with(ContractUseFeed::default);
+        if let Some(next_subscribe) = feeds.subscribe {
+            let subscribe = existing_feeds.subscribe.get_or_insert_with(Vec::new);
             add_unique_strings(subscribe, next_subscribe);
         }
     }
@@ -420,6 +472,21 @@ pub fn event(
     }
 }
 
+pub fn feed(
+    version: impl Into<String>,
+    subject: impl Into<String>,
+    input_schema: impl Into<String>,
+    event_schema: impl Into<String>,
+) -> ContractFeed {
+    ContractFeed {
+        version: version.into(),
+        subject: subject.into(),
+        input: schema_ref(input_schema),
+        event: schema_ref(event_schema),
+        capabilities: None,
+    }
+}
+
 pub fn state(kind: ContractStateKind, schema: impl Into<String>) -> ContractStateStore {
     ContractStateStore {
         kind,
@@ -435,6 +502,7 @@ pub fn use_contract(contract: impl Into<String>) -> ContractUseRef {
         rpc: None,
         operations: None,
         events: None,
+        feeds: None,
     }
 }
 
@@ -566,6 +634,7 @@ impl ContractOperation {
         self
     }
 
+    /// Sets the capabilities required for named operation-control signals.
     pub fn with_control_capabilities(
         mut self,
         control_capabilities: impl IntoIterator<Item = impl Into<String>>,
@@ -612,6 +681,19 @@ impl ContractEvent {
         let capabilities = self
             .capabilities
             .get_or_insert_with(PubSubCapabilities::default);
+        capabilities.subscribe = Some(subscribe.into_iter().map(Into::into).collect());
+        self
+    }
+}
+
+impl ContractFeed {
+    pub fn with_subscribe_capabilities(
+        mut self,
+        subscribe: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let capabilities = self
+            .capabilities
+            .get_or_insert_with(FeedCapabilities::default);
         capabilities.subscribe = Some(subscribe.into_iter().map(Into::into).collect());
         self
     }
@@ -669,6 +751,16 @@ impl ContractUseRef {
     ) -> Self {
         self.events = Some(ContractUsePubSub {
             publish: None,
+            subscribe: Some(subscribe.into_iter().map(Into::into).collect()),
+        });
+        self
+    }
+
+    pub fn with_feed_subscribe(
+        mut self,
+        subscribe: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.feeds = Some(ContractUseFeed {
             subscribe: Some(subscribe.into_iter().map(Into::into).collect()),
         });
         self

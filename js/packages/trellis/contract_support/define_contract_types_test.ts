@@ -75,6 +75,14 @@ const auth = defineServiceContract(
         event: schemaRef<typeof authSchemas, "StringValue">("StringValue"),
       },
     },
+    feeds: {
+      "Auth.ConnectFeed": {
+        version: "v1",
+        input: schemaRef<typeof authSchemas, "Empty">("Empty"),
+        event: schemaRef<typeof authSchemas, "StringValue">("StringValue"),
+        capabilities: { subscribe: ["service"] },
+      },
+    },
   }),
 );
 
@@ -93,6 +101,7 @@ const activity = defineServiceContract(
       auth: auth.use({
         rpc: { call: ["Auth.Me"] },
         events: { subscribe: ["Auth.Connect"] },
+        feeds: { subscribe: ["Auth.ConnectFeed"] },
       }),
     },
     rpc: {
@@ -114,8 +123,12 @@ const activity = defineServiceContract(
 activity.API.owned.rpc["Activity.List"].subject;
 activity.API.used.rpc["Auth.Me"].subject;
 activity.API.used.events["Auth.Connect"].subject;
+activity.API.used.feeds["Auth.ConnectFeed"].subject;
 activity.API.trellis.rpc["Activity.List"].subject;
 activity.API.trellis.rpc["Auth.Me"].subject;
+activity.API.trellis.feeds["Auth.ConnectFeed"].subject;
+auth.CONTRACT.feeds?.["Auth.ConnectFeed"]?.subject;
+auth.CONTRACT.feeds?.["Auth.ConnectFeed"]?.capabilities?.subscribe?.[0];
 auth.CONTRACT.exports?.schemas?.[0];
 
 type AuthUseArg = Parameters<typeof auth.use>[0];

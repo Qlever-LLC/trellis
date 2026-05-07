@@ -101,6 +101,8 @@ Rules:
 - Rust authoring helpers may accept local capability names and must emit the same
   global capability keys as TypeScript helpers for declared contract-owned
   capabilities
+- Rust operation capability metadata supports the same `call`, `read`, `cancel`,
+  and `control` gates as canonical manifests and generated TypeScript API views.
 
 ### 2) Primary Rust usage model
 

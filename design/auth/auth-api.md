@@ -1054,7 +1054,8 @@ Device-activation observation rule:
 
 Capability rule:
 
-- review-decision RPCs MUST allow callers with `admin` or `device.review`
+- review-decision RPCs MUST allow callers with `admin` or
+  `trellis.auth::device.review`
 - instance grant policies are deployment policy, not user-owned grants;
   user-facing callers still see only explicit user capabilities in
   insufficient-capability responses
@@ -1127,7 +1128,7 @@ Canonical event inventory:
 
 Admin RPCs require the `admin` capability unless explicitly documented
 otherwise. Device review decision RPCs are the current exception and also allow
-`device.review`.
+`trellis.auth::device.review`.
 
 ### rpc.Auth.ListSessions
 
@@ -1151,6 +1152,95 @@ Response:
   }>;
 }
 ```
+
+### rpc.Auth.ListUsers
+
+Request:
+
+```ts
+{}
+```
+
+Response:
+
+```ts
+{
+  users: Array<{
+    origin: string;
+    id: string;
+    name?: string;
+    email?: string;
+    active: boolean;
+    capabilities: string[];
+  }>;
+}
+```
+
+### rpc.Auth.ListCapabilities
+
+Request:
+
+```ts
+{}
+```
+
+Response:
+
+```ts
+{
+  capabilities: Array<{
+    key: string;
+    displayName: string;
+    description: string;
+    consequence?: string;
+    source: "contract" | "platform";
+    contractId?: string;
+    contractDigest?: string;
+    contractDisplayName?: string;
+  }>;
+}
+```
+
+Rules:
+
+- `Auth.ListCapabilities` returns capabilities known to the current auth runtime:
+  Trellis platform capabilities plus capability metadata projected from the
+  in-memory active contract catalog.
+- The response is an assignment catalog for admin UX; it is not a grant source
+  by itself.
+- Capability keys are canonical global keys such as
+  `trellis.auth::device.review`; contract-owned keys are emitted from declared
+  top-level capability metadata, while platform keys are explicitly defined by
+  Trellis.
+
+### rpc.Auth.UpdateUser
+
+Request:
+
+```ts
+{
+  origin: string;
+  id: string;
+  active?: boolean;
+  capabilities?: string[];
+}
+```
+
+Response:
+
+```ts
+{
+  success: boolean;
+}
+```
+
+Rules:
+
+- `capabilities`, when present, replaces the user's explicit capability grants
+  with the exact canonical keys supplied by the admin caller.
+- Unknown or uncataloged existing capability strings may remain on a user record,
+  but new Trellis-owned assignments SHOULD use keys returned by
+  `Auth.ListCapabilities`.
 
 ### rpc.Auth.ListInstanceGrantPolicies
 

@@ -66,7 +66,10 @@ async function main(): Promise<void> {
     "Evidence.Download",
     features.evidence.downloadEvidence(service),
   );
-  await service.trellis.mount("Evidence.Delete", features.evidence.deleteEvidence);
+  await service.trellis.mount(
+    "Evidence.Delete",
+    features.evidence.deleteEvidence,
+  );
   await service.trellis.mount("Reports.List", features.reports.listReports);
   await service.operation("Sites.Refresh").handle(features.sites.refreshSite);
   await service.operation("Reports.Generate").handle(
@@ -75,6 +78,45 @@ async function main(): Promise<void> {
   await service.operation("Evidence.Upload").handle(
     features.evidence.uploadEvidence,
   );
+  await service.feed("Activity.Live").handle(async ({ emit, signal }) => {
+    const controller = new AbortController();
+    const stop = () => controller.abort();
+    signal.addEventListener("abort", stop, { once: true });
+
+    try {
+      await service.trellis.event(
+        "Activity.Recorded",
+        {},
+        (event) => emit({ name: "Activity.Recorded", event }),
+        { mode: "ephemeral", replay: "new", signal: controller.signal },
+      ).orThrow();
+      await service.trellis.event(
+        "Reports.Published",
+        {},
+        (event) => emit({ name: "Reports.Published", event }),
+        { mode: "ephemeral", replay: "new", signal: controller.signal },
+      ).orThrow();
+      await service.trellis.event(
+        "Evidence.Uploaded",
+        {},
+        (event) => emit({ name: "Evidence.Uploaded", event }),
+        { mode: "ephemeral", replay: "new", signal: controller.signal },
+      ).orThrow();
+      await service.trellis.event(
+        "Sites.Refreshed",
+        {},
+        (event) => emit({ name: "Sites.Refreshed", event }),
+        { mode: "ephemeral", replay: "new", signal: controller.signal },
+      ).orThrow();
+
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    } finally {
+      signal.removeEventListener("abort", stop);
+      controller.abort();
+    }
+  });
 
   console.log(chalk.green.bold("== Field Ops demo service"));
   let shuttingDown = false;

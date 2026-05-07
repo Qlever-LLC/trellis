@@ -73,6 +73,40 @@ Rules:
 - add subject tokens only when consumers need selective subscription and the cardinality is bounded and stable
 - token order matters; put the most-filtered tokens first
 - event handlers must be idempotent because delivery is at-least-once
+- event subscribe permissions are event-type gates, not per-entity ACLs; do not
+  encode user-owned object lists into Trellis runtime permissions
+
+#### Feeds
+
+Feeds expose caller-visible live views that are authorized by the owning service.
+They are request/reply streams: a caller requests a feed with typed input, and the
+service emits typed frames to the caller's reply inbox.
+
+Subject naming:
+
+```text
+feeds.v1.<Domain>.<LiveView>
+```
+
+Examples:
+
+```text
+feeds.v1.Device.Events
+feeds.v1.Activity.Live
+feeds.v1.Inspection.Updates
+```
+
+Rules:
+
+- use feeds when normal apps need reactive UI updates filtered by application
+  authorization, such as devices visible to the logged-in user
+- feed subjects are request subjects, not raw event subjects
+- the service owns fine-grained authorization against the authenticated caller,
+  feed input, and every emitted frame
+- normal apps that use feeds do not receive raw `events.v1.*` subscribe
+  permissions for the backing domain events
+- feeds are live streams, not durable operations; use operations when the caller
+  needs resumable workflow state or terminal completion
 
 #### RPCs
 
@@ -117,8 +151,8 @@ projections, and service-private transport protocols.
 Rules:
 
 - public and cross-service boundaries must be modeled as contract-owned RPCs,
-  operations, events, jobs, state, or resources rather than caller-authored raw
-  subject declarations
+  operations, events, feeds, jobs, state, or resources rather than caller-
+  authored raw subject declarations
 - Trellis-owned runtime protocols may still use raw subjects behind a
   contract-owned public API; file transfer chunk subjects are an example of this
   pattern

@@ -620,6 +620,391 @@ fn manifest_parses_explicit_rpc_receive_transfer() {
 }
 
 #[test]
+fn manifest_parses_top_level_feeds() {
+    let manifest = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.feeds@v1",
+        "displayName": "Example Feeds",
+        "description": "Expose queryable feeds.",
+        "kind": "service",
+        "schemas": {
+            "ActivityFeedInput": {"type": "object", "properties": {}, "additionalProperties": false},
+            "ActivityFeedEvent": {"type": "object", "properties": {}, "additionalProperties": false}
+        },
+        "feeds": {
+            "Activity.Feed": {
+                "version": "v1",
+                "subject": "feeds.v1.Activity.Feed",
+                "input": {"schema": "ActivityFeedInput"},
+                "event": {"schema": "ActivityFeedEvent"},
+                "capabilities": {
+                    "subscribe": ["activity.feed.subscribe"]
+                }
+            }
+        }
+    }))
+    .expect("manifest with feeds should parse");
+
+    let feed = manifest
+        .feeds
+        .get("Activity.Feed")
+        .expect("owned feed should exist");
+    assert_eq!(feed.version, "v1");
+    assert_eq!(feed.subject, "feeds.v1.Activity.Feed");
+    assert_eq!(feed.input.schema, "ActivityFeedInput");
+    assert_eq!(feed.event.schema, "ActivityFeedEvent");
+    assert_eq!(
+        feed.capabilities
+            .as_ref()
+            .and_then(|value| value.subscribe.as_ref()),
+        Some(&vec!["activity.feed.subscribe".to_string()])
+    );
+}
+
+#[test]
+fn manifest_parses_used_feed_subscriptions() {
+    let manifest = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.feed-client@v1",
+        "displayName": "Example Feed Client",
+        "description": "Subscribe to queryable feeds.",
+        "kind": "service",
+        "uses": {
+            "activity": {
+                "contract": "activity@v1",
+                "feeds": {
+                    "subscribe": ["Activity.Feed"]
+                }
+            }
+        }
+    }))
+    .expect("manifest with used feeds should parse");
+
+    let use_ref = manifest
+        .uses
+        .get("activity")
+        .expect("activity use should exist");
+    assert_eq!(
+        use_ref
+            .feeds
+            .as_ref()
+            .and_then(|value| value.subscribe.as_ref())
+            .cloned(),
+        Some(vec!["Activity.Feed".to_string()])
+    );
+}
+
+#[test]
+fn manifest_parses_grouped_required_and_optional_uses() {
+    let manifest = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.grouped-client@v1",
+        "displayName": "Example Grouped Client",
+        "description": "Use required and optional dependencies.",
+        "kind": "service",
+        "uses": {
+            "required": {
+                "billing": {
+                    "contract": "billing@v1",
+                    "rpc": {"call": ["Billing.Charge"]}
+                }
+            },
+            "optional": {
+                "activity": {
+                    "contract": "activity@v1",
+                    "feeds": {"subscribe": ["Activity.Feed"]}
+                }
+            }
+        }
+    }))
+    .expect("manifest with grouped uses should parse");
+
+    let billing = manifest.uses.get("billing").expect("required use");
+    assert_eq!(billing.contract, "billing@v1");
+    assert_eq!(
+        billing.rpc.as_ref().and_then(|rpc| rpc.call.as_ref()),
+        Some(&vec!["Billing.Charge".to_string()])
+    );
+
+    let activity = manifest.uses.get("activity").expect("optional use");
+    assert_eq!(activity.contract, "activity@v1");
+    assert_eq!(
+        activity
+            .feeds
+            .as_ref()
+            .and_then(|feeds| feeds.subscribe.as_ref()),
+        Some(&vec!["Activity.Feed".to_string()])
+    );
+    assert!(manifest.uses.required().contains_key("billing"));
+    assert!(manifest.uses.optional().contains_key("activity"));
+}
+
+#[test]
+fn contract_digest_treats_legacy_flat_uses_as_grouped_required() {
+    let legacy = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.uses-digest@v1",
+        "displayName": "Uses Digest",
+        "description": "Compare uses layouts.",
+        "kind": "service",
+        "uses": {
+            "billing": {
+                "contract": "billing@v1",
+                "rpc": {"call": ["Billing.Charge", "Billing.Refund"]}
+            }
+        }
+    });
+    let grouped = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.uses-digest@v1",
+        "displayName": "Uses Digest",
+        "description": "Compare uses layouts.",
+        "kind": "service",
+        "uses": {
+            "required": {
+                "billing": {
+                    "contract": "billing@v1",
+                    "rpc": {"call": ["Billing.Charge", "Billing.Refund"]}
+                }
+            }
+        }
+    });
+
+    assert_eq!(
+        digest_contract_value(&legacy).expect("legacy digest"),
+        digest_contract_value(&grouped).expect("grouped digest")
+    );
+}
+
+#[test]
+fn contract_digest_keeps_legacy_flat_aliases_named_required() {
+    let manifest = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.required-alias@v1",
+        "displayName": "Required Alias",
+        "description": "Legacy alias name overlaps grouped uses.",
+        "kind": "service",
+        "uses": {
+            "required": {
+                "contract": "required@v1",
+                "rpc": {"call": ["Required.Ping"]}
+            }
+        }
+    });
+    let projected = project_contract_digest_manifest(&manifest);
+
+    assert_eq!(
+        projected["uses"]["required"]["contract"],
+        json!("required@v1")
+    );
+}
+
+#[test]
+fn contract_digest_keeps_grouped_aliases_named_contract() {
+    let manifest = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.contract-alias@v1",
+        "displayName": "Contract Alias",
+        "description": "Grouped alias name overlaps use-ref contract field.",
+        "kind": "service",
+        "uses": {
+            "required": {
+                "contract": {
+                    "contract": "required@v1",
+                    "rpc": {"call": ["Required.Ping"]}
+                }
+            },
+            "optional": {
+                "activity": {
+                    "contract": "activity@v1",
+                    "feeds": {"subscribe": ["Activity.Feed"]}
+                }
+            }
+        }
+    });
+    let projected = project_contract_digest_manifest(&manifest);
+
+    assert_eq!(
+        projected["uses"]["required"]["contract"]["contract"],
+        json!("required@v1")
+    );
+    assert_eq!(
+        projected["uses"]["optional"]["activity"]["feeds"]["subscribe"],
+        json!(["Activity.Feed"])
+    );
+}
+
+#[test]
+fn contract_digest_includes_sorted_optional_uses_and_feed_subscriptions() {
+    let optional = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.optional-uses-digest@v1",
+        "displayName": "Optional Uses Digest",
+        "description": "Optional dependencies affect identity.",
+        "kind": "service",
+        "uses": {
+            "optional": {
+                "activity": {
+                    "contract": "activity@v1",
+                    "feeds": {"subscribe": ["Activity.Z", "Activity.A", "Activity.Z"]}
+                }
+            }
+        }
+    });
+    let sorted = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.optional-uses-digest@v1",
+        "displayName": "Optional Uses Digest",
+        "description": "Optional dependencies affect identity.",
+        "kind": "service",
+        "uses": {
+            "optional": {
+                "activity": {
+                    "contract": "activity@v1",
+                    "feeds": {"subscribe": ["Activity.A", "Activity.Z"]}
+                }
+            }
+        }
+    });
+    let changed = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.optional-uses-digest@v1",
+        "displayName": "Optional Uses Digest",
+        "description": "Optional dependencies affect identity.",
+        "kind": "service",
+        "uses": {
+            "optional": {
+                "activity": {
+                    "contract": "activity@v1",
+                    "feeds": {"subscribe": ["Activity.A"]}
+                }
+            }
+        }
+    });
+
+    let optional_digest = digest_contract_value(&optional).expect("optional digest");
+    assert_eq!(
+        optional_digest,
+        digest_contract_value(&sorted).expect("sorted optional digest")
+    );
+    assert_ne!(
+        optional_digest,
+        digest_contract_value(&changed).expect("changed optional digest")
+    );
+}
+
+#[test]
+fn builder_use_ref_is_required_and_optional_use_ref_is_grouped_optional() {
+    let manifest = ContractManifestBuilder::new(
+        "example.builder-uses@v1",
+        "Builder Uses",
+        "Build required and optional uses.",
+        ContractKind::App,
+    )
+    .use_ref(
+        "billing",
+        use_contract("billing@v1").with_rpc_call(["Billing.Charge"]),
+    )
+    .optional_use_ref(
+        "activity",
+        use_contract("activity@v1").with_feed_subscribe(["Activity.Feed"]),
+    )
+    .build()
+    .expect("builder manifest");
+
+    assert!(manifest.uses.required().contains_key("billing"));
+    assert!(manifest.uses.optional().contains_key("activity"));
+}
+
+#[test]
+fn manifest_validation_rejects_unknown_feed_schema_refs() {
+    let error = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.feeds@v1",
+        "displayName": "Example Feeds",
+        "description": "Expose queryable feeds.",
+        "kind": "service",
+        "schemas": {
+            "ActivityFeedInput": {"type": "object", "properties": {}, "additionalProperties": false}
+        },
+        "feeds": {
+            "Activity.Feed": {
+                "version": "v1",
+                "subject": "feeds.v1.Activity.Feed",
+                "input": {"schema": "ActivityFeedInput"},
+                "event": {"schema": "MissingFeedEvent"}
+            }
+        }
+    }))
+    .expect_err("manifest with missing feed schema should fail");
+
+    let ContractsError::SchemaValidation { details, .. } = error else {
+        panic!("expected schema validation error");
+    };
+    assert!(details.contains("feed"));
+    assert!(details.contains("unknown schema"));
+}
+
+#[test]
+fn contract_digest_changes_when_feed_schemas_change() {
+    let mut manifest = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.feed-digest@v1",
+        "displayName": "Example Feed Digest",
+        "description": "Expose queryable feeds.",
+        "kind": "service",
+        "schemas": {
+            "ActivityFeedInput": {"type": "object", "properties": {}, "additionalProperties": false},
+            "ActivityFeedEvent": {"type": "object", "properties": {}, "additionalProperties": false},
+            "Unused": {"type": "object", "properties": {"ignored": {"type": "string"}}, "additionalProperties": false}
+        },
+        "feeds": {
+            "Activity.Feed": {
+                "version": "v1",
+                "subject": "feeds.v1.Activity.Feed",
+                "input": {"schema": "ActivityFeedInput"},
+                "event": {"schema": "ActivityFeedEvent"}
+            }
+        }
+    });
+    let digest = digest_contract_value(&manifest).expect("digest feed manifest");
+
+    manifest["schemas"]["Unused"] = json!({
+        "type": "object",
+        "properties": {"stillIgnored": {"type": "number"}},
+        "additionalProperties": false
+    });
+    assert_eq!(
+        digest_contract_value(&manifest).expect("digest with unused schema change"),
+        digest
+    );
+
+    manifest["schemas"]["ActivityFeedInput"] = json!({
+        "type": "object",
+        "required": ["cursor"],
+        "properties": {"cursor": {"type": "string"}},
+        "additionalProperties": false
+    });
+    assert_ne!(
+        digest_contract_value(&manifest).expect("digest with input schema change"),
+        digest
+    );
+
+    manifest["schemas"]["ActivityFeedInput"] =
+        json!({"type": "object", "properties": {}, "additionalProperties": false});
+    manifest["schemas"]["ActivityFeedEvent"] = json!({
+        "type": "object",
+        "required": ["id"],
+        "properties": {"id": {"type": "string"}},
+        "additionalProperties": false
+    });
+    assert_ne!(
+        digest_contract_value(&manifest).expect("digest with event schema change"),
+        digest
+    );
+}
+
+#[test]
 fn manifest_parses_top_level_jobs() {
     let manifest = parse_manifest(json!({
         "format": "trellis.contract.v1",

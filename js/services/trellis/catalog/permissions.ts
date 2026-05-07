@@ -118,9 +118,12 @@ export function operationControlCapabilityRules(
 }
 
 function resolvedUses(entry: ContractEntry) {
-  return resolveContractUses(entry.contract, (alias, use) => {
+  return resolveContractUses(entry.contract, (alias, use, options) => {
     const target = state.activeById.get(use.contract);
     if (!target) {
+      if (!options.required) {
+        return null;
+      }
       throw new Error(
         `Dependency '${alias}' references inactive contract '${use.contract}'`,
       );
@@ -150,8 +153,13 @@ function ownedPublishRules(entries: ContractEntry[]): PermissionRule[] {
   ]);
 }
 
-function ownedSubscribeRules(_entries: ContractEntry[]): PermissionRule[] {
-  return [];
+function ownedSubscribeRules(entries: ContractEntry[]): PermissionRule[] {
+  return entries.flatMap((entry) =>
+    Object.values(entry.contract.events ?? {}).map((event) => ({
+      subject: templateToWildcard(event.subject),
+      requiredCapabilities: event.capabilities?.subscribe ?? [],
+    }))
+  );
 }
 
 function usedPublishRules(entries: ContractEntry[]): PermissionRule[] {
@@ -197,6 +205,10 @@ function usedPublishRules(entries: ContractEntry[]): PermissionRule[] {
         subject: templateToWildcard(event.event.subject),
         requiredCapabilities: event.event.capabilities?.publish ?? [],
       })),
+      ...uses.feedSubscribes.map((feed) => ({
+        subject: templateToWildcard(feed.feed.subject),
+        requiredCapabilities: feed.feed.capabilities?.subscribe ?? [],
+      })),
     ];
   });
 }
@@ -229,6 +241,16 @@ function handledOperationSubjects(service: ServiceDescriptor): string[] {
       templateToWildcard(operation.subject),
       templateToWildcard(`${operation.subject}.control`),
     ])
+  );
+}
+
+function handledFeedSubjects(service: ServiceDescriptor): string[] {
+  return implementedContracts(service).flatMap((entry) =>
+    Object.values(
+      (entry.contract as { feeds?: Record<string, { subject: string }> })
+        .feeds ??
+        {},
+    ).map((feed) => templateToWildcard(feed.subject))
   );
 }
 
@@ -378,6 +400,9 @@ export function getServiceSubscribeSubjects(
   const operationSubjects = hasRequiredCapabilities(capabilities, ["service"])
     ? handledOperationSubjects(service)
     : [];
+  const feedSubjects = hasRequiredCapabilities(capabilities, ["service"])
+    ? handledFeedSubjects(service)
+    : [];
   const transferSubjects = hasRequiredCapabilities(capabilities, ["service"])
     ? handledTransferSubjects(service)
     : [];
@@ -385,6 +410,7 @@ export function getServiceSubscribeSubjects(
   return dedupe([
     ...rpcSubjects,
     ...operationSubjects,
+    ...feedSubjects,
     ...transferSubjects,
     ...rules
       .filter((rule) =>

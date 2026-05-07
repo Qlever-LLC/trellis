@@ -274,3 +274,49 @@ Call RPCs directly from a page at `src/routes/(app)/dashboard/+page.svelte`:
 ```
 
 `getTrellis()` and `getConnection()` are Svelte context getters. Call them during component initialization and store the returned client or connection in a top-level `const`. Do not call them inside `onMount`, event handlers, async helper functions, or later callbacks; doing so violates Svelte's context lifecycle rules.
+
+## 7. Subscribe to authorized feeds
+
+Use feeds when a page needs reactive updates that must be filtered by the owning
+service. The app contract declares the feed in `uses`, then Svelte components use
+the connected runtime from context.
+
+```svelte
+<script lang="ts">
+  import { onMount } from "svelte";
+  import { getTrellis } from "$lib/trellis";
+
+  const trellis = getTrellis();
+
+  let events = $state.raw<DeviceEvent[]>([]);
+  let error = $state<string | null>(null);
+
+  onMount(() => {
+    const controller = new AbortController();
+
+    void (async () => {
+      try {
+        const stream = await trellis.feed("Device.Events")
+          .input({ scope: "owned" })
+          .subscribe({ signal: controller.signal })
+          .orThrow();
+
+        for await (const event of stream) {
+          events = [event, ...events].slice(0, 50);
+        }
+      } catch (cause) {
+        if (!controller.signal.aborted) {
+          error = cause instanceof Error ? cause.message : String(cause);
+        }
+      }
+    })();
+
+    return () => controller.abort();
+  });
+</script>
+```
+
+Do not replace this with direct `trellis.event(...)` subscriptions when the UI
+requires per-user or per-object filtering. Direct events are still useful when
+event-type authorization is sufficient, but feeds keep domain authorization in
+the service that owns the data.

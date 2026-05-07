@@ -38,12 +38,14 @@
   class="portal-shell flex min-h-screen flex-col items-center justify-center gap-7 px-4 py-10 sm:px-6"
   data-theme="portal"
 >
-  <PortalBrand subtitle="Device approval" />
-
   <div
     class="portal-card card w-full max-w-lg border border-base-300"
   >
     <div class="card-body gap-6 p-7 sm:p-8">
+      <div class="flex justify-center">
+        <PortalBrand subtitle="Device approval" />
+      </div>
+
       {#if controller.loading}
         <div class="flex items-center gap-4 py-3">
           <span class="loading loading-ring loading-lg"></span>

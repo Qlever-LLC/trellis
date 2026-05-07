@@ -2,6 +2,8 @@ import { assertEquals, assertNotEquals, assertThrows } from "@std/assert";
 import { Type } from "typebox";
 
 import {
+  type ContractUses,
+  type ContractUsesFlat,
   defineAppContract,
   defineDeviceContract,
   defineError,
@@ -26,6 +28,27 @@ function baselineHealthUse() {
     contract: "trellis.health@v1",
     events: { publish: ["Health.Heartbeat"] },
   };
+}
+
+function flatUses(
+  uses: ContractUses | undefined,
+): ContractUsesFlat | undefined {
+  if (!uses) {
+    return undefined;
+  }
+  const maybeGrouped = uses as { required?: unknown; optional?: unknown };
+  if (maybeGrouped.optional !== undefined) {
+    return undefined;
+  }
+  if (
+    maybeGrouped.required !== undefined &&
+    typeof maybeGrouped.required === "object" &&
+    maybeGrouped.required !== null &&
+    !("contract" in maybeGrouped.required)
+  ) {
+    return undefined;
+  }
+  return uses as ContractUsesFlat;
 }
 
 function schemaRef<
@@ -241,7 +264,7 @@ Deno.test("service contracts automatically use baseline health heartbeat", () =>
       "Verify service contracts publish runtime heartbeat by default.",
   }));
 
-  assertEquals(contract.CONTRACT.uses?.health, baselineHealthUse());
+  assertEquals(flatUses(contract.CONTRACT.uses)?.health, baselineHealthUse());
   assertEquals(
     (contract.API.used.events as Record<string, { subject: string }>)[
       "Health.Heartbeat"
@@ -290,9 +313,15 @@ Deno.test("device contracts keep implicit auth state and baseline health", () =>
     }),
   );
 
-  assertEquals(contract.CONTRACT.uses?.auth?.contract, "trellis.auth@v1");
-  assertEquals(contract.CONTRACT.uses?.state?.contract, "trellis.state@v1");
-  assertEquals(contract.CONTRACT.uses?.health, baselineHealthUse());
+  assertEquals(
+    flatUses(contract.CONTRACT.uses)?.auth?.contract,
+    "trellis.auth@v1",
+  );
+  assertEquals(
+    flatUses(contract.CONTRACT.uses)?.state?.contract,
+    "trellis.state@v1",
+  );
+  assertEquals(flatUses(contract.CONTRACT.uses)?.health, baselineHealthUse());
 });
 
 Deno.test("explicit health use preserves selections and gains baseline heartbeat", () => {
@@ -305,7 +334,7 @@ Deno.test("explicit health use preserves selections and gains baseline heartbeat
     },
   }));
 
-  assertEquals(contract.CONTRACT.uses?.health, {
+  assertEquals(flatUses(contract.CONTRACT.uses)?.health, {
     contract: "trellis.health@v1",
     events: {
       publish: ["Health.Heartbeat"],
@@ -984,11 +1013,166 @@ Deno.test("contract digest normalizes uses logical-name order and duplicates", (
     },
   }));
 
-  assertEquals(first.CONTRACT.uses?.dependency.rpc?.call, [
+  assertEquals(flatUses(first.CONTRACT.uses)?.dependency.rpc?.call, [
     "Dependency.A",
     "Dependency.B",
   ]);
   assertEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
+});
+
+Deno.test("grouped required uses emit grouped manifest and match legacy digest", () => {
+  const dependency = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "grouped.dependency@v1",
+      displayName: "Grouped Dependency",
+      description: "Expose dependency surfaces for grouped required uses.",
+      rpc: {
+        "Dependency.Read": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("StringValue"),
+        },
+      },
+      events: {
+        "Dependency.Changed": {
+          version: "v1",
+          event: ref.schema("StringValue"),
+        },
+      },
+    }),
+  );
+
+  const legacy = defineServiceContract({}, () => ({
+    id: "grouped.required@v1",
+    displayName: "Grouped Required",
+    description: "Declare legacy required uses.",
+    uses: {
+      dependency: dependency.use({
+        rpc: { call: ["Dependency.Read"] },
+        events: { subscribe: ["Dependency.Changed"] },
+      }),
+    },
+  }));
+
+  const grouped = defineServiceContract({}, () => ({
+    id: "grouped.required@v1",
+    displayName: "Grouped Required",
+    description: "Declare grouped required uses.",
+    uses: {
+      required: {
+        dependency: dependency.use({
+          events: { subscribe: ["Dependency.Changed"] },
+          rpc: { call: ["Dependency.Read"] },
+        }),
+      },
+    },
+  }));
+
+  assertEquals(grouped.CONTRACT.uses, {
+    required: {
+      dependency: {
+        contract: "grouped.dependency@v1",
+        rpc: { call: ["Dependency.Read"] },
+        events: { subscribe: ["Dependency.Changed"] },
+      },
+      health: baselineHealthUse(),
+    },
+  });
+  assertEquals(
+    grouped.API.used.rpc["Dependency.Read"].subject,
+    "rpc.v1.Dependency.Read",
+  );
+  assertEquals(
+    grouped.API.used.events["Dependency.Changed"].subject,
+    "events.v1.Dependency.Changed",
+  );
+  assertEquals(legacy.CONTRACT_DIGEST, grouped.CONTRACT_DIGEST);
+});
+
+Deno.test("grouped optional uses normalize selectors and affect digest", () => {
+  const dependency = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "grouped.optional-dependency@v1",
+      displayName: "Grouped Optional Dependency",
+      description: "Expose dependency surfaces for grouped optional uses.",
+      rpc: {
+        "Dependency.Read": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("StringValue"),
+        },
+      },
+      events: {
+        "Dependency.Changed": {
+          version: "v1",
+          event: ref.schema("StringValue"),
+        },
+      },
+      feeds: {
+        "Dependency.Changes": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          event: ref.schema("StringValue"),
+        },
+      },
+    }),
+  );
+
+  const requiredOnly = defineServiceContract({}, () => ({
+    id: "grouped.optional@v1",
+    displayName: "Grouped Optional",
+    description: "Declare grouped uses without optional dependencies.",
+    uses: {
+      required: {
+        dependency: dependency.use({ rpc: { call: ["Dependency.Read"] } }),
+      },
+    },
+  }));
+
+  const withOptional = defineServiceContract({}, () => ({
+    id: "grouped.optional@v1",
+    displayName: "Grouped Optional",
+    description: "Declare grouped optional dependencies.",
+    uses: {
+      required: {
+        dependency: dependency.use({ rpc: { call: ["Dependency.Read"] } }),
+      },
+      optional: {
+        dependency: dependency.use({
+          events: {
+            subscribe: ["Dependency.Changed", "Dependency.Changed"],
+          },
+          feeds: {
+            subscribe: ["Dependency.Changes", "Dependency.Changes"],
+          },
+        }),
+      },
+    },
+  }));
+
+  assertEquals(withOptional.CONTRACT.uses, {
+    required: {
+      dependency: {
+        contract: "grouped.optional-dependency@v1",
+        rpc: { call: ["Dependency.Read"] },
+      },
+      health: baselineHealthUse(),
+    },
+    optional: {
+      dependency: {
+        contract: "grouped.optional-dependency@v1",
+        events: { subscribe: ["Dependency.Changed"] },
+        feeds: { subscribe: ["Dependency.Changes"] },
+      },
+    },
+  });
+  assertEquals(
+    withOptional.API.used.feeds["Dependency.Changes"].subject,
+    "feeds.v1.Dependency.Changes",
+  );
+  assertNotEquals(requiredOnly.CONTRACT_DIGEST, withOptional.CONTRACT_DIGEST);
 });
 
 Deno.test("contract digest normalizes RPC error order and duplicates", () => {
@@ -1413,7 +1597,7 @@ Deno.test("locally defined contracts can be reused as dependencies", () => {
   }));
 
   assertEquals(
-    dashboard.CONTRACT.uses?.activity.contract,
+    flatUses(dashboard.CONTRACT.uses)?.activity.contract,
     "trellis.activity@v1",
   );
   assertEquals(
@@ -1509,7 +1693,7 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
       output: { schema: "StringValue" },
     },
   });
-  assertEquals(payments.CONTRACT.uses?.billing, {
+  assertEquals(flatUses(payments.CONTRACT.uses)?.billing, {
     contract: "trellis.billing@v1",
     operations: { call: ["Billing.Refund"] },
   });

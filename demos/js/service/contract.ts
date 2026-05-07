@@ -106,7 +106,8 @@ export const contract = defineServiceContract(
         input: ref.schema("ReportsGenerateRequest"),
         progress: ref.schema("ReportsGenerateProgress"),
         output: ref.schema("ReportsGenerateResponse"),
-        capabilities: { call: [], read: [] },
+        capabilities: { call: [], read: [], cancel: [] },
+        cancel: true,
       },
       "Evidence.Upload": {
         version: "v1",
@@ -140,6 +141,14 @@ export const contract = defineServiceContract(
       "Sites.Refreshed": {
         version: "v1",
         event: ref.schema("SitesRefreshedEvent"),
+      },
+    },
+    feeds: {
+      "Activity.Live": {
+        version: "v1",
+        input: ref.schema("ActivityLiveFeedRequest"),
+        event: ref.schema("ActivityLiveFeedEvent"),
+        capabilities: { subscribe: [] },
       },
     },
   }),

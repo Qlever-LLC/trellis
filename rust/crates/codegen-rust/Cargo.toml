@@ -7,8 +7,10 @@ repository.workspace = true
 description = "Rust code generation for Trellis contract manifests."
 
 [dependencies]
+prettyplease = "0.2.37"
 serde.workspace = true
 serde_json.workspace = true
+syn = { version = "2.0.111", features = ["full"] }
 thiserror.workspace = true
 toml = "1.1.2"
 trellis-contracts = { path = "../contracts", version = "0.8.4" }

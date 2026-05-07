@@ -19,7 +19,7 @@ metadata, and role/capability usage patterns.
 
 ## Capability Model
 
-Contracts declare capability requirements on RPCs, operations, and events. The
+Contracts declare capability requirements on RPCs, operations, events, and feeds. The
 owning contract may also declare human-facing metadata for each owned capability
 so approval UIs can explain the requested authority without inventing a separate
 scope catalog. Deployments grant capabilities through roles, groups, portal

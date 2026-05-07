@@ -89,6 +89,7 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
         EmptyInput: { type: "object" },
         EmptyOutput: { type: "object" },
         PartnerChangedEvent: { type: "object" },
+        PartnerFeedInput: { type: "object" },
       },
       uses: {
         core: {
@@ -144,6 +145,15 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           },
         },
       },
+      feeds: {
+        "Partner.Feed": {
+          version: "v1",
+          subject: "feeds.v1.Partner.Feed",
+          input: { schema: "PartnerFeedInput" },
+          event: { schema: "PartnerChangedEvent" },
+          capabilities: { subscribe: ["partners:read"] },
+        },
+      },
     },
   },
   {
@@ -163,6 +173,7 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
             publish: ["Partner.Changed"],
             subscribe: ["Partner.Changed"],
           },
+          feeds: { subscribe: ["Partner.Feed"] },
         },
       },
     },
@@ -205,6 +216,10 @@ function withContracts(contracts: typeof TEST_CONTRACTS, fn: () => void) {
   } finally {
     setContracts(original);
   }
+}
+
+function contractForTest(contract: unknown): TrellisContractV1 {
+  return contract as TrellisContractV1;
 }
 
 Deno.test("user permissions do not include RPC subscribe", () => {
@@ -252,7 +267,163 @@ Deno.test("user permissions include event capabilities without raw subjects", ()
       subscribeSubjects.includes("events.v1.Partner.Changed.*.*"),
       true,
     );
+    assertEquals(
+      transferPublishSubjects.includes("feeds.v1.Partner.Feed"),
+      true,
+    );
+    assertEquals(
+      subscribeSubjects.includes("events.v1.Partner.Feed"),
+      false,
+    );
     assertEquals(subscribeSubjects.includes("transfer.v1.download.*.*"), false);
+  });
+});
+
+Deno.test("feed-only uses grant feed request publish without raw event subscribe", () => {
+  const feedService = contractForTest({
+    format: "trellis.contract.v1",
+    id: "feed-service@v1",
+    displayName: "Feed Service",
+    description: "Expose only a feed surface.",
+    kind: "service",
+    schemas: {
+      Input: { type: "object" },
+      Event: { type: "object" },
+    },
+    feeds: {
+      "Device.Events": {
+        version: "v1",
+        subject: "feeds.v1.Device.Events",
+        input: { schema: "Input" },
+        event: { schema: "Event" },
+        capabilities: { subscribe: ["devices:read"] },
+      },
+    },
+  });
+  const feedApp: TrellisContractV1 = {
+    format: "trellis.contract.v1",
+    id: "feed-app@v1",
+    displayName: "Feed App",
+    description: "Consumes only feed surfaces.",
+    kind: "app",
+    uses: {
+      feedService: {
+        contract: "feed-service@v1",
+        feeds: { subscribe: ["Device.Events"] },
+      },
+    },
+  };
+
+  withContracts([
+    { digest: "feed-service-digest", contract: feedService },
+    { digest: "feed-app-digest", contract: feedApp },
+  ], () => {
+    const caller = { contractDigest: "feed-app-digest" };
+    const publishSubjects = getUserPublishSubjects(["devices:read"], caller);
+    const subscribeSubjects = getUserSubscribeSubjects(
+      ["devices:read"],
+      caller,
+    );
+
+    assertEquals(publishSubjects.includes("feeds.v1.Device.Events"), true);
+    assertEquals(
+      subscribeSubjects.some((subject) => subject.startsWith("events.v1.")),
+      false,
+    );
+  });
+});
+
+Deno.test("optional feed uses grant only resolved active feed request subjects", () => {
+  const feedService = contractForTest({
+    format: "trellis.contract.v1",
+    id: "feed-service@v1",
+    displayName: "Feed Service",
+    description: "Expose only a feed surface.",
+    kind: "service",
+    schemas: {
+      Input: { type: "object" },
+      Event: { type: "object" },
+    },
+    feeds: {
+      "Device.Events": {
+        version: "v1",
+        subject: "feeds.v1.Device.Events",
+        input: { schema: "Input" },
+        event: { schema: "Event" },
+        capabilities: { subscribe: ["devices:read"] },
+      },
+    },
+  });
+  const feedApp = contractForTest({
+    format: "trellis.contract.v1",
+    id: "feed-app@v1",
+    displayName: "Feed App",
+    description: "Consumes optional feed surfaces.",
+    kind: "app",
+    uses: {
+      optional: {
+        feedService: {
+          contract: "feed-service@v1",
+          feeds: { subscribe: ["Device.Events"] },
+        },
+        missingFeedService: {
+          contract: "missing-feed-service@v1",
+          feeds: { subscribe: ["Missing.Events"] },
+        },
+      },
+    },
+  });
+
+  withContracts([
+    { digest: "feed-service-digest", contract: feedService },
+    { digest: "feed-app-digest", contract: feedApp },
+  ], () => {
+    const caller = { contractDigest: "feed-app-digest" };
+    const publishSubjects = getUserPublishSubjects(["devices:read"], caller);
+    const subscribeSubjects = getUserSubscribeSubjects(
+      ["devices:read"],
+      caller,
+    );
+
+    assertEquals(publishSubjects.includes("feeds.v1.Device.Events"), true);
+    assertEquals(publishSubjects.includes("feeds.v1.Missing.Events"), false);
+    assertEquals(
+      subscribeSubjects.some((subject) => subject.startsWith("events.v1.")),
+      false,
+    );
+  });
+});
+
+Deno.test("optional missing uses grant nothing and do not throw", () => {
+  const optionalApp = contractForTest({
+    format: "trellis.contract.v1",
+    id: "optional-app@v1",
+    displayName: "Optional App",
+    description: "Declares optional missing dependencies.",
+    kind: "app",
+    uses: {
+      optional: {
+        core: {
+          contract: "trellis.core@v1",
+          rpc: { call: ["Trellis.Missing"] },
+        },
+        missing: {
+          contract: "missing@v1",
+          rpc: { call: ["Missing.Call"] },
+        },
+      },
+    },
+  });
+
+  withContracts([
+    ...TEST_CONTRACTS,
+    { digest: "optional-app-digest", contract: optionalApp },
+  ], () => {
+    const publishSubjects = getUserPublishSubjects(["trellis.catalog.read"], {
+      contractDigest: "optional-app-digest",
+    });
+
+    assertEquals(publishSubjects.includes("rpc.v1.Trellis.Catalog"), false);
   });
 });
 
@@ -413,7 +584,7 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
       },
     );
     const subscribeSubjects = getServiceSubscribeSubjects(
-      ["service", "jobs.subscribe", "service:events:auth"],
+      ["service", "jobs.subscribe", "service:events:auth", "partners:read"],
       {
         sessionKey: "graph-key",
         contractDigest: "graph-digest",
@@ -453,6 +624,10 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
       true,
     );
     assertEquals(subscribeSubjects.includes("events.v1.Auth.Connect"), true);
+    assertEquals(
+      subscribeSubjects.includes("events.v1.Partner.Changed.*.*"),
+      true,
+    );
     assertEquals(
       subscribeSubjects.includes("transfer.v1.upload.graph-key.*"),
       true,

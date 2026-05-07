@@ -98,7 +98,14 @@ body {
 }
 
 .portal-brand-mark {
-  color: var(--color-primary);
+  color: #101828;
+}
+
+.trellis-logo-mask {
+  background-color: currentColor;
+  display: block;
+  mask: var(--trellis-logo-url) center / contain no-repeat;
+  -webkit-mask: var(--trellis-logo-url) center / contain no-repeat;
 }
 
 .portal-card {
@@ -109,8 +116,9 @@ body {
 }
 
 .portal-eyebrow {
-  color: var(--portal-text-muted);
-  letter-spacing: 0.12em;
+  color: #b86b35;
+  letter-spacing: 0.44em;
+  text-transform: uppercase;
 }
 
 .portal-section-label {

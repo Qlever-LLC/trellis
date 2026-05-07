@@ -16,12 +16,17 @@ Update `contracts/orders_service.manifest.json` to add an `operations` section:
     "capabilities": {
       "call": ["orders.write"],
       "read": ["orders.read"],
-      "cancel": ["orders.write"]
+      "cancel": ["orders.write"],
+      "control": ["orders.write"]
     },
     "cancel": true
   }
 }
 ```
+
+`call` starts the operation, `read` gates `get`/`wait`/`watch`, `cancel` gates
+cancellation, and `control` gates named post-start signals. If the operation has
+no named signals, `control` can be omitted.
 
 Regenerate the participant facade after updating the manifest.
 

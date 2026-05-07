@@ -241,7 +241,8 @@ Operational command behavior:
   the default device table promotes `name`, `serial`, and `model` columns when
   present, while `--show-metadata` reveals the remaining opaque metadata entries
 - `trellis deploy review *` manages pending device review decisions
-  and is intended for `device.review` automation services or admins
+  and is intended for `trellis.auth::device.review` automation services or
+  admins
 - service deployments own contract digest allowance, namespace allowance, and
   reversible deployment state
 - service instances are concrete service principals under one deployment,

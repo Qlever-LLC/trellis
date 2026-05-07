@@ -4,6 +4,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use oxc_allocator::Allocator;
+use oxc_parser::Parser;
+use oxc_span::SourceType;
 use serde_json::Value;
 use trellis_contracts::{load_manifest, ContractUseRef, LoadedManifest};
 
@@ -27,6 +30,9 @@ pub enum CodegenTsError {
 
     #[error("could not find a Deno config under runtime repo root")]
     MissingRuntimeConfig,
+
+    #[error("invalid generated TypeScript in {path}: {message}")]
+    InvalidTypeScript { path: PathBuf, message: String },
 }
 
 /// Options for generating one TypeScript SDK package.
@@ -59,43 +65,43 @@ pub fn generate_ts_sdk(opts: &GenerateTsSdkOpts) -> Result<(), CodegenTsError> {
     let loaded = load_manifest(&opts.manifest_path)?;
     fs::create_dir_all(&opts.out_dir)?;
 
-    write_if_changed(
+    write_generated_file(
         &opts.out_dir.join("deno.json"),
         &format!(
             "{}\n",
             serde_json::to_string_pretty(&deno_json(opts, &loaded)?)?
         ),
     )?;
-    write_if_changed(
+    write_generated_file(
         &opts.out_dir.join("contract.ts"),
         &render_contract_ts(opts, &loaded),
     )?;
-    write_if_changed(
+    write_generated_file(
         &opts.out_dir.join("types.ts"),
         &render_types_ts(opts, &loaded),
     )?;
-    write_if_changed(
+    write_generated_file(
         &opts.out_dir.join("schemas.ts"),
         &render_schemas_ts(opts, &loaded),
     )?;
-    write_if_changed(&opts.out_dir.join("api.ts"), &render_api_ts(opts, &loaded))?;
-    write_if_changed(
+    write_generated_file(&opts.out_dir.join("api.ts"), &render_api_ts(opts, &loaded))?;
+    write_generated_file(
         &opts.out_dir.join("client.ts"),
         &render_client_ts(opts, &loaded),
     )?;
-    write_if_changed(&opts.out_dir.join("mod.ts"), &render_mod_ts(opts, &loaded))?;
+    write_generated_file(&opts.out_dir.join("mod.ts"), &render_mod_ts(opts, &loaded))?;
 
     let scripts_dir = opts.out_dir.join("scripts");
     if is_standalone_package_name(&opts.package_name) {
         fs::create_dir_all(&scripts_dir)?;
-        write_if_changed(
+        write_generated_file(
             &scripts_dir.join("build_npm.ts"),
             &render_build_npm_ts(opts, &loaded),
         )?;
     } else if scripts_dir.exists() {
         fs::remove_dir_all(&scripts_dir)?;
     }
-    write_if_changed(
+    write_generated_file(
         &opts.out_dir.join("README.md"),
         &render_readme(opts, &loaded),
     )?;
@@ -204,7 +210,7 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         format!("export const CONTRACT = {} as TrellisContractV1;", loaded.canonical),
         String::new(),
         "function assertSelectedKeysExist(".to_string(),
-        "  kind: \"rpc\" | \"operations\" | \"events\",".to_string(),
+        "  kind: \"rpc\" | \"operations\" | \"events\" | \"feeds\",".to_string(),
         "  keys: readonly string[] | undefined,".to_string(),
         "  api: Record<string, unknown>,".to_string(),
         ") {".to_string(),
@@ -224,6 +230,7 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         "  assertSelectedKeysExist(\"operations\", spec.operations?.call, API.owned.operations);".to_string(),
         "  assertSelectedKeysExist(\"events\", spec.events?.publish, API.owned.events);".to_string(),
         "  assertSelectedKeysExist(\"events\", spec.events?.subscribe, API.owned.events);".to_string(),
+        "  assertSelectedKeysExist(\"feeds\", spec.feeds?.subscribe, API.owned.feeds);".to_string(),
         "}".to_string(),
     ];
 
@@ -284,6 +291,7 @@ fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Stri
         "          },".to_string(),
         "        }".to_string(),
         "        : {}),".to_string(),
+        "      ...(spec.feeds?.subscribe ? { feeds: { subscribe: [...spec.feeds.subscribe] } } : {}),".to_string(),
         "    };".to_string(),
         String::new(),
         "    Object.defineProperty(dependencyUse, CONTRACT_MODULE_METADATA, {".to_string(),
@@ -536,6 +544,27 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         lines.push(String::new());
     }
 
+    for (key, feed) in &loaded.manifest.feeds {
+        let base = key_to_pascal(key);
+        lines.push(format!(
+            "export type {base}Input = {};",
+            schema_to_ts_with_aliases(
+                resolve_schema_ref(loaded, &feed.input.schema),
+                &schema_type_aliases,
+                None,
+            )
+        ));
+        lines.push(format!(
+            "export type {base}Event = {};",
+            schema_to_ts_with_aliases(
+                resolve_schema_ref(loaded, &feed.event.schema),
+                &schema_type_aliases,
+                None,
+            )
+        ));
+        lines.push(String::new());
+    }
+
     for (_key, error) in &loaded.manifest.errors {
         let base = key_to_pascal(&error.error_type);
         let data_type = format!("{base}Data");
@@ -621,6 +650,17 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
     lines.push("}".to_string());
     lines.push(String::new());
 
+    lines.push("export interface FeedMap {".to_string());
+    for key in loaded.manifest.feeds.keys() {
+        let base = key_to_pascal(key);
+        lines.push(format!(
+            "  {}: {{ input: {base}Input; event: {base}Event; }};",
+            js_string(key)
+        ));
+    }
+    lines.push("}".to_string());
+    lines.push(String::new());
+
     lines.push("export interface SubjectMap {".to_string());
     lines.push("}".to_string());
     lines.push(String::new());
@@ -692,6 +732,10 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     }
     for event in loaded.manifest.events.values() {
         api_schema_imports.insert(event.event.schema.as_str());
+    }
+    for feed in loaded.manifest.feeds.values() {
+        api_schema_imports.insert(feed.input.schema.as_str());
+        api_schema_imports.insert(feed.event.schema.as_str());
     }
     for error in loaded.manifest.errors.values() {
         if let Some(schema) = &error.schema {
@@ -1005,6 +1049,36 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     }
 
     lines.push("  },".to_string());
+    lines.push("  feeds: {".to_string());
+    for (key, feed) in &loaded.manifest.feeds {
+        let base = key_to_pascal(key);
+        lines.push(format!("    {}: {{", js_string(key)));
+        lines.push(format!("      subject: {},", js_string(&feed.subject)));
+        lines.push(format!(
+            "      input: schema<Types.{base}Input>({}),",
+            schema_const_names
+                .get(feed.input.schema.as_str())
+                .expect("missing public schema export for feed input")
+        ));
+        lines.push(format!(
+            "      event: schema<Types.{base}Event>({}),",
+            schema_const_names
+                .get(feed.event.schema.as_str())
+                .expect("missing public schema export for feed event")
+        ));
+        let subscribe = feed
+            .capabilities
+            .as_ref()
+            .and_then(|caps| caps.subscribe.clone())
+            .unwrap_or_default();
+        lines.push(format!(
+            "      subscribeCapabilities: {},",
+            serde_json::to_string(&subscribe).unwrap()
+        ));
+        lines.push("    },".to_string());
+    }
+
+    lines.push("  },".to_string());
     lines.push("  subjects: {".to_string());
     lines.push("  },".to_string());
     lines.push("} satisfies TrellisAPI;".to_string());
@@ -1018,6 +1092,7 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     lines.push("    rpc: { ...OWNED_API.rpc, ...USED_API.rpc },".to_string());
     lines.push("    operations: { ...OWNED_API.operations, ...USED_API.operations },".to_string());
     lines.push("    events: { ...OWNED_API.events, ...USED_API.events },".to_string());
+    lines.push("    feeds: { ...OWNED_API.feeds, ...USED_API.feeds },".to_string());
     lines.push("    subjects: { ...OWNED_API.subjects, ...USED_API.subjects },".to_string());
     lines.push("  },".to_string());
     lines.push("} as const;".to_string());
@@ -1057,6 +1132,7 @@ fn render_used_api_ts(uses: &[ClientUseDependency]) -> Vec<String> {
         ("rpc", UsedApiSelectors::RpcCall),
         ("operations", UsedApiSelectors::OperationCall),
         ("events", UsedApiSelectors::Events),
+        ("feeds", UsedApiSelectors::Feeds),
         ("subjects", UsedApiSelectors::Empty),
     ] {
         lines.push(format!("  {field}: {{"));
@@ -1082,6 +1158,7 @@ enum UsedApiSelectors {
     RpcCall,
     OperationCall,
     Events,
+    Feeds,
     Empty,
 }
 
@@ -1093,6 +1170,7 @@ fn selected_used_api_keys(use_dep: &ClientUseDependency, selectors: UsedApiSelec
         UsedApiSelectors::Events => {
             vec![use_dep.event_publish_keys(), use_dep.event_subscribe_keys()]
         }
+        UsedApiSelectors::Feeds => vec![use_dep.feed_subscribe_keys()],
         UsedApiSelectors::Empty => Vec::new(),
     };
     for selected_keys in selected {
@@ -1103,6 +1181,7 @@ fn selected_used_api_keys(use_dep: &ClientUseDependency, selectors: UsedApiSelec
                     use_dep.manifest.manifest.operations.contains_key(key)
                 }
                 UsedApiSelectors::Events => use_dep.manifest.manifest.events.contains_key(key),
+                UsedApiSelectors::Feeds => use_dep.manifest.manifest.feeds.contains_key(key),
                 UsedApiSelectors::Empty => false,
             };
             if is_declared {
@@ -1154,6 +1233,14 @@ impl ClientUseDependency {
             .events
             .as_ref()
             .and_then(|events| events.subscribe.as_deref())
+            .unwrap_or(&[])
+    }
+
+    fn feed_subscribe_keys(&self) -> &[String] {
+        self.use_ref
+            .feeds
+            .as_ref()
+            .and_then(|feeds| feeds.subscribe.as_deref())
             .unwrap_or(&[])
     }
 }
@@ -1287,7 +1374,7 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
         format!(
-            "import type {{ AsyncResult, BaseError, EventOpts, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationRef, OperationRefData, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, SendTransferGrant, SendTransferHandle, TerminalOperation, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
+            "import type {{ AsyncResult, BaseError, EventOpts, FeedInputBuilder, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationRef, OperationRefData, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, SendTransferGrant, SendTransferHandle, TerminalOperation, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
             js_string(&trellis_import)
         ),
         "import type { API } from \"./api.ts\";".to_string(),
@@ -1459,6 +1546,37 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
             lines.push(format!(
                 "  event(event: {}, subjectData: Record<string, unknown>, fn: EventCallback<{}.{base}Event>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>;",
                 js_string(key),
+                use_dep.namespace
+            ));
+        }
+    }
+
+    let mut feed_keys = loaded.manifest.feeds.keys().collect::<Vec<_>>();
+    let mut used_feed_keys = Vec::new();
+    for use_dep in &uses {
+        for key in use_dep.feed_subscribe_keys() {
+            if use_dep.manifest.manifest.feeds.contains_key(key) {
+                used_feed_keys.push((use_dep, key));
+            }
+        }
+    }
+
+    if feed_keys.is_empty() && used_feed_keys.is_empty() {
+        lines.extend(["  feed(feed: string): FeedInputBuilder<unknown, unknown>;".to_string()]);
+    } else {
+        for key in feed_keys.drain(..) {
+            let base = key_to_pascal(key);
+            lines.push(format!(
+                "  feed(feed: {}): FeedInputBuilder<Types.{base}Input, Types.{base}Event>;",
+                js_string(key)
+            ));
+        }
+        for (use_dep, key) in used_feed_keys {
+            let base = key_to_pascal(key);
+            lines.push(format!(
+                "  feed(feed: {}): FeedInputBuilder<{}.{base}Input, {}.{base}Event>;",
+                js_string(key),
+                use_dep.namespace,
                 use_dep.namespace
             ));
         }
@@ -1675,6 +1793,32 @@ fn render_readme(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         "# {}\n\nGenerated Trellis SDK for contract `{}`.\n\n## Usage\n\n```ts\nimport {{ defineContract }} from \"@qlever-llc/trellis\";\nimport {{ sdk as dependency }} from \"{}\";\n\nconst app = defineContract({{\n  id: \"example.app@v1\",\n  displayName: \"Example App\",\n  description: \"User-facing app for the example deployment.\",\n  kind: \"app\",\n  uses: {{\n{}\n  }},\n}});\n\nconst client = app.createClient(nc, authSession);\n```\n\n## Contents\n\n- `sdk`: generated contract module with `CONTRACT_ID`, `CONTRACT_DIGEST`, `CONTRACT`, `API`, and `use(...)`\n- `API`: nested contract API views with `API.owned`, `API.used`, and `API.trellis`\n- `types.ts`: TypeScript types derived from JSON Schemas\n- `schemas.ts`: Raw JSON Schemas (as `as const` objects)\n- `contract.ts`: embedded contract metadata and typed `use(...)` helper\n",
         opts.package_name, loaded.manifest.id, import_specifier, use_example
     )
+}
+
+fn write_generated_file(path: &Path, contents: &str) -> Result<(), CodegenTsError> {
+    if path.extension().is_some_and(|extension| extension == "ts") {
+        validate_typescript(path, contents)?;
+    }
+    write_if_changed(path, contents)
+}
+
+fn validate_typescript(path: &Path, contents: &str) -> Result<(), CodegenTsError> {
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, contents, SourceType::ts()).parse();
+    if parsed.errors.is_empty() {
+        return Ok(());
+    }
+
+    let message = parsed
+        .errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(CodegenTsError::InvalidTypeScript {
+        path: path.to_path_buf(),
+        message,
+    })
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> Result<(), CodegenTsError> {
@@ -2103,6 +2247,11 @@ fn public_schema_keys(loaded: &LoadedManifest) -> BTreeSet<String> {
         keys.insert(event.event.schema.clone());
     }
 
+    for feed in loaded.manifest.feeds.values() {
+        keys.insert(feed.input.schema.clone());
+        keys.insert(feed.event.schema.clone());
+    }
+
     if let Some(state) = loaded.value.get("state").and_then(Value::as_object) {
         for store in state.values() {
             if let Some(schema_name) = store
@@ -2157,6 +2306,12 @@ fn generated_type_names(loaded: &LoadedManifest) -> BTreeSet<String> {
         names.insert(format!("{}Event", key_to_pascal(key)));
     }
 
+    for key in loaded.manifest.feeds.keys() {
+        let base = key_to_pascal(key);
+        names.insert(format!("{base}Input"));
+        names.insert(format!("{base}Event"));
+    }
+
     for error in loaded.manifest.errors.values() {
         let base = key_to_pascal(&error.error_type);
         names.insert(base.clone());
@@ -2171,6 +2326,7 @@ fn generated_type_names(loaded: &LoadedManifest) -> BTreeSet<String> {
         "OwnedApi".to_string(),
         "RpcMap".to_string(),
         "EventMap".to_string(),
+        "FeedMap".to_string(),
         "SubjectMap".to_string(),
     ]);
 
@@ -2280,6 +2436,22 @@ mod tests {
                         },
                         "required": ["confirmed"],
                         "additionalProperties": false
+                    },
+                    "FeedInput": {
+                        "type": "object",
+                        "properties": {
+                            "siteId": { "type": "string" }
+                        },
+                        "required": ["siteId"],
+                        "additionalProperties": false
+                    },
+                    "FeedEvent": {
+                        "type": "object",
+                        "properties": {
+                            "message": { "type": "string" }
+                        },
+                        "required": ["message"],
+                        "additionalProperties": false
                     }
                 },
                 "rpc": {
@@ -2311,7 +2483,18 @@ mod tests {
                         "cancel": true
                     }
                 },
-                "events": {}
+                "events": {},
+                "feeds": {
+                    "Example.Live": {
+                        "version": "v1",
+                        "subject": "feeds.v1.Example.Live",
+                        "input": { "schema": "FeedInput" },
+                        "event": { "schema": "FeedEvent" },
+                        "capabilities": {
+                            "subscribe": ["service"]
+                        }
+                    }
+                }
             }))
             .unwrap(),
         )
@@ -2330,6 +2513,21 @@ mod tests {
         };
         let loaded = load_manifest(&manifest_path).unwrap();
         (opts, loaded, root)
+    }
+
+    #[test]
+    fn invalid_generated_ts_is_rejected_before_write() {
+        let root = unique_temp_dir("invalid-ts-before-write");
+        let target = root.join("out").join("broken.ts");
+
+        let err = write_generated_file(&target, "export const broken = ;\n").unwrap_err();
+
+        assert!(matches!(err, CodegenTsError::InvalidTypeScript { .. }));
+        assert!(!target.exists());
+
+        if root.exists() {
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]
@@ -2492,6 +2690,12 @@ mod tests {
         assert!(api.contains("\"continue\": {"));
         assert!(api.contains("input: schema<Types.ExampleProcessContinueSignal>"));
         assert!(api.contains("cancel: true"));
+        assert!(api.contains("feeds: {"));
+        assert!(api.contains("\"Example.Live\": {"));
+        assert!(api.contains("input: schema<Types.ExampleLiveInput>"));
+        assert!(api.contains("event: schema<Types.ExampleLiveEvent>"));
+        assert!(api.contains("subscribeCapabilities: [\"service\"]"));
+        assert!(api.contains("feeds: { ...OWNED_API.feeds, ...USED_API.feeds }"));
         assert!(api.contains("export type Api = typeof API.trellis;"));
 
         fs::remove_dir_all(root).unwrap();
@@ -2519,6 +2723,7 @@ mod tests {
         ));
         assert!(contract.contains("export const use = sdk.use;"));
         assert!(contract.contains("spec.operations?.call"));
+        assert!(contract.contains("spec.feeds?.subscribe"));
         assert!(!contract.contains("assertSelectedKeysExist(\"subjects\""));
         assert!(!contract.contains("spec.subjects"));
         assert!(contract.contains("does not expose ${kind} key '${key}'"));
@@ -2532,6 +2737,10 @@ mod tests {
         assert!(types.contains(
             "export type ExamplePingHandler = RpcHandlerFn<typeof API.owned, \"Example.Ping\">;"
         ));
+        assert!(types.contains("export type ExampleLiveInput = { siteId: string; };"));
+        assert!(types.contains("export type ExampleLiveEvent = { message: string; };"));
+        assert!(types
+            .contains("\"Example.Live\": { input: ExampleLiveInput; event: ExampleLiveEvent; };"));
         assert!(build_npm.contains("\"@qlever-llc/trellis\": \"^0.4.0\""));
         assert!(build_npm.contains("peerDependencies"));
         assert!(build_npm.contains("devDependencies"));
@@ -2579,6 +2788,10 @@ mod tests {
         assert!(
             types.contains("export type ExampleProcessContinueSignal = { confirmed: boolean; };")
         );
+        assert!(client.contains("FeedInputBuilder"));
+        assert!(client.contains(
+            "feed(feed: \"Example.Live\"): FeedInputBuilder<Types.ExampleLiveInput, Types.ExampleLiveEvent>;"
+        ));
         assert!(client.contains("export type Client = TrellisDemoKvServiceClient;"));
         assert!(mod_ts
             .contains("export type { Client, TrellisDemoKvServiceClient, TrellisDemoKvServiceState } from \"./client.ts\";"));
@@ -2646,6 +2859,14 @@ mod tests {
                         "subject": "events.v1.Jobs.Updated",
                         "event": { "schema": "JobStatus" }
                     }
+                },
+                "feeds": {
+                    "Jobs.Live": {
+                        "version": "v1",
+                        "subject": "feeds.v1.Jobs.Live",
+                        "input": { "schema": "Empty" },
+                        "event": { "schema": "JobStatus" }
+                    }
                 }
             }))
             .unwrap(),
@@ -2691,6 +2912,9 @@ mod tests {
                         "events": {
                             "publish": ["Jobs.Updated"],
                             "subscribe": ["Jobs.Updated"]
+                        },
+                        "feeds": {
+                            "subscribe": ["Jobs.Live"]
                         }
                     }
                 }
@@ -2740,6 +2964,9 @@ mod tests {
         assert!(client.contains(
             "fn: EventCallback<JobsSdk.JobsUpdatedEvent>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>;"
         ));
+        assert!(client.contains(
+            "feed(feed: \"Jobs.Live\"): FeedInputBuilder<JobsSdk.JobsLiveInput, JobsSdk.JobsLiveEvent>;"
+        ));
         assert!(!client.contains("publish(event: string, data: Record<string, unknown>)"));
         assert!(!client.contains("event(event: string, subjectData: Record<string, unknown>"));
         assert!(!client.contains("StateFacade<"));
@@ -2748,6 +2975,7 @@ mod tests {
         assert!(api.contains("\"Jobs.Get\": JobsApi.API.owned.rpc[\"Jobs.Get\"]"));
         assert!(api.contains("\"Jobs.Run\": JobsApi.API.owned.operations[\"Jobs.Run\"]"));
         assert!(api.contains("\"Jobs.Updated\": JobsApi.API.owned.events[\"Jobs.Updated\"]"));
+        assert!(api.contains("\"Jobs.Live\": JobsApi.API.owned.feeds[\"Jobs.Live\"]"));
         assert!(api.contains("trellis: {"));
 
         let jobs_loaded = load_manifest(&jobs_manifest_path).unwrap();

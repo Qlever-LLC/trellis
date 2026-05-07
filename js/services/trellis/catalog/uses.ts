@@ -21,8 +21,17 @@ type ActiveCompatibleOperation = Omit<ContractOperation, "output"> & {
   output?: ContractSchemaRef;
 };
 
+type ContractFeed = {
+  version: `v${number}`;
+  subject: string;
+  input: ContractSchemaRef;
+  event: ContractSchemaRef;
+  capabilities?: { subscribe?: string[] };
+};
+
 type ActiveCompatibleContract = Omit<TrellisContractV1, "operations"> & {
   operations?: Record<string, ActiveCompatibleOperation>;
+  feeds?: Record<string, ContractFeed>;
 };
 
 export type ContractEntry = { digest: string; contract: TrellisContractV1 };
@@ -33,7 +42,7 @@ type ActiveCompatibleContractEntry = {
 };
 
 type SubjectSurface = {
-  kind: "rpc" | "operations" | "events";
+  kind: "rpc" | "operations" | "events" | "feeds";
   key: string;
 };
 
@@ -47,6 +56,22 @@ export type ContractUseRef = {
   rpc?: { call?: string[] };
   operations?: { call?: string[] };
   events?: { publish?: string[]; subscribe?: string[] };
+  feeds?: { subscribe?: string[] };
+};
+
+type ContractUsesFlat = Record<string, ContractUseRef>;
+
+type ContractUsesGrouped = {
+  required?: ContractUsesFlat;
+  optional?: ContractUsesFlat;
+};
+
+type ContractUses = ContractUsesFlat | ContractUsesGrouped;
+
+type ContractUseEntry = {
+  alias: string;
+  use: ContractUseRef;
+  required: boolean;
 };
 
 export type ResolvedRpcUse = {
@@ -65,6 +90,14 @@ export type ResolvedEventUse = {
   event: ContractEvent;
 };
 
+export type ResolvedFeedUse = {
+  alias: string;
+  contractId: string;
+  contract: TrellisContractV1;
+  key: string;
+  feed: ContractFeed;
+};
+
 export type ResolvedOperationUse = {
   alias: string;
   contractId: string;
@@ -78,13 +111,15 @@ export type ResolvedContractUses = {
   operationCalls: ResolvedOperationUse[];
   eventPublishes: ResolvedEventUse[];
   eventSubscribes: ResolvedEventUse[];
+  feedSubscribes: ResolvedFeedUse[];
 };
 
 export type ContractUseDependencySurface =
   | "contract"
   | "rpc"
   | "operation"
-  | "event";
+  | "event"
+  | "feed";
 
 export type ContractUseDependencyErrorReason =
   | "inactive"
@@ -183,6 +218,17 @@ function validateConcreteSubjectSurfaces(
         kind: "events" as const,
         key,
         effectiveSubject: templateToWildcard(event.subject),
+      };
+      const existing = registrations.get(registration.effectiveSubject);
+      if (existing) requireSameSubjectSurface(existing, registration);
+      registrations.set(registration.effectiveSubject, registration);
+    }
+    for (const [key, feed] of Object.entries(contract.feeds ?? {})) {
+      const registration = {
+        contractId,
+        kind: "feeds" as const,
+        key,
+        effectiveSubject: templateToWildcard(feed.subject),
       };
       const existing = registrations.get(registration.effectiveSubject);
       if (existing) requireSameSubjectSurface(existing, registration);
@@ -394,6 +440,47 @@ function mergeEvent(
   };
 }
 
+function mergeFeed(
+  key: string,
+  left: ContractFeed,
+  leftContract: TrellisContractV1,
+  right: ContractFeed,
+  rightContract: TrellisContractV1,
+  projectedSchemas: ContractSchemas,
+): ContractFeed {
+  requireSameSubject(key, left.subject, right.subject);
+  requireSameJsonField(key, "version", left.version, right.version);
+  const input = projectCompatibleSchemaField(
+    key,
+    "input",
+    left.input,
+    leftContract,
+    right.input,
+    rightContract,
+    projectedSchemas,
+  );
+  const event = projectCompatibleSchemaField(
+    key,
+    "event",
+    left.event,
+    leftContract,
+    right.event,
+    rightContract,
+    projectedSchemas,
+  );
+  requireSameJsonField(
+    key,
+    "capabilities",
+    left.capabilities,
+    right.capabilities,
+  );
+  return {
+    ...left,
+    ...(input ? { input } : {}),
+    ...(event ? { event } : {}),
+  };
+}
+
 function mergeJobQueue(
   key: string,
   left: ContractJobQueue,
@@ -530,6 +617,12 @@ function mergeCompatibleContractSurfaces(
     (key, left, leftContract, right, rightContract) =>
       mergeEvent(key, left, leftContract, right, rightContract, schemas),
   );
+  const feeds = mergeRecords(
+    contracts,
+    (contract) => (contract as { feeds?: Record<string, ContractFeed> }).feeds,
+    (key, left, leftContract, right, rightContract) =>
+      mergeFeed(key, left, leftContract, right, rightContract, schemas),
+  );
   const jobs = mergeRecords(
     contracts,
     (contract) => contract.jobs,
@@ -542,16 +635,52 @@ function mergeCompatibleContractSurfaces(
     ...(rpc ? { rpc } : {}),
     ...(operations ? { operations } : {}),
     ...(events ? { events } : {}),
+    ...(feeds ? { feeds } : {}),
     ...(jobs ? { jobs } : {}),
   };
 }
 
-function contractUses(
-  contract: TrellisContractV1,
-): Record<string, ContractUseRef> {
-  return (contract as TrellisContractV1 & {
-    uses?: Record<string, ContractUseRef>;
-  }).uses ?? {};
+function isContractUseRef(value: unknown): value is ContractUseRef {
+  return !!value && typeof value === "object" &&
+    typeof (value as { contract?: unknown }).contract === "string";
+}
+
+function isContractUsesGrouped(
+  uses: ContractUses,
+): uses is ContractUsesGrouped {
+  const maybeGrouped = uses as {
+    required?: unknown;
+    optional?: unknown;
+  };
+  return (maybeGrouped.required !== undefined &&
+    !isContractUseRef(maybeGrouped.required)) ||
+    (maybeGrouped.optional !== undefined &&
+      !isContractUseRef(maybeGrouped.optional));
+}
+
+function contractUseEntries(contract: TrellisContractV1): ContractUseEntry[] {
+  const uses = (contract as TrellisContractV1 & { uses?: ContractUses }).uses;
+  if (!uses) return [];
+  if (!isContractUsesGrouped(uses)) {
+    return Object.entries(uses).map(([alias, use]) => ({
+      alias,
+      use,
+      required: true,
+    }));
+  }
+
+  return [
+    ...Object.entries(uses.required ?? {}).map(([alias, use]) => ({
+      alias,
+      use,
+      required: true,
+    })),
+    ...Object.entries(uses.optional ?? {}).map(([alias, use]) => ({
+      alias,
+      use,
+      required: false,
+    })),
+  ];
 }
 
 export function sortUniqueStrings(values: Iterable<string>): string[] {
@@ -563,6 +692,7 @@ export function resolveContractUses(
   resolveTargetContract: (
     alias: string,
     use: ContractUseRef,
+    options: { required: boolean },
   ) => TrellisContractV1 | null,
 ): ResolvedContractUses {
   const resolved: ResolvedContractUses = {
@@ -570,10 +700,12 @@ export function resolveContractUses(
     operationCalls: [],
     eventPublishes: [],
     eventSubscribes: [],
+    feedSubscribes: [],
   };
 
-  for (const [alias, use] of Object.entries(contractUses(contract))) {
-    const target = resolveTargetContract(alias, use);
+  for (const entry of contractUseEntries(contract)) {
+    const { alias, required, use } = entry;
+    const target = resolveTargetContract(alias, use, { required });
     if (!target) {
       continue;
     }
@@ -581,6 +713,7 @@ export function resolveContractUses(
     for (const key of use.rpc?.call ?? []) {
       const method = target.rpc?.[key];
       if (!method) {
+        if (!required) continue;
         throw new ContractUseDependencyError({
           alias,
           contractId: use.contract,
@@ -601,6 +734,7 @@ export function resolveContractUses(
     for (const key of use.operations?.call ?? []) {
       const operation = target.operations?.[key];
       if (!operation) {
+        if (!required) continue;
         throw new ContractUseDependencyError({
           alias,
           contractId: use.contract,
@@ -621,6 +755,7 @@ export function resolveContractUses(
     for (const key of use.events?.publish ?? []) {
       const event = target.events?.[key];
       if (!event) {
+        if (!required) continue;
         throw new ContractUseDependencyError({
           alias,
           contractId: use.contract,
@@ -641,6 +776,7 @@ export function resolveContractUses(
     for (const key of use.events?.subscribe ?? []) {
       const event = target.events?.[key];
       if (!event) {
+        if (!required) continue;
         throw new ContractUseDependencyError({
           alias,
           contractId: use.contract,
@@ -657,6 +793,28 @@ export function resolveContractUses(
         event,
       });
     }
+
+    for (const key of use.feeds?.subscribe ?? []) {
+      const feed = (target as { feeds?: Record<string, ContractFeed> }).feeds
+        ?.[key];
+      if (!feed) {
+        if (!required) continue;
+        throw new ContractUseDependencyError({
+          alias,
+          contractId: use.contract,
+          surface: "feed",
+          reason: "missing",
+          key,
+        });
+      }
+      resolved.feedSubscribes.push({
+        alias,
+        contractId: target.id,
+        contract: target,
+        key,
+        feed,
+      });
+    }
   }
 
   return resolved;
@@ -669,11 +827,11 @@ export function resolveContractUsesFromStore(
     ignoreInactiveContracts?: boolean;
   },
 ): ResolvedContractUses {
-  return resolveContractUses(contract, (alias, use) => {
+  return resolveContractUses(contract, (alias, use, resolveOptions) => {
     const targets = contractStore.getActiveContractsById(use.contract);
     const target = mergeCompatibleContractSurfaces(targets);
     if (!target) {
-      if (options?.ignoreInactiveContracts) {
+      if (!resolveOptions.required || options?.ignoreInactiveContracts) {
         return null;
       }
       throw new ContractUseDependencyError({
@@ -692,11 +850,14 @@ export function resolveContractUsesFromKnownStore(
   contractStore: ContractStore,
   contract: TrellisContractV1,
 ): ResolvedContractUses {
-  return resolveContractUses(contract, (alias, use) => {
+  return resolveContractUses(contract, (alias, use, resolveOptions) => {
     const target = mergeCompatibleContractSurfaces(
       contractStore.getKnownContractsById(use.contract),
     );
     if (!target) {
+      if (!resolveOptions.required) {
+        return null;
+      }
       throw new ContractUseDependencyError({
         alias,
         contractId: use.contract,
@@ -746,9 +907,12 @@ export function validateActiveContractUses(
 ): void {
   const activeById = createActiveContractLookup(entries);
   for (const entry of entries) {
-    resolveContractUses(entry.contract, (alias, use) => {
+    resolveContractUses(entry.contract, (alias, use, resolveOptions) => {
       const target = activeById.get(use.contract);
       if (!target) {
+        if (!resolveOptions.required) {
+          return null;
+        }
         throw new Error(
           `Dependency '${alias}' references inactive contract '${use.contract}'`,
         );

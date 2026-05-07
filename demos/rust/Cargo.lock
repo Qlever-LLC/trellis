@@ -2574,8 +2574,10 @@ dependencies = [
 name = "trellis-codegen-rust"
 version = "0.8.2"
 dependencies = [
+ "prettyplease",
  "serde",
  "serde_json",
+ "syn",
  "thiserror 2.0.18",
  "toml",
  "trellis-contracts",

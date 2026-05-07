@@ -34,11 +34,17 @@ operations: {
       call: ["orders.write"],
       read: ["orders.read"],
       cancel: ["orders.write"],
+      control: ["orders.write"],
     },
     cancel: true,
   },
 },
 ```
+
+`call` starts the operation, `read` gates `get`/`wait`/`watch`, `cancel` gates
+cancellation, and `control` gates named post-start signals. If you do not declare
+signals, `control` can be omitted; it is shown here to make the four operation
+capability gates explicit.
 
 Add the schemas to `schemas.ts`:
 

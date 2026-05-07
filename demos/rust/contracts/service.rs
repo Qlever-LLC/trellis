@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 use trellis_contracts::{
-    event, job_queue, kv, operation, rpc, schema_ref, store, ContractKind, ContractManifest,
+    event, feed, job_queue, kv, operation, rpc, schema_ref, store, ContractKind, ContractManifest,
     ContractManifestBuilder, ContractsError,
 };
 
@@ -174,6 +174,56 @@ fn progress_schema() -> Value {
             "stage": non_empty_string_schema(),
             "message": non_empty_string_schema()
         }
+    })
+}
+
+fn named_live_feed_event(name: &str, event_schema: Value) -> Value {
+    json!({
+        "type": "object",
+        "required": ["name", "event"],
+        "properties": {
+            "name": {"type": "string", "const": name},
+            "event": event_schema
+        }
+    })
+}
+
+fn activity_live_feed_event_schema() -> Value {
+    json!({
+        "anyOf": [
+            named_live_feed_event("Activity.Recorded", json!({
+                "type": "object",
+                "required": ["activityId", "kind", "message", "occurredAt"],
+                "properties": {
+                    "activityId": non_empty_string_schema(),
+                    "kind": non_empty_string_schema(),
+                    "message": non_empty_string_schema(),
+                    "occurredAt": non_empty_string_schema(),
+                    "relatedSiteId": non_empty_string_schema(),
+                    "relatedInspectionId": non_empty_string_schema()
+                }
+            })),
+            named_live_feed_event("Reports.Published", json!({
+                "type": "object",
+                "required": ["reportId", "inspectionId", "publishedAt"],
+                "properties": {
+                    "reportId": non_empty_string_schema(),
+                    "inspectionId": non_empty_string_schema(),
+                    "siteId": non_empty_string_schema(),
+                    "publishedAt": non_empty_string_schema()
+                }
+            })),
+            named_live_feed_event("Evidence.Uploaded", evidence_record_schema()),
+            named_live_feed_event("Sites.Refreshed", json!({
+                "type": "object",
+                "required": ["refreshId", "site", "refreshedAt"],
+                "properties": {
+                    "refreshId": non_empty_string_schema(),
+                    "site": site_summary_schema(),
+                    "refreshedAt": non_empty_string_schema()
+                }
+            }))
+        ]
     })
 }
 
@@ -423,6 +473,8 @@ fn with_schemas(builder: ContractManifestBuilder) -> ContractManifestBuilder {
                 }
             }),
         )
+        .schema("ActivityLiveFeedRequest", empty_object_schema())
+        .schema("ActivityLiveFeedEvent", activity_live_feed_event_schema())
 }
 
 fn service_rpc(
@@ -572,7 +624,9 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
                 "ReportsGenerateRequest",
                 "ReportsGenerateProgress",
                 "ReportsGenerateResponse",
-            ),
+            )
+            .with_cancel_capabilities(Vec::<&str>::new())
+            .cancel(true),
         )
         .operation(
             "Evidence.Upload",
@@ -606,6 +660,16 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
         .event(
             "Sites.Refreshed",
             event("v1", "events.v1.Sites.Refreshed", "SitesRefreshedEvent"),
+        )
+        .feed(
+            "Activity.Live",
+            feed(
+                "v1",
+                "feeds.v1.Activity.Live",
+                "ActivityLiveFeedRequest",
+                "ActivityLiveFeedEvent",
+            )
+            .with_subscribe_capabilities(Vec::<&str>::new()),
         )
         .build()
 }

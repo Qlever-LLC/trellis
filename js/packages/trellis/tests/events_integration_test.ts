@@ -3,10 +3,74 @@ import { assertEquals } from "@std/assert";
 import { Type } from "typebox";
 import { createClient } from "../client.ts";
 import { defineServiceContract } from "../contract.ts";
+import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 import { err, ok, UnexpectedError } from "../index.ts";
 import { NatsTest } from "../testing/nats.ts";
+import type { TrellisAuth } from "../trellis.ts";
 
 const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
+
+function base64urlEncode(data: Uint8Array): string {
+  const b64 = btoa(String.fromCharCode(...data));
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function toArrayBuffer(data: Uint8Array): ArrayBuffer {
+  const buffer = data.buffer;
+  if (buffer instanceof ArrayBuffer) {
+    return buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  }
+  const copy = new Uint8Array(data.byteLength);
+  copy.set(data);
+  return copy.buffer;
+}
+
+async function createTestAuth(): Promise<TrellisAuth> {
+  const keyPair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
+    "sign",
+    "verify",
+  ]);
+  const rawPublicKey = new Uint8Array(
+    await crypto.subtle.exportKey("raw", keyPair.publicKey),
+  );
+  return {
+    sessionKey: base64urlEncode(rawPublicKey),
+    sign: async (data: Uint8Array) => {
+      const signature = await crypto.subtle.sign(
+        { name: "Ed25519" },
+        keyPair.privateKey,
+        toArrayBuffer(data),
+      );
+      return new Uint8Array(signature);
+    },
+  };
+}
+
+function startPermissiveAuthResponder(
+  nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"],
+): void {
+  const sub = nc.subscribe("rpc.v1.Auth.ValidateRequest");
+  void (async () => {
+    for await (const msg of sub) {
+      const input = msg.json() as { sessionKey: string };
+      msg.respond(JSON.stringify({
+        allowed: true,
+        inboxPrefix: `_INBOX.${input.sessionKey.slice(0, 16)}`,
+        caller: {
+          type: "user",
+          participantKind: "app",
+          id: "auth0|feed-user",
+          trellisId: "tid_feed_user",
+          origin: "test",
+          active: true,
+          name: "Feed User",
+          email: "feed@example.com",
+          capabilities: ["devices:read"],
+        },
+      }));
+    }
+  })();
+}
 
 async function waitFor(
   condition: () => boolean,
@@ -44,6 +108,7 @@ Deno.test({
       });
       const schemas = {
         EventPayload: eventSchema,
+        FeedInput: Type.Object({ deviceId: Type.String() }),
       } as const;
 
       const contract = defineServiceContract(
@@ -53,6 +118,9 @@ Deno.test({
           displayName: "Events Integration Test",
           description:
             "Exercise event publishing and subscription flows in tests.",
+          uses: {
+            auth: auth.use({ rpc: { call: ["Auth.ValidateRequest"] } }),
+          },
           events: {
             "Test.Ack": {
               version: "v1",
@@ -66,6 +134,13 @@ Deno.test({
             },
             "Test.Invalid": {
               version: "v1",
+              event: ref.schema("EventPayload"),
+            },
+          },
+          feeds: {
+            "Device.Events": {
+              version: "v1",
+              input: ref.schema("FeedInput"),
               event: ref.schema("EventPayload"),
             },
           },
@@ -249,6 +324,53 @@ Deno.test({
           assertEquals(called, 0);
 
           await subNc.drain();
+        },
+      );
+
+      await t.step(
+        "feed subscribe receives service-emitted frames",
+        async () => {
+          startPermissiveAuthResponder(nats.nc);
+          const serviceNc = await connect({
+            servers: `localhost:${info.port}`,
+          });
+          const clientNc = await connect({ servers: `localhost:${info.port}` });
+          const serviceAuth = await createTestAuth();
+          const clientAuth = await createTestAuth();
+          const service = createClient(
+            contract,
+            serviceNc,
+            serviceAuth,
+            { name: "feed-service" },
+          );
+          const client = createClient(
+            contract,
+            clientNc,
+            clientAuth,
+            { name: "feed-client" },
+          );
+
+          await service.feed("Device.Events").handle(
+            async ({ input, emit }) => {
+              await emit({
+                header: { id: "feed-1", time: "2026-01-01T00:00:00.000Z" },
+                foo: input.deviceId,
+              }).orThrow();
+            },
+          );
+
+          const stream = await client.feed("Device.Events")
+            .input({ deviceId: "device-1" })
+            .subscribe()
+            .orThrow();
+
+          for await (const event of stream) {
+            assertEquals(event.foo, "device-1");
+            break;
+          }
+
+          await serviceNc.drain();
+          await clientNc.drain();
         },
       );
     } finally {

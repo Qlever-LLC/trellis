@@ -229,6 +229,17 @@ select {
   font-size: 0.8125rem;
 }
 
+.trellis-logo-mask {
+  background-color: currentColor;
+  display: block;
+  mask: var(--trellis-logo-url) center / contain no-repeat;
+  -webkit-mask: var(--trellis-logo-url) center / contain no-repeat;
+}
+
+.trellis-logo-orange {
+  color: #b86b35;
+}
+
 .trellis-form {
   display: grid;
   gap: 1.25rem;
@@ -445,10 +456,13 @@ select {
 }
 
 .trellis-sidebar .menu a {
+  align-items: center;
   border-radius: 0.75rem;
   color: #c8c2b8;
+  display: flex;
   font-size: 0.9rem;
   gap: 0.75rem;
+  line-height: 1.2;
   min-height: 2.6rem;
 }
 
@@ -458,9 +472,9 @@ select {
 }
 
 .trellis-sidebar .menu a.active {
-  background: #243b53;
+  background: #b86b35;
   box-shadow: inset 0 0 0 1px rgb(245 243 239 / 0.08);
-  color: #f5f3ef;
+  color: #fff;
 }
 
 .trellis-topbar {

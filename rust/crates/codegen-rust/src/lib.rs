@@ -48,6 +48,9 @@ pub enum CodegenRustError {
 
     #[error("workspace member '{member}' is missing a [package].name declaration")]
     MissingWorkspaceMemberPackageName { member: String },
+
+    #[error("invalid generated Rust source for {path}: {message}")]
+    RustSyntax { path: String, message: String },
 }
 
 /// Options for generating one Rust SDK crate.
@@ -192,35 +195,35 @@ pub fn generate_rust_sdk(opts: &GenerateRustSdkOpts) -> Result<(), CodegenRustEr
     fs::create_dir_all(opts.out_dir.join("src"))?;
     write_if_changed(&opts.out_dir.join("Cargo.toml"), &render_cargo_toml(opts))?;
     write_runtime_patch_config(opts)?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src").join("contract.rs"),
         &render_contract_rs(opts, &loaded),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src").join("types.rs"),
         &render_types_rs(&loaded),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src").join("rpc.rs"),
         &render_rpc_rs(&loaded),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src").join("operations.rs"),
         &render_operations_rs(&loaded),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src").join("events.rs"),
         &render_events_rs(&loaded),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src").join("client.rs"),
         &render_client_rs(&loaded),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src").join("server.rs"),
         &render_server_rs(&loaded),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src").join("lib.rs"),
         &render_lib_rs(&loaded),
     )?;
@@ -271,25 +274,25 @@ pub fn generate_rust_participant_generated_sources(
     let mappings = validate_participant_mappings(&loaded, &opts.alias_mappings)?;
 
     fs::create_dir_all(opts.out_dir.join("src/uses"))?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src/facade.rs"),
         &render_participant_facade_rs(&loaded, &mappings),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src/owned.rs"),
         &render_participant_owned_rs(&loaded, opts.owned_sdk_crate_name.as_deref()),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src/state.rs"),
         &render_participant_state_rs(&loaded),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src/uses/mod.rs"),
         &render_participant_uses_mod_rs(&mappings),
     )?;
 
     for mapping in &mappings {
-        write_if_changed(
+        write_rust_if_changed(
             &opts
                 .out_dir
                 .join("src/uses")
@@ -335,19 +338,19 @@ pub fn generate_rust_participant_facade(
             contracts_dir.join(format!("{}.json", mapping.alias_ident)),
         )?;
     }
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("build.rs"),
         &render_participant_build_rs(opts, &mappings, &manifest_file_name),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src/lib.rs"),
         &render_participant_shim_lib_rs(),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src/connect.rs"),
         &render_participant_connect_rs(),
     )?;
-    write_if_changed(
+    write_rust_if_changed(
         &opts.out_dir.join("src/contract.rs"),
         &render_participant_contract_rs(&loaded, &manifest_file_name),
     )?;
@@ -486,7 +489,7 @@ fn validate_participant_mappings(
         mapped_aliases.insert(mapping.alias.clone());
     }
 
-    for (alias, use_ref) in &local.manifest.uses {
+    for (alias, use_ref) in local.manifest.uses.iter() {
         if !mapped_aliases.contains(alias)
             && participant_use_requires_mapping(local, alias, use_ref)
         {
@@ -1155,7 +1158,7 @@ fn render_contract_rs(
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     format!(
-        "//! Contract metadata for `{}`.\n\n// Generated from {}\n\n/// Canonical Trellis contract id.\npub const CONTRACT_ID: &str = {};\n\n/// Stable digest for the canonical manifest JSON.\npub const CONTRACT_DIGEST: &str = {};\n\n/// Human-readable contract name.\npub const CONTRACT_NAME: &str = {};\n\n/// Canonical manifest JSON embedded in the SDK crate.\npub const CONTRACT_JSON: &str = r#\"{}\"#;\n\n/// Deserialize the embedded contract manifest.\npub fn contract_manifest() -> trellis_contracts::ContractManifest {{\n    serde_json::from_str(CONTRACT_JSON).expect(\"generated manifest json\")\n}}\n",
+        "//! Contract metadata for `{}`.\n//! Generated from {}\n\n/// Canonical Trellis contract id.\npub const CONTRACT_ID: &str = {};\n\n/// Stable digest for the canonical manifest JSON.\npub const CONTRACT_DIGEST: &str = {};\n\n/// Human-readable contract name.\npub const CONTRACT_NAME: &str = {};\n\n/// Canonical manifest JSON embedded in the SDK crate.\npub const CONTRACT_JSON: &str = r#\"{}\"#;\n\n/// Deserialize the embedded contract manifest.\npub fn contract_manifest() -> trellis_contracts::ContractManifest {{\n    serde_json::from_str(CONTRACT_JSON).expect(\"generated manifest json\")\n}}\n",
         loaded.manifest.id,
         source_reference,
         string_literal(&loaded.manifest.id),
@@ -1772,6 +1775,23 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<(), CodegenRustError>
     Ok(())
 }
 
+fn write_rust_if_changed(path: &Path, contents: &str) -> Result<(), CodegenRustError> {
+    let contents = format_generated_rust_source(path, contents)?;
+    write_if_changed(path, &contents)
+}
+
+fn format_generated_rust_source(
+    path: impl AsRef<Path>,
+    contents: &str,
+) -> Result<String, CodegenRustError> {
+    let path = path.as_ref().display().to_string();
+    let file = syn::parse_file(contents).map_err(|error| CodegenRustError::RustSyntax {
+        path,
+        message: error.to_string(),
+    })?;
+    Ok(prettyplease::unparse(&file))
+}
+
 fn key_to_pascal(value: &str) -> String {
     value
         .split(|ch: char| !ch.is_ascii_alphanumeric())
@@ -2380,6 +2400,35 @@ mod tests {
     }
 
     #[test]
+    fn generated_rust_source_validation_rejects_invalid_source() {
+        let error = format_generated_rust_source("src/lib.rs", "pub fn broken(").unwrap_err();
+
+        assert!(matches!(error, CodegenRustError::RustSyntax { path, .. } if path == "src/lib.rs"));
+    }
+
+    #[test]
+    fn generated_rust_source_validation_formats_valid_source() {
+        let formatted = format_generated_rust_source("src/lib.rs", "pub fn ok(){ }").unwrap();
+
+        assert_eq!(formatted, "pub fn ok() {}\n");
+    }
+
+    #[test]
+    fn invalid_generated_rust_is_rejected_before_write() {
+        let out_dir = unique_temp_dir("invalid-rust-before-write");
+        let target = out_dir.join("broken.rs");
+
+        let error = write_rust_if_changed(&target, "pub fn broken(").unwrap_err();
+
+        assert!(matches!(error, CodegenRustError::RustSyntax { .. }));
+        assert!(!target.exists());
+
+        if out_dir.exists() {
+            fs::remove_dir_all(out_dir).unwrap();
+        }
+    }
+
+    #[test]
     fn default_sdk_name_drops_duplicate_trellis_prefix() {
         assert_eq!(
             default_sdk_crate_name("trellis.core@v1"),
@@ -2460,6 +2509,7 @@ mod tests {
         assert!(lib_rs.contains("pub mod operations;"));
         assert!(lib_rs.contains("pub mod events;"));
         assert!(!lib_rs.contains("pub mod subjects;"));
+        assert!(contract_rs.contains("//! Generated from"));
         assert!(contract_rs.contains("pub const CONTRACT_NAME: &str = \"Trellis Core\";"));
         assert!(types_rs.contains("pub struct TrellisCatalogResponse {"));
         assert!(types_rs.contains("pub struct TrellisProcessInput {"));
@@ -2485,15 +2535,18 @@ mod tests {
         );
         assert!(events_rs.contains("pub struct AuthChangedEventDescriptor;"));
         assert!(client_rs.contains("pub struct CoreClient<'a>"));
-        assert!(client_rs.contains("pub async fn trellis_catalog(&self)"));
-        assert!(client_rs.contains("pub fn trellis_process(&self) -> trellis_client::OperationInvoker<'a, trellis_client::TrellisClient, crate::operations::TrellisProcessOperation>"));
+        assert!(client_rs.contains("pub async fn trellis_catalog("));
+        assert!(client_rs.contains("trellis_client::OperationInvoker<"));
+        assert!(client_rs.contains("crate::operations::TrellisProcessOperation"));
         assert!(server_rs.contains("register_trellis_catalog"));
         assert!(server_rs.contains("register_trellis_process"));
         assert!(server_rs.contains("pub fn register_trellis_process_provider<P>"));
         assert!(server_rs.contains(
             "P: trellis_service::OperationProvider<crate::operations::TrellisProcessOperation>,"
         ));
-        assert!(server_rs.contains("router.register_operation_provider::<crate::operations::TrellisProcessOperation, _>(provider);"));
+        assert!(server_rs.contains("router"));
+        assert!(server_rs.contains("register_operation_provider::<"));
+        assert!(server_rs.contains("crate::operations::TrellisProcessOperation"));
 
         fs::remove_dir_all(out_dir).unwrap();
     }
@@ -2592,9 +2645,8 @@ mod tests {
 
         let types_rs = fs::read_to_string(out_dir.join("generated/src/types.rs")).unwrap();
 
-        assert!(types_rs.contains(
-            "pub streams: BTreeMap<String, TrellisBindingsGetResponseBindingResourcesStreamsValue>"
-        ));
+        assert!(types_rs.contains("pub streams: BTreeMap<"));
+        assert!(types_rs.contains("TrellisBindingsGetResponseBindingResourcesStreamsValue"));
         assert!(types_rs
             .contains("pub struct TrellisBindingsGetResponseBindingResourcesStreamsValue {"));
         assert!(types_rs.contains(
@@ -3002,17 +3054,25 @@ mod tests {
         assert!(state_rs.contains("pub struct StateValueState {"));
         assert!(state_rs.contains("pub struct FooState {"));
         assert!(state_rs.contains("pub struct FooState2 {"));
-        assert!(state_rs.contains("pub fn selected_site(&self) -> trellis_client::ValueStateStore<'a, trellis_client::TrellisClient, SelectedSiteState>"));
+        assert!(state_rs.contains("pub fn selected_site("));
+        assert!(state_rs.contains("trellis_client::ValueStateStore<"));
+        assert!(state_rs.contains("SelectedSiteState"));
         assert!(
             state_rs.contains("trellis_client::ValueStateStore::new(self.inner, \"selectedSite\")")
         );
-        assert!(state_rs.contains("pub fn draft_inspections(&self) -> trellis_client::MapStateStore<'a, trellis_client::TrellisClient, DraftInspectionState>"));
+        assert!(state_rs.contains("pub fn draft_inspections("));
+        assert!(state_rs.contains("trellis_client::MapStateStore<"));
+        assert!(state_rs.contains("DraftInspectionState"));
         assert!(state_rs
             .contains("trellis_client::MapStateStore::new(self.inner, \"draftInspections\")"));
-        assert!(state_rs.contains("pub fn current_state(&self) -> trellis_client::ValueStateStore<'a, trellis_client::TrellisClient, StateValue>"));
-        assert!(state_rs.contains("pub fn state_value(&self) -> trellis_client::ValueStateStore<'a, trellis_client::TrellisClient, StateValueState>"));
-        assert!(state_rs.contains("pub fn foo(&self) -> trellis_client::ValueStateStore<'a, trellis_client::TrellisClient, FooState>"));
-        assert!(state_rs.contains("pub fn foo_state(&self) -> trellis_client::ValueStateStore<'a, trellis_client::TrellisClient, FooState2>"));
+        assert!(state_rs.contains("pub fn current_state("));
+        assert!(state_rs.contains("StateValue"));
+        assert!(state_rs.contains("pub fn state_value("));
+        assert!(state_rs.contains("StateValueState"));
+        assert!(state_rs.contains("pub fn foo("));
+        assert!(state_rs.contains("FooState"));
+        assert!(state_rs.contains("pub fn foo_state("));
+        assert!(state_rs.contains("FooState2"));
 
         fs::remove_dir_all(out_dir).unwrap();
     }
@@ -3108,8 +3168,11 @@ mod tests {
 
         let evidence_rs =
             fs::read_to_string(out_dir.join("generated/src/uses/evidence.rs")).unwrap();
-        assert!(evidence_rs.contains("pub fn evidence_upload(&self) -> trellis_client::OperationInvoker<'a, trellis_client::TrellisClient, sdk::operations::EvidenceUploadOperation> { self.inner.evidence_upload() }"));
-        assert!(evidence_rs.contains("pub async fn subscribe_evidence_uploaded(&self)"));
+        assert!(evidence_rs.contains("pub fn evidence_upload("));
+        assert!(evidence_rs.contains("trellis_client::OperationInvoker<"));
+        assert!(evidence_rs.contains("sdk::operations::EvidenceUploadOperation"));
+        assert!(evidence_rs.contains("self.inner.evidence_upload()"));
+        assert!(evidence_rs.contains("pub async fn subscribe_evidence_uploaded("));
         assert!(evidence_rs.contains(
             "self.transport.subscribe::<sdk::events::EvidenceUploadedEventDescriptor>().await"
         ));

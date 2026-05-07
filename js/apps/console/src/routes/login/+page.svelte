@@ -98,12 +98,18 @@
 </svelte:head>
 
 <div class="flex min-h-screen items-center justify-center bg-base-200 px-4">
-  <div class="card trellis-card w-full max-w-sm border border-base-300 bg-base-100 shadow-none">
+  <div class="card trellis-card w-full max-w-md border border-base-300 bg-base-100 shadow-none">
     <div class="card-body gap-5">
       <div class="flex flex-col items-center text-center" aria-labelledby="login-title">
-        <TrellisLogo subtitle="Admin Console" titleClass="text-base-content" subtitleClass="text-base-content/50" />
-        <p class="mt-4 text-[0.65rem] font-semibold uppercase tracking-wider text-base-content/50">Operator control plane</p>
-        <h1 id="login-title" class="mt-1 text-xl font-semibold tracking-tight">Sign in to Trellis</h1>
+        <TrellisLogo
+          subtitle="Admin Console"
+          class="gap-5"
+          markClass="h-20 w-20"
+          logoClass="h-18 w-18"
+          titleClass="text-[2.45rem] font-bold leading-[0.88] tracking-[-0.055em] text-primary sm:text-[3.05rem]"
+          subtitleClass="text-[0.7rem] font-semibold tracking-[0.42em] text-accent sm:text-[0.78rem]"
+        />
+        <h1 id="login-title" class="mt-5 text-xl font-semibold tracking-tight">Sign in to Trellis Console</h1>
       </div>
 
       {#if authError}
@@ -121,7 +127,7 @@
           }}
         >
           <div class="form-control">
-            <label class="label" for="auth-url"><span class="label-text">Trellis Instance URL</span></label>
+            <label class="label" for="auth-url"><span class="label-text">Trellis endpoint</span></label>
             <input
               id="auth-url"
               bind:value={selectedAuthUrl}

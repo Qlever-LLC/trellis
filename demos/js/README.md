@@ -149,12 +149,13 @@ activity events briefly, and save or list draft state. The guided inspection
 wizard groups those actions into a task-oriented flow so device runs can exercise
 the same Trellis surfaces without stepping through each primitive manually.
 
-Both the browser app and activated device declare `read` for operations they
-watch and `cancel` only for `Reports.Generate`. This mirrors runtime permission
-derivation: `call` starts an operation, but it does not grant operation-control
-subjects beyond the operation-specific control subject. An omitted `read` list
-defaults to `call`, while the demo's explicit empty `read` lists make watching
-available to authenticated callers without extra capabilities.
+The service declares explicit empty `read` lists for operations that callers
+watch and explicit empty `cancel` rights for `Reports.Generate`. This mirrors
+runtime permission derivation: `call` starts an operation, `read` controls
+`get`/`wait`/`watch`, `cancel` controls cancellation, and `control` is reserved
+for named post-start signals. An omitted `read` list defaults to `call`, while
+the demo's explicit empty `read` lists make watching available to authenticated
+callers without extra capabilities.
 
 ## Jobs Are Private Implementation
 

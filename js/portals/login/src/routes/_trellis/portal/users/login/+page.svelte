@@ -260,18 +260,20 @@
   class="portal-shell flex min-h-screen flex-col items-center justify-center gap-7 px-4 py-10 sm:px-6"
   data-theme="portal"
 >
-  <PortalBrand subtitle="Login portal" />
-
   <div
     class={[
       "portal-card card w-full border border-base-300",
       flow.state?.status === "approval_required" ||
       flow.state?.status === "insufficient_capabilities"
         ? "max-w-xl"
-        : "max-w-sm",
+        : "max-w-md",
     ]}
   >
     <div class="card-body gap-6 p-7 sm:p-8">
+      <div class="flex justify-center">
+        <PortalBrand subtitle="Login portal" />
+      </div>
+
       {#if flow.loading}
         <div class="flex items-center gap-4 py-3">
           <span class="loading loading-ring loading-lg"></span>
@@ -282,12 +284,9 @@
         </div>
       {:else if flow.state?.status === "choose_provider"}
         <div>
-          <h1 class="text-xl font-semibold tracking-[-0.025em] text-base-content">Sign in</h1>
-          <p class="portal-copy mt-2 text-sm">
-            Sign in to continue to <strong
-              class="font-medium text-base-content"
-              >{flow.state.app.displayName}</strong
-            >
+          <h1 class="text-xl font-semibold tracking-[-0.025em] text-base-content">Choose a sign-in method</h1>
+          <p class="mt-2 inline-flex rounded-full border border-base-300 bg-base-200/55 px-3 py-1 text-xs font-medium text-base-content/65">
+            {flow.state.app.displayName}
           </p>
         </div>
         <div class="flex flex-col gap-2.5">
@@ -297,7 +296,7 @@
               data-sveltekit-reload
               href={flow.providerUrl(provider.id)}
             >
-              <span>Continue with {provider.displayName}</span>
+              <span>Sign in with {provider.displayName}</span>
             </a>
           {/each}
         </div>

@@ -37,6 +37,7 @@ export const contract = defineAppContract(
             "Auth.GetLoginPortalDefault",
             "Auth.KickConnection",
             "Auth.ListApprovals",
+            "Auth.ListCapabilities",
             "Auth.ListConnections",
             "Auth.ListDeviceActivationReviews",
             "Auth.ListDeviceActivations",

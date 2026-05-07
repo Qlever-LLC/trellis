@@ -3,7 +3,6 @@ import type { trellisControlPlaneApi } from "../../bootstrap/control_plane_api.t
 import type { API as trellisAuthApi } from "../../contracts/trellis_auth.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type {
-  OperationRegistration,
   ServiceTrellis,
   TrellisService,
 } from "@qlever-llc/trellis/service";
@@ -11,6 +10,11 @@ import type {
 type AuthOwnedApi = typeof trellisAuthApi.owned;
 type ControlPlaneTrellisApi = typeof trellisControlPlaneApi.trellis;
 type AuthOperationName = keyof AuthOwnedApi["operations"] & string;
+type AuthOperationRegistration<O extends AuthOperationName> = TrellisService<
+  AuthOwnedApi,
+  ControlPlaneTrellisApi
+> extends { operation(name: O): infer TRegistration } ? TRegistration
+  : never;
 
 export type AuthRpcMethod = keyof AuthOwnedApi["rpc"] & string;
 
@@ -22,10 +26,7 @@ export type RpcRegistrar = Pick<
 export type OperationRegistrar = {
   operation<O extends AuthOperationName>(
     name: O,
-  ): Pick<
-    OperationRegistration<AuthOwnedApi, ControlPlaneTrellisApi, O>,
-    "handle"
-  >;
+  ): Pick<AuthOperationRegistration<O>, "handle">;
   operationCompletion: Pick<
     TrellisService<AuthOwnedApi, ControlPlaneTrellisApi>,
     "completeOperation"

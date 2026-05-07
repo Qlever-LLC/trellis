@@ -69,6 +69,16 @@
         "$ref": "#/$defs/event"
       }
     },
+    "feeds": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/feed"
+      }
+    },
     "subjects": false,
     "errors": {
       "type": "object",
@@ -160,6 +170,25 @@
       }
     },
     "uses": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/usesFlat"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required": {
+              "$ref": "#/$defs/usesFlat"
+            },
+            "optional": {
+              "$ref": "#/$defs/usesFlat"
+            }
+          }
+        }
+      ]
+    },
+    "usesFlat": {
       "type": "object",
       "propertyNames": {
         "type": "string",
@@ -237,6 +266,15 @@
         }
       }
     },
+    "useFeed": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "subscribe": {
+          "$ref": "#/$defs/capabilities"
+        }
+      }
+    },
     "useRef": {
       "type": "object",
       "additionalProperties": false,
@@ -254,6 +292,9 @@
         },
         "events": {
           "$ref": "#/$defs/usePubSub"
+        },
+        "feeds": {
+          "$ref": "#/$defs/useFeed"
         }
       }
     },
@@ -577,6 +618,36 @@
             "publish": {
               "$ref": "#/$defs/capabilities"
             },
+            "subscribe": {
+              "$ref": "#/$defs/capabilities"
+            }
+          }
+        }
+      }
+    },
+    "feed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "subject", "input", "event"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^v[0-9]+$"
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input": {
+          "$ref": "#/$defs/schemaRef"
+        },
+        "event": {
+          "$ref": "#/$defs/schemaRef"
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
             "subscribe": {
               "$ref": "#/$defs/capabilities"
             }

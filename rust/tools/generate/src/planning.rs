@@ -461,7 +461,7 @@ fn participant_alias_mappings(
     let local_manifest = entry.out_manifest.as_ref()?;
     let loaded = trellis_contracts::load_manifest(local_manifest).ok()?;
     let mut mappings = Vec::new();
-    for (alias, use_ref) in &loaded.manifest.uses {
+    for (alias, use_ref) in loaded.manifest.uses.iter() {
         if let Some(mapped) = plan.iter().find(|candidate| {
             candidate.contract_id == use_ref.contract && candidate.rust_out.is_some()
         }) {

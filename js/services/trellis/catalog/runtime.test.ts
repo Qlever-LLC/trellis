@@ -293,6 +293,82 @@ Deno.test("contracts runtime validates uses against active contracts", async () 
   });
 });
 
+Deno.test("contracts runtime treats grouped required uses as fail-closed", async () => {
+  await withContractsModule(async (module, contractStorage) => {
+    const uses = {
+      required: {
+        billing: {
+          contract: "billing@v1",
+          operations: { call: ["Refund"] },
+        },
+      },
+    };
+    const consumer = {
+      format: "trellis.contract.v1",
+      id: "portal@v1",
+      displayName: "Portal",
+      description: "Calls billing operations.",
+      kind: "service",
+      uses,
+    };
+
+    await assertRejects(
+      () => module.installServiceContract(consumer),
+      Error,
+      "inactive contract 'billing@v1'",
+    );
+
+    assertEquals(await contractStorage.list(), []);
+  });
+});
+
+Deno.test("contracts runtime allows grouped optional uses to be absent", async () => {
+  await withContractsModule(async (module, contractStorage, deployments) => {
+    const uses = {
+      optional: {
+        billing: {
+          contract: "billing@v1",
+          operations: { call: ["Refund"] },
+        },
+        feedService: {
+          contract: "feed-service@v1",
+          feeds: { subscribe: ["Device.Events"] },
+        },
+      },
+    };
+    const portal = await module.installServiceContract({
+      format: "trellis.contract.v1",
+      id: "portal@v1",
+      displayName: "Portal",
+      description: "Optionally calls billing operations.",
+      kind: "service",
+      uses,
+    });
+    await deployments.put({
+      deploymentId: "portal.default",
+      namespaces: ["Portal"],
+      disabled: false,
+      appliedContracts: [{
+        contractId: portal.id,
+        allowedDigests: [portal.digest],
+      }],
+    });
+
+    await module.refreshActiveContracts();
+
+    assertEquals(
+      (await contractStorage.list()).map((entry) => entry.id),
+      ["portal@v1"],
+    );
+    assertEquals(
+      module.contractStore.getActiveCatalog().contracts.map((entry) =>
+        entry.digest
+      ),
+      [portal.digest],
+    );
+  });
+});
+
 Deno.test("contracts runtime can refresh removal catalogs with existing inactive uses", async () => {
   await withContractsModule(
     async (module, _contractStorage, serviceDeployments) => {

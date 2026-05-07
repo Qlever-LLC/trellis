@@ -406,6 +406,7 @@ The `use(...)` helper:
 - restricts `operations.call` to keys from that SDK's owned operation surface
 - restricts `events.publish` and `events.subscribe` to keys from that SDK's
   owned event surface
+- restricts `feeds.subscribe` to keys from that SDK's owned feed surface
 
 This makes imported SDK modules the source of truth for remote dependency names
 in TypeScript authoring.
@@ -494,10 +495,10 @@ Rules:
 
 The TypeScript type system must enforce both of these rules:
 
-- a referenced remote operation, RPC, or event must exist on the imported SDK
+- a referenced remote operation, RPC, event, or feed must exist on the imported SDK
   module
 - a participant may only invoke, call, publish, or subscribe to remote
-  operations that are explicitly declared in its local contract `uses`, except
+  operations, events, and feeds that are explicitly declared in its local contract `uses`, except
   for Trellis-defined baseline surfaces automatically available to that
   participant kind
 
@@ -514,17 +515,17 @@ contract object itself defines the allowed TypeScript runtime surface.
 
 The contract definition produces three distinct projected API views:
 
-- `API.owned` - the operations, RPCs, and events owned by the local participant
+- `API.owned` - the operations, RPCs, events, and feeds owned by the local participant
   and therefore mountable or publishable as owner behavior
 - `API.used` - the subset of remote SDK APIs explicitly permitted by `uses`
 - `API.trellis` - the merged runtime surface used for outbound
-  `operation(...).input(...).start()`, `request`, `publish`, and `subscribe`
+  `operation(...).input(...).start()`, `request`, `publish`, `event`, and `feed`
   operations
 
 Rules:
 
-- `API.owned` derives only from the local contract's `operations`, `rpc`, and
-  `events`
+- `API.owned` derives only from the local contract's `operations`, `rpc`,
+  `events`, and `feeds`
 - `API.used` derives only from the remote SDK operations explicitly selected
   through `use(...)`, plus Trellis-owned baseline surfaces that are derived from
   participant kind or local features

@@ -26,6 +26,16 @@ type ActiveSubjectOwner = {
   surface: string;
 };
 
+export type ActiveCapabilityDefinition = {
+  key: string;
+  displayName: string;
+  description: string;
+  consequence?: string;
+  contractId: string;
+  contractDigest: string;
+  contractDisplayName: string;
+};
+
 function assertObject(
   value: unknown,
 ): asserts value is Record<string, unknown> {
@@ -619,6 +629,33 @@ export class ContractStore {
       if (contract) out.push({ digest, contract });
     }
     return out;
+  }
+
+  getActiveCapabilityDefinitions(): ActiveCapabilityDefinition[] {
+    const capabilities = new Map<string, ActiveCapabilityDefinition>();
+    const entries = this.getActiveEntries().sort((left, right) =>
+      left.contract.id.localeCompare(right.contract.id) ||
+      left.digest.localeCompare(right.digest)
+    );
+
+    for (const { digest, contract } of entries) {
+      for (const [key, metadata] of Object.entries(contract.capabilities ?? {})) {
+        if (capabilities.has(key)) continue;
+        capabilities.set(key, {
+          key,
+          displayName: metadata.displayName,
+          description: metadata.description,
+          ...(metadata.consequence ? { consequence: metadata.consequence } : {}),
+          contractId: contract.id,
+          contractDigest: digest,
+          contractDisplayName: contract.displayName,
+        });
+      }
+    }
+
+    return [...capabilities.values()].sort((left, right) =>
+      left.key.localeCompare(right.key)
+    );
   }
 
   getActiveCatalog(): TrellisCatalogV1 {

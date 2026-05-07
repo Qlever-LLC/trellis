@@ -84,6 +84,16 @@ export type EventDesc<S extends SchemaLike = SchemaLike> = {
   subscribeCapabilities: readonly string[];
 };
 
+export type FeedDesc<
+  I extends SchemaLike = SchemaLike,
+  E extends SchemaLike = SchemaLike,
+> = {
+  subject: string;
+  input: I;
+  event: E;
+  subscribeCapabilities: readonly string[];
+};
+
 export type OperationDesc<
   I extends SchemaLike = SchemaLike,
   P extends SchemaLike | undefined = SchemaLike | undefined,
@@ -114,5 +124,6 @@ export type TrellisAPI = {
   rpc: Record<string, RPCDesc>;
   operations: Record<string, OperationDesc>;
   events: Record<string, EventDesc>;
+  feeds?: Record<string, FeedDesc>;
   subjects: Record<string, unknown>;
 };

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { ok } from "@qlever-llc/result";
   import { getTrellis } from "$lib/trellis";
   import { formatDateTimeWithAge } from "$lib/format";
 
@@ -20,6 +19,10 @@
     site: { siteId?: string; siteName: string; latestStatus: string };
     refreshedAt: string;
   };
+  type ActivityLiveFeedEvent =
+    | { name: "Activity.Recorded"; event: ActivityRecordedEvent }
+    | { name: "Reports.Published"; event: ReportsPublishedEvent }
+    | { name: "Sites.Refreshed"; event: SitesRefreshedEvent };
   type OperationName = "Sites.Refresh" | "Reports.Generate";
   type LiveEventKind = "event" | "operation" | "external-job";
   type LiveEvent = {
@@ -94,6 +97,14 @@
       "site" in value && typeof value.site === "object" && value.site !== null &&
       "siteName" in value.site && typeof value.site.siteName === "string" &&
       "latestStatus" in value.site && typeof value.site.latestStatus === "string";
+  }
+
+  function isActivityLiveFeedEvent(value: unknown): value is ActivityLiveFeedEvent {
+    if (typeof value !== "object" || value === null || !("name" in value) || !("event" in value)) return false;
+    if (value.name === "Activity.Recorded") return isActivityRecordedEvent(value.event);
+    if (value.name === "Reports.Published") return isReportsPublishedEvent(value.event);
+    if (value.name === "Sites.Refreshed") return isSitesRefreshedEvent(value.event);
+    return false;
   }
 
   function isLocalOperationUpdate(value: unknown): value is LocalOperationUpdate {
@@ -240,6 +251,58 @@
     return kindLabel(event.kind);
   }
 
+  function handleActivityRecorded(event: ActivityRecordedEvent): void {
+    const relatedOperationId = event.kind === "site-refreshed" ? activeRefreshOperationId ?? undefined : undefined;
+    addEvent({
+      id: `${event.activityId}-${event.occurredAt}`,
+      kind: "event",
+      name: "Activity.Recorded",
+      action: formatEventKind(event.kind),
+      subject: subjectFromActivity(event.message),
+      occurredAt: event.occurredAt,
+      operationId: relatedOperationId,
+    });
+    if (relatedOperationId) activeRefreshOperationId = null;
+  }
+
+  function handleReportsPublished(event: ReportsPublishedEvent): void {
+    const relatedOperationId = activeReportOperation && (!activeReportOperation.inspectionId || activeReportOperation.inspectionId === event.inspectionId)
+      ? activeReportOperation.operationId
+      : undefined;
+    addEvent({
+      id: `${event.reportId}-${event.publishedAt}`,
+      kind: "event",
+      name: "Reports.Published",
+      action: "Closeout Package Published",
+      subject: event.inspectionId,
+      occurredAt: event.publishedAt,
+      operationId: relatedOperationId,
+      inspectionId: event.inspectionId,
+    });
+    if (relatedOperationId) activeReportOperation = null;
+  }
+
+  function handleSitesRefreshed(event: SitesRefreshedEvent): void {
+    const relatedOperationId = activeRefreshOperationId ?? undefined;
+    addEvent({
+      id: `${event.refreshId}-${event.refreshedAt}`,
+      kind: "event",
+      name: "Sites.Refreshed",
+      action: "Site Status Refreshed",
+      subject: `${event.site.siteName}: ${event.site.latestStatus}`,
+      occurredAt: event.refreshedAt,
+      operationId: relatedOperationId,
+      refreshId: event.refreshId,
+    });
+  }
+
+  function handleFeedEvent(value: unknown): void {
+    if (!isActivityLiveFeedEvent(value)) return;
+    if (value.name === "Activity.Recorded") handleActivityRecorded(value.event);
+    if (value.name === "Reports.Published") handleReportsPublished(value.event);
+    if (value.name === "Sites.Refreshed") handleSitesRefreshed(value.event);
+  }
+
   function kindBadgeClass(kind: LiveEventKind): string {
     if (kind === "external-job") return "badge badge-accent badge-outline badge-sm max-w-full";
     if (kind === "operation") return "badge badge-secondary badge-outline badge-sm max-w-full";
@@ -255,88 +318,30 @@
     const localController = controller;
 
     try {
-      await trellis.event(
-        "Activity.Recorded",
-        {},
-        (event: unknown) => {
-          if (isActivityRecordedEvent(event)) {
-            const relatedOperationId = event.kind === "site-refreshed" ? activeRefreshOperationId ?? undefined : undefined;
-            addEvent({
-              id: `${event.activityId}-${event.occurredAt}`,
-              kind: "event",
-              name: "Activity.Recorded",
-              action: formatEventKind(event.kind),
-              subject: subjectFromActivity(event.message),
-              occurredAt: event.occurredAt,
-              operationId: relatedOperationId,
-            });
-            if (relatedOperationId) activeRefreshOperationId = null;
-          }
-          return ok(undefined);
-        },
-        { mode: "ephemeral", replay: "new", signal: localController.signal },
-      ).orThrow();
-
-      if (!mounted || controller !== localController || localController.signal.aborted) return;
-
-      await trellis.event(
-        "Reports.Published",
-        {},
-        (event: unknown) => {
-          if (isReportsPublishedEvent(event)) {
-            const relatedOperationId = activeReportOperation && (!activeReportOperation.inspectionId || activeReportOperation.inspectionId === event.inspectionId)
-              ? activeReportOperation.operationId
-              : undefined;
-            addEvent({
-              id: `${event.reportId}-${event.publishedAt}`,
-              kind: "event",
-              name: "Reports.Published",
-              action: "Closeout Package Published",
-              subject: event.inspectionId,
-              occurredAt: event.publishedAt,
-              operationId: relatedOperationId,
-              inspectionId: event.inspectionId,
-            });
-            if (relatedOperationId) activeReportOperation = null;
-          }
-          return ok(undefined);
-        },
-        { mode: "ephemeral", replay: "new", signal: localController.signal },
-      ).orThrow();
-
-      if (!mounted || controller !== localController || localController.signal.aborted) return;
-
-      await trellis.event(
-        "Sites.Refreshed",
-        {},
-        (event: unknown) => {
-          if (isSitesRefreshedEvent(event)) {
-            const relatedOperationId = activeRefreshOperationId ?? undefined;
-            addEvent({
-              id: `${event.refreshId}-${event.refreshedAt}`,
-              kind: "event",
-              name: "Sites.Refreshed",
-              action: "Site Status Refreshed",
-              subject: `${event.site.siteName}: ${event.site.latestStatus}`,
-              occurredAt: event.refreshedAt,
-              operationId: relatedOperationId,
-              refreshId: event.refreshId,
-            });
-          }
-          return ok(undefined);
-        },
-        { mode: "ephemeral", replay: "new", signal: localController.signal },
-      ).orThrow();
+      const stream = await trellis.feed("Activity.Live")
+        .input({})
+        .subscribe({ signal: localController.signal })
+        .orThrow();
 
       if (!mounted || controller !== localController || localController.signal.aborted) return;
       listening = true;
+      starting = false;
+
+      for await (const event of stream) {
+        if (!mounted || controller !== localController || localController.signal.aborted) break;
+        handleFeedEvent(event);
+      }
     } catch (cause) {
       localController.abort();
       if (controller === localController) controller = null;
       if (!mounted || controller !== null) return;
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
-      if (controller === localController || controller === null) {
+      if (controller === localController) {
+        controller = null;
+        listening = false;
+        starting = false;
+      } else if (controller === null) {
         starting = false;
       }
     }
@@ -380,7 +385,7 @@
   </header>
 
   <p class="capability-note">
-    <strong>Events + operations:</strong> Activity.Recorded + Sites.Refreshed + Reports.Published + Sites.Refresh + Reports.Generate
+    <strong>Feed + operations:</strong> Activity.Live + Sites.Refresh + Reports.Generate
   </p>
 
   {#if error}
@@ -390,7 +395,7 @@
   <div class="min-h-0 flex-1 overflow-y-auto" aria-live="polite">
     {#if displayItems.length === 0}
       <div class="alert py-3 text-sm">
-        <span>Live domain events and operation updates will appear here as the workflow runs.</span>
+        <span>Authorized feed frames and operation updates will appear here as the workflow runs.</span>
       </div>
     {:else}
       <div class="divide-y divide-base-300/80 border-y border-base-300/80">

@@ -2,10 +2,18 @@ import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import { Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
+import type { ContractStore } from "../../catalog/store.ts";
 import type { AuthLogger } from "../runtime_deps.ts";
 import type { SqlUserProjectionRepository } from "../storage.ts";
 
 type RpcUser = { id: string; origin: string; capabilities?: string[] };
+
+const PLATFORM_CAPABILITIES = [{
+  key: "admin",
+  displayName: "Administer Trellis",
+  description: "Manage Trellis users, sessions, deployments, and runtime policy.",
+  source: "platform" as const,
+}];
 
 function requireUserCaller(caller: {
   type: string;
@@ -61,6 +69,43 @@ export function createAuthListUsersHandler(
       `${a.origin}.${a.id}`.localeCompare(`${b.origin}.${b.id}`)
     );
     return Result.ok({ users });
+  };
+}
+
+/** Creates the Auth.ListCapabilities RPC handler backed by active contracts. */
+export function createAuthListCapabilitiesHandler(
+  contractStore: ContractStore,
+  logger: Pick<AuthLogger, "trace">,
+) {
+  return async (
+    {
+      context: { caller },
+    }: {
+      context: {
+        caller: {
+          type: string;
+          id?: string;
+          origin?: string;
+          capabilities?: string[];
+        };
+      };
+    },
+  ) => {
+    const user = requireUserCaller(caller);
+    logger.trace(
+      { rpc: "Auth.ListCapabilities", caller: `${user.origin}.${user.id}` },
+      "RPC request",
+    );
+
+    const capabilities = [
+      ...PLATFORM_CAPABILITIES,
+      ...contractStore.getActiveCapabilityDefinitions().map((capability) => ({
+        ...capability,
+        source: "contract" as const,
+      })),
+    ].sort((left, right) => left.key.localeCompare(right.key));
+
+    return Result.ok({ capabilities });
   };
 }
 

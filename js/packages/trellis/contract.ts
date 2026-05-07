@@ -30,18 +30,21 @@ export type DefinedContract<
     rpc: Record<string, unknown>;
     operations: Record<string, unknown>;
     events: Record<string, unknown>;
+    feeds?: Record<string, unknown>;
     subjects: Record<string, unknown>;
   },
   TUsedApi extends {
     rpc: Record<string, unknown>;
     operations: Record<string, unknown>;
     events: Record<string, unknown>;
+    feeds?: Record<string, unknown>;
     subjects: Record<string, unknown>;
   },
   TTrellisApi extends {
     rpc: Record<string, unknown>;
     operations: Record<string, unknown>;
     events: Record<string, unknown>;
+    feeds?: Record<string, unknown>;
     subjects: Record<string, unknown>;
   },
   TContractId extends string = string,

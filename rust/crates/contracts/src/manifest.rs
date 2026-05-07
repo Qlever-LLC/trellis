@@ -157,6 +157,16 @@ fn collect_reachable_schema_names(contract: &Value) -> std::collections::BTreeSe
         );
     }
 
+    for feed in object(contract.get("feeds"))
+        .map(|value| value.values())
+        .into_iter()
+        .flatten()
+    {
+        let feed = object(Some(feed));
+        collect_schema_ref(&mut reachable, feed.and_then(|value| value.get("input")));
+        collect_schema_ref(&mut reachable, feed.and_then(|value| value.get("event")));
+    }
+
     for job in object(contract.get("jobs"))
         .map(|value| value.values())
         .into_iter()
@@ -262,7 +272,7 @@ fn project_resources(resources: Option<&Value>) -> Option<Value> {
     (!projected.is_empty()).then_some(Value::Object(projected))
 }
 
-fn project_uses(uses: Option<&Value>) -> Option<Value> {
+fn project_uses_flat(uses: Option<&Value>) -> Option<Value> {
     let uses = object(uses)?;
     let mut projected_uses = serde_json::Map::new();
     for (alias, use_ref) in uses {
@@ -302,9 +312,51 @@ fn project_uses(uses: Option<&Value>) -> Option<Value> {
         if !projected_events.is_empty() {
             projected.insert("events".to_string(), Value::Object(projected_events));
         }
+        let feeds = object(use_ref.get("feeds"));
+        let mut projected_feeds = serde_json::Map::new();
+        insert_sorted_list(
+            &mut projected_feeds,
+            "subscribe",
+            feeds.and_then(|value| value.get("subscribe")),
+        );
+        if !projected_feeds.is_empty() {
+            projected.insert("feeds".to_string(), Value::Object(projected_feeds));
+        }
         projected_uses.insert(alias.clone(), Value::Object(projected));
     }
     Some(Value::Object(projected_uses))
+}
+
+fn project_uses(uses: Option<&Value>) -> Option<Value> {
+    let uses = object(uses)?;
+    if !is_grouped_uses_object(uses) {
+        return project_uses_flat(Some(&Value::Object(uses.clone())));
+    }
+
+    let required = project_uses_flat(uses.get("required"));
+    let optional = project_uses_flat(uses.get("optional"));
+
+    match (required, optional) {
+        (Some(required), None) => Some(required),
+        (required, optional) => {
+            let mut grouped = serde_json::Map::new();
+            insert_if_present(&mut grouped, "required", required);
+            insert_if_present(&mut grouped, "optional", optional);
+            (!grouped.is_empty()).then_some(Value::Object(grouped))
+        }
+    }
+}
+
+fn is_grouped_uses_object(uses: &serde_json::Map<String, Value>) -> bool {
+    ["required", "optional"]
+        .iter()
+        .any(|key| object(uses.get(*key)).is_some_and(|value| !is_use_ref_object(value)))
+}
+
+fn is_use_ref_object(value: &serde_json::Map<String, Value>) -> bool {
+    value
+        .get("contract")
+        .is_some_and(serde_json::Value::is_string)
 }
 
 fn project_capabilities(capabilities: Option<&Value>, keys: &[&str]) -> Option<Value> {
@@ -398,6 +450,24 @@ fn project_events(events: Option<&Value>) -> Option<Value> {
     Some(Value::Object(projected_events))
 }
 
+fn project_feeds(feeds: Option<&Value>) -> Option<Value> {
+    let feeds = object(feeds)?;
+    let mut projected_feeds = serde_json::Map::new();
+    for (name, feed) in feeds {
+        let Some(feed_object) = feed.as_object() else {
+            continue;
+        };
+        let mut projected = feed_object.clone();
+        if let Some(capabilities) =
+            project_capabilities(feed_object.get("capabilities"), &["subscribe"])
+        {
+            projected.insert("capabilities".to_string(), capabilities);
+        }
+        projected_feeds.insert(name.clone(), Value::Object(projected));
+    }
+    Some(Value::Object(projected_feeds))
+}
+
 fn insert_if_present(target: &mut serde_json::Map<String, Value>, key: &str, value: Option<Value>) {
     if let Some(value) = value {
         target.insert(key.to_string(), value);
@@ -438,6 +508,11 @@ pub fn project_contract_digest_manifest(contract: &Value) -> Value {
         &mut projected,
         "events",
         project_events(contract.get("events")),
+    );
+    insert_if_present(
+        &mut projected,
+        "feeds",
+        project_feeds(contract.get("feeds")),
     );
     insert_if_present(
         &mut projected,
@@ -540,6 +615,19 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
 
     for (name, event) in &manifest.events {
         assert_schema_ref_exists(manifest, &event.event.schema, &format!("event '{name}'"))?;
+    }
+
+    for (name, feed) in &manifest.feeds {
+        assert_schema_ref_exists(
+            manifest,
+            &feed.input.schema,
+            &format!("feed '{name}' input"),
+        )?;
+        assert_schema_ref_exists(
+            manifest,
+            &feed.event.schema,
+            &format!("feed '{name}' event"),
+        )?;
     }
 
     for (name, state) in &manifest.state {

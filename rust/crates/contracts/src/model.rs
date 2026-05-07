@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
+use std::ops::Index;
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
 /// The canonical format identifier for a Trellis contract manifest.
@@ -71,6 +72,13 @@ pub struct PubSubCapabilities {
     pub subscribe: Option<Vec<String>>,
 }
 
+/// Capability requirements for subscribing to a feed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct FeedCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscribe: Option<Vec<String>>,
+}
+
 /// RPC selections from a `uses` dependency.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ContractUseRpc {
@@ -83,6 +91,13 @@ pub struct ContractUseRpc {
 pub struct ContractUsePubSub {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub publish: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscribe: Option<Vec<String>>,
+}
+
+/// Feed selections from a `uses` dependency.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ContractUseFeed {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subscribe: Option<Vec<String>>,
 }
@@ -104,6 +119,74 @@ pub struct ContractUseRef {
     pub operations: Option<ContractUseOperation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub events: Option<ContractUsePubSub>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feeds: Option<ContractUseFeed>,
+}
+
+/// Contract dependency declarations split by whether they are required at runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ContractUses {
+    required: BTreeMap<String, ContractUseRef>,
+    optional: BTreeMap<String, ContractUseRef>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ContractUsesWire {
+    Grouped(ContractUsesGroupedWire),
+    Flat(BTreeMap<String, ContractUseRef>),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContractUsesGroupedWire {
+    #[serde(default)]
+    required: BTreeMap<String, ContractUseRef>,
+    #[serde(default)]
+    optional: BTreeMap<String, ContractUseRef>,
+}
+
+impl<'de> Deserialize<'de> for ContractUses {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        match ContractUsesWire::deserialize(deserializer)? {
+            ContractUsesWire::Grouped(grouped) => Ok(Self {
+                required: grouped.required,
+                optional: grouped.optional,
+            }),
+            ContractUsesWire::Flat(required) => Ok(Self {
+                required,
+                optional: BTreeMap::new(),
+            }),
+        }
+    }
+}
+
+impl Serialize for ContractUses {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if self.optional.is_empty() {
+            return self.required.serialize(serializer);
+        }
+
+        #[derive(Serialize)]
+        struct GroupedUses<'a> {
+            #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+            required: &'a BTreeMap<String, ContractUseRef>,
+            #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+            optional: &'a BTreeMap<String, ContractUseRef>,
+        }
+
+        GroupedUses {
+            required: &self.required,
+            optional: &self.optional,
+        }
+        .serialize(serializer)
+    }
 }
 
 /// Supported Trellis-managed state store shapes.
@@ -230,6 +313,17 @@ pub struct ContractEvent {
     pub capabilities: Option<PubSubCapabilities>,
 }
 
+/// One owned feed declaration in a contract manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractFeed {
+    pub version: String,
+    pub subject: String,
+    pub input: ContractSchemaRef,
+    pub event: ContractSchemaRef,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<FeedCapabilities>,
+}
+
 /// One logical KV resource declaration in a contract manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractKvResource {
@@ -314,8 +408,8 @@ pub struct ContractManifest {
     pub schemas: BTreeMap<String, Value>,
     #[serde(default, skip_serializing_if = "ContractExports::is_empty")]
     pub exports: ContractExports,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub uses: BTreeMap<String, ContractUseRef>,
+    #[serde(default, skip_serializing_if = "ContractUses::is_empty")]
+    pub uses: ContractUses,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub state: BTreeMap<String, ContractStateStore>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -324,6 +418,8 @@ pub struct ContractManifest {
     pub operations: BTreeMap<String, ContractOperation>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub events: BTreeMap<String, ContractEvent>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub feeds: BTreeMap<String, ContractFeed>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub errors: BTreeMap<String, ContractErrorDecl>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -341,6 +437,59 @@ impl ContractResources {
 impl ContractExports {
     fn is_empty(&self) -> bool {
         self.schemas.is_empty()
+    }
+}
+
+impl ContractUses {
+    /// Return whether no required or optional dependency aliases are declared.
+    pub fn is_empty(&self) -> bool {
+        self.required.is_empty() && self.optional.is_empty()
+    }
+
+    /// Return required dependency aliases.
+    pub fn required(&self) -> &BTreeMap<String, ContractUseRef> {
+        &self.required
+    }
+
+    /// Return mutable required dependency aliases.
+    pub fn required_mut(&mut self) -> &mut BTreeMap<String, ContractUseRef> {
+        &mut self.required
+    }
+
+    /// Return optional dependency aliases.
+    pub fn optional(&self) -> &BTreeMap<String, ContractUseRef> {
+        &self.optional
+    }
+
+    /// Return mutable optional dependency aliases.
+    pub fn optional_mut(&mut self) -> &mut BTreeMap<String, ContractUseRef> {
+        &mut self.optional
+    }
+
+    /// Return a dependency alias, searching required aliases before optional aliases.
+    pub fn get(&self, alias: &str) -> Option<&ContractUseRef> {
+        self.required
+            .get(alias)
+            .or_else(|| self.optional.get(alias))
+    }
+
+    /// Return whether a dependency alias is declared in either group.
+    pub fn contains_key(&self, alias: &str) -> bool {
+        self.get(alias).is_some()
+    }
+
+    /// Iterate over required aliases first, followed by optional aliases.
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &ContractUseRef)> {
+        self.required.iter().chain(self.optional.iter())
+    }
+}
+
+impl Index<&str> for ContractUses {
+    type Output = ContractUseRef;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        self.get(index)
+            .unwrap_or_else(|| panic!("no contract use alias '{index}'"))
     }
 }
 

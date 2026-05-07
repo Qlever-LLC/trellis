@@ -395,6 +395,25 @@ await service.trellis.event("Auth.Connect", {}, async (event) => {
 });
 ```
 
+Use direct event subscriptions for service-side processing where event-type
+authorization is sufficient. If browser apps need a reactive live view filtered
+by domain authorization, expose a feed instead:
+
+```ts
+await service.feed("Orders.Live").handle(async ({ input, caller, emit, signal }) => {
+  const orderIds = await listOrdersVisibleTo(caller, input);
+
+  for await (const event of orderEvents({ signal })) {
+    if (orderIds.has(event.orderId)) {
+      await emit({ name: "Orders.Changed", event }).orThrow();
+    }
+  }
+});
+```
+
+The feed handler receives an authenticated `caller`; the service remains
+responsible for checking the requested filter and every emitted frame.
+
 ## 8. Handle shutdown
 
 Exit explicitly after `service.stop()` so watched local dev restarts do not keep the old process alive.

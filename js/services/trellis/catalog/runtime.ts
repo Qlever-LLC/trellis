@@ -207,6 +207,12 @@ function getRequiredServiceCapabilities(
     }
   }
 
+  for (const feed of uses.feedSubscribes) {
+    for (const capability of feed.feed.capabilities?.subscribe ?? []) {
+      capabilities.add(capability);
+    }
+  }
+
   return [...capabilities].sort((left, right) => left.localeCompare(right));
 }
 

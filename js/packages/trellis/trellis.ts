@@ -13,6 +13,7 @@ import {
 } from "@nats-io/nats-core";
 import type {
   EventDesc,
+  FeedDesc,
   InferSchemaType,
   RPCDesc,
   TrellisAPI,
@@ -378,6 +379,9 @@ export type OperationsOf<TA extends AnyTrellisAPI> =
   & keyof TA["operations"]
   & string;
 type EventsOf<TA extends AnyTrellisAPI> = keyof TA["events"] & string;
+export type FeedsOf<TA extends AnyTrellisAPI> =
+  & keyof NonNullable<TA["feeds"]>
+  & string;
 type RpcMethodOf<TA extends AnyTrellisAPI, M extends keyof TA["rpc"] & string> =
   RpcMethodsOf<TA>[M];
 type MethodInputOf<
@@ -463,6 +467,18 @@ type EventPayloadOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> = Omit<
   EventOf<TA, E>,
   "header"
 >;
+export type FeedInputOf<TA extends AnyTrellisAPI, F extends FeedsOf<TA>> =
+  NonNullable<TA["feeds"]>[F] extends FeedDesc<infer TInput, infer _TEvent>
+    ? InferSchemaType<TInput>
+    : never;
+export type FeedEventOf<TA extends AnyTrellisAPI, F extends FeedsOf<TA>> =
+  NonNullable<TA["feeds"]>[F] extends FeedDesc<infer _TInput, infer TEvent>
+    ? InferSchemaType<TEvent>
+    : never;
+type FeedDescriptorOf<TA extends AnyTrellisAPI, F extends FeedsOf<TA>> =
+  NonNullable<TA["feeds"]>[F] extends FeedDesc<infer TInput, infer TEvent>
+    ? FeedDesc<TInput, TEvent> & NonNullable<TA["feeds"]>[F]
+    : never;
 export type OperationInputOf<
   TA extends AnyTrellisAPI,
   O extends OperationsOf<TA>,
@@ -950,6 +966,43 @@ export type EventOpts = {
   signal?: AbortSignal;
 };
 
+export type FeedSubscribeOpts = {
+  signal?: AbortSignal;
+};
+
+export type FeedSubscription<TEvent> = AsyncIterable<TEvent>;
+
+export type FeedInputBuilder<TInput, TEvent> = {
+  input(input: TInput): {
+    subscribe(
+      opts?: FeedSubscribeOpts,
+    ): AsyncResult<FeedSubscription<TEvent>, BaseError>;
+  };
+};
+
+export type FeedHandlerContext<TInput, TEvent> = {
+  input: TInput;
+  caller: SessionCaller;
+  signal: AbortSignal;
+  emit(event: TEvent): AsyncResult<void, ValidationError | UnexpectedError>;
+};
+
+export type FeedRegistration<TInput, TEvent> = {
+  handle(
+    handler: (
+      context: FeedHandlerContext<TInput, TEvent>,
+    ) => unknown | Promise<unknown>,
+  ): Promise<void>;
+};
+
+export type FeedSurface<
+  TA extends AnyTrellisAPI,
+  TMode extends TrellisMode,
+  F extends FeedsOf<TA>,
+> = TMode extends "server"
+  ? FeedRegistration<FeedInputOf<TA, F>, FeedEventOf<TA, F>>
+  : FeedInputBuilder<FeedInputOf<TA, F>, FeedEventOf<TA, F>>;
+
 type MaybePromise<T> = T | Promise<T>;
 
 type EventCallback<TMessage> = {
@@ -1063,6 +1116,9 @@ export type ClientTrellis<
     fn: EventCallback<unknown>,
     opts?: EventOpts,
   ): AsyncResult<void, ValidationError | UnexpectedError>;
+  feed<F extends FeedsOf<TA>>(
+    feed: F,
+  ): FeedInputBuilder<FeedInputOf<TA, F>, FeedEventOf<TA, F>>;
   operation<O extends OperationsOf<TA>>(
     operation: O,
   ): OperationSurface<TA, "client", O>;
@@ -1428,6 +1484,7 @@ const EMPTY_TRELLIS_API: TrellisAPI = {
   rpc: {},
   operations: {},
   events: {},
+  feeds: {},
   subjects: {},
 };
 
@@ -1715,7 +1772,7 @@ export class Trellis<
   }
 
   #unknownApiError(
-    kind: "RPC method" | "operation" | "event",
+    kind: "RPC method" | "operation" | "event" | "feed",
     name: string,
   ): Error {
     const base = `Unknown ${kind} '${name}'.`;
@@ -1999,6 +2056,262 @@ export class Trellis<
     }
 
     await this.#onSessionNotFound();
+  }
+
+  async #authenticateFeedRequest(args: {
+    feed: string;
+    subject: string;
+    msg: Msg;
+    payloadHash: Uint8Array;
+    requiredCapabilities: readonly string[];
+  }): Promise<Result<SessionCaller, BaseError>> {
+    const sessionKey = args.msg.headers?.get("session-key");
+    const proof = args.msg.headers?.get("proof");
+    if (!sessionKey) {
+      return err(new AuthError({ reason: "missing_session_key" }));
+    }
+    if (!proof) return err(new AuthError({ reason: "missing_proof" }));
+
+    const proofInput = buildProofInput(
+      sessionKey,
+      args.subject,
+      args.payloadHash,
+    );
+    const digest = await sha256(proofInput);
+    const verifyResult = await AsyncResult.try(async () => {
+      const publicKeyRaw = base64urlDecode(sessionKey);
+      const pub = await crypto.subtle.importKey(
+        "raw",
+        toArrayBuffer(publicKeyRaw),
+        { name: "Ed25519" },
+        true,
+        ["verify"],
+      );
+      return crypto.subtle.verify(
+        { name: "Ed25519" },
+        pub,
+        toArrayBuffer(base64urlDecode(proof)),
+        toArrayBuffer(digest),
+      );
+    });
+    if (!verifyResult.isOk() || verifyResult.take() !== true) {
+      return err(
+        new AuthError({ reason: "invalid_signature", context: { sessionKey } }),
+      );
+    }
+
+    const auth = await this.requestAuthValidate({
+      sessionKey,
+      proof,
+      subject: args.subject,
+      payloadHash: base64urlEncode(args.payloadHash),
+      capabilities: [...args.requiredCapabilities],
+    }).take();
+    if (isErr(auth)) return err(auth.error);
+
+    if (!auth.allowed) {
+      return err(
+        new AuthError({
+          reason: "insufficient_permissions",
+          context: {
+            feed: args.feed,
+            requiredCapabilities: args.requiredCapabilities,
+            userCapabilities: auth.caller.capabilities,
+          },
+        }),
+      );
+    }
+
+    if (
+      typeof args.msg.reply !== "string" ||
+      !args.msg.reply.startsWith(`${auth.inboxPrefix}.`)
+    ) {
+      return err(
+        new AuthError({
+          reason: "reply_subject_mismatch",
+          context: { expected: auth.inboxPrefix, actual: args.msg.reply },
+        }),
+      );
+    }
+
+    return ok(auth.caller);
+  }
+
+  feed<F extends FeedsOf<TA>>(
+    feed: F,
+  ):
+    & FeedInputBuilder<FeedInputOf<TA, F>, FeedEventOf<TA, F>>
+    & FeedRegistration<FeedInputOf<TA, F>, FeedEventOf<TA, F>> {
+    const descriptor = this.api.feeds?.[feed] as
+      | FeedDescriptorOf<TA, F>
+      | undefined;
+    if (!descriptor) {
+      throw this.#unknownApiError("feed", feed.toString());
+    }
+
+    return {
+      input: (input: FeedInputOf<TA, F>) => ({
+        subscribe: (opts?: FeedSubscribeOpts) =>
+          this.#subscribeFeed(
+            feed.toString(),
+            descriptor,
+            input,
+            opts,
+          ) as AsyncResult<
+            FeedSubscription<FeedEventOf<TA, F>>,
+            BaseError
+          >,
+      }),
+      handle: (
+        handler: (
+          context: FeedHandlerContext<FeedInputOf<TA, F>, FeedEventOf<TA, F>>,
+        ) => unknown | Promise<unknown>,
+      ) => this.#handleFeed(feed.toString(), descriptor, handler),
+    };
+  }
+
+  #subscribeFeed<TInput, TEvent>(
+    feed: string,
+    descriptor: FeedDesc,
+    input: TInput,
+    opts?: FeedSubscribeOpts,
+  ): AsyncResult<FeedSubscription<TEvent>, BaseError> {
+    return AsyncResult.from((async () => {
+      const payload = encodeRuntimeSchema(descriptor.input, input).take();
+      if (isErr(payload)) return payload;
+
+      const subject = this.template(
+        descriptor.subject,
+        input as Record<string, unknown>,
+      ).take();
+      if (isErr(subject)) return subject;
+
+      const proof = await this.#createProof(subject, payload);
+      const headers = natsHeaders();
+      headers.set("session-key", this.auth.sessionKey);
+      headers.set("proof", proof);
+
+      const inbox = createInbox(`_INBOX.${this.auth.sessionKey.slice(0, 16)}`);
+      const sub = this.nats.subscribe(inbox);
+      const abort = () => sub.unsubscribe();
+      opts?.signal?.addEventListener("abort", abort, { once: true });
+
+      try {
+        this.nats.publish(subject, payload, { headers, reply: inbox });
+        await this.nats.flush();
+      } catch (cause) {
+        opts?.signal?.removeEventListener("abort", abort);
+        sub.unsubscribe();
+        return err(createTransportError({
+          code: "trellis.feed.subscribe_failed",
+          message: "Trellis could not subscribe to the feed.",
+          hint:
+            "Retry the subscription. If it keeps failing, check Trellis runtime health.",
+          cause,
+          context: { feed, subject },
+        }));
+      }
+
+      const eventSchema = descriptor.event;
+      return ok((async function* () {
+        try {
+          for await (const msg of sub) {
+            if (msg.headers?.get("status") === "error") {
+              throw createTransportError({
+                code: "trellis.feed.failed",
+                message: "Trellis stopped the feed.",
+                hint:
+                  "Retry the subscription. If it keeps failing, check Trellis runtime health.",
+                context: { feed, subject, frame: msg.string() },
+              });
+            }
+            const json = safeJson(msg).take();
+            if (isErr(json)) throw json.error;
+            const parsed = parseRuntimeSchema(eventSchema, json).take();
+            if (isErr(parsed)) throw parsed.error;
+            yield parsed as TEvent;
+          }
+        } finally {
+          opts?.signal?.removeEventListener("abort", abort);
+          sub.unsubscribe();
+        }
+      })());
+    })());
+  }
+
+  async #handleFeed<TInput, TEvent>(
+    feed: string,
+    descriptor: FeedDesc,
+    handler: (
+      context: FeedHandlerContext<TInput, TEvent>,
+    ) => unknown | Promise<unknown>,
+  ): Promise<void> {
+    const subject = this.template(descriptor.subject, {}, true).take();
+    if (isErr(subject)) throw subject.error;
+    const sub = this.nats.subscribe(subject);
+    const task = AsyncResult.try(async () => {
+      for await (const msg of sub) {
+        const result = await this.#processFeedMessage(
+          feed,
+          descriptor,
+          msg,
+          handler,
+        );
+        const value = result.take();
+        if (isErr(value)) this.#respondWithError(msg, value.error);
+      }
+    });
+    this.#tasks.add(`feed:${feed}`, task);
+  }
+
+  async #processFeedMessage<TInput, TEvent>(
+    feed: string,
+    descriptor: FeedDesc,
+    msg: Msg,
+    handler: (
+      context: FeedHandlerContext<TInput, TEvent>,
+    ) => unknown | Promise<unknown>,
+  ): Promise<Result<void, BaseError>> {
+    const json = safeJson(msg).take();
+    if (isErr(json)) return json;
+    const parsed = parseRuntimeSchema(descriptor.input, json).take();
+    if (isErr(parsed)) return parsed;
+
+    const caller = await this.#authenticateFeedRequest({
+      feed,
+      subject: msg.subject,
+      msg,
+      payloadHash: await sha256(msg.data ?? new Uint8Array()),
+      requiredCapabilities: descriptor.subscribeCapabilities,
+    });
+    const callerValue = caller.take();
+    if (isErr(callerValue)) return callerValue;
+
+    const controller = new AbortController();
+    try {
+      await handler({
+        input: parsed as TInput,
+        caller: callerValue,
+        signal: controller.signal,
+        emit: (event: TEvent) =>
+          AsyncResult.from((async () => {
+            const payload = encodeRuntimeSchema(descriptor.event, event).take();
+            if (isErr(payload)) return payload;
+            if (!msg.reply) {
+              return err(
+                new UnexpectedError({
+                  context: { feed, reason: "missing_reply" },
+                }),
+              );
+            }
+            this.nats.publish(msg.reply, payload);
+            return ok(undefined);
+          })()),
+      });
+      return ok(undefined);
+    } finally {
+      controller.abort();
+    }
   }
 
   operation<O extends OperationsOf<TA>>(

@@ -31,7 +31,7 @@
               inspection assignments, verifies site context, attaches evidence, and closes out work.
             </p>
             <p class="max-w-2xl break-words text-sm leading-6 text-base-content/68">
-              The demo connects to Trellis for RPC calls, long-running operations, live events,
+              The demo connects to Trellis for RPC calls, long-running operations, authorized feeds,
               file transfers, and browser app state.
             </p>
           </div>
@@ -47,7 +47,7 @@
 
           <div class="capability-note">
             <strong>Trellis primitives:</strong>
-            RPC, operations, events, transfers, state
+            RPC, operations, feeds, transfers, state
           </div>
         </div>
       </div>

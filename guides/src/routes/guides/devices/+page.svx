@@ -123,7 +123,7 @@ Notes:
 - `trellis deploy apply` accepts a contract source path, manifest, or image and stores the resolved digest in the deployment's allowed digest set
 - `--review-mode required` enables the device-review gate instead of immediate activation
 
-If the device deployment uses `--review-mode required`, portal completion does not activate the device immediately. Instead, a service with `device.review` capabilities or an admin must first approve the activation.
+If the device deployment uses `--review-mode required`, portal completion does not activate the device immediately. Instead, a service or user with `trellis.auth::device.review` capabilities or an admin must first approve the activation.
 
 An admin can approve a pending activation review using the CLI:
 
