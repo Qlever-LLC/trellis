@@ -578,6 +578,8 @@ impl<'a> AuthClient<'a> {
             .call_rpc::<trellis_sdk_auth::rpc::AuthCreateDeviceDeploymentRpc>(
                 &trellis_sdk_auth::AuthCreateDeviceDeploymentRequest {
                     deployment_id: deployment_id.to_string(),
+                    first_connect_policy: None,
+                    pre_activation_policy: None,
                     review_mode: review_mode.map(|value| serde_json::json!(value)),
                 },
             )
@@ -590,6 +592,7 @@ impl<'a> AuthClient<'a> {
                     &trellis_sdk_auth::AuthApplyDeviceDeploymentContractRequest {
                         deployment_id: deployment_id.to_string(),
                         contract,
+                        compatibility_policy: None,
                         expected_digest,
                         replace_existing: None,
                     },
@@ -602,11 +605,14 @@ impl<'a> AuthClient<'a> {
                     .into_iter()
                     .map(|item| trellis_sdk_auth::AuthCreateDeviceDeploymentResponseDeploymentAppliedContractsItem {
                         allowed_digests: item.allowed_digests,
+                        compatibility_policy: item.compatibility_policy,
                         contract_id: item.contract_id,
                     })
                     .collect(),
                 disabled: applied.deployment.disabled,
                 deployment_id: applied.deployment.deployment_id,
+                first_connect_policy: applied.deployment.first_connect_policy,
+                pre_activation_policy: applied.deployment.pre_activation_policy,
                 review_mode: applied.deployment.review_mode,
             });
         }
