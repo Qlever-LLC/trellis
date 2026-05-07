@@ -349,9 +349,11 @@ Events from other services are gated by your contract's `uses` block. Open `cont
 import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 
 uses: {
-  auth: auth.use({
-    events: { subscribe: ["Auth.Connect"] },
-  }),
+  required: {
+    auth: auth.use({
+      events: { subscribe: ["Auth.Connect"] },
+    }),
+  },
 },
 ```
 

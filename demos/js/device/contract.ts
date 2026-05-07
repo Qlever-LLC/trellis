@@ -27,10 +27,10 @@ const fieldOps = trellisDemoService.use({
       "Evidence.Download",
     ],
   },
-    operations: {
-      call: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
-      read: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
-    },
+  operations: {
+    call: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
+    read: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
+  },
   events: {
     subscribe: [
       "Activity.Recorded",
@@ -48,7 +48,7 @@ const contract = defineDeviceContract(
     displayName: "Field Device Demo",
     description: "Activated Field Device TUI for the consolidated demo.",
     uses: {
-      fieldOps,
+      required: { fieldOps },
     },
     state: {
       selectedSite: {

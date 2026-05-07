@@ -320,3 +320,24 @@ Do not replace this with direct `trellis.event(...)` subscriptions when the UI
 requires per-user or per-object filtering. Direct events are still useful when
 event-type authorization is sufficient, but feeds keep domain authorization in
 the service that owns the data.
+
+If the UI needs to distinguish "not authorized" from "authorized but no service
+is currently online", declare the advisory core status RPC in optional `uses` and
+check it before showing an empty or retrying live panel:
+
+```ts
+const status = await trellis.request("Trellis.Surface.Status", {
+  contractId: "devices-service@v1",
+  kind: "feed",
+  surface: "Device.Events",
+  action: "subscribe",
+}).orThrow();
+
+if (status.status.state === "unavailable") {
+  error = "Device live updates are temporarily offline.";
+}
+```
+
+`Trellis.Surface.Status` is advisory only. It does not grant access to the feed;
+the app contract still needs the normal feed dependency in `uses.required` or
+`uses.optional`.

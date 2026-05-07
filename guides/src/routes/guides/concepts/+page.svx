@@ -93,6 +93,8 @@ its authenticated reply inbox.
 
 Use feeds for reactive UIs and other caller-visible streams where application
 authorization matters. The service may implement the feed by listening to domain
+events, polling local state, or combining multiple sources, but the feed remains
+the caller-visible authorization boundary.
 
 ### Cross-contract dependencies (`uses`)
 
@@ -100,21 +102,52 @@ A contract declares which other contracts it depends on through `uses`:
 
 ```ts
 uses: {
-  core: core.use({
-    rpc: { call: ["Trellis.Catalog"] },
-  }),
-  auth: auth.use({
-    events: { subscribe: ["Auth.Connect"] },
-  }),
-  devices: devices.use({
-    feeds: { subscribe: ["Device.Events"] },
-  }),
+  required: {
+    auth: auth.use({
+      events: { subscribe: ["Auth.Connect"] },
+    }),
+    devices: devices.use({
+      feeds: { subscribe: ["Device.Events"] },
+    }),
+  },
+  optional: {
+    core: core.use({
+      rpc: { call: ["Trellis.Surface.Status"] },
+    }),
+  },
 },
 ```
 
+Legacy flat `uses` remains accepted and is treated as required. Prefer grouped
+`uses.required` and `uses.optional` in new code:
+
+- required dependencies fail closed during active-catalog refresh and approval planning
+- optional dependencies participate in contract identity but grant no authority when the target contract or surface is missing
+- if the same alias appears in both groups, the required entry wins
+
 If a dependency is not declared in `uses`, Trellis will not grant that cross-contract access at install time.
-Trellis resolves declared dependencies against active contracts during active-catalog refresh and approval planning; inactive or missing dependencies fail closed.
-When a dependency resolves to multiple active digests in the same contract lineage, Trellis only merges additive compatible surfaces. Divergent duplicate RPC, operation, event, or job descriptors fail validation instead of producing ambiguous permissions.
+When a dependency resolves to multiple active digests in the same contract lineage, Trellis only merges additive compatible surfaces. Divergent duplicate RPC, operation, event, feed, or job descriptors fail validation instead of producing ambiguous permissions.
+
+### Surface availability
+
+Authorization and availability are separate. A caller may be authorized for a
+surface even when no enabled service instance is currently connected to implement
+it. Apps that need to explain this distinction can call the advisory
+`Trellis.Surface.Status` RPC after declaring it in `uses`:
+
+```ts
+const status = await trellis.request("Trellis.Surface.Status", {
+  contractId: "orders-service@v1",
+  kind: "feed",
+  surface: "Orders.Live",
+  action: "subscribe",
+}).orThrow();
+```
+
+The status response distinguishes `unknown_contract`, `unknown_surface`,
+`unauthorized`, `unavailable`, and `available`. It does not grant permissions;
+the caller still needs the normal contract-derived capabilities for the actual
+RPC, operation, event, or feed.
 
 ## Authentication and authorization
 
@@ -151,11 +184,16 @@ If a browser session is revoked while an app is open, subsequent Trellis calls r
 
 The flow:
 
-1. An app sends a signed `POST /auth/requests` request with its session key, contract, redirect target, and optional portal context
+1. An app sends a signed `POST /auth/requests` request with its session key, contract digest, redirect target, and optional portal context
 2. Trellis creates a browser flow record, resolves any contract-specific login portal selection, otherwise falls back to the deployment login default custom portal when configured and then to the built-in Trellis login portal, and returns that portal URL
 3. The portal fetches `GET /auth/flow/:flowId` and renders UX based on the flow state — provider chooser, approval screen, optional app context, or a terminal redirect
 4. After the user authenticates and approval is satisfied, Trellis records the approved session immediately and the browser bind flow returns the approved session metadata, transport endpoints, and sentinel credentials for the app session.
 5. The app connects through `TrellisClient.connect(...)`, which generates fresh signed runtime auth proofs from the local session key and current contract digest during connect and reconnect.
+
+If Trellis does not know the digest in step 1, auth returns `manifest_required`.
+The browser client retries the same auth request with the full manifest, Trellis
+verifies that the manifest hashes to the presented digest, and the later runtime
+NATS auth path still presents only the digest.
 
 CLI sessions use the same contract-bearing flow. If the Trellis agent contract's identity digest changes, the CLI starts detached reauthentication with the portal URL or QR code. A generic NATS authorization denial during reconnect does not automatically delete the local CLI session; explicit revoked or missing-session responses still require a fresh `trellis auth login`.
 

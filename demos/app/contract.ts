@@ -8,24 +8,26 @@ const contract = defineAppContract({ schemas }, (ref) => ({
   displayName: "Field Ops Console",
   description: "Browser console for the consolidated Field Ops demo.",
   uses: {
-    fieldOps: trellisDemoService.use({
-      rpc: {
-        call: [
-          "Assignments.List",
-          "Sites.List",
-          "Sites.Get",
-          "Evidence.List",
-          "Evidence.Download",
-          "Evidence.Delete",
-          "Reports.List",
-        ],
-      },
-      operations: {
-        call: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
-        read: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
-      },
-      feeds: { subscribe: ["Activity.Live"] },
-    }),
+    required: {
+      fieldOps: trellisDemoService.use({
+        rpc: {
+          call: [
+            "Assignments.List",
+            "Sites.List",
+            "Sites.Get",
+            "Evidence.List",
+            "Evidence.Download",
+            "Evidence.Delete",
+            "Reports.List",
+          ],
+        },
+        operations: {
+          call: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
+          read: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
+        },
+        feeds: { subscribe: ["Activity.Live"] },
+      }),
+    },
   },
   state: {
     workspaceContext: {

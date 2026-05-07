@@ -142,12 +142,19 @@ export const ordersService = defineServiceContract({ schemas, errors }, (ref) =>
   displayName: "Orders Service",
   description: "Create and track orders, emit fulfillment events.",
   uses: {
-    core: core.use({
-      rpc: { call: ["Trellis.Bindings.Get", "Trellis.Catalog"] },
-    }),
-    auth: auth.use({
-      events: { subscribe: ["Auth.Connect"] },
-    }),
+    required: {
+      core: core.use({
+        rpc: { call: ["Trellis.Bindings.Get", "Trellis.Catalog"] },
+      }),
+      auth: auth.use({
+        events: { subscribe: ["Auth.Connect"] },
+      }),
+    },
+    optional: {
+      coreStatus: core.use({
+        rpc: { call: ["Trellis.Surface.Status"] },
+      }),
+    },
   },
   resources: {
     kv: {
@@ -490,12 +497,20 @@ import { sdk as ordersService } from "@my-org/sdk-orders-service";
 const app = defineAppContract(() => ({
   // ...
   uses: {
-    ordersService: ordersService.use({
-      rpc: { call: ["Orders.Create", "Orders.Get"] },
-    }),
+    required: {
+      ordersService: ordersService.use({
+        rpc: { call: ["Orders.Create", "Orders.Get"] },
+      }),
+    },
   },
 }));
 ```
+
+Use `uses.required` for dependencies your service cannot run without. Use
+`uses.optional` for additive integrations such as availability checks or
+best-effort companion services. Optional uses participate in the contract digest,
+but Trellis skips them and grants no authority when the target contract or
+surface is not active.
 
 Regenerate the SDK whenever the contract changes. This is the same pattern that the first-party `@qlever-llc/trellis/sdk/auth`, `@qlever-llc/trellis/sdk/core`, and `@qlever-llc/trellis/sdk/state` subpaths follow.
 
@@ -532,6 +547,14 @@ trellis deploy apply svc/orders-service --image ghcr.io/my-org/orders-service:1.
 ```
 
 Trellis looks for the contract at the labeled path first and falls back to `/trellis/contract.json` when no label is present.
+
+Runtime bootstrap presents the service contract digest first. If Trellis does not
+know that digest yet and the deployment policy allows compatible first-connect,
+bootstrap returns `manifest_required`; the service runtime retries with the full
+manifest, Trellis verifies the digest, and NATS runtime auth continues to use
+only the digest. The strict default remains exact: deployments start with
+`firstConnectPolicy: "reject"` and applied contracts start with
+`compatibilityPolicy: "exact"`.
 
 Then run the service:
 

@@ -14,7 +14,7 @@ Devices follow a provision-and-activate lifecycle:
 1. A Trellis admin provisions a device secret. Trellis stores the public identity key and activation key, and the root secret is transferred to the device for storage.
 2. When a device starts up, the root secret is used to generate an activation URL or QR code.
 3. A Trellis user follows that link to a Trellis portal, completes any product-specific activation flow, and may trigger a privileged review step.
-4. Trellis returns connect info to the device and the activation completes.
+4. Trellis returns connect info to the device once deployment policy allows the presented digest.
 5. The device connects as its own principal using its derived device identity.
 
 The device root secret and derived identity seed never go over the wire and are not known by Trellis, which limits the risk of a stolen identity.
@@ -103,6 +103,7 @@ That activation-status check covers the normal device startup cases:
 1. already activated: connect immediately after fetching fresh connect info
 2. first online activation: return an activation URL and wait for approval
 3. first offline activation: accept a confirmation code from local user input
+4. pre-activation device-owned access: connect before activation only when the device deployment explicitly allows it
 
 For Deno devices, the activation helper hides local activation-state persistence
 internally so the same activation attempt can survive restart without the
@@ -122,8 +123,18 @@ Notes:
 - the `dev/<id>` reference names the admin-chosen deployment for this device line or rollout policy
 - `trellis deploy apply` accepts a contract source path, manifest, or image and stores the resolved digest in the deployment's allowed digest set
 - `--review-mode required` enables the device-review gate instead of immediate activation
+- device deployments default to `preActivationPolicy: "reject"`; only deployments explicitly configured as `"device-owned"` allow registered devices to connect before activation
 
 If the device deployment uses `--review-mode required`, portal completion does not activate the device immediately. Instead, a service or user with `trellis.auth::device.review` capabilities or an admin must first approve the activation.
+
+Pre-activation device-owned access is for devices that need deployment-owned
+runtime authority before a user delegates authority through activation. In that
+mode, `checkDeviceActivation(...)` can receive ready connect info for a
+registered device, and the returned connect info carries
+`auth.authority: "device_owned"`. After activation, the same device connects
+with `auth.authority: "user_delegated"`. Trellis keeps those authorities
+separate and does not create or mutate activation records for device-owned
+runtime sessions.
 
 An admin can approve a pending activation review using the CLI:
 
