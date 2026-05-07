@@ -114,6 +114,50 @@ Deno.test("startAuthRequest returns bound immediately when auth auto-approves", 
   }
 });
 
+Deno.test("startAuthRequest retries with full manifest only when auth requires it", async () => {
+  const originalFetch = globalThis.fetch;
+  const bodies: Array<Record<string, unknown>> = [];
+  try {
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      bodies.push(body);
+      if (bodies.length === 1) {
+        return new Response(JSON.stringify({ reason: "manifest_required" }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({
+        status: "flow_started",
+        flowId: "flow-digest",
+        loginUrl: "http://localhost:3000/auth/login?flowId=flow-digest",
+      }));
+    }) as typeof fetch;
+
+    const contract = {
+      format: "trellis.contract.v1",
+      id: "demo.app@v1",
+      displayName: "Demo App",
+      description: "Demo app contract.",
+      kind: "app",
+    } as const;
+    const response = await startAuthRequest({
+      authUrl: "http://localhost:3000",
+      redirectTo: "http://localhost:5173/profile",
+      handle: await createHandle(),
+      contract,
+    });
+
+    assertEquals(response.status, "flow_started");
+    assertEquals(bodies.length, 2);
+    assertEquals("contractDigest" in bodies[0], true);
+    assertEquals("contract" in bodies[0], false);
+    assertEquals(bodies[1].contract, contract);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("startAuthRequest omits scalar context from both request body and signature input", async () => {
   const originalFetch = globalThis.fetch;
   try {

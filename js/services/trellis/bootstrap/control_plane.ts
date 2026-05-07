@@ -60,6 +60,7 @@ export function startControlPlaneBackgroundTasks(opts: {
   contractApprovalStorage: SqlContractApprovalRepository;
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
+  deviceInstanceStorage: AuthRuntimeDeps["deviceInstanceStorage"];
   instanceGrantPolicyStorage: SqlInstanceGrantPolicyRepository;
   serviceDeploymentStorage: AuthRuntimeDeps["serviceDeploymentStorage"];
   serviceInstanceStorage: AuthRuntimeDeps["serviceInstanceStorage"];
@@ -90,6 +91,7 @@ export function startControlPlaneBackgroundTasks(opts: {
     connectionsKV: opts.connectionsKV,
     deviceActivationStorage: opts.deviceActivationStorage,
     deviceDeploymentStorage: opts.deviceDeploymentStorage,
+    deviceInstanceStorage: opts.deviceInstanceStorage,
     logger: opts.logger,
     natsAuth: opts.natsAuth,
     sessionStorage: opts.sessionStorage,

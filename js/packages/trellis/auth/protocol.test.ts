@@ -1,4 +1,4 @@
-import { assert, assertFalse } from "@std/assert";
+import { assert, assertEquals, assertFalse } from "@std/assert";
 import Value from "typebox/value";
 
 import {
@@ -22,6 +22,7 @@ import {
   AuthCreateDeviceDeploymentSchema,
   AuthCreatePortalResponseSchema,
   AuthCreatePortalSchema,
+  AuthCreateServiceDeploymentSchema,
   AuthDecideDeviceActivationReviewResponseSchema,
   AuthDecideDeviceActivationReviewSchema,
   AuthDeviceActivatedEventSchema,
@@ -158,9 +159,11 @@ Deno.test("deployment schemas split service resource bindings from device contra
   const serviceDeployment = {
     deploymentId: "billing.default",
     namespaces: ["billing"],
+    firstConnectPolicy: "reject",
     disabled: false,
     appliedContracts: [{
       contractId: "billing@v1",
+      compatibilityPolicy: "exact",
       allowedDigests: ["digest-a"],
       resourceBindingsByDigest: {
         "digest-a": {
@@ -172,9 +175,12 @@ Deno.test("deployment schemas split service resource bindings from device contra
   const deviceDeployment = {
     deploymentId: "reader.default",
     reviewMode: "none",
+    firstConnectPolicy: "reject",
+    preActivationPolicy: "reject",
     disabled: false,
     appliedContracts: [{
       contractId: "reader@v1",
+      compatibilityPolicy: "exact",
       allowedDigests: ["digest-a"],
       resourceBindingsByDigest: {
         "digest-a": {
@@ -186,6 +192,73 @@ Deno.test("deployment schemas split service resource bindings from device contra
 
   assert(Value.Check(ServiceDeploymentSchema, serviceDeployment));
   assertFalse(Value.Check(DeviceDeploymentSchema, deviceDeployment));
+});
+
+Deno.test("deployment schemas default explicit strict deployment policies", () => {
+  assertEquals(
+    Value.Decode(ServiceDeploymentSchema, {
+      deploymentId: "billing.default",
+      namespaces: ["billing"],
+      disabled: false,
+      appliedContracts: [{
+        contractId: "billing@v1",
+        allowedDigests: ["digest-a"],
+      }],
+    }),
+    {
+      deploymentId: "billing.default",
+      namespaces: ["billing"],
+      firstConnectPolicy: "reject",
+      disabled: false,
+      appliedContracts: [{
+        contractId: "billing@v1",
+        compatibilityPolicy: "exact",
+        allowedDigests: ["digest-a"],
+      }],
+    },
+  );
+  assertEquals(
+    Value.Decode(DeviceDeploymentSchema, {
+      deploymentId: "reader.default",
+      disabled: false,
+      appliedContracts: [{
+        contractId: "reader@v1",
+        allowedDigests: ["digest-a"],
+      }],
+    }),
+    {
+      deploymentId: "reader.default",
+      firstConnectPolicy: "reject",
+      preActivationPolicy: "reject",
+      disabled: false,
+      appliedContracts: [{
+        contractId: "reader@v1",
+        compatibilityPolicy: "exact",
+        allowedDigests: ["digest-a"],
+      }],
+    },
+  );
+});
+
+Deno.test("deployment policy schemas validate explicit policy values", () => {
+  assert(Value.Check(AuthCreateDeviceDeploymentSchema, {
+    deploymentId: "reader.default",
+    firstConnectPolicy: "quarantine",
+    preActivationPolicy: "device-owned",
+  }));
+  assert(Value.Check(AuthCreateServiceDeploymentSchema, {
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    firstConnectPolicy: "auto-accept-compatible",
+  }));
+  assertFalse(Value.Check(AuthCreateDeviceDeploymentSchema, {
+    deploymentId: "reader.default",
+    firstConnectPolicy: "allow",
+  }));
+  assertFalse(Value.Check(AuthCreateDeviceDeploymentSchema, {
+    deploymentId: "reader.default",
+    preActivationPolicy: "allow",
+  }));
 });
 
 Deno.test("PortalFlowStateSchema accepts returnLocation for restartable portal states", () => {
@@ -471,6 +544,8 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
     deployment: {
       deploymentId: "reader.default",
       reviewMode: "none",
+      firstConnectPolicy: "reject",
+      preActivationPolicy: "reject",
       disabled: false,
       appliedContracts: [],
     },
@@ -489,6 +564,8 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
       deployment: {
         deploymentId: "reader.default",
         reviewMode: "none",
+        firstConnectPolicy: "reject",
+        preActivationPolicy: "reject",
         disabled: true,
         appliedContracts: [],
       },
@@ -701,6 +778,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     },
     auth: {
       mode: "device_identity",
+      authority: "user_delegated",
       iatSkewSeconds: 30,
     },
   }));
@@ -724,6 +802,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     },
     auth: {
       mode: "device_identity",
+      authority: "device_owned",
       iatSkewSeconds: 30,
       tokenVersion: 2,
     },
@@ -836,6 +915,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
       },
       auth: {
         mode: "device_identity",
+        authority: "user_delegated",
         iatSkewSeconds: 30,
         tokenVersion: 2,
       },

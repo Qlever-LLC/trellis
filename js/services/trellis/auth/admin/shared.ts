@@ -6,6 +6,18 @@ import { sha256Base64urlSync } from "../../../../packages/trellis/contract_suppo
 
 type AppliedResourceBindings = Static<typeof ContractResourceBindingsSchema>;
 
+export type FirstConnectPolicy =
+  | "reject"
+  | "quarantine"
+  | "auto-accept-compatible";
+
+export type CompatibilityPolicy =
+  | "exact"
+  | "compatible-additive"
+  | "manual";
+
+export type DevicePreActivationPolicy = "reject" | "device-owned";
+
 export type Portal = {
   portalId: string;
   entryUrl: string;
@@ -64,18 +76,21 @@ export type DevicePortalSelection = {
 
 export type ServiceAppliedDeploymentContract = {
   contractId: string;
+  compatibilityPolicy?: CompatibilityPolicy;
   allowedDigests: string[];
   resourceBindingsByDigest?: Record<string, AppliedResourceBindings>;
 };
 
 export type DeviceAppliedDeploymentContract = {
   contractId: string;
+  compatibilityPolicy?: CompatibilityPolicy;
   allowedDigests: string[];
 };
 
 export type ServiceDeployment = {
   deploymentId: string;
   namespaces: string[];
+  firstConnectPolicy?: FirstConnectPolicy;
   disabled: boolean;
   appliedContracts: ServiceAppliedDeploymentContract[];
 };
@@ -102,6 +117,8 @@ export type InstalledServiceDeploymentContract = {
 export type DeviceDeployment = {
   deploymentId: string;
   reviewMode?: "none" | "required";
+  firstConnectPolicy?: FirstConnectPolicy;
+  preActivationPolicy?: DevicePreActivationPolicy;
   disabled: boolean;
   appliedContracts: DeviceAppliedDeploymentContract[];
 };
@@ -171,11 +188,14 @@ export type DevicePortalSelectionRequest = {
 export type CreateDeviceDeploymentRequest = {
   deploymentId: string;
   reviewMode?: "none" | "required";
+  firstConnectPolicy?: FirstConnectPolicy | string;
+  preActivationPolicy?: DevicePreActivationPolicy | string;
 };
 
 export type CreateServiceDeploymentRequest = {
   deploymentId: string;
   namespaces: string[];
+  firstConnectPolicy?: FirstConnectPolicy | string;
 };
 
 export type DeviceActivationActor = {
@@ -209,6 +229,26 @@ function invalidRequest(context?: Record<string, unknown>) {
   return Result.err(new AuthError({ reason: "invalid_request", context }));
 }
 
+export function isFirstConnectPolicy(
+  value: unknown,
+): value is FirstConnectPolicy {
+  return value === "reject" || value === "quarantine" ||
+    value === "auto-accept-compatible";
+}
+
+export function isCompatibilityPolicy(
+  value: unknown,
+): value is CompatibilityPolicy {
+  return value === "exact" || value === "compatible-additive" ||
+    value === "manual";
+}
+
+export function isDevicePreActivationPolicy(
+  value: unknown,
+): value is DevicePreActivationPolicy {
+  return value === "reject" || value === "device-owned";
+}
+
 function isAllowedWebProtocol(url: URL): boolean {
   return url.protocol === "https:" || url.protocol === "http:";
 }
@@ -239,6 +279,7 @@ export function normalizeAppliedContracts(
     {
       digests: Set<string>;
       resourceBindingsByDigest: Map<string, AppliedResourceBindings>;
+      compatibilityPolicy: CompatibilityPolicy;
     }
   >();
   for (const value of values) {
@@ -246,7 +287,9 @@ export function normalizeAppliedContracts(
     const entry = byId.get(value.contractId) ?? {
       digests: new Set<string>(),
       resourceBindingsByDigest: new Map<string, AppliedResourceBindings>(),
+      compatibilityPolicy: "exact" as CompatibilityPolicy,
     };
+    entry.compatibilityPolicy = value.compatibilityPolicy ?? "exact";
     const allowedDigests = normalizeStringList(value.allowedDigests ?? []);
     for (const digest of allowedDigests) {
       entry.digests.add(digest);
@@ -268,6 +311,7 @@ export function normalizeAppliedContracts(
     .map(([contractId, entry]) => {
       const applied: ServiceAppliedDeploymentContract = {
         contractId,
+        compatibilityPolicy: entry.compatibilityPolicy,
         allowedDigests: [...entry.digests].sort((left, right) =>
           left.localeCompare(right)
         ),
@@ -288,20 +332,28 @@ export function normalizeAppliedContracts(
 export function normalizeDeviceAppliedContracts(
   values: DeviceAppliedDeploymentContract[],
 ): DeviceAppliedDeploymentContract[] {
-  const byId = new Map<string, Set<string>>();
+  const byId = new Map<
+    string,
+    { digests: Set<string>; compatibilityPolicy: CompatibilityPolicy }
+  >();
   for (const value of values) {
     if (!value.contractId) continue;
-    const digests = byId.get(value.contractId) ?? new Set<string>();
+    const entry = byId.get(value.contractId) ?? {
+      digests: new Set<string>(),
+      compatibilityPolicy: "exact" as CompatibilityPolicy,
+    };
+    entry.compatibilityPolicy = value.compatibilityPolicy ?? "exact";
     for (const digest of normalizeStringList(value.allowedDigests ?? [])) {
-      digests.add(digest);
+      entry.digests.add(digest);
     }
-    byId.set(value.contractId, digests);
+    byId.set(value.contractId, entry);
   }
   return [...byId.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([contractId, digests]) => ({
+    .map(([contractId, entry]) => ({
       contractId,
-      allowedDigests: [...digests].sort((left, right) =>
+      compatibilityPolicy: entry.compatibilityPolicy,
+      allowedDigests: [...entry.digests].sort((left, right) =>
         left.localeCompare(right)
       ),
     }));
@@ -311,7 +363,10 @@ export function normalizeDeviceAppliedContracts(
 export function applyInstalledServiceDeploymentContract(
   deployment: ServiceDeployment,
   installed: InstalledServiceDeploymentContract,
-  options?: { replaceExisting?: boolean },
+  options?: {
+    compatibilityPolicy?: CompatibilityPolicy;
+    replaceExisting?: boolean;
+  },
 ): ServiceDeployment {
   const existingContracts = options?.replaceExisting
     ? deployment.appliedContracts.filter((applied) =>
@@ -328,6 +383,7 @@ export function applyInstalledServiceDeploymentContract(
       ...existingContracts,
       {
         contractId: installed.id,
+        compatibilityPolicy: options?.compatibilityPolicy ?? "exact",
         allowedDigests: [installed.digest],
         ...(installed.resourceBindings !== undefined
           ? {
@@ -502,10 +558,20 @@ export function validateDeviceDeploymentRequest(
   if (!req.deploymentId) {
     return invalidRequest({ deploymentId: req.deploymentId });
   }
+  const firstConnectPolicy = req.firstConnectPolicy ?? "reject";
+  if (!isFirstConnectPolicy(firstConnectPolicy)) {
+    return invalidRequest({ firstConnectPolicy: req.firstConnectPolicy });
+  }
+  const preActivationPolicy = req.preActivationPolicy ?? "reject";
+  if (!isDevicePreActivationPolicy(preActivationPolicy)) {
+    return invalidRequest({ preActivationPolicy: req.preActivationPolicy });
+  }
   return Result.ok({
     deployment: {
       deploymentId: req.deploymentId,
       reviewMode: req.reviewMode,
+      firstConnectPolicy,
+      preActivationPolicy,
       disabled: false,
       appliedContracts: [],
     } as DeviceDeployment,
@@ -518,10 +584,15 @@ export function validateServiceDeploymentRequest(
   if (!req.deploymentId) {
     return invalidRequest({ deploymentId: req.deploymentId });
   }
+  const firstConnectPolicy = req.firstConnectPolicy ?? "reject";
+  if (!isFirstConnectPolicy(firstConnectPolicy)) {
+    return invalidRequest({ firstConnectPolicy: req.firstConnectPolicy });
+  }
   return Result.ok({
     deployment: {
       deploymentId: req.deploymentId,
       namespaces: normalizeStringList(req.namespaces ?? []),
+      firstConnectPolicy,
       disabled: false,
       appliedContracts: [],
     } as ServiceDeployment,

@@ -31,6 +31,7 @@ const config: Config = {
   },
   nats: {
     servers: "nats://127.0.0.1:4222",
+    jetstream: { replicas: 1 },
     trellis: { credsPath: "" },
     auth: { credsPath: "" },
     sentinelCredsPath: "",

@@ -2322,6 +2322,23 @@ function projectDigestUsesFlat(
   );
 }
 
+function omitRequiredUseAliases<TUse>(
+  optional: Record<string, TUse> | undefined,
+  required: Record<string, TUse> | undefined,
+): Record<string, TUse> | undefined {
+  if (!optional) {
+    return undefined;
+  }
+  if (!required) {
+    return optional;
+  }
+  const requiredAliases = new Set(Object.keys(required));
+  const entries = Object.entries(optional).filter(([alias]) =>
+    !requiredAliases.has(alias)
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 function projectDigestUses(
   uses: ContractUses | undefined,
 ): ContractUses | undefined {
@@ -2333,7 +2350,10 @@ function projectDigestUses(
   }
 
   const required = projectDigestUsesFlat(uses.required);
-  const optional = projectDigestUsesFlat(uses.optional);
+  const optional = omitRequiredUseAliases(
+    projectDigestUsesFlat(uses.optional),
+    required,
+  );
   if (!optional) {
     return required;
   }
@@ -2798,7 +2818,10 @@ function emitUses(
   }
 
   const required = emitUsesFlat(uses.required);
-  const optional = emitUsesFlat(uses.optional);
+  const optional = omitRequiredUseAliases(
+    emitUsesFlat(uses.optional),
+    required,
+  );
   if (!required && !optional) {
     return undefined;
   }
@@ -3729,7 +3752,9 @@ function normalizeUses(
   }
 
   const required = normalizeUseEntries(uses.required);
-  const optional = normalizeUseEntries(uses.optional);
+  const optional = normalizeUseEntries(
+    omitRequiredUseAliases(uses.optional, uses.required),
+  );
   const usedApi = emptyApi();
   mergeUseIntoApi(usedApi, required.usedApi);
   mergeUseIntoApi(usedApi, optional.usedApi);

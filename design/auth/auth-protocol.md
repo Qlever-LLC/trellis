@@ -147,18 +147,25 @@ CASE: SERVICE CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - compute inboxPrefix
 - derive permissions from the exact current service contract state and issue JWT
 
-CASE: ACTIVATED DEVICE CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
+CASE: DEVICE CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - reject if abs(now - iat) > 30s
 - verify sig = sign(hash("nats-connect:" + iat + ":" + contractDigest))
 - if sessionKey matches an installed device, follow the installed-device path instead
-- otherwise resolve the activated device instance by public identity key
+- otherwise resolve the device instance by public identity key
 - require the presented `contractDigest` to match an allowed digest on the device deployment
-- reject if the device is unknown, revoked, or its deployment is missing or disabled
-- create or refresh an activated-device session keyed by `sessionKey`
-- record `activatedAt` on the first successful runtime auth
+- reject if the device is unknown, disabled, revoked, or its deployment is
+  missing or disabled
+- if an activation record exists, require it to be activated and not revoked;
+  this produces user-delegated device authority
+- if no activation record exists, require the instance to still be registered and
+  the deployment to set `preActivationPolicy: "device-owned"`; this produces
+  device-owned authority and MUST NOT create or mutate an activation record
+- create or refresh a device session keyed by `sessionKey`
+- preserve `activatedAt` from the activation record for user-delegated device
+  authority; pre-activation device-owned sessions keep `activatedAt: null`
 - compute inboxPrefix
 - derive permissions from the active device deployment and issue JWT
-- do not emit `events.v1.Auth.Connect` for activated-device sessions
+- do not emit `events.v1.Auth.Connect` for device sessions
 ```
 
 ## Server-Relative Time

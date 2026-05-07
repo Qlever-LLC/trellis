@@ -333,6 +333,70 @@ Deno.test("feed-only uses grant feed request publish without raw event subscribe
   });
 });
 
+Deno.test("required grouped uses take precedence over duplicate optional aliases", () => {
+  const feedService = contractForTest({
+    format: "trellis.contract.v1",
+    id: "feed-service@v1",
+    displayName: "Feed Service",
+    description: "Expose RPC and feed surfaces.",
+    kind: "service",
+    schemas: {
+      Empty: { type: "object" },
+      Event: { type: "object" },
+    },
+    rpc: {
+      "Device.Read": {
+        version: "v1",
+        subject: "rpc.v1.Device.Read",
+        input: { schema: "Empty" },
+        output: { schema: "Empty" },
+        capabilities: { call: ["devices:read"] },
+      },
+    },
+    feeds: {
+      "Device.Events": {
+        version: "v1",
+        subject: "feeds.v1.Device.Events",
+        input: { schema: "Empty" },
+        event: { schema: "Event" },
+        capabilities: { subscribe: ["devices:read"] },
+      },
+    },
+  });
+  const feedApp = contractForTest({
+    format: "trellis.contract.v1",
+    id: "feed-app@v1",
+    displayName: "Feed App",
+    description: "Duplicates one alias across required and optional uses.",
+    kind: "app",
+    uses: {
+      required: {
+        feedService: {
+          contract: "feed-service@v1",
+          rpc: { call: ["Device.Read"] },
+        },
+      },
+      optional: {
+        feedService: {
+          contract: "feed-service@v1",
+          feeds: { subscribe: ["Device.Events"] },
+        },
+      },
+    },
+  });
+
+  withContracts([
+    { digest: "feed-service-digest", contract: feedService },
+    { digest: "feed-app-digest", contract: feedApp },
+  ], () => {
+    const caller = { contractDigest: "feed-app-digest" };
+    const publishSubjects = getUserPublishSubjects(["devices:read"], caller);
+
+    assertEquals(publishSubjects.includes("rpc.v1.Device.Read"), true);
+    assertEquals(publishSubjects.includes("feeds.v1.Device.Events"), false);
+  });
+});
+
 Deno.test("optional feed uses grant only resolved active feed request subjects", () => {
   const feedService = contractForTest({
     format: "trellis.contract.v1",

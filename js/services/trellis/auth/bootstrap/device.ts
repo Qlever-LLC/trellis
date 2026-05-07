@@ -39,6 +39,7 @@ type DeviceDeployment = {
   deploymentId: string;
   appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   reviewMode?: "none" | "required";
+  preActivationPolicy?: "reject" | "device-owned";
   disabled: boolean;
 };
 
@@ -68,6 +69,7 @@ type DeviceConnectInfo = {
   };
   auth: {
     mode: "device_identity";
+    authority: "device_owned" | "user_delegated";
     iatSkewSeconds: number;
   };
 };
@@ -107,6 +109,7 @@ function buildDeviceConnectInfo(args: {
   instance: DeviceInstance;
   deployment: DeviceDeployment;
   contractDigest: string;
+  authority: "device_owned" | "user_delegated";
   transports: {
     native?: { natsServers: string[] };
     websocket?: { natsServers: string[] };
@@ -134,6 +137,7 @@ function buildDeviceConnectInfo(args: {
     },
     auth: {
       mode: "device_identity",
+      authority: args.authority,
       iatSkewSeconds: 30,
     },
   };
@@ -148,15 +152,42 @@ export async function resolveDeviceConnectInfo(
   if (!instance) {
     return { status: "activation_required" };
   }
-  if (instance.state === "disabled") {
+  if (instance.state === "disabled" || instance.state === "revoked") {
     return { status: "not_ready", reason: "device_disabled" };
   }
 
   const activation = await deps.loadDeviceActivation(instanceId);
   if (!activation) {
-    return { status: "activation_required" };
+    if (instance.state !== "registered") {
+      return { status: "activation_required" };
+    }
+    const deployment = await deps.loadDeviceDeployment(instance.deploymentId);
+    if (!deployment || deployment.disabled) {
+      return { status: "not_ready", reason: "device_deployment_not_found" };
+    }
+    if (deployment.preActivationPolicy !== "device-owned") {
+      return { status: "activation_required" };
+    }
+    const connectInfo = buildDeviceConnectInfo({
+      instance,
+      deployment,
+      contractDigest: input.contractDigest,
+      authority: "device_owned",
+      transports: deps.transports,
+      sentinel: deps.sentinel,
+    });
+    if (!connectInfo) {
+      return { status: "not_ready", reason: "contract_digest_not_allowed" };
+    }
+    return { status: "ready", connectInfo };
   }
   if (activation.state === "revoked") {
+    return { status: "not_ready", reason: "device_activation_revoked" };
+  }
+  if (
+    activation.publicIdentityKey !== instance.publicIdentityKey ||
+    activation.deploymentId !== instance.deploymentId
+  ) {
     return { status: "not_ready", reason: "device_activation_revoked" };
   }
 
@@ -169,6 +200,7 @@ export async function resolveDeviceConnectInfo(
     instance,
     deployment,
     contractDigest: input.contractDigest,
+    authority: "user_delegated",
     transports: deps.transports,
     sentinel: deps.sentinel,
   });

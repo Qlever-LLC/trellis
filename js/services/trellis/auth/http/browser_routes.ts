@@ -37,7 +37,8 @@ const AuthStartRequestSchema = Type.Object({
   redirectTo: Type.String(),
   sessionKey: SessionKeySchema,
   sig: SignatureSchema,
-  contract: JsonObjectSchema,
+  contractDigest: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]+$" })),
+  contract: Type.Optional(JsonObjectSchema),
   context: Type.Optional(JsonObjectSchema),
 });
 
@@ -77,6 +78,44 @@ export function registerBrowserAuthRoutes(
         throw error;
       }
     },
+    resolveContract: async (req) => {
+      if (!req.contractDigest) {
+        throw new HTTPException(400, { message: "contract is required" });
+      }
+
+      const known = opts.contractStore.getKnownContract(req.contractDigest);
+      if (known && req.contract === undefined) {
+        return known;
+      }
+      if (req.contract === undefined) {
+        throw new HTTPException(409, { message: "manifest_required" });
+      }
+
+      let validated;
+      try {
+        validated = await opts.contractStore.validate(req.contract);
+      } catch (error) {
+        logger.warn({ error }, "Unable to validate app auth contract manifest");
+        throw new HTTPException(409, { message: "invalid_manifest" });
+      }
+      if (validated.digest !== req.contractDigest) {
+        throw new HTTPException(409, { message: "contract_digest_mismatch" });
+      }
+
+      const existingContract = await opts.contractStorage.get(validated.digest);
+      if (!existingContract) {
+        await opts.contractStorage.put({
+          digest: validated.digest,
+          id: validated.contract.id,
+          displayName: validated.contract.displayName,
+          description: validated.contract.description,
+          installedAt: new Date(),
+          contract: validated.canonical,
+        });
+      }
+      opts.contractStore.add(validated.digest, validated.contract);
+      return validated.contract;
+    },
     bindApprovedSession: (args) => context.bindResolvedUserSession(args),
     createFlow: context.createFlowStartResponse,
   });
@@ -114,7 +153,10 @@ export function registerBrowserAuthRoutes(
         redirectTo: redirectToResult.value,
         sessionKey: request.sessionKey,
         sig: request.sig,
-        contract: request.contract,
+        ...(request.contractDigest
+          ? { contractDigest: request.contractDigest }
+          : {}),
+        ...(request.contract ? { contract: request.contract } : {}),
         ...(request.context ? { context: request.context } : {}),
       }, {
         authUrl: new URL(c.req.url).origin,

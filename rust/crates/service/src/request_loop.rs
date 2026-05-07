@@ -37,6 +37,7 @@ pub enum HandlerResponse {
     Frames(Vec<Bytes>),
     Error(Bytes),
     Stream(ResponseStream),
+    FeedStream(ResponseStream),
 }
 
 /// Async request handler trait used by host request loops.
@@ -59,6 +60,13 @@ pub trait RequestHandler: Send + Sync {
                 HandlerResponse::Frames(frames) => Ok(frames),
                 HandlerResponse::Error(payload) => Ok(vec![payload]),
                 HandlerResponse::Stream(mut stream) => {
+                    let mut frames = Vec::new();
+                    while let Some(frame) = stream.next().await {
+                        frames.push(frame?);
+                    }
+                    Ok(frames)
+                }
+                HandlerResponse::FeedStream(mut stream) => {
                     let mut frames = Vec::new();
                     while let Some(frame) = stream.next().await {
                         frames.push(frame?);
@@ -168,11 +176,12 @@ pub fn decode_nats_request(message: &async_nats::Message) -> InboundRequest {
     InboundRequest {
         subject: subject.clone(),
         payload: message.payload.clone(),
-        reply_to,
+        reply_to: reply_to.clone(),
         context: RequestContext {
             subject,
             session_key,
             proof,
+            reply_to: reply_to.clone(),
         },
     }
 }
@@ -394,6 +403,38 @@ async fn publish_response(
                 }
             }
         },
+        HandlerResponse::FeedStream(mut stream) => {
+            let mut headers = HeaderMap::new();
+            headers.insert("feed-status", "ready");
+            client
+                .publish_with_headers(reply_to.clone(), headers, Bytes::new())
+                .await
+                .map_err(|error| ServerError::Nats(error.to_string()))?;
+            flush_replies(client).await?;
+
+            loop {
+                let frame = AssertUnwindSafe(stream.next()).catch_unwind().await;
+                match frame {
+                    Ok(Some(Ok(payload))) => {
+                        publish_reply(client, encode_success_reply(reply_to.clone(), payload))
+                            .await?;
+                        flush_replies(client).await?;
+                    }
+                    Ok(Some(Err(error))) => {
+                        publish_reply(client, encode_error_reply(reply_to.clone(), &error)).await?;
+                        flush_replies(client).await?;
+                        break;
+                    }
+                    Ok(None) => break,
+                    Err(panic) => {
+                        let error = panic_to_server_error(panic);
+                        publish_reply(client, encode_error_reply(reply_to.clone(), &error)).await?;
+                        flush_replies(client).await?;
+                        break;
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }

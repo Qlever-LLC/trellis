@@ -1140,7 +1140,7 @@ Deno.test("grouped optional uses normalize selectors and affect digest", () => {
         dependency: dependency.use({ rpc: { call: ["Dependency.Read"] } }),
       },
       optional: {
-        dependency: dependency.use({
+        optionalDependency: dependency.use({
           events: {
             subscribe: ["Dependency.Changed", "Dependency.Changed"],
           },
@@ -1161,7 +1161,7 @@ Deno.test("grouped optional uses normalize selectors and affect digest", () => {
       health: baselineHealthUse(),
     },
     optional: {
-      dependency: {
+      optionalDependency: {
         contract: "grouped.optional-dependency@v1",
         events: { subscribe: ["Dependency.Changed"] },
         feeds: { subscribe: ["Dependency.Changes"] },
@@ -1173,6 +1173,64 @@ Deno.test("grouped optional uses normalize selectors and affect digest", () => {
     "feeds.v1.Dependency.Changes",
   );
   assertNotEquals(requiredOnly.CONTRACT_DIGEST, withOptional.CONTRACT_DIGEST);
+});
+
+Deno.test("grouped required uses take precedence over duplicate optional aliases", () => {
+  const dependency = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "grouped.duplicate-dependency@v1",
+      displayName: "Grouped Duplicate Dependency",
+      description: "Expose dependency surfaces for duplicate grouped uses.",
+      rpc: {
+        "Dependency.Read": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("StringValue"),
+        },
+      },
+      events: {
+        "Dependency.Changed": {
+          version: "v1",
+          event: ref.schema("StringValue"),
+        },
+      },
+    }),
+  );
+
+  const requiredOnly = defineServiceContract({}, () => ({
+    id: "grouped.duplicate@v1",
+    displayName: "Grouped Duplicate",
+    description: "Declare required uses.",
+    uses: {
+      required: {
+        dependency: dependency.use({ rpc: { call: ["Dependency.Read"] } }),
+      },
+    },
+  }));
+
+  const duplicateOptional = defineServiceContract({}, () => ({
+    id: "grouped.duplicate@v1",
+    displayName: "Grouped Duplicate",
+    description: "Declare duplicate optional uses.",
+    uses: {
+      required: {
+        dependency: dependency.use({ rpc: { call: ["Dependency.Read"] } }),
+      },
+      optional: {
+        dependency: dependency.use({
+          events: { subscribe: ["Dependency.Changed"] },
+        }),
+      },
+    },
+  }));
+
+  assertEquals(duplicateOptional.CONTRACT.uses, requiredOnly.CONTRACT.uses);
+  assertEquals(duplicateOptional.CONTRACT_DIGEST, requiredOnly.CONTRACT_DIGEST);
+  assertEquals(
+    Object.hasOwn(duplicateOptional.API.used.events, "Dependency.Changed"),
+    false,
+  );
 });
 
 Deno.test("contract digest normalizes RPC error order and duplicates", () => {

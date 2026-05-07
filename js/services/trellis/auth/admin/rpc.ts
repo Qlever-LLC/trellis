@@ -8,11 +8,13 @@ import {
 
 import type { AuthLogger, RuntimeKV } from "../runtime_deps.ts";
 import {
+  type CompatibilityPolicy,
   type DeviceActivationReview,
   type DeviceDeployment,
   type DeviceInstance,
   type DevicePortalSelection,
   type DeviceProvisioningSecret,
+  isCompatibilityPolicy,
   normalizeDeviceAppliedContracts,
   type ProvisionDeviceInstanceRequest,
   validateDeviceDeploymentRequest,
@@ -22,7 +24,6 @@ import { deriveDeviceConfirmationCode } from "@qlever-llc/trellis/auth";
 import type { Connection, InstanceGrantPolicy } from "../schemas.ts";
 import type {
   SqlContractApprovalRepository,
-  SqlDeviceDeploymentRepository,
   SqlDeviceProvisioningSecretRepository,
   SqlInstanceGrantPolicyRepository,
   SqlLoginPortalSelectionRepository,
@@ -156,10 +157,12 @@ export type AdminRpcDeps = {
     delete(instanceId: string): Promise<void>;
     list(): Promise<DeviceActivation[]>;
   };
-  deviceDeploymentStorage: Pick<
-    SqlDeviceDeploymentRepository,
-    "get" | "put" | "delete" | "list"
-  >;
+  deviceDeploymentStorage: {
+    get(deploymentId: string): Promise<DeviceDeployment | undefined>;
+    put(record: DeviceDeployment): Promise<void>;
+    delete(deploymentId: string): Promise<void>;
+    list(): Promise<DeviceDeployment[]>;
+  };
   deviceInstanceStorage: {
     get(instanceId: string): Promise<DeviceInstance | undefined>;
     put(record: DeviceInstance): Promise<void>;
@@ -666,6 +669,7 @@ export function createAuthApplyDeviceDeploymentContractHandler(deps: {
         deploymentId: string;
         contract: unknown;
         expectedDigest: string;
+        compatibilityPolicy?: CompatibilityPolicy | string;
         replaceExisting?: boolean;
       };
       context: { caller: RpcUser };
@@ -678,6 +682,13 @@ export function createAuthApplyDeviceDeploymentContractHandler(deps: {
       return invalidRequest({
         deploymentId: req.deploymentId,
         reason: "device_deployment_not_found",
+      });
+    }
+    const compatibilityPolicy = req.compatibilityPolicy ?? "exact";
+    if (!isCompatibilityPolicy(compatibilityPolicy)) {
+      return invalidRequest({
+        compatibilityPolicy: req.compatibilityPolicy,
+        reason: "invalid_compatibility_policy",
       });
     }
     let installed;
@@ -706,7 +717,11 @@ export function createAuthApplyDeviceDeploymentContractHandler(deps: {
             applied.contractId !== installed.id
           )
           : deployment.appliedContracts),
-        { contractId: installed.id, allowedDigests: [installed.digest] },
+        {
+          contractId: installed.id,
+          compatibilityPolicy,
+          allowedDigests: [installed.digest],
+        },
       ]),
     };
     try {

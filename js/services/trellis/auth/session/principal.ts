@@ -81,11 +81,22 @@ export async function resolveSessionPrincipal(
         } | undefined
       >;
     };
+    deviceInstanceStorage?: {
+      get(instanceId: string): Promise<
+        {
+          instanceId: string;
+          publicIdentityKey: string;
+          deploymentId: string;
+          state: string;
+        } | undefined
+      >;
+    };
     deviceDeploymentStorage?: {
       get(deploymentId: string): Promise<
         {
           deploymentId: string;
           disabled: boolean;
+          preActivationPolicy?: "reject" | "device-owned";
         } | undefined
       >;
     };
@@ -146,11 +157,83 @@ export async function resolveSessionPrincipal(
       session.instanceId,
     );
     if (!activation) {
+      const instance = await deps.deviceInstanceStorage?.get(
+        session.instanceId,
+      );
+      if (
+        !instance ||
+        instance.publicIdentityKey !== session.publicIdentityKey ||
+        instance.deploymentId !== session.deploymentId ||
+        instance.state !== "registered" ||
+        session.revokedAt !== null
+      ) {
+        return {
+          ok: false,
+          error: {
+            reason: "unknown_device",
+            context: { instanceId: session.instanceId },
+          },
+        };
+      }
+
+      const deployment = await deps.deviceDeploymentStorage?.get(
+        instance.deploymentId,
+      );
+      if (!deployment) {
+        return {
+          ok: false,
+          error: {
+            reason: "device_deployment_not_found",
+            context: { deploymentId: instance.deploymentId },
+          },
+        };
+      }
+      if (deployment.disabled) {
+        return {
+          ok: false,
+          error: {
+            reason: "device_deployment_disabled",
+            context: { deploymentId: deployment.deploymentId },
+          },
+        };
+      }
+      if (deployment.preActivationPolicy !== "device-owned") {
+        return {
+          ok: false,
+          error: {
+            reason: "unknown_device",
+            context: { instanceId: session.instanceId },
+          },
+        };
+      }
+
+      return {
+        ok: true,
+        value: {
+          active: true,
+          capabilities: session.delegatedCapabilities,
+          email: `device:${session.instanceId}`,
+          name: session.instanceId,
+        },
+      };
+    }
+
+    const instance = await deps.deviceInstanceStorage?.get(session.instanceId);
+    if (
+      !instance ||
+      instance.publicIdentityKey !== session.publicIdentityKey ||
+      instance.deploymentId !== session.deploymentId ||
+      instance.state === "disabled" ||
+      instance.state === "revoked"
+    ) {
       return {
         ok: false,
         error: {
-          reason: "unknown_device",
-          context: { instanceId: session.instanceId },
+          reason: "device_activation_revoked",
+          context: {
+            instanceId: session.instanceId,
+            deploymentId: instance?.deploymentId ?? session.deploymentId,
+          },
         },
       };
     }

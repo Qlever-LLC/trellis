@@ -589,6 +589,7 @@ fn transfer_request_context(message: &async_nats::Message) -> RequestContext {
         session_key: optional_header(message.headers.as_ref(), "session-key")
             .map(ToString::to_string),
         proof: optional_header(message.headers.as_ref(), "proof").map(ToString::to_string),
+        reply_to: message.reply.as_ref().map(ToString::to_string),
     }
 }
 
@@ -997,6 +998,7 @@ mod tests {
             subject: "transfer.v1.upload.session.transfer-1".to_string(),
             session_key: Some("wrong-session".to_string()),
             proof: Some("proof".to_string()),
+            reply_to: None,
         };
 
         let error = validate_transfer_request(
@@ -1028,6 +1030,7 @@ mod tests {
             subject: "transfer.v1.upload.session.transfer-1".to_string(),
             session_key: Some("wrong-session".to_string()),
             proof: None,
+            reply_to: None,
         };
 
         let error = validate_transfer_request(
@@ -1055,6 +1058,7 @@ mod tests {
             subject: "transfer.v1.download.session.transfer-1".to_string(),
             session_key: Some("expected-session".to_string()),
             proof: Some("proof".to_string()),
+            reply_to: None,
         };
 
         let error = validate_transfer_request(

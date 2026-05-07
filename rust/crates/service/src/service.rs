@@ -67,6 +67,8 @@ where
             });
         }
 
+        validate_reply_inbox(subject, &session_key, context.reply_to.as_deref())?;
+
         self.router.handle_request(subject, payload, context).await
     }
 
@@ -102,6 +104,8 @@ where
                 session_key,
             });
         }
+
+        validate_reply_inbox(subject, &session_key, context.reply_to.as_deref())?;
 
         self.router
             .handle_request_frames(subject, payload, context)
@@ -141,8 +145,30 @@ where
             });
         }
 
+        validate_reply_inbox(subject, &session_key, context.reply_to.as_deref())?;
+
         self.router
             .handle_request_response(subject, payload, context)
             .await
     }
+}
+
+fn validate_reply_inbox(
+    subject: &str,
+    session_key: &str,
+    reply_to: Option<&str>,
+) -> Result<(), ServerError> {
+    let Some(reply_to) = reply_to else {
+        return Ok(());
+    };
+    let prefix = format!("_INBOX.{}", &session_key[..16.min(session_key.len())]);
+    if reply_to == prefix || reply_to.starts_with(&format!("{prefix}.")) {
+        return Ok(());
+    }
+
+    Err(ServerError::ReplyInboxMismatch {
+        subject: subject.to_string(),
+        session_key: session_key.to_string(),
+        reply_to: reply_to.to_string(),
+    })
 }

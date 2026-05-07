@@ -27,7 +27,7 @@ pub use connected::{
     AuthenticatedServiceConnectOptions, ConnectServiceError, ConnectedService,
     ConnectedServiceHostWithValidator, ConnectedServiceParts, SingleSubjectServiceRunner,
 };
-pub use descriptor::{EventDescriptor, RpcDescriptor};
+pub use descriptor::{EventDescriptor, FeedDescriptor, RpcDescriptor};
 pub use error::{HandlerResult, ServerError};
 pub use health::{HealthCheck, HealthReport};
 pub use operations::{

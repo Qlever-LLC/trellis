@@ -112,7 +112,8 @@ export const AuthStartRequestSchema = Type.Object({
   redirectTo: Type.String(),
   sessionKey: SessionKeySchema,
   sig: SignatureSchema,
-  contract: OpenObjectSchema,
+  contractDigest: Type.Optional(ContractDigestSchema),
+  contract: Type.Optional(OpenObjectSchema),
   context: Type.Optional(OpenObjectSchema),
 }, { additionalProperties: false });
 

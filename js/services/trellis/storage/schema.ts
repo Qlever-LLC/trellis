@@ -128,6 +128,9 @@ export const serviceDeployments = sqliteTable(
     id: text("id").primaryKey().$defaultFn(() => ulid()),
     deploymentId: text("deployment_id").notNull().unique(),
     namespaces: text("namespaces").notNull(),
+    firstConnectPolicy: text("first_connect_policy").notNull().default(
+      "reject",
+    ),
     disabled: integer("disabled", { mode: "boolean" }).notNull(),
     appliedContracts: text("applied_contracts").notNull(),
   },
@@ -155,6 +158,12 @@ export const deviceDeployments = sqliteTable(
     id: text("id").primaryKey().$defaultFn(() => ulid()),
     deploymentId: text("deployment_id").notNull().unique(),
     reviewMode: text("review_mode"),
+    firstConnectPolicy: text("first_connect_policy").notNull().default(
+      "reject",
+    ),
+    preActivationPolicy: text("pre_activation_policy").notNull().default(
+      "reject",
+    ),
     disabled: integer("disabled", { mode: "boolean" }).notNull(),
     appliedContracts: text("applied_contracts").notNull(),
   },

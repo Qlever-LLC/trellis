@@ -33,6 +33,7 @@ import type {
   Connection,
   DeviceActivationRecordSchema,
   DeviceDeploymentSchema,
+  DeviceSchema,
   Session,
 } from "../schemas.ts";
 import type {
@@ -70,6 +71,7 @@ type DeviceActivationRecord =
     activatedBy?: { origin: string; id: string };
   };
 type DeviceDeployment = StaticDecode<typeof DeviceDeploymentSchema>;
+type DeviceInstance = StaticDecode<typeof DeviceSchema>;
 type ParsedNatsAuthToken = StaticDecode<typeof NatsAuthTokenV1Schema>;
 type AuthCalloutDenialCode =
   | "auth_token_required"
@@ -206,6 +208,13 @@ function extractClientIp(natsReq: NatsAuthRequest): string | undefined {
 }
 
 type DeviceRuntimeGrant = DeviceRuntimeAccess & {
+  authority: "device_owned" | "user_delegated";
+  instance: {
+    instanceId: string;
+    publicIdentityKey: string;
+    deploymentId: string;
+    state: "registered" | "activated" | "revoked" | "disabled";
+  };
   activation: {
     instanceId: string;
     publicIdentityKey: string;
@@ -214,7 +223,7 @@ type DeviceRuntimeGrant = DeviceRuntimeAccess & {
     state: "activated" | "revoked";
     activatedAt: string | null;
     revokedAt: string | null;
-  };
+  } | null;
   deployment: {
     deploymentId: string;
     appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
@@ -238,9 +247,23 @@ type ServiceRuntimeLoaders = {
 };
 
 type DeviceRuntimeGrantDeps = {
+  deviceInstanceStorage: {
+    get(instanceId: string): Promise<DeviceInstance | undefined>;
+  };
   deviceActivationStorage: Pick<SqlDeviceActivationRepository, "get" | "put">;
   deviceDeploymentStorage: Pick<SqlDeviceDeploymentRepository, "get">;
 };
+
+async function findDeviceInstanceByIdentityKey(
+  deps: Pick<DeviceRuntimeGrantDeps, "deviceInstanceStorage">,
+  publicIdentityKey: string,
+): Promise<DeviceInstance | null> {
+  const instance = await deps.deviceInstanceStorage.get(
+    deviceInstanceId(publicIdentityKey),
+  );
+  if (!instance) return null;
+  return instance.publicIdentityKey === publicIdentityKey ? instance : null;
+}
 
 async function findDeviceActivationByIdentityKey(
   deps: Pick<DeviceRuntimeGrantDeps, "deviceActivationStorage">,
@@ -256,31 +279,57 @@ async function findDeviceActivationByIdentityKey(
 async function resolveDeviceRuntimeGrant(
   deps: DeviceRuntimeGrantDeps,
   publicIdentityKey: string,
-  contractStorage: SqlContractStorageRepository,
+  contractStorage: Pick<SqlContractStorageRepository, "get">,
   contractDigest?: string,
   contractStore?: ContractStore,
 ): Promise<AuthCalloutStageResult<DeviceRuntimeGrant>> {
+  const instance = await findDeviceInstanceByIdentityKey(
+    deps,
+    publicIdentityKey,
+  );
+  if (!instance) return stageDeny("unknown_device");
+  if (instance.state === "disabled" || instance.state === "revoked") {
+    return stageDeny("unknown_device");
+  }
+
   const activation = await findDeviceActivationByIdentityKey(
     deps,
     publicIdentityKey,
   );
-  if (!activation) return stageDeny("unknown_device");
-  if (activation.state !== "activated" || activation.revokedAt !== null) {
+  if (
+    activation &&
+    (activation.state !== "activated" || activation.revokedAt !== null)
+  ) {
     return stageDeny("device_activation_revoked");
+  }
+  if (
+    activation &&
+    (activation.publicIdentityKey !== instance.publicIdentityKey ||
+      activation.deploymentId !== instance.deploymentId)
+  ) {
+    return stageDeny("device_activation_revoked");
+  }
+  if (!activation && instance.state !== "registered") {
+    return stageDeny("unknown_device");
   }
 
   const deployment = await deps.deviceDeploymentStorage.get(
-    activation.deploymentId,
+    activation?.deploymentId ?? instance.deploymentId,
   );
   if (!deployment) return stageDeny("device_deployment_not_found");
   if (deployment.disabled) return stageDeny("device_deployment_disabled");
+  if (!activation && deployment.preActivationPolicy !== "device-owned") {
+    return stageDeny("unknown_device");
+  }
 
   const digestResult = resolveDeviceContractDigest(
     deployment,
     contractDigest,
   );
   if (!digestResult.ok) return stageDeny(digestResult.reason);
-  const activationActor = (activation as DeviceActivationRecord).activatedBy;
+  const activationActor = activation
+    ? (activation as DeviceActivationRecord).activatedBy
+    : undefined;
 
   const contractRecord = await contractStorage.get(digestResult.value);
   if (!contractRecord) return stageDeny("device_contract_not_found");
@@ -292,15 +341,24 @@ async function resolveDeviceRuntimeGrant(
   if (!accessResult.ok) return stageDeny(accessResult.reason);
   return stageOk({
     ...accessResult.value,
-    activation: {
-      instanceId: activation.instanceId,
-      publicIdentityKey: activation.publicIdentityKey,
-      deploymentId: activation.deploymentId,
-      ...(activationActor ? { activatedBy: activationActor } : {}),
-      state: activation.state,
-      activatedAt: activation.activatedAt,
-      revokedAt: activation.revokedAt,
+    authority: activation ? "user_delegated" : "device_owned",
+    instance: {
+      instanceId: instance.instanceId,
+      publicIdentityKey: instance.publicIdentityKey,
+      deploymentId: instance.deploymentId,
+      state: instance.state,
     },
+    activation: activation
+      ? {
+        instanceId: activation.instanceId,
+        publicIdentityKey: activation.publicIdentityKey,
+        deploymentId: activation.deploymentId,
+        ...(activationActor ? { activatedBy: activationActor } : {}),
+        state: activation.state,
+        activatedAt: activation.activatedAt,
+        revokedAt: activation.revokedAt,
+      }
+      : null,
     deployment,
   });
 }
@@ -454,6 +512,7 @@ export function startAuthCallout(
     connectionsKV: AuthRuntimeDeps["connectionsKV"];
     deviceActivationStorage: AuthRuntimeDeps["deviceActivationStorage"];
     deviceDeploymentStorage: AuthRuntimeDeps["deviceDeploymentStorage"];
+    deviceInstanceStorage: AuthRuntimeDeps["deviceInstanceStorage"];
     logger: AuthRuntimeDeps["logger"];
     natsAuth: AuthRuntimeDeps["natsAuth"];
     sessionStorage: AuthRuntimeDeps["sessionStorage"];
@@ -471,6 +530,7 @@ export function startAuthCallout(
     connectionsKV,
     deviceActivationStorage,
     deviceDeploymentStorage,
+    deviceInstanceStorage,
     logger,
     natsAuth,
     sessionStorage,
@@ -634,7 +694,11 @@ export function startAuthCallout(
         });
       } else {
         const deviceGrantResult = await resolveDeviceRuntimeGrant(
-          { deviceActivationStorage, deviceDeploymentStorage },
+          {
+            deviceActivationStorage,
+            deviceDeploymentStorage,
+            deviceInstanceStorage,
+          },
           sessionKey,
           opts.contractStorage,
           authToken.contractDigest,
@@ -642,12 +706,12 @@ export function startAuthCallout(
         );
         if (!deviceGrantResult.ok) return deviceGrantResult;
         const deviceGrant = deviceGrantResult.value;
-        // The first successful runtime auth marks when an approved device was
-        // actually used, which is distinct from the earlier review timestamp.
+        // Device session creation marks runtime use; activation timestamps remain
+        // activation-time metadata and are not created for device-owned authority.
         await sessionStorage.put(sessionKey, {
           type: "device",
-          instanceId: deviceGrant.activation.instanceId,
-          publicIdentityKey: deviceGrant.activation.publicIdentityKey,
+          instanceId: deviceGrant.instance.instanceId,
+          publicIdentityKey: deviceGrant.instance.publicIdentityKey,
           deploymentId: deviceGrant.deployment.deploymentId,
           contractId: deviceGrant.contractId,
           contractDigest: deviceGrant.contractDigest,
@@ -656,10 +720,10 @@ export function startAuthCallout(
           delegatedSubscribeSubjects: deviceGrant.subscribeSubjects,
           createdAt: now,
           lastAuth: now,
-          activatedAt: deviceGrant.activation.activatedAt
+          activatedAt: deviceGrant.activation?.activatedAt
             ? new Date(deviceGrant.activation.activatedAt)
             : null,
-          revokedAt: deviceGrant.activation.revokedAt
+          revokedAt: deviceGrant.activation?.revokedAt
             ? new Date(deviceGrant.activation.revokedAt)
             : null,
         });
@@ -671,7 +735,11 @@ export function startAuthCallout(
 
     if (session.type === "device") {
       const currentGrantResult = await resolveDeviceRuntimeGrant(
-        { deviceActivationStorage, deviceDeploymentStorage },
+        {
+          deviceActivationStorage,
+          deviceDeploymentStorage,
+          deviceInstanceStorage,
+        },
         sessionKey,
         opts.contractStorage,
         authToken.contractDigest,
@@ -679,10 +747,10 @@ export function startAuthCallout(
       );
       if (!currentGrantResult.ok) return currentGrantResult;
       const currentGrant = currentGrantResult.value;
-      let activatedAt = currentGrant.activation.activatedAt
+      let activatedAt = currentGrant.activation?.activatedAt
         ? new Date(currentGrant.activation.activatedAt)
         : null;
-      if (activatedAt === null) {
+      if (activatedAt === null && currentGrant.activation) {
         const activatedAtIso = now.toISOString();
         activatedAt = now;
         await deviceActivationStorage.put({
@@ -701,7 +769,7 @@ export function startAuthCallout(
         delegatedSubscribeSubjects: currentGrant.subscribeSubjects,
         lastAuth: now,
         activatedAt,
-        revokedAt: currentGrant.activation.revokedAt
+        revokedAt: currentGrant.activation?.revokedAt
           ? new Date(currentGrant.activation.revokedAt)
           : null,
       });
@@ -764,6 +832,7 @@ export function startAuthCallout(
         return await opts.userStorage.get(trellisId) ?? null;
       },
       deviceActivationStorage,
+      deviceInstanceStorage,
       deviceDeploymentStorage,
       loadStoredApproval: async (key) => {
         const approvalKey = parseContractApprovalKey(key);
@@ -1055,6 +1124,7 @@ export function startAuthCallout(
 export const __testing__ = {
   AUTH_CALLOUT_INTERNAL_ERROR,
   respondAuthCalloutError,
+  resolveDeviceRuntimeGrant,
   validateServiceRuntimeDigest,
   verifyRuntimeAuthTokenSignature,
   waitForInFlightHandlers,

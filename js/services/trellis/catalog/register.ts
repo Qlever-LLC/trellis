@@ -1,15 +1,21 @@
 import type { ContractsModule } from "./runtime.ts";
-import type { SqlServiceInstanceRepository } from "../auth/storage.ts";
+import type {
+  SqlServiceDeploymentRepository,
+  SqlServiceInstanceRepository,
+} from "../auth/storage.ts";
+import type { AuthRuntimeDeps } from "../auth/runtime_deps.ts";
 import {
   createTrellisBindingsGetHandler,
   createTrellisCatalogHandler,
   createTrellisContractGetHandler,
+  createTrellisSurfaceStatusHandler,
 } from "./rpc.ts";
 
 type CatalogRpcMethod =
   | "Trellis.Catalog"
   | "Trellis.Contract.Get"
-  | "Trellis.Bindings.Get";
+  | "Trellis.Bindings.Get"
+  | "Trellis.Surface.Status";
 
 type RpcRegistrar = {
   mount(method: CatalogRpcMethod, handler: unknown): Promise<void>;
@@ -19,6 +25,8 @@ type CatalogRegistrationDeps = {
   trellis: RpcRegistrar;
   contracts: ContractsModule;
   serviceInstanceStorage: SqlServiceInstanceRepository;
+  serviceDeploymentStorage: SqlServiceDeploymentRepository;
+  connectionsKV: AuthRuntimeDeps["connectionsKV"];
   logger: { trace: (fields: Record<string, unknown>, message: string) => void };
 };
 
@@ -27,6 +35,12 @@ type ContractGetInput = Parameters<
 >[0];
 type BindingsGetHandler = ReturnType<typeof createTrellisBindingsGetHandler>;
 type BindingsGetEnvelope = Parameters<BindingsGetHandler> extends
+  [infer Input, infer Context] ? { input: Input; context: Context }
+  : never;
+type SurfaceStatusHandler = ReturnType<
+  typeof createTrellisSurfaceStatusHandler
+>;
+type SurfaceStatusEnvelope = Parameters<SurfaceStatusHandler> extends
   [infer Input, infer Context] ? { input: Input; context: Context }
   : never;
 
@@ -38,6 +52,13 @@ export async function registerCatalog(
 ): Promise<void> {
   const trellisBindingsGetHandler = createTrellisBindingsGetHandler({
     serviceInstanceStorage: deps.serviceInstanceStorage,
+    logger: deps.logger,
+  });
+  const trellisSurfaceStatusHandler = createTrellisSurfaceStatusHandler({
+    contractStore: deps.contracts.contractStore,
+    serviceInstanceStorage: deps.serviceInstanceStorage,
+    serviceDeploymentStorage: deps.serviceDeploymentStorage,
+    connectionsKV: deps.connectionsKV,
     logger: deps.logger,
   });
 
@@ -61,5 +82,10 @@ export async function registerCatalog(
     "Trellis.Bindings.Get",
     ({ input, context }: BindingsGetEnvelope) =>
       trellisBindingsGetHandler(input, context),
+  );
+  await deps.trellis.mount(
+    "Trellis.Surface.Status",
+    ({ input, context }: SurfaceStatusEnvelope) =>
+      trellisSurfaceStatusHandler(input, context),
   );
 }

@@ -89,6 +89,13 @@ async function waitFor(
   }
 }
 
+async function firstAsyncIterableValue<T>(
+  stream: AsyncIterable<T>,
+): Promise<T> {
+  for await (const value of stream) return value;
+  throw new Error("Expected async iterable to yield a value");
+}
+
 Deno.test({
   name: "NATS Events Integration",
   ignore: !RUN_NATS_TESTS,
@@ -371,6 +378,80 @@ Deno.test({
 
           await serviceNc.drain();
           await clientNc.drain();
+        },
+      );
+
+      await t.step(
+        "feed handler accepts another request while first stream is active",
+        async () => {
+          startPermissiveAuthResponder(nats.nc);
+          const serviceNc = await connect({
+            servers: `localhost:${info.port}`,
+          });
+          const clientNc1 = await connect({
+            servers: `localhost:${info.port}`,
+          });
+          const clientNc2 = await connect({
+            servers: `localhost:${info.port}`,
+          });
+          const serviceAuth = await createTestAuth();
+          const clientAuth1 = await createTestAuth();
+          const clientAuth2 = await createTestAuth();
+          const service = createClient(
+            contract,
+            serviceNc,
+            serviceAuth,
+            { name: "feed-service-concurrent" },
+          );
+          const client1 = createClient(
+            contract,
+            clientNc1,
+            clientAuth1,
+            { name: "feed-client-concurrent-1", timeout: 500 },
+          );
+          const client2 = createClient(
+            contract,
+            clientNc2,
+            clientAuth2,
+            { name: "feed-client-concurrent-2", timeout: 500 },
+          );
+
+          let releaseFirst: (() => void) | undefined;
+          const firstRequestHeld = new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          });
+
+          await service.feed("Device.Events").handle(
+            async ({ input, emit }) => {
+              await emit({
+                header: {
+                  id: `feed-${input.deviceId}`,
+                  time: "2026-01-01T00:00:00.000Z",
+                },
+                foo: input.deviceId,
+              }).orThrow();
+              if (input.deviceId === "device-1") await firstRequestHeld;
+            },
+          );
+
+          const stream1 = await client1.feed("Device.Events")
+            .input({ deviceId: "device-1" })
+            .subscribe()
+            .orThrow();
+          const first = await firstAsyncIterableValue(stream1);
+          assertEquals(first.foo, "device-1");
+
+          const stream2 = await client2.feed("Device.Events")
+            .input({ deviceId: "device-2" })
+            .subscribe()
+            .orThrow();
+          const second = await firstAsyncIterableValue(stream2);
+          assertEquals(second.foo, "device-2");
+
+          releaseFirst?.();
+          await serviceNc.drain();
+          await clientNc1.drain();
+          await clientNc2.drain();
         },
       );
     } finally {

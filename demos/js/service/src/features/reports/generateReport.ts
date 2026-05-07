@@ -10,6 +10,10 @@ export const generateReport: OperationHandler<
   typeof contract,
   "Reports.Generate"
 > = async ({ input, op, trellis }) => {
+  console.log("[Activity.Live feed] Reports.Generate handler started", {
+    input,
+  });
+
   function toBaseError(cause: unknown): BaseError {
     return cause instanceof BaseError ? cause : new UnexpectedError({ cause });
   }
@@ -99,19 +103,28 @@ export const generateReport: OperationHandler<
     throw error;
   }
 
-  await trellis.publish("Reports.Published", {
+  const reportsPublishedEvent = {
     reportId,
     inspectionId: input.inspectionId,
     siteId: inspection?.siteId,
     publishedAt,
-  }).orThrow();
+  };
+  console.log("[Activity.Live feed] publishing Reports.Published", {
+    event: reportsPublishedEvent,
+  });
+  await trellis.publish("Reports.Published", reportsPublishedEvent).orThrow();
+  console.log("[Activity.Live feed] published Reports.Published", {
+    event: reportsPublishedEvent,
+  });
   recordReport(report);
+  console.log("[Activity.Live feed] recording closeout activity");
   await recordActivity(trellis, {
     kind: "closeout-published",
     message: `Published closeout status for ${inspectionLabel}`,
     relatedSiteId: inspection?.siteId,
     relatedInspectionId: input.inspectionId,
   });
+  console.log("[Activity.Live feed] recorded closeout activity");
 
   const completed = await op.complete(output).take();
   if (isErr(completed)) {

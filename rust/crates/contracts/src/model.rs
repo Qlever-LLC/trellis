@@ -480,7 +480,11 @@ impl ContractUses {
 
     /// Iterate over required aliases first, followed by optional aliases.
     pub fn iter(&self) -> impl Iterator<Item = (&String, &ContractUseRef)> {
-        self.required.iter().chain(self.optional.iter())
+        self.required.iter().chain(
+            self.optional
+                .iter()
+                .filter(|(alias, _)| !self.required.contains_key(*alias)),
+        )
     }
 }
 

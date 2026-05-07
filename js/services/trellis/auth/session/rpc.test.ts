@@ -8,6 +8,7 @@ import {
   createAuthListConnectionsHandler,
   createAuthListSessionsHandler,
   createAuthMeHandler,
+  createAuthValidateRequestHandler,
 } from "./rpc.ts";
 import { connectionKey } from "./connections.ts";
 import { createAuthRevokeSessionHandler } from "./revoke.ts";
@@ -237,8 +238,15 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   }>();
   const deviceDeploymentsKV = new InMemoryKV<{
     deploymentId: string;
+    preActivationPolicy?: "reject" | "device-owned";
     disabled: boolean;
     appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
+  }>();
+  const deviceInstancesKV = new InMemoryKV<{
+    instanceId: string;
+    publicIdentityKey: string;
+    deploymentId: string;
+    state: "registered" | "activated" | "revoked" | "disabled";
   }>();
 
   const handler = createAuthMeHandler({
@@ -246,6 +254,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
     sessionStorage: sessionStorageFromKV(sessionKV),
     userStorage,
     deviceActivationStorage: deviceActivationStorageFromKV(deviceActivationsKV),
+    deviceInstanceStorage: getStorageFromKV(deviceInstancesKV),
     deviceDeploymentStorage: getStorageFromKV(deviceDeploymentsKV),
     loadServiceInstance: async (sessionKey: string) =>
       sessionKey === "sk_service"
@@ -333,6 +342,12 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
     state: "activated",
     activatedAt: "2026-04-10T00:00:00.000Z",
     revokedAt: null,
+  });
+  deviceInstancesKV.seed("dev_1", {
+    instanceId: "dev_1",
+    publicIdentityKey: "A".repeat(43),
+    deploymentId: "reader.default",
+    state: "activated",
   });
   deviceDeploymentsKV.seed("reader.default", {
     deploymentId: "reader.default",
@@ -735,6 +750,179 @@ Deno.test("Auth.Me rejects missing device sessions despite caller context", asyn
   const value = result.take();
   assert(isErr(value));
   assertEquals(value.error.reason, "session_not_found");
+});
+
+Deno.test("Auth.Me rejects stale device activation deployment", async () => {
+  const sessionKV = new InMemoryKV<Session>();
+  const userStorage = new InMemoryUserStorage();
+  const deviceActivationsKV = new InMemoryKV<{
+    instanceId: string;
+    publicIdentityKey: string;
+    deploymentId: string;
+    state: "activated" | "revoked";
+    activatedAt: string;
+    revokedAt: string | null;
+  }>();
+  const deviceInstancesKV = new InMemoryKV<{
+    instanceId: string;
+    publicIdentityKey: string;
+    deploymentId: string;
+    state: "registered" | "activated" | "revoked" | "disabled";
+  }>();
+  const deviceDeploymentsKV = new InMemoryKV<{
+    deploymentId: string;
+    disabled: boolean;
+  }>();
+
+  const handler = createAuthMeHandler({
+    logger: createTestLogger(),
+    sessionStorage: sessionStorageFromKV(sessionKV),
+    userStorage,
+    deviceActivationStorage: deviceActivationStorageFromKV(deviceActivationsKV),
+    deviceInstanceStorage: getStorageFromKV(deviceInstancesKV),
+    deviceDeploymentStorage: getStorageFromKV(deviceDeploymentsKV),
+  });
+
+  sessionKV.seed("sk_device", {
+    type: "device",
+    instanceId: "dev_1",
+    publicIdentityKey: "A".repeat(43),
+    deploymentId: "reader.default",
+    contractId: "trellis.reader@v1",
+    contractDigest: "digest-a",
+    delegatedCapabilities: ["device.sync"],
+    delegatedPublishSubjects: [],
+    delegatedSubscribeSubjects: [],
+    createdAt: baseSessionFields().createdAt,
+    lastAuth: baseSessionFields().lastAuth,
+    activatedAt: null,
+    revokedAt: null,
+  });
+  deviceActivationsKV.seed("dev_1", {
+    instanceId: "dev_1",
+    publicIdentityKey: "A".repeat(43),
+    deploymentId: "reader.default",
+    state: "activated",
+    activatedAt: "2026-04-10T00:00:00.000Z",
+    revokedAt: null,
+  });
+  deviceInstancesKV.seed("dev_1", {
+    instanceId: "dev_1",
+    publicIdentityKey: "A".repeat(43),
+    deploymentId: "reader.next",
+    state: "activated",
+  });
+  deviceDeploymentsKV.seed("reader.default", {
+    deploymentId: "reader.default",
+    disabled: false,
+  });
+
+  const result = await handler({
+    context: { sessionKey: "sk_device", caller: { type: "unknown" } },
+  });
+  const value = result.take();
+  assert(isErr(value));
+  assertEquals(value.error.reason, "device_activation_revoked");
+});
+
+Deno.test("Auth.Me rejects stale device activation identity key", async () => {
+  const sessionKV = new InMemoryKV<Session>();
+  const userStorage = new InMemoryUserStorage();
+  const deviceActivationsKV = new InMemoryKV<{
+    instanceId: string;
+    publicIdentityKey: string;
+    deploymentId: string;
+    state: "activated" | "revoked";
+    activatedAt: string;
+    revokedAt: string | null;
+  }>();
+  const deviceInstancesKV = new InMemoryKV<{
+    instanceId: string;
+    publicIdentityKey: string;
+    deploymentId: string;
+    state: "registered" | "activated" | "revoked" | "disabled";
+  }>();
+  const deviceDeploymentsKV = new InMemoryKV<{
+    deploymentId: string;
+    disabled: boolean;
+  }>();
+
+  const handler = createAuthMeHandler({
+    logger: createTestLogger(),
+    sessionStorage: sessionStorageFromKV(sessionKV),
+    userStorage,
+    deviceActivationStorage: deviceActivationStorageFromKV(deviceActivationsKV),
+    deviceInstanceStorage: getStorageFromKV(deviceInstancesKV),
+    deviceDeploymentStorage: getStorageFromKV(deviceDeploymentsKV),
+  });
+
+  sessionKV.seed("sk_device", {
+    type: "device",
+    instanceId: "dev_1",
+    publicIdentityKey: "A".repeat(43),
+    deploymentId: "reader.default",
+    contractId: "trellis.reader@v1",
+    contractDigest: "digest-a",
+    delegatedCapabilities: ["device.sync"],
+    delegatedPublishSubjects: [],
+    delegatedSubscribeSubjects: [],
+    createdAt: baseSessionFields().createdAt,
+    lastAuth: baseSessionFields().lastAuth,
+    activatedAt: null,
+    revokedAt: null,
+  });
+  deviceActivationsKV.seed("dev_1", {
+    instanceId: "dev_1",
+    publicIdentityKey: "B".repeat(43),
+    deploymentId: "reader.default",
+    state: "activated",
+    activatedAt: "2026-04-10T00:00:00.000Z",
+    revokedAt: null,
+  });
+  deviceInstancesKV.seed("dev_1", {
+    instanceId: "dev_1",
+    publicIdentityKey: "A".repeat(43),
+    deploymentId: "reader.default",
+    state: "activated",
+  });
+  deviceDeploymentsKV.seed("reader.default", {
+    deploymentId: "reader.default",
+    disabled: false,
+  });
+
+  const result = await handler({
+    context: { sessionKey: "sk_device", caller: { type: "unknown" } },
+  });
+  const value = result.take();
+  assert(isErr(value));
+  assertEquals(value.error.reason, "device_activation_revoked");
+});
+
+Deno.test("Auth.ValidateRequest returns invalid_signature for malformed payload hash", async () => {
+  const handler = createAuthValidateRequestHandler({
+    logger: createTestLogger(),
+    sessionStorage: { getOneBySessionKey: () => Promise.resolve(undefined) },
+    userStorage: new InMemoryUserStorage(),
+    contractApprovalStorage: emptyApprovalStorage,
+    deviceActivationStorage: { get: () => Promise.resolve(undefined) },
+    deviceDeploymentStorage: { get: () => Promise.resolve(undefined) },
+    deviceInstanceStorage: { get: () => Promise.resolve(undefined) },
+    loadServiceInstance: () => Promise.resolve(null),
+    loadServiceDeployment: () => Promise.resolve(null),
+    loadInstanceGrantPolicies: () => Promise.resolve([]),
+  });
+
+  const result = await handler({
+    input: {
+      sessionKey: "A".repeat(43),
+      proof: "not-a-proof",
+      subject: "rpc.v1.Auth.Me",
+      payloadHash: "!!!!",
+    },
+  });
+
+  assert(result.isErr());
+  assertEquals(result.error.reason, "invalid_signature");
 });
 
 Deno.test("Auth.ListSessions returns explicit participant metadata for app, agent, device, and service sessions", async () => {

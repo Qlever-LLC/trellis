@@ -740,6 +740,40 @@ fn manifest_parses_grouped_required_and_optional_uses() {
 }
 
 #[test]
+fn grouped_required_uses_take_precedence_over_duplicate_optional_aliases() {
+    let manifest = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.duplicate-uses@v1",
+        "displayName": "Example Duplicate Uses",
+        "description": "Declare the same alias as required and optional.",
+        "kind": "service",
+        "uses": {
+            "required": {
+                "billing": {
+                    "contract": "billing@v1",
+                    "rpc": {"call": ["Billing.Charge"]}
+                }
+            },
+            "optional": {
+                "billing": {
+                    "contract": "billing@v1",
+                    "events": {"subscribe": ["Billing.Changed"]}
+                }
+            }
+        }
+    }))
+    .expect("manifest with duplicate grouped alias should parse");
+
+    let billing = manifest.uses.get("billing").expect("required use");
+    assert_eq!(billing.contract, "billing@v1");
+    assert_eq!(
+        billing.rpc.as_ref().and_then(|rpc| rpc.call.as_ref()),
+        Some(&vec!["Billing.Charge".to_string()])
+    );
+    assert_eq!(manifest.uses.iter().count(), 1);
+}
+
+#[test]
 fn contract_digest_treats_legacy_flat_uses_as_grouped_required() {
     let legacy = json!({
         "format": "trellis.contract.v1",
@@ -831,6 +865,51 @@ fn contract_digest_keeps_grouped_aliases_named_contract() {
     assert_eq!(
         projected["uses"]["optional"]["activity"]["feeds"]["subscribe"],
         json!(["Activity.Feed"])
+    );
+}
+
+#[test]
+fn contract_digest_ignores_duplicate_optional_aliases_when_required() {
+    let required = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.duplicate-digest@v1",
+        "displayName": "Duplicate Digest",
+        "description": "Required aliases take precedence.",
+        "kind": "service",
+        "uses": {
+            "required": {
+                "billing": {
+                    "contract": "billing@v1",
+                    "rpc": {"call": ["Billing.Charge"]}
+                }
+            }
+        }
+    });
+    let duplicate = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.duplicate-digest@v1",
+        "displayName": "Duplicate Digest",
+        "description": "Required aliases take precedence.",
+        "kind": "service",
+        "uses": {
+            "required": {
+                "billing": {
+                    "contract": "billing@v1",
+                    "rpc": {"call": ["Billing.Charge"]}
+                }
+            },
+            "optional": {
+                "billing": {
+                    "contract": "billing@v1",
+                    "events": {"subscribe": ["Billing.Changed"]}
+                }
+            }
+        }
+    });
+
+    assert_eq!(
+        digest_contract_value(&required).expect("required digest"),
+        digest_contract_value(&duplicate).expect("duplicate digest")
     );
 }
 

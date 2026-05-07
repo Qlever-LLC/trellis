@@ -2192,14 +2192,31 @@ export class Trellis<
       headers.set("proof", proof);
 
       const inbox = createInbox(`_INBOX.${this.auth.sessionKey.slice(0, 16)}`);
+      console.info("[Activity.Live feed runtime] client publish request", {
+        feed,
+        subject,
+        inbox,
+      });
       const sub = this.nats.subscribe(inbox);
+      const iterator = sub[Symbol.asyncIterator]();
       const abort = () => sub.unsubscribe();
       opts?.signal?.addEventListener("abort", abort, { once: true });
 
       try {
         this.nats.publish(subject, payload, { headers, reply: inbox });
         await this.nats.flush();
+        console.info("[Activity.Live feed runtime] client request flushed", {
+          feed,
+          subject,
+          inbox,
+        });
       } catch (cause) {
+        console.error("[Activity.Live feed runtime] client request failed", {
+          feed,
+          subject,
+          inbox,
+          cause,
+        });
         opts?.signal?.removeEventListener("abort", abort);
         sub.unsubscribe();
         return err(createTransportError({
@@ -2212,10 +2229,78 @@ export class Trellis<
         }));
       }
 
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let abortHandler: (() => void) | undefined;
+      const handshakePromises: Array<
+        Promise<IteratorResult<Msg> | "aborted" | "timeout">
+      > = [
+        iterator.next(),
+        new Promise<"timeout">((resolve) => {
+          timeoutId = setTimeout(() => resolve("timeout"), this.timeout);
+        }),
+      ];
+      const signal = opts?.signal;
+      if (signal) {
+        handshakePromises.push(
+          new Promise<"aborted">((resolve) => {
+            abortHandler = () => resolve("aborted");
+            signal.addEventListener("abort", abortHandler, { once: true });
+          }),
+        );
+      }
+
+      const firstFrame = await Promise.race(handshakePromises);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      if (signal && abortHandler) {
+        signal.removeEventListener("abort", abortHandler);
+      }
+      if (firstFrame === "timeout" || firstFrame === "aborted") {
+        opts?.signal?.removeEventListener("abort", abort);
+        sub.unsubscribe();
+        return err(createTransportError({
+          code: firstFrame === "timeout"
+            ? "trellis.feed.subscribe_timeout"
+            : "trellis.feed.subscribe_aborted",
+          message: firstFrame === "timeout"
+            ? "Trellis did not receive a feed acknowledgement."
+            : "The feed subscription was aborted before Trellis acknowledged it.",
+          hint: firstFrame === "timeout"
+            ? "Check that the target service is running and has the current deployment digest, then retry."
+            : "Retry the subscription if the feed is still needed.",
+          context: { feed, subject },
+        }));
+      }
+      if (firstFrame.done) {
+        opts?.signal?.removeEventListener("abort", abort);
+        sub.unsubscribe();
+        return err(createTransportError({
+          code: "trellis.feed.subscribe_closed",
+          message: "Trellis closed the feed before acknowledging it.",
+          hint:
+            "Retry the subscription. If it keeps failing, check Trellis runtime health.",
+          context: { feed, subject },
+        }));
+      }
+      const firstMessage = firstFrame.value;
+      if (firstMessage.headers?.get("status") === "error") {
+        opts?.signal?.removeEventListener("abort", abort);
+        sub.unsubscribe();
+        return err(createTransportError({
+          code: "trellis.feed.failed",
+          message: "Trellis rejected the feed subscription.",
+          hint:
+            "Retry the subscription. If it keeps failing, check Trellis runtime health and permissions.",
+          context: { feed, subject, frame: firstMessage.string() },
+        }));
+      }
+      const firstEvent = firstMessage.headers?.get("feed-status") === "ready"
+        ? undefined
+        : firstMessage;
+
       const eventSchema = descriptor.event;
       return ok((async function* () {
         try {
-          for await (const msg of sub) {
+          const parseFeedFrame = (msg: Msg): TEvent => {
             if (msg.headers?.get("status") === "error") {
               throw createTransportError({
                 code: "trellis.feed.failed",
@@ -2229,7 +2314,13 @@ export class Trellis<
             if (isErr(json)) throw json.error;
             const parsed = parseRuntimeSchema(eventSchema, json).take();
             if (isErr(parsed)) throw parsed.error;
-            yield parsed as TEvent;
+            return parsed as TEvent;
+          };
+          if (firstEvent) yield parseFeedFrame(firstEvent);
+          while (true) {
+            const next = await iterator.next();
+            if (next.done) break;
+            yield parseFeedFrame(next.value);
           }
         } finally {
           opts?.signal?.removeEventListener("abort", abort);
@@ -2248,17 +2339,68 @@ export class Trellis<
   ): Promise<void> {
     const subject = this.template(descriptor.subject, {}, true).take();
     if (isErr(subject)) throw subject.error;
-    const sub = this.nats.subscribe(subject);
+    let sub: ReturnType<NatsConnection["subscribe"]>;
+    try {
+      sub = this.nats.subscribe(subject);
+      await this.nats.flush();
+    } catch (cause) {
+      throw createTransportError({
+        code: "trellis.feed.listen_failed",
+        message: "Trellis could not listen for feed requests.",
+        hint:
+          "Check the service deployment digest and runtime permissions, then restart the service.",
+        cause,
+        context: { feed, subject },
+      });
+    }
+    console.info("[Activity.Live feed runtime] service listening", {
+      feed,
+      subject,
+    });
     const task = AsyncResult.try(async () => {
       for await (const msg of sub) {
-        const result = await this.#processFeedMessage(
+        console.info("[Activity.Live feed runtime] service request received", {
           feed,
-          descriptor,
-          msg,
-          handler,
-        );
-        const value = result.take();
-        if (isErr(value)) this.#respondWithError(msg, value.error);
+          subject: msg.subject,
+          reply: msg.reply,
+        });
+        void (async () => {
+          try {
+            const result = await this.#processFeedMessage(
+              feed,
+              descriptor,
+              msg,
+              handler,
+            );
+            const value = result.take();
+            if (isErr(value)) {
+              console.error(
+                "[Activity.Live feed runtime] service request failed",
+                {
+                  feed,
+                  subject: msg.subject,
+                  reply: msg.reply,
+                  error: value.error,
+                },
+              );
+              this.#respondWithError(msg, value.error);
+            }
+          } catch (cause) {
+            const error = cause instanceof BaseError
+              ? cause
+              : new UnexpectedError({ cause });
+            console.error(
+              "[Activity.Live feed runtime] service request failed",
+              {
+                feed,
+                subject: msg.subject,
+                reply: msg.reply,
+                error,
+              },
+            );
+            this.#respondWithError(msg, error);
+          }
+        })();
       }
     });
     this.#tasks.add(`feed:${feed}`, task);
@@ -2286,6 +2428,28 @@ export class Trellis<
     });
     const callerValue = caller.take();
     if (isErr(callerValue)) return callerValue;
+    console.info("[Activity.Live feed runtime] service request authorized", {
+      feed,
+      subject: msg.subject,
+      reply: msg.reply,
+      caller: callerValue,
+    });
+    if (!msg.reply) {
+      return err(
+        new UnexpectedError({
+          context: { feed, reason: "missing_reply" },
+        }),
+      );
+    }
+    const readyHeaders = natsHeaders();
+    readyHeaders.set("feed-status", "ready");
+    this.nats.publish(msg.reply, new Uint8Array(), { headers: readyHeaders });
+    await this.nats.flush();
+    console.info("[Activity.Live feed runtime] service request acknowledged", {
+      feed,
+      subject: msg.subject,
+      reply: msg.reply,
+    });
 
     const controller = new AbortController();
     try {
@@ -2295,6 +2459,11 @@ export class Trellis<
         signal: controller.signal,
         emit: (event: TEvent) =>
           AsyncResult.from((async () => {
+            console.info("[Activity.Live feed runtime] service emit start", {
+              feed,
+              reply: msg.reply,
+              event,
+            });
             const payload = encodeRuntimeSchema(descriptor.event, event).take();
             if (isErr(payload)) return payload;
             if (!msg.reply) {
@@ -2305,6 +2474,11 @@ export class Trellis<
               );
             }
             this.nats.publish(msg.reply, payload);
+            await this.nats.flush();
+            console.info("[Activity.Live feed runtime] service emit flushed", {
+              feed,
+              reply: msg.reply,
+            });
             return ok(undefined);
           })()),
       });

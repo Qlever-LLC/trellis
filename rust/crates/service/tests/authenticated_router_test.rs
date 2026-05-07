@@ -96,6 +96,7 @@ async fn authenticated_router_rejects_missing_session_key_before_validation() {
                 subject: PingRpc::SUBJECT.to_string(),
                 session_key: None,
                 proof: Some("proof".to_string()),
+                reply_to: None,
             },
         )
         .await;
@@ -123,6 +124,7 @@ async fn authenticated_router_rejects_request_when_validator_denies() {
                 subject: PingRpc::SUBJECT.to_string(),
                 session_key: Some("svc_session".to_string()),
                 proof: Some("proof".to_string()),
+                reply_to: None,
             },
         )
         .await;
@@ -153,6 +155,7 @@ async fn authenticated_router_dispatches_to_inner_router_when_validator_allows()
                 subject: PingRpc::SUBJECT.to_string(),
                 session_key: Some("svc_session".to_string()),
                 proof: Some("proof".to_string()),
+                reply_to: None,
             },
         )
         .await
@@ -168,4 +171,39 @@ async fn authenticated_router_dispatches_to_inner_router_when_validator_allows()
             echoed: "hello".to_string(),
         }
     );
+}
+
+#[tokio::test]
+async fn authenticated_router_rejects_mismatched_reply_inbox() {
+    let handler_called = Arc::new(AtomicBool::new(false));
+    let validator = StubValidator::new(true);
+    let router = build_router(Arc::clone(&handler_called));
+    let auth_router = AuthenticatedRouter::new(router, validator.clone());
+    let session_key = "abcdefghijklmnop-session";
+
+    let result = auth_router
+        .handle_request_response(
+            PingRpc::SUBJECT,
+            ping_payload("hello"),
+            RequestContext {
+                subject: PingRpc::SUBJECT.to_string(),
+                session_key: Some(session_key.to_string()),
+                proof: Some("proof".to_string()),
+                reply_to: Some("_INBOX.someone_else.1".to_string()),
+            },
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(ServerError::ReplyInboxMismatch {
+            subject,
+            session_key: rejected_session,
+            reply_to,
+        }) if subject == PingRpc::SUBJECT
+            && rejected_session == session_key
+            && reply_to == "_INBOX.someone_else.1"
+    ));
+    assert_eq!(validator.call_count(), 1);
+    assert!(!handler_called.load(Ordering::SeqCst));
 }

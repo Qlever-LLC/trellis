@@ -412,6 +412,7 @@ type DeviceConnectInfo = {
   };
   auth: {
     mode: "device_identity";
+    authority: "device_owned" | "user_delegated";
     iatSkewSeconds: number;
   };
 };
@@ -425,16 +426,20 @@ Rules:
   on the device
 - devices should refresh connect info on startup rather than treating cached
   transport data as a permanent source of truth
+- `auth.authority` distinguishes deployment-owned device authority from
+  user-delegated authority added by activation
 - reboot-safe storage should keep the root secret, not connect info, sentinel
   credentials, or hard-coded NATS topology; any Deno activation-state
   persistence stays internal to the Deno activation helper
 
 ### 11) Runtime auth presents an exact digest
 
-Normal runtime auth still happens later, after local confirmation succeeds or
-the online wait endpoint returns `activated`.
+Runtime auth happens after connect-info returns `ready`. Activation is required
+for user-delegated authority, but a registered provisioned device may receive
+device-owned authority before activation when its device deployment explicitly
+sets `preActivationPolicy: "device-owned"`.
 
-At connect time the activated device presents:
+At connect time the device presents:
 
 - identity-key proof
 - exact `contractDigest`
@@ -442,14 +447,18 @@ At connect time the activated device presents:
 Auth validates:
 
 1. the known device instance by public identity key
-2. activation state is `activated`
+2. either activation state is `activated`, or no activation exists and the
+   instance is still `registered` under a deployment with
+   `preActivationPolicy: "device-owned"`
 3. the device deployment is present and enabled
 4. `contractDigest` is included in one
    `deployment.appliedContracts[].allowedDigests` entry, and that entry supplies
    the matching `contractId` for connect info
 
 This lets old and new device digests coexist during rollout while keeping
-validation explicit.
+validation explicit. Pre-activation device-owned sessions do not create or
+mutate activation records; activation remains the separate step that adds
+user-delegated authority.
 
 Lifecycle events are:
 
@@ -524,8 +533,8 @@ Rules:
 
 Implementation status:
 
-- TypeScript currently provides the full activated-device connection path through
-  `checkDeviceActivation(...)` and `TrellisDevice.connect(...)`
+- TypeScript currently provides the full activated-device connection path
+  through `checkDeviceActivation(...)` and `TrellisDevice.connect(...)`
 - Rust currently has deterministic identity, activation payload, wait signing,
   wait polling, and confirmation-code helpers, but does not yet have the full
   activated-device runtime connect facade

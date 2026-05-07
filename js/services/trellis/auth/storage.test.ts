@@ -197,9 +197,11 @@ function makeServiceDeployment(
   return {
     deploymentId: "svc-deployment-a",
     namespaces: ["graph", "search"],
+    firstConnectPolicy: "reject",
     disabled: false,
     appliedContracts: [{
       contractId: "svc.graph@v1",
+      compatibilityPolicy: "exact",
       allowedDigests: ["sha256-service-a"],
     }],
     ...overrides,
@@ -233,9 +235,12 @@ function makeDeviceDeployment(
   return {
     deploymentId: "dev-deployment-a",
     reviewMode: "required",
+    firstConnectPolicy: "reject",
+    preActivationPolicy: "reject",
     disabled: false,
     appliedContracts: [{
       contractId: "device.reader@v1",
+      compatibilityPolicy: "exact",
       allowedDigests: ["sha256-device-a"],
     }],
     ...overrides,
@@ -929,6 +934,7 @@ Deno.test("service deployment storage upserts, deletes, and lists by deployment 
       );
       assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
       assertEquals(row.deploymentId, first.deploymentId);
+      assertEquals(row.firstConnectPolicy, "reject");
 
       const updated = makeServiceDeployment({
         deploymentId: "svc-deployment-b",
@@ -936,6 +942,7 @@ Deno.test("service deployment storage upserts, deletes, and lists by deployment 
         namespaces: ["search"],
         appliedContracts: [{
           contractId: "svc.search@v1",
+          compatibilityPolicy: "compatible-additive",
           allowedDigests: ["sha256-service-b", "sha256-service-c"],
           resourceBindingsByDigest: {
             "sha256-service-b": {
@@ -1018,13 +1025,17 @@ Deno.test("device deployment storage upserts, deletes, and lists by deployment i
       );
       assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
       assertEquals(row.deploymentId, first.deploymentId);
+      assertEquals(row.firstConnectPolicy, "reject");
+      assertEquals(row.preActivationPolicy, "reject");
 
       const updated = makeDeviceDeployment({
         deploymentId: "dev-deployment-b",
         reviewMode: "none",
+        preActivationPolicy: "device-owned",
         disabled: true,
         appliedContracts: [{
           contractId: "device.writer@v1",
+          compatibilityPolicy: "manual",
           allowedDigests: ["sha256-device-b", "sha256-device-c"],
         }],
       });
@@ -1059,9 +1070,12 @@ Deno.test("device deployment storage omits service-only resource bindings", asyn
       assertEquals(await deployments.get("dev-deployment-resource-bound"), {
         deploymentId: "dev-deployment-resource-bound",
         reviewMode: "none",
+        firstConnectPolicy: "reject",
+        preActivationPolicy: "reject",
         disabled: false,
         appliedContracts: [{
           contractId: "device.reader@v1",
+          compatibilityPolicy: "exact",
           allowedDigests: ["sha256-device-a"],
         }],
       });

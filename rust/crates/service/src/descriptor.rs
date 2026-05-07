@@ -26,3 +26,18 @@ pub trait EventDescriptor {
     /// Concrete NATS subject for the event.
     const SUBJECT: &'static str;
 }
+
+/// Metadata required to mount one typed Trellis feed handler.
+pub trait FeedDescriptor {
+    /// Feed subscription input type.
+    type Input: DeserializeOwned + Send + 'static;
+
+    /// Feed event payload type.
+    type Event: Serialize + Send + 'static;
+
+    /// Logical contract key for the feed.
+    const KEY: &'static str;
+
+    /// Concrete NATS subject for the feed.
+    const SUBJECT: &'static str;
+}

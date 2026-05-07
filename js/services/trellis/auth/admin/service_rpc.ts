@@ -35,6 +35,9 @@ import {
 } from "./contract_gc.ts";
 import {
   applyInstalledServiceDeploymentContract,
+  type CompatibilityPolicy,
+  type FirstConnectPolicy,
+  isCompatibilityPolicy,
   normalizeAppliedContracts,
   type ServiceDeployment,
   validateServiceDeploymentRequest,
@@ -85,8 +88,9 @@ type ActiveContractsRefresher = (
 ) => Promise<void>;
 
 export type ServiceAdminRpcDeps = {
-  logger: Pick<AuthRuntimeDeps["logger"], "trace"> &
-    Partial<Pick<AuthRuntimeDeps["logger"], "warn">>;
+  logger:
+    & Pick<AuthRuntimeDeps["logger"], "trace">
+    & Partial<Pick<AuthRuntimeDeps["logger"], "warn">>;
   serviceDeploymentStorage: ServiceDeploymentStorage;
   serviceInstanceStorage: ServiceInstanceStorage;
 };
@@ -276,7 +280,11 @@ export function createAuthCreateServiceDeploymentHandler(
       input: req,
       context: { caller },
     }: {
-      input: { deploymentId: string; namespaces: string[] };
+      input: {
+        deploymentId: string;
+        namespaces: string[];
+        firstConnectPolicy?: FirstConnectPolicy | string;
+      };
       context: { caller: RpcUser };
     },
   ) => {
@@ -336,6 +344,7 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
       deploymentId: string;
       contract: unknown;
       expectedDigest: string;
+      compatibilityPolicy?: CompatibilityPolicy | string;
       replaceExisting?: boolean;
     };
     context: { caller: RpcUser };
@@ -355,6 +364,15 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
       return invalid("/deploymentId", "service deployment not found", {
         deploymentId: req.deploymentId,
       });
+    }
+
+    const compatibilityPolicy = req.compatibilityPolicy ?? "exact";
+    if (!isCompatibilityPolicy(compatibilityPolicy)) {
+      return invalid(
+        "/compatibilityPolicy",
+        "invalid compatibility policy",
+        { compatibilityPolicy: req.compatibilityPolicy },
+      );
     }
 
     const installed = await deps.installServiceContract(req.contract);
@@ -394,7 +412,7 @@ export function createAuthApplyServiceDeploymentContractHandler(deps: {
     const nextDeployment = applyInstalledServiceDeploymentContract(
       deployment,
       { ...installed, resourceBindings },
-      { replaceExisting: req.replaceExisting },
+      { compatibilityPolicy, replaceExisting: req.replaceExisting },
     );
 
     if (deps.validateActiveCatalog) {

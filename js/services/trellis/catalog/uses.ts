@@ -669,17 +669,20 @@ function contractUseEntries(contract: TrellisContractV1): ContractUseEntry[] {
     }));
   }
 
+  const requiredAliases = new Set(Object.keys(uses.required ?? {}));
   return [
     ...Object.entries(uses.required ?? {}).map(([alias, use]) => ({
       alias,
       use,
       required: true,
     })),
-    ...Object.entries(uses.optional ?? {}).map(([alias, use]) => ({
-      alias,
-      use,
-      required: false,
-    })),
+    ...Object.entries(uses.optional ?? {})
+      .filter(([alias]) => !requiredAliases.has(alias))
+      .map(([alias, use]) => ({
+        alias,
+        use,
+        required: false,
+      })),
   ];
 }
 

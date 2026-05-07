@@ -34,10 +34,26 @@ type ServiceBootstrapInstance = {
   createdAt: string | Date;
 };
 
+type ServiceBootstrapAppliedContract = {
+  contractId: string;
+  compatibilityPolicy: "exact" | "compatible-additive" | "manual";
+  allowedDigests: string[];
+  resourceBindingsByDigest?: Record<string, Record<string, unknown>>;
+};
+
+type ServiceBootstrapDeployment = {
+  deploymentId: string;
+  namespaces: string[];
+  firstConnectPolicy: "reject" | "quarantine" | "auto-accept-compatible";
+  disabled: boolean;
+  appliedContracts: ServiceBootstrapAppliedContract[];
+};
+
 export const ServiceBootstrapRequestSchema = Type.Object({
   sessionKey: SessionKeySchema,
   contractId: Type.String({ minLength: 1 }),
   contractDigest: DigestSchema,
+  contract: Type.Optional(Type.Unknown()),
   iat: Type.Number(),
   sig: SignatureSchema,
 });
@@ -54,16 +70,14 @@ export type ServiceBootstrapDeps = {
   ): Promise<ServiceBootstrapInstance | null>;
   saveServiceInstance(instance: ServiceBootstrapInstance): Promise<void>;
   loadServiceDeployment(deploymentId: string): Promise<
-    {
-      deploymentId: string;
-      disabled: boolean;
-      appliedContracts: Array<{
-        contractId: string;
-        allowedDigests: string[];
-        resourceBindingsByDigest?: Record<string, Record<string, unknown>>;
-      }>;
-    } | null
+    ServiceBootstrapDeployment | null
   >;
+  saveServiceDeployment?(deployment: ServiceBootstrapDeployment): Promise<void>;
+  storePresentedContract?(input: {
+    contract: TrellisContractV1;
+    digest: string;
+    canonical: string;
+  }): Promise<void>;
   verifyIdentityProof(input: {
     sessionKey: string;
     iat: number;
@@ -146,6 +160,214 @@ function hasDeclaredResourcesOrJobs(contract: TrellisContractV1): boolean {
     analysis.jobs.length > 0;
 }
 
+async function autoAcceptPresentedServiceContract(args: {
+  deps: ServiceBootstrapDeps;
+  deployment: ServiceBootstrapDeployment;
+  applied: ServiceBootstrapAppliedContract;
+  service: ServiceBootstrapInstance;
+  request: {
+    contractId: string;
+    contractDigest: string;
+    contract?: unknown;
+  };
+  c: Context;
+}): Promise<
+  | {
+    accepted: true;
+    contract: TrellisContractV1;
+    deployment: ServiceBootstrapDeployment;
+  }
+  | { accepted: false; response: Response }
+> {
+  const { deps, deployment, applied, service, request, c } = args;
+  if (
+    deployment.firstConnectPolicy !== "auto-accept-compatible" ||
+    applied.compatibilityPolicy !== "compatible-additive"
+  ) {
+    return {
+      accepted: false,
+      response: serviceContractMismatch(c, service, deployment, request),
+    };
+  }
+
+  if (request.contract === undefined) {
+    return {
+      accepted: false,
+      response: c.json(
+        bootstrapFailure(
+          "manifest_required",
+          `Service deployment '${deployment.deploymentId}' may accept contract '${request.contractId}' digest '${request.contractDigest}', but Trellis needs the full manifest to evaluate the deployment envelope.`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: deployment.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+          },
+        ),
+        409,
+      ),
+    };
+  }
+
+  if (!deps.storePresentedContract || !deps.saveServiceDeployment) {
+    return {
+      accepted: false,
+      response: c.json(
+        bootstrapFailure(
+          "presented_contract_auto_accept_unavailable",
+          "Service contract auto-accept is not configured for this bootstrap endpoint. Apply and review the contract manually before starting this service.",
+          {
+            instanceId: service.instanceId,
+            deploymentId: deployment.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+          },
+        ),
+        409,
+      ),
+    };
+  }
+
+  let presented;
+  try {
+    presented = await deps.contractStore.validate(request.contract);
+  } catch {
+    return {
+      accepted: false,
+      response: c.json(
+        bootstrapFailure(
+          "presented_contract_invalid",
+          "Presented contract manifest is invalid. Review and apply a valid contract before starting this service.",
+          {
+            instanceId: service.instanceId,
+            deploymentId: deployment.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+          },
+        ),
+        409,
+      ),
+    };
+  }
+  if (presented.digest !== request.contractDigest) {
+    return {
+      accepted: false,
+      response: c.json(
+        bootstrapFailure(
+          "presented_contract_digest_mismatch",
+          `Presented contract digest '${presented.digest}' does not match requested digest '${request.contractDigest}'. Review and apply the intended contract before starting this service.`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: deployment.deploymentId,
+            contractId: request.contractId,
+            expectedContractDigest: request.contractDigest,
+            presentedContractDigest: presented.digest,
+          },
+        ),
+        409,
+      ),
+    };
+  }
+
+  if (
+    presented.contract.id !== request.contractId ||
+    presented.contract.id !== applied.contractId
+  ) {
+    return {
+      accepted: false,
+      response: c.json(
+        bootstrapFailure(
+          "presented_contract_id_mismatch",
+          `Presented contract id '${presented.contract.id}' does not match requested contract '${request.contractId}'. Review and apply the intended contract before starting this service.`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: deployment.deploymentId,
+            expectedContractId: request.contractId,
+            presentedContractId: presented.contract.id,
+            contractDigest: request.contractDigest,
+          },
+        ),
+        409,
+      ),
+    };
+  }
+
+  if (hasDeclaredResourcesOrJobs(presented.contract)) {
+    return {
+      accepted: false,
+      response: c.json(
+        bootstrapFailure(
+          "presented_contract_requires_manual_review",
+          `Presented contract '${request.contractId}' digest '${request.contractDigest}' declares resources or jobs. Apply and review the contract manually before starting this service.`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: deployment.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+          },
+        ),
+        409,
+      ),
+    };
+  }
+
+  await deps.storePresentedContract({
+    contract: presented.contract,
+    digest: presented.digest,
+    canonical: presented.canonical,
+  });
+  deps.contractStore.add(presented.digest, presented.contract);
+  const nextDeployment: ServiceBootstrapDeployment = {
+    ...deployment,
+    appliedContracts: deployment.appliedContracts.map((entry) => {
+      if (entry !== applied) return entry;
+      return {
+        ...entry,
+        allowedDigests: [...entry.allowedDigests, presented.digest],
+      };
+    }),
+  };
+  await deps.saveServiceDeployment(nextDeployment);
+  return {
+    accepted: true,
+    contract: presented.contract,
+    deployment: nextDeployment,
+  };
+}
+
+function serviceContractMismatch(
+  c: Context,
+  service: ServiceBootstrapInstance,
+  deployment: ServiceBootstrapDeployment,
+  request: { contractId: string; contractDigest: string },
+): Response {
+  const matchingLineage = deployment.appliedContracts.find((entry) =>
+    entry.contractId === request.contractId
+  );
+  const allowedDigests = matchingLineage?.allowedDigests ?? [];
+  const message = allowedDigests.length > 0
+    ? `Service instance '${service.instanceId}' under deployment '${deployment.deploymentId}' is not allowed to run digest '${request.contractDigest}' for contract '${request.contractId}'. Allowed digests: ${
+      allowedDigests.join(", ")
+    }. Re-apply the current contract to the deployment or restart the matching service revision.`
+    : `Service instance '${service.instanceId}' under deployment '${deployment.deploymentId}' is not allowed to run contract '${request.contractId}' digest '${request.contractDigest}'. Apply that contract to the deployment before starting the service.`;
+  return c.json(
+    bootstrapFailure(
+      "service_contract_mismatch",
+      message,
+      {
+        instanceId: service.instanceId,
+        deploymentId: deployment.deploymentId,
+        expectedContractId: request.contractId,
+        expectedContractDigest: request.contractDigest,
+        allowedDigests,
+        currentContractId: service.currentContractId ?? null,
+        currentContractDigest: service.currentContractDigest ?? null,
+      },
+    ),
+    409,
+  );
+}
+
 export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
   return async (c: Context) => {
     const bodyResult = await AsyncResult.try(() => c.req.json());
@@ -213,7 +435,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    const contract = deps.contractStore.getContract(request.contractDigest, {
+    let contract = deps.contractStore.getContract(request.contractDigest, {
       includeInactive: true,
     });
     const exactApplied = deployment.appliedContracts.find((entry) =>
@@ -223,30 +445,35 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
     const matchingLineage = deployment.appliedContracts.find((entry) =>
       entry.contractId === request.contractId
     );
-    const applied = exactApplied;
+    let effectiveDeployment = deployment;
+    let applied = exactApplied;
     if (!applied) {
-      const allowedDigests = matchingLineage?.allowedDigests ?? [];
-      const message = allowedDigests.length > 0
-        ? `Service instance '${service.instanceId}' under deployment '${deployment.deploymentId}' is not allowed to run digest '${request.contractDigest}' for contract '${request.contractId}'. Allowed digests: ${
-          allowedDigests.join(", ")
-        }. Re-apply the current contract to the deployment or restart the matching service revision.`
-        : `Service instance '${service.instanceId}' under deployment '${deployment.deploymentId}' is not allowed to run contract '${request.contractId}' digest '${request.contractDigest}'. Apply that contract to the deployment before starting the service.`;
-      return c.json(
-        bootstrapFailure(
-          "service_contract_mismatch",
-          message,
-          {
-            instanceId: service.instanceId,
-            deploymentId: deployment.deploymentId,
-            expectedContractId: request.contractId,
-            expectedContractDigest: request.contractDigest,
-            allowedDigests,
-            currentContractId: service.currentContractId ?? null,
-            currentContractDigest: service.currentContractDigest ?? null,
-          },
-        ),
-        409,
+      if (!matchingLineage) {
+        return serviceContractMismatch(c, service, deployment, request);
+      }
+      const accepted = await autoAcceptPresentedServiceContract({
+        deps,
+        deployment,
+        applied: matchingLineage,
+        service,
+        request,
+        c,
+      });
+      if (!accepted.accepted) return accepted.response;
+      contract = accepted.contract;
+      effectiveDeployment = accepted.deployment;
+      applied = effectiveDeployment.appliedContracts.find((entry) =>
+        entry.contractId === request.contractId &&
+        entry.allowedDigests.includes(request.contractDigest)
       );
+      if (!applied) {
+        return serviceContractMismatch(
+          c,
+          service,
+          effectiveDeployment,
+          request,
+        );
+      }
     }
 
     if (!contract || contract.id !== request.contractId) {
@@ -256,7 +483,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
           `Contract '${request.contractId}' digest '${request.contractDigest}' is allowed for deployment '${deployment.deploymentId}' but is not installed in Trellis. Install the contract before starting the service.`,
           {
             instanceId: service.instanceId,
-            deploymentId: deployment.deploymentId,
+            deploymentId: effectiveDeployment.deploymentId,
             contractId: request.contractId,
             contractDigest: request.contractDigest,
           },
@@ -274,10 +501,10 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       return c.json(
         bootstrapFailure(
           "service_resource_bindings_missing",
-          `Service deployment '${deployment.deploymentId}' has applied contract '${request.contractId}' digest '${request.contractDigest}' with declared resources or jobs, but no stored resource bindings. Re-apply the contract to the deployment before starting this service.`,
+          `Service deployment '${effectiveDeployment.deploymentId}' has applied contract '${request.contractId}' digest '${request.contractDigest}' with declared resources or jobs, but no stored resource bindings. Re-apply the contract to the deployment before starting this service.`,
           {
             instanceId: service.instanceId,
-            deploymentId: deployment.deploymentId,
+            deploymentId: effectiveDeployment.deploymentId,
             contractId: request.contractId,
             contractDigest: request.contractDigest,
           },

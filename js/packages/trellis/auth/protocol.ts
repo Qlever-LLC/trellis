@@ -22,12 +22,37 @@ export type ParticipantKind = StaticDecode<typeof ParticipantKindSchema>;
 
 export const DigestSchema = Type.String({ pattern: "^[A-Za-z0-9_-]+$" });
 
+export const FirstConnectPolicySchema = Type.Union([
+  Type.Literal("reject"),
+  Type.Literal("quarantine"),
+  Type.Literal("auto-accept-compatible"),
+], { default: "reject" });
+export type FirstConnectPolicy = StaticDecode<typeof FirstConnectPolicySchema>;
+
+export const CompatibilityPolicySchema = Type.Union([
+  Type.Literal("exact"),
+  Type.Literal("compatible-additive"),
+  Type.Literal("manual"),
+], { default: "exact" });
+export type CompatibilityPolicy = StaticDecode<
+  typeof CompatibilityPolicySchema
+>;
+
+export const DevicePreActivationPolicySchema = Type.Union([
+  Type.Literal("reject"),
+  Type.Literal("device-owned"),
+], { default: "reject" });
+export type DevicePreActivationPolicy = StaticDecode<
+  typeof DevicePreActivationPolicySchema
+>;
+
 export const OpenObjectSchema = Type.Unsafe<Record<string, unknown>>({
   type: "object",
 });
 
 export const ServiceAppliedDeploymentContractSchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
+  compatibilityPolicy: CompatibilityPolicySchema,
   allowedDigests: Type.Array(DigestSchema),
   resourceBindingsByDigest: Type.Optional(
     Type.Record(DigestSchema, ContractResourceBindingsSchema),
@@ -36,12 +61,14 @@ export const ServiceAppliedDeploymentContractSchema = Type.Object({
 
 export const DeviceAppliedDeploymentContractSchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
+  compatibilityPolicy: CompatibilityPolicySchema,
   allowedDigests: Type.Array(DigestSchema),
 }, { additionalProperties: false });
 
 export const ServiceDeploymentSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   namespaces: Type.Array(Type.String({ minLength: 1 })),
+  firstConnectPolicy: FirstConnectPolicySchema,
   disabled: Type.Boolean(),
   appliedContracts: Type.Array(ServiceAppliedDeploymentContractSchema),
 });
@@ -134,6 +161,7 @@ export const AuthDisableInstanceGrantPolicyResponseSchema = Type.Object({
 export const AuthCreateServiceDeploymentSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   namespaces: Type.Array(Type.String({ minLength: 1 })),
+  firstConnectPolicy: Type.Optional(FirstConnectPolicySchema),
 });
 export const AuthCreateServiceDeploymentResponseSchema = Type.Object({
   deployment: ServiceDeploymentSchema,
@@ -150,6 +178,7 @@ export const AuthApplyServiceDeploymentContractSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   contract: OpenObjectSchema,
   expectedDigest: DigestSchema,
+  compatibilityPolicy: Type.Optional(CompatibilityPolicySchema),
   replaceExisting: Type.Optional(Type.Boolean()),
 });
 export const AuthApplyServiceDeploymentContractResponseSchema = Type.Object({
@@ -663,6 +692,8 @@ export const DeviceDeploymentSchema = Type.Object({
   reviewMode: Type.Optional(
     Type.Union([Type.Literal("none"), Type.Literal("required")]),
   ),
+  firstConnectPolicy: FirstConnectPolicySchema,
+  preActivationPolicy: DevicePreActivationPolicySchema,
   disabled: Type.Boolean(),
   appliedContracts: Type.Array(DeviceAppliedDeploymentContractSchema),
 });
@@ -784,6 +815,10 @@ export const DeviceConnectInfoSchema = Type.Object({
   }),
   auth: Type.Object({
     mode: Type.Literal("device_identity"),
+    authority: Type.Union([
+      Type.Literal("device_owned"),
+      Type.Literal("user_delegated"),
+    ]),
     iatSkewSeconds: Type.Number(),
   }),
 });
@@ -887,6 +922,8 @@ export const AuthCreateDeviceDeploymentSchema = Type.Object({
   reviewMode: Type.Optional(
     Type.Union([Type.Literal("none"), Type.Literal("required")]),
   ),
+  firstConnectPolicy: Type.Optional(FirstConnectPolicySchema),
+  preActivationPolicy: Type.Optional(DevicePreActivationPolicySchema),
 });
 export const AuthCreateDeviceDeploymentResponseSchema = Type.Object({
   deployment: DeviceDeploymentSchema,
@@ -901,6 +938,7 @@ export const AuthApplyDeviceDeploymentContractSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   contract: OpenObjectSchema,
   expectedDigest: DigestSchema,
+  compatibilityPolicy: Type.Optional(CompatibilityPolicySchema),
   replaceExisting: Type.Optional(Type.Boolean()),
 });
 export const AuthApplyDeviceDeploymentContractResponseSchema = Type.Object({

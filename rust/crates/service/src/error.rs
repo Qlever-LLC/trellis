@@ -23,6 +23,15 @@ pub enum ServerError {
     },
 
     #[error(
+        "reply inbox '{reply_to}' is not valid for session '{session_key}' on subject '{subject}'"
+    )]
+    ReplyInboxMismatch {
+        subject: String,
+        session_key: String,
+        reply_to: String,
+    },
+
+    #[error(
         "transfer request for subject '{subject}' used a session that does not match the grant"
     )]
     TransferSessionMismatch {

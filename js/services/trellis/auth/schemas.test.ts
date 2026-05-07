@@ -167,8 +167,11 @@ Deno.test("portal and device state schemas validate", () => {
   }));
   assert(Value.Check(DeviceDeploymentSchema, {
     deploymentId: "reader.default",
+    firstConnectPolicy: "reject",
+    preActivationPolicy: "reject",
     appliedContracts: [{
       contractId: "acme.reader@v1",
+      compatibilityPolicy: "exact",
       allowedDigests: ["digest-a"],
     }],
     reviewMode: "none",

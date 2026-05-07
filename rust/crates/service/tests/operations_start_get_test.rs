@@ -134,6 +134,7 @@ fn request(subject: &str, payload: Value) -> InboundRequest {
             subject: subject.to_string(),
             session_key: Some("svc_session".to_string()),
             proof: Some("proof".to_string()),
+            reply_to: Some("_INBOX.1".to_string()),
         },
     }
 }
@@ -623,6 +624,7 @@ async fn operation_control_watch_encodes_transfer_event_frames() {
                 subject: subject.clone(),
                 session_key: Some("svc_session".to_string()),
                 proof: Some("proof".to_string()),
+                reply_to: None,
             },
         )
         .await

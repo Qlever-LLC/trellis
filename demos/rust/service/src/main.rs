@@ -5,11 +5,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use async_nats::HeaderMap;
 use bytes::Bytes;
 use clap::Parser;
 use futures_util::Stream;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
+use trellis_auth_adapters::request_validator::make_validate_request;
 use trellis_auth_adapters::{AuthRequestValidatorAdapter, AuthRequestValidatorClientPort};
 use trellis_client::{ServiceConnectOptions, TrellisClient};
 use trellis_core_bootstrap::CoreBootstrapBinding;
@@ -52,6 +54,13 @@ const REFRESH_QUEUE_PAUSE_MS: u64 = 900;
 const REFRESH_JOB_CREATE_PAUSE_MS: u64 = 700;
 const REFRESH_COMPLETE_PAUSE_MS: u64 = 700;
 const REFRESH_ACTIVITY_PAUSE_MS: u64 = 700;
+const ACTIVITY_LIVE_FEED_SUBJECT: &str = "feeds.v1.Activity.Live";
+const ACTIVITY_LIVE_SOURCE_EVENTS: &[(&str, &str)] = &[
+    ("Activity.Recorded", "events.v1.Activity.Recorded"),
+    ("Reports.Published", "events.v1.Reports.Published"),
+    ("Evidence.Uploaded", "events.v1.Evidence.Uploaded"),
+    ("Sites.Refreshed", "events.v1.Sites.Refreshed"),
+];
 
 fn now_iso() -> String {
     match time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339) {
@@ -623,9 +632,18 @@ async fn run_authenticated_service(trellis_url: &str, seed: &str) -> anyhow::Res
         validator,
     );
 
-    let service_result =
-        trellis_service::run_multi_subject_service(client.nats().clone(), service_subjects(), host)
-            .await;
+    let mut feed_task =
+        spawn_activity_live_feed(client.nats().clone(), Arc::clone(&client)).await?;
+    let service_result = tokio::select! {
+        result = trellis_service::run_multi_subject_service(client.nats().clone(), service_subjects(), host) => {
+            feed_task.abort();
+            result
+        },
+        result = &mut feed_task => match result {
+            Ok(result) => result,
+            Err(error) => Err(ServerError::Nats(format!("Activity.Live feed task stopped: {error}"))),
+        },
+    };
     if let Some(worker_host) = refresh_worker_host {
         worker_host.stop().await?;
     }
@@ -659,6 +677,160 @@ fn service_subjects() -> &'static [&'static str] {
         "operations.v1.Sites.Refresh",
         "operations.v1.Sites.Refresh.control",
     ]
+}
+
+async fn spawn_activity_live_feed(
+    nats: async_nats::Client,
+    auth_client: Arc<TrellisClient>,
+) -> Result<tokio::task::JoinHandle<Result<(), ServerError>>, ServerError> {
+    let subscriber = nats
+        .subscribe(ACTIVITY_LIVE_FEED_SUBJECT.to_string())
+        .await
+        .map_err(|error| {
+            ServerError::Nats(format!(
+                "failed to subscribe to Activity.Live feed subject: {error}"
+            ))
+        })?;
+    nats.flush()
+        .await
+        .map_err(|error| ServerError::Nats(error.to_string()))?;
+    tracing::info!(
+        feed = "Activity.Live",
+        subject = ACTIVITY_LIVE_FEED_SUBJECT,
+        "Rust demo service listening for feed requests"
+    );
+
+    Ok(tokio::spawn(async move {
+        run_activity_live_feed(nats, auth_client, subscriber).await
+    }))
+}
+
+async fn run_activity_live_feed(
+    nats: async_nats::Client,
+    auth_client: Arc<TrellisClient>,
+    mut subscriber: async_nats::Subscriber,
+) -> Result<(), ServerError> {
+    use futures_util::StreamExt;
+
+    while let Some(message) = subscriber.next().await {
+        let nats = nats.clone();
+        let auth_client = Arc::clone(&auth_client);
+        tokio::spawn(async move {
+            if let Err(error) = handle_activity_live_feed_request(nats, auth_client, message).await
+            {
+                tracing::error!(error = %error, "Activity.Live feed request failed");
+            }
+        });
+    }
+    Ok(())
+}
+
+async fn handle_activity_live_feed_request(
+    nats: async_nats::Client,
+    auth_client: Arc<TrellisClient>,
+    message: async_nats::Message,
+) -> Result<(), ServerError> {
+    let request = trellis_service::decode_nats_request(&message);
+    let reply_to = request.reply_to.clone().ok_or_else(|| {
+        ServerError::Nats("Activity.Live feed request missing reply inbox".to_string())
+    })?;
+    let validate_request = make_validate_request(
+        ACTIVITY_LIVE_FEED_SUBJECT,
+        &request.payload,
+        &request.context,
+    )?;
+    let auth = auth_client
+        .auth_validate_request(&validate_request)
+        .await
+        .map_err(|error| {
+            ServerError::Nats(format!(
+                "Auth.ValidateRequest failed for Activity.Live feed: {error}"
+            ))
+        })?;
+    if !auth.allowed {
+        return Err(ServerError::RequestDenied {
+            subject: ACTIVITY_LIVE_FEED_SUBJECT.to_string(),
+            session_key: validate_request.session_key,
+        });
+    }
+    if !reply_to.starts_with(&format!("{}.", auth.inbox_prefix)) {
+        return Err(ServerError::Nats(format!(
+            "Activity.Live reply inbox mismatch: expected prefix {}, got {}",
+            auth.inbox_prefix, reply_to
+        )));
+    }
+
+    tracing::info!(
+        feed = "Activity.Live",
+        reply = %reply_to,
+        "Rust demo service accepted feed request"
+    );
+    let event_stream = subscribe_activity_live_sources(&nats).await?;
+    publish_feed_ready(&nats, &reply_to).await?;
+    bridge_activity_live_events(nats, reply_to, event_stream).await
+}
+
+async fn subscribe_activity_live_sources(
+    nats: &async_nats::Client,
+) -> Result<impl futures_util::Stream<Item = async_nats::Message>, ServerError> {
+    let mut subscribers = Vec::with_capacity(ACTIVITY_LIVE_SOURCE_EVENTS.len());
+    for (_, subject) in ACTIVITY_LIVE_SOURCE_EVENTS {
+        subscribers.push(
+            nats.subscribe((*subject).to_string())
+                .await
+                .map_err(|error| {
+                    ServerError::Nats(format!(
+                        "failed to subscribe to Activity.Live source event {subject}: {error}"
+                    ))
+                })?,
+        );
+    }
+    nats.flush()
+        .await
+        .map_err(|error| ServerError::Nats(error.to_string()))?;
+    Ok(futures_util::stream::select_all(subscribers))
+}
+
+async fn publish_feed_ready(nats: &async_nats::Client, reply_to: &str) -> Result<(), ServerError> {
+    let mut headers = HeaderMap::new();
+    headers.insert("feed-status", "ready");
+    nats.publish_with_headers(reply_to.to_string(), headers, Bytes::new())
+        .await
+        .map_err(|error| ServerError::Nats(error.to_string()))?;
+    nats.flush()
+        .await
+        .map_err(|error| ServerError::Nats(error.to_string()))
+}
+
+async fn bridge_activity_live_events(
+    nats: async_nats::Client,
+    reply_to: String,
+    event_stream: impl futures_util::Stream<Item = async_nats::Message>,
+) -> Result<(), ServerError> {
+    use futures_util::StreamExt;
+
+    let mut event_stream = Box::pin(event_stream);
+    while let Some(event_message) = event_stream.next().await {
+        let subject = event_message.subject.to_string();
+        let Some(name) = activity_live_source_name(&subject) else {
+            continue;
+        };
+        let event: serde_json::Value = serde_json::from_slice(&event_message.payload)?;
+        let frame = serde_json::to_vec(&json!({ "name": name, "event": event }))?;
+        nats.publish(reply_to.clone(), Bytes::from(frame))
+            .await
+            .map_err(|error| ServerError::Nats(error.to_string()))?;
+        nats.flush()
+            .await
+            .map_err(|error| ServerError::Nats(error.to_string()))?;
+    }
+    Ok(())
+}
+
+fn activity_live_source_name(subject: &str) -> Option<&'static str> {
+    ACTIVITY_LIVE_SOURCE_EVENTS
+        .iter()
+        .find_map(|(name, event_subject)| (*event_subject == subject).then_some(*name))
 }
 
 #[cfg(test)]
@@ -854,8 +1026,8 @@ fn build_router_with_selected_evidence_store_and_jobs(
     server::register_reports_generate(
         &mut router,
         {
-            let state = Arc::clone(&context.state);
-            move |ctx, input| reports_generate_start(Arc::clone(&state), ctx, input)
+            let context = context.clone();
+            move |ctx, input| reports_generate_start(context.clone(), ctx, input)
         },
         {
             let state = Arc::clone(&context.state);
@@ -1504,39 +1676,72 @@ fn job_wait_error(error: trellis_jobs::JobsError) -> ServerError {
 }
 
 async fn reports_generate_start(
-    state: SharedState,
+    context: AppContext,
     _ctx: RequestContext,
     input: ReportsGenerateInput,
 ) -> Result<AcceptedOperation<ReportsGenerateProgress, ReportsGenerateOutput>, ServerError> {
-    let mut state = state.lock().expect("demo state lock");
     let report_id = format!("report-{}", input.inspection_id);
-    state.reports.push(ReportsListResponseReportsItem {
-        report_id: report_id.clone(),
-        inspection_id: input.inspection_id.clone(),
-        site_id: Some("site-north".to_string()),
-        site_name: "North Ridge Substation".to_string(),
-        asset_name: "Transformer A".to_string(),
-        status: "published".to_string(),
-        published_at: FIXED_NOW.to_string(),
-        report_comment: input.report_comment,
-        summary: "Generated by Rust demo service".to_string(),
-        readiness: "ready".to_string(),
-        evidence_status: "attached".to_string(),
-    });
-
-    Ok(accepted(
-        &mut state,
-        "Reports.Generate",
-        ReportsGenerateOutput {
-            report_id,
-            inspection_id: input.inspection_id,
+    let inspection_id = input.inspection_id.clone();
+    let accepted_operation = {
+        let mut state = context.state.lock().expect("demo state lock");
+        state.reports.push(ReportsListResponseReportsItem {
+            report_id: report_id.clone(),
+            inspection_id: input.inspection_id.clone(),
+            site_id: Some("site-north".to_string()),
+            site_name: "North Ridge Substation".to_string(),
+            asset_name: "Transformer A".to_string(),
             status: "published".to_string(),
-        },
-        ReportsGenerateProgress {
-            stage: "complete".to_string(),
-            message: "Report generated".to_string(),
-        },
-    ))
+            published_at: FIXED_NOW.to_string(),
+            report_comment: input.report_comment,
+            summary: "Generated by Rust demo service".to_string(),
+            readiness: "ready".to_string(),
+            evidence_status: "attached".to_string(),
+        });
+
+        accepted(
+            &mut state,
+            "Reports.Generate",
+            ReportsGenerateOutput {
+                report_id: report_id.clone(),
+                inspection_id: input.inspection_id,
+                status: "published".to_string(),
+            },
+            ReportsGenerateProgress {
+                stage: "complete".to_string(),
+                message: "Report generated".to_string(),
+            },
+        )
+    };
+
+    publish_reports_generate_events(&context, report_id, inspection_id).await;
+    Ok(accepted_operation)
+}
+
+async fn publish_reports_generate_events(
+    context: &AppContext,
+    report_id: String,
+    inspection_id: String,
+) {
+    let Some(publisher) = &context.publisher else {
+        return;
+    };
+
+    let published = report_published_event(report_id, inspection_id.clone());
+    if let Err(error) = server::publish_reports_published(publisher, &published).await {
+        tracing::warn!(error = %error, "failed to publish Reports.Published");
+    }
+
+    let activity = ActivityRecordedEvent {
+        activity_id: format!("activity-closeout-{inspection_id}"),
+        kind: "report-published".to_string(),
+        message: format!("Published closeout report for {inspection_id}"),
+        occurred_at: now_iso(),
+        related_site_id: Some("site-north".to_string()),
+        related_inspection_id: Some(inspection_id),
+    };
+    if let Err(error) = server::publish_activity_recorded(publisher, &activity).await {
+        tracing::warn!(error = %error, "failed to publish Activity.Recorded");
+    }
 }
 
 async fn evidence_upload_start(

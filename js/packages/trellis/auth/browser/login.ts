@@ -1,5 +1,9 @@
 import { Value } from "typebox/value";
 import {
+  digestContractManifest,
+  type TrellisContractV1,
+} from "../../contract_support/mod.ts";
+import {
   type AuthStartRequest,
   AuthStartRequestSchema,
   type AuthStartResponse,
@@ -129,27 +133,48 @@ export async function startAuthRequest(args: {
   context?: unknown;
 }): Promise<AuthStartResponse> {
   const context = contextRecord(args.context);
+  const contractDigest = isTrellisContractV1(args.contract)
+    ? digestContractManifest(args.contract)
+    : undefined;
   const sig = await oauthInitSig(
     args.handle,
     args.redirectTo,
     context,
     args.provider,
-    args.contract,
+    contractDigest ?? args.contract,
   );
   const request = Value.Parse(AuthStartRequestSchema, {
     redirectTo: args.redirectTo,
     sessionKey: getPublicSessionKey(args.handle),
     sig,
-    contract: args.contract,
+    ...(contractDigest ? { contractDigest } : { contract: args.contract }),
     ...(args.provider ? { provider: args.provider } : {}),
     ...(context ? { context } : {}),
   }) as AuthStartRequest;
 
-  const response = await fetch(`${args.authUrl}/auth/requests`, {
+  let response = await fetch(`${args.authUrl}/auth/requests`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
+  if (await authStartNeedsManifest(response)) {
+    const fullSig = await oauthInitSig(
+      args.handle,
+      args.redirectTo,
+      context,
+      args.provider,
+      args.contract,
+    );
+    response = await fetch(`${args.authUrl}/auth/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...request,
+        sig: fullSig,
+        contract: args.contract,
+      }),
+    });
+  }
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`Auth request failed: ${response.status} ${text}`);
@@ -159,6 +184,30 @@ export async function startAuthRequest(args: {
     AuthStartResponseSchema,
     await response.json(),
   ) as AuthStartResponse;
+}
+
+async function authStartNeedsManifest(response: Response): Promise<boolean> {
+  if (response.ok || response.status !== 409) return false;
+  const clone = response.clone();
+  let payload: unknown;
+  try {
+    payload = await clone.json();
+  } catch {
+    payload = undefined;
+  }
+  if (payload && typeof payload === "object") {
+    const record = payload as {
+      reason?: unknown;
+      code?: unknown;
+      error?: unknown;
+      message?: unknown;
+    };
+    return record.reason === "manifest_required" ||
+      record.code === "manifest_required" ||
+      record.error === "manifest_required" ||
+      record.message === "manifest_required";
+  }
+  return (await response.clone().text()).includes("manifest_required");
 }
 
 function buildLoginUrlArgsFromPositional(
@@ -184,6 +233,16 @@ function buildLoginUrlArgsFromPositional(
     contract,
     context,
   };
+}
+
+function isTrellisContractV1(
+  contract: Record<string, unknown>,
+): contract is TrellisContractV1 {
+  return contract.format === "trellis.contract.v1" &&
+    typeof contract.id === "string" &&
+    typeof contract.displayName === "string" &&
+    typeof contract.description === "string" &&
+    typeof contract.kind === "string";
 }
 
 function isNestedBuildLoginUrlArgs(

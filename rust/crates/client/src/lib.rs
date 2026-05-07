@@ -16,7 +16,7 @@ mod transfer;
 
 pub use auth::SessionAuth;
 pub use client::{DeviceConnectOptions, ServiceConnectOptions, TrellisClient, UserConnectOptions};
-pub use descriptor::{EventDescriptor, RpcDescriptor};
+pub use descriptor::{EventDescriptor, FeedDescriptor, RpcDescriptor};
 pub use error::TrellisClientError;
 pub use operations::{
     control_subject, OperationDescriptor, OperationEvent, OperationInputBuilder, OperationInvoker,

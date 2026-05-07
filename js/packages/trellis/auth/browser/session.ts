@@ -81,7 +81,7 @@ export async function oauthInitSig(
   redirectTo: string,
   context?: unknown,
   provider?: string,
-  contract?: Record<string, unknown>,
+  contract?: Record<string, unknown> | string,
 ): Promise<string> {
   const canonicalContext = canonicalizeJsonValue(context ?? null);
   const payload = contract === undefined

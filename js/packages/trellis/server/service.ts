@@ -29,6 +29,7 @@ import {
   type InferSchemaType,
 } from "@qlever-llc/trellis/contracts";
 import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
+import type { TrellisContractV1 } from "../contract_support/mod.ts";
 import type {
   ContractJobsMetadata,
   ContractKvMetadata,
@@ -325,6 +326,7 @@ async function fetchServiceBootstrapInfoOnce(args: {
   trellisUrl: string;
   contractId: string;
   contractDigest: string;
+  contract?: TrellisContractV1;
   auth: SessionAuth;
 }): Promise<{
   response: Response;
@@ -342,6 +344,7 @@ async function fetchServiceBootstrapInfoOnce(args: {
       sessionKey: args.auth.sessionKey,
       contractId: args.contractId,
       contractDigest: args.contractDigest,
+      ...(args.contract ? { contract: args.contract } : {}),
       iat,
       sig: await args.auth.natsConnectSigForIat(iat, args.contractDigest),
     }),
@@ -368,9 +371,13 @@ async function fetchServiceBootstrapInfo(args: {
   trellisUrl: string;
   contractId: string;
   contractDigest: string;
+  contract?: TrellisContractV1;
   auth: SessionAuth;
 }): Promise<ServiceBootstrapResponse> {
-  let settled = await fetchServiceBootstrapInfoOnce(args);
+  let settled = await fetchServiceBootstrapInfoOnce({
+    ...args,
+    contract: undefined,
+  });
   if (
     !settled.response.ok &&
     settled.payload !== undefined &&
@@ -388,7 +395,17 @@ async function fetchServiceBootstrapInfo(args: {
           serverNowSeconds: failure.serverNow,
         }),
       );
-      settled = await fetchServiceBootstrapInfoOnce(args);
+      settled = await fetchServiceBootstrapInfoOnce({
+        ...args,
+        contract: undefined,
+      });
+    } else if (
+      failure.reason === "manifest_required" && args.contract !== undefined
+    ) {
+      settled = await fetchServiceBootstrapInfoOnce({
+        ...args,
+        contract: args.contract,
+      });
     }
   }
 
@@ -655,6 +672,7 @@ export type ServiceContract<
 > = {
   CONTRACT_ID: string;
   CONTRACT_DIGEST: string;
+  CONTRACT: TrellisContractV1;
   API: {
     owned: TOwnedApi;
     trellis: TTrellisApi;
@@ -1996,6 +2014,7 @@ export class TrellisService<
           trellisUrl: args.trellisUrl,
           contractId: args.contract.CONTRACT_ID,
           contractDigest: args.contract.CONTRACT_DIGEST,
+          contract: args.contract.CONTRACT,
           auth,
         });
         const { authenticator: authTokenAuthenticator, inboxPrefix } =

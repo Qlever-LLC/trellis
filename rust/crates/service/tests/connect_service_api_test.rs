@@ -185,11 +185,12 @@ fn make_request() -> InboundRequest {
     InboundRequest {
         subject: PingRpc::SUBJECT.to_string(),
         payload: Bytes::from_static(br#"{"value":"hello"}"#),
-        reply_to: Some("_INBOX.1".to_string()),
+        reply_to: Some("_INBOX.svc_session.1".to_string()),
         context: RequestContext {
             subject: PingRpc::SUBJECT.to_string(),
             session_key: Some("svc_session".to_string()),
             proof: Some("proof".to_string()),
+            reply_to: Some("_INBOX.svc_session.1".to_string()),
         },
     }
 }

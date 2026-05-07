@@ -35,6 +35,7 @@ function createApp(args: {
   deployment?: {
     deploymentId: string;
     appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
+    preActivationPolicy?: "reject" | "device-owned";
     disabled: boolean;
   } | null;
   nowSeconds?: number;
@@ -131,6 +132,7 @@ Deno.test("POST /auth/devices/connect-info returns runtime connect info when dev
       },
       auth: {
         mode: "device_identity",
+        authority: "user_delegated",
         iatSkewSeconds: 30,
       },
     },
@@ -152,6 +154,164 @@ Deno.test("POST /auth/devices/connect-info returns 404 when activation is missin
     activation: null,
     deployment: {
       deploymentId: "reader.default",
+      appliedContracts: [{
+        contractId: "example.device@v1",
+        allowedDigests: ["digest-a"],
+      }],
+      disabled: false,
+    },
+  });
+
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+
+  assertEquals(response.status, 404);
+  assertEquals(await response.json(), { reason: "unknown_device" });
+});
+
+Deno.test("POST /auth/devices/connect-info returns ready for registered device when pre-activation device-owned policy allows", async () => {
+  const request = await createSignedRequest("digest-a");
+  const app = createApp({
+    instance: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "registered",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      activatedAt: null,
+      revokedAt: null,
+    },
+    activation: null,
+    deployment: {
+      deploymentId: "reader.default",
+      preActivationPolicy: "device-owned",
+      appliedContracts: [{
+        contractId: "example.device@v1",
+        allowedDigests: ["digest-a"],
+      }],
+      disabled: false,
+    },
+  });
+
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.status, "ready");
+  assertEquals(body.connectInfo.auth.authority, "device_owned");
+});
+
+Deno.test("POST /auth/devices/connect-info rejects stale activation deployment", async () => {
+  const request = await createSignedRequest("digest-a");
+  const app = createApp({
+    instance: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.next",
+      state: "activated",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      activatedAt: new Date("2026-01-01T00:01:00.000Z"),
+      revokedAt: null,
+    },
+    activation: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "activated",
+      activatedAt: "2026-01-01T00:01:00.000Z",
+      revokedAt: null,
+    },
+    deployment: {
+      deploymentId: "reader.default",
+      appliedContracts: [{
+        contractId: "example.device@v1",
+        allowedDigests: ["digest-a"],
+      }],
+      disabled: false,
+    },
+  });
+
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+
+  assertEquals(response.status, 404);
+  assertEquals(await response.json(), { reason: "unknown_device" });
+});
+
+Deno.test("POST /auth/devices/connect-info rejects registered device when pre-activation digest is not allowed", async () => {
+  const request = await createSignedRequest("digest-b");
+  const app = createApp({
+    instance: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "registered",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      activatedAt: null,
+      revokedAt: null,
+    },
+    activation: null,
+    deployment: {
+      deploymentId: "reader.default",
+      preActivationPolicy: "device-owned",
+      appliedContracts: [{
+        contractId: "example.device@v1",
+        allowedDigests: ["digest-a"],
+      }],
+      disabled: false,
+    },
+  });
+
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+
+  assertEquals(response.status, 403);
+  assertEquals(await response.json(), {
+    reason: "contract_digest_not_allowed",
+  });
+});
+
+Deno.test("POST /auth/devices/connect-info rejects disabled registered devices despite pre-activation policy", async () => {
+  const request = await createSignedRequest("digest-a");
+  const app = createApp({
+    instance: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "disabled",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      activatedAt: null,
+      revokedAt: null,
+    },
+    activation: null,
+    deployment: {
+      deploymentId: "reader.default",
+      preActivationPolicy: "device-owned",
       appliedContracts: [{
         contractId: "example.device@v1",
         allowedDigests: ["digest-a"],

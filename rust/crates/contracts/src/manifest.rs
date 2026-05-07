@@ -334,7 +334,7 @@ fn project_uses(uses: Option<&Value>) -> Option<Value> {
     }
 
     let required = project_uses_flat(uses.get("required"));
-    let optional = project_uses_flat(uses.get("optional"));
+    let optional = omit_required_use_aliases(project_uses_flat(uses.get("optional")), &required);
 
     match (required, optional) {
         (Some(required), None) => Some(required),
@@ -357,6 +357,19 @@ fn is_use_ref_object(value: &serde_json::Map<String, Value>) -> bool {
     value
         .get("contract")
         .is_some_and(serde_json::Value::is_string)
+}
+
+fn omit_required_use_aliases(optional: Option<Value>, required: &Option<Value>) -> Option<Value> {
+    let Some(Value::Object(mut optional)) = optional else {
+        return optional;
+    };
+    let Some(Value::Object(required)) = required else {
+        return Some(Value::Object(optional));
+    };
+    for alias in required.keys() {
+        optional.remove(alias);
+    }
+    (!optional.is_empty()).then_some(Value::Object(optional))
 }
 
 fn project_capabilities(capabilities: Option<&Value>, keys: &[&str]) -> Option<Value> {

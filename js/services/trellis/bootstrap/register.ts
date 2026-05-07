@@ -70,6 +70,8 @@ export async function registerControlPlane(deps: {
     trellis,
     contracts,
     serviceInstanceStorage,
+    serviceDeploymentStorage,
+    connectionsKV,
     logger,
   });
 
@@ -113,6 +115,7 @@ export async function registerControlPlane(deps: {
     contractApprovalStorage,
     deviceActivationStorage,
     deviceDeploymentStorage,
+    deviceInstanceStorage,
     instanceGrantPolicyStorage,
     serviceDeploymentStorage,
     serviceInstanceStorage,

@@ -144,6 +144,13 @@ export async function planUserContractApproval(
     }
   }
 
+  for (const feed of uses.feedSubscribes) {
+    publishSubjects.add(templateToWildcard(feed.feed.subject));
+    for (const capability of feed.feed.capabilities?.subscribe ?? []) {
+      addCapability(capability, feed.contract);
+    }
+  }
+
   return {
     digest: validated.digest,
     contract: validated.contract,

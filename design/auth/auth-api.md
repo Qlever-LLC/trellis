@@ -96,6 +96,9 @@ Rules:
 
 - browser apps send their contract manifest when they initiate login; they are
   approved per-user during auth rather than pre-installed like services
+- app and agent auth may present a contract digest first; when auth does not
+  know that digest it returns `manifest_required`, and the client retries with
+  the full manifest for validation, digest verification, and flow storage
 - bind later uses the contract already stored on the auth-owned browser flow
   rather than requiring the browser app to resubmit it
 - if present, `context` is stored on the browser flow and returned to portals as
@@ -642,12 +645,18 @@ type InstanceGrantPolicy = {
   };
 };
 
+type FirstConnectPolicy = "reject" | "quarantine" | "auto-accept-compatible";
+type CompatibilityPolicy = "exact" | "compatible-additive" | "manual";
+type DevicePreActivationPolicy = "reject" | "device-owned";
+
 type ServiceDeployment = {
   deploymentId: string;
   namespaces: string[];
+  firstConnectPolicy: FirstConnectPolicy;
   disabled: boolean;
   appliedContracts: Array<{
     contractId: string;
+    compatibilityPolicy: CompatibilityPolicy;
     allowedDigests: string[];
     resourceBindingsByDigest?: Record<string, Record<string, unknown>>;
   }>;
@@ -676,6 +685,7 @@ type ServiceInstance = {
 type CreateServiceDeploymentRequest = {
   deploymentId: string;
   namespaces: string[];
+  firstConnectPolicy?: FirstConnectPolicy;
 };
 type CreateServiceDeploymentResponse = { deployment: ServiceDeployment };
 
@@ -685,6 +695,8 @@ type ApplyServiceDeploymentContractRequest = {
   deploymentId: string;
   contract: Record<string, unknown>;
   expectedDigest: string;
+  compatibilityPolicy?: CompatibilityPolicy;
+  replaceExisting?: boolean;
 };
 type ApplyServiceDeploymentContractResponse = {
   deployment: ServiceDeployment;
@@ -733,6 +745,16 @@ durable deployment record:
   runtime digest enforcement before persisting `currentContractDigest` or
   resource binding state. Instance state affects runtime availability; it does
   not activate catalog/auth surfaces.
+- strict first-connect behavior is the default: `firstConnectPolicy: "reject"`
+  and `compatibilityPolicy: "exact"` require an already installed and allowed
+  digest.
+- when a service deployment uses `firstConnectPolicy` set to
+  `"auto-accept-compatible"` and the applied lineage uses `compatibilityPolicy`
+  set to `"compatible-additive"`, service bootstrap may request the full
+  manifest with `manifest_required`, validate that the presented digest stays
+  within the deployment envelope, store the contract, append the digest to the
+  deployment's allowed set, and then continue bootstrap. NATS runtime auth still
+  presents only the digest.
 - the successful service bootstrap response includes the resolved resource
   binding payload for the presented digest; service runtimes use that binding to
   initialize KV, store, jobs, and transfer helpers without requiring a
@@ -770,9 +792,12 @@ type DeviceDeployment = {
   deploymentId: string;
   appliedContracts: Array<{
     contractId: string;
+    compatibilityPolicy: CompatibilityPolicy;
     allowedDigests: string[];
   }>;
   reviewMode?: "none" | "required";
+  firstConnectPolicy: FirstConnectPolicy;
+  preActivationPolicy: DevicePreActivationPolicy;
   disabled: boolean;
 };
 
@@ -828,6 +853,7 @@ type DeviceConnectInfo = {
   };
   auth: {
     mode: "device_identity";
+    authority: "device_owned" | "user_delegated";
     iatSkewSeconds: number;
   };
 };
@@ -882,6 +908,13 @@ type GetDeviceConnectInfoResponse = {
   connectInfo: DeviceConnectInfo;
 };
 
+`POST /auth/devices/connect-info` and `Auth.GetDeviceConnectInfo` return
+`auth.authority: "user_delegated"` for activated devices. They may return
+`auth.authority: "device_owned"` for registered devices without activation only
+when the device deployment has `preActivationPolicy: "device-owned"` and the
+presented digest is allowed by the deployment. The strict default is
+`preActivationPolicy: "reject"`, which preserves `activation_required` behavior.
+
 type CreatePortalRequest = {
   portalId: string;
   entryUrl: string;
@@ -931,6 +964,8 @@ type ClearDevicePortalSelectionRequest = { deploymentId: string };
 type CreateDeviceDeploymentRequest = {
   deploymentId: string;
   reviewMode?: "none" | "required";
+  firstConnectPolicy?: FirstConnectPolicy;
+  preActivationPolicy?: DevicePreActivationPolicy;
 };
 type CreateDeviceDeploymentResponse = { deployment: DeviceDeployment };
 
@@ -939,6 +974,8 @@ type ApplyDeviceDeploymentContractRequest = {
   deploymentId: string;
   contract: Record<string, unknown>;
   expectedDigest: string;
+  compatibilityPolicy?: CompatibilityPolicy;
+  replaceExisting?: boolean;
 };
 type ApplyDeviceDeploymentContractResponse = {
   deployment: DeviceDeployment;
@@ -1203,9 +1240,9 @@ Response:
 
 Rules:
 
-- `Auth.ListCapabilities` returns capabilities known to the current auth runtime:
-  Trellis platform capabilities plus capability metadata projected from the
-  in-memory active contract catalog.
+- `Auth.ListCapabilities` returns capabilities known to the current auth
+  runtime: Trellis platform capabilities plus capability metadata projected from
+  the in-memory active contract catalog.
 - The response is an assignment catalog for admin UX; it is not a grant source
   by itself.
 - Capability keys are canonical global keys such as
@@ -1238,8 +1275,8 @@ Rules:
 
 - `capabilities`, when present, replaces the user's explicit capability grants
   with the exact canonical keys supplied by the admin caller.
-- Unknown or uncataloged existing capability strings may remain on a user record,
-  but new Trellis-owned assignments SHOULD use keys returned by
+- Unknown or uncataloged existing capability strings may remain on a user
+  record, but new Trellis-owned assignments SHOULD use keys returned by
   `Auth.ListCapabilities`.
 
 ### rpc.Auth.ListInstanceGrantPolicies

@@ -659,6 +659,76 @@ Deno.test("TrellisService.connect retries once on iat_out_of_range using server 
   }
 });
 
+Deno.test("TrellisService.connect retries bootstrap with manifest when required", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestBodies: Array<Record<string, unknown>> = [];
+
+  const fakeConnect: NatsConnectFn = async () => {
+    throw new Error("stop-after-connect");
+  };
+
+  try {
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requestBodies.push(body);
+      if (requestBodies.length === 1) {
+        return new Response(JSON.stringify({ reason: "manifest_required" }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          status: "ready",
+          serverNow: 1_700_000_120,
+          connectInfo: {
+            sessionKey: "session-key",
+            contractId: core.CONTRACT_ID,
+            contractDigest: core.CONTRACT_DIGEST,
+            transports: {
+              native: { natsServers: ["nats://127.0.0.1:4222"] },
+            },
+            transport: {
+              sentinel: { jwt: "jwt", seed: "seed" },
+            },
+            auth: {
+              mode: "service_identity",
+              iatSkewSeconds: 30,
+            },
+          },
+          binding: {
+            contractId: core.CONTRACT_ID,
+            digest: core.CONTRACT_DIGEST,
+            resources: { kv: {} },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }) as typeof fetch;
+
+    await assertRejects(
+      () =>
+        TrellisService.connect({
+          trellisUrl: "https://trellis.example.com",
+          contract: core,
+          name: "svc",
+          sessionKeySeed: TEST_SEED,
+          server: {},
+        }, { connect: fakeConnect }).orThrow(),
+      TransportError,
+    );
+
+    assertEquals(requestBodies.length, 2);
+    assertEquals("contract" in requestBodies[0], false);
+    assertEquals(requestBodies[1].contract, core.CONTRACT);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("internal service connect uses a reconnect-safe auth token authenticator", async () => {
   const originalNow = Date.now;
   let firstToken = "";

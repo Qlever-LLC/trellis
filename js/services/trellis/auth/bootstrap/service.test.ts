@@ -70,6 +70,28 @@ async function createAlternateTestContract() {
   });
 }
 
+async function createAdditiveNoResourceContract() {
+  const store = new ContractStore();
+  return await store.validate({
+    format: "trellis.contract.v1",
+    id: "svc.example@v1",
+    displayName: "Example Service",
+    description: "Example service contract additive",
+    kind: "service",
+    schemas: {
+      Health: { type: "object" },
+    },
+    rpc: {
+      health: {
+        version: "v1",
+        subject: "svc.example.health",
+        input: { schema: "Health" },
+        output: { schema: "Health" },
+      },
+    },
+  });
+}
+
 async function createApp(args: {
   service?: {
     displayName: string;
@@ -89,6 +111,8 @@ async function createApp(args: {
   builtinContract?: boolean;
   includeAlternateContract?: boolean;
   useOnlyAlternateDeploymentDigest?: boolean;
+  firstConnectPolicy?: "reject" | "quarantine" | "auto-accept-compatible";
+  compatibilityPolicy?: "exact" | "compatible-additive" | "manual";
 }) {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
   const validated = await createTestContractStore();
@@ -114,6 +138,18 @@ async function createApp(args: {
     currentContractDigest?: string;
     capabilities: string[];
   }> = [];
+  const savedDeployments: Array<{
+    deploymentId: string;
+    firstConnectPolicy?: "reject" | "quarantine" | "auto-accept-compatible";
+    disabled: boolean;
+    appliedContracts: Array<{
+      contractId: string;
+      compatibilityPolicy?: "exact" | "compatible-additive" | "manual";
+      allowedDigests: string[];
+      resourceBindingsByDigest?: Record<string, Record<string, unknown>>;
+    }>;
+  }> = [];
+  const storedContracts: Array<{ digest: string; contractId: string }> = [];
   const defaultResourceBindings = {
     kv: {
       cache: {
@@ -164,9 +200,12 @@ async function createApp(args: {
       },
       loadServiceDeployment: async () => ({
         deploymentId: "deployment_1",
+        namespaces: [],
+        firstConnectPolicy: args.firstConnectPolicy ?? "reject",
         disabled: false,
         appliedContracts: [{
           contractId: validated.contract.id,
+          compatibilityPolicy: args.compatibilityPolicy ?? "exact",
           allowedDigests: alternate
             ? args.useOnlyAlternateDeploymentDigest
               ? [alternate.digest]
@@ -189,6 +228,12 @@ async function createApp(args: {
             }),
         }],
       }),
+      saveServiceDeployment: async (deployment) => {
+        savedDeployments.push(deployment);
+      },
+      storePresentedContract: async ({ contract, digest }) => {
+        storedContracts.push({ digest, contractId: contract.id });
+      },
       verifyIdentityProof: async ({ sessionKey, iat, contractDigest, sig }) =>
         sessionKey === auth.sessionKey &&
         sig === await auth.natsConnectSigForIat(iat, contractDigest),
@@ -201,6 +246,8 @@ async function createApp(args: {
     contract: validated,
     alternateContract: alternate,
     savedServices,
+    savedDeployments,
+    storedContracts,
   };
 }
 
@@ -411,6 +458,217 @@ Deno.test("POST /bootstrap/service rejects current built-in digest over stale de
     currentContractDigest: expectedAlternate.digest,
   });
   assertEquals(savedServices.length, 0);
+});
+
+Deno.test("POST /bootstrap/service keeps strict default when full manifest is supplied", async () => {
+  const presented = await createAdditiveNoResourceContract();
+  const {
+    app,
+    auth,
+    contract,
+    savedServices,
+    savedDeployments,
+    storedContracts,
+  } = await createApp({});
+
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: presented.digest,
+      contract: presented.contract,
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT, presented.digest),
+    }),
+  });
+
+  assertEquals(response.status, 409);
+  assertEquals((await response.json()).reason, "service_contract_mismatch");
+  assertEquals(savedServices.length, 0);
+  assertEquals(savedDeployments.length, 0);
+  assertEquals(storedContracts.length, 0);
+});
+
+Deno.test("POST /bootstrap/service auto-accepts compatible no-resource manifest", async () => {
+  const presented = await createAdditiveNoResourceContract();
+  const {
+    app,
+    auth,
+    contract,
+    savedServices,
+    savedDeployments,
+    storedContracts,
+  } = await createApp({
+    firstConnectPolicy: "auto-accept-compatible",
+    compatibilityPolicy: "compatible-additive",
+  });
+
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: presented.digest,
+      contract: presented.contract,
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT, presented.digest),
+    }),
+  });
+
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.status, "ready");
+  assertEquals(body.connectInfo.contractDigest, presented.digest);
+  assertEquals(body.binding.resources, {});
+  assertEquals(storedContracts, [{
+    digest: presented.digest,
+    contractId: presented.contract.id,
+  }]);
+  assertEquals(savedDeployments.length, 1);
+  assertEquals(savedDeployments[0]?.appliedContracts[0]?.allowedDigests, [
+    contract.digest,
+    presented.digest,
+  ]);
+  assertEquals(
+    savedDeployments[0]?.appliedContracts[0]?.resourceBindingsByDigest,
+    {
+      [contract.digest]: {
+        kv: { cache: { bucket: "svc_cache", history: 1, ttlMs: 0 } },
+      },
+    },
+  );
+  assertEquals(savedServices.length, 1);
+  assertEquals(savedServices[0]?.currentContractDigest, presented.digest);
+  assertEquals(savedServices[0]?.resourceBindings, {});
+});
+
+Deno.test("POST /bootstrap/service asks for manifest when policy may auto-accept unknown digest", async () => {
+  const presented = await createAdditiveNoResourceContract();
+  const { app, auth, contract, savedServices, savedDeployments } =
+    await createApp({
+      firstConnectPolicy: "auto-accept-compatible",
+      compatibilityPolicy: "compatible-additive",
+    });
+
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: presented.digest,
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT, presented.digest),
+    }),
+  });
+
+  assertEquals(response.status, 409);
+  const body = await response.json();
+  assertEquals(body.reason, "manifest_required");
+  assertEquals(savedServices.length, 0);
+  assertEquals(savedDeployments.length, 0);
+});
+
+Deno.test("POST /bootstrap/service rejects auto-accept digest mismatch", async () => {
+  const presented = await createAdditiveNoResourceContract();
+  const { app, auth, contract, savedDeployments, storedContracts } =
+    await createApp({
+      firstConnectPolicy: "auto-accept-compatible",
+      compatibilityPolicy: "compatible-additive",
+    });
+  const requestedDigest = "other_digest";
+
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: requestedDigest,
+      contract: presented.contract,
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT, requestedDigest),
+    }),
+  });
+
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    reason: "presented_contract_digest_mismatch",
+    message:
+      `Presented contract digest '${presented.digest}' does not match requested digest '${requestedDigest}'. Review and apply the intended contract before starting this service.`,
+    instanceId: "svc_1",
+    deploymentId: "deployment_1",
+    contractId: contract.contract.id,
+    expectedContractDigest: requestedDigest,
+    presentedContractDigest: presented.digest,
+  });
+  assertEquals(savedDeployments.length, 0);
+  assertEquals(storedContracts.length, 0);
+});
+
+Deno.test("POST /bootstrap/service rejects auto-accept resources and jobs for manual review", async () => {
+  const presented = await createAlternateTestContract();
+  const { app, auth, contract, savedDeployments, storedContracts } =
+    await createApp({
+      firstConnectPolicy: "auto-accept-compatible",
+      compatibilityPolicy: "compatible-additive",
+    });
+
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: presented.digest,
+      contract: presented.contract,
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT, presented.digest),
+    }),
+  });
+
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    reason: "presented_contract_requires_manual_review",
+    message:
+      `Presented contract '${contract.contract.id}' digest '${presented.digest}' declares resources or jobs. Apply and review the contract manually before starting this service.`,
+    instanceId: "svc_1",
+    deploymentId: "deployment_1",
+    contractId: contract.contract.id,
+    contractDigest: presented.digest,
+  });
+  assertEquals(savedDeployments.length, 0);
+  assertEquals(storedContracts.length, 0);
+});
+
+Deno.test("POST /bootstrap/service rejects auto-accept when applied policy is exact", async () => {
+  const presented = await createAdditiveNoResourceContract();
+  const { app, auth, contract, savedDeployments, storedContracts } =
+    await createApp({
+      firstConnectPolicy: "auto-accept-compatible",
+      compatibilityPolicy: "exact",
+    });
+
+  const response = await app.request("http://trellis/bootstrap/service", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      contractId: contract.contract.id,
+      contractDigest: presented.digest,
+      contract: presented.contract,
+      iat: TEST_IAT,
+      sig: await auth.natsConnectSigForIat(TEST_IAT, presented.digest),
+    }),
+  });
+
+  assertEquals(response.status, 409);
+  assertEquals((await response.json()).reason, "service_contract_mismatch");
+  assertEquals(savedDeployments.length, 0);
+  assertEquals(storedContracts.length, 0);
 });
 
 Deno.test("POST /bootstrap/service fails clearly when applied resources have no stored bindings", async () => {

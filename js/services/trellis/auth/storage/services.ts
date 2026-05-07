@@ -7,7 +7,9 @@ import { serviceDeployments, serviceInstances } from "../../storage/schema.ts";
 import { ServiceDeploymentSchema, ServiceInstanceSchema } from "../schemas.ts";
 import { parseJsonField } from "./shared.ts";
 
-type ServiceDeployment = StaticDecode<typeof ServiceDeploymentSchema>;
+type ServiceDeployment = StaticDecode<typeof ServiceDeploymentSchema> & {
+  firstConnectPolicy?: "reject" | "quarantine" | "auto-accept-compatible";
+};
 type ServiceInstance = StaticDecode<typeof ServiceInstanceSchema>;
 
 type ServiceDeploymentRow = typeof serviceDeployments.$inferSelect;
@@ -21,6 +23,7 @@ function decodeServiceDeploymentRow(
   return Value.Decode(ServiceDeploymentSchema, {
     deploymentId: row.deploymentId,
     namespaces: parseJsonField("service deployment namespaces", row.namespaces),
+    firstConnectPolicy: row.firstConnectPolicy ?? "reject",
     disabled: row.disabled,
     appliedContracts: parseJsonField(
       "service deployment applied contracts",
@@ -35,6 +38,7 @@ function encodeServiceDeploymentRecord(
   return {
     deploymentId: record.deploymentId,
     namespaces: JSON.stringify(record.namespaces),
+    firstConnectPolicy: record.firstConnectPolicy ?? "reject",
     disabled: record.disabled,
     appliedContracts: JSON.stringify(record.appliedContracts),
   };
@@ -105,6 +109,7 @@ export class SqlServiceDeploymentRepository {
       target: serviceDeployments.deploymentId,
       set: {
         namespaces: row.namespaces,
+        firstConnectPolicy: row.firstConnectPolicy,
         disabled: row.disabled,
         appliedContracts: row.appliedContracts,
       },

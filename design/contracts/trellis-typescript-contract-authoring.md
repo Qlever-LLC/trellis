@@ -101,8 +101,8 @@ Rules:
 TypeScript authors do not hand-write remote dependency contract ids in normal
 use.
 
-Generated SDK modules expose a root-only package export. The root export includes
-a contract module object named `sdk` that includes:
+Generated SDK modules expose a root-only package export. The root export
+includes a contract module object named `sdk` that includes:
 
 - stable contract identity, canonical manifest metadata, and manifest digest
 - projected API metadata, including owned, used, and merged views
@@ -150,11 +150,13 @@ export const jobs = defineServiceContract(
     capabilities: {
       "jobs.admin.read": {
         displayName: "Read jobs admin data",
-        description: "View Jobs service health, services, jobs, and dead-letter queues.",
+        description:
+          "View Jobs service health, services, jobs, and dead-letter queues.",
       },
       "jobs.admin.mutate": {
         displayName: "Mutate jobs admin data",
-        description: "Cancel, retry, replay, or dismiss Jobs service work items.",
+        description:
+          "Cancel, retry, replay, or dismiss Jobs service work items.",
         consequence: "Can change background job execution state.",
       },
     },
@@ -228,7 +230,8 @@ export const billing = defineServiceContract(
 Rules:
 
 - `signals` is an operation-local map of named post-start inputs.
-- each signal requires an `input` schema reference from the local schema registry.
+- each signal requires an `input` schema reference from the local schema
+  registry.
 - signal schemas are reachable contract schemas and therefore participate in
   manifest emission, digest projection, validation, docs, and generated SDK
   aliases.
@@ -411,6 +414,14 @@ The `use(...)` helper:
 This makes imported SDK modules the source of truth for remote dependency names
 in TypeScript authoring.
 
+Contracts may place SDK-backed uses either in `uses.required` or
+`uses.optional`. A legacy flat `uses` object remains accepted and is emitted as
+required-by-default for compatibility with existing manifests. Required uses
+fail closed during active-catalog validation. Optional uses are included in
+digest identity, but missing optional contracts or surfaces are skipped and
+grant no transport authority. If an alias appears in both groups, the required
+declaration wins.
+
 Some Trellis-owned surfaces are derived from the participant kind or local
 contract features. App, agent, and device contracts receive baseline auth RPCs
 such as `Auth.Me` and `Auth.Logout` without authoring boilerplate; service
@@ -495,12 +506,12 @@ Rules:
 
 The TypeScript type system must enforce both of these rules:
 
-- a referenced remote operation, RPC, event, or feed must exist on the imported SDK
-  module
+- a referenced remote operation, RPC, event, or feed must exist on the imported
+  SDK module
 - a participant may only invoke, call, publish, or subscribe to remote
-  operations, events, and feeds that are explicitly declared in its local contract `uses`, except
-  for Trellis-defined baseline surfaces automatically available to that
-  participant kind
+  operations, events, and feeds that are explicitly declared in its local
+  contract `uses`, except for Trellis-defined baseline surfaces automatically
+  available to that participant kind
 
 This makes two important guarantees in normal authoring: if an SDK does not
 expose `Auth.Nope`, then `auth.use({ events: { subscribe: ["Auth.Nope"] } })` is
@@ -515,8 +526,8 @@ contract object itself defines the allowed TypeScript runtime surface.
 
 The contract definition produces three distinct projected API views:
 
-- `API.owned` - the operations, RPCs, events, and feeds owned by the local participant
-  and therefore mountable or publishable as owner behavior
+- `API.owned` - the operations, RPCs, events, and feeds owned by the local
+  participant and therefore mountable or publishable as owner behavior
 - `API.used` - the subset of remote SDK APIs explicitly permitted by `uses`
 - `API.trellis` - the merged runtime surface used for outbound
   `operation(...).input(...).start()`, `request`, `publish`, `event`, and `feed`

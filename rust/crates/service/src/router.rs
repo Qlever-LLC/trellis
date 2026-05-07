@@ -8,9 +8,9 @@ use futures_util::{Stream, StreamExt};
 use std::pin::Pin;
 
 use crate::{
-    control_subject, AcceptedOperation, HandlerResponse, HandlerResult, OperationControlRequest,
-    OperationDescriptor, OperationProvider, OperationSnapshot, OperationSnapshotFrame,
-    ResponseStream, RpcDescriptor, ServerError,
+    control_subject, AcceptedOperation, FeedDescriptor, HandlerResponse, HandlerResult,
+    OperationControlRequest, OperationDescriptor, OperationProvider, OperationSnapshot,
+    OperationSnapshotFrame, ResponseStream, RpcDescriptor, ServerError,
 };
 
 /// Request metadata forwarded to mounted RPC handlers.
@@ -19,6 +19,7 @@ pub struct RequestContext {
     pub subject: String,
     pub session_key: Option<String>,
     pub proof: Option<String>,
+    pub reply_to: Option<String>,
 }
 
 type BoxedHandler = Box<
@@ -63,6 +64,32 @@ impl Router {
                         Ok(HandlerResponse::Frames(vec![Bytes::from(
                             serde_json::to_vec(&output)?,
                         )]))
+                    })
+                },
+            ),
+        );
+    }
+
+    /// Register one descriptor-backed feed handler.
+    pub fn register_feed<D, F, S>(&mut self, handler: F)
+    where
+        D: FeedDescriptor + 'static,
+        F: Fn(RequestContext, D::Input) -> S + Send + Sync + 'static,
+        S: Stream<Item = Result<D::Event, ServerError>> + Send + 'static,
+    {
+        let handler = Arc::new(handler);
+        self.handlers.insert(
+            D::SUBJECT.to_string(),
+            Box::new(
+                move |ctx, payload| -> BoxFuture<'static, Result<HandlerResponse, ServerError>> {
+                    let handler = Arc::clone(&handler);
+                    let input =
+                        serde_json::from_slice::<D::Input>(&payload).map_err(ServerError::Json);
+                    Box::pin(async move {
+                        let input = input?;
+                        Ok(HandlerResponse::FeedStream(feed_response_stream(handler(
+                            ctx, input,
+                        ))))
                     })
                 },
             ),
@@ -298,6 +325,13 @@ impl Router {
                 }
                 Ok(frames)
             }
+            HandlerResponse::FeedStream(mut stream) => {
+                let mut frames = Vec::new();
+                while let Some(frame) = stream.next().await {
+                    frames.push(frame?);
+                }
+                Ok(frames)
+            }
         }
     }
 
@@ -314,6 +348,17 @@ impl Router {
             .ok_or_else(|| ServerError::MissingHandler(subject.to_string()))?;
         handler(context, payload).await
     }
+}
+
+fn feed_response_stream<TEvent>(
+    events: impl Stream<Item = Result<TEvent, ServerError>> + Send + 'static,
+) -> ResponseStream
+where
+    TEvent: serde::Serialize + 'static,
+{
+    Box::pin(
+        events.map(|event| event.and_then(|event| Ok(Bytes::from(serde_json::to_vec(&event)?)))),
+    )
 }
 
 fn watch_response_stream<TProgress, TOutput>(

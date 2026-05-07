@@ -77,6 +77,7 @@ fn request(reply_to: Option<&str>) -> InboundRequest {
             subject: "rpc.v1.Jobs.Health".to_string(),
             session_key: Some("svc_session".to_string()),
             proof: Some("proof".to_string()),
+            reply_to: reply_to.map(ToString::to_string),
         },
     }
 }

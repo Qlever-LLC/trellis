@@ -69,7 +69,25 @@ type AuthMeResponse = {
 
 type UserProjectionStorage = Pick<SqlUserProjectionRepository, "get">;
 type DeviceActivationStorage = Pick<SqlDeviceActivationRepository, "get">;
-type DeviceDeploymentStorage = Pick<SqlDeviceDeploymentRepository, "get">;
+type DeviceDeploymentStorage = {
+  get(deploymentId: string): Promise<
+    {
+      deploymentId: string;
+      disabled: boolean;
+      preActivationPolicy?: "reject" | "device-owned";
+    } | undefined
+  >;
+};
+type DeviceInstanceStorage = {
+  get(instanceId: string): Promise<
+    {
+      instanceId: string;
+      publicIdentityKey: string;
+      deploymentId: string;
+      state: "registered" | "activated" | "revoked" | "disabled" | string;
+    } | undefined
+  >;
+};
 type ServiceDeploymentLoader = (
   deploymentId: string,
 ) => Promise<{ disabled: boolean } | null | undefined>;
@@ -475,16 +493,79 @@ async function loadAuthenticatedService(args: {
 async function loadAuthenticatedDevice(args: {
   userStorage: UserProjectionStorage;
   deviceActivationStorage: DeviceActivationStorage;
+  deviceInstanceStorage?: DeviceInstanceStorage;
   deviceDeploymentStorage: DeviceDeploymentStorage;
   session: Session & { type: "device" };
 }): Promise<{ user: AuthenticatedUser | null; device: AuthenticatedDevice }> {
   const activation = await args.deviceActivationStorage.get(
     args.session.instanceId,
   );
+  const instance = await args.deviceInstanceStorage?.get(
+    args.session.instanceId,
+  );
   if (!activation) {
+    if (
+      !instance ||
+      instance.publicIdentityKey !== args.session.publicIdentityKey ||
+      instance.deploymentId !== args.session.deploymentId ||
+      instance.state !== "registered" ||
+      args.session.revokedAt !== null
+    ) {
+      throw new AuthError({
+        reason: "unknown_device",
+        context: { instanceId: args.session.instanceId },
+      });
+    }
+
+    const deployment = await args.deviceDeploymentStorage.get(
+      instance.deploymentId,
+    );
+    if (!deployment) {
+      throw new AuthError({
+        reason: "device_deployment_not_found",
+        context: { deploymentId: instance.deploymentId },
+      });
+    }
+    if (deployment.disabled) {
+      throw new AuthError({
+        reason: "device_deployment_disabled",
+        context: { deploymentId: deployment.deploymentId },
+      });
+    }
+    if (deployment.preActivationPolicy !== "device-owned") {
+      throw new AuthError({
+        reason: "unknown_device",
+        context: { instanceId: args.session.instanceId },
+      });
+    }
+
+    return {
+      user: null,
+      device: {
+        type: "device",
+        deviceId: args.session.instanceId,
+        deviceType: deviceTypeFromDeploymentId(args.session.deploymentId),
+        runtimePublicKey: args.session.publicIdentityKey,
+        deploymentId: args.session.deploymentId,
+        active: true,
+        capabilities: args.session.delegatedCapabilities,
+      },
+    };
+  }
+
+  if (
+    !instance ||
+    instance.publicIdentityKey !== args.session.publicIdentityKey ||
+    instance.deploymentId !== args.session.deploymentId ||
+    instance.state === "disabled" ||
+    instance.state === "revoked"
+  ) {
     throw new AuthError({
-      reason: "unknown_device",
-      context: { instanceId: args.session.instanceId },
+      reason: "device_activation_revoked",
+      context: {
+        instanceId: args.session.instanceId,
+        deploymentId: instance?.deploymentId ?? args.session.deploymentId,
+      },
     });
   }
 
@@ -493,6 +574,7 @@ async function loadAuthenticatedDevice(args: {
     : null;
   if (
     activation.state !== "activated" ||
+    activation.publicIdentityKey !== args.session.publicIdentityKey ||
     activation.deploymentId !== args.session.deploymentId ||
     revokedAt !== null ||
     args.session.revokedAt !== null
@@ -556,6 +638,7 @@ export function createAuthMeHandler(deps: {
   sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
   userStorage: UserProjectionStorage;
   deviceActivationStorage: DeviceActivationStorage;
+  deviceInstanceStorage?: DeviceInstanceStorage;
   deviceDeploymentStorage: DeviceDeploymentStorage;
   loadServiceInstance?: (sessionKey: string) => Promise<
     | {
@@ -635,6 +718,7 @@ export function createAuthMeHandler(deps: {
       const { user, device } = await loadAuthenticatedDevice({
         userStorage: deps.userStorage,
         deviceActivationStorage: deps.deviceActivationStorage,
+        deviceInstanceStorage: deps.deviceInstanceStorage,
         deviceDeploymentStorage: deps.deviceDeploymentStorage,
         session,
       });
@@ -659,6 +743,7 @@ export function createAuthValidateRequestHandler(deps: {
   contractApprovalStorage: Pick<SqlContractApprovalRepository, "get">;
   deviceActivationStorage: DeviceActivationStorage;
   deviceDeploymentStorage: DeviceDeploymentStorage;
+  deviceInstanceStorage: DeviceInstanceStorage;
   loadServiceInstance: Parameters<typeof resolveSessionPrincipal>[2][
     "loadServiceInstance"
   ];
@@ -676,7 +761,13 @@ export function createAuthValidateRequestHandler(deps: {
       subject: req.subject,
     }, "RPC request");
 
-    const payloadHashBytes = base64urlDecode(req.payloadHash);
+    let payloadHashBytes: Uint8Array;
+    try {
+      payloadHashBytes = base64urlDecode(req.payloadHash);
+    } catch {
+      return Result.err(new AuthError({ reason: "invalid_signature" }));
+    }
+
     const proofOk = await verifyProof(
       req.sessionKey,
       {
@@ -712,6 +803,7 @@ export function createAuthValidateRequestHandler(deps: {
         return await deps.userStorage.get(trellisId) ?? null;
       },
       deviceActivationStorage: deps.deviceActivationStorage,
+      deviceInstanceStorage: deps.deviceInstanceStorage,
       deviceDeploymentStorage: deps.deviceDeploymentStorage,
       loadStoredApproval: async (key) => {
         const approvalKey = parseContractApprovalKey(key);

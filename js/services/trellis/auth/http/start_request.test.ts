@@ -24,7 +24,12 @@ function resolutionFixture(): ApprovalResolution {
         displayName: "Console",
         description: "Admin app",
         participantKind: "app",
-        capabilities: ["admin"],
+        capabilities: {
+          admin: {
+            displayName: "Admin",
+            description: "Administer Trellis.",
+          },
+        },
       },
       publishSubjects: ["rpc.v1.Auth.Me"],
       subscribeSubjects: ["events.v1.Auth.Connect.>"],
@@ -120,6 +125,89 @@ Deno.test("buildAuthStartSignaturePayload includes provider and contract", () =>
 
   assertEquals(base === changedContract, false);
   assertEquals(base === withProvider, false);
+});
+
+Deno.test("buildAuthStartSignaturePayload supports digest-only presentation", () => {
+  const digestOnly = buildAuthStartSignaturePayload({
+    redirectTo: "https://console.example.com/callback",
+    sessionKey: "A".repeat(43),
+    sig: "B".repeat(86),
+    contractDigest: "digest-known",
+  });
+  const fullManifest = buildAuthStartSignaturePayload({
+    redirectTo: "https://console.example.com/callback",
+    sessionKey: "A".repeat(43),
+    sig: "B".repeat(86),
+    contractDigest: "digest-known",
+    contract: { id: "trellis.console@v1" },
+  });
+
+  assertEquals(digestOnly === fullManifest, false);
+});
+
+Deno.test("auth start resolves known digest without requiring a manifest", async () => {
+  let plannedContract: Record<string, unknown> | undefined;
+  const handler = createAuthStartRequestHandler({
+    verifyInitRequest: async () => true,
+    resolveContract: async () => ({ id: "trellis.console@v1" }),
+    loadCurrentUserSession: async () => null,
+    getApprovalResolution: async () => resolutionFixture(),
+    planContract: async (contract) => {
+      plannedContract = contract;
+      return resolutionFixture().plan;
+    },
+    bindApprovedSession: async () => {
+      throw new Error("should not bind");
+    },
+    createFlow: async () => ({
+      status: "flow_started",
+      flowId: "flow-1",
+      loginUrl: "https://auth.example.com/login?flowId=flow-1",
+    }),
+  });
+
+  const response = await handler({
+    redirectTo: "https://console.example.com/callback",
+    sessionKey: "A".repeat(43),
+    sig: "B".repeat(86),
+    contractDigest: "digest-known",
+  }, {
+    authUrl: "https://auth.example.com",
+  });
+
+  assertEquals(response.status, "flow_started");
+  assertEquals(plannedContract, { id: "trellis.console@v1" });
+});
+
+Deno.test("auth start requires a manifest when digest cannot be resolved", async () => {
+  const handler = createAuthStartRequestHandler({
+    verifyInitRequest: async () => true,
+    loadCurrentUserSession: async () => null,
+    getApprovalResolution: async () => resolutionFixture(),
+    planContract: async () => resolutionFixture().plan,
+    bindApprovedSession: async () => {
+      throw new Error("should not bind");
+    },
+    createFlow: async () => ({
+      status: "flow_started",
+      flowId: "flow-1",
+      loginUrl: "https://auth.example.com/login?flowId=flow-1",
+    }),
+  });
+
+  await assertRejects(
+    () =>
+      handler({
+        redirectTo: "https://console.example.com/callback",
+        sessionKey: "A".repeat(43),
+        sig: "B".repeat(86),
+        contractDigest: "digest-unknown",
+      }, {
+        authUrl: "https://auth.example.com",
+      }),
+    Error,
+    "manifest_required",
+  );
 });
 
 Deno.test("auth start auto-approves contract changes when current session envelope already covers them", async () => {

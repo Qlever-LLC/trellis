@@ -42,6 +42,8 @@ function decodeDeviceDeploymentRow(row: DeviceDeploymentRow): DeviceDeployment {
   return Value.Decode(DeviceDeploymentSchema, {
     deploymentId: row.deploymentId,
     reviewMode: row.reviewMode ?? undefined,
+    firstConnectPolicy: row.firstConnectPolicy ?? "reject",
+    preActivationPolicy: row.preActivationPolicy ?? "reject",
     disabled: row.disabled,
     appliedContracts: parseJsonField(
       "device deployment applied contracts",
@@ -56,6 +58,8 @@ function encodeDeviceDeploymentRecord(
   return {
     deploymentId: record.deploymentId,
     reviewMode: record.reviewMode ?? null,
+    firstConnectPolicy: record.firstConnectPolicy ?? "reject",
+    preActivationPolicy: record.preActivationPolicy ?? "reject",
     disabled: record.disabled,
     appliedContracts: JSON.stringify(record.appliedContracts),
   };
@@ -211,6 +215,8 @@ export class SqlDeviceDeploymentRepository {
       target: deviceDeployments.deploymentId,
       set: {
         reviewMode: row.reviewMode,
+        firstConnectPolicy: row.firstConnectPolicy,
+        preActivationPolicy: row.preActivationPolicy,
         disabled: row.disabled,
         appliedContracts: row.appliedContracts,
       },

@@ -17,11 +17,12 @@ use crate::proof::now_iat_seconds;
 use crate::transfer::{
     get_download_grant, put_upload_grant, DownloadTransferGrant, FileInfo, UploadTransferGrant,
 };
-use crate::{EventDescriptor, RpcDescriptor, SessionAuth, TrellisClientError};
+use crate::{EventDescriptor, FeedDescriptor, RpcDescriptor, SessionAuth, TrellisClientError};
 
 const HEALTH_HEARTBEAT_SUBJECT: &str = "events.v1.Health.Heartbeat";
 const HEALTH_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
 static HEALTH_HEARTBEAT_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+static FEED_INBOX_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// Connection options for a Trellis service/session-key principal.
 pub struct ServiceConnectOptions<'a> {
@@ -934,6 +935,89 @@ impl TrellisClient {
         Ok(Box::pin(stream) as BoxStream<'static, Result<D::Event, TrellisClientError>>)
     }
 
+    /// Subscribe to one descriptor-backed feed and decode event payloads.
+    pub async fn feed<D>(
+        &self,
+        input: &D::Input,
+    ) -> Result<BoxStream<'static, Result<D::Event, TrellisClientError>>, TrellisClientError>
+    where
+        D: FeedDescriptor,
+        D::Event: Send + 'static,
+    {
+        let payload = Bytes::from(serde_json::to_vec(input)?);
+        let proof = self.auth.create_proof(D::SUBJECT, &payload);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("session-key", self.auth.session_key.as_str());
+        headers.insert("proof", proof.as_str());
+
+        let inbox = format!(
+            "{}.{}",
+            self.auth.inbox_prefix(),
+            FEED_INBOX_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
+        let mut subscriber = timeout(
+            std::time::Duration::from_millis(self.timeout_ms),
+            self.nats.subscribe(inbox.clone()),
+        )
+        .await
+        .map_err(|_| TrellisClientError::Timeout)?
+        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+
+        timeout(
+            std::time::Duration::from_millis(self.timeout_ms),
+            self.nats.publish_with_reply_and_headers(
+                D::SUBJECT.to_string(),
+                inbox,
+                headers,
+                payload,
+            ),
+        )
+        .await
+        .map_err(|_| TrellisClientError::Timeout)?
+        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+
+        timeout(
+            std::time::Duration::from_millis(self.timeout_ms),
+            self.nats.flush(),
+        )
+        .await
+        .map_err(|_| TrellisClientError::Timeout)?
+        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+
+        let first = timeout(
+            std::time::Duration::from_millis(self.timeout_ms),
+            subscriber.next(),
+        )
+        .await
+        .map_err(|_| TrellisClientError::Timeout)?
+        .ok_or(TrellisClientError::Timeout)?;
+
+        let first_event = decode_feed_message::<D>(first)?;
+        let stream = stream::try_unfold(
+            (subscriber, first_event),
+            |(mut subscriber, first_event)| async move {
+                if let Some(event) = first_event {
+                    return Ok(Some((event, (subscriber, None))));
+                }
+
+                match subscriber.next().await {
+                    Some(message) => {
+                        let event = decode_feed_message::<D>(message)?.ok_or_else(|| {
+                            TrellisClientError::NatsRequest(
+                                "feed emitted duplicate ready acknowledgement".to_string(),
+                            )
+                        })?;
+                        Ok(Some((event, (subscriber, None))))
+                    }
+                    None => Ok(None),
+                }
+            },
+        );
+
+        Ok(Box::pin(stream) as BoxStream<'static, Result<D::Event, TrellisClientError>>)
+    }
+
     /// Download the bytes exposed by a receive transfer grant.
     pub async fn download_transfer(
         &self,
@@ -1043,6 +1127,41 @@ fn decode_watch_message(message: async_nats::Message) -> Result<Value, TrellisCl
     decode_json_message(message)
 }
 
+fn decode_feed_message<D>(
+    message: async_nats::Message,
+) -> Result<Option<D::Event>, TrellisClientError>
+where
+    D: FeedDescriptor,
+{
+    decode_feed_frame::<D>(message.headers.as_ref(), &message.payload)
+}
+
+fn decode_feed_frame<D>(
+    headers: Option<&HeaderMap>,
+    payload: &[u8],
+) -> Result<Option<D::Event>, TrellisClientError>
+where
+    D: FeedDescriptor,
+{
+    if let Some(headers) = headers {
+        if headers
+            .get("status")
+            .is_some_and(|status| status.as_str() == "error")
+        {
+            let value: Value = serde_json::from_slice(payload)?;
+            return Err(TrellisClientError::RpcError(value.to_string()));
+        }
+        if headers
+            .get("feed-status")
+            .is_some_and(|status| status.as_str() == "ready")
+        {
+            return Ok(None);
+        }
+    }
+
+    Ok(Some(serde_json::from_slice(payload)?))
+}
+
 fn is_terminal_event(event: &Value) -> bool {
     matches!(
         event.get("type").and_then(Value::as_str),
@@ -1078,6 +1197,17 @@ mod tests {
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     struct RefundOutput {
         refund_id: String,
+    }
+
+    struct RefundFeed;
+
+    impl FeedDescriptor for RefundFeed {
+        type Input = RefundInput;
+        type Event = RefundOutput;
+
+        const KEY: &'static str = "Refund.Live";
+        const SUBJECT: &'static str = "feeds.v1.Refund.Live";
+        const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &["refunds.read"];
     }
 
     fn ready_device_connect_info(contract_digest: &str) -> DeviceConnectInfo {
@@ -1182,6 +1312,30 @@ mod tests {
             error,
             TrellisClientError::Bootstrap(message) if message.contains("contract digest mismatch")
         ));
+    }
+
+    #[test]
+    fn feed_handshake_ready_frame_is_not_yielded_as_event() {
+        let mut headers = HeaderMap::new();
+        headers.insert("feed-status", "ready");
+
+        let decoded = decode_feed_frame::<RefundFeed>(Some(&headers), &[])
+            .expect("ready frame should decode");
+
+        assert!(decoded.is_none());
+    }
+
+    #[test]
+    fn feed_first_event_frame_is_yielded() {
+        let decoded = decode_feed_frame::<RefundFeed>(None, br#"{"refund_id":"refund_123"}"#)
+            .expect("event frame should decode");
+
+        assert_eq!(
+            decoded,
+            Some(RefundOutput {
+                refund_id: "refund_123".to_string(),
+            })
+        );
     }
 
     #[test]

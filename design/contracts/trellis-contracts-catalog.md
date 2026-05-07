@@ -164,13 +164,13 @@ A `trellis.contract.v1` manifest has this top-level structure:
 
 Top-level fields:
 
-| Field         | Required | Type   | Meaning                                                            |
-| ------------- | -------- | ------ | ------------------------------------------------------------------ |
-| `format`      | yes      | string | MUST equal `trellis.contract.v1`                                   |
-| `id`          | yes      | string | Stable contract identifier such as `trellis.core@v1` or `graph@v1` |
-| `displayName` | yes      | string | Human-facing contract name shown in tooling and approval UIs       |
-| `description` | yes      | string | Human-facing explanation of the contract's purpose                 |
-| `kind`        | yes      | string | Contract role such as `service`, `app`, `agent`, or `device`       |
+| Field          | Required | Type   | Meaning                                                            |
+| -------------- | -------- | ------ | ------------------------------------------------------------------ |
+| `format`       | yes      | string | MUST equal `trellis.contract.v1`                                   |
+| `id`           | yes      | string | Stable contract identifier such as `trellis.core@v1` or `graph@v1` |
+| `displayName`  | yes      | string | Human-facing contract name shown in tooling and approval UIs       |
+| `description`  | yes      | string | Human-facing explanation of the contract's purpose                 |
+| `kind`         | yes      | string | Contract role such as `service`, `app`, `agent`, or `device`       |
 | `capabilities` | no       | object | Human-facing metadata for contract-owned capability keys           |
 | `schemas`      | no       | object | Reusable self-contained JSON Schema values keyed by schema name    |
 | `exports`      | no       | object | Canonical public exports made available to dependent contracts     |
@@ -271,8 +271,8 @@ Rules:
 - deployment apply requests MUST carry the locally reviewed `expectedDigest` and
   auth MUST reject the request if install computes a different digest
 - digest-stable metadata edits may update catalog display information without
-  requiring new runtime permissions or new app approvals, but capability metadata
-  edits are not digest-stable
+  requiring new runtime permissions or new app approvals, but capability
+  metadata edits are not digest-stable
 - multiple active digests for one `id` remain valid only while active compatible
   digest validation can produce an additive, unambiguous surface projection
 - install records bind one exact digest to one service principal public key,
@@ -281,8 +281,8 @@ Rules:
 Manifest normalization is separate from digest projection:
 
 - manifest normalization produces the canonical supported manifest shape used
-  for validation, persistence, code generation, and runtime install; it preserves
-  human-facing fields such as `displayName` and `description`
+  for validation, persistence, code generation, and runtime install; it
+  preserves human-facing fields such as `displayName` and `description`
 - digest projection starts from the normalized manifest and keeps only fields
   that define runtime identity, authority, resources, dependencies, or wire
   shape
@@ -428,26 +428,37 @@ Rules:
 Contracts MAY declare explicit dependencies on other contracts through a
 top-level `uses` object.
 
+`uses` supports two equivalent authoring forms:
+
+- legacy flat `uses`, where every alias is treated as required
+- grouped `uses.required` and `uses.optional`, where required aliases fail
+  closed and optional aliases grant authority only when their target contract
+  and surface resolve in the active catalog
+
 Example:
 
 ```json
 {
   "uses": {
-    "auth": {
-      "contract": "trellis.auth@v1",
-      "events": {
-        "subscribe": [
-          "Auth.Connect",
-          "Auth.Disconnect",
-          "Auth.SessionRevoked",
-          "Auth.ConnectionKicked"
-        ]
+    "required": {
+      "auth": {
+        "contract": "trellis.auth@v1",
+        "events": {
+          "subscribe": [
+            "Auth.Connect",
+            "Auth.Disconnect",
+            "Auth.SessionRevoked",
+            "Auth.ConnectionKicked"
+          ]
+        }
       }
     },
-    "core": {
-      "contract": "trellis.core@v1",
-      "rpc": {
-        "call": ["Trellis.Bindings.Get", "Trellis.Catalog"]
+    "optional": {
+      "core": {
+        "contract": "trellis.core@v1",
+        "rpc": {
+          "call": ["Trellis.Surface.Status"]
+        }
       }
     }
   }
@@ -458,6 +469,11 @@ Rules:
 
 - dependencies are declared by logical contract `id` plus logical
   operation/RPC/event names, not by raw capability strings
+- a flat alias under `uses` is required; the digest projection treats flat uses
+  and grouped `uses.required` as equivalent, while optional uses also
+  participate in digest identity
+- if the same alias appears in both `required` and `optional`, the required
+  entry wins and the optional duplicate is ignored
 - a service contract MUST NOT receive cross-contract runtime permissions unless
   that access is declared in `uses` or is a Trellis-defined baseline surface
   automatically available to that participant kind
@@ -468,9 +484,14 @@ Rules:
 - if a service or device author explicitly declares `uses.health` for
   `trellis.health@v1`, authoring helpers merge the baseline heartbeat publish
   selector into that alias rather than requiring a second alias
-- validation, install, or upgrade MUST fail if a referenced contract is
-  unavailable or if any referenced operation, RPC, or event name does not exist
-  on that contract
+- validation, install, or upgrade MUST fail if a required referenced contract is
+  unavailable or if any required referenced RPC, operation, event, or feed name
+  does not exist on that contract
+- missing optional contracts and missing optional surfaces do not fail
+  validation and do not grant transport authority
+- known optional surfaces may grant transport authority even when no
+  implementing service is currently connected; liveness is availability, not
+  authorization
 - validation happens when resolving dependencies against active catalogs: if a
   `uses` entry targets a contract with multiple active compatible digests,
   Trellis projects the active surfaces together
@@ -485,6 +506,33 @@ Rules:
   `uses`, but runtime enforcement remains operation-level
 - any user approval or consent record for a client contract MUST be bound to the
   exact contract digest, not merely to the contract `id`
+
+### Runtime surface status
+
+Catalog knowledge, authorization, and runtime availability are separate
+decisions. `Trellis.Surface.Status` is an advisory Trellis core RPC that checks
+the active catalog first, checks the caller's current capability envelope
+second, and checks live service implementation state only after authorization
+succeeds.
+
+Status outcomes are:
+
+- `unknown_contract` when the contract id is not active
+- `unknown_surface` when the active contract lineage has no matching logical
+  RPC, operation, event, or feed surface
+- `unauthorized` with missing capability keys when the caller's current envelope
+  does not authorize the requested surface
+- `unavailable` with `no_live_implementer` or `disabled` when the surface is
+  known and authorized but no enabled connected service instance currently
+  implements an active digest that defines that surface
+- `available` when an enabled connected service instance currently implements an
+  active digest that defines the requested surface
+
+Availability MUST NOT grant authority, activate catalog entries, or remove
+transport permissions that were already granted from the caller's effective
+contract envelope. During mixed-version rollouts, availability is scoped to the
+active digests that define the requested logical surface, not merely to any live
+digest in the same contract lineage.
 
 ### 7) RPC operation descriptor
 
@@ -530,8 +578,8 @@ Rules:
   `schemas` map
 - `capabilities.call` is an all-of requirement; the caller must hold every
   listed capability
-- declared contract-owned capabilities SHOULD appear as global capability keys in
-  canonical manifests
+- declared contract-owned capabilities SHOULD appear as global capability keys
+  in canonical manifests
 - if `capabilities.call` is omitted, the RPC is callable without extra
   capability grants
 - `errors` enumerates known typed error payloads but does not close the wire
@@ -914,8 +962,8 @@ Digest rules for v1:
 - encoding: base64url without padding
 - the digest projection includes runtime identity and behavior: `format`, `id`,
   `kind`, `capabilities`, `state`, `uses`, `rpc`, `operations`, `events`,
-  `jobs`, `resources.kv`, `resources.store`, reachable schemas, and
-  RPC-declared reachable errors
+  `jobs`, `resources.kv`, `resources.store`, reachable schemas, and RPC-declared
+  reachable errors
 - resource `required` flags participate in the digest because they change
   install, activation, and binding behavior
 - the digest projection excludes contract-level `displayName`, `description`,
@@ -1074,11 +1122,11 @@ Binding rules:
   directly to service code
 - authenticated service bootstrap MAY return the resolved binding payload
   directly; in that mode the bootstrapped service runtime MUST use the bootstrap
-  binding instead of requiring the service principal to call `Trellis.Catalog` or
-  `Trellis.Bindings.Get` after connect
+  binding instead of requiring the service principal to call `Trellis.Catalog`
+  or `Trellis.Bindings.Get` after connect
 - service principals only call discovery RPCs when their active contract grants
-  the relevant Trellis-owned `uses` surface; resource bindings alone do not grant
-  general core discovery access
+  the relevant Trellis-owned `uses` surface; resource bindings alone do not
+  grant general core discovery access
 
 ### 15) Installation and activation rules
 
@@ -1179,9 +1227,8 @@ For each active contract:
   `capabilities.subscribe`; feed responses use the caller's authenticated inbox
   subscribe permission
 - `uses` contributes the exact cross-contract operation/RPC/event/feed
-  permissions
-  the owning service may exercise at runtime after dependency resolution
-  validates the referenced active catalog surfaces
+  permissions the owning service may exercise at runtime after dependency
+  resolution validates the referenced active catalog surfaces
 - operation uses that declare `transfer: { direction: "send", ... }` and grant
   `capabilities.call` contribute caller publish access to
   `transfer.v1.upload.*.*`
@@ -1221,9 +1268,10 @@ Rules:
   signals
 - `capabilities.control` gates named signals; it is not a fallback for
   cancellation
-- deployments that need signal-only callers, with neither read nor cancel rights,
-  need capability-derived control-subject grants for `capabilities.control`; that
-  NATS permission derivation is not yet part of the current catalog analysis
+- deployments that need signal-only callers, with neither read nor cancel
+  rights, need capability-derived control-subject grants for
+  `capabilities.control`; that NATS permission derivation is not yet part of the
+  current catalog analysis
 - omitted `capabilities.read` defaults to `capabilities.call`, so callers that
   can start an operation can also observe that operation unless the contract
   declares a different read list

@@ -13,7 +13,8 @@ export type AuthStartRequest = {
   redirectTo: string;
   sessionKey: string;
   sig: string;
-  contract: Record<string, unknown>;
+  contractDigest?: string;
+  contract?: Record<string, unknown>;
   context?: Record<string, unknown>;
 };
 
@@ -78,8 +79,9 @@ function canonicalizeJsonValue(value: unknown): string {
 }
 
 export function buildAuthStartSignaturePayload(args: AuthStartRequest): string {
+  const contractPresentation = args.contract ?? args.contractDigest;
   return `${args.redirectTo}:${args.provider ?? ""}:${
-    canonicalizeJsonValue(args.contract)
+    canonicalizeJsonValue(contractPresentation)
   }:${canonicalizeJsonValue(args.context ?? null)}`;
 }
 
@@ -136,6 +138,7 @@ export function createAuthStartRequestHandler(deps: {
   planContract: (
     contract: Record<string, unknown>,
   ) => Promise<ApprovalResolution["plan"]>;
+  resolveContract?: (req: AuthStartRequest) => Promise<Record<string, unknown>>;
   bindApprovedSession: (args: {
     pendingValue: PendingAuth;
     resolution: ApprovalResolution;
@@ -158,6 +161,10 @@ export function createAuthStartRequestHandler(deps: {
     if (!(await deps.verifyInitRequest(req))) {
       throw new HTTPException(400, { message: "Invalid signature" });
     }
+    const contract = req.contract ?? await deps.resolveContract?.(req);
+    if (!contract) {
+      throw new HTTPException(409, { message: "manifest_required" });
+    }
 
     const existingSession = await deps.loadCurrentUserSession(req.sessionKey);
     let resolution: ApprovalResolution | null = null;
@@ -172,15 +179,15 @@ export function createAuthStartRequestHandler(deps: {
         },
         sessionKey: req.sessionKey,
         redirectTo: req.redirectTo,
-        ...(typeof req.contract.id === "string"
+        ...(typeof contract.id === "string"
           ? {
             app: buildAppIdentity({
-              contractId: req.contract.id,
+              contractId: contract.id,
               redirectTo: req.redirectTo,
             }),
           }
           : {}),
-        contract: req.contract,
+        contract,
         createdAt: new Date(),
       };
       resolution = await deps.getApprovalResolution(pendingValue);
@@ -203,13 +210,13 @@ export function createAuthStartRequestHandler(deps: {
       }
     }
 
-    const plan = resolution?.plan ?? await deps.planContract(req.contract);
+    const plan = resolution?.plan ?? await deps.planContract(contract);
     return deps.createFlow({
       authUrl: opts.authUrl,
       provider: req.provider,
       sessionKey: req.sessionKey,
       redirectTo: req.redirectTo,
-      contract: req.contract,
+      contract,
       ...(req.context ? { context: req.context } : {}),
       plan,
     });

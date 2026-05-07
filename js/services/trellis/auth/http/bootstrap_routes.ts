@@ -65,6 +65,20 @@ export function registerBootstrapRoutes(
       loadServiceDeployment: async (deploymentId) => {
         return await opts.serviceDeploymentStorage.get(deploymentId) ?? null;
       },
+      saveServiceDeployment: async (deployment) => {
+        await opts.serviceDeploymentStorage.put(deployment);
+      },
+      storePresentedContract: async ({ contract, digest, canonical }) => {
+        if (await opts.contractStorage.has(digest)) return;
+        await opts.contractStorage.put({
+          digest,
+          id: contract.id,
+          displayName: contract.displayName,
+          description: contract.description,
+          installedAt: new Date(),
+          contract: canonical,
+        });
+      },
       verifyIdentityProof: ({ sessionKey, iat, contractDigest, sig }) =>
         verifyDomainSig(
           sessionKey,

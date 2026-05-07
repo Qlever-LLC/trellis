@@ -400,6 +400,7 @@ Deno.test("Auth.ApplyServiceDeploymentContract refreshes active contracts after 
   assertEquals(value.deployment.namespaces, ["audit", "billing"]);
   assertEquals(value.deployment.appliedContracts, [{
     contractId: "acme.billing@v1",
+    compatibilityPolicy: "exact",
     allowedDigests: ["digest-a"],
     resourceBindingsByDigest: { "digest-a": {} },
   }]);
@@ -459,6 +460,7 @@ Deno.test("Auth.ApplyServiceDeploymentContract uses canonical digest including t
   assertEquals(value.contract.digest, expectedDigest);
   assertEquals(value.deployment.appliedContracts, [{
     contractId: "acme.billing@v1",
+    compatibilityPolicy: "exact",
     allowedDigests: [expectedDigest],
     resourceBindingsByDigest: { [expectedDigest]: {} },
   }]);
@@ -566,6 +568,7 @@ Deno.test("Auth.ApplyServiceDeploymentContract provisions resources and persists
     disabled: false,
     appliedContracts: [{
       contractId: serviceContract.id,
+      compatibilityPolicy: "exact",
       allowedDigests: ["digest-a"],
       resourceBindingsByDigest: {
         "digest-a": {
@@ -628,6 +631,7 @@ Deno.test("Auth.ApplyServiceDeploymentContract preserves bindings for multiple s
     serviceDeploymentStorage.getValue("billing.default")?.appliedContracts,
     [{
       contractId: serviceContract.id,
+      compatibilityPolicy: "exact",
       allowedDigests: ["digest-a", "digest-b"],
       resourceBindingsByDigest: {
         "digest-a": {
@@ -699,12 +703,13 @@ Deno.test("Auth.ApplyServiceDeploymentContract replaces same-lineage digests whe
   });
 
   assert(!result.isErr());
-  const expectedDeployment = {
+  const expectedDeployment: ServiceDeployment = {
     deploymentId: "billing.default",
     namespaces: ["billing"],
     disabled: false,
     appliedContracts: [{
       contractId: serviceContract.id,
+      compatibilityPolicy: "exact",
       allowedDigests: ["digest-b"],
       resourceBindingsByDigest: {
         "digest-b": {
@@ -796,6 +801,7 @@ Deno.test("Auth.ApplyServiceDeploymentContract allows same-lineage digest resour
     serviceDeploymentStorage.getValue("billing.default")?.appliedContracts,
     [{
       contractId: serviceContract.id,
+      compatibilityPolicy: "exact",
       allowedDigests: ["digest-a", "digest-b"],
       resourceBindingsByDigest: {
         "digest-a": {
@@ -1033,14 +1039,34 @@ Deno.test("validateServiceDeploymentRequest normalizes namespaces without displa
     {
       deploymentId: "billing.default",
       namespaces: ["billing", "audit"],
+      firstConnectPolicy: "reject",
       disabled: false,
       appliedContracts: [],
     },
   );
 
+  const explicit = validateServiceDeploymentRequest({
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    firstConnectPolicy: "auto-accept-compatible",
+  });
+  assert(!explicit.isErr());
+  assertEquals(
+    (explicit.take() as { deployment: Record<string, unknown> }).deployment
+      .firstConnectPolicy,
+    "auto-accept-compatible",
+  );
+
   assert(
     validateServiceDeploymentRequest({ deploymentId: "", namespaces: [] })
       .isErr(),
+  );
+  assert(
+    validateServiceDeploymentRequest({
+      deploymentId: "billing.default",
+      namespaces: [],
+      firstConnectPolicy: "allow",
+    }).isErr(),
   );
 });
 
@@ -1096,6 +1122,7 @@ Deno.test("Auth.UnapplyServiceDeploymentContract removes only bindings for remov
   assert(!result.isErr());
   assertEquals(stored.appliedContracts, [{
     contractId: "billing@v1",
+    compatibilityPolicy: "exact",
     allowedDigests: ["digest-b"],
     resourceBindingsByDigest: {
       "digest-b": {
@@ -2907,6 +2934,7 @@ Deno.test("Auth.ApplyDeviceDeploymentContract replaces same-lineage digests when
     ...original,
     appliedContracts: [{
       contractId: "reader@v1",
+      compatibilityPolicy: "exact",
       allowedDigests: ["digest-b"],
     }],
   };
@@ -4273,9 +4301,55 @@ Deno.test("validateDeviceDeploymentRequest dedupes digests and omits preferred d
     throw new Error("expected valid device deployment request");
   }
   const { deployment } = valid.take() as {
-    deployment: { appliedContracts: unknown[] };
+    deployment: {
+      appliedContracts: unknown[];
+      firstConnectPolicy: string;
+      preActivationPolicy: string;
+    };
   };
+  assertEquals(deployment.firstConnectPolicy, "reject");
+  assertEquals(deployment.preActivationPolicy, "reject");
   assertEquals(deployment.appliedContracts, []);
+
+  const explicit = validateDeviceDeploymentRequest({
+    deploymentId: "reader.default",
+    firstConnectPolicy: "quarantine",
+    preActivationPolicy: "device-owned",
+  });
+  assert(!explicit.isErr());
+  assertEquals(
+    (explicit.take() as {
+      deployment: {
+        deploymentId: string;
+        reviewMode?: "none" | "required";
+        firstConnectPolicy: string;
+        preActivationPolicy: string;
+        disabled: boolean;
+        appliedContracts: unknown[];
+      };
+    }).deployment,
+    {
+      deploymentId: "reader.default",
+      reviewMode: undefined,
+      firstConnectPolicy: "quarantine",
+      preActivationPolicy: "device-owned",
+      disabled: false,
+      appliedContracts: [],
+    },
+  );
+
+  assert(
+    validateDeviceDeploymentRequest({
+      deploymentId: "reader.default",
+      firstConnectPolicy: "allow",
+    }).isErr(),
+  );
+  assert(
+    validateDeviceDeploymentRequest({
+      deploymentId: "reader.default",
+      preActivationPolicy: "allow",
+    }).isErr(),
+  );
 });
 
 Deno.test("validateDeviceProvisionRequest builds a preregistered instance", () => {

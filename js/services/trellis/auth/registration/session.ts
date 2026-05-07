@@ -15,6 +15,7 @@ import type {
   SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
+  SqlDeviceInstanceRepository,
   SqlInstanceGrantPolicyRepository,
   SqlPortalProfileRepository,
   SqlPortalRepository,
@@ -39,6 +40,7 @@ export async function registerSessionRpcs(deps: {
   contractApprovalStorage: SqlContractApprovalRepository;
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
+  deviceInstanceStorage: SqlDeviceInstanceRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
   serviceInstanceStorage: SqlServiceInstanceRepository;
   instanceGrantPolicyStorage: SqlInstanceGrantPolicyRepository;
@@ -76,6 +78,7 @@ export async function registerSessionRpcs(deps: {
       sessionStorage: deps.sessionStorage,
       userStorage: deps.userStorage,
       deviceActivationStorage: deps.deviceActivationStorage,
+      deviceInstanceStorage: deps.deviceInstanceStorage,
       deviceDeploymentStorage: deps.deviceDeploymentStorage,
       loadServiceInstance: serviceLookup.loadServiceInstanceByKey,
       loadServiceDeployment: serviceLookup.loadServiceDeployment,
@@ -90,6 +93,7 @@ export async function registerSessionRpcs(deps: {
       contractApprovalStorage: deps.contractApprovalStorage,
       deviceActivationStorage: deps.deviceActivationStorage,
       deviceDeploymentStorage: deps.deviceDeploymentStorage,
+      deviceInstanceStorage: deps.deviceInstanceStorage,
       loadServiceInstance: serviceLookup.loadServiceInstanceByKey,
       loadServiceDeployment: serviceLookup.loadServiceDeployment,
       loadInstanceGrantPolicies,

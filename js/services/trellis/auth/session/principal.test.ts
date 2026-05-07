@@ -81,6 +81,14 @@ Deno.test("resolveSessionPrincipal accepts activated device sessions", async () 
           revokedAt: null,
         },
       }),
+      deviceInstanceStorage: storageFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
+          publicIdentityKey: "A".repeat(43),
+          deploymentId: "drive.default",
+          state: "activated",
+        },
+      }),
       deviceDeploymentStorage: storageFromMap({
         "drive.default": {
           deploymentId: "drive.default",
@@ -96,6 +104,97 @@ Deno.test("resolveSessionPrincipal accepts activated device sessions", async () 
     assertEquals(result.value.active, true);
     assertEquals(result.value.capabilities, ["device.sync"]);
     assertEquals(result.value.email, "device:dev-1");
+  }
+});
+
+Deno.test("resolveSessionPrincipal accepts registered device-owned sessions when policy allows", async () => {
+  const result = await resolveSessionPrincipal(
+    {
+      type: "device",
+      instanceId: "dev-1",
+      publicIdentityKey: "A".repeat(43),
+      deploymentId: "drive.default",
+      contractId: "trellis.device@v1",
+      contractDigest: "digest-a",
+      delegatedCapabilities: ["device.sync"],
+      delegatedPublishSubjects: ["subject.v1.device.sync"],
+      delegatedSubscribeSubjects: ["events.v1.Device.Status.*"],
+      createdAt: new Date(),
+      lastAuth: new Date(),
+      activatedAt: null,
+      revokedAt: null,
+    },
+    "A".repeat(43),
+    {
+      deviceActivationStorage: storageFromMap({}),
+      deviceInstanceStorage: storageFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
+          publicIdentityKey: "A".repeat(43),
+          deploymentId: "drive.default",
+          state: "registered",
+        },
+      }),
+      deviceDeploymentStorage: storageFromMap({
+        "drive.default": {
+          deploymentId: "drive.default",
+          disabled: false,
+          preActivationPolicy: "device-owned" as const,
+        },
+      }),
+      loadUserProjection: loadProjectionFromMap({}),
+    },
+  );
+
+  assertEquals(result.ok, true);
+  if (result.ok) {
+    assertEquals(result.value.active, true);
+    assertEquals(result.value.capabilities, ["device.sync"]);
+  }
+});
+
+Deno.test("resolveSessionPrincipal rejects registered device-owned sessions by default", async () => {
+  const result = await resolveSessionPrincipal(
+    {
+      type: "device",
+      instanceId: "dev-1",
+      publicIdentityKey: "A".repeat(43),
+      deploymentId: "drive.default",
+      contractId: "trellis.device@v1",
+      contractDigest: "digest-a",
+      delegatedCapabilities: ["device.sync"],
+      delegatedPublishSubjects: ["subject.v1.device.sync"],
+      delegatedSubscribeSubjects: ["events.v1.Device.Status.*"],
+      createdAt: new Date(),
+      lastAuth: new Date(),
+      activatedAt: null,
+      revokedAt: null,
+    },
+    "A".repeat(43),
+    {
+      deviceActivationStorage: storageFromMap({}),
+      deviceInstanceStorage: storageFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
+          publicIdentityKey: "A".repeat(43),
+          deploymentId: "drive.default",
+          state: "registered",
+        },
+      }),
+      deviceDeploymentStorage: storageFromMap({
+        "drive.default": {
+          deploymentId: "drive.default",
+          disabled: false,
+          preActivationPolicy: "reject" as const,
+        },
+      }),
+      loadUserProjection: loadProjectionFromMap({}),
+    },
+  );
+
+  assertEquals(result.ok, false);
+  if (!result.ok) {
+    assertEquals(result.error.reason, "unknown_device");
   }
 });
 
@@ -181,6 +280,14 @@ Deno.test("resolveSessionPrincipal uses the activation matching session.publicId
           revokedAt: null,
         },
       }),
+      deviceInstanceStorage: storageFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
+          publicIdentityKey: "B".repeat(43),
+          deploymentId: "drive.default",
+          state: "activated",
+        },
+      }),
       deviceDeploymentStorage: storageFromMap({
         "drive.default": {
           deploymentId: "drive.default",
@@ -221,6 +328,14 @@ Deno.test("resolveSessionPrincipal does not borrow another activation for the sa
           state: "activated",
           activatedAt: new Date().toISOString(),
           revokedAt: null,
+        },
+      }),
+      deviceInstanceStorage: storageFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
+          publicIdentityKey: "A".repeat(43),
+          deploymentId: "drive.default",
+          state: "activated",
         },
       }),
       deviceDeploymentStorage: storageFromMap({
@@ -268,6 +383,14 @@ Deno.test("resolveSessionPrincipal rejects device sessions when the public ident
           revokedAt: null,
         },
       }),
+      deviceInstanceStorage: storageFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
+          publicIdentityKey: "A".repeat(43),
+          deploymentId: "drive.default",
+          state: "activated",
+        },
+      }),
       deviceDeploymentStorage: storageFromMap({
         "drive.default": {
           deploymentId: "drive.default",
@@ -309,7 +432,12 @@ Deno.test("resolveSessionPrincipal looks up SQL approvals for dotted user ids", 
         displayName: "Trellis Agent",
         description: "Local delegated tooling",
         participantKind: "agent",
-        capabilities: ["jobs.read"],
+        capabilities: {
+          "jobs.read": {
+            displayName: "Read Jobs",
+            description: "Read job state",
+          },
+        },
       },
       publishSubjects: [],
       subscribeSubjects: [],
@@ -412,6 +540,59 @@ Deno.test("resolveSessionPrincipal rejects device sessions when the activation d
   }
 });
 
+Deno.test("resolveSessionPrincipal rejects device sessions when instance deployment changes", async () => {
+  const result = await resolveSessionPrincipal(
+    {
+      type: "device",
+      instanceId: "dev-1",
+      publicIdentityKey: "A".repeat(43),
+      deploymentId: "drive.default",
+      contractId: "trellis.device@v1",
+      contractDigest: "digest-a",
+      delegatedCapabilities: ["device.sync"],
+      delegatedPublishSubjects: ["subject.v1.device.sync"],
+      delegatedSubscribeSubjects: ["events.v1.Device.Status.*"],
+      createdAt: new Date(),
+      lastAuth: new Date(),
+      activatedAt: null,
+      revokedAt: null,
+    },
+    "A".repeat(43),
+    {
+      deviceActivationStorage: storageFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
+          publicIdentityKey: "A".repeat(43),
+          deploymentId: "drive.default",
+          state: "activated",
+          activatedAt: new Date().toISOString(),
+          revokedAt: null,
+        },
+      }),
+      deviceInstanceStorage: storageFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
+          publicIdentityKey: "A".repeat(43),
+          deploymentId: "drive.next",
+          state: "activated",
+        },
+      }),
+      deviceDeploymentStorage: storageFromMap({
+        "drive.default": {
+          deploymentId: "drive.default",
+          disabled: false,
+        },
+      }),
+      loadUserProjection: loadProjectionFromMap({}),
+    },
+  );
+
+  assertEquals(result.ok, false);
+  if (!result.ok) {
+    assertEquals(result.error.reason, "device_activation_revoked");
+  }
+});
+
 Deno.test("resolveSessionPrincipal rejects disabled device deployments", async () => {
   const result = await resolveSessionPrincipal(
     {
@@ -439,6 +620,14 @@ Deno.test("resolveSessionPrincipal rejects disabled device deployments", async (
           state: "activated",
           activatedAt: new Date().toISOString(),
           revokedAt: null,
+        },
+      }),
+      deviceInstanceStorage: storageFromMap({
+        "dev-1": {
+          instanceId: "dev-1",
+          publicIdentityKey: "A".repeat(43),
+          deploymentId: "drive.default",
+          state: "activated",
         },
       }),
       deviceDeploymentStorage: storageFromMap({

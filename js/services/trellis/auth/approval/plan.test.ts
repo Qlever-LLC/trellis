@@ -72,6 +72,15 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
         },
       },
     },
+    feeds: {
+      "Activity.Live": {
+        version: "v1",
+        subject: "feeds.v1.example.Activity.Live",
+        input: { schema: "EmptyInput" },
+        event: { schema: "AuthConnectEvent" },
+        capabilities: { subscribe: ["activity:read"] },
+      },
+    },
   };
 
   const store = new ContractStore([{
@@ -91,6 +100,7 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
         rpc: { call: ["Auth.Me", "Evidence.Download"] },
         operations: { call: ["Evidence.Upload"] },
         events: { subscribe: ["Auth.Connect"] },
+        feeds: { subscribe: ["Activity.Live"] },
       },
     },
   });
@@ -100,6 +110,10 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     "audit:read": {
       displayName: "audit:read",
       description: "Requires audit:read.",
+    },
+    "activity:read": {
+      displayName: "activity:read",
+      description: "Requires activity:read.",
     },
     "evidence:read": {
       displayName: "evidence:read",
@@ -115,6 +129,7 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     },
   });
   assertEquals(plan.publishSubjects, [
+    "feeds.v1.example.Activity.Live",
     "operations.v1.example.Evidence.Upload",
     "operations.v1.example.Evidence.Upload.control",
     "rpc.v1.example.Auth.Me",

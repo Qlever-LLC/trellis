@@ -11,6 +11,10 @@ import {
   TrellisContractGetRequestSchema,
   TrellisContractGetResponseSchema,
 } from "../../../packages/trellis/models/trellis/rpc/TrellisContractGet.ts";
+import {
+  TrellisSurfaceStatusRequestSchema,
+  TrellisSurfaceStatusResponseSchema,
+} from "../../../packages/trellis/models/trellis/rpc/TrellisSurfaceStatus.ts";
 
 const schemas = {
   TrellisCatalogRequest: TrellisCatalogRequestSchema,
@@ -19,6 +23,8 @@ const schemas = {
   TrellisContractGetResponse: TrellisContractGetResponseSchema,
   TrellisBindingsGetRequest: TrellisBindingsGetRequestSchema,
   TrellisBindingsGetResponse: TrellisBindingsGetResponseSchema,
+  TrellisSurfaceStatusRequest: TrellisSurfaceStatusRequestSchema,
+  TrellisSurfaceStatusResponse: TrellisSurfaceStatusResponseSchema,
 } as const;
 
 export const trellisCore = defineServiceContract(
@@ -60,6 +66,13 @@ export const trellisCore = defineServiceContract(
         input: ref.schema("TrellisBindingsGetRequest"),
         output: ref.schema("TrellisBindingsGetResponse"),
         capabilities: { call: ["service"] },
+        errors: [ref.error("ValidationError"), ref.error("UnexpectedError")],
+      },
+      "Trellis.Surface.Status": {
+        version: "v1",
+        input: ref.schema("TrellisSurfaceStatusRequest"),
+        output: ref.schema("TrellisSurfaceStatusResponse"),
+        capabilities: { call: ["trellis.catalog.read"] },
         errors: [ref.error("ValidationError"), ref.error("UnexpectedError")],
       },
     },

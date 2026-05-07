@@ -194,7 +194,7 @@ type ClientRuntimeIdentity = {
     redirectTo: string,
     context?: unknown,
     provider?: string,
-    contract?: Record<string, unknown>,
+    contract?: Record<string, unknown> | string,
   ): Promise<string>;
   natsConnectSigForIat(iat: number, contractDigest: string): Promise<string>;
   bootstrapSig(iat: number): Promise<string>;
@@ -871,25 +871,42 @@ async function buildSessionKeyLoginUrl(args: {
   redirectTo: string;
   sessionKey: string;
   contract: TrellisContractV1;
+  contractDigest: string;
   provider?: string;
   context?: unknown;
   oauthInitSig: string;
+  fullOauthInitSig: string;
 }): Promise<
   { status: "bound" } | { status: "flow_started"; loginUrl: string }
 > {
   const context = authRequestContextRecord(args.context);
-  const response = await fetch(`${args.trellisUrl}/auth/requests`, {
+  let response = await fetch(`${args.trellisUrl}/auth/requests`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       redirectTo: args.redirectTo,
       sessionKey: args.sessionKey,
       sig: args.oauthInitSig,
-      contract: args.contract,
+      contractDigest: args.contractDigest,
       ...(args.provider ? { provider: args.provider } : {}),
       ...(context ? { context } : {}),
     }),
   });
+  if (await authStartNeedsManifest(response)) {
+    response = await fetch(`${args.trellisUrl}/auth/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        redirectTo: args.redirectTo,
+        sessionKey: args.sessionKey,
+        sig: args.fullOauthInitSig,
+        contractDigest: args.contractDigest,
+        contract: args.contract,
+        ...(args.provider ? { provider: args.provider } : {}),
+        ...(context ? { context } : {}),
+      }),
+    });
+  }
   if (!response.ok) {
     const reason = await response.text();
     throw createTransportError({
@@ -929,6 +946,29 @@ async function buildSessionKeyLoginUrl(args: {
     hint: "Retry sign-in. If it keeps happening, start the sign-in flow again.",
     context: { trellisUrl: args.trellisUrl },
   });
+}
+
+async function authStartNeedsManifest(response: Response): Promise<boolean> {
+  if (response.ok || response.status !== 409) return false;
+  let payload: unknown;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    payload = undefined;
+  }
+  if (payload && typeof payload === "object") {
+    const record = payload as {
+      reason?: unknown;
+      code?: unknown;
+      error?: unknown;
+      message?: unknown;
+    };
+    return record.reason === "manifest_required" ||
+      record.code === "manifest_required" ||
+      record.error === "manifest_required" ||
+      record.message === "manifest_required";
+  }
+  return (await response.clone().text()).includes("manifest_required");
 }
 
 export async function connectClientWithDeps<
@@ -1177,9 +1217,18 @@ async function resolveAuthRequired<
       redirectTo,
       sessionKey: identity.sessionKey,
       contract: args.contract.CONTRACT,
+      contractDigest: args.contract.CONTRACT_DIGEST ??
+        digestContractManifest(args.contract.CONTRACT),
       provider: args.auth.provider,
       context: args.auth.context,
       oauthInitSig: await identity.oauthInitSig(
+        redirectTo,
+        authRequestContextRecord(args.auth.context),
+        args.auth.provider,
+        args.contract.CONTRACT_DIGEST ??
+          digestContractManifest(args.contract.CONTRACT),
+      ),
+      fullOauthInitSig: await identity.oauthInitSig(
         redirectTo,
         authRequestContextRecord(args.auth.context),
         args.auth.provider,
