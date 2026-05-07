@@ -68,21 +68,11 @@ fn run_prepare_watch() -> Result<(), String> {
 }
 
 fn run_generate_prepare(extra_args: &[&str]) -> Result<(), String> {
-    let repo_root = repo_root()?;
-    let bootstrap_manifest = repo_root.join("rust/tools/generate/Cargo.toml");
-    let status = Command::new("cargo")
-        .current_dir(&repo_root)
-        .arg("run")
-        .arg("--manifest-path")
-        .arg(&bootstrap_manifest)
-        .arg("--bin")
-        .arg("trellis-generate")
-        .arg("--")
-        .arg("prepare")
-        .args(extra_args)
-        .arg(".")
-        .status()
-        .map_err(|error| format!("failed to run cargo for prepare workflow: {error}"))?;
+    let mut args = vec!["prepare"];
+    args.extend(extra_args);
+    args.push(".");
+    let status = trellis_generate_runner::run_status(args)
+        .map_err(|error| format!("failed to run prepare workflow: {error}"))?;
 
     if status.success() {
         Ok(())

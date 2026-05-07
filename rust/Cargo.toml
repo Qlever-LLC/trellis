@@ -9,6 +9,7 @@ members = [
   "crates/contracts",
   "crates/codegen-ts",
   "crates/codegen-rust",
+  "crates/generate-runner",
   "crates/client",
   "crates/cli",
 ]
