@@ -60,6 +60,7 @@ impl OperationProvider<RefundOperation> for RefundProvider {
                     progress: None,
                     transfer: None,
                     output: None,
+                    ..Default::default()
                 },
                 transfer: None,
             })
@@ -82,6 +83,7 @@ impl OperationProvider<RefundOperation> for RefundProvider {
                 }),
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         })
     }
@@ -102,6 +104,7 @@ impl OperationProvider<RefundOperation> for RefundProvider {
                 output: Some(RefundOutput {
                     refund_id: "rf_provider".to_string(),
                 }),
+                ..Default::default()
             })
         })
     }
@@ -120,6 +123,7 @@ impl OperationProvider<RefundOperation> for RefundProvider {
                 progress: None,
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         })
     }
@@ -192,6 +196,7 @@ async fn registered_operation_start_replies_with_accepted_envelope_and_revision_
                     progress: None,
                     transfer: None,
                     output: None,
+                    ..Default::default()
                 },
                 transfer: None,
             })
@@ -205,6 +210,7 @@ async fn registered_operation_start_replies_with_accepted_envelope_and_revision_
                 }),
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         },
         |_ctx, _operation_id| async move {
@@ -216,6 +222,7 @@ async fn registered_operation_start_replies_with_accepted_envelope_and_revision_
                 output: Some(RefundOutput {
                     refund_id: "rf_123".to_string(),
                 }),
+                ..Default::default()
             })
         },
         |_ctx, _operation_id| async move {
@@ -225,6 +232,7 @@ async fn registered_operation_start_replies_with_accepted_envelope_and_revision_
                 progress: None,
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         },
     );
@@ -262,6 +270,7 @@ async fn operation_control_get_returns_single_snapshot_frame() {
                     progress: None,
                     transfer: None,
                     output: None,
+                    ..Default::default()
                 },
                 transfer: None,
             })
@@ -276,6 +285,7 @@ async fn operation_control_get_returns_single_snapshot_frame() {
                 }),
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         },
         |_ctx, operation_id| async move {
@@ -288,6 +298,7 @@ async fn operation_control_get_returns_single_snapshot_frame() {
                 output: Some(RefundOutput {
                     refund_id: "rf_123".to_string(),
                 }),
+                ..Default::default()
             })
         },
         |_ctx, operation_id| async move {
@@ -298,6 +309,7 @@ async fn operation_control_get_returns_single_snapshot_frame() {
                 progress: None,
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         },
     );
@@ -338,6 +350,7 @@ async fn operation_control_cancel_returns_single_snapshot_frame() {
                     progress: None,
                     transfer: None,
                     output: None,
+                    ..Default::default()
                 },
                 transfer: None,
             })
@@ -352,6 +365,7 @@ async fn operation_control_cancel_returns_single_snapshot_frame() {
                 }),
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         },
         |_ctx, operation_id| async move {
@@ -364,6 +378,7 @@ async fn operation_control_cancel_returns_single_snapshot_frame() {
                 output: Some(RefundOutput {
                     refund_id: "rf_123".to_string(),
                 }),
+                ..Default::default()
             })
         },
         |_ctx, operation_id| async move {
@@ -374,6 +389,7 @@ async fn operation_control_cancel_returns_single_snapshot_frame() {
                 progress: None,
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         },
     );
@@ -413,6 +429,7 @@ async fn operation_control_wait_returns_terminal_snapshot_frame() {
                     progress: None,
                     transfer: None,
                     output: None,
+                    ..Default::default()
                 },
                 transfer: None,
             })
@@ -427,6 +444,7 @@ async fn operation_control_wait_returns_terminal_snapshot_frame() {
                 }),
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         },
         |_ctx, operation_id| async move {
@@ -439,6 +457,7 @@ async fn operation_control_wait_returns_terminal_snapshot_frame() {
                 output: Some(RefundOutput {
                     refund_id: "rf_123".to_string(),
                 }),
+                ..Default::default()
             })
         },
         |_ctx, operation_id| async move {
@@ -449,6 +468,7 @@ async fn operation_control_wait_returns_terminal_snapshot_frame() {
                 progress: None,
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         },
     );
@@ -489,6 +509,7 @@ async fn operation_control_watch_returns_terminal_snapshot_frame() {
                     progress: None,
                     transfer: None,
                     output: None,
+                    ..Default::default()
                 },
                 transfer: None,
             })
@@ -503,6 +524,7 @@ async fn operation_control_watch_returns_terminal_snapshot_frame() {
                 }),
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         },
         |_ctx, operation_id| async move {
@@ -515,6 +537,7 @@ async fn operation_control_watch_returns_terminal_snapshot_frame() {
                 output: Some(RefundOutput {
                     refund_id: "rf_123".to_string(),
                 }),
+                ..Default::default()
             })
         },
         |_ctx, operation_id| async move {
@@ -525,6 +548,7 @@ async fn operation_control_watch_returns_terminal_snapshot_frame() {
                 progress: None,
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         },
     );
@@ -565,6 +589,7 @@ async fn operation_control_watch_encodes_transfer_event_frames() {
                     progress: None,
                     transfer: None,
                     output: None,
+                    ..Default::default()
                 },
                 transfer: None,
             })
@@ -576,6 +601,7 @@ async fn operation_control_watch_encodes_transfer_event_frames() {
                 progress: None,
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         },
         |_ctx, operation_id| {
@@ -587,6 +613,7 @@ async fn operation_control_watch_encodes_transfer_event_frames() {
                     progress: None,
                     transfer: None,
                     output: None,
+                    ..Default::default()
                 }),
                 Ok(OperationSnapshot::<RefundProgress, RefundOutput> {
                     revision: 2,
@@ -598,6 +625,7 @@ async fn operation_control_watch_encodes_transfer_event_frames() {
                         transferred_bytes: 11,
                     }),
                     output: None,
+                    ..Default::default()
                 }),
             ]))
         },
@@ -608,6 +636,7 @@ async fn operation_control_watch_encodes_transfer_event_frames() {
                 progress: None,
                 transfer: None,
                 output: None,
+                ..Default::default()
             })
         },
     );

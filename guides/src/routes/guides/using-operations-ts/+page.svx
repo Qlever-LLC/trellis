@@ -105,6 +105,13 @@ operation id.
 
 ```ts
 await service.operation("Orders.Process").handle(async ({ input, op }) => {
+  const job = await service.jobs.reserveInventory.create({
+    operationId: op.id,
+    orderId: input.orderId,
+    items: [],
+  });
+  if (job.isErr()) return Result.err(job.error);
+
   const progress = await op.progress({
     step: "pending_review",
     message: `Order ${input.orderId} is waiting for approval`,
@@ -115,9 +122,38 @@ await service.operation("Orders.Process").handle(async ({ input, op }) => {
 });
 ```
 
+The job or review handler resumes the operation through the public
+operation-scoped service control helper. It only needs the durable operation id;
+it does not need the original in-memory `op` object and should not reach into
+private service internals.
+
+```ts
+service.jobs.reserveInventory.handle(async ({ job }) => {
+  const op = await service.operation("Orders.Process")
+    .control(job.payload.operationId)
+    .orThrow();
+
+  await op.progress({
+    step: "fulfilling",
+    message: "Inventory reserved; preparing shipment",
+  }).orThrow();
+
+  await op.complete({
+    orderId: job.payload.orderId,
+    status: "ready_to_ship",
+  }).orThrow();
+
+  return Result.ok({ completed: true });
+});
+```
+
 ## 3. The job worker — no changes needed
 
-The job workers from [Jobs: TypeScript](/guides/using-jobs-ts) run unchanged. They report progress via `job.progress(...)` and return `Result.ok(result)`. The `op.attach()` wires their results to the operation automatically.
+For `op.attach(job)` flows, the job workers from [Jobs: TypeScript](/guides/using-jobs-ts) run unchanged. They report progress via `job.progress(...)` and return `Result.ok(result)`. The `op.attach()` wires their results to the operation automatically.
+
+For `op.defer()` flows, the worker owns the operation terminal path and should use
+`service.operation(key).control(operationId)` to publish caller-visible progress,
+completion, failure, or cancellation after the original handler has returned.
 
 ## 4. Caller side
 

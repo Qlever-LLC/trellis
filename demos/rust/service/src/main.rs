@@ -31,9 +31,10 @@ use trellis_service::{
     bootstrap_service_host, plan_download_transfer_grant, plan_upload_transfer_grant,
     spawn_download_transfer_endpoint, spawn_upload_transfer_endpoint_with_progress,
     AcceptedOperation, BootstrapBindingInfo, DownloadTransferGrant, EventPublisher,
-    FileTransferInfo, KvResourceClient, NatsKvResourceClient, OperationRefData, OperationSnapshot,
-    OperationState, OperationTransferProgress, RequestContext, RequestValidator,
-    ResourceRuntimeClient, Router, ServerError, ServiceResourceBindings, StoreResourceClient,
+    FileTransferInfo, InMemoryOperationRuntime, KvResourceClient, NatsKvResourceClient,
+    OperationFailure, OperationRefData, OperationSnapshot, OperationState,
+    OperationTransferProgress, RequestContext, RequestValidator, ResourceRuntimeClient, Router,
+    ServerError, ServiceOperation, ServiceResourceBindings, StoreResourceClient,
     TransferDownloadGrantArgs, TransferUploadGrantArgs, UploadTransferGrant, UploadTransferSession,
 };
 
@@ -139,6 +140,7 @@ struct AppState {
     operations: BTreeMap<String, serde_json::Value>,
     operation_history: BTreeMap<String, Vec<serde_json::Value>>,
     pending_uploads: BTreeMap<String, PendingUpload>,
+    next_operation_sequence: u64,
     next_evidence_sequence: u64,
     next_transfer_sequence: u64,
 }
@@ -155,6 +157,7 @@ struct AppContext {
     publisher: Option<EventPublisher>,
     service_session_key: String,
     refresh_jobs: RefreshJobManager,
+    refresh_operations: ServiceOperation<sdk_operations::SitesRefreshOperation>,
     refresh_worker_wait: Option<trellis_jobs::NatsJobWaiter>,
     transfer_validator: DemoRequestValidator,
 }
@@ -495,7 +498,9 @@ impl EvidenceStore {
 }
 
 #[cfg(test)]
-async fn demo_pause(_ms: u64) {}
+async fn demo_pause(_ms: u64) {
+    tokio::time::sleep(Duration::from_millis(1)).await;
+}
 
 #[cfg(not(test))]
 async fn demo_pause(ms: u64) {
@@ -854,11 +859,14 @@ fn build_router_with_selected_evidence_store_and_jobs(
         SiteSummaryStore::Nats,
     );
     let publisher = nats.clone().map(EventPublisher::new);
+    let refresh_operations = InMemoryOperationRuntime::new(SERVICE_NAME)
+        .operation::<sdk_operations::SitesRefreshOperation>();
     let context = AppContext {
         state,
         store,
         site_summaries,
         refresh_jobs: refresh_job_manager(&resources, jobs_nats, recorded_jobs),
+        refresh_operations,
         refresh_worker_wait: if use_worker_wait {
             refresh_worker_wait_strategy(&resources, nats.clone())
         } else {
@@ -907,24 +915,26 @@ fn build_router_with_selected_evidence_store_and_jobs(
             move |ctx, input| sites_refresh_start(context.clone(), ctx, input)
         },
         {
-            let state = Arc::clone(&context.state);
+            let refresh_operations = context.refresh_operations.clone();
             move |_ctx, operation_id| {
-                operation_get::<SitesRefreshProgress, SitesRefreshOutput>(
-                    Arc::clone(&state),
-                    operation_id,
-                )
+                let refresh_operations = refresh_operations.clone();
+                async move { refresh_operations.get(operation_id).await }
             }
         },
         {
-            let state = Arc::clone(&context.state);
+            let refresh_operations = context.refresh_operations.clone();
             move |_ctx, operation_id| {
-                operation_watch::<SitesRefreshProgress, SitesRefreshOutput>(
-                    Arc::clone(&state),
-                    operation_id,
-                )
+                let refresh_operations = refresh_operations.clone();
+                sites_refresh_watch(refresh_operations, operation_id)
             }
         },
-        operation_cancel::<SitesRefreshProgress, SitesRefreshOutput>,
+        {
+            let refresh_operations = context.refresh_operations.clone();
+            move |_ctx, operation_id| {
+                let refresh_operations = refresh_operations.clone();
+                async move { refresh_operations.cancel(operation_id).await }
+            }
+        },
     );
     server::register_reports_generate(
         &mut router,
@@ -1306,36 +1316,108 @@ async fn sites_refresh_start(
     _ctx: RequestContext,
     input: SitesRefreshInput,
 ) -> Result<AcceptedOperation<SitesRefreshProgress, SitesRefreshOutput>, ServerError> {
-    let accepted = {
+    let operation_id = {
         let mut state = context.state.lock().expect("demo state lock");
-        accepted_with_transfer_state::<SitesRefreshProgress, SitesRefreshOutput>(
-            &mut state,
-            "Sites.Refresh",
-            OperationState::Running,
-            None,
-            SitesRefreshProgress {
-                stage: "queued".to_string(),
-                message: format!("Queued summary refresh for {}", input.site_id),
-            },
-            None,
-        )
+        allocate_operation_id(&mut state, "op-sites-refresh")
     };
-    let operation_id = accepted.operation_ref.id.clone();
+    let mut accepted = context
+        .refresh_operations
+        .accept(operation_id.clone())
+        .await?;
+    let queued = context
+        .refresh_operations
+        .control(operation_id.clone())
+        .await?
+        .progress(SitesRefreshProgress {
+            stage: "queued".to_string(),
+            message: format!("Queued summary refresh for {}", input.site_id),
+        })
+        .await?;
+    accepted.snapshot = queued;
     tracing::info!(
         operation_id = %operation_id,
         site_id = %input.site_id,
         worker_wait = context.refresh_worker_wait.is_some(),
         "Sites.Refresh accepted"
     );
-    let operation_state = Arc::clone(&context.state);
+    let refresh_operations = context.refresh_operations.clone();
     let operation_id_for_failure = operation_id.clone();
+    let context_for_task = context.clone();
     tokio::spawn(async move {
-        if let Err(error) = run_sites_refresh(context, operation_id, input).await {
-            let mut state = operation_state.lock().expect("demo state lock");
-            fail_refresh_operation(&mut state, &operation_id_for_failure, error.to_string());
+        if let Err(error) = run_sites_refresh(context_for_task, operation_id, input).await {
+            if let Ok(control) = refresh_operations.control(operation_id_for_failure).await {
+                let _ = control
+                    .fail(OperationFailure {
+                        message: error.to_string(),
+                    })
+                    .await;
+            }
         }
     });
     Ok(accepted)
+}
+
+fn sites_refresh_watch(
+    refresh_operations: ServiceOperation<sdk_operations::SitesRefreshOperation>,
+    operation_id: String,
+) -> Pin<
+    Box<
+        dyn Stream<
+                Item = Result<
+                    OperationSnapshot<SitesRefreshProgress, SitesRefreshOutput>,
+                    ServerError,
+                >,
+            > + Send,
+    >,
+> {
+    enum WatchState {
+        Init {
+            refresh_operations: ServiceOperation<sdk_operations::SitesRefreshOperation>,
+            operation_id: String,
+        },
+        Streaming {
+            snapshots: Pin<
+                Box<
+                    dyn Stream<
+                            Item = Result<
+                                OperationSnapshot<SitesRefreshProgress, SitesRefreshOutput>,
+                                ServerError,
+                            >,
+                        > + Send,
+                >,
+            >,
+        },
+    }
+
+    Box::pin(stream::unfold(
+        WatchState::Init {
+            refresh_operations,
+            operation_id,
+        },
+        |state| async move {
+            match state {
+                WatchState::Init {
+                    refresh_operations,
+                    operation_id,
+                } => match refresh_operations.watch(operation_id).await {
+                    Ok(mut snapshots) => snapshots
+                        .next()
+                        .await
+                        .map(|snapshot| (snapshot, WatchState::Streaming { snapshots })),
+                    Err(error) => Some((
+                        Err(error),
+                        WatchState::Streaming {
+                            snapshots: Box::pin(stream::empty()),
+                        },
+                    )),
+                },
+                WatchState::Streaming { mut snapshots } => snapshots
+                    .next()
+                    .await
+                    .map(|snapshot| (snapshot, WatchState::Streaming { snapshots })),
+            }
+        },
+    ))
 }
 
 async fn run_sites_refresh(
@@ -1350,15 +1432,15 @@ async fn run_sites_refresh(
         "Sites.Refresh background task started"
     );
     {
-        let mut state = context.state.lock().expect("demo state lock");
-        progress_refresh_operation(
-            &mut state,
-            &operation_id,
-            SitesRefreshProgress {
+        context
+            .refresh_operations
+            .control(operation_id.clone())
+            .await?
+            .progress(SitesRefreshProgress {
                 stage: "queued".to_string(),
                 message: format!("Queued summary refresh for {site_id}"),
-            },
-        );
+            })
+            .await?;
     }
     if let Some(wait_strategy) = context.refresh_worker_wait.clone() {
         demo_pause(REFRESH_QUEUE_PAUSE_MS).await;
@@ -1370,15 +1452,15 @@ async fn run_sites_refresh(
         tracing::info!(operation_id = %operation_id, job_id = %job.id, "Sites.Refresh job created");
         demo_pause(REFRESH_JOB_CREATE_PAUSE_MS).await;
         {
-            let mut state = context.state.lock().expect("demo state lock");
-            progress_refresh_operation(
-                &mut state,
-                &operation_id,
-                SitesRefreshProgress {
+            context
+                .refresh_operations
+                .control(operation_id.clone())
+                .await?
+                .progress(SitesRefreshProgress {
                     stage: "refreshing".to_string(),
                     message: format!("Refreshing field status for {site_id}"),
-                },
-            );
+                })
+                .await?;
         }
         let terminal = wait_strategy
             .wait_for_terminal(job)
@@ -1388,10 +1470,12 @@ async fn run_sites_refresh(
         let output = refresh_output_from_terminal_job(&terminal)?;
         demo_pause(REFRESH_COMPLETE_PAUSE_MS).await;
         let output_for_events = output.clone();
-        {
-            let mut state = context.state.lock().expect("demo state lock");
-            complete_refresh_operation(&mut state, &operation_id, output);
-        }
+        context
+            .refresh_operations
+            .control(operation_id.clone())
+            .await?
+            .complete(output)
+            .await?;
         publish_sites_refresh_events(&context, &output_for_events).await;
         demo_pause(REFRESH_ACTIVITY_PAUSE_MS).await;
         return Ok(());
@@ -1406,15 +1490,15 @@ async fn run_sites_refresh(
     tracing::info!(operation_id = %operation_id, job_id = %job.id, "Sites.Refresh inline job created");
     demo_pause(REFRESH_JOB_CREATE_PAUSE_MS).await;
     {
-        let mut state = context.state.lock().expect("demo state lock");
-        progress_refresh_operation(
-            &mut state,
-            &operation_id,
-            SitesRefreshProgress {
+        context
+            .refresh_operations
+            .control(operation_id.clone())
+            .await?
+            .progress(SitesRefreshProgress {
                 stage: "refreshing".to_string(),
                 message: format!("Refreshing field status for {site_id}"),
-            },
-        );
+            })
+            .await?;
     }
     let site_summaries = context.site_summaries.clone();
     let outcome = context
@@ -1445,10 +1529,12 @@ async fn run_sites_refresh(
     };
     demo_pause(REFRESH_COMPLETE_PAUSE_MS).await;
     let output_for_events = output.clone();
-    {
-        let mut state = context.state.lock().expect("demo state lock");
-        complete_refresh_operation(&mut state, &operation_id, output);
-    }
+    context
+        .refresh_operations
+        .control(operation_id.clone())
+        .await?
+        .complete(output)
+        .await?;
     publish_sites_refresh_events(&context, &output_for_events).await;
     demo_pause(REFRESH_ACTIVITY_PAUSE_MS).await;
     Ok(())
@@ -1495,60 +1581,6 @@ fn refresh_output_from_terminal_job(
             job.last_error.as_deref().unwrap_or("no error detail")
         ))),
     }
-}
-
-fn complete_refresh_operation(
-    state: &mut AppState,
-    operation_id: &str,
-    output: SitesRefreshOutput,
-) {
-    tracing::info!(
-        operation_id,
-        site_id = %output.site.site_id,
-        last_report_at = %output.site.last_report_at,
-        "Sites.Refresh completed"
-    );
-    let snapshot = OperationSnapshot {
-        revision: next_operation_revision(state, operation_id),
-        state: OperationState::Completed,
-        progress: Some(SitesRefreshProgress {
-            stage: "complete".to_string(),
-            message: "Site summary refreshed".to_string(),
-        }),
-        transfer: None,
-        output: Some(output),
-    };
-    record_operation_snapshot(state, operation_id, &snapshot);
-}
-
-fn progress_refresh_operation(
-    state: &mut AppState,
-    operation_id: &str,
-    progress: SitesRefreshProgress,
-) {
-    let snapshot: OperationSnapshot<SitesRefreshProgress, SitesRefreshOutput> = OperationSnapshot {
-        revision: next_operation_revision(state, operation_id),
-        state: OperationState::Running,
-        progress: Some(progress),
-        transfer: None,
-        output: None,
-    };
-    record_operation_snapshot(state, operation_id, &snapshot);
-}
-
-fn fail_refresh_operation(state: &mut AppState, operation_id: &str, message: String) {
-    tracing::error!(operation_id, error = %message, "Sites.Refresh failed");
-    let snapshot: OperationSnapshot<SitesRefreshProgress, SitesRefreshOutput> = OperationSnapshot {
-        revision: next_operation_revision(state, operation_id),
-        state: OperationState::Failed,
-        progress: Some(SitesRefreshProgress {
-            stage: "failed".to_string(),
-            message,
-        }),
-        transfer: None,
-        output: None,
-    };
-    record_operation_snapshot(state, operation_id, &snapshot);
 }
 
 async fn refresh_site_summary(
@@ -1882,6 +1914,7 @@ async fn operation_cancel<TProgress, TOutput>(
         progress: None,
         transfer: None,
         output: None,
+        ..Default::default()
     })
 }
 
@@ -1934,11 +1967,17 @@ where
     let operation_id = format!("op-{}", operation.replace('.', "-").to_ascii_lowercase());
     let operation_id = unique_operation_id(state, &operation_id);
     let snapshot = OperationSnapshot {
+        id: Some(operation_id.clone()),
+        service: Some(SERVICE_NAME.to_string()),
+        operation: Some(operation.to_string()),
         revision: 1,
         state: operation_state,
+        created_at: Some(now_iso()),
+        updated_at: Some(now_iso()),
         progress: Some(progress),
         transfer: None,
         output,
+        ..Default::default()
     };
     record_operation_snapshot(state, &operation_id, &snapshot);
 
@@ -1962,7 +2001,67 @@ fn record_operation_snapshot<TProgress, TOutput>(
     TProgress: Serialize,
     TOutput: Serialize,
 {
-    let value = serde_json::to_value(snapshot).expect("demo operation snapshot should serialize");
+    let mut value =
+        serde_json::to_value(snapshot).expect("demo operation snapshot should serialize");
+    if let serde_json::Value::Object(ref mut object) = value {
+        object
+            .entry("id".to_string())
+            .or_insert_with(|| serde_json::Value::String(operation_id.to_string()));
+        object
+            .entry("service".to_string())
+            .or_insert_with(|| serde_json::Value::String(SERVICE_NAME.to_string()));
+        if !object.contains_key("operation") {
+            if let Some(operation) = state
+                .operations
+                .get(operation_id)
+                .and_then(|snapshot| snapshot.get("operation"))
+                .cloned()
+            {
+                object.insert("operation".to_string(), operation);
+            }
+        }
+        if !object.contains_key("createdAt") {
+            let created_at = state
+                .operations
+                .get(operation_id)
+                .and_then(|snapshot| snapshot.get("createdAt"))
+                .cloned()
+                .unwrap_or_else(|| serde_json::Value::String(now_iso()));
+            object.insert("createdAt".to_string(), created_at);
+        }
+        object.insert(
+            "updatedAt".to_string(),
+            serde_json::Value::String(now_iso()),
+        );
+        if matches!(
+            object.get("state").and_then(serde_json::Value::as_str),
+            Some("completed" | "failed" | "cancelled")
+        ) {
+            object
+                .entry("completedAt".to_string())
+                .or_insert_with(|| serde_json::Value::String(now_iso()));
+        }
+        if !object.contains_key("progress") {
+            if let Some(progress) = state
+                .operations
+                .get(operation_id)
+                .and_then(|snapshot| snapshot.get("progress"))
+                .cloned()
+            {
+                object.insert("progress".to_string(), progress);
+            }
+        }
+        if !object.contains_key("output") {
+            if let Some(output) = state
+                .operations
+                .get(operation_id)
+                .and_then(|snapshot| snapshot.get("output"))
+                .cloned()
+            {
+                object.insert("output".to_string(), output);
+            }
+        }
+    }
     state
         .operations
         .insert(operation_id.to_string(), value.clone());
@@ -2008,6 +2107,7 @@ fn complete_upload_operation(state: &mut AppState, operation_id: &str, evidence:
             file_name: evidence.file_name.clone(),
             disposition: "ready-for-review".to_string(),
         }),
+        ..Default::default()
     };
     record_operation_snapshot(state, operation_id, &snapshot);
 }
@@ -2024,6 +2124,7 @@ fn progress_upload_transfer_operation(
             progress: None,
             transfer: Some(transfer),
             output: None,
+            ..Default::default()
         };
     record_operation_snapshot(state, operation_id, &snapshot);
 }
@@ -2041,6 +2142,11 @@ fn unique_operation_id(state: &AppState, base: &str) -> String {
     }
 
     unreachable!("unbounded suffix search always returns")
+}
+
+fn allocate_operation_id(state: &mut AppState, prefix: &str) -> String {
+    state.next_operation_sequence += 1;
+    format!("{prefix}-{}", state.next_operation_sequence)
 }
 
 fn allocate_evidence_id(state: &mut AppState) -> String {
@@ -2184,6 +2290,7 @@ fn sample_state() -> AppState {
         operations: BTreeMap::new(),
         operation_history: BTreeMap::new(),
         pending_uploads: BTreeMap::new(),
+        next_operation_sequence: 1,
         next_evidence_sequence: 1002,
         next_transfer_sequence: 1,
     }
@@ -2405,6 +2512,7 @@ mod tests {
                     subject: "transfer.v1.Upload.demo".to_string(),
                     session_key: Some("demo-session".to_string()),
                     proof: Some("proof".to_string()),
+                    reply_to: None,
                 },
             )
             .await
@@ -2626,6 +2734,7 @@ mod tests {
                     subject: operations::EvidenceUploadOperation::SUBJECT.to_string(),
                     session_key: Some("demo-session".to_string()),
                     proof: Some("proof".to_string()),
+                    reply_to: None,
                 },
             )
             .await
@@ -2663,6 +2772,7 @@ mod tests {
                     subject: operations::EvidenceUploadOperation::SUBJECT.to_string(),
                     session_key: Some("demo-session".to_string()),
                     proof: Some("proof".to_string()),
+                    reply_to: None,
                 },
             )
             .await
@@ -2692,6 +2802,7 @@ mod tests {
                         subject: operations::EvidenceUploadOperation::SUBJECT.to_string(),
                         session_key: Some("demo-session".to_string()),
                         proof: Some("proof".to_string()),
+                        reply_to: None,
                     },
                 )
                 .await
@@ -2724,6 +2835,7 @@ mod tests {
                     subject: operations::EvidenceUploadOperation::SUBJECT.to_string(),
                     session_key: Some("demo-session".to_string()),
                     proof: Some("proof".to_string()),
+                    reply_to: None,
                 },
             )
             .await
@@ -2907,6 +3019,7 @@ mod tests {
                     subject: operations::EvidenceUploadOperation::SUBJECT.to_string(),
                     session_key: Some("demo-session".to_string()),
                     proof: Some("proof".to_string()),
+                    reply_to: None,
                 },
             )
             .await
@@ -2967,6 +3080,7 @@ mod tests {
                     }),
                     transfer: None,
                     output: None,
+                    ..Default::default()
                 };
             state.operations.insert(
                 "op-upload-test".to_string(),

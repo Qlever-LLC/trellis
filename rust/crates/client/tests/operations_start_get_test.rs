@@ -168,6 +168,132 @@ impl OperationTransport for FakeTransport {
 }
 
 #[tokio::test]
+async fn operation_invoker_control_by_id_uses_typed_control_subject_without_starting() {
+    let transport = FakeTransport::new(vec![json!({
+        "kind": "snapshot",
+        "snapshot": {
+            "revision": 7,
+            "state": "running",
+            "progress": {
+                "message": "job resumed"
+            }
+        }
+    })]);
+
+    let operation = trellis_client::OperationInvoker::<_, RefundOperation>::new(&transport);
+    let reference = operation
+        .control("op_resumed")
+        .expect("operation id should be valid");
+    let snapshot = reference.get().await.expect("get should succeed");
+
+    assert_eq!(reference.id(), "op_resumed");
+    assert_eq!(reference.operation(), "Billing.Refund");
+    assert_eq!(reference.service(), "");
+    assert_eq!(snapshot.revision, 7);
+    assert_eq!(snapshot.state, OperationState::Running);
+    assert_eq!(
+        snapshot.progress,
+        Some(RefundProgress {
+            message: "job resumed".to_string(),
+        })
+    );
+    assert_eq!(snapshot.output, None);
+    assert_eq!(
+        transport.seen(),
+        vec![(
+            control_subject(RefundOperation::SUBJECT),
+            json!({ "action": "get", "operationId": "op_resumed" }),
+        )]
+    );
+}
+
+#[test]
+fn operation_invoker_control_by_id_rejects_blank_id_as_result_error() {
+    let transport = FakeTransport::new(Vec::new());
+    let operation = trellis_client::OperationInvoker::<_, RefundOperation>::new(&transport);
+
+    let error = operation
+        .control("   ")
+        .expect_err("blank operation id should fail");
+
+    assert!(matches!(error, TrellisClientError::OperationProtocol(_)));
+    assert!(transport.seen().is_empty());
+}
+
+#[tokio::test]
+async fn operation_invoker_control_by_id_preserves_typed_terminal_output() {
+    let transport = FakeTransport::new(vec![json!({
+        "kind": "snapshot",
+        "snapshot": {
+            "revision": 8,
+            "state": "completed",
+            "output": {
+                "refund_id": "rf_resumed"
+            }
+        }
+    })]);
+
+    let operation = trellis_client::OperationInvoker::<_, RefundOperation>::new(&transport);
+    let snapshot = operation
+        .control("op_done")
+        .expect("operation id should be valid")
+        .wait()
+        .await
+        .expect("wait should succeed");
+
+    assert_eq!(snapshot.revision, 8);
+    assert_eq!(snapshot.state, OperationState::Completed);
+    assert_eq!(snapshot.progress, None);
+    assert_eq!(
+        snapshot.output,
+        Some(RefundOutput {
+            refund_id: "rf_resumed".to_string(),
+        })
+    );
+    assert_eq!(
+        transport.seen(),
+        vec![(
+            control_subject(RefundOperation::SUBJECT),
+            json!({ "action": "wait", "operationId": "op_done" }),
+        )]
+    );
+}
+
+#[tokio::test]
+async fn operation_invoker_control_by_id_decodes_control_error_frames_as_result_errors() {
+    let transport = FakeTransport::new(vec![json!({
+        "kind": "error",
+        "error": {
+            "type": "TerminalOperation",
+            "message": "operation is already terminal"
+        }
+    })]);
+
+    let operation = trellis_client::OperationInvoker::<_, RefundOperation>::new(&transport);
+    let error = operation
+        .control("op_done")
+        .expect("operation id should be valid")
+        .cancel()
+        .await
+        .expect_err("terminal operation control should fail");
+
+    match error {
+        TrellisClientError::OperationProtocol(message) => {
+            assert!(message.contains("TerminalOperation"));
+            assert!(message.contains("already terminal"));
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+    assert_eq!(
+        transport.seen(),
+        vec![(
+            control_subject(RefundOperation::SUBJECT),
+            json!({ "action": "cancel", "operationId": "op_done" }),
+        )]
+    );
+}
+
+#[tokio::test]
 async fn operation_input_builder_start_posts_input() {
     let transport = FakeTransport::new(vec![json!({
         "kind": "accepted",

@@ -500,20 +500,20 @@ export type OperationOutputOf<
   : unknown;
 export type OperationRuntimeHandle<TProgress = unknown, TOutput = unknown> = {
   id: string;
-  started(): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  started(): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   progress(
     value: TProgress,
-  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  ): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   complete(
     value: TOutput,
-  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  ): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   fail(
     error: BaseError,
-  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
-  cancel(): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  ): AsyncResult<RuntimeOperationSnapshot, BaseError>;
+  cancel(): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   attach(
     job: { wait(): AsyncResult<unknown, BaseError> },
-  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  ): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   signals(): AsyncIterable<RuntimeOperationSignal>;
   nextSignal(
     name?: string,
@@ -664,6 +664,13 @@ export type OperationRegistration<
   accept(args: {
     sessionKey: string;
   }): AsyncResult<AcceptedOperation<TProgress, TOutput>, UnexpectedError>;
+  /**
+   * Loads an existing operation by id and returns a service-side control handle.
+   * The operation must belong to this service and registration name.
+   */
+  control(
+    operationId: string,
+  ): AsyncResult<OperationRuntimeHandle<TProgress, TOutput>, BaseError>;
   handle(
     handler: (
       context: OperationHandlerContext<TInput, TProgress, TOutput, TTransfer>,
@@ -845,25 +852,25 @@ export type RuntimeOperationControlRequest =
 export type RuntimeOperationController = {
   get(
     operationId: string,
-  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  ): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   started(
     operationId: string,
-  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  ): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   progress(
     operationId: string,
     progress: unknown,
-  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  ): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   complete(
     operationId: string,
     output: unknown,
-  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  ): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   fail(
     operationId: string,
     error: BaseError,
-  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  ): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   cancel(
     operationId: string,
-  ): AsyncResult<RuntimeOperationSnapshot, UnexpectedError>;
+  ): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   signals(operationId: string): AsyncIterable<RuntimeOperationSignal>;
   nextSignal(
     operationId: string,

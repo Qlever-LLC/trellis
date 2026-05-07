@@ -54,6 +54,7 @@ import type {
   OperationOutputOf,
   OperationProgressOf,
   OperationRegistration as RootOperationRegistration,
+  OperationRuntimeHandle,
   OperationTransferContextOf,
   RpcHandlerContext,
   RpcHandlerErrorOf,
@@ -908,6 +909,19 @@ export type OperationRegistration<
       OperationOutputOf<TOwnedApi, O>
     >,
     UnexpectedError
+  >;
+  /**
+   * Loads an existing operation by id and returns a service-side control handle.
+   * The operation must belong to this service and registration name.
+   */
+  control(
+    operationId: string,
+  ): AsyncResult<
+    OperationRuntimeHandle<
+      OperationProgressOf<TOwnedApi, O>,
+      OperationOutputOf<TOwnedApi, O>
+    >,
+    BaseError
   >;
   handle(
     handler: (
@@ -1977,7 +1991,7 @@ export class TrellisService<
         return Result.ok(current);
       }
 
-      return Result.err(completed.error);
+      return Result.err(toUnexpectedError(completed.error));
     })());
   }
 
@@ -2176,6 +2190,7 @@ export class TrellisService<
 
     return {
       accept: (args) => registration.accept(args),
+      control: (operationId) => registration.control(operationId),
       handle: (
         handler: (
           args:

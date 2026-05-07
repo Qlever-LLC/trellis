@@ -168,8 +168,8 @@ Rules:
   control helpers as their operation runtime support catches up; exact current
   language support belongs in `/api` and Rustdoc
 - event streams and generated callbacks MUST keep runtime control frames hidden;
-  public cancellation and signal affordances are operation-reference methods, not
-  lifecycle watch events
+  public cancellation and signal affordances are operation-reference methods,
+  not lifecycle watch events
 
 Caller surface:
 
@@ -189,12 +189,20 @@ Owning-service surface:
 - transfer-capable handlers receive provider-side `transfer.updates()` and
   `transfer.completed()` helpers
 - handlers may complete operations directly or attach local jobs to them
-- handler-visible active operation handles are the only service-side public path
-  for publishing lifecycle changes, progress, terminal success, terminal
-  failure, cancellation, or job attachment
-- handler-visible active operation handles expose a durable private signal stream
-  for named caller inputs submitted after start; handlers consume it through
-  runtime helpers such as `signals()` or `nextSignal(name?)`
+- handler-visible active operation handles are the normal in-handler path for
+  publishing lifecycle changes, progress, terminal success, terminal failure,
+  cancellation, or job attachment
+- owning services also expose an operation-scoped control path such as
+  `service.operation(key).control(operationId)` for service-private jobs and
+  other durable service-owned execution paths that only have the operation id
+  after handler return, restart, redelivery, retry, or delayed execution
+- service-side control by id MUST load the durable operation record, verify the
+  record belongs to the current service and requested operation key, validate
+  progress/output against the operation descriptor, reject terminal mutations,
+  and return normal expected errors rather than re-running the operation handler
+- handler-visible active operation handles expose a durable private signal
+  stream for named caller inputs submitted after start; handlers consume it
+  through runtime helpers such as `signals()` or `nextSignal(name?)`
 - handlers that intentionally leave terminal completion to another control path
   return `op.defer()` after recording any durable progress they own. The runtime
   MUST NOT auto-complete, auto-fail, or keep the handler promise pending for a
@@ -203,12 +211,12 @@ Owning-service surface:
   never-resolving promise.
 
 Generated operation runtimes MUST derive input, progress, output, cancelability,
-signals, transfer behavior, and provider-side transfer helpers from the operation
-descriptor. They MUST expose typed operation helpers only for operations the
-participant owns or explicitly declares in `uses`, and they MUST preserve enough
-descriptor metadata for language-specific generated facades. For exact
-TypeScript and Rust signatures, use the generated API reference and Rustdoc
-under `/api`.
+signals, transfer behavior, and provider-side transfer helpers from the
+operation descriptor. They MUST expose typed operation helpers only for
+operations the participant owns or explicitly declares in `uses`, and they MUST
+preserve enough descriptor metadata for language-specific generated facades. For
+exact TypeScript and Rust signatures, use the generated API reference and
+Rustdoc under `/api`.
 
 ### 5) Operation model
 
@@ -235,8 +243,8 @@ runtime MUST preserve these logical fields and semantics:
 - runtime control events that are not part of this public lifecycle remain
   hidden behind the operation reference
 - accepted operation signals are private operation-control inputs; they are not
-  public lifecycle events and do not appear on `watch()` unless the service later
-  reflects their effects through progress or terminal snapshots
+  public lifecycle events and do not appear on `watch()` unless the service
+  later reflects their effects through progress or terminal snapshots
 
 Lifecycle rules:
 
@@ -257,6 +265,9 @@ Lifecycle rules:
   the runtime's operation-deferred sentinel. Deferral means the accepted
   operation remains durable and non-terminal until another authorized service
   path completes, fails, or cancels the same operation id.
+- service-side control by id is that durable external terminal path for
+  service-private jobs. Calling it MUST NOT create a new operation, publish a
+  new `accepted` event, or invoke the original operation handler again.
 
 ### 6) Operations use caller `_INBOX` subjects for live watch streams
 
@@ -531,6 +542,9 @@ Rules:
   caller-visible async work
 - a service runtime SHOULD provide a helper to attach a `JobRef` to an
   `OperationRef`
+- when a handler returns `op.defer()`, the corresponding job SHOULD resume the
+  operation through the public operation-scoped service control helper using
+  only the stored `operationId`
 - callers never need to know internal job ids or job types
 - changing internal job topology MUST NOT break the public operation contract
 
@@ -571,12 +585,15 @@ await billing.operation("Billing.Refund").handle(async ({ input, op }) => {
 
 await service.jobs.submitRefund.handle(async ({ job }) => {
   const { operationId, chargeId, amount } = job.payload;
+  const op = await service.operation("Billing.Refund")
+    .control(operationId)
+    .orThrow();
 
-  await operations.started(operationId);
-  await operations.progress(operationId, {
+  await op.started().orThrow();
+  await op.progress({
     step: "processor",
     message: "Submitting refund to payment processor",
-  });
+  }).orThrow();
 
   const payment = await payments.operation("Payments.Refund")
     .input({
@@ -597,10 +614,12 @@ await service.jobs.submitRefund.handle(async ({ job }) => {
     })
     .start();
 
-  return Result.ok({
+  await op.complete({
     refundId: paymentDone.value.output.refundId,
     status: "refunded",
-  });
+  }).orThrow();
+
+  return Result.ok({ completed: true });
 });
 ```
 

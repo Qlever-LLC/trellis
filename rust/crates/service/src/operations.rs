@@ -1,6 +1,15 @@
+use std::collections::HashMap;
+use std::marker::PhantomData;
+use std::sync::Arc;
+
 use futures_util::future::BoxFuture;
+use futures_util::stream::{self, BoxStream};
+use futures_util::StreamExt;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
+use tokio::sync::{watch, Mutex};
 
 use crate::{RequestContext, ServerError, UploadTransferGrant};
 
@@ -34,14 +43,61 @@ pub struct OperationRefData {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationSnapshot<TProgress = Value, TOutput = Value> {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<String>,
     pub revision: u64,
     pub state: OperationState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<TProgress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transfer: Option<OperationTransferProgress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<TOutput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<OperationError>,
+}
+
+impl<TProgress, TOutput> Default for OperationSnapshot<TProgress, TOutput> {
+    fn default() -> Self {
+        Self {
+            id: None,
+            service: None,
+            operation: None,
+            revision: 0,
+            state: OperationState::Pending,
+            created_at: None,
+            updated_at: None,
+            completed_at: None,
+            progress: None,
+            transfer: None,
+            output: None,
+            error: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationError {
+    #[serde(rename = "type")]
+    pub error_type: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationFailure {
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -126,4 +182,471 @@ where
 
 pub fn control_subject(subject: &str) -> String {
     format!("{subject}.control")
+}
+
+#[derive(Debug, Clone)]
+struct StoredOperation {
+    service: String,
+    operation: String,
+    snapshot: OperationSnapshot<Value, Value>,
+    updates: watch::Sender<OperationSnapshot<Value, Value>>,
+}
+
+#[derive(Debug, Default)]
+struct OperationRuntimeInner {
+    operations: Mutex<HashMap<String, StoredOperation>>,
+}
+
+/// In-memory service-owned operation runtime for durable-style operation control.
+///
+/// This runtime persists operation snapshots for the lifetime of the service process and exposes
+/// operation-scoped typed control handles by operation id. Concrete persistence remains host-backed;
+/// services that need restart durability should replace this in-memory store with a host storage
+/// implementation that preserves the same lifecycle semantics.
+#[derive(Debug, Clone)]
+pub struct InMemoryOperationRuntime {
+    service: String,
+    inner: Arc<OperationRuntimeInner>,
+}
+
+impl InMemoryOperationRuntime {
+    /// Create an in-memory operation runtime for one owning service name.
+    pub fn new(service: impl Into<String>) -> Self {
+        Self {
+            service: service.into(),
+            inner: Arc::new(OperationRuntimeInner::default()),
+        }
+    }
+
+    /// Return a typed runtime handle for one operation descriptor.
+    pub fn operation<D>(&self) -> ServiceOperation<D>
+    where
+        D: OperationDescriptor,
+    {
+        ServiceOperation {
+            service: self.service.clone(),
+            inner: Arc::clone(&self.inner),
+            _descriptor: PhantomData,
+        }
+    }
+}
+
+/// Typed service-owned operation runtime handle for one operation descriptor.
+#[derive(Debug)]
+pub struct ServiceOperation<D>
+where
+    D: OperationDescriptor,
+{
+    service: String,
+    inner: Arc<OperationRuntimeInner>,
+    _descriptor: PhantomData<D>,
+}
+
+impl<D> Clone for ServiceOperation<D>
+where
+    D: OperationDescriptor,
+{
+    fn clone(&self) -> Self {
+        Self {
+            service: self.service.clone(),
+            inner: Arc::clone(&self.inner),
+            _descriptor: PhantomData,
+        }
+    }
+}
+
+impl<D> ServiceOperation<D>
+where
+    D: OperationDescriptor,
+    D::Progress: Serialize + DeserializeOwned + Send + 'static,
+    D::Output: Serialize + DeserializeOwned + Send + 'static,
+{
+    /// Accept an operation id and create its initial pending snapshot.
+    pub async fn accept(
+        &self,
+        operation_id: impl Into<String>,
+    ) -> Result<AcceptedOperation<D::Progress, D::Output>, ServerError> {
+        let operation_id = operation_id.into();
+        if operation_id.trim().is_empty() {
+            return Err(ServerError::OperationInvalidId { operation_id });
+        }
+        let now = now_timestamp();
+        let snapshot = OperationSnapshot::<Value, Value> {
+            id: Some(operation_id.clone()),
+            service: Some(self.service.clone()),
+            operation: Some(D::KEY.to_string()),
+            revision: 1,
+            state: OperationState::Pending,
+            created_at: Some(now.clone()),
+            updated_at: Some(now),
+            completed_at: None,
+            progress: None,
+            transfer: None,
+            output: None,
+            error: None,
+        };
+        let (updates, _receiver) = watch::channel(snapshot.clone());
+        let mut operations = self.inner.operations.lock().await;
+        if operations.contains_key(&operation_id) {
+            return Err(ServerError::OperationAlreadyExists { operation_id });
+        }
+        operations.insert(
+            operation_id.clone(),
+            StoredOperation {
+                service: self.service.clone(),
+                operation: D::KEY.to_string(),
+                snapshot: snapshot.clone(),
+                updates,
+            },
+        );
+
+        Ok(AcceptedOperation {
+            kind: "accepted".to_string(),
+            operation_ref: OperationRefData {
+                id: operation_id,
+                service: self.service.clone(),
+                operation: D::KEY.to_string(),
+            },
+            snapshot: typed_snapshot(snapshot)?,
+            transfer: None,
+        })
+    }
+
+    /// Return a control handle for an operation id.
+    pub async fn control(
+        &self,
+        operation_id: impl Into<String>,
+    ) -> Result<OperationControl<D>, ServerError> {
+        let operation_id = operation_id.into();
+        self.get(operation_id.clone()).await?;
+        Ok(OperationControl {
+            operation: self.clone(),
+            operation_ref: OperationRefData {
+                id: operation_id,
+                service: self.service.clone(),
+                operation: D::KEY.to_string(),
+            },
+        })
+    }
+
+    /// Return a control handle for an operation reference and validate service/name on update.
+    pub async fn control_ref(
+        &self,
+        operation_ref: OperationRefData,
+    ) -> Result<OperationControl<D>, ServerError> {
+        let operations = self.inner.operations.lock().await;
+        let stored =
+            operations
+                .get(&operation_ref.id)
+                .ok_or_else(|| ServerError::OperationNotFound {
+                    operation_id: operation_ref.id.clone(),
+                })?;
+        if stored.service != operation_ref.service || stored.operation != operation_ref.operation {
+            return Err(ServerError::OperationMismatch {
+                operation_id: operation_ref.id.clone(),
+                expected_service: operation_ref.service.clone(),
+                expected_operation: operation_ref.operation.clone(),
+                actual_service: stored.service.clone(),
+                actual_operation: stored.operation.clone(),
+            });
+        }
+        self.validate_stored(&operation_ref.id, stored)?;
+        Ok(OperationControl {
+            operation: self.clone(),
+            operation_ref,
+        })
+    }
+
+    /// Return the current durable-style snapshot for an operation id.
+    pub async fn get(
+        &self,
+        operation_id: impl Into<String>,
+    ) -> Result<OperationSnapshot<D::Progress, D::Output>, ServerError> {
+        let operation_id = operation_id.into();
+        let operations = self.inner.operations.lock().await;
+        let stored =
+            operations
+                .get(&operation_id)
+                .ok_or_else(|| ServerError::OperationNotFound {
+                    operation_id: operation_id.clone(),
+                })?;
+        self.validate_stored(&operation_id, stored)?;
+        typed_snapshot(stored.snapshot.clone())
+    }
+
+    /// Wait for the current or next terminal snapshot for an operation id.
+    pub async fn wait(
+        &self,
+        operation_id: impl Into<String>,
+    ) -> Result<OperationSnapshot<D::Progress, D::Output>, ServerError> {
+        let operation_id = operation_id.into();
+        let mut receiver = {
+            let operations = self.inner.operations.lock().await;
+            let stored =
+                operations
+                    .get(&operation_id)
+                    .ok_or_else(|| ServerError::OperationNotFound {
+                        operation_id: operation_id.clone(),
+                    })?;
+            self.validate_stored(&operation_id, stored)?;
+            if stored.snapshot.state.is_terminal() {
+                return typed_snapshot(stored.snapshot.clone());
+            }
+            stored.updates.subscribe()
+        };
+
+        loop {
+            receiver.changed().await.map_err(|_| {
+                ServerError::Nats(format!("operation '{operation_id}' update stream closed"))
+            })?;
+            let snapshot = receiver.borrow().clone();
+            if snapshot.state.is_terminal() {
+                return typed_snapshot(snapshot);
+            }
+        }
+    }
+
+    /// Watch operation snapshots from the current snapshot through future updates.
+    pub async fn watch(
+        &self,
+        operation_id: impl Into<String>,
+    ) -> Result<
+        BoxStream<'static, Result<OperationSnapshot<D::Progress, D::Output>, ServerError>>,
+        ServerError,
+    > {
+        let operation_id = operation_id.into();
+        let (initial, receiver) = {
+            let operations = self.inner.operations.lock().await;
+            let stored =
+                operations
+                    .get(&operation_id)
+                    .ok_or_else(|| ServerError::OperationNotFound {
+                        operation_id: operation_id.clone(),
+                    })?;
+            self.validate_stored(&operation_id, stored)?;
+            (stored.snapshot.clone(), stored.updates.subscribe())
+        };
+        let initial = typed_snapshot(initial)?;
+        if initial.state.is_terminal() {
+            let snapshots: BoxStream<
+                'static,
+                Result<OperationSnapshot<D::Progress, D::Output>, ServerError>,
+            > = Box::pin(stream::once(async move { Ok(initial) }));
+            return Ok(snapshots);
+        }
+        let updates = stream::unfold((receiver, false), |(mut receiver, done)| async move {
+            if done {
+                return None;
+            }
+            if receiver.changed().await.is_err() {
+                return None;
+            }
+            let snapshot = receiver.borrow().clone();
+            let done = snapshot.state.is_terminal();
+            Some((typed_snapshot(snapshot), (receiver, done)))
+        });
+        let snapshots: BoxStream<
+            'static,
+            Result<OperationSnapshot<D::Progress, D::Output>, ServerError>,
+        > = Box::pin(stream::once(async move { Ok(initial) }).chain(updates));
+        Ok(snapshots)
+    }
+
+    /// Cancel an operation id and return its resulting snapshot.
+    pub async fn cancel(
+        &self,
+        operation_id: impl Into<String>,
+    ) -> Result<OperationSnapshot<D::Progress, D::Output>, ServerError> {
+        self.control(operation_id).await?.cancel().await
+    }
+
+    fn validate_stored(
+        &self,
+        operation_id: &str,
+        stored: &StoredOperation,
+    ) -> Result<(), ServerError> {
+        if stored.service != self.service || stored.operation != D::KEY {
+            return Err(ServerError::OperationMismatch {
+                operation_id: operation_id.to_string(),
+                expected_service: self.service.clone(),
+                expected_operation: D::KEY.to_string(),
+                actual_service: stored.service.clone(),
+                actual_operation: stored.operation.clone(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Typed service-owned operation lifecycle control handle.
+#[derive(Debug)]
+pub struct OperationControl<D>
+where
+    D: OperationDescriptor,
+{
+    operation: ServiceOperation<D>,
+    operation_ref: OperationRefData,
+}
+
+impl<D> OperationControl<D>
+where
+    D: OperationDescriptor,
+    D::Progress: Serialize + DeserializeOwned + Send + 'static,
+    D::Output: Serialize + DeserializeOwned + Send + 'static,
+{
+    /// Mark the operation as started/running.
+    pub async fn started(&self) -> Result<OperationSnapshot<D::Progress, D::Output>, ServerError> {
+        self.update(OperationState::Running, None, None, None).await
+    }
+
+    /// Publish typed operation progress and mark the operation as running.
+    pub async fn progress(
+        &self,
+        progress: D::Progress,
+    ) -> Result<OperationSnapshot<D::Progress, D::Output>, ServerError> {
+        self.update(
+            OperationState::Running,
+            Some(serde_json::to_value(progress)?),
+            None,
+            None,
+        )
+        .await
+    }
+
+    /// Complete the operation with typed output.
+    pub async fn complete(
+        &self,
+        output: D::Output,
+    ) -> Result<OperationSnapshot<D::Progress, D::Output>, ServerError> {
+        self.update(
+            OperationState::Completed,
+            None,
+            Some(serde_json::to_value(output)?),
+            None,
+        )
+        .await
+    }
+
+    /// Fail the operation with a failure payload.
+    pub async fn fail(
+        &self,
+        error: OperationFailure,
+    ) -> Result<OperationSnapshot<D::Progress, D::Output>, ServerError> {
+        self.update(
+            OperationState::Failed,
+            None,
+            None,
+            Some(OperationError {
+                error_type: "OperationFailure".to_string(),
+                message: error.message,
+            }),
+        )
+        .await
+    }
+
+    /// Cancel the operation.
+    pub async fn cancel(&self) -> Result<OperationSnapshot<D::Progress, D::Output>, ServerError> {
+        if !D::CANCELABLE {
+            return Err(ServerError::OperationUnsupportedControl {
+                operation: D::KEY.to_string(),
+                action: "cancel".to_string(),
+            });
+        }
+        self.update(OperationState::Cancelled, None, None, None)
+            .await
+    }
+
+    async fn update(
+        &self,
+        state: OperationState,
+        progress: Option<Value>,
+        output: Option<Value>,
+        error: Option<OperationError>,
+    ) -> Result<OperationSnapshot<D::Progress, D::Output>, ServerError> {
+        let mut operations = self.operation.inner.operations.lock().await;
+        let stored = operations.get_mut(&self.operation_ref.id).ok_or_else(|| {
+            ServerError::OperationNotFound {
+                operation_id: self.operation_ref.id.clone(),
+            }
+        })?;
+
+        if stored.service != self.operation_ref.service
+            || stored.operation != self.operation_ref.operation
+        {
+            return Err(ServerError::OperationMismatch {
+                operation_id: self.operation_ref.id.clone(),
+                expected_service: self.operation_ref.service.clone(),
+                expected_operation: self.operation_ref.operation.clone(),
+                actual_service: stored.service.clone(),
+                actual_operation: stored.operation.clone(),
+            });
+        }
+        self.operation
+            .validate_stored(&self.operation_ref.id, stored)?;
+        if stored.snapshot.state.is_terminal() {
+            return Err(ServerError::OperationTerminal {
+                operation_id: self.operation_ref.id.clone(),
+                state: operation_state_name(&stored.snapshot.state).to_string(),
+            });
+        }
+
+        stored.snapshot.revision += 1;
+        let now = now_timestamp();
+        stored.snapshot.state = state;
+        stored.snapshot.updated_at = Some(now.clone());
+        if stored.snapshot.state.is_terminal() {
+            stored.snapshot.completed_at = Some(now);
+        }
+        if progress.is_some() {
+            stored.snapshot.progress = progress;
+        }
+        if output.is_some() {
+            stored.snapshot.output = output;
+        }
+        if error.is_some() {
+            stored.snapshot.error = error;
+        }
+        let snapshot = stored.snapshot.clone();
+        let _ = stored.updates.send(snapshot.clone());
+        typed_snapshot(snapshot)
+    }
+}
+
+fn typed_snapshot<TProgress, TOutput>(
+    snapshot: OperationSnapshot<Value, Value>,
+) -> Result<OperationSnapshot<TProgress, TOutput>, ServerError>
+where
+    TProgress: DeserializeOwned,
+    TOutput: DeserializeOwned,
+{
+    Ok(OperationSnapshot {
+        id: snapshot.id,
+        service: snapshot.service,
+        operation: snapshot.operation,
+        revision: snapshot.revision,
+        state: snapshot.state,
+        created_at: snapshot.created_at,
+        updated_at: snapshot.updated_at,
+        completed_at: snapshot.completed_at,
+        progress: snapshot.progress.map(serde_json::from_value).transpose()?,
+        transfer: snapshot.transfer,
+        output: snapshot.output.map(serde_json::from_value).transpose()?,
+        error: snapshot.error,
+    })
+}
+
+fn now_timestamp() -> String {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+fn operation_state_name(state: &OperationState) -> &'static str {
+    match state {
+        OperationState::Pending => "pending",
+        OperationState::Running => "running",
+        OperationState::Completed => "completed",
+        OperationState::Failed => "failed",
+        OperationState::Cancelled => "cancelled",
+    }
 }

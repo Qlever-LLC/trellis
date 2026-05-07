@@ -313,5 +313,23 @@ const job = await service.jobs.refundCharge.create({
   operationId: op.id,
   ...payload,
 });
-await job.wait();
+return op.defer();
+```
+
+The job handler resumes the caller-visible operation through the
+operation-scoped service control helper. It must not reach into private runtime
+fields.
+
+```ts
+service.jobs.refundCharge.handle(async ({ job }) => {
+  const op = await service.operation("Billing.Refund")
+    .control(job.payload.operationId)
+    .orThrow();
+
+  await op.progress({ step: "capturing", message: "Capturing refund" })
+    .orThrow();
+  await op.complete({ refundId: "rf_123" }).orThrow();
+
+  return Result.ok({ completed: true });
+});
 ```

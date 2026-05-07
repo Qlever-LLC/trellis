@@ -64,6 +64,21 @@ struct SnapshotFrame<TProgress = Value, TOutput = Value> {
     snapshot: OperationSnapshot<TProgress, TOutput>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct OperationErrorFrame {
+    kind: String,
+    error: OperationControlError,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct OperationControlError {
+    #[serde(rename = "type")]
+    error_type: String,
+    message: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum OperationEvent<TProgress = Value, TOutput = Value> {
@@ -223,6 +238,37 @@ fn is_terminal_state(state: &OperationState) -> bool {
 }
 
 impl<'a, T, D> OperationInvoker<'a, T, D> {
+    /// Create a typed operation reference for an existing operation id.
+    ///
+    /// This does not send a start request or run the operation handler. Follow-up
+    /// methods on the returned reference use the descriptor-derived control
+    /// subject and preserve the descriptor's progress and output types.
+    pub fn control(
+        &self,
+        operation_id: impl Into<String>,
+    ) -> Result<OperationRef<'a, T, D>, TrellisClientError>
+    where
+        D: OperationDescriptor,
+    {
+        let operation_id = operation_id.into();
+        if operation_id.trim().is_empty() {
+            return Err(TrellisClientError::OperationProtocol(
+                "operation id must not be empty".to_string(),
+            ));
+        }
+
+        Ok(OperationRef {
+            transport: self.transport,
+            data: OperationRefData {
+                id: operation_id,
+                service: String::new(),
+                operation: D::KEY.to_string(),
+            },
+            accepted_transfer: None,
+            _descriptor: PhantomData,
+        })
+    }
+
     pub fn new(transport: &'a T) -> Self {
         Self {
             transport,
@@ -366,14 +412,21 @@ impl<'a, T, D> OperationTransferStartError<'a, T, D> {
 }
 
 impl<'a, T, D> OperationRef<'a, T, D> {
+    /// Return the durable operation id.
     pub fn id(&self) -> &str {
         &self.data.id
     }
 
+    /// Return the owning service name when known from the accepted envelope.
+    ///
+    /// References resumed with [`OperationInvoker::control`] are scoped by the
+    /// typed descriptor and operation id, so this value is empty until the
+    /// runtime receives service metadata from a start response.
     pub fn service(&self) -> &str {
         &self.data.service
     }
 
+    /// Return the operation key for this typed reference.
     pub fn operation(&self) -> &str {
         &self.data.operation
     }
@@ -395,14 +448,7 @@ where
             .transport
             .request_json_value(control_subject(D::SUBJECT), body)
             .await?;
-        let frame: SnapshotFrame<D::Progress, D::Output> = serde_json::from_value(response)?;
-        if frame.kind != "snapshot" {
-            return Err(TrellisClientError::OperationProtocol(format!(
-                "expected snapshot frame, got '{}'",
-                frame.kind
-            )));
-        }
-        Ok(frame.snapshot)
+        decode_snapshot_response(response)
     }
 
     pub async fn wait(
@@ -416,19 +462,13 @@ where
             .transport
             .request_json_value(control_subject(D::SUBJECT), body)
             .await?;
-        let frame: SnapshotFrame<D::Progress, D::Output> = serde_json::from_value(response)?;
-        if frame.kind != "snapshot" {
-            return Err(TrellisClientError::OperationProtocol(format!(
-                "expected snapshot frame, got '{}'",
-                frame.kind
-            )));
-        }
-        if !is_terminal_state(&frame.snapshot.state) {
+        let snapshot = decode_snapshot_response(response)?;
+        if !is_terminal_state(&snapshot.state) {
             return Err(TrellisClientError::OperationProtocol(
                 "wait returned non-terminal snapshot".to_string(),
             ));
         }
-        Ok(frame.snapshot)
+        Ok(snapshot)
     }
 
     pub async fn cancel(
@@ -442,14 +482,7 @@ where
             .transport
             .request_json_value(control_subject(D::SUBJECT), body)
             .await?;
-        let frame: SnapshotFrame<D::Progress, D::Output> = serde_json::from_value(response)?;
-        if frame.kind != "snapshot" {
-            return Err(TrellisClientError::OperationProtocol(format!(
-                "expected snapshot frame, got '{}'",
-                frame.kind
-            )));
-        }
-        Ok(frame.snapshot)
+        decode_snapshot_response(response)
     }
 
     pub async fn watch(
@@ -529,9 +562,39 @@ fn decode_watch_frame<TProgress: DeserializeOwned, TOutput: DeserializeOwned>(
             let frame: EventFrame<TProgress, TOutput> = serde_json::from_value(value)?;
             Ok(Some(frame.event))
         }
+        "error" => Err(operation_error_frame(value)),
         _ => Err(TrellisClientError::OperationProtocol(
             "expected snapshot/event/keepalive frame".to_string(),
         )),
+    }
+}
+
+fn decode_snapshot_response<TProgress: DeserializeOwned, TOutput: DeserializeOwned>(
+    value: Value,
+) -> Result<OperationSnapshot<TProgress, TOutput>, TrellisClientError> {
+    let kind = value.get("kind").and_then(Value::as_str).ok_or_else(|| {
+        TrellisClientError::OperationProtocol("expected control frame kind".to_string())
+    })?;
+
+    match kind {
+        "snapshot" => {
+            let frame: SnapshotFrame<TProgress, TOutput> = serde_json::from_value(value)?;
+            Ok(frame.snapshot)
+        }
+        "error" => Err(operation_error_frame(value)),
+        _ => Err(TrellisClientError::OperationProtocol(format!(
+            "expected snapshot frame, got '{kind}'"
+        ))),
+    }
+}
+
+fn operation_error_frame(value: Value) -> TrellisClientError {
+    match serde_json::from_value::<OperationErrorFrame>(value) {
+        Ok(frame) => TrellisClientError::OperationProtocol(format!(
+            "{}: {}",
+            frame.error.error_type, frame.error.message
+        )),
+        Err(error) => TrellisClientError::Json(error),
     }
 }
 
@@ -558,4 +621,230 @@ fn is_terminal_event<TProgress, TOutput>(event: &OperationEvent<TProgress, TOutp
 
 pub fn control_subject(subject: &str) -> String {
     format!("{subject}.control")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use futures_util::stream::{self, BoxStream};
+    use serde::{Deserialize, Serialize};
+    use serde_json::{json, Value};
+
+    use super::{
+        control_subject, FileInfo, OperationDescriptor, OperationInvoker,
+        OperationTransferProgress, OperationTransport, TransferOperationDescriptor,
+        UploadTransferGrant,
+    };
+    use crate::TrellisClientError;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    struct RefundInput {
+        charge_id: String,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    struct RefundProgress {
+        message: String,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    struct RefundOutput {
+        refund_id: String,
+    }
+
+    struct RefundOperation;
+
+    impl OperationDescriptor for RefundOperation {
+        type Input = RefundInput;
+        type Progress = RefundProgress;
+        type Output = RefundOutput;
+
+        const KEY: &'static str = "Billing.Refund";
+        const SUBJECT: &'static str = "operations.v1.Billing.Refund";
+        const CALLER_CAPABILITIES: &'static [&'static str] = &["billing.refund"];
+        const READ_CAPABILITIES: &'static [&'static str] = &["billing.read"];
+        const CANCEL_CAPABILITIES: &'static [&'static str] = &["billing.cancel"];
+        const CANCELABLE: bool = true;
+    }
+
+    impl TransferOperationDescriptor for RefundOperation {}
+
+    #[derive(Debug, Default)]
+    struct RecordingTransport {
+        requests: Mutex<Vec<(String, Value)>>,
+        responses: Mutex<Vec<Value>>,
+    }
+
+    impl RecordingTransport {
+        fn with_responses(responses: Vec<Value>) -> Self {
+            Self {
+                requests: Mutex::new(Vec::new()),
+                responses: Mutex::new(responses),
+            }
+        }
+
+        fn requests(&self) -> Vec<(String, Value)> {
+            self.requests.lock().expect("requests lock").clone()
+        }
+    }
+
+    impl OperationTransport for RecordingTransport {
+        async fn request_json_value(
+            &self,
+            subject: String,
+            body: Value,
+        ) -> Result<Value, TrellisClientError> {
+            self.requests
+                .lock()
+                .expect("requests lock")
+                .push((subject, body));
+            let response = self.responses.lock().expect("responses lock").remove(0);
+            Ok(response)
+        }
+
+        async fn watch_json_value<'a>(
+            &'a self,
+            subject: String,
+            body: Value,
+        ) -> Result<BoxStream<'a, Result<Value, TrellisClientError>>, TrellisClientError> {
+            self.requests
+                .lock()
+                .expect("requests lock")
+                .push((subject, body));
+            Ok(Box::pin(stream::empty()))
+        }
+
+        async fn put_upload_transfer<'a>(
+            &'a self,
+            _grant: UploadTransferGrant,
+            _body: Vec<u8>,
+        ) -> Result<FileInfo, TrellisClientError> {
+            Err(TrellisClientError::TransferProtocol(
+                "not implemented in test transport".to_string(),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn control_by_operation_id_uses_typed_control_subject_without_starting() {
+        let transport = RecordingTransport::with_responses(vec![json!({
+            "kind": "snapshot",
+            "snapshot": {
+                "revision": 7,
+                "state": "running",
+                "progress": { "message": "job resumed" }
+            }
+        })]);
+        let invoker = OperationInvoker::<_, RefundOperation>::new(&transport);
+
+        let operation = invoker
+            .control("op_resumed")
+            .expect("operation id is valid");
+        let snapshot = operation.get().await.expect("get succeeds");
+
+        assert_eq!(operation.id(), "op_resumed");
+        assert_eq!(operation.operation(), "Billing.Refund");
+        assert_eq!(snapshot.revision, 7);
+        assert_eq!(
+            snapshot.progress,
+            Some(RefundProgress {
+                message: "job resumed".to_string(),
+            })
+        );
+        assert_eq!(
+            transport.requests(),
+            vec![(
+                control_subject(RefundOperation::SUBJECT),
+                json!({ "action": "get", "operationId": "op_resumed" })
+            )]
+        );
+    }
+
+    #[test]
+    fn control_by_operation_id_rejects_empty_id_as_result_error() {
+        let transport = RecordingTransport::default();
+        let invoker = OperationInvoker::<_, RefundOperation>::new(&transport);
+
+        let error = invoker.control("   ").expect_err("empty id is rejected");
+
+        assert!(matches!(error, TrellisClientError::OperationProtocol(_)));
+        assert!(transport.requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn resumed_operation_reference_preserves_typed_output() {
+        let transport = RecordingTransport::with_responses(vec![json!({
+            "kind": "snapshot",
+            "snapshot": {
+                "revision": 8,
+                "state": "completed",
+                "output": { "refund_id": "rf_resumed" }
+            }
+        })]);
+        let invoker = OperationInvoker::<_, RefundOperation>::new(&transport);
+
+        let snapshot = invoker
+            .control("op_done")
+            .expect("operation id is valid")
+            .wait()
+            .await
+            .expect("wait succeeds");
+
+        assert_eq!(
+            snapshot.output,
+            Some(RefundOutput {
+                refund_id: "rf_resumed".to_string(),
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn resumed_transfer_attempt_returns_result_error_without_payload_mutation() {
+        let transport = RecordingTransport::default();
+        let invoker = OperationInvoker::<_, RefundOperation>::new(&transport);
+
+        let error = invoker
+            .control("op_transfer")
+            .expect("operation id is valid")
+            .transfer(Vec::new())
+            .await
+            .expect_err("resumed refs do not carry accepted transfer grants");
+
+        assert!(matches!(error, TrellisClientError::OperationProtocol(_)));
+        assert!(transport.requests().is_empty());
+
+        let _ = OperationTransferProgress {
+            chunk_index: 0,
+            chunk_bytes: 0,
+            transferred_bytes: 0,
+        };
+    }
+
+    #[tokio::test]
+    async fn control_error_frame_returns_result_error_for_invalid_operation_state() {
+        let transport = RecordingTransport::with_responses(vec![json!({
+            "kind": "error",
+            "error": {
+                "type": "TerminalOperation",
+                "message": "operation is already terminal"
+            }
+        })]);
+        let invoker = OperationInvoker::<_, RefundOperation>::new(&transport);
+
+        let error = invoker
+            .control("op_done")
+            .expect("operation id is valid")
+            .cancel()
+            .await
+            .expect_err("terminal control returns expected error");
+
+        match error {
+            TrellisClientError::OperationProtocol(message) => {
+                assert!(message.contains("TerminalOperation"));
+                assert!(message.contains("already terminal"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
 }

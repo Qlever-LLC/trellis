@@ -70,6 +70,80 @@ const billing = defineServiceContract(
   }),
 );
 
+const billingV2 = defineServiceContract(
+  {
+    capabilities: billingCapabilities,
+    schemas: {
+      RefundInput: Type.Object({ chargeId: Type.String() }),
+      RefundProgress: Type.Object({ message: Type.String() }),
+      RefundOutput: Type.Object({ refundId: Type.String() }),
+    },
+  },
+  (ref) => ({
+    id: "trellis.billing.other-service-operation-test@v1",
+    displayName: "Other Billing Service Operation Test",
+    description: "Exercise service.operation control validation.",
+    operations: {
+      "Billing.Refund": {
+        version: "v1",
+        input: ref.schema("RefundInput"),
+        progress: ref.schema("RefundProgress"),
+        output: ref.schema("RefundOutput"),
+        capabilities: {
+          call: ["billing.refund"],
+          read: ["billing.read"],
+          cancel: ["billing.cancel"],
+        },
+        cancel: true,
+      },
+    },
+  }),
+);
+
+const billingWithStatus = defineServiceContract(
+  {
+    capabilities: billingCapabilities,
+    schemas: {
+      RefundInput: Type.Object({ chargeId: Type.String() }),
+      RefundProgress: Type.Object({ message: Type.String() }),
+      RefundOutput: Type.Object({ refundId: Type.String() }),
+      StatusInput: Type.Object({ chargeId: Type.String() }),
+      StatusProgress: Type.Object({ stage: Type.String() }),
+      StatusOutput: Type.Object({ statusId: Type.String() }),
+    },
+  },
+  (ref) => ({
+    id: "trellis.billing.status-service-operation-test@v1",
+    displayName: "Billing Status Service Operation Test",
+    description:
+      "Exercise service.operation control operation-name validation.",
+    operations: {
+      "Billing.Refund": {
+        version: "v1",
+        input: ref.schema("RefundInput"),
+        progress: ref.schema("RefundProgress"),
+        output: ref.schema("RefundOutput"),
+        capabilities: {
+          call: ["billing.refund"],
+          read: ["billing.read"],
+          cancel: ["billing.cancel"],
+        },
+        cancel: true,
+      },
+      "Billing.Status": {
+        version: "v1",
+        input: ref.schema("StatusInput"),
+        progress: ref.schema("StatusProgress"),
+        output: ref.schema("StatusOutput"),
+        capabilities: {
+          call: ["billing.refund"],
+          read: ["billing.read"],
+        },
+      },
+    },
+  }),
+);
+
 const demoFiles = defineServiceContract(
   {
     capabilities: uploadCapabilities,
@@ -180,6 +254,51 @@ type RefundOperationHandle = {
   cancel(): Promise<unknown>;
   attach(job: { wait(): Promise<unknown> }): Promise<unknown>;
 };
+
+function installBootstrapMock(args: {
+  port: number;
+  contractId: string;
+  contractDigest: string;
+  resources?: Record<string, unknown>;
+}): void {
+  globalThis.fetch = (() => {
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          status: "ready",
+          serverNow: 1_700_000_000,
+          connectInfo: {
+            sessionKey: "session-key",
+            contractId: args.contractId,
+            contractDigest: args.contractDigest,
+            transports: {
+              native: {
+                natsServers: [`localhost:${args.port}`],
+                tlsRequired: false,
+              },
+            },
+            transport: {
+              sentinel: { jwt: "jwt", seed: "seed" },
+            },
+            auth: {
+              mode: "service_identity",
+              iatSkewSeconds: 30,
+            },
+          },
+          binding: {
+            contractId: args.contractId,
+            digest: args.contractDigest,
+            resources: args.resources ?? { kv: {} },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+  }) as typeof fetch;
+}
 
 Deno.test({
   name: "TrellisService.operation handles owned workflows",
@@ -399,6 +518,256 @@ Deno.test({
       });
       assertEquals(snapshot.output, undefined);
 
+      await clientNc.drain();
+      await service.stop();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "TrellisService.operation.control resumes a deferred operation by id without rerunning the handler",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+    startPermissiveAuthResponder(nats.nc);
+    const info = nats.nc.info!;
+    const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
+    const originalFetch = globalThis.fetch;
+
+    try {
+      installBootstrapMock({
+        port: info.port,
+        contractId: billing.CONTRACT_ID,
+        contractDigest: billing.CONTRACT_DIGEST,
+      });
+
+      const service = await TrellisService.connect({
+        trellisUrl: "https://trellis.example.com",
+        contract: billing,
+        name: "billing-service",
+        sessionKeySeed: seed,
+        server: {},
+      }, { connect: natsConnect }).orThrow();
+
+      const clientNc = await connect({
+        servers: `localhost:${info.port}`,
+        inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
+      });
+      const client = createClient(billing, clientNc, {
+        sessionKey: service.auth.sessionKey,
+        sign: service.auth.sign,
+      }, { name: "billing-client" });
+
+      let handlerRuns = 0;
+      await service.operation("Billing.Refund").handle(async ({ op }) => {
+        handlerRuns += 1;
+        await op.started();
+        return op.defer();
+      });
+
+      const ref = await client.operation("Billing.Refund").input({
+        chargeId: "ch_123",
+      }).start().orThrow();
+      await waitFor(() => handlerRuns === 1, {
+        description: "deferred handler to run once",
+      });
+
+      const controlled = await service.operation("Billing.Refund")
+        .control(ref.id).orThrow();
+      await controlled.progress({ message: "approved" }).orThrow();
+      await controlled.complete({ refundId: "rf_controlled" }).orThrow();
+
+      const terminal = await ref.wait().orThrow();
+      assertEquals(terminal.state, "completed");
+      assertEquals(terminal.output, { refundId: "rf_controlled" });
+      assertEquals(handlerRuns, 1);
+
+      await clientNc.drain();
+      await service.stop();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "TrellisService.operation.control loads durable deferred records after restart",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+    startPermissiveAuthResponder(nats.nc);
+    const info = nats.nc.info!;
+    const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
+    const originalFetch = globalThis.fetch;
+
+    try {
+      installBootstrapMock({
+        port: info.port,
+        contractId: billing.CONTRACT_ID,
+        contractDigest: billing.CONTRACT_DIGEST,
+      });
+
+      const service1 = await TrellisService.connect({
+        trellisUrl: "https://trellis.example.com",
+        contract: billing,
+        name: "billing-service",
+        sessionKeySeed: seed,
+        server: {},
+      }, { connect: natsConnect }).orThrow();
+      const accepted = await service1.operation("Billing.Refund").accept({
+        sessionKey: service1.auth.sessionKey,
+      }).orThrow();
+      const acceptedForRemoteCancel = await service1.operation("Billing.Refund")
+        .accept({
+          sessionKey: service1.auth.sessionKey,
+        }).orThrow();
+      await accepted.started().orThrow();
+      await service1.stop();
+
+      const service2 = await TrellisService.connect({
+        trellisUrl: "https://trellis.example.com",
+        contract: billing,
+        name: "billing-service",
+        sessionKeySeed: seed,
+        server: {},
+      }, { connect: natsConnect }).orThrow();
+
+      const controlled = await service2.operation("Billing.Refund")
+        .control(accepted.id).orThrow();
+
+      const clientNc = await connect({
+        servers: `localhost:${info.port}`,
+        inboxPrefix: `_INBOX.${service2.auth.sessionKey.slice(0, 16)}`,
+      });
+      const client = createClient(billing, clientNc, {
+        sessionKey: service2.auth.sessionKey,
+        sign: service2.auth.sign,
+      }, { name: "billing-restarted-client" });
+      const resumed = client.operation("Billing.Refund").resume(accepted.ref);
+      const running = await resumed.get().orThrow();
+      assertEquals(running.state, "running");
+
+      const resumedForCancel = client.operation("Billing.Refund").resume(
+        acceptedForRemoteCancel.ref,
+      );
+      const remoteCancelled = await resumedForCancel.cancel().orThrow();
+      assertEquals(remoteCancelled.state, "cancelled");
+
+      const terminal = await controlled.complete({ refundId: "rf_restart" })
+        .orThrow();
+
+      assertEquals(terminal.state, "completed");
+      assertEquals(terminal.output, { refundId: "rf_restart" });
+      assertEquals((await resumed.wait().orThrow()).state, "completed");
+
+      await clientNc.drain();
+      await service2.stop();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "TrellisService.operation.control rejects invalid id, operation, service, payloads, and terminal updates",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+    startPermissiveAuthResponder(nats.nc);
+    const info = nats.nc.info!;
+    const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
+    const originalFetch = globalThis.fetch;
+
+    try {
+      installBootstrapMock({
+        port: info.port,
+        contractId: billingWithStatus.CONTRACT_ID,
+        contractDigest: billingWithStatus.CONTRACT_DIGEST,
+      });
+
+      const service = await TrellisService.connect({
+        trellisUrl: "https://trellis.example.com",
+        contract: billingWithStatus,
+        name: "billing-service",
+        sessionKeySeed: seed,
+        server: {},
+      }, { connect: natsConnect }).orThrow();
+      const accepted = await service.operation("Billing.Refund").accept({
+        sessionKey: service.auth.sessionKey,
+      }).orThrow();
+
+      const missing = await service.operation("Billing.Refund")
+        .control("missing-operation-id").take();
+      assertEquals(isErr(missing), true);
+
+      const wrongOperation = await service.operation("Billing.Status")
+        .control(accepted.id).take();
+      assertEquals(isErr(wrongOperation), true);
+
+      const statusAccepted = await service.operation("Billing.Status").accept({
+        sessionKey: service.auth.sessionKey,
+      }).orThrow();
+      const statusAcceptedCancel = await statusAccepted.cancel().take();
+      assertEquals(isErr(statusAcceptedCancel), true);
+      const statusControlled = await service.operation("Billing.Status")
+        .control(statusAccepted.id).orThrow();
+      const statusControlledCancel = await statusControlled.cancel().take();
+      assertEquals(isErr(statusControlledCancel), true);
+
+      const controlled = await service.operation("Billing.Refund")
+        .control(accepted.id).orThrow();
+
+      const clientNc = await connect({
+        servers: `localhost:${info.port}`,
+        inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
+      });
+      const client = createClient(billingWithStatus, clientNc, {
+        sessionKey: service.auth.sessionKey,
+        sign: service.auth.sign,
+      }, { name: "billing-terminal-client" });
+      const resumed = client.operation("Billing.Refund").resume(accepted.ref);
+      const wrongRemoteOperation = await client.operation("Billing.Status")
+        .resume(accepted.ref).get().take();
+      assertEquals(isErr(wrongRemoteOperation), true);
+
+      const invalidProgress = await controlled.progress({ stage: "wrong" })
+        .take();
+      assertEquals(isErr(invalidProgress), true);
+      const invalidOutput = await controlled.complete({ statusId: "wrong" })
+        .take();
+      assertEquals(isErr(invalidOutput), true);
+      await controlled.complete({ refundId: "rf_done" }).orThrow();
+      const terminalProgress = await controlled.progress({ message: "late" })
+        .take();
+      assertEquals(isErr(terminalProgress), true);
+      const terminalCancel = await resumed.cancel().take();
+      assertEquals(isErr(terminalCancel), true);
+      const completed = await resumed.get().orThrow();
+      assertEquals(completed.state, "completed");
+      assertEquals(completed.output, { refundId: "rf_done" });
+
+      installBootstrapMock({
+        port: info.port,
+        contractId: billingV2.CONTRACT_ID,
+        contractDigest: billingV2.CONTRACT_DIGEST,
+      });
+      const otherService = await TrellisService.connect({
+        trellisUrl: "https://trellis.example.com",
+        contract: billingV2,
+        name: "other-billing-service",
+        sessionKeySeed: seed,
+        server: {},
+      }, { connect: natsConnect }).orThrow();
+      const wrongService = await otherService.operation("Billing.Refund")
+        .control(accepted.id).take();
+      assertEquals(isErr(wrongService), true);
+
+      await otherService.stop();
       await clientNc.drain();
       await service.stop();
     } finally {

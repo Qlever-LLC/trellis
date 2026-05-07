@@ -31,9 +31,10 @@ pub use descriptor::{EventDescriptor, FeedDescriptor, RpcDescriptor};
 pub use error::{HandlerResult, ServerError};
 pub use health::{HealthCheck, HealthReport};
 pub use operations::{
-    control_subject, AcceptedOperation, OperationControlRequest, OperationDescriptor,
+    control_subject, AcceptedOperation, InMemoryOperationRuntime, OperationControl,
+    OperationControlRequest, OperationDescriptor, OperationError, OperationFailure,
     OperationProvider, OperationRefData, OperationSnapshot, OperationSnapshotFrame, OperationState,
-    OperationTransferProgress,
+    OperationTransferProgress, ServiceOperation,
 };
 pub use publisher::EventPublisher;
 pub use request_loop::{

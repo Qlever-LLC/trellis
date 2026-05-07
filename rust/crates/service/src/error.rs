@@ -45,6 +45,29 @@ pub enum ServerError {
     #[error("operation '{operation_id}' was not found")]
     OperationNotFound { operation_id: String },
 
+    #[error("operation '{operation_id}' already exists")]
+    OperationAlreadyExists { operation_id: String },
+
+    #[error("invalid operation id '{operation_id}'")]
+    OperationInvalidId { operation_id: String },
+
+    #[error(
+        "operation '{operation_id}' belongs to service '{actual_service}' operation '{actual_operation}', expected service '{expected_service}' operation '{expected_operation}'"
+    )]
+    OperationMismatch {
+        operation_id: String,
+        expected_service: String,
+        expected_operation: String,
+        actual_service: String,
+        actual_operation: String,
+    },
+
+    #[error("operation '{operation_id}' is already terminal in state '{state}'")]
+    OperationTerminal { operation_id: String, state: String },
+
+    #[error("operation '{operation}' does not support '{action}'")]
+    OperationUnsupportedControl { operation: String, action: String },
+
     #[error(
         "service '{service_name}' expected active contract '{contract_id}' ({contract_digest})"
     )]
