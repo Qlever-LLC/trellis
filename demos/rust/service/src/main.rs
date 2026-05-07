@@ -5,19 +5,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use async_nats::HeaderMap;
 use bytes::Bytes;
 use clap::Parser;
-use futures_util::Stream;
+use futures_util::{stream, Stream, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
-use trellis_auth_adapters::request_validator::make_validate_request;
 use trellis_auth_adapters::{AuthRequestValidatorAdapter, AuthRequestValidatorClientPort};
 use trellis_client::{ServiceConnectOptions, TrellisClient};
 use trellis_core_bootstrap::CoreBootstrapBinding;
 use trellis_sdk_core::types::TrellisBindingsGetResponseBinding;
 use trellis_sdk_demo_service::types::{
-    ActivityRecordedEvent, AssignmentsListRequest, AssignmentsListResponse,
+    ActivityLiveEvent, ActivityRecordedEvent, AssignmentsListRequest, AssignmentsListResponse,
     AssignmentsListResponseAssignmentsItem, EvidenceDeleteRequest, EvidenceDeleteResponse,
     EvidenceDownloadRequest, EvidenceDownloadResponse, EvidenceDownloadResponseTransfer,
     EvidenceDownloadResponseTransferInfo, EvidenceListRequest, EvidenceListResponse,
@@ -54,7 +52,6 @@ const REFRESH_QUEUE_PAUSE_MS: u64 = 900;
 const REFRESH_JOB_CREATE_PAUSE_MS: u64 = 700;
 const REFRESH_COMPLETE_PAUSE_MS: u64 = 700;
 const REFRESH_ACTIVITY_PAUSE_MS: u64 = 700;
-const ACTIVITY_LIVE_FEED_SUBJECT: &str = "feeds.v1.Activity.Live";
 const ACTIVITY_LIVE_SOURCE_EVENTS: &[(&str, &str)] = &[
     ("Activity.Recorded", "events.v1.Activity.Recorded"),
     ("Reports.Published", "events.v1.Reports.Published"),
@@ -632,18 +629,9 @@ async fn run_authenticated_service(trellis_url: &str, seed: &str) -> anyhow::Res
         validator,
     );
 
-    let mut feed_task =
-        spawn_activity_live_feed(client.nats().clone(), Arc::clone(&client)).await?;
-    let service_result = tokio::select! {
-        result = trellis_service::run_multi_subject_service(client.nats().clone(), service_subjects(), host) => {
-            feed_task.abort();
-            result
-        },
-        result = &mut feed_task => match result {
-            Ok(result) => result,
-            Err(error) => Err(ServerError::Nats(format!("Activity.Live feed task stopped: {error}"))),
-        },
-    };
+    let service_result =
+        trellis_service::run_multi_subject_service(client.nats().clone(), service_subjects(), host)
+            .await;
     if let Some(worker_host) = refresh_worker_host {
         worker_host.stop().await?;
     }
@@ -676,98 +664,49 @@ fn service_subjects() -> &'static [&'static str] {
         "operations.v1.Reports.Generate.control",
         "operations.v1.Sites.Refresh",
         "operations.v1.Sites.Refresh.control",
+        "feeds.v1.Activity.Live",
     ]
 }
 
-async fn spawn_activity_live_feed(
-    nats: async_nats::Client,
-    auth_client: Arc<TrellisClient>,
-) -> Result<tokio::task::JoinHandle<Result<(), ServerError>>, ServerError> {
-    let subscriber = nats
-        .subscribe(ACTIVITY_LIVE_FEED_SUBJECT.to_string())
-        .await
-        .map_err(|error| {
-            ServerError::Nats(format!(
-                "failed to subscribe to Activity.Live feed subject: {error}"
-            ))
-        })?;
-    nats.flush()
-        .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
-    tracing::info!(
-        feed = "Activity.Live",
-        subject = ACTIVITY_LIVE_FEED_SUBJECT,
-        "Rust demo service listening for feed requests"
-    );
-
-    Ok(tokio::spawn(async move {
-        run_activity_live_feed(nats, auth_client, subscriber).await
-    }))
+enum ActivityLiveStreamState {
+    Init(async_nats::Client),
+    Streaming(Pin<Box<dyn Stream<Item = async_nats::Message> + Send>>),
+    Done,
 }
 
-async fn run_activity_live_feed(
+fn activity_live_stream(
     nats: async_nats::Client,
-    auth_client: Arc<TrellisClient>,
-    mut subscriber: async_nats::Subscriber,
-) -> Result<(), ServerError> {
-    use futures_util::StreamExt;
-
-    while let Some(message) = subscriber.next().await {
-        let nats = nats.clone();
-        let auth_client = Arc::clone(&auth_client);
-        tokio::spawn(async move {
-            if let Err(error) = handle_activity_live_feed_request(nats, auth_client, message).await
-            {
-                tracing::error!(error = %error, "Activity.Live feed request failed");
+) -> impl Stream<Item = Result<ActivityLiveEvent, ServerError>> + Send + 'static {
+    stream::unfold(ActivityLiveStreamState::Init(nats), |state| async move {
+        let mut event_stream = match state {
+            ActivityLiveStreamState::Init(nats) => {
+                match subscribe_activity_live_sources(&nats).await {
+                    Ok(stream) => {
+                        Box::pin(stream) as Pin<Box<dyn Stream<Item = async_nats::Message> + Send>>
+                    }
+                    Err(error) => return Some((Err(error), ActivityLiveStreamState::Done)),
+                }
             }
-        });
-    }
-    Ok(())
-}
+            ActivityLiveStreamState::Streaming(stream) => stream,
+            ActivityLiveStreamState::Done => return None,
+        };
 
-async fn handle_activity_live_feed_request(
-    nats: async_nats::Client,
-    auth_client: Arc<TrellisClient>,
-    message: async_nats::Message,
-) -> Result<(), ServerError> {
-    let request = trellis_service::decode_nats_request(&message);
-    let reply_to = request.reply_to.clone().ok_or_else(|| {
-        ServerError::Nats("Activity.Live feed request missing reply inbox".to_string())
-    })?;
-    let validate_request = make_validate_request(
-        ACTIVITY_LIVE_FEED_SUBJECT,
-        &request.payload,
-        &request.context,
-    )?;
-    let auth = auth_client
-        .auth_validate_request(&validate_request)
-        .await
-        .map_err(|error| {
-            ServerError::Nats(format!(
-                "Auth.ValidateRequest failed for Activity.Live feed: {error}"
-            ))
-        })?;
-    if !auth.allowed {
-        return Err(ServerError::RequestDenied {
-            subject: ACTIVITY_LIVE_FEED_SUBJECT.to_string(),
-            session_key: validate_request.session_key,
-        });
-    }
-    if !reply_to.starts_with(&format!("{}.", auth.inbox_prefix)) {
-        return Err(ServerError::Nats(format!(
-            "Activity.Live reply inbox mismatch: expected prefix {}, got {}",
-            auth.inbox_prefix, reply_to
-        )));
-    }
-
-    tracing::info!(
-        feed = "Activity.Live",
-        reply = %reply_to,
-        "Rust demo service accepted feed request"
-    );
-    let event_stream = subscribe_activity_live_sources(&nats).await?;
-    publish_feed_ready(&nats, &reply_to).await?;
-    bridge_activity_live_events(nats, reply_to, event_stream).await
+        loop {
+            let event_message = event_stream.next().await?;
+            let subject = event_message.subject.to_string();
+            let Some(name) = activity_live_source_name(&subject) else {
+                continue;
+            };
+            let event = match serde_json::from_slice::<serde_json::Value>(&event_message.payload) {
+                Ok(event) => event,
+                Err(error) => {
+                    return Some((Err(ServerError::Json(error)), ActivityLiveStreamState::Done));
+                }
+            };
+            let frame = ActivityLiveEvent(json!({ "name": name, "event": event }));
+            return Some((Ok(frame), ActivityLiveStreamState::Streaming(event_stream)));
+        }
+    })
 }
 
 async fn subscribe_activity_live_sources(
@@ -789,42 +728,6 @@ async fn subscribe_activity_live_sources(
         .await
         .map_err(|error| ServerError::Nats(error.to_string()))?;
     Ok(futures_util::stream::select_all(subscribers))
-}
-
-async fn publish_feed_ready(nats: &async_nats::Client, reply_to: &str) -> Result<(), ServerError> {
-    let mut headers = HeaderMap::new();
-    headers.insert("feed-status", "ready");
-    nats.publish_with_headers(reply_to.to_string(), headers, Bytes::new())
-        .await
-        .map_err(|error| ServerError::Nats(error.to_string()))?;
-    nats.flush()
-        .await
-        .map_err(|error| ServerError::Nats(error.to_string()))
-}
-
-async fn bridge_activity_live_events(
-    nats: async_nats::Client,
-    reply_to: String,
-    event_stream: impl futures_util::Stream<Item = async_nats::Message>,
-) -> Result<(), ServerError> {
-    use futures_util::StreamExt;
-
-    let mut event_stream = Box::pin(event_stream);
-    while let Some(event_message) = event_stream.next().await {
-        let subject = event_message.subject.to_string();
-        let Some(name) = activity_live_source_name(&subject) else {
-            continue;
-        };
-        let event: serde_json::Value = serde_json::from_slice(&event_message.payload)?;
-        let frame = serde_json::to_vec(&json!({ "name": name, "event": event }))?;
-        nats.publish(reply_to.clone(), Bytes::from(frame))
-            .await
-            .map_err(|error| ServerError::Nats(error.to_string()))?;
-        nats.flush()
-            .await
-            .map_err(|error| ServerError::Nats(error.to_string()))?;
-    }
-    Ok(())
 }
 
 fn activity_live_source_name(subject: &str) -> Option<&'static str> {
@@ -1049,6 +952,11 @@ fn build_router_with_selected_evidence_store_and_jobs(
         },
         operation_cancel::<ReportsGenerateProgress, ReportsGenerateOutput>,
     );
+    if let Some(nats) = context.nats.clone() {
+        server::register_activity_live(&mut router, move |_ctx, _input| {
+            activity_live_stream(nats.clone())
+        });
+    }
     router.register_operation_with_watch::<sdk_operations::EvidenceUploadOperation, _, _, _, _, _, _, _>(
         {
             let context = context.clone();

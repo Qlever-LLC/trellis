@@ -64,7 +64,6 @@
   };
 
   const trellis = getTrellis();
-  const feedLogPrefix = "[Activity.Live feed]";
   const feedRetryDelayMs = 1_500;
 
   let listening = $state(false);
@@ -135,7 +134,6 @@
 
   function addEvent(event: LiveEvent): void {
     if (!mounted) return;
-    console.info(feedLogPrefix, "adding UI item", event);
     liveEvents = [event, ...liveEvents].slice(0, 24);
   }
 
@@ -270,7 +268,6 @@
   }
 
   function handleReportsPublished(event: ReportsPublishedEvent): void {
-    console.info(feedLogPrefix, "handling Reports.Published", event);
     const relatedOperationId = activeReportOperation && (!activeReportOperation.inspectionId || activeReportOperation.inspectionId === event.inspectionId)
       ? activeReportOperation.operationId
       : undefined;
@@ -303,7 +300,6 @@
 
   function handleFeedEvent(value: unknown): void {
     if (!isActivityLiveFeedEvent(value)) {
-      console.info(feedLogPrefix, "rejected frame", value);
       return;
     }
     if (value.name === "Activity.Recorded") handleActivityRecorded(value.event);
@@ -325,7 +321,6 @@
 
   function scheduleStartRetry(): void {
     if (retryTimeout !== null) return;
-    console.info(feedLogPrefix, "scheduling subscription retry", { delayMs: feedRetryDelayMs });
     retryTimeout = setTimeout(() => {
       retryTimeout = null;
       if (!mounted || controller !== null || listening || starting) return;
@@ -345,12 +340,10 @@
     let startupComplete = false;
 
     try {
-      console.info(feedLogPrefix, "starting subscription");
       const stream = await trellis.feed("Activity.Live")
         .input({})
         .subscribe({ signal: localController.signal })
         .orThrow();
-      console.info(feedLogPrefix, "subscription established");
 
       if (!mounted || controller !== localController || localController.signal.aborted) return;
       startupComplete = true;
@@ -359,11 +352,9 @@
 
       for await (const event of stream) {
         if (!mounted || controller !== localController || localController.signal.aborted) break;
-        console.info(feedLogPrefix, "raw frame", event);
         handleFeedEvent(event);
       }
     } catch (cause) {
-      console.info(feedLogPrefix, "subscription error", cause);
       localController.abort();
       if (controller !== localController) return;
       controller = null;
@@ -373,11 +364,6 @@
       error = cause instanceof Error ? cause.message : String(cause);
       if (!startupComplete) scheduleStartRetry();
     } finally {
-      console.info(feedLogPrefix, "subscription teardown", {
-        currentController: controller === localController,
-        aborted: localController.signal.aborted,
-        mounted,
-      });
       if (controller === localController) {
         controller = null;
         listening = false;
@@ -389,7 +375,6 @@
   }
 
   function stopListening(): void {
-    console.info(feedLogPrefix, "stop requested", { hasController: controller !== null });
     clearRetryTimeout();
     controller?.abort();
     controller = null;
@@ -405,7 +390,6 @@
   });
 
   onDestroy(() => {
-    console.info(feedLogPrefix, "component teardown");
     mounted = false;
     if (localUpdateListener) {
       window.removeEventListener("trellisoperationupdate", localUpdateListener);

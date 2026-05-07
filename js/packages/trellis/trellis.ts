@@ -2192,11 +2192,6 @@ export class Trellis<
       headers.set("proof", proof);
 
       const inbox = createInbox(`_INBOX.${this.auth.sessionKey.slice(0, 16)}`);
-      console.info("[Activity.Live feed runtime] client publish request", {
-        feed,
-        subject,
-        inbox,
-      });
       const sub = this.nats.subscribe(inbox);
       const iterator = sub[Symbol.asyncIterator]();
       const abort = () => sub.unsubscribe();
@@ -2205,18 +2200,7 @@ export class Trellis<
       try {
         this.nats.publish(subject, payload, { headers, reply: inbox });
         await this.nats.flush();
-        console.info("[Activity.Live feed runtime] client request flushed", {
-          feed,
-          subject,
-          inbox,
-        });
       } catch (cause) {
-        console.error("[Activity.Live feed runtime] client request failed", {
-          feed,
-          subject,
-          inbox,
-          cause,
-        });
         opts?.signal?.removeEventListener("abort", abort);
         sub.unsubscribe();
         return err(createTransportError({
@@ -2353,17 +2337,8 @@ export class Trellis<
         context: { feed, subject },
       });
     }
-    console.info("[Activity.Live feed runtime] service listening", {
-      feed,
-      subject,
-    });
     const task = AsyncResult.try(async () => {
       for await (const msg of sub) {
-        console.info("[Activity.Live feed runtime] service request received", {
-          feed,
-          subject: msg.subject,
-          reply: msg.reply,
-        });
         void (async () => {
           try {
             const result = await this.#processFeedMessage(
@@ -2374,30 +2349,12 @@ export class Trellis<
             );
             const value = result.take();
             if (isErr(value)) {
-              console.error(
-                "[Activity.Live feed runtime] service request failed",
-                {
-                  feed,
-                  subject: msg.subject,
-                  reply: msg.reply,
-                  error: value.error,
-                },
-              );
               this.#respondWithError(msg, value.error);
             }
           } catch (cause) {
             const error = cause instanceof BaseError
               ? cause
               : new UnexpectedError({ cause });
-            console.error(
-              "[Activity.Live feed runtime] service request failed",
-              {
-                feed,
-                subject: msg.subject,
-                reply: msg.reply,
-                error,
-              },
-            );
             this.#respondWithError(msg, error);
           }
         })();
@@ -2428,12 +2385,6 @@ export class Trellis<
     });
     const callerValue = caller.take();
     if (isErr(callerValue)) return callerValue;
-    console.info("[Activity.Live feed runtime] service request authorized", {
-      feed,
-      subject: msg.subject,
-      reply: msg.reply,
-      caller: callerValue,
-    });
     if (!msg.reply) {
       return err(
         new UnexpectedError({
@@ -2445,11 +2396,6 @@ export class Trellis<
     readyHeaders.set("feed-status", "ready");
     this.nats.publish(msg.reply, new Uint8Array(), { headers: readyHeaders });
     await this.nats.flush();
-    console.info("[Activity.Live feed runtime] service request acknowledged", {
-      feed,
-      subject: msg.subject,
-      reply: msg.reply,
-    });
 
     const controller = new AbortController();
     try {
@@ -2459,11 +2405,6 @@ export class Trellis<
         signal: controller.signal,
         emit: (event: TEvent) =>
           AsyncResult.from((async () => {
-            console.info("[Activity.Live feed runtime] service emit start", {
-              feed,
-              reply: msg.reply,
-              event,
-            });
             const payload = encodeRuntimeSchema(descriptor.event, event).take();
             if (isErr(payload)) return payload;
             if (!msg.reply) {
@@ -2475,10 +2416,6 @@ export class Trellis<
             }
             this.nats.publish(msg.reply, payload);
             await this.nats.flush();
-            console.info("[Activity.Live feed runtime] service emit flushed", {
-              feed,
-              reply: msg.reply,
-            });
             return ok(undefined);
           })()),
       });

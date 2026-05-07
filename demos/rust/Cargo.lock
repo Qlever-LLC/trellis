@@ -2702,6 +2702,7 @@ dependencies = [
 name = "trellis-sdk-demo-service"
 version = "1.0.0"
 dependencies = [
+ "futures-util",
  "serde",
  "serde_json",
  "trellis-client",
