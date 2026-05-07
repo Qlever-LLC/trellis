@@ -8,6 +8,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-05-07
+
+### Added
+
+- Added version-pinned `trellis-generate` launchers for Deno and Rust projects
+  so out-of-tree repositories can run the generator version required by their
+  Trellis dependency instead of relying on a globally installed binary.
+
+### Fixed
+
+- Fixed shell-first contract generation to keep generated artifacts stable when
+  preparing contracts from external repositories.
+- Serialized auth session store tests that mutate process-global environment
+  state so full Rust workspace test runs no longer race.
+
 ## [0.8.2] - 2026-05-01
 
 ### Fixed
@@ -365,7 +380,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.8.3...HEAD
+[0.8.3]: https://github.com/Qlever-LLC/trellis/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/Qlever-LLC/trellis/compare/v0.8.1...v0.8.2
 [0.8.0]: https://github.com/Qlever-LLC/trellis/compare/v0.7.0...v0.8.0
 [0.8.0-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.7.0...v0.8.0-rc.1
