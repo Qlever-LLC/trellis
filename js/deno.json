@@ -8,9 +8,9 @@
     "./services/trellis"
   ],
   "tasks": {
-    "contracts:verify": "deno run -A @qlever-llc/trellis/generate discover ./services/trellis",
-    "prepare": "deno run -A @qlever-llc/trellis/generate prepare ..",
-    "prepare:watch": "deno run -A @qlever-llc/trellis/generate prepare --watch ..",
+    "contracts:verify": "deno run -A ./packages/trellis/generate.ts discover ./services/trellis",
+    "prepare": "deno run -A ./packages/trellis/generate.ts prepare ..",
+    "prepare:watch": "deno run -A ./packages/trellis/generate.ts prepare --watch ..",
     "release:bump-base": "deno run -A tools/release/bump_checked_in_versions.ts",
     "packages:build:npm": "deno task -c packages/result/deno.json build:npm && deno task -c packages/trellis/deno.json build:npm && deno task -c packages/trellis-svelte/deno.json build:npm",
     "smoke:npm": "deno run -A tools/package_build/npm_smoke.ts",
@@ -20,7 +20,7 @@
     "test:contracts": "deno task prepare && deno test -A packages/trellis/contract_support/source_emission_test.ts packages/trellis/contract_support/conformance_test.ts services/trellis/catalog/store.test.ts services/trellis/catalog/permissions.test.ts",
     "test:auth": "deno task prepare && deno test -A packages/trellis/auth/conformance_test.ts packages/trellis/auth/session_auth_test.ts services/trellis",
     "trellis": "bash ../scripts/trellis-cli.sh",
-    "trellis-generate": "deno run -A @qlever-llc/trellis/generate"
+    "trellis-generate": "deno run -A ./packages/trellis/generate.ts"
   },
   "imports": {
     "@hono/hono": "jsr:@hono/hono@^4.12.15",
@@ -67,7 +67,6 @@
     "@qlever-llc/trellis/contracts": "./packages/trellis/contracts.ts",
     "@qlever-llc/trellis/device": "./packages/trellis/device.ts",
     "@qlever-llc/trellis/device/deno": "./packages/trellis/device/deno.ts",
-    "@qlever-llc/trellis/generate": "./packages/trellis/generate.ts",
     "@qlever-llc/trellis/health": "./packages/trellis/health.ts",
     "@qlever-llc/trellis/sdk/auth": "./packages/trellis/sdk/auth.ts",
     "@qlever-llc/trellis/sdk/core": "./packages/trellis/sdk/core.ts",

@@ -9,7 +9,6 @@
     "./browser": "./browser.ts",
     "./contracts": "./contracts.ts",
     "./device/deno": "./device/deno.ts",
-    "./generate": "./generate.ts",
     "./health": "./health.ts",
     "./sdk/auth": "./sdk/auth.ts",
     "./sdk/core": "./sdk/core.ts",

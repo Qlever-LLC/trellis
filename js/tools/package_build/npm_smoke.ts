@@ -17,7 +17,6 @@ const runtimeImports = [
   "@qlever-llc/trellis/auth",
   "@qlever-llc/trellis/contracts",
   "@qlever-llc/trellis/errors",
-  "@qlever-llc/trellis/generate",
   "@qlever-llc/trellis/health",
   "@qlever-llc/trellis/host",
   "@qlever-llc/trellis/host/node",
@@ -54,11 +53,12 @@ type Semver = {
 async function run(
   command: string,
   args: string[],
-  options: { cwd?: string; capture?: boolean } = {},
+  options: { cwd?: string; capture?: boolean; env?: Record<string, string> } = {},
 ): Promise<string> {
   const process = new Deno.Command(command, {
     args,
     cwd: options.cwd,
+    env: options.env,
     stdout: options.capture ? "piped" : "inherit",
     stderr: "inherit",
   });
@@ -310,8 +310,31 @@ export type { AuthClient, ProviderProps };
   );
 }
 
+async function writeFakeGenerator(projectDir: string, version: string) {
+  const path = join(projectDir, "fake-trellis-generate");
+  await Deno.writeTextFile(
+    path,
+    `#!/usr/bin/env sh
+if [ "$1" = "--version" ]; then
+  echo "trellis-generate ${version}"
+  exit 0
+fi
+echo "fake trellis-generate only supports --version" >&2
+exit 1
+`,
+  );
+  await Deno.chmod(path, 0o755);
+  return path;
+}
+
 const packedPackages = await packPackages();
 const tarballs = packedPackages.map(({ tarball }) => tarball);
+const trellisPackage = packedPackages.find(({ packageJson }) =>
+  packageJson.name === "@qlever-llc/trellis"
+);
+if (!trellisPackage) {
+  throw new Error("@qlever-llc/trellis package was not packed");
+}
 const projectDir = await Deno.makeTempDir({ prefix: "trellis-npm-smoke-" });
 console.log(`Created npm smoke project at ${projectDir}`);
 await writeConsumerProject(projectDir);
@@ -327,6 +350,17 @@ await assertNoGeneratedBuildReferences(projectDir);
 await run("node", ["smoke.mjs"], { cwd: projectDir });
 await run("node", ["smoke.cjs"], { cwd: projectDir });
 await run("npx", ["tsc", "--noEmit"], { cwd: projectDir });
+const fakeGenerator = await writeFakeGenerator(
+  projectDir,
+  trellisPackage.packageJson.version,
+);
+await run("deno", [
+  "run",
+  "--node-modules-dir=manual",
+  "-A",
+  "npm:@qlever-llc/trellis",
+  "--version",
+], { cwd: projectDir, env: { TRELLIS_GENERATE_BIN: fakeGenerator } });
 
 console.log(
   `NPM smoke passed for ${tarballs.map((path) => basename(path)).join(", ")}`,

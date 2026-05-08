@@ -111,16 +111,6 @@ async function normalizeExportTargets(
     };
   }
 
-  if (_key === "./generate") {
-    return {
-      deno: "./deno/generate.js",
-      ...(await normalizeExportTargets("./generate:node", value) as Record<
-        string,
-        unknown
-      >),
-    };
-  }
-
   const entries = await Promise.all(
     Object.entries(value).map(async ([condition, nestedValue]) => {
       if (
@@ -365,6 +355,10 @@ async function normalizePackageJsonExports() {
   );
 
   packageJson.exports = Object.fromEntries(normalizedEntries);
+  delete packageJson.exports["./generate"];
+  packageJson.bin = {
+    "trellis-generate": "./deno/generate.js",
+  };
   if (typeof packageJson.main === "string") {
     packageJson.main = rewriteCjsPath(packageJson.main);
   }
@@ -390,7 +384,10 @@ async function stageDenoGenerateEntrypoint() {
       'globalThis[Symbol.for("import-meta-ponyfill-esmodule")](import.meta)',
       "import.meta",
     );
-  await Deno.writeTextFile(new URL("generate.js", denoDir), denoNative);
+  await Deno.writeTextFile(
+    new URL("generate.js", denoDir),
+    `#!/usr/bin/env -S deno run -A\n${denoNative}`,
+  );
 }
 
 await stageGeneratedSdks();
