@@ -357,7 +357,7 @@ async function normalizePackageJsonExports() {
   packageJson.exports = Object.fromEntries(normalizedEntries);
   delete packageJson.exports["./generate"];
   packageJson.bin = {
-    "trellis-generate": "./deno/generate.js",
+    "trellis-generate": "./bin/trellis-generate.js",
   };
   if (typeof packageJson.main === "string") {
     packageJson.main = rewriteCjsPath(packageJson.main);
@@ -368,26 +368,148 @@ async function normalizePackageJsonExports() {
   );
 }
 
-async function stageDenoGenerateEntrypoint() {
-  const denoDir = new URL("../npm/deno/", import.meta.url);
-  const generated = new URL(
-    "../npm/esm/npm/src/generate.js",
-    import.meta.url,
-  );
-  await Deno.mkdir(denoDir, { recursive: true });
-  const source = await Deno.readTextFile(generated);
-  const denoNative = source
-    .replace(/^import ["']\.\/_dnt\.polyfills\.js["'];\r?\n/, "")
-    .replace(/^import \* as dntShim from ["']\.\/_dnt\.shims\.js["'];\r?\n/, "")
-    .replaceAll("dntShim.Deno", "Deno")
-    .replaceAll(
-      'globalThis[Symbol.for("import-meta-ponyfill-esmodule")](import.meta)',
-      "import.meta",
-    );
-  await Deno.writeTextFile(
-    new URL("generate.js", denoDir),
-    `#!/usr/bin/env -S deno run -A\n${denoNative}`,
-  );
+async function stageNodeGenerateBin() {
+  const binDir = new URL("../npm/bin/", import.meta.url);
+  const binPath = new URL("trellis-generate.js", binDir);
+  await Deno.mkdir(binDir, { recursive: true });
+  await Deno.writeTextFile(binPath, nodeGenerateBinSource());
+  await Deno.chmod(binPath, 0o755);
+}
+
+function nodeGenerateBinSource(): string {
+  return String.raw`#!/usr/bin/env node
+const { createHash } = require("node:crypto");
+const fs = require("node:fs");
+const https = require("node:https");
+const os = require("node:os");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+
+const REPO_OWNER = "qlever-llc";
+const REPO_NAME = "trellis";
+const BIN_NAME = "trellis-generate";
+const SUPPORTED_TARGETS = new Set([
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+]);
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+
+async function main() {
+  const packageVersion = readPackageVersion();
+  const binary = (process.env.TRELLIS_GENERATE_BIN || "").trim() ||
+    await ensureCachedReleaseBinary(packageVersion);
+  verifyBinaryVersion(binary, packageVersion);
+  const status = spawnSync(binary, process.argv.slice(2), { stdio: "inherit" });
+  if (status.error) throw status.error;
+  process.exit(status.status ?? 1);
+}
+
+function readPackageVersion() {
+  const manifestPath = path.resolve(__dirname, "../package.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (typeof manifest.version !== "string" || !manifest.version.trim()) {
+    throw new Error("@qlever-llc/trellis package manifest does not declare a version");
+  }
+  return manifest.version.trim();
+}
+
+async function ensureCachedReleaseBinary(version) {
+  const target = releaseTarget();
+  const cacheDir = path.join(cacheRoot(), version, target);
+  const binary = path.join(cacheDir, BIN_NAME);
+  if (fs.existsSync(binary)) return binary;
+
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const tag = "v" + version;
+  const archiveName = BIN_NAME + "-" + tag + "-" + target + ".tar.gz";
+  const checksumName = "checksum-" + tag + "-" + target + "-" + BIN_NAME + ".sha256";
+  const releaseBase = "https://github.com/" + REPO_OWNER + "/" + REPO_NAME + "/releases/download/" + tag;
+  const [archive, checksumText] = await Promise.all([
+    downloadBytes(releaseBase + "/" + archiveName),
+    downloadText(releaseBase + "/" + checksumName),
+  ]);
+  verifyChecksum(archive, checksumText, archiveName);
+
+  const archivePath = path.join(cacheDir, archiveName);
+  fs.writeFileSync(archivePath, archive);
+  const extract = spawnSync("tar", ["-xzf", archivePath, "-C", cacheDir], { stdio: "inherit" });
+  if (extract.error) throw extract.error;
+  if (extract.status !== 0) throw new Error("tar failed with exit code " + extract.status);
+  fs.chmodSync(binary, 0o755);
+  return binary;
+}
+
+function releaseTarget() {
+  const arch = os.arch() === "x64" ? "x86_64" : os.arch() === "arm64" ? "aarch64" : os.arch();
+  const platform = os.platform() === "darwin" ? "apple-darwin" : os.platform() === "linux" ? "unknown-linux-gnu" : undefined;
+  const target = platform ? arch + "-" + platform : undefined;
+  if (target && SUPPORTED_TARGETS.has(target)) return target;
+  throw new Error("no " + BIN_NAME + " release binary is available for " + os.platform() + " " + os.arch());
+}
+
+function cacheRoot() {
+  if ((process.env.TRELLIS_GENERATE_CACHE || "").trim()) return process.env.TRELLIS_GENERATE_CACHE.trim();
+  if ((process.env.XDG_CACHE_HOME || "").trim()) return path.join(process.env.XDG_CACHE_HOME.trim(), "trellis", BIN_NAME);
+  if ((process.env.LOCALAPPDATA || "").trim()) return path.join(process.env.LOCALAPPDATA.trim(), "trellis", BIN_NAME);
+  if ((process.env.HOME || "").trim()) return path.join(process.env.HOME.trim(), ".cache", "trellis", BIN_NAME);
+  throw new Error("HOME, LOCALAPPDATA, or TRELLIS_GENERATE_CACHE must be set to cache trellis-generate");
+}
+
+function downloadBytes(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (response) => {
+      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        resolve(downloadBytes(response.headers.location));
+        return;
+      }
+      if (response.statusCode !== 200) {
+        reject(new Error("failed to download " + url + ": HTTP " + response.statusCode));
+        response.resume();
+        return;
+      }
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => resolve(Buffer.concat(chunks)));
+    }).on("error", reject);
+  });
+}
+
+async function downloadText(url) {
+  return (await downloadBytes(url)).toString("utf8");
+}
+
+function verifyChecksum(bytes, checksumText, label) {
+  const expected = checksumText.trim().split(/\s+/)[0]?.toLowerCase();
+  if (!expected || !/^[0-9a-f]{64}$/.test(expected)) {
+    throw new Error("release checksum asset did not contain a SHA-256 digest");
+  }
+  const actual = createHash("sha256").update(bytes).digest("hex");
+  if (actual !== expected) {
+    throw new Error("checksum mismatch for " + label + ": expected " + expected + ", got " + actual);
+  }
+}
+
+function verifyBinaryVersion(binary, expectedVersion) {
+  const output = spawnSync(binary, ["--version"], { encoding: "utf8" });
+  if (output.error) throw output.error;
+  if (output.status !== 0) throw new Error("failed to run " + binary + " --version");
+  const text = (output.stdout || "").trim();
+  const actualVersion = text.split(/\s+/).find((part) => /^v?\d+\.\d+\.\d+/.test(part));
+  if (!actualVersion || normalizeVersion(actualVersion) !== normalizeVersion(expectedVersion)) {
+    throw new Error(binary + " is " + (text || "unknown version") + "; expected " + BIN_NAME + " " + expectedVersion);
+  }
+}
+
+function normalizeVersion(version) {
+  return version.trim().replace(/^v/, "").split("+")[0];
+}
+`;
 }
 
 await stageGeneratedSdks();
@@ -474,6 +596,6 @@ await addGeneratedSdkTypeImports();
 await rewriteCanonicalGeneratedSdkSelfImports();
 await removeSdkWrapperPolyfills();
 await rewriteSdkWrapperTargets();
-await stageDenoGenerateEntrypoint();
+await stageNodeGenerateBin();
 await normalizePackageJsonExports();
 await Deno.remove(generatedSdkBuildUrl, { recursive: true });
