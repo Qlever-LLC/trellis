@@ -56,16 +56,31 @@ async function runLocalGenerator(
 }
 
 async function readPackageVersion(): Promise<string> {
-  const manifestUrl = new URL("./deno.json", import.meta.url);
-  const manifest = JSON.parse(
-    await Deno.readTextFile(manifestUrl),
-  ) as PackageManifest;
+  const manifest = await readFirstManifest([
+    new URL("./deno.json", import.meta.url),
+    new URL("../package.json", import.meta.url),
+    new URL("../../../package.json", import.meta.url),
+  ]);
   if (typeof manifest.version !== "string" || !manifest.version.trim()) {
     throw new Error(
       "@qlever-llc/trellis package manifest does not declare a version",
     );
   }
   return manifest.version.trim();
+}
+
+async function readFirstManifest(urls: URL[]): Promise<PackageManifest> {
+  for (const url of urls) {
+    try {
+      return JSON.parse(await Deno.readTextFile(url)) as PackageManifest;
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("could not find @qlever-llc/trellis package manifest");
 }
 
 async function ensureCachedReleaseBinary(version: string): Promise<string> {

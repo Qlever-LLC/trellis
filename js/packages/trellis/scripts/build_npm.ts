@@ -111,6 +111,16 @@ async function normalizeExportTargets(
     };
   }
 
+  if (_key === "./generate") {
+    return {
+      deno: "./deno/generate.js",
+      ...(await normalizeExportTargets("./generate:node", value) as Record<
+        string,
+        unknown
+      >),
+    };
+  }
+
   const entries = await Promise.all(
     Object.entries(value).map(async ([condition, nestedValue]) => {
       if (
@@ -364,6 +374,25 @@ async function normalizePackageJsonExports() {
   );
 }
 
+async function stageDenoGenerateEntrypoint() {
+  const denoDir = new URL("../npm/deno/", import.meta.url);
+  const generated = new URL(
+    "../npm/esm/npm/src/generate.js",
+    import.meta.url,
+  );
+  await Deno.mkdir(denoDir, { recursive: true });
+  const source = await Deno.readTextFile(generated);
+  const denoNative = source
+    .replace(/^import ["']\.\/_dnt\.polyfills\.js["'];\r?\n/, "")
+    .replace(/^import \* as dntShim from ["']\.\/_dnt\.shims\.js["'];\r?\n/, "")
+    .replaceAll("dntShim.Deno", "Deno")
+    .replaceAll(
+      'globalThis[Symbol.for("import-meta-ponyfill-esmodule")](import.meta)',
+      "import.meta",
+    );
+  await Deno.writeTextFile(new URL("generate.js", denoDir), denoNative);
+}
+
 await stageGeneratedSdks();
 
 await buildDntPackage({
@@ -448,5 +477,6 @@ await addGeneratedSdkTypeImports();
 await rewriteCanonicalGeneratedSdkSelfImports();
 await removeSdkWrapperPolyfills();
 await rewriteSdkWrapperTargets();
+await stageDenoGenerateEntrypoint();
 await normalizePackageJsonExports();
 await Deno.remove(generatedSdkBuildUrl, { recursive: true });
