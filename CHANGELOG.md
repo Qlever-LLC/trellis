@@ -8,6 +8,24 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-05-07
+
+### Changed
+
+- Changed the Trellis npm package to expose `trellis-generate` as a package bin
+  instead of a `./generate` subpath export, allowing `npx trellis-generate` and
+  Deno's npm-bin runner to invoke the version-pinned generator launcher.
+- Changed Trellis repo-local prepare tasks to run the local generator launcher
+  source directly while keeping package consumers on the published npm bin.
+
+### Fixed
+
+- Fixed the npm `trellis-generate` launcher to use a Node wrapper that downloads,
+  caches, checksum-verifies, and executes the matching GitHub release binary, so
+  npm and `npx` users do not need Deno installed.
+- Fixed generator release tests to derive their expected Trellis runtime version
+  from the current package version instead of a hardcoded release.
+
 ## [0.8.3] - 2026-05-07
 
 ### Added
@@ -380,7 +398,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.8.3...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.8.4...HEAD
+[0.8.4]: https://github.com/Qlever-LLC/trellis/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/Qlever-LLC/trellis/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/Qlever-LLC/trellis/compare/v0.8.1...v0.8.2
 [0.8.0]: https://github.com/Qlever-LLC/trellis/compare/v0.7.0...v0.8.0
