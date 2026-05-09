@@ -30,6 +30,7 @@
   let error = $state<string | null>(null);
   let mounted = false;
   let requestId = 0;
+  const listPage = { limit: 50, offset: 0 };
 
   let selectedReport = $derived(
     reports.find((report) => report.reportId === selectedReportId) ?? reports[0] ?? null,
@@ -54,7 +55,7 @@
     error = null;
 
     try {
-      const response = await trellis.request("Reports.List", {}).orThrow();
+      const response = await trellis.request("Reports.List", listPage).orThrow();
       if (!mounted || runId !== requestId) return;
       const loadedReports: ReportRecord[] = response.reports;
       reports = loadedReports;

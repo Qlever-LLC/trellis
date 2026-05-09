@@ -5,24 +5,34 @@ import {
 import type { AsyncResult, BaseError } from "@qlever-llc/result";
 
 import { planUserContractApproval } from "../approval/plan.ts";
+import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
+import { applyGrantOverrideCapabilities } from "../envelope_decision.ts";
 import {
   type EffectiveApproval,
   effectiveApproval,
-  effectiveCapabilities,
   getAppOrigin,
-  matchingInstanceGrantPolicies,
   missingCapabilities,
 } from "../grants/policy.ts";
 import type { Config } from "../../config.ts";
-import type { ContractStore } from "../../catalog/store.ts";
+import type { ContractsModule } from "../../catalog/runtime.ts";
 import type {
   AppIdentity,
-  ContractApprovalRecord,
-  InstanceGrantPolicy,
+  DeploymentEnvelope,
+  DeploymentGrantOverride,
+  EnvelopeBoundary,
+  IdentityAnchor,
+  IdentityEnvelopeRecord,
   OAuthState,
   PendingAuth,
   UserProjectionEntry,
 } from "../schemas.ts";
+
+const EMPTY_BOUNDARY: EnvelopeBoundary = {
+  contracts: [],
+  surfaces: [],
+  capabilities: [],
+  resources: [],
+};
 
 export type OAuthStateEntry = {
   value: OAuthState;
@@ -41,47 +51,22 @@ export type ApprovalResolution = {
   userId: string;
   userEmail: string;
   userName: string;
+  sessionPublicKey: string;
   app?: AppIdentity;
   existingProjection: UserProjectionEntry | null;
   existingCapabilities: string[];
   effectiveCapabilities: string[];
   missingCapabilities: string[];
-  matchedPolicies: InstanceGrantPolicy[];
+  matchedPolicies: [];
   effectiveApproval: EffectiveApproval;
-  storedApproval: ContractApprovalRecord | null;
+  storedApproval: IdentityEnvelopeRecord | null;
+  requestedBoundary?: EnvelopeBoundary;
+  systemAvailabilityEnvelope?: EnvelopeBoundary;
 };
 
 export type ApprovalResolutionWithStoredApproval = ApprovalResolution & {
-  storedApproval: ContractApprovalRecord;
+  storedApproval: IdentityEnvelopeRecord;
 };
-
-export type PortalRecord = {
-  portalId: string;
-  entryUrl: string;
-  disabled?: boolean;
-};
-
-export type LoginPortalSelectionRecord = {
-  contractId: string;
-  portalId: string | null;
-};
-
-export type DevicePortalSelectionRecord = {
-  deploymentId: string;
-  portalId: string | null;
-};
-
-export type ResolvedPortal =
-  | { kind: "builtin" }
-  | { kind: "custom"; portal: PortalRecord };
-
-function enabledPortalById(portals: PortalRecord[]): Map<string, PortalRecord> {
-  return new Map(
-    portals.filter((portal) => !portal.disabled).map((
-      portal,
-    ) => [portal.portalId, portal]),
-  );
-}
 
 export function getApprovalResolutionBlocker(
   resolution: ApprovalResolution,
@@ -92,13 +77,16 @@ export function getApprovalResolutionBlocker(
 }
 
 export type ApprovalResolutionDeps = {
-  loadStoredApproval: (key: string) => Promise<ContractApprovalRecord | null>;
   loadUserProjection: (
     trellisId: string,
   ) => Promise<UserProjectionEntry | null>;
-  loadInstanceGrantPolicies?: (
-    contractId: string,
-  ) => Promise<InstanceGrantPolicy[]>;
+  loadDeploymentEnvelopes?: () => Promise<DeploymentEnvelope[]>;
+  loadDeploymentGrantOverrides?: (
+    deploymentId: string,
+  ) => Promise<DeploymentGrantOverride[]>;
+  loadIdentityEnvelopesByUser?: (
+    userTrellisId: string,
+  ) => Promise<IdentityEnvelopeRecord[]>;
 };
 
 export type WarnLogger = {
@@ -112,22 +100,22 @@ export type CookieContext = {
   redirect: (location: string) => Response;
 };
 
-export function contractApprovalKey(
-  userTrellisId: string,
-  contractDigest: string,
-): string {
-  return `${userTrellisId}.${contractDigest}`;
+export function identityAnchorForApp(
+  app: AppIdentity,
+  sessionPublicKey: string,
+): IdentityAnchor {
+  return app.origin
+    ? { kind: "web", contractId: app.contractId, origin: app.origin }
+    : { kind: "cli", contractId: app.contractId, sessionPublicKey };
 }
 
-export function parseContractApprovalKey(
-  key: string,
-): { userTrellisId: string; contractDigest: string } | null {
-  const separator = key.lastIndexOf(".");
-  if (separator <= 0 || separator >= key.length - 1) return null;
-  return {
-    userTrellisId: key.slice(0, separator),
-    contractDigest: key.slice(separator + 1),
-  };
+export function identityEnvelopeIdForAnchor(
+  userTrellisId: string,
+  anchor: IdentityAnchor,
+): string {
+  return encodeBase64Url(
+    new TextEncoder().encode(`${userTrellisId}:${JSON.stringify(anchor)}`),
+  );
 }
 
 export function applyApprovalDecision(args: {
@@ -135,14 +123,26 @@ export function applyApprovalDecision(args: {
   approved: boolean;
   answeredAt: Date;
 }): ApprovalResolutionWithStoredApproval {
-  const storedApproval: ContractApprovalRecord = {
+  const app = args.resolution.app ?? {
+    contractId: args.resolution.plan.contract.id,
+  };
+  const identityAnchor = identityAnchorForApp(
+    app,
+    args.resolution.sessionPublicKey,
+  );
+  const storedApproval: IdentityEnvelopeRecord = {
+    identityEnvelopeId: identityEnvelopeIdForAnchor(
+      args.resolution.trellisId,
+      identityAnchor,
+    ),
     userTrellisId: args.resolution.trellisId,
     origin: args.resolution.userOrigin,
     id: args.resolution.userId,
+    identityAnchor,
     answer: args.approved ? "approved" : "denied",
     answeredAt: args.answeredAt,
     updatedAt: args.answeredAt,
-    approval: args.resolution.plan.approval,
+    approvalEvidence: args.resolution.plan.approval,
     publishSubjects: args.resolution.plan.publishSubjects,
     subscribeSubjects: args.resolution.plan.subscribeSubjects,
   };
@@ -150,7 +150,7 @@ export function applyApprovalDecision(args: {
     ...args.resolution,
     effectiveApproval: effectiveApproval({
       storedApproval,
-      matchedPolicies: args.resolution.matchedPolicies,
+      matchedPolicies: [],
     }),
     storedApproval,
   };
@@ -219,56 +219,96 @@ export function buildAppIdentity(args: {
   };
 }
 
-export function resolveLoginPortal(args: {
-  contractId: string;
-  portals: PortalRecord[];
-  defaultPortalId?: string | null;
-  selections: LoginPortalSelectionRecord[];
-}): ResolvedPortal {
-  const portalById = enabledPortalById(args.portals);
-  const selection = args.selections.find((entry) =>
-    entry.contractId === args.contractId
-  );
-  if (selection) {
-    if (selection.portalId === null) return { kind: "builtin" };
-    const portal = portalById.get(selection.portalId);
-    if (portal) return { kind: "custom", portal };
+function mergeEnvelopeBoundaries(
+  boundaries: EnvelopeBoundary[],
+): EnvelopeBoundary {
+  const contracts = new Map<string, EnvelopeBoundary["contracts"][number]>();
+  const surfaces = new Map<string, EnvelopeBoundary["surfaces"][number]>();
+  const resources = new Map<string, EnvelopeBoundary["resources"][number]>();
+  const capabilities = new Set<string>();
+
+  for (const boundary of boundaries) {
+    for (const contract of boundary.contracts) {
+      const existing = contracts.get(contract.contractId);
+      contracts.set(contract.contractId, {
+        ...contract,
+        required: (existing?.required ?? false) || contract.required,
+      });
+    }
+    for (const surface of boundary.surfaces) {
+      const key = [
+        surface.contractId,
+        surface.kind,
+        surface.name,
+        surface.action,
+      ].join("\u001f");
+      const existing = surfaces.get(key);
+      surfaces.set(key, {
+        ...surface,
+        required: (existing?.required ?? false) || surface.required,
+      });
+    }
+    for (const resource of boundary.resources) {
+      const key = [resource.kind, resource.alias].join("\u001f");
+      const existing = resources.get(key);
+      resources.set(key, {
+        ...resource,
+        required: (existing?.required ?? false) || resource.required,
+      });
+    }
+    for (const capability of boundary.capabilities) {
+      capabilities.add(capability);
+    }
   }
 
-  if (args.defaultPortalId === null || args.defaultPortalId === undefined) {
-    return { kind: "builtin" };
-  }
-
-  const defaultPortal = portalById.get(args.defaultPortalId);
-  return defaultPortal
-    ? { kind: "custom", portal: defaultPortal }
-    : { kind: "builtin" };
+  return {
+    contracts: [...contracts.values()].sort((left, right) =>
+      left.contractId.localeCompare(right.contractId)
+    ),
+    surfaces: [...surfaces.values()].sort((left, right) =>
+      left.contractId.localeCompare(right.contractId) ||
+      left.kind.localeCompare(right.kind) ||
+      left.name.localeCompare(right.name) ||
+      left.action.localeCompare(right.action)
+    ),
+    capabilities: [...capabilities].sort(),
+    resources: [...resources.values()].sort((left, right) =>
+      left.kind.localeCompare(right.kind) ||
+      left.alias.localeCompare(right.alias)
+    ),
+  };
 }
 
-export function resolveDevicePortal(args: {
-  deploymentId: string;
-  portals: PortalRecord[];
-  defaultPortalId?: string | null;
-  selections: DevicePortalSelectionRecord[];
-}): ResolvedPortal {
-  const portalById = enabledPortalById(args.portals);
-  const selection = args.selections.find((entry) =>
-    entry.deploymentId === args.deploymentId
-  );
-  if (selection) {
-    if (selection.portalId === null) return { kind: "builtin" };
-    const portal = portalById.get(selection.portalId);
-    if (portal) return { kind: "custom", portal };
+function sameIdentityAnchor(
+  left: IdentityAnchor,
+  right: IdentityAnchor,
+): boolean {
+  if (left.kind !== right.kind || left.contractId !== right.contractId) {
+    return false;
   }
-
-  if (args.defaultPortalId === null || args.defaultPortalId === undefined) {
-    return { kind: "builtin" };
+  switch (left.kind) {
+    case "web":
+      return right.kind === "web" && left.origin === right.origin;
+    case "cli":
+    case "native":
+      return right.kind === left.kind &&
+        left.sessionPublicKey === right.sessionPublicKey;
+    case "device-user":
+      return right.kind === "device-user" &&
+        left.devicePublicKey === right.devicePublicKey;
   }
+}
 
-  const defaultPortal = portalById.get(args.defaultPortalId);
-  return defaultPortal
-    ? { kind: "custom", portal: defaultPortal }
-    : { kind: "builtin" };
+function matchingGrantOverrideCapabilities(args: {
+  overrides: DeploymentGrantOverride[];
+  identity: Parameters<typeof applyGrantOverrideCapabilities>[2];
+}): string[] {
+  return applyGrantOverrideCapabilities(
+    EMPTY_BOUNDARY,
+    args.overrides,
+    args.identity,
+  )
+    .capabilities;
 }
 
 function escapeHtml(value: string): string {
@@ -281,11 +321,20 @@ function escapeHtml(value: string): string {
 }
 
 export async function getApprovalResolution(
-  contractStore: ContractStore,
+  contracts: Pick<
+    ContractsModule,
+    | "getActiveContractsById"
+    | "getActiveEntries"
+    | "validateContract"
+  >,
   pending: PendingAuth,
   deps: ApprovalResolutionDeps,
 ): Promise<ApprovalResolution> {
-  const plan = await planUserContractApproval(contractStore, pending.contract);
+  const plan = await planUserContractApproval(contracts, pending.contract);
+  const requestedBoundary = (await analyzeContractEnvelopeBoundary(
+    contracts,
+    pending.contract,
+  )).required;
   const trellisId = await trellisIdFromOriginId(
     pending.user.origin,
     pending.user.id,
@@ -297,24 +346,52 @@ export async function getApprovalResolution(
     contractId: plan.contract.id,
     redirectTo: pending.redirectTo,
   });
+  const requestedIdentity = app.origin
+    ? { kind: "web" as const, contractId: app.contractId, origin: app.origin }
+    : {
+      kind: "cli" as const,
+      contractId: app.contractId,
+      sessionPublicKey: pending.sessionKey,
+    };
+  const enabledDeploymentEnvelopes =
+    (await deps.loadDeploymentEnvelopes?.() ?? [])
+      .filter((envelope) => !envelope.disabled);
+  const systemAvailabilityEnvelope = mergeEnvelopeBoundaries(
+    enabledDeploymentEnvelopes.map((envelope) => envelope.boundary),
+  );
+  const deploymentGrantOverrides = (
+    await Promise.all(
+      enabledDeploymentEnvelopes.map((envelope) =>
+        deps.loadDeploymentGrantOverrides?.(envelope.deploymentId) ?? []
+      ),
+    )
+  ).flat();
   const existingProjection = await deps.loadUserProjection(trellisId);
   const existingCapabilities = existingProjection?.capabilities ?? [];
-  const storedApproval = await deps.loadStoredApproval(
-    contractApprovalKey(trellisId, plan.digest),
-  );
-  const matchedPolicies = matchingInstanceGrantPolicies({
-    policies: await (deps.loadInstanceGrantPolicies?.(plan.contract.id) ??
-      Promise.resolve([])),
-    contractId: plan.contract.id,
-    appOrigin: app.origin,
-  });
-  const resolvedCapabilities = effectiveCapabilities({
-    explicitCapabilities: existingCapabilities,
-    matchedPolicies,
-  });
+  const storedApproval =
+    (await deps.loadIdentityEnvelopesByUser?.(trellisId) ?? [])
+      .find((approval) =>
+        approval.userTrellisId === trellisId &&
+        approval.origin === pending.user.origin &&
+        approval.id === pending.user.id &&
+        sameIdentityAnchor(
+          approval.identityAnchor,
+          identityAnchorForApp(app, pending.sessionKey),
+        )
+      ) ?? null;
+  const matchedPolicies: [] = [];
+  const resolvedCapabilities = [
+    ...new Set([
+      ...existingCapabilities,
+      ...matchingGrantOverrideCapabilities({
+        overrides: deploymentGrantOverrides,
+        identity: requestedIdentity,
+      }),
+    ]),
+  ].sort();
   const resolvedApproval = effectiveApproval({
     storedApproval,
-    matchedPolicies,
+    matchedPolicies: [],
   });
   const unresolvedCapabilities = missingCapabilities({
     requiredCapabilities: approvalCapabilityKeys(plan.approval),
@@ -328,6 +405,7 @@ export async function getApprovalResolution(
     userId: pending.user.id,
     userEmail,
     userName,
+    sessionPublicKey: pending.sessionKey,
     app,
     existingProjection,
     existingCapabilities,
@@ -336,6 +414,10 @@ export async function getApprovalResolution(
     matchedPolicies,
     effectiveApproval: resolvedApproval,
     storedApproval,
+    requestedBoundary,
+    systemAvailabilityEnvelope: enabledDeploymentEnvelopes.length > 0
+      ? systemAvailabilityEnvelope
+      : EMPTY_BOUNDARY,
   };
 }
 

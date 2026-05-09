@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
-  import type { AuthCreateDeviceDeploymentInput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthDeploymentsCreateInput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
@@ -20,12 +20,13 @@
     pending = true;
     error = null;
     try {
-      const input: AuthCreateDeviceDeploymentInput = {
+      const input: AuthDeploymentsCreateInput = {
         deploymentId: deploymentId.trim(),
+        kind: "device",
         reviewMode,
       };
 
-      const response = await trellis.request("Auth.CreateDeviceDeployment", input).take();
+      const response = await trellis.request("Auth.Deployments.Create", input).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Device deployment ${input.deploymentId} created.`, "Created");
       deploymentId = "";

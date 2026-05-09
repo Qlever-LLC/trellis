@@ -1,24 +1,33 @@
 import { createKick } from "../callout/kick.ts";
 import {
-  createAuthApplyServiceDeploymentContractHandler,
-  createAuthCreateServiceDeploymentHandler,
-  createAuthDisableServiceDeploymentHandler,
-  createAuthDisableServiceInstanceHandler,
-  createAuthEnableServiceDeploymentHandler,
-  createAuthEnableServiceInstanceHandler,
-  createAuthListServiceDeploymentsHandler,
-  createAuthListServiceInstancesHandler,
-  createAuthProvisionServiceInstanceHandler,
-  createAuthRemoveServiceDeploymentHandler,
-  createAuthRemoveServiceInstanceHandler,
-  createAuthUnapplyServiceDeploymentContractHandler,
+  createAuthEnvelopeExpansionsListHandler,
+  createAuthEnvelopeExpansionsRejectHandler,
+  createAuthEnvelopesApproveRequestHandler,
+  createAuthEnvelopesChangesPreviewHandler,
+  createAuthEnvelopesExpandHandler,
+  createAuthEnvelopesGetHandler,
+  createAuthEnvelopesListHandler,
+  createAuthEnvelopesShrinkHandler,
+} from "../admin/envelopes_rpc.ts";
+import {
+  createAuthServiceInstancesDisableHandler,
+  createAuthServiceInstancesEnableHandler,
+  createAuthServiceInstancesListHandler,
+  createAuthServiceInstancesProvisionHandler,
+  createAuthServiceInstancesRemoveHandler,
 } from "../admin/service_rpc.ts";
 import type { AuthContractsRuntime, RpcRegistrar } from "./types.ts";
 import type { AuthRuntimeDeps, RuntimeKV } from "../runtime_deps.ts";
 import type { Connection } from "../schemas.ts";
 import type {
-  SqlContractApprovalRepository,
+  SqlDeploymentContractEvidenceRepository,
+  SqlDeploymentEnvelopeRepository,
+  SqlDeploymentGrantOverrideRepository,
+  SqlDeploymentPortalRouteRepository,
+  SqlDeploymentResourceBindingRepository,
   SqlDeviceDeploymentRepository,
+  SqlEnvelopeExpansionRequestRepository,
+  SqlIdentityEnvelopeRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -32,21 +41,27 @@ export async function registerServiceAdminRpcs(deps: {
   connectionsKV: RuntimeKV<Connection>;
   sessionStorage: SqlSessionRepository;
   contractStorage: SqlContractStorageRepository;
-  contractApprovalStorage: SqlContractApprovalRepository;
+  deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+  deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
+  deploymentContractEvidenceStorage: SqlDeploymentContractEvidenceRepository;
+  deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
+  deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
+  envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
+  contractApprovalStorage: SqlIdentityEnvelopeRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
   serviceInstanceStorage: SqlServiceInstanceRepository;
   natsAuth: {
     request(subject: string, payload?: string): Promise<unknown>;
   };
-  natsTrellis: Parameters<
-    typeof createAuthApplyServiceDeploymentContractHandler
-  >[0]["nats"];
+  natsTrellis: AuthRuntimeDeps["natsTrellis"];
   logger: Pick<AuthRuntimeDeps["logger"], "debug" | "trace" | "warn">;
   contracts: Pick<
     AuthContractsRuntime,
-    | "contractStore"
-    | "installServiceContract"
+    | "getActiveContractsById"
+    | "getActiveEntries"
+    | "getKnownContract"
+    | "validateContract"
     | "refreshActiveContracts"
     | "refreshActiveContractsForRemoval"
     | "validateActiveCatalog"
@@ -56,98 +71,112 @@ export async function registerServiceAdminRpcs(deps: {
   const kick = createKick({ logger: deps.logger, natsAuth: deps.natsAuth });
   const serviceAdminDeps = {
     logger: deps.logger,
+    deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     serviceInstanceStorage: deps.serviceInstanceStorage,
   };
 
   await deps.trellis.mount(
-    "Auth.CreateServiceDeployment",
-    createAuthCreateServiceDeploymentHandler(serviceAdminDeps),
+    "Auth.Envelopes.List",
+    createAuthEnvelopesListHandler({
+      deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+      logger: deps.logger,
+    }),
   );
   await deps.trellis.mount(
-    "Auth.ListServiceDeployments",
-    createAuthListServiceDeploymentsHandler(serviceAdminDeps),
+    "Auth.Envelopes.Get",
+    createAuthEnvelopesGetHandler({
+      deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+      deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
+      deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
+      envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
+      deploymentPortalRouteStorage: deps.deploymentPortalRouteStorage,
+      deploymentGrantOverrideStorage: deps.deploymentGrantOverrideStorage,
+      logger: deps.logger,
+    }),
   );
   await deps.trellis.mount(
-    "Auth.ApplyServiceDeploymentContract",
-    createAuthApplyServiceDeploymentContractHandler({
-      installServiceContract: deps.contracts.installServiceContract,
+    "Auth.Envelopes.Expand",
+    createAuthEnvelopesExpandHandler({
+      contracts: deps.contracts,
+      deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+      deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
+      deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
       nats: deps.natsTrellis,
       resourceProvisioningOptions: {
         jetstreamReplicas: deps.config.nats.jetstream.replicas,
       },
-      refreshActiveContracts: deps.contracts.refreshActiveContracts,
-      serviceDeploymentStorage: deps.serviceDeploymentStorage,
-      validateActiveCatalog: deps.contracts.validateActiveCatalog,
       logger: deps.logger,
     }),
   );
   await deps.trellis.mount(
-    "Auth.UnapplyServiceDeploymentContract",
-    createAuthUnapplyServiceDeploymentContractHandler({
-      kick,
-      refreshActiveContracts: deps.contracts.refreshActiveContracts,
-      validateActiveCatalog: deps.contracts.validateActiveCatalog,
-      connectionsKV: deps.connectionsKV,
-      sessionStorage: deps.sessionStorage,
-      logger: deps.logger,
-      serviceDeploymentStorage: deps.serviceDeploymentStorage,
-      serviceInstanceStorage: deps.serviceInstanceStorage,
-    }),
-  );
-  await deps.trellis.mount(
-    "Auth.DisableServiceDeployment",
-    createAuthDisableServiceDeploymentHandler({
-      kick,
-      refreshActiveContracts: deps.contracts.refreshActiveContracts,
-      validateActiveCatalog: deps.contracts.validateActiveCatalog,
-      connectionsKV: deps.connectionsKV,
-      sessionStorage: deps.sessionStorage,
-      serviceDeploymentStorage: deps.serviceDeploymentStorage,
-      serviceInstanceStorage: deps.serviceInstanceStorage,
-    }),
-  );
-  await deps.trellis.mount(
-    "Auth.EnableServiceDeployment",
-    createAuthEnableServiceDeploymentHandler({
-      refreshActiveContracts: deps.contracts.refreshActiveContracts,
-      validateActiveCatalog: deps.contracts.validateActiveCatalog,
-      serviceDeploymentStorage: deps.serviceDeploymentStorage,
-    }),
-  );
-  await deps.trellis.mount(
-    "Auth.RemoveServiceDeployment",
-    createAuthRemoveServiceDeploymentHandler({
-      connectionsKV: deps.connectionsKV,
-      kick,
+    "Auth.EnvelopeExpansions.Approve",
+    createAuthEnvelopesApproveRequestHandler({
+      contracts: deps.contracts,
+      deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+      deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
+      deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
+      envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
       nats: deps.natsTrellis,
+      resourceProvisioningOptions: {
+        jetstreamReplicas: deps.config.nats.jetstream.replicas,
+      },
       logger: deps.logger,
-      refreshActiveContracts: deps.contracts.refreshActiveContracts,
-      refreshActiveContractsForRemoval:
-        deps.contracts.refreshActiveContractsForRemoval,
-      sessionStorage: deps.sessionStorage,
-      validateActiveCatalog: deps.contracts.validateActiveCatalog,
-      validateActiveCatalogForRemoval:
-        deps.contracts.validateActiveCatalogForRemoval,
-      serviceDeploymentStorage: deps.serviceDeploymentStorage,
-      serviceInstanceStorage: deps.serviceInstanceStorage,
-      builtinContractDigests: deps.contracts.contractStore.getBuiltinDigests(),
-      contractApprovalStorage: deps.contractApprovalStorage,
-      contractStorage: deps.contractStorage,
-      deviceDeploymentStorage: deps.deviceDeploymentStorage,
     }),
   );
   await deps.trellis.mount(
-    "Auth.ProvisionServiceInstance",
-    createAuthProvisionServiceInstanceHandler(serviceAdminDeps),
+    "Auth.EnvelopeExpansions.List",
+    createAuthEnvelopeExpansionsListHandler({
+      envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
+      logger: deps.logger,
+    }),
   );
   await deps.trellis.mount(
-    "Auth.ListServiceInstances",
-    createAuthListServiceInstancesHandler(serviceAdminDeps),
+    "Auth.EnvelopeExpansions.Reject",
+    createAuthEnvelopeExpansionsRejectHandler({
+      envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
+      logger: deps.logger,
+    }),
   );
   await deps.trellis.mount(
-    "Auth.DisableServiceInstance",
-    createAuthDisableServiceInstanceHandler({
+    "Auth.Envelopes.Changes.Preview",
+    createAuthEnvelopesChangesPreviewHandler({
+      contracts: deps.contracts,
+      deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+      deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
+      deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
+      identityEnvelopeStorage: deps.contractApprovalStorage,
+      envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
+      sessionStorage: deps.sessionStorage,
+      logger: deps.logger,
+    }),
+  );
+  await deps.trellis.mount(
+    "Auth.Envelopes.Shrink",
+    createAuthEnvelopesShrinkHandler({
+      contracts: deps.contracts,
+      deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+      deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
+      deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
+      identityEnvelopeStorage: deps.contractApprovalStorage,
+      envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
+      sessionStorage: deps.sessionStorage,
+      connectionsKV: deps.connectionsKV,
+      kick,
+      logger: deps.logger,
+    }),
+  );
+  await deps.trellis.mount(
+    "Auth.ServiceInstances.Provision",
+    createAuthServiceInstancesProvisionHandler(serviceAdminDeps),
+  );
+  await deps.trellis.mount(
+    "Auth.ServiceInstances.List",
+    createAuthServiceInstancesListHandler(serviceAdminDeps),
+  );
+  await deps.trellis.mount(
+    "Auth.ServiceInstances.Disable",
+    createAuthServiceInstancesDisableHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
       validateActiveCatalog: deps.contracts.validateActiveCatalog,
@@ -157,8 +186,8 @@ export async function registerServiceAdminRpcs(deps: {
     }),
   );
   await deps.trellis.mount(
-    "Auth.EnableServiceInstance",
-    createAuthEnableServiceInstanceHandler({
+    "Auth.ServiceInstances.Enable",
+    createAuthServiceInstancesEnableHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
       validateActiveCatalog: deps.contracts.validateActiveCatalog,
@@ -168,8 +197,8 @@ export async function registerServiceAdminRpcs(deps: {
     }),
   );
   await deps.trellis.mount(
-    "Auth.RemoveServiceInstance",
-    createAuthRemoveServiceInstanceHandler({
+    "Auth.ServiceInstances.Remove",
+    createAuthServiceInstancesRemoveHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
       validateActiveCatalog: deps.contracts.validateActiveCatalog,

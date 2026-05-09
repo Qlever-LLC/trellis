@@ -1,8 +1,8 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthListServiceInstancesOutput,
-    AuthListServiceDeploymentsOutput,
+    AuthServiceInstancesListOutput,
+    AuthDeploymentsListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
@@ -15,8 +15,8 @@
   import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type ServiceInstance = AuthListServiceInstancesOutput["instances"][number];
-  type ServiceDeployment = AuthListServiceDeploymentsOutput["deployments"][number];
+  type ServiceInstance = AuthServiceInstancesListOutput["instances"][number];
+  type ServiceDeployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "service" }>;
   type DisabledFilter = "all" | "active" | "disabled";
 
   const trellis = getTrellis();
@@ -43,6 +43,8 @@
     return {
       deploymentId: deploymentFilter || undefined,
       disabled: disabledFilter === "all" ? undefined : disabledFilter === "disabled",
+      limit: 500,
+      offset: 0,
     };
   }
 
@@ -51,13 +53,13 @@
     error = null;
     try {
       const [instancesRes, deploymentsRes] = await Promise.all([
-        trellis.request("Auth.ListServiceInstances", query()).take(),
-        trellis.request("Auth.ListServiceDeployments", {}).take(),
+        trellis.request("Auth.ServiceInstances.List", query()).take(),
+        trellis.request("Auth.Deployments.List", { kind: "service", limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
       if (isErr(deploymentsRes)) { error = errorMessage(deploymentsRes); return; }
       instances = instancesRes.instances ?? [];
-      deployments = deploymentsRes.deployments ?? [];
+      deployments = (deploymentsRes.deployments ?? []).filter((deployment): deployment is ServiceDeployment => deployment.kind === "service");
       if (!provisionDeploymentId || !provisionDeployments.some((deployment) => deployment.deploymentId === provisionDeploymentId)) {
         provisionDeploymentId = provisionDeployments[0]?.deploymentId ?? "";
       }
@@ -72,7 +74,7 @@
     createPending = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.ProvisionServiceInstance", {
+      const response = await trellis.request("Auth.ServiceInstances.Provision", {
         deploymentId: provisionDeploymentId,
         instanceKey: instanceKey.trim(),
       }).take();
@@ -94,10 +96,10 @@
     error = null;
     try {
       if (disabled) {
-        const response = await trellis.request("Auth.DisableServiceInstance", { instanceId: instance.instanceId }).take();
+        const response = await trellis.request("Auth.ServiceInstances.Disable", { instanceId: instance.instanceId }).take();
         if (isErr(response)) { error = errorMessage(response); return; }
       } else {
-        const response = await trellis.request("Auth.EnableServiceInstance", { instanceId: instance.instanceId }).take();
+        const response = await trellis.request("Auth.ServiceInstances.Enable", { instanceId: instance.instanceId }).take();
         if (isErr(response)) { error = errorMessage(response); return; }
       }
       notifications.success(`Service instance ${instance.instanceId} ${disabled ? "disabled" : "enabled"}.`, disabled ? "Disabled" : "Enabled");
@@ -114,7 +116,7 @@
     actionTarget = `${instance.instanceId}:remove`;
     error = null;
     try {
-      const response = await trellis.request("Auth.RemoveServiceInstance", { instanceId: instance.instanceId }).take();
+      const response = await trellis.request("Auth.ServiceInstances.Remove", { instanceId: instance.instanceId }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Service instance ${instance.instanceId} removed.`, "Removed");
       await load();

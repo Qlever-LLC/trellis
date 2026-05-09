@@ -1,8 +1,8 @@
 import type { BaseError } from "@qlever-llc/result";
 import type { AsyncResult } from "@qlever-llc/result";
 import type {
-  AuthActivateDeviceOutput,
-  AuthActivateDeviceProgress,
+  AuthResolveDeviceUserAuthoritiesOutput,
+  AuthResolveDeviceUserAuthoritiesProgress,
 } from "@qlever-llc/trellis/auth";
 import type { OperationEvent, TerminalOperation } from "@qlever-llc/trellis";
 import {
@@ -63,12 +63,18 @@ export type DeviceActivationControllerConfig = {
 export type DeviceActivationOperationRef = {
   watch(): AsyncResult<
     AsyncIterable<
-      OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>
+      OperationEvent<
+        AuthResolveDeviceUserAuthoritiesProgress,
+        AuthResolveDeviceUserAuthoritiesOutput
+      >
     >,
     BaseError
   >;
   wait(): AsyncResult<
-    TerminalOperation<AuthActivateDeviceProgress, AuthActivateDeviceOutput>,
+    TerminalOperation<
+      AuthResolveDeviceUserAuthoritiesProgress,
+      AuthResolveDeviceUserAuthoritiesOutput
+    >,
     BaseError
   >;
 };
@@ -334,8 +340,8 @@ export class DeviceActivationControllerCore {
   #applyTerminal(
     flowId: string,
     terminal: TerminalOperation<
-      AuthActivateDeviceProgress,
-      AuthActivateDeviceOutput
+      AuthResolveDeviceUserAuthoritiesProgress,
+      AuthResolveDeviceUserAuthoritiesOutput
     >,
   ): void {
     const view = mapDeviceActivationTerminal(flowId, terminal);
@@ -353,7 +359,10 @@ export class DeviceActivationControllerCore {
   async #observeWatch(
     flowId: string,
     watch: AsyncIterable<
-      OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>
+      OperationEvent<
+        AuthResolveDeviceUserAuthoritiesProgress,
+        AuthResolveDeviceUserAuthoritiesOutput
+      >
     >,
     runId: number,
   ): Promise<boolean> {

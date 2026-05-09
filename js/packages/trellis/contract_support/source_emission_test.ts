@@ -99,7 +99,7 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
         schemas: ["StringValue"],
       },
       rpc: {
-        "Auth.Me": {
+        "Auth.Sessions.Me": {
           version: "v1",
           input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
           output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
@@ -108,7 +108,7 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
         },
       },
       events: {
-        "Auth.Connect": {
+        "Auth.Connections.Opened": {
           version: "v1",
           event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
           capabilities: {
@@ -140,8 +140,8 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
       description: "Expose activity APIs while depending on auth in tests.",
       uses: {
         auth: auth.use({
-          rpc: { call: ["Auth.Me"] },
-          events: { subscribe: ["Auth.Connect"] },
+          rpc: { call: ["Auth.Sessions.Me"] },
+          events: { subscribe: ["Auth.Connections.Opened"] },
         }),
       },
       rpc: {
@@ -196,8 +196,8 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
     uses: {
       auth: {
         contract: "trellis.auth@v1",
-        rpc: { call: ["Auth.Me"] },
-        events: { subscribe: ["Auth.Connect"] },
+        rpc: { call: ["Auth.Sessions.Me"] },
+        events: { subscribe: ["Auth.Connections.Opened"] },
       },
       health: {
         contract: "trellis.health@v1",
@@ -237,16 +237,16 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
     activity.API.owned.rpc["Activity.List"].subject,
     "rpc.v1.Activity.List",
   );
-  assertEquals(activity.API.used.rpc["Auth.Me"].subject, "rpc.v1.Auth.Me");
+  assertEquals(activity.API.used.rpc["Auth.Sessions.Me"].subject, "rpc.v1.Auth.Sessions.Me");
   assertEquals(
-    activity.API.used.events["Auth.Connect"].subject,
-    "events.v1.Auth.Connect",
+    activity.API.used.events["Auth.Connections.Opened"].subject,
+    "events.v1.Auth.Connections.Opened",
   );
   assertEquals(
     activity.API.trellis.rpc["Activity.List"].subject,
     "rpc.v1.Activity.List",
   );
-  assertEquals(activity.API.trellis.rpc["Auth.Me"].subject, "rpc.v1.Auth.Me");
+  assertEquals(activity.API.trellis.rpc["Auth.Sessions.Me"].subject, "rpc.v1.Auth.Sessions.Me");
   assertEquals(
     activity.CONTRACT_DIGEST,
     digestContractManifest(activity.CONTRACT),
@@ -497,7 +497,7 @@ Deno.test("defineAppContract emits top-level named state declarations", async ()
     uses: {
       auth: {
         contract: "trellis.auth@v1",
-        rpc: { call: ["Auth.Logout", "Auth.Me"] },
+        rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] },
       },
       state: {
         contract: "trellis.state@v1",
@@ -508,10 +508,10 @@ Deno.test("defineAppContract emits top-level named state declarations", async ()
     },
   });
 
-  assertEquals(dashboard.API.used.rpc["Auth.Me"].subject, "rpc.v1.Auth.Me");
+  assertEquals(dashboard.API.used.rpc["Auth.Sessions.Me"].subject, "rpc.v1.Auth.Sessions.Me");
   assertEquals(
-    dashboard.API.used.rpc["Auth.Logout"].subject,
-    "rpc.v1.Auth.Logout",
+    dashboard.API.used.rpc["Auth.Sessions.Logout"].subject,
+    "rpc.v1.Auth.Sessions.Logout",
   );
   assertEquals(
     dashboard.API.used.rpc["State.Get"].subject,
@@ -1479,7 +1479,7 @@ Deno.test("defineServiceContract rejects duplicate logical keys across used and 
       displayName: "Trellis Auth",
       description: "Expose auth RPCs in duplicate-key tests.",
       rpc: {
-        "Auth.Me": {
+        "Auth.Sessions.Me": {
           version: "v1",
           input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
           output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
@@ -1497,10 +1497,10 @@ Deno.test("defineServiceContract rejects duplicate logical keys across used and 
           displayName: "Duplicate",
           description: "Trigger duplicate logical RPC key validation.",
           uses: {
-            auth: auth.use({ rpc: { call: ["Auth.Me"] } }),
+            auth: auth.use({ rpc: { call: ["Auth.Sessions.Me"] } }),
           },
           rpc: {
-            "Auth.Me": {
+            "Auth.Sessions.Me": {
               version: "v1",
               input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
               output: schemaRef<typeof baseSchemas, "StringValue">(
@@ -1511,7 +1511,7 @@ Deno.test("defineServiceContract rejects duplicate logical keys across used and 
         }),
       ),
     Error,
-    "Duplicate rpc key 'Auth.Me'",
+    "Duplicate rpc key 'Auth.Sessions.Me'",
   );
 });
 
@@ -1523,7 +1523,7 @@ Deno.test("defineServiceContract validates use(...) provenance and selected keys
       displayName: "Trellis Auth",
       description: "Expose auth RPCs in provenance tests.",
       rpc: {
-        "Auth.Me": {
+        "Auth.Sessions.Me": {
           version: "v1",
           input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
           output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
@@ -1538,7 +1538,7 @@ Deno.test("defineServiceContract validates use(...) provenance and selected keys
     "does not expose rpc key 'Auth.Nope'",
   );
 
-  const forgedUse = structuredClone(auth.use({ rpc: { call: ["Auth.Me"] } }));
+  const forgedUse = structuredClone(auth.use({ rpc: { call: ["Auth.Sessions.Me"] } }));
 
   assertThrows(
     () =>

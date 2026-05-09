@@ -223,7 +223,7 @@ Deno.test("Trellis explains how to provide an API surface when none was configur
     createMockNatsConnection(),
     createMockAuth(),
   );
-  const result = await trellis.request("Auth.Me", {});
+  const result = await trellis.request("Auth.Sessions.Me", {});
   const value = result.take();
 
   assert(isErr(value));

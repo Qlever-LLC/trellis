@@ -25,7 +25,7 @@ import { serverLogger } from "./server_logger.ts";
 import {
   type AcceptedOperation,
   type AnyTrellisAPI,
-  type AuthValidateRequestResponse,
+  type AuthRequestsValidateResponse,
   base64urlDecode,
   base64urlEncode,
   buildProofInput,
@@ -774,9 +774,9 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
   ): Promise<
     Result<{
       input: unknown;
-      caller: AuthValidateRequestResponse["caller"];
+      caller: AuthRequestsValidateResponse["caller"];
       sessionKey: string;
-      auth: AuthValidateRequestResponse;
+      auth: AuthRequestsValidateResponse;
     }, UnexpectedError | AuthError | ValidationError | RemoteError>
   > {
     const jsonData = safeJson(msg).take();
@@ -1363,9 +1363,9 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
         const authenticate = async (msg: Msg, parseInput = true): Promise<
           Result<{
             input: unknown;
-            caller: AuthValidateRequestResponse["caller"];
+            caller: AuthRequestsValidateResponse["caller"];
             sessionKey: string;
-            auth: AuthValidateRequestResponse;
+            auth: AuthRequestsValidateResponse;
           }, UnexpectedError | AuthError | ValidationError | RemoteError>
         > => {
           const jsonData = safeJson(msg).take();

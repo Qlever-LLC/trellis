@@ -343,7 +343,11 @@ export class Result<T, E extends BaseError> {
         return result;
       }
     }
-    return results[results.length - 1];
+    const last = results[results.length - 1];
+    if (!last) {
+      throw new Error("Result.any requires at least one result");
+    }
+    return last;
   }
 
   /**
@@ -995,7 +999,11 @@ export class AsyncResult<T, E extends BaseError>
             return result;
           }
         }
-        return resolvedResults[resolvedResults.length - 1];
+        const last = resolvedResults[resolvedResults.length - 1];
+        if (!last) {
+          throw new Error("AsyncResult.any requires at least one result");
+        }
+        return last;
       })(),
     );
   }

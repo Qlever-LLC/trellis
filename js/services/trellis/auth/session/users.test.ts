@@ -1,12 +1,12 @@
 import { assertEquals } from "@std/assert";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
-import { ContractStore } from "../../catalog/store.ts";
-import { createAuthListCapabilitiesHandler } from "./users.ts";
+import { createTestContracts } from "../../catalog/test_contracts.ts";
+import { createAuthCapabilitiesListHandler } from "./users.ts";
 
 const logger = { trace: () => {} };
 
-Deno.test("Auth.ListCapabilities returns platform and active contract capabilities", async () => {
-  const store = new ContractStore();
+Deno.test("Auth.Capabilities.List returns platform and active contract capabilities", async () => {
+  const contracts = createTestContracts();
   const contract: TrellisContractV1 = {
     format: "trellis.contract.v1",
     id: "trellis.auth@v1",
@@ -20,9 +20,10 @@ Deno.test("Auth.ListCapabilities returns platform and active contract capabiliti
       },
     },
   };
-  store.activate("digest-auth", contract);
+  contracts.activateTestContract({ digest: "digest-auth", contract });
 
-  const result = await createAuthListCapabilitiesHandler(store, logger)({
+  const result = await createAuthCapabilitiesListHandler(contracts, logger)({
+    input: { limit: 10 },
     context: {
       caller: {
         type: "user",

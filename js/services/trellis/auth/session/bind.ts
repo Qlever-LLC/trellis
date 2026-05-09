@@ -6,7 +6,12 @@ import {
   Result,
 } from "@qlever-llc/result";
 import Type, { type Static } from "typebox";
-import type { Connection, Session, UserSession } from "../schemas.ts";
+import type {
+  Connection,
+  EnvelopeBoundary,
+  Session,
+  UserSession,
+} from "../schemas.ts";
 import { connectionFilterForSession } from "./connections.ts";
 
 type Taken<T> = T | Result<never, BaseError>;
@@ -95,12 +100,14 @@ export async function ensureBoundUserSession(args: {
   name: string;
   image?: string;
   participantKind: UserSession["participantKind"];
+  identityEnvelopeId: string;
   contractDigest: string;
   contractId: string;
   contractDisplayName: string;
   contractDescription: string;
   app?: UserSession["app"];
   approvalSource?: UserSession["approvalSource"];
+  identityEnvelope?: EnvelopeBoundary;
   delegatedCapabilities: string[];
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
@@ -188,12 +195,16 @@ export async function ensureBoundUserSession(args: {
     name: args.name,
     ...(args.image ? { image: args.image } : {}),
     participantKind: args.participantKind,
+    identityEnvelopeId: args.identityEnvelopeId,
     contractDigest: args.contractDigest,
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
     ...(args.app ? { app: args.app } : {}),
     ...(args.approvalSource ? { approvalSource: args.approvalSource } : {}),
+    ...(args.identityEnvelope
+      ? { identityEnvelope: args.identityEnvelope }
+      : {}),
     delegatedCapabilities: args.delegatedCapabilities,
     delegatedPublishSubjects: args.delegatedPublishSubjects,
     delegatedSubscribeSubjects: args.delegatedSubscribeSubjects,
@@ -226,12 +237,16 @@ export async function ensureBoundUserSession(args: {
     name: args.name,
     ...(args.image ? { image: args.image } : {}),
     participantKind: args.participantKind,
+    identityEnvelopeId: args.identityEnvelopeId,
     contractDigest: args.contractDigest,
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
     ...(args.app ? { app: args.app } : {}),
     ...(args.approvalSource ? { approvalSource: args.approvalSource } : {}),
+    ...(args.identityEnvelope
+      ? { identityEnvelope: args.identityEnvelope }
+      : {}),
     delegatedCapabilities: args.delegatedCapabilities,
     delegatedPublishSubjects: args.delegatedPublishSubjects,
     delegatedSubscribeSubjects: args.delegatedSubscribeSubjects,

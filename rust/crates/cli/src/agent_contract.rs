@@ -1,4 +1,48 @@
-const AGENT_CONTRACT_JSON: &str = r#"{"description":"Drive Trellis operator RPC workflows from the Rust agent.","displayName":"Trellis Agent","format":"trellis.contract.v1","id":"trellis.agent@v1","kind":"agent","uses":{"auth":{"contract":"trellis.auth@v1","rpc":{"call":["Auth.ApplyDeviceDeploymentContract","Auth.ApplyServiceDeploymentContract","Auth.ClearDevicePortalSelection","Auth.ClearLoginPortalSelection","Auth.CreateDeviceDeployment","Auth.CreatePortal","Auth.CreateServiceDeployment","Auth.DecideDeviceActivationReview","Auth.DisableDeviceInstance","Auth.DisableDeviceDeployment","Auth.DisableInstanceGrantPolicy","Auth.DisablePortal","Auth.DisablePortalProfile","Auth.DisableServiceInstance","Auth.DisableServiceDeployment","Auth.EnableDeviceInstance","Auth.EnableDeviceDeployment","Auth.EnableServiceInstance","Auth.EnableServiceDeployment","Auth.GetDevicePortalDefault","Auth.GetInstalledContract","Auth.GetLoginPortalDefault","Auth.ListApprovals","Auth.ListDeviceActivationReviews","Auth.ListDeviceActivations","Auth.ListDeviceInstances","Auth.ListDevicePortalSelections","Auth.ListDeviceDeployments","Auth.ListInstanceGrantPolicies","Auth.ListInstalledContracts","Auth.ListLoginPortalSelections","Auth.ListPortalProfiles","Auth.ListPortals","Auth.ListServiceInstances","Auth.ListServiceDeployments","Auth.Logout","Auth.Me","Auth.ProvisionDeviceInstance","Auth.ProvisionServiceInstance","Auth.RemoveDeviceInstance","Auth.RemoveDeviceDeployment","Auth.RemoveServiceInstance","Auth.RemoveServiceDeployment","Auth.RevokeApproval","Auth.RevokeDeviceActivation","Auth.SetDevicePortalDefault","Auth.SetDevicePortalSelection","Auth.SetLoginPortalDefault","Auth.SetLoginPortalSelection","Auth.SetPortalProfile","Auth.UnapplyDeviceDeploymentContract","Auth.UnapplyServiceDeploymentContract","Auth.UpsertInstanceGrantPolicy","Auth.UpdateUser"]}},"core":{"contract":"trellis.core@v1","rpc":{"call":["Trellis.Catalog","Trellis.Contract.Get"]}}}}"#;
+const AGENT_CONTRACT_JSON: &str = r#"{
+  "description": "Drive Trellis operator RPC workflows from the Rust agent.",
+  "displayName": "Trellis Agent",
+  "format": "trellis.contract.v1",
+  "id": "trellis.agent@v1",
+  "kind": "agent",
+  "uses": {
+    "auth": {
+      "contract": "trellis.auth@v1",
+      "rpc": {
+        "call": [
+          "Auth.Deployments.Create",
+          "Auth.DeviceUserAuthorities.Reviews.Decide",
+          "Auth.Devices.Disable",
+          "Auth.Deployments.Disable",
+          "Auth.ServiceInstances.Disable",
+          "Auth.Devices.Enable",
+          "Auth.Deployments.Enable",
+          "Auth.ServiceInstances.Enable",
+          "Auth.Identities.List",
+          "Auth.DeviceUserAuthorities.Reviews.List",
+          "Auth.DeviceUserAuthorities.List",
+          "Auth.Devices.List",
+          "Auth.Deployments.List",
+          "Auth.ServiceInstances.List",
+          "Auth.Sessions.Logout",
+          "Auth.Sessions.Me",
+          "Auth.Devices.Provision",
+          "Auth.ServiceInstances.Provision",
+          "Auth.Devices.Remove",
+          "Auth.Deployments.Remove",
+          "Auth.ServiceInstances.Remove",
+          "Auth.IdentityEnvelopes.Revoke",
+          "Auth.DeviceUserAuthorities.Revoke"
+        ]
+      }
+    },
+    "core": {
+      "contract": "trellis.core@v1",
+      "rpc": {
+        "call": ["Trellis.Catalog", "Trellis.Contract.Get"]
+      }
+    }
+  }
+}"#;
 
 /// Render the canonical manifest JSON for the Trellis agent contract.
 pub fn agent_contract_json() -> &'static str {

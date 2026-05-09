@@ -3,6 +3,7 @@ import { assertEquals, assertExists } from "@std/assert";
 import { NatsTest } from "./testing/nats.ts";
 import {
   type StoreInfo,
+  type StoreListOptions,
   type StorePutOptions,
   type StoreStatus,
   type StoreWaitOptions,
@@ -79,6 +80,12 @@ Deno.test("Store public types compile", () => {
     signal: new AbortController().signal,
   };
 
+  const _listOptions: StoreListOptions = {
+    prefix: "incoming/",
+    offset: 0,
+    limit: 10,
+  };
+
   assertEquals(true, true);
 });
 
@@ -149,19 +156,14 @@ Deno.test({
     });
     assertEquals(replaced.isOk(), true);
 
-    const listedResult = await store.list("incoming/");
+    const listedResult = await store.list({ prefix: "incoming/", limit: 10 });
     assertEquals(listedResult.isOk(), true);
-    const listedIterator = listedResult.match({
+    const listed = listedResult.match({
       ok: (value) => value,
       err: (error) => {
         throw error;
       },
     });
-
-    const listed: StoreInfo[] = [];
-    for await (const info of listedIterator) {
-      listed.push(info);
-    }
     assertEquals(listed.length, 1);
     assertEquals(listed[0]?.key, "incoming/test.txt");
     assertEquals(listed[0]?.metadata.revision, "2");

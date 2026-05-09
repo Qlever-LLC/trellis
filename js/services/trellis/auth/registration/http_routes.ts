@@ -6,18 +6,19 @@ import type { Config } from "../../config.ts";
 import { registerBuiltinPortalStaticRoutes } from "../http/builtin_portal.ts";
 import { registerHttpRoutes } from "../http/routes.ts";
 import { createKick } from "../callout/kick.ts";
-import { createEffectiveGrantPolicyLoader } from "../grants/store.ts";
 import type {
-  SqlContractApprovalRepository,
+  SqlDeploymentContractEvidenceRepository,
+  SqlDeploymentEnvelopeRepository,
+  SqlDeploymentGrantOverrideRepository,
+  SqlDeploymentPortalRouteRepository,
+  SqlDeploymentResourceBindingRepository,
   SqlDeviceActivationRepository,
   SqlDeviceActivationReviewRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
-  SqlDevicePortalSelectionRepository,
   SqlDeviceProvisioningSecretRepository,
-  SqlLoginPortalSelectionRepository,
-  SqlPortalDefaultRepository,
-  SqlPortalRepository,
+  SqlEnvelopeExpansionRequestRepository,
+  SqlIdentityEnvelopeRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlUserProjectionRepository,
@@ -30,20 +31,30 @@ export function registerAuthHttpRoutes(
       config: Config;
       contracts: Pick<
         AuthContractsRuntime,
-        "contractStore" | "refreshActiveContracts" | "validateActiveCatalog"
+        | "getActiveEntries"
+        | "getActiveContractsById"
+        | "getContract"
+        | "getKnownContract"
+        | "getKnownContractsById"
+        | "refreshActiveContracts"
+        | "validateActiveCatalog"
+        | "validateContract"
       >;
       contractStorage: SqlContractStorageRepository;
       userStorage: SqlUserProjectionRepository;
-      contractApprovalStorage: SqlContractApprovalRepository;
-      portalStorage: SqlPortalRepository;
-      portalDefaultStorage: SqlPortalDefaultRepository;
-      loginPortalSelectionStorage: SqlLoginPortalSelectionRepository;
-      devicePortalSelectionStorage: SqlDevicePortalSelectionRepository;
+      contractApprovalStorage: SqlIdentityEnvelopeRepository;
+      deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
       deviceDeploymentStorage: SqlDeviceDeploymentRepository;
       deviceInstanceStorage: SqlDeviceInstanceRepository;
       deviceActivationStorage: SqlDeviceActivationRepository;
       deviceActivationReviewStorage: SqlDeviceActivationReviewRepository;
       deviceProvisioningSecretStorage: SqlDeviceProvisioningSecretRepository;
+      deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+      deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
+      deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
+      deploymentContractEvidenceStorage:
+        SqlDeploymentContractEvidenceRepository;
+      envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
       serviceDeploymentStorage: SqlServiceDeploymentRepository;
       serviceInstanceStorage: SqlServiceInstanceRepository;
     }
@@ -58,8 +69,6 @@ export function registerAuthHttpRoutes(
       | "pendingAuthKV"
       | "sentinelCreds"
       | "sessionStorage"
-      | "instanceGrantPolicyStorage"
-      | "portalProfileStorage"
     >,
 ): void {
   registerBuiltinPortalStaticRoutes(deps.app);
@@ -67,21 +76,22 @@ export function registerAuthHttpRoutes(
     contractStorage: deps.contractStorage,
     userStorage: deps.userStorage,
     contractApprovalStorage: deps.contractApprovalStorage,
-    portalStorage: deps.portalStorage,
-    portalDefaultStorage: deps.portalDefaultStorage,
-    loginPortalSelectionStorage: deps.loginPortalSelectionStorage,
-    devicePortalSelectionStorage: deps.devicePortalSelectionStorage,
+    deploymentPortalRouteStorage: deps.deploymentPortalRouteStorage,
     deviceDeploymentStorage: deps.deviceDeploymentStorage,
     deviceInstanceStorage: deps.deviceInstanceStorage,
     deviceActivationStorage: deps.deviceActivationStorage,
     deviceActivationReviewStorage: deps.deviceActivationReviewStorage,
     deviceProvisioningSecretStorage: deps.deviceProvisioningSecretStorage,
+    deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+    deploymentGrantOverrideStorage: deps.deploymentGrantOverrideStorage,
+    deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
+    deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
+    envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     serviceInstanceStorage: deps.serviceInstanceStorage,
     config: deps.config,
-    contractStore: deps.contracts.contractStore,
+    contracts: deps.contracts,
     kick: createKick(deps),
-    loadEffectiveGrantPolicies: createEffectiveGrantPolicyLoader(deps),
     runtimeDeps: deps,
   });
 }

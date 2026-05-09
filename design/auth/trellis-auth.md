@@ -1,6 +1,6 @@
 ---
 title: Trellis Auth
-description: Trellis authentication and authorization architecture, including approvals, session keys, and service deployment identity.
+description: Trellis authentication and authorization architecture, including identity envelopes, session keys, and deployment envelopes.
 order: 10
 ---
 
@@ -39,12 +39,13 @@ short-lived flow and presence state.
 Durable SQL-backed records:
 
 - users and admin-managed user capabilities
-- contract approval decisions and deployment-wide grant policies
-- portal routes, portal profiles, portal defaults, and portal selections
+- identity envelopes, deployment envelopes, approval decisions, and deployment
+  grant overrides
+- portal-route metadata embedded in deployment envelopes
 - service deployments and service instances
 - device deployments, device instances, provisioning secrets, activations, and
   review records
-- installed contract records and resource bindings
+- contract evidence records and resource bindings
 - sessions bound to a principal, session key, contract context, and `lastAuth`
 
 KV-backed runtime records:
@@ -62,9 +63,8 @@ Rules:
 - KV flow records are scratch state and must be safe to expire
 - connection records describe live transport presence and are not durable
   authority
-- enabled service deployments' applied digests are durable catalog/auth
-  authority once apply succeeds; service instances only affect runtime
-  availability and current-digest enforcement
+- envelopes are the durable authority primitive; service and device instances
+  only affect runtime availability, liveness, and current contract evidence
 - connection-time lookups must use explicit repositories or injected
   dependencies, not hidden global state
 - session TTL is enforced from the session's `lastAuth` timestamp using the
@@ -73,7 +73,57 @@ Rules:
   sessions and cleans up short-lived connection-presence KV before kicking live
   NATS clients
 
-### 1) Trellis uses a two-layer auth model
+### 1) Envelopes are the authority primitive
+
+An envelope is the only Trellis authority primitive. It describes the contracts,
+surfaces, resources, and optional integrations available to a scope, and the
+capabilities that scope may use against those available things.
+
+Terms:
+
+- **envelope**: the authority set for one identity or deployment scope
+- **boundary**: the required or optional contract-derived surface that a
+  participant asks to use
+- **delta**: the boundary difference that must be added to an envelope before a
+  request can proceed
+- **availability**: whether a contract, surface, integration, or resource exists
+  in the relevant deployment envelope
+- **liveness**: whether the runtime session, service instance, device instance,
+  or connection is currently usable
+- **identity envelope**: the envelope bound to a user app, CLI, native app,
+  device-user flow, or other stable identity
+- **deployment envelope**: the envelope owned by a deployment, including
+  service, device, app, CLI, native, portal, and device-user deployments
+- **grant override**: deployment-owned metadata that may pre-authorize envelope
+  and capability decisions, but cannot create availability that the deployment
+  envelope lacks
+- **contract evidence**: the manifest digest, version, and derived analysis used
+  to prove what boundary a participant presented; it is evidence, not authority
+
+The core decision is:
+
+```ts
+requestedRequiredBoundary <= effectiveEnvelope;
+```
+
+If the required boundary fits, the participant may bind or connect once the
+non-envelope prerequisites also pass. If the boundary does not fit, Trellis
+creates an envelope expansion request for the missing delta. Approval expands an
+envelope; it does not approve contract digest lists. Optional boundaries are
+used only when both available and authorized.
+
+Non-envelope prerequisites stay separate from envelopes:
+
+- session, service, device, and activation proof verification
+- `iat` freshness checks
+- OAuth provider and state checks
+- redirect and origin validation for web and PWA identity
+- disabled, revoked, and deleted lifecycle checks
+- rate limiting and CORS
+- NATS permission construction from resolved envelopes
+- connection tracking, kicking, session cleanup, and revocation events
+
+### 2) Trellis uses a two-layer auth model
 
 Authentication operates at two separate layers:
 
@@ -90,7 +140,7 @@ Rules:
 - Trellis session keys handle application identity proofs across connections
 - the same session key may back multiple concurrent NATS connections
 
-### 2) Prove session-key ownership before granting access
+### 3) Prove session-key ownership before granting access
 
 Users, services, and devices follow the same core runtime pattern:
 
@@ -108,25 +158,26 @@ For contract-bearing user runtimes, the reconnect proof carries:
 Rules:
 
 - session-key proof alone is not enough for ordinary user clients
-- contract-bearing clients must present an approved exact `contractDigest`
-- service runtimes must present the exact digest currently persisted on their
-  service instance, and that digest must still be allowed by the parent service
-  deployment; stale service binaries or retired deployment digests are rejected
-  during NATS auth callout rather than receiving a partially scoped JWT
+- contract-bearing clients must present contract evidence that fits their
+  effective identity envelope
+- service runtimes must present current contract evidence that fits the parent
+  deployment envelope; stale service binaries or unavailable boundaries are
+  rejected during NATS auth callout rather than receiving a partially scoped JWT
 - permissions are always derived from the caller's contract context plus current
   grants, never from hard-coded static ACLs; service/device runtime contracts
-  are active deployment contracts, while app/agent contracts are known approved
-  delegated contracts bound to the user session
-- reconnect authorization is re-evaluated against the presented digest and the
-  bound app identity
+  are resolved against deployment envelopes, while user-facing app, CLI, native,
+  and device-user contract evidence is resolved against identity envelopes bound
+  to the user session
+- reconnect authorization is re-evaluated against the presented contract
+  evidence and the bound app identity
 
-### 3) Identity binding differs by principal class
+### 4) Identity binding differs by principal class
 
-| Principal Class   | Identity Source                        | Binding Mechanism                                                        |
-| ----------------- | -------------------------------------- | ------------------------------------------------------------------------ |
-| Users             | External IdP                           | Portal-mediated browser auth flow binds user identity to session key     |
-| Installed devices | Trellis device install registry        | Admin install binds device public key to an exact digest and session key |
-| Activated devices | Preregistered device instance registry | Activation binds device public identity key to a device principal        |
+| Principal Class   | Identity Source                        | Binding Mechanism                                                     |
+| ----------------- | -------------------------------------- | --------------------------------------------------------------------- |
+| Users             | External IdP                           | Portal-mediated browser auth flow binds user identity to session key  |
+| Installed devices | Trellis device registry                | Admin provisioning binds a public device key to a deployment envelope |
+| Activated devices | Preregistered device instance registry | Activation binds device public identity key to a device principal     |
 
 The identity source is pluggable. The core requirement is that Trellis can bind
 a stable identity to a session key before allowing authenticated access.
@@ -135,7 +186,7 @@ For activated devices, the public identity key is the durable principal
 identity. That identity is not allowed online until the preregistered device
 instance has been activated.
 
-### 4) Session keys are the long-lived application identity
+### 5) Session keys are the long-lived application identity
 
 Browser clients:
 
@@ -154,7 +205,7 @@ Rules:
 - the public session key is an identifier, not a secret credential
 - session keys persist across reconnects and are rotated only deliberately
 
-### 5) Sentinel credentials trigger auth callout; they grant no real access
+### 6) Sentinel credentials trigger auth callout; they grant no real access
 
 Clients connect to NATS using sentinel credentials that exist only to trigger
 the Trellis auth callout.
@@ -175,7 +226,7 @@ Rules:
   calculation, a single server-time refresh retry for `iat_out_of_range`, and
   reconnect-safe auth payload generation
 
-### 6) User identity is provisioned before contract approval
+### 7) User identity is provisioned before envelope approval
 
 Successful external authentication provisions or refreshes the auth-local user
 projection before any contract approval or bind step completes.
@@ -186,12 +237,12 @@ Rules:
   does not already exist
 - reprovisioning MUST preserve admin-managed user state such as `active` and
   explicitly granted capabilities
-- deployment-wide instance grant policies MUST NOT be copied onto the user
-  projection; they remain auth-owned dynamic policy
-- contract approval gates delegated app/session access, not whether the user
+- grant overrides MUST NOT be copied onto the user projection; they remain
+  deployment-owned metadata considered while resolving the effective envelope
+- envelope approval gates delegated app/session access, not whether the user
   exists in auth-local state
 
-### 7) User auth is approval-gated by exact contract digest
+### 8) User auth is approval-gated by envelope fit
 
 Trellis treats `app` and `agent` participants as contract-bearing delegated user
 clients.
@@ -209,20 +260,15 @@ Rules:
 - browser login-init proofs cover the redirect target and canonical portal
   context so a signed flow cannot be retargeted or recontextualized after
   signing; the final browser bind proof is tied to the `flowId`
-- portals are per-instance deployments by default; built-in and custom portal
-  deployments should use explicit Trellis URL config rather than assuming the
-  portal shares an origin with the Trellis HTTP service
-- Trellis ships a built-in portal deployment for login and generic device
-  activation flows, commonly served by the Trellis HTTP server from static
-  assets; deployments may register custom portals to replace that behavior
-  selectively
-- a portal is a browser web app registered by deployment-owned portal records;
-  it is never a service-authenticated principal
-- portal records are routing config only: `portalId`, `entryUrl`, and `disabled`
-- deployments MAY also configure portal profiles keyed by `portalId`; portal
-  profiles bind one browser app contract lineage and optional origin
-  restrictions to one routed portal entry point and imply approval plus
-  effective capabilities while the profile remains enabled
+- portals should use explicit Trellis URL config rather than assuming the portal
+  shares an origin with the Trellis HTTP service
+- Trellis ships built-in login and generic device-activation portal routes,
+  commonly served by the Trellis HTTP server from static assets; deployments may
+  carry custom portal-route metadata to replace that behavior selectively
+- a portal is a browser web app selected by deployment-envelope routing
+  metadata; it is never a service-authenticated principal
+- portal routes are routing config only and do not imply approval, capabilities,
+  or service authority
 - there is no special portal contract kind; custom portals remain first-class
   browser UX surfaces without portal-specific contract machinery
 - a portal MAY also act later as a normal user-authenticated browser app, but
@@ -230,29 +276,25 @@ Rules:
   service deployment record
 - browser apps MAY attach opaque portal context to login initiation so custom
   portals can coordinate UX without introducing portal-specific app APIs
-- the approval key is `user <-> contractDigest`, not merely
-  `user <-> contractId`
+- approval is recorded as an identity envelope decision for the presented
+  contract evidence and app identity
 - approval payloads expose `approval.capabilities` as an object keyed by global
   capability key, with `displayName`, `description`, and optional `consequence`
   metadata from the owning contract
 - approval UIs should render capability metadata as the primary decision content
   and keep raw capability keys, contract ids, and digests as technical details
-- contract changes create a new digest and therefore require a fresh approval
-  decision unless auth can prove the new delegated envelope is a strict subset
-  of the currently delegated envelope for the same app identity and contract
-  lineage
+- contract changes create new contract evidence; they require approval only when
+  the requested boundary exceeds the current identity envelope for the same app
+  identity
 - user sessions bind user identity, session key, and explicit app identity
   together; app identity includes the app contract id and, when available, the
   app origin
 - reconnect authorization revalidates the presented digest against the bound
   user/app context rather than relying on a renewable binding token
-- deployments MAY also configure instance grant policies keyed by contract
-  lineage, with optional origin restrictions, that imply approval and effective
-  capabilities dynamically
-- portal profiles are the portal-specific variant of that deployment policy;
-  broader app and agent bypasses remain deployment-wide instance grant policies
-- when a matching instance grant policy is enabled, it overrides explicit user
-  denial for that app lineage while the policy remains enabled
+- deployments MAY configure grant overrides keyed by contract lineage, app
+  identity, or origin that pre-authorize envelope and capability decisions
+- grant overrides cannot invent availability; the requested boundary must still
+  fit the relevant deployment envelope
 - approval scopes are derived from declared contract APIs; there is no separate
   scope DSL
 - stored grants, sessions, users, services, and devices continue to store
@@ -262,8 +304,8 @@ Rules:
   one-time browser-flow outcome that redirects the caller back with
   `authError=approval_denied` and does not create a durable denial record
 - a later sign-in attempt after user denial MUST ask for permission again unless
-  another approval source, such as an instance grant policy, already covers the
-  requested delegated envelope
+  a grant override or existing identity envelope already covers the requested
+  delegated envelope
 - if the user's capabilities no longer satisfy the delegated contract, the
   delegated session becomes invalid until re-approval
 - if a policy change removes implied approval or implied capabilities, Trellis
@@ -273,39 +315,40 @@ Rules:
 - after any successful rebind or digest change, callers MUST reconnect NATS
   before using the new rights because transport JWTs are issued per connection
 
-### 8) Activated devices are deployment-owned
+### 9) Activated devices are deployment-owned
 
 Activated devices are preregistered through Trellis-admin flows and bound to a
-deployment-owned device deployment. The device identity is durable; allowed
-contract digests live on the deployment, and the device presents one exact
-digest at runtime.
+deployment-owned device deployment. The device identity is durable; the device
+presents contract evidence at runtime, and that evidence must fit the deployment
+envelope plus any user-delegated identity envelope created by activation.
 
 Rules:
 
 - the preregistered public key is the device identity
-- allowed runtime digests are stored in
-  `DeviceDeployment.appliedContracts[].allowedDigests`
-- individual device instances do not persist current contract id or digest state
+- device runtime authority comes from the deployment envelope and, after
+  activation, the user-delegated identity envelope
+- individual device instances do not persist independent authority
 - the private device seed never crosses the network to the Trellis runtime
 - key rotation is a separate explicit administrative operation
 
-### 9) Auth remains unified after binding
+### 10) Auth remains unified after binding
 
 After identity binding, users and devices share the same auth-callout-based NATS
 connection model.
 
 Activated devices join that same runtime model after activation is complete.
 Before that point, device setup uses Trellis-owned browser auth/bootstrap flows
-with `kind: "device_activation"`, the `Auth.ActivateDevice` operation, and
-pre-auth wait surfaces defined in
+with `kind: "device_activation"`, the `Auth.DeviceUserAuthorities.Resolve`
+operation, and pre-auth wait surfaces defined in
 [device-activation.md](./device-activation.md). Browser auth UX runs through
-portals selected by explicit login and device portal-selection state; callers do
-not choose portals directly in the normal path. Normal auth redirects only need
-to preserve `flowId`; they do not need to carry `trellisUrl` in the default
-per-instance portal model because the portal deployment already knows which
-Trellis instance it targets. A portal may later continue as a user-authenticated
-browser app for onboarding or activation work, but that remains user-delegated
-app authority rather than service authority.
+portal routes from deployment-owned routing metadata; callers do not choose
+portals directly in the normal path, and there is no standalone portal/default/
+selection authority. Normal auth redirects only need to preserve `flowId`; they
+do not need to carry `trellisUrl` in the default per-instance portal model
+because the portal deployment already knows which Trellis instance it targets. A
+portal may later continue as a user-authenticated browser app for onboarding or
+activation work, but that remains user-delegated app authority rather than
+service authority.
 
 Language runtimes expose this model through thin helper layers rather than
 separate protocols. Exact TypeScript declarations belong in the generated `/api`
@@ -348,12 +391,8 @@ Rules:
 - Rust admin clients are thin typed facades over generated auth/admin SDK
   models; they may group calls ergonomically but must not hand-maintain
   independent wire shapes or redefine auth semantics
-- Rust portal administration preserves the same portal invariants as the wire
-  API: built-in portals are implicit, custom portal records are routing config,
-  portal profiles are trust policy keyed by portal, login selections are keyed
-  by contract id, device selections are keyed by deployment id, and
-  `portalId =
-  null` forces the built-in portal for that scope
+- Rust portal administration commands do not call standalone portal RPCs; portal
+  routing is deployment-envelope metadata and built-in portals remain implicit
 
 The important distinction is that installed and activated devices differ in auth
 establishment, not in the basic runtime treatment after auth succeeds.
@@ -383,12 +422,11 @@ Rules:
 - users and devices all prove long-lived key ownership before receiving
   authenticated runtime access
 - users and devices all receive transport permissions derived from current
-  grants and their presented contract context; activated devices use active
-  deployment contracts, while user app/agent sessions use known approved
-  delegated contracts
+  grants and their presented contract context; activated devices use deployment
+  envelopes, while user app/agent sessions use identity envelopes
 - activated devices do not use browser bind or user session flows; they
   establish their session from activation state plus identity-key proof and
-  exact digest presentation
+  current contract evidence
 - browser sessions that are revoked or otherwise missing during runtime RPCs
   surface as `session_not_found` and should re-enter the browser login flow
   rather than displaying a terminal application error
@@ -399,12 +437,12 @@ Rules:
 - higher-level runtimes should resolve bindings eagerly and expose typed
   resource handles rather than raw connect details
 
-### 10) Auth is contract-driven
+### 11) Auth is contract-driven
 
 Authorization is derived from:
 
-- the active service/device contract set and known approved app/agent contracts
-- the caller's grants and approvals
+- deployment envelopes and presented contract evidence
+- identity envelopes, grant overrides, and caller grants
 - declared `operations`, `rpc`, `events`, and `uses`
 - installed resource bindings
 
@@ -415,6 +453,9 @@ Rules:
 - user approval planning and active-catalog refresh both resolve `uses`
   dependencies against currently active contracts. Inactive or missing
   dependencies fail closed instead of being treated as advisory metadata.
+- active-catalog refresh, portal routing, surface status, shrink preview, and
+  unused installed-contract cleanup are derived through targeted durable-store
+  queries rather than broad scans of local manifests or in-memory catalogs.
 - user approval planning collects required capability keys from declared RPC,
   operation, and event capability lists and attaches the owning contract's
   capability metadata when available
@@ -436,7 +477,7 @@ Rules:
 - devices may subscribe to auth events only when their contracts explicitly
   declare them in `uses`
 
-### 11) Reply subjects and operation streams are part of the auth model
+### 12) Reply subjects and operation streams are part of the auth model
 
 The auth model must protect reply subjects and support operation streaming
 replies.
@@ -449,7 +490,7 @@ Rules:
 - Trellis MUST NOT grant arbitrary inbox publish rights just to support
   operation streams
 
-### 12) Trellis maintains runtime-local auth state for fast authorization
+### 13) Trellis maintains runtime-local auth state for fast authorization
 
 The Trellis runtime/control-plane service maintains Trellis-local auth state
 such as:
@@ -457,11 +498,8 @@ such as:
 - sessions
 - user projections
 - installed device registry entries
-- approval records
-- portal records (`portalId`, `entryUrl`, `disabled`)
-- login portal selection records
-- device portal selection records
-- optional login/device default-portal deployment settings
+- identity-envelope approval records
+- deployment-envelope portal-route metadata
 - auth browser flow records
 - device deployments
 - device instances

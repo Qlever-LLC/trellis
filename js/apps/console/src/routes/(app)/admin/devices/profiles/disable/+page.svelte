@@ -1,8 +1,8 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthDisableDeviceDeploymentInput,
-    AuthListDeviceDeploymentsOutput,
+    AuthDeploymentsDisableInput,
+    AuthDeploymentsListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -15,7 +15,7 @@
   import { getNotifications } from "$lib/notifications.svelte";
   import { getTrellis } from "$lib/trellis";
 
-  type Deployment = AuthListDeviceDeploymentsOutput["deployments"][number];
+  type Deployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "device" }>;
 
   const trellis = getTrellis();
   const notifications = getNotifications();
@@ -33,9 +33,9 @@
     loading = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.ListDeviceDeployments", { disabled: false }).take();
+      const response = await trellis.request("Auth.Deployments.List", { kind: "device", disabled: false, limit: 500, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
-      const loadedDeployments = response.deployments ?? [];
+      const loadedDeployments = (response.deployments ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
       const loadedActiveDeployments = loadedDeployments.filter((deployment) => !deployment.disabled);
       deployments = loadedDeployments;
       if (selectedDeploymentId && !loadedActiveDeployments.some((deployment) => deployment.deploymentId === selectedDeploymentId)) {
@@ -57,8 +57,8 @@
     error = null;
     try {
       const response = await trellis.request(
-        "Auth.DisableDeviceDeployment",
-        { deploymentId: selectedDeployment.deploymentId } satisfies AuthDisableDeviceDeploymentInput,
+        "Auth.Deployments.Disable",
+        { deploymentId: selectedDeployment.deploymentId, kind: "device" } satisfies AuthDeploymentsDisableInput,
       ).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Device deployment ${selectedDeployment.deploymentId} disabled.`, "Disabled");
@@ -106,7 +106,7 @@
           <div class="rounded-box border border-base-300 bg-base-200/40 p-3 text-sm">
             <div class="trellis-identifier font-medium">{selectedDeployment.deploymentId}</div>
             <div class="text-base-content/60">Review mode: {selectedDeployment.reviewMode ?? "none"}</div>
-            <div class="text-base-content/60">Applied contracts: {selectedDeployment.appliedContracts.length}</div>
+            <div class="text-base-content/60">Authority: review the deployment envelope for contract evidence.</div>
           </div>
         {/if}
 

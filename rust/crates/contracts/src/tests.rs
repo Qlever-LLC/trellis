@@ -105,13 +105,13 @@ fn pack_trellis_owned_contracts_matches_shared_fixture() {
             "description": "Provide Trellis authentication, session, deployment, and admin RPCs.",
             "kind": "service",
             "schemas": {
-                "AuthConnectEvent": {"type": "object", "properties": {}, "additionalProperties": false}
+                "AuthConnectionsOpenedEvent": {"type": "object", "properties": {}, "additionalProperties": false}
             },
             "events": {
-                "Auth.Connect": {
+                "Auth.Connections.Opened": {
                     "version": "v1",
-                    "subject": "events.v1.Auth.Connect",
-                    "event": {"schema": "AuthConnectEvent"}
+                    "subject": "events.v1.Auth.Connections.Opened",
+                    "event": {"schema": "AuthConnectionsOpenedEvent"}
                 }
             }
         }))

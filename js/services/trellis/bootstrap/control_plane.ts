@@ -12,19 +12,18 @@ import { CONTRACT as trellisAuthContract } from "../contracts/trellis_auth.ts";
 import { CONTRACT as trellisCoreContract } from "../contracts/trellis_core.ts";
 import { CONTRACT as trellisHealthContract } from "../contracts/trellis_health.ts";
 import { CONTRACT as trellisStateContract } from "../contracts/trellis_state.ts";
-import type { ContractStore } from "../catalog/store.ts";
+import type { ContractsModule } from "../catalog/runtime.ts";
 import type { SqlContractStorageRepository } from "../catalog/storage.ts";
 import type {
-  SqlContractApprovalRepository,
+  SqlDeploymentEnvelopeRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
-  SqlInstanceGrantPolicyRepository,
+  SqlIdentityEnvelopeRepository,
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../auth/storage.ts";
 import type { AuthRuntimeDeps } from "../auth/runtime_deps.ts";
 import { createServiceLookup } from "../auth/admin/service_lookup.ts";
-import { createEffectiveGrantPolicyLoader } from "../auth/grants/store.ts";
 import type { Config } from "../config.ts";
 
 type BuiltinContract = { digest: string; contract: TrellisContractV1 };
@@ -57,25 +56,27 @@ export function resolveBuiltinContracts(): BuiltinContract[] {
 export function startControlPlaneBackgroundTasks(opts: {
   contractStorage: SqlContractStorageRepository;
   userStorage: SqlUserProjectionRepository;
-  contractApprovalStorage: SqlContractApprovalRepository;
+  contractApprovalStorage: SqlIdentityEnvelopeRepository;
+  deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
   deviceInstanceStorage: AuthRuntimeDeps["deviceInstanceStorage"];
-  instanceGrantPolicyStorage: SqlInstanceGrantPolicyRepository;
   serviceDeploymentStorage: AuthRuntimeDeps["serviceDeploymentStorage"];
   serviceInstanceStorage: AuthRuntimeDeps["serviceInstanceStorage"];
-  portalProfileStorage: AuthRuntimeDeps["portalProfileStorage"];
-  portalStorage: AuthRuntimeDeps["portalStorage"];
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   logger: AuthRuntimeDeps["logger"];
   natsAuth: AuthRuntimeDeps["natsAuth"];
   sessionStorage: SqlSessionRepository;
   trellis: AuthRuntimeDeps["trellis"];
-  contractStore?: ContractStore;
+  contracts: Pick<
+    ContractsModule,
+    | "getActiveEntries"
+    | "getKnownContract"
+    | "validateContract"
+  >;
   config: Config;
 }) {
   const serviceLookup = createServiceLookup(opts);
-  const loadInstanceGrantPolicies = createEffectiveGrantPolicyLoader(opts);
   const disconnectCleanup = startDisconnectCleanup({
     connectionsKV: opts.connectionsKV,
     logger: opts.logger,
@@ -88,6 +89,7 @@ export function startControlPlaneBackgroundTasks(opts: {
     contractStorage: opts.contractStorage,
     userStorage: opts.userStorage,
     contractApprovalStorage: opts.contractApprovalStorage,
+    deploymentEnvelopeStorage: opts.deploymentEnvelopeStorage,
     connectionsKV: opts.connectionsKV,
     deviceActivationStorage: opts.deviceActivationStorage,
     deviceDeploymentStorage: opts.deviceDeploymentStorage,
@@ -98,8 +100,7 @@ export function startControlPlaneBackgroundTasks(opts: {
     trellis: opts.trellis,
     loadServiceInstanceByKey: serviceLookup.loadServiceInstanceByKey,
     loadServiceDeployment: serviceLookup.loadServiceDeployment,
-    loadInstanceGrantPolicies,
-    contractStore: opts.contractStore,
+    contracts: opts.contracts,
   });
 
   return {

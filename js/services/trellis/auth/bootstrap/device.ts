@@ -1,11 +1,19 @@
 import type { Context } from "@hono/hono";
 import { AsyncResult } from "@qlever-llc/result";
+import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import { verifyDeviceWaitSignature } from "@qlever-llc/trellis/auth";
+import type { ContractsModule } from "../../catalog/runtime.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
+import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
+import {
+  computeEnvelopeDelta,
+  evaluateEnvelopeFit,
+} from "../envelope_decision.ts";
 import { SignatureSchema } from "../schemas.ts";
+import type { DeploymentEnvelope, EnvelopeBoundary } from "../schemas.ts";
 import { isDeviceProofIatFresh } from "../device_activation/shared.ts";
 
 const DigestSchema = Type.String({ pattern: "^[A-Za-z0-9_-]+$" });
@@ -37,9 +45,7 @@ type DeviceInstance = {
 
 type DeviceDeployment = {
   deploymentId: string;
-  appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   reviewMode?: "none" | "required";
-  preActivationPolicy?: "reject" | "device-owned";
   disabled: boolean;
 };
 
@@ -50,6 +56,10 @@ type DeviceActivation = {
   state: "activated" | "revoked";
   activatedAt: string;
   revokedAt: string | null;
+};
+
+type DeploymentEnvelopeStorage = {
+  get(deploymentId: string): Promise<DeploymentEnvelope | undefined>;
 };
 
 type DeviceConnectInfo = {
@@ -69,7 +79,7 @@ type DeviceConnectInfo = {
   };
   auth: {
     mode: "device_identity";
-    authority: "device_owned" | "user_delegated";
+    authority: "admin_reviewed" | "user_delegated";
     iatSkewSeconds: number;
   };
 };
@@ -80,6 +90,13 @@ export type DeviceConnectInfoResult =
   | { status: "not_ready"; reason: string };
 
 export type DeviceConnectInfoResolverDeps = {
+  contracts: Pick<
+    ContractsModule,
+    | "getActiveContractsById"
+    | "getActiveEntries"
+    | "getContract"
+    | "validateContract"
+  >;
   transports: {
     native?: { natsServers: string[] };
     websocket?: { natsServers: string[] };
@@ -93,6 +110,7 @@ export type DeviceConnectInfoResolverDeps = {
     instanceId: string,
   ): Promise<DeviceActivation | null>;
   loadDeviceDeployment(deploymentId: string): Promise<DeviceDeployment | null>;
+  deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
 };
 
 export type DeviceConnectInfoDeps = DeviceConnectInfoResolverDeps & {
@@ -107,9 +125,10 @@ export type DeviceConnectInfoDeps = DeviceConnectInfoResolverDeps & {
 
 function buildDeviceConnectInfo(args: {
   instance: DeviceInstance;
-  deployment: DeviceDeployment;
+  deploymentId: string;
+  contract: TrellisContractV1;
   contractDigest: string;
-  authority: "device_owned" | "user_delegated";
+  authority: "admin_reviewed" | "user_delegated";
   transports: {
     native?: { natsServers: string[] };
     websocket?: { natsServers: string[] };
@@ -118,18 +137,11 @@ function buildDeviceConnectInfo(args: {
     jwt: string;
     seed: string;
   };
-}): DeviceConnectInfo | null {
-  const applied = args.deployment.appliedContracts.find((entry) =>
-    entry.allowedDigests.includes(args.contractDigest)
-  );
-  if (!applied) {
-    return null;
-  }
-
+}): DeviceConnectInfo {
   return {
     instanceId: args.instance.instanceId,
-    deploymentId: args.deployment.deploymentId,
-    contractId: applied.contractId,
+    deploymentId: args.deploymentId,
+    contractId: args.contract.id,
     contractDigest: args.contractDigest,
     transports: args.transports,
     transport: {
@@ -141,6 +153,65 @@ function buildDeviceConnectInfo(args: {
       iatSkewSeconds: 30,
     },
   };
+}
+
+const EMPTY_BOUNDARY: EnvelopeBoundary = {
+  contracts: [],
+  surfaces: [],
+  capabilities: [],
+  resources: [],
+};
+
+function mergeBoundaries(...boundaries: EnvelopeBoundary[]): EnvelopeBoundary {
+  return computeEnvelopeDelta(EMPTY_BOUNDARY, {
+    contracts: boundaries.flatMap((boundary) => boundary.contracts),
+    surfaces: boundaries.flatMap((boundary) => boundary.surfaces),
+    capabilities: boundaries.flatMap((boundary) => boundary.capabilities),
+    resources: boundaries.flatMap((boundary) => boundary.resources),
+  });
+}
+
+async function resolveDeviceEnvelopeContract(input: {
+  deps: DeviceConnectInfoResolverDeps;
+  deploymentId: string;
+  contractDigest: string;
+}): Promise<
+  | { status: "ready"; contract: TrellisContractV1 }
+  | { status: "not_ready"; reason: string }
+> {
+  const deploymentEnvelope = await input.deps.deploymentEnvelopeStorage.get(
+    input.deploymentId,
+  );
+  if (!deploymentEnvelope || deploymentEnvelope.disabled) {
+    return { status: "not_ready", reason: "device_deployment_not_found" };
+  }
+
+  const contract = await input.deps.contracts.getContract(
+    input.contractDigest,
+    {
+      includeInactive: true,
+    },
+  );
+  if (!contract) {
+    return { status: "not_ready", reason: "contract_digest_not_allowed" };
+  }
+
+  const analysis = await analyzeContractEnvelopeBoundary(
+    input.deps.contracts,
+    contract,
+  );
+  const requestedBoundary = mergeBoundaries(
+    analysis.required,
+    analysis.contributedAvailability,
+  );
+  const fit = evaluateEnvelopeFit(
+    deploymentEnvelope.boundary,
+    requestedBoundary,
+  );
+  if (!fit.fits) {
+    return { status: "not_ready", reason: "device_envelope_miss" };
+  }
+  return { status: "ready", contract };
 }
 
 export async function resolveDeviceConnectInfo(
@@ -165,20 +236,21 @@ export async function resolveDeviceConnectInfo(
     if (!deployment || deployment.disabled) {
       return { status: "not_ready", reason: "device_deployment_not_found" };
     }
-    if (deployment.preActivationPolicy !== "device-owned") {
-      return { status: "activation_required" };
-    }
+    const contractResult = await resolveDeviceEnvelopeContract({
+      deps,
+      deploymentId: deployment.deploymentId,
+      contractDigest: input.contractDigest,
+    });
+    if (contractResult.status === "not_ready") return contractResult;
     const connectInfo = buildDeviceConnectInfo({
       instance,
-      deployment,
+      deploymentId: deployment.deploymentId,
+      contract: contractResult.contract,
       contractDigest: input.contractDigest,
-      authority: "device_owned",
+      authority: "admin_reviewed",
       transports: deps.transports,
       sentinel: deps.sentinel,
     });
-    if (!connectInfo) {
-      return { status: "not_ready", reason: "contract_digest_not_allowed" };
-    }
     return { status: "ready", connectInfo };
   }
   if (activation.state === "revoked") {
@@ -196,17 +268,22 @@ export async function resolveDeviceConnectInfo(
     return { status: "not_ready", reason: "device_deployment_not_found" };
   }
 
+  const contractResult = await resolveDeviceEnvelopeContract({
+    deps,
+    deploymentId: deployment.deploymentId,
+    contractDigest: input.contractDigest,
+  });
+  if (contractResult.status === "not_ready") return contractResult;
+
   const connectInfo = buildDeviceConnectInfo({
     instance,
-    deployment,
+    deploymentId: deployment.deploymentId,
+    contract: contractResult.contract,
     contractDigest: input.contractDigest,
     authority: "user_delegated",
     transports: deps.transports,
     sentinel: deps.sentinel,
   });
-  if (!connectInfo) {
-    return { status: "not_ready", reason: "contract_digest_not_allowed" };
-  }
 
   return {
     status: "ready",
@@ -247,7 +324,10 @@ export function createDeviceConnectInfoHandler(deps: DeviceConnectInfoDeps) {
       return c.json({ reason: "unknown_device" }, 404);
     }
     if (result.status === "not_ready") {
-      if (result.reason === "contract_digest_not_allowed") {
+      if (
+        result.reason === "contract_digest_not_allowed" ||
+        result.reason === "device_envelope_miss"
+      ) {
         return c.json({ reason: result.reason }, 403);
       }
       if (result.reason === "device_deployment_not_found") {

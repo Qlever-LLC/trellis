@@ -16,7 +16,7 @@ const client = await TrellisClient.connect({
   trellisUrl: "https://trellis.example.com",
   contract: app,
 });
-const meResult = await client.request("Auth.Me", {});
+const meResult = await client.request("Auth.Sessions.Me", {});
 const me = meResult.orThrow();
 ```
 

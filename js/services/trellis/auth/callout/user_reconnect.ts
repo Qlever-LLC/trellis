@@ -1,20 +1,18 @@
 import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
 
-import type { ContractStore } from "../../catalog/store.ts";
-import type {
-  ContractApprovalRecord,
-  InstanceGrantPolicy,
-  UserSession,
-} from "../schemas.ts";
+import type { ContractsModule } from "../../catalog/runtime.ts";
+import type { EnvelopeBoundary, UserSession } from "../schemas.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
-import {
-  effectiveApproval,
-  effectiveCapabilities,
-  matchingInstanceGrantPolicies,
-  missingCapabilities,
-} from "../grants/policy.ts";
-import { contractApprovalKey } from "../http/support.ts";
+import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
+import { evaluateEnvelopeFit } from "../envelope_decision.ts";
+
+const EMPTY_BOUNDARY: EnvelopeBoundary = {
+  contracts: [],
+  surfaces: [],
+  capabilities: [],
+  resources: [],
+};
 
 export type UserReconnectFailureReason =
   | "approval_required"
@@ -30,16 +28,17 @@ export type ResolveUserReconnectResult =
 export async function resolveUserReconnectSession(args: {
   session: UserSession;
   presentedContractDigest: string;
-  contractStore: ContractStore;
+  contracts: Pick<
+    ContractsModule,
+    | "getActiveEntries"
+    | "getKnownContract"
+    | "validateContract"
+  >;
   loadUserProjection: (
     trellisId: string,
   ) => Promise<UserProjectionEntry | null>;
-  loadStoredApproval: (key: string) => Promise<ContractApprovalRecord | null>;
-  loadInstanceGrantPolicies: (
-    contractId: string,
-  ) => Promise<InstanceGrantPolicy[]>;
 }): Promise<ResolveUserReconnectResult> {
-  const knownContract = args.contractStore.getKnownContract(
+  const knownContract = await args.contracts.getKnownContract(
     args.presentedContractDigest,
   );
   const expectedContractId = args.session.app?.contractId ??
@@ -57,7 +56,7 @@ export async function resolveUserReconnectSession(args: {
   }
 
   const plan = await planUserContractApproval(
-    args.contractStore,
+    args.contracts,
     knownContract,
   );
   if (
@@ -67,31 +66,20 @@ export async function resolveUserReconnectSession(args: {
     return { ok: false, reason: "contract_changed" };
   }
 
-  const matchedPolicies = matchingInstanceGrantPolicies({
-    policies: await args.loadInstanceGrantPolicies(plan.contract.id),
-    contractId: plan.contract.id,
-    appOrigin: args.session.app?.origin,
-  });
-  const storedApproval = await args.loadStoredApproval(
-    contractApprovalKey(args.session.trellisId, plan.digest),
-  );
-  const resolvedApproval = effectiveApproval({
-    storedApproval,
-    matchedPolicies,
-  });
-  const resolvedCapabilities = effectiveCapabilities({
-    explicitCapabilities: projection.capabilities ?? [],
-    matchedPolicies,
-  });
+  const requestedBoundary = (await analyzeContractEnvelopeBoundary(
+    args.contracts,
+    knownContract,
+  )).required;
+  const existingEnvelope = args.session.identityEnvelope ?? EMPTY_BOUNDARY;
+  const envelopeFit = evaluateEnvelopeFit(existingEnvelope, requestedBoundary);
 
-  if (resolvedApproval.answer !== "approved") {
+  if (!envelopeFit.fits) {
     return { ok: false, reason: "approval_required" };
   }
   if (
-    missingCapabilities({
-      requiredCapabilities: approvalCapabilityKeys(plan.approval),
-      effectiveCapabilities: resolvedCapabilities,
-    }).length > 0
+    !approvalCapabilityKeys(plan.approval).every((capability) =>
+      (projection.capabilities ?? []).includes(capability)
+    )
   ) {
     return { ok: false, reason: "insufficient_permissions" };
   }
@@ -104,7 +92,8 @@ export async function resolveUserReconnectSession(args: {
       contractId: plan.contract.id,
       contractDisplayName: plan.contract.displayName,
       contractDescription: plan.contract.description,
-      approvalSource: resolvedApproval.kind,
+      approvalSource: args.session.approvalSource ?? "stored_approval",
+      identityEnvelope: requestedBoundary,
       delegatedCapabilities: approvalCapabilityKeys(plan.approval),
       delegatedPublishSubjects: plan.publishSubjects,
       delegatedSubscribeSubjects: plan.subscribeSubjects,

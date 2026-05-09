@@ -9,14 +9,14 @@ import type {
 import { UnexpectedError } from "../errors/index.ts";
 
 import {
-  type AuthActivateDeviceInput,
-  type AuthActivateDeviceOperation,
-  type AuthActivateDeviceOutput,
-  type AuthActivateDeviceProgress,
-  type AuthListDeviceActivationsInput,
-  type AuthListDeviceActivationsOutput,
-  type AuthRevokeDeviceActivationInput,
-  type AuthRevokeDeviceActivationResponse,
+  type AuthDeviceUserAuthoritiesListInput,
+  type AuthDeviceUserAuthoritiesListOutput,
+  type AuthResolveDeviceUserAuthoritiesInput,
+  type AuthResolveDeviceUserAuthoritiesOperation,
+  type AuthResolveDeviceUserAuthoritiesOutput,
+  type AuthResolveDeviceUserAuthoritiesProgress,
+  type AuthDeviceUserAuthoritiesRevokeInput,
+  type AuthDeviceUserAuthoritiesRevokeResponse,
   buildDeviceActivationPayload,
   buildDeviceWaitProofInput,
   createDeviceActivationClient,
@@ -216,7 +216,11 @@ Deno.test("device activation wait and connect-info helpers parse responses", asy
                 transport: {
                   sentinel: { jwt: "jwt", seed: "seed" },
                 },
-                auth: { mode: "device_identity", iatSkewSeconds: 30 },
+                auth: {
+                  mode: "device_identity",
+                  authority: "user_delegated",
+                  iatSkewSeconds: 30,
+                },
               },
             }),
             {
@@ -253,7 +257,11 @@ Deno.test("device activation wait and connect-info helpers parse responses", asy
                 transport: {
                   sentinel: { jwt: "jwt", seed: "seed" },
                 },
-                auth: { mode: "device_identity", iatSkewSeconds: 30 },
+                auth: {
+                  mode: "device_identity",
+                  authority: "user_delegated",
+                  iatSkewSeconds: 30,
+                },
               },
             }),
             {
@@ -363,7 +371,11 @@ Deno.test("device activation wait retries transient fetch failures", async () =>
               transport: {
                 sentinel: { jwt: "jwt", seed: "seed" },
               },
-              auth: { mode: "device_identity", iatSkewSeconds: 30 },
+              auth: {
+                mode: "device_identity",
+                authority: "user_delegated",
+                iatSkewSeconds: 30,
+              },
             },
           }),
           {
@@ -419,7 +431,11 @@ Deno.test("device activation wait backs off after rate limiting", async () => {
               transport: {
                 sentinel: { jwt: "jwt", seed: "seed" },
               },
-              auth: { mode: "device_identity", iatSkewSeconds: 30 },
+              auth: {
+                mode: "device_identity",
+                authority: "user_delegated",
+                iatSkewSeconds: 30,
+              },
             },
           }),
           {
@@ -450,12 +466,15 @@ Deno.test("device activation client wrappers hide method strings", async () => {
   const calls: Array<
     { kind: "operation" | "request"; method: string; input: unknown }
   > = [];
-  function operation(method: "Auth.ActivateDevice") {
+  function operation(method: "Auth.DeviceUserAuthorities.Resolve") {
     return {
-      input(input: AuthActivateDeviceInput) {
+      input(input: AuthResolveDeviceUserAuthoritiesInput) {
         calls.push({ kind: "operation", method, input });
         return {
-          start(): AsyncResult<AuthActivateDeviceOperation, never> {
+          start(): AsyncResult<
+            AuthResolveDeviceUserAuthoritiesOperation,
+            never
+          > {
             return AsyncResult.ok({
               id: "op_123",
               service: "trellis",
@@ -479,7 +498,7 @@ Deno.test("device activation client wrappers hide method strings", async () => {
                     },
                   } satisfies OperationSnapshot<
                     unknown,
-                    AuthActivateDeviceOutput
+                    AuthResolveDeviceUserAuthoritiesOutput
                   >,
                 );
               },
@@ -501,16 +520,16 @@ Deno.test("device activation client wrappers hide method strings", async () => {
                       activatedAt: "2026-04-08T12:00:00Z",
                     },
                   } satisfies TerminalOperation<
-                    AuthActivateDeviceProgress,
-                    AuthActivateDeviceOutput
+                    AuthResolveDeviceUserAuthoritiesProgress,
+                    AuthResolveDeviceUserAuthoritiesOutput
                   >,
                 );
               },
               watch() {
                 return AsyncResult.ok((async function* (): AsyncIterable<
                   OperationEvent<
-                    AuthActivateDeviceProgress,
-                    AuthActivateDeviceOutput
+                    AuthResolveDeviceUserAuthoritiesProgress,
+                    AuthResolveDeviceUserAuthoritiesOutput
                   >
                 > {
                   yield {
@@ -549,8 +568,8 @@ Deno.test("device activation client wrappers hide method strings", async () => {
                 _input?: unknown,
               ): AsyncResult<
                 OperationSignalAck<
-                  AuthActivateDeviceProgress,
-                  AuthActivateDeviceOutput
+                  AuthResolveDeviceUserAuthoritiesProgress,
+                  AuthResolveDeviceUserAuthoritiesOutput
                 >,
                 UnexpectedError
               > {
@@ -563,17 +582,17 @@ Deno.test("device activation client wrappers hide method strings", async () => {
     };
   }
   function request(
-    method: "Auth.ListDeviceActivations",
-    input: AuthListDeviceActivationsInput,
+    method: "Auth.DeviceUserAuthorities.List",
+    input: AuthDeviceUserAuthoritiesListInput,
     _opts?: unknown,
-  ): AsyncResult<AuthListDeviceActivationsOutput, never>;
+  ): AsyncResult<AuthDeviceUserAuthoritiesListOutput, never>;
   function request(
-    method: "Auth.RevokeDeviceActivation",
-    input: AuthRevokeDeviceActivationInput,
+    method: "Auth.DeviceUserAuthorities.Revoke",
+    input: AuthDeviceUserAuthoritiesRevokeInput,
     _opts?: unknown,
-  ): AsyncResult<AuthRevokeDeviceActivationResponse, never>;
+  ): AsyncResult<AuthDeviceUserAuthoritiesRevokeResponse, never>;
   function request(
-    method: "Auth.GetDeviceConnectInfo",
+    method: "Auth.Devices.ConnectInfo.Get",
     input: Record<string, unknown>,
     _opts?: unknown,
   ): AsyncResult<GetDeviceConnectInfoOutput, never>;
@@ -583,11 +602,11 @@ Deno.test("device activation client wrappers hide method strings", async () => {
   ): AsyncResult<unknown, never> {
     calls.push({ kind: "request", method, input });
     switch (method) {
-      case "Auth.ListDeviceActivations":
+      case "Auth.DeviceUserAuthorities.List":
         return AsyncResult.ok({ activations: [] });
-      case "Auth.RevokeDeviceActivation":
+      case "Auth.DeviceUserAuthorities.Revoke":
         return AsyncResult.ok({ success: true });
-      case "Auth.GetDeviceConnectInfo":
+      case "Auth.Devices.ConnectInfo.Get":
         return AsyncResult.ok({
           status: "ready",
           connectInfo: {
@@ -601,7 +620,11 @@ Deno.test("device activation client wrappers hide method strings", async () => {
             transport: {
               sentinel: { jwt: "jwt", seed: "seed" },
             },
-            auth: { mode: "device_identity", iatSkewSeconds: 30 },
+            auth: {
+              mode: "device_identity",
+              authority: "user_delegated",
+              iatSkewSeconds: 30,
+            },
           },
         });
       default:
@@ -615,13 +638,15 @@ Deno.test("device activation client wrappers hide method strings", async () => {
   };
   const client = createDeviceActivationClient(transport);
 
-  const activation = await client.activateDevice({ flowId: "flow_123" });
+  const activation = await client.resolveDeviceUserAuthorities({
+    flowId: "flow_123",
+  });
   assertEquals(activation.id, "op_123");
 
   const watch = await activation.watch().orThrow();
   const watchEvents = [] as Array<{
     type: string;
-    progress?: AuthActivateDeviceProgress;
+    progress?: AuthResolveDeviceUserAuthoritiesProgress;
   }>;
   for await (const event of watch) {
     watchEvents.push({
@@ -679,15 +704,19 @@ Deno.test("device activation client wrappers hide method strings", async () => {
         transport: {
           sentinel: { jwt: "jwt", seed: "seed" },
         },
-        auth: { mode: "device_identity", iatSkewSeconds: 30 },
+        auth: {
+          mode: "device_identity",
+          authority: "user_delegated",
+          iatSkewSeconds: 30,
+        },
       },
     },
   );
 
   assertEquals(calls.map((entry) => [entry.kind, entry.method]), [
-    ["operation", "Auth.ActivateDevice"],
-    ["request", "Auth.ListDeviceActivations"],
-    ["request", "Auth.RevokeDeviceActivation"],
-    ["request", "Auth.GetDeviceConnectInfo"],
+    ["operation", "Auth.DeviceUserAuthorities.Resolve"],
+    ["request", "Auth.DeviceUserAuthorities.List"],
+    ["request", "Auth.DeviceUserAuthorities.Revoke"],
+    ["request", "Auth.Devices.ConnectInfo.Get"],
   ]);
 });

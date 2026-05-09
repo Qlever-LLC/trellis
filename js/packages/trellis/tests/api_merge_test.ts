@@ -14,7 +14,7 @@ Deno.test("createClient prefers trellis API for app contracts", () => {
     uses: {
       auth: auth.use({
         rpc: {
-          call: ["Auth.Me", "Auth.ListApprovals"],
+          call: ["Auth.Sessions.Me", "Auth.Identities.List"],
         },
       }),
     },
@@ -26,8 +26,8 @@ Deno.test("createClient prefers trellis API for app contracts", () => {
     { sessionKey: "test", sign: () => new Uint8Array(64) },
   );
 
-  assertEquals(Object.hasOwn(client.api.rpc, "Auth.Me"), true);
-  assertEquals(Object.hasOwn(client.api.rpc, "Auth.ListApprovals"), true);
+  assertEquals(Object.hasOwn(client.api.rpc, "Auth.Sessions.Me"), true);
+  assertEquals(Object.hasOwn(client.api.rpc, "Auth.Identities.List"), true);
 });
 
 async function typecheckInferredCreateClientSurface(): Promise<void> {
@@ -69,7 +69,7 @@ async function typecheckInferredCreateClientSurface(): Promise<void> {
   // @ts-expect-error inferred service response must stay concrete, not any.
   const invalidPong: string = pong.pong;
   // @ts-expect-error service clients should not infer undeclared app uses.
-  const invalidServiceMethod = serviceClient.request("Auth.Me", {});
+  const invalidServiceMethod = serviceClient.request("Auth.Sessions.Me", {});
 
   const appClient = createClient(app, nats, trellisAuth);
   const appPong = await appClient.request("Inference.Ping", {}).orThrow();

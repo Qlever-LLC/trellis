@@ -4,16 +4,10 @@ import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { type StaticDecode, Type } from "typebox";
 import { Value } from "typebox/value";
 
-import type { ContractStore } from "../../catalog/store.ts";
+import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { ContractResourceBindings } from "../../../../packages/trellis/contract_support/protocol.ts";
 import { resolveSessionPrincipal } from "../session/principal.ts";
-import type {
-  ContractApprovalRecord,
-  InstanceGrantPolicy,
-  SentinelCreds,
-  Session,
-  SessionKey,
-} from "../schemas.ts";
+import type { SentinelCreds, Session, SessionKey } from "../schemas.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
 import type { SqlSessionRepository } from "../storage.ts";
 import { SessionKeySchema, SignatureSchema } from "../schemas.ts";
@@ -101,7 +95,6 @@ export type ClientBootstrapResult =
     reason:
       | "contract_not_active"
       | "insufficient_permissions"
-      | "service_role_on_user"
       | "user_inactive"
       | "user_not_found";
   };
@@ -109,13 +102,11 @@ export type ClientBootstrapResult =
 type SessionStore = Pick<SqlSessionRepository, "getOneBySessionKey">;
 
 export type ClientBootstrapDeps = {
-  contractStore: ContractStore;
+  contracts: Pick<ContractsModule, "getKnownContract">;
   transports: ClientTransports;
   sentinel: SentinelCreds;
   sessionStorage: SessionStore;
   loadUserProjection(trellisId: string): Promise<UserProjectionEntry | null>;
-  loadStoredApproval(key: string): Promise<ContractApprovalRecord | null>;
-  loadInstanceGrantPolicies(contractId: string): Promise<InstanceGrantPolicy[]>;
   verifyIdentityProof(input: {
     sessionKey: SessionKey;
     iat: number;
@@ -164,15 +155,12 @@ export async function resolveClientBootstrap(
 
   const principal = await resolveSessionPrincipal(session, request.sessionKey, {
     loadUserProjection: deps.loadUserProjection,
-    loadStoredApproval: deps.loadStoredApproval,
-    loadInstanceGrantPolicies: deps.loadInstanceGrantPolicies,
   });
   if (!principal.ok) {
     switch (principal.error.reason) {
       case "user_not_found":
       case "user_inactive":
       case "insufficient_permissions":
-      case "service_role_on_user":
         return {
           status: "not_ready",
           reason: principal.error.reason,
@@ -183,7 +171,7 @@ export async function resolveClientBootstrap(
     }
   }
 
-  const knownContract = deps.contractStore.getKnownContract(
+  const knownContract = await deps.contracts.getKnownContract(
     session.contractDigest,
   );
   if (

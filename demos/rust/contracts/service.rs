@@ -11,6 +11,17 @@ fn empty_object_schema() -> Value {
     })
 }
 
+fn bounded_list_request_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["limit", "offset"],
+        "properties": {
+            "limit": {"type": "integer", "minimum": 0, "maximum": 500},
+            "offset": {"type": "integer", "minimum": 0}
+        }
+    })
+}
+
 fn non_empty_string_schema() -> Value {
     json!({"type": "string", "minLength": 1})
 }
@@ -245,7 +256,7 @@ fn with_schemas(builder: ContractManifestBuilder) -> ContractManifestBuilder {
             }),
         )
         .schema("InspectionAssignment", inspection_assignment_schema())
-        .schema("AssignmentsListRequest", empty_object_schema())
+        .schema("AssignmentsListRequest", bounded_list_request_schema())
         .schema(
             "AssignmentsListResponse",
             json!({
@@ -260,7 +271,7 @@ fn with_schemas(builder: ContractManifestBuilder) -> ContractManifestBuilder {
             }),
         )
         .schema("SiteSummary", site_summary_schema())
-        .schema("SitesListRequest", empty_object_schema())
+        .schema("SitesListRequest", bounded_list_request_schema())
         .schema(
             "SitesListResponse",
             json!({
@@ -373,7 +384,12 @@ fn with_schemas(builder: ContractManifestBuilder) -> ContractManifestBuilder {
             "EvidenceListRequest",
             json!({
                 "type": "object",
-                "properties": {"prefix": non_empty_string_schema()}
+                "required": ["limit", "offset"],
+                "properties": {
+                    "limit": {"type": "integer", "minimum": 0, "maximum": 500},
+                    "offset": {"type": "integer", "minimum": 0},
+                    "prefix": non_empty_string_schema()
+                }
             }),
         )
         .schema(
@@ -449,7 +465,7 @@ fn with_schemas(builder: ContractManifestBuilder) -> ContractManifestBuilder {
             }),
         )
         .schema("ReportRecord", report_record_schema())
-        .schema("ReportsListRequest", empty_object_schema())
+        .schema("ReportsListRequest", bounded_list_request_schema())
         .schema(
             "ReportsListResponse",
             json!({

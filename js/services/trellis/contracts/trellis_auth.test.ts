@@ -11,7 +11,7 @@ const app = defineAppContract(
     uses: {
       auth: trellisAuth.use({
         rpc: {
-          call: ["Auth.ListApprovals", "Auth.Logout", "Auth.Me"],
+          call: ["Auth.Identities.List", "Auth.Sessions.Logout", "Auth.Sessions.Me"],
         },
       }),
     },
@@ -19,23 +19,24 @@ const app = defineAppContract(
 );
 
 Deno.test("trellisAuth.use records explicit auth rpc uses", () => {
-  assertEquals(app.CONTRACT.uses?.auth, {
+  const uses = app.CONTRACT.uses as { auth?: unknown } | undefined;
+  assertEquals(uses?.auth, {
     contract: "trellis.auth@v1",
     rpc: {
       call: [
-        "Auth.ListApprovals",
-        "Auth.Logout",
-        "Auth.Me",
+        "Auth.Identities.List",
+        "Auth.Sessions.Logout",
+        "Auth.Sessions.Me",
       ],
     },
   });
 });
 
 Deno.test("trellisAuth.use exposes explicit rpc api surface", () => {
-  assertEquals(app.API.used.rpc["Auth.Me"].subject, "rpc.v1.Auth.Me");
-  assertEquals(app.API.used.rpc["Auth.Logout"].subject, "rpc.v1.Auth.Logout");
+  assertEquals(app.API.used.rpc["Auth.Sessions.Me"].subject, "rpc.v1.Auth.Sessions.Me");
+  assertEquals(app.API.used.rpc["Auth.Sessions.Logout"].subject, "rpc.v1.Auth.Sessions.Logout");
   assertEquals(
-    app.API.used.rpc["Auth.ListApprovals"].subject,
-    "rpc.v1.Auth.ListApprovals",
+    app.API.used.rpc["Auth.Identities.List"].subject,
+    "rpc.v1.Auth.Identities.List",
   );
 });

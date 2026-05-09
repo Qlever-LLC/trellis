@@ -1,22 +1,27 @@
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, inArray, lt, or } from "drizzle-orm";
 import Value from "typebox/value";
 
 import type { TrellisStorageDb } from "../../storage/db.ts";
-import { contractApprovals, sessions, users } from "../../storage/schema.ts";
+import { identityEnvelopes, sessions, users } from "../../storage/schema.ts";
 import {
-  type ContractApprovalRecord,
-  ContractApprovalRecordSchema,
+  type IdentityEnvelopeRecord,
+  IdentityEnvelopeRecordSchema,
   type Session,
   SessionSchema,
   type UserProjectionEntry,
   UserProjectionSchema,
 } from "../schemas.ts";
-import { isoString, parseJsonField } from "./shared.ts";
+import {
+  type BoundedListQuery,
+  boundedListQuery,
+  isoString,
+  parseJsonField,
+} from "./shared.ts";
 
 type UserRow = typeof users.$inferSelect;
 type UserInsert = typeof users.$inferInsert;
-type ContractApprovalRow = typeof contractApprovals.$inferSelect;
-type ContractApprovalInsert = typeof contractApprovals.$inferInsert;
+type IdentityEnvelopeRow = typeof identityEnvelopes.$inferSelect;
+type IdentityEnvelopeInsert = typeof identityEnvelopes.$inferInsert;
 type SessionRow = typeof sessions.$inferSelect;
 type SessionInsert = typeof sessions.$inferInsert;
 
@@ -52,42 +57,53 @@ function encodeUserRecord(
   };
 }
 
-function decodeContractApprovalRow(
-  row: ContractApprovalRow,
-): ContractApprovalRecord {
-  return Value.Decode(ContractApprovalRecordSchema, {
+function decodeIdentityEnvelopeRow(
+  row: IdentityEnvelopeRow,
+): IdentityEnvelopeRecord {
+  return Value.Decode(IdentityEnvelopeRecordSchema, {
+    identityEnvelopeId: row.identityEnvelopeId,
     userTrellisId: row.userTrellisId,
     origin: row.origin,
     id: row.externalId,
+    identityAnchor: parseJsonField(
+      "identity envelope anchor",
+      row.identityAnchor,
+    ),
     answer: row.answer,
     answeredAt: row.answeredAt,
     updatedAt: row.updatedAt,
-    approval: parseJsonField("contract approval", row.approval),
+    approvalEvidence: parseJsonField(
+      "identity envelope approval evidence",
+      row.approvalEvidence,
+    ),
     publishSubjects: parseJsonField(
-      "contract approval publish subjects",
+      "identity envelope publish subjects",
       row.publishSubjects,
     ),
     subscribeSubjects: parseJsonField(
-      "contract approval subscribe subjects",
+      "identity envelope subscribe subjects",
       row.subscribeSubjects,
     ),
   });
 }
 
-function encodeContractApprovalRecord(
-  record: ContractApprovalRecord,
-): ContractApprovalInsert {
+function encodeIdentityEnvelopeRecord(
+  record: IdentityEnvelopeRecord,
+): IdentityEnvelopeInsert {
   return {
+    identityEnvelopeId: record.identityEnvelopeId,
     userTrellisId: record.userTrellisId,
     origin: record.origin,
     externalId: record.id,
-    contractDigest: record.approval.contractDigest,
-    contractId: record.approval.contractId,
-    participantKind: record.approval.participantKind,
+    identityAnchorKind: record.identityAnchor.kind,
+    identityAnchor: JSON.stringify(record.identityAnchor),
+    evidenceContractDigest: record.approvalEvidence.contractDigest,
+    contractId: record.approvalEvidence.contractId,
+    participantKind: record.approvalEvidence.participantKind,
     answer: record.answer,
     answeredAt: record.answeredAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
-    approval: JSON.stringify(record.approval),
+    approvalEvidence: JSON.stringify(record.approvalEvidence),
     publishSubjects: JSON.stringify(record.publishSubjects),
     subscribeSubjects: JSON.stringify(record.subscribeSubjects),
   };
@@ -131,6 +147,7 @@ function encodeSessionRecord(
         ...common,
         origin: session.origin,
         externalId: session.id,
+        identityEnvelopeId: session.identityEnvelopeId,
         contractDigest: session.contractDigest,
         contractId: session.contractId,
         participantKind: session.participantKind,
@@ -145,6 +162,7 @@ function encodeSessionRecord(
         ...common,
         origin: session.origin,
         externalId: session.id,
+        identityEnvelopeId: null,
         contractDigest: session.currentContractDigest,
         contractId: session.currentContractId,
         participantKind: null,
@@ -159,6 +177,7 @@ function encodeSessionRecord(
         ...common,
         origin: null,
         externalId: null,
+        identityEnvelopeId: null,
         contractDigest: session.contractDigest,
         contractId: session.contractId,
         participantKind: null,
@@ -208,101 +227,153 @@ export class SqlUserProjectionRepository {
     });
   }
 
-  /** Returns all stored user projections ordered by Trellis id. */
-  async list(): Promise<UserProjectionEntry[]> {
-    const rows = await this.#db.select().from(users).orderBy(users.trellisId);
+  /** Returns a bounded page of user projections ordered by Trellis id. */
+  async listPage(query: BoundedListQuery): Promise<UserProjectionEntry[]> {
+    const { offset, limit } = boundedListQuery(query);
+    const rows = await this.#db.select().from(users).orderBy(users.trellisId)
+      .limit(limit).offset(offset);
     return rows.map((row: UserRow) => decodeUserRow(row));
   }
 }
 
-/** Stores durable user contract approvals and grants in SQL. */
-export class SqlContractApprovalRepository {
+/** Stores durable user identity envelopes and grants in SQL. */
+export class SqlIdentityEnvelopeRepository {
   readonly #db: TrellisStorageDb;
 
-  /** Creates a contract approval repository backed by a Trellis storage DB. */
+  /** Creates an identity envelope repository backed by a Trellis storage DB. */
   constructor(db: TrellisStorageDb) {
     this.#db = db;
   }
 
-  /** Returns one approval by user Trellis id and contract digest. */
+  /** Returns one identity envelope by stable id. */
   async get(
-    userTrellisId: string,
-    contractDigest: string,
-  ): Promise<ContractApprovalRecord | undefined> {
-    const rows = await this.#db.select().from(contractApprovals).where(
-      and(
-        eq(contractApprovals.userTrellisId, userTrellisId),
-        eq(contractApprovals.contractDigest, contractDigest),
-      ),
+    identityEnvelopeId: string,
+  ): Promise<IdentityEnvelopeRecord | undefined> {
+    const rows = await this.#db.select().from(identityEnvelopes).where(
+      eq(identityEnvelopes.identityEnvelopeId, identityEnvelopeId),
     ).limit(1);
 
     const row = rows[0];
-    return row === undefined ? undefined : decodeContractApprovalRow(row);
+    return row === undefined ? undefined : decodeIdentityEnvelopeRow(row);
   }
 
-  /** Inserts or replaces an approval keyed by user Trellis id and digest. */
-  async put(record: ContractApprovalRecord): Promise<void> {
-    const row = encodeContractApprovalRecord(record);
-    await this.#db.insert(contractApprovals).values(row).onConflictDoUpdate({
+  /** Inserts or replaces an envelope keyed by stable identity envelope id. */
+  async put(record: IdentityEnvelopeRecord): Promise<void> {
+    const row = encodeIdentityEnvelopeRecord(record);
+    await this.#db.insert(identityEnvelopes).values(row).onConflictDoUpdate({
       target: [
-        contractApprovals.userTrellisId,
-        contractApprovals.contractDigest,
+        identityEnvelopes.userTrellisId,
+        identityEnvelopes.identityAnchorKind,
+        identityEnvelopes.identityAnchor,
       ],
       set: {
+        identityEnvelopeId: row.identityEnvelopeId,
         origin: row.origin,
         externalId: row.externalId,
+        evidenceContractDigest: row.evidenceContractDigest,
         contractId: row.contractId,
         participantKind: row.participantKind,
         answer: row.answer,
         answeredAt: row.answeredAt,
         updatedAt: row.updatedAt,
-        approval: row.approval,
+        approvalEvidence: row.approvalEvidence,
         publishSubjects: row.publishSubjects,
         subscribeSubjects: row.subscribeSubjects,
       },
     });
   }
 
-  /** Deletes one approval by user Trellis id and contract digest. */
-  async delete(userTrellisId: string, contractDigest: string): Promise<void> {
-    await this.#db.delete(contractApprovals).where(
+  /** Deletes one identity envelope by stable id. */
+  async delete(identityEnvelopeId: string): Promise<void> {
+    await this.#db.delete(identityEnvelopes).where(
+      eq(identityEnvelopes.identityEnvelopeId, identityEnvelopeId),
+    );
+  }
+
+  /** Returns identity envelopes for one user ordered by envelope id. */
+  async listByUser(userTrellisId: string): Promise<IdentityEnvelopeRecord[]> {
+    const rows = await this.#db.select().from(identityEnvelopes).where(
+      eq(identityEnvelopes.userTrellisId, userTrellisId),
+    ).orderBy(identityEnvelopes.identityEnvelopeId);
+    return rows.map((row: IdentityEnvelopeRow) =>
+      decodeIdentityEnvelopeRow(row)
+    );
+  }
+
+  /** Returns a bounded page of identity envelopes for one user ordered by envelope id. */
+  async listPageByUser(
+    userTrellisId: string,
+    query: BoundedListQuery,
+  ): Promise<IdentityEnvelopeRecord[]> {
+    const { offset, limit } = boundedListQuery(query);
+    const rows = await this.#db.select().from(identityEnvelopes).where(
+      eq(identityEnvelopes.userTrellisId, userTrellisId),
+    ).orderBy(identityEnvelopes.identityEnvelopeId).limit(limit).offset(offset);
+    return rows.map((row: IdentityEnvelopeRow) =>
+      decodeIdentityEnvelopeRow(row)
+    );
+  }
+
+  /** Returns a bounded page of approved identity envelopes for one user ordered by envelope id. */
+  async listApprovedPageByUser(
+    userTrellisId: string,
+    query: BoundedListQuery,
+  ): Promise<IdentityEnvelopeRecord[]> {
+    const { offset, limit } = boundedListQuery(query);
+    const rows = await this.#db.select().from(identityEnvelopes).where(
       and(
-        eq(contractApprovals.userTrellisId, userTrellisId),
-        eq(contractApprovals.contractDigest, contractDigest),
+        eq(identityEnvelopes.userTrellisId, userTrellisId),
+        eq(identityEnvelopes.answer, "approved"),
       ),
+    ).orderBy(identityEnvelopes.identityEnvelopeId).limit(limit).offset(offset);
+    return rows.map((row: IdentityEnvelopeRow) =>
+      decodeIdentityEnvelopeRow(row)
     );
   }
 
-  /** Returns approvals for one user ordered by contract digest. */
-  async listByUser(userTrellisId: string): Promise<ContractApprovalRecord[]> {
-    const rows = await this.#db.select().from(contractApprovals).where(
-      eq(contractApprovals.userTrellisId, userTrellisId),
-    ).orderBy(contractApprovals.contractDigest);
-    return rows.map((row: ContractApprovalRow) =>
-      decodeContractApprovalRow(row)
+  /** Returns a bounded page of identity envelopes ordered by user Trellis id and envelope id. */
+  async listPage(query: BoundedListQuery): Promise<IdentityEnvelopeRecord[]> {
+    const { offset, limit } = boundedListQuery(query);
+    const rows = await this.#db.select().from(identityEnvelopes).orderBy(
+      identityEnvelopes.userTrellisId,
+      identityEnvelopes.identityEnvelopeId,
+    ).limit(limit).offset(offset);
+    return rows.map((row: IdentityEnvelopeRow) =>
+      decodeIdentityEnvelopeRow(row)
     );
   }
 
-  /** Returns approvals for one contract digest ordered by user Trellis id. */
-  async listByDigest(
-    contractDigest: string,
-  ): Promise<ContractApprovalRecord[]> {
-    const rows = await this.#db.select().from(contractApprovals).where(
-      eq(contractApprovals.contractDigest, contractDigest),
-    ).orderBy(contractApprovals.userTrellisId);
-    return rows.map((row: ContractApprovalRow) =>
-      decodeContractApprovalRow(row)
+  /** Returns approved identity envelopes ordered by user Trellis id and envelope id. */
+  async listApproved(): Promise<IdentityEnvelopeRecord[]> {
+    const rows = await this.#db.select().from(identityEnvelopes).where(
+      eq(identityEnvelopes.answer, "approved"),
+    ).orderBy(
+      identityEnvelopes.userTrellisId,
+      identityEnvelopes.identityEnvelopeId,
+    );
+    return rows.map((row: IdentityEnvelopeRow) =>
+      decodeIdentityEnvelopeRow(row)
     );
   }
 
-  /** Returns all approvals ordered by user Trellis id and contract digest. */
-  async list(): Promise<ContractApprovalRecord[]> {
-    const rows = await this.#db.select().from(contractApprovals).orderBy(
-      contractApprovals.userTrellisId,
-      contractApprovals.contractDigest,
+  /** Returns identity envelopes approved by one of the requested contract digests. */
+  async listByApprovalEvidenceContractDigests(
+    contractDigests: Iterable<string>,
+  ): Promise<IdentityEnvelopeRecord[]> {
+    const requested = [...new Set(contractDigests)];
+    if (requested.length === 0) return [];
+    const rows = await this.#db.select().from(identityEnvelopes).where(
+      and(
+        eq(identityEnvelopes.answer, "approved"),
+        inArray(identityEnvelopes.evidenceContractDigest, requested),
+      ),
+    ).orderBy(
+      identityEnvelopes.evidenceContractDigest,
+      identityEnvelopes.userTrellisId,
+      identityEnvelopes.identityEnvelopeId,
     );
-    return rows.map((row: ContractApprovalRow) =>
-      decodeContractApprovalRow(row)
+    return rows.map((row: IdentityEnvelopeRow) =>
+      decodeIdentityEnvelopeRow(row)
     );
   }
 }
@@ -351,6 +422,7 @@ export class SqlSessionRepository {
         type: row.type,
         origin: row.origin,
         externalId: row.externalId,
+        identityEnvelopeId: row.identityEnvelopeId,
         contractDigest: row.contractDigest,
         contractId: row.contractId,
         participantKind: row.participantKind,
@@ -385,23 +457,36 @@ export class SqlSessionRepository {
     );
   }
 
-  /** Returns all sessions ordered by session key and Trellis/session id. */
-  async list(): Promise<Session[]> {
+  /** Returns a bounded page of sessions ordered by session key and Trellis/session id. */
+  async listPage(query: BoundedListQuery): Promise<Session[]> {
     await this.#deleteExpiredSessions();
+    const { offset, limit } = boundedListQuery(query);
     const rows = await this.#db.select().from(sessions).orderBy(
       sessions.sessionKey,
       sessions.trellisId,
-    );
+    ).limit(limit).offset(offset);
     return rows.map((row: SessionRow) => decodeSessionRow(row));
   }
 
-  /** Returns all session entries ordered by session key and Trellis/session id. */
-  async listEntries(): Promise<SessionStorageEntry[]> {
+  /** Returns a bounded page of session entries ordered by session key and Trellis/session id. */
+  async listEntries(query: BoundedListQuery): Promise<SessionStorageEntry[]> {
     await this.#deleteExpiredSessions();
+    const { offset, limit } = boundedListQuery(query);
     const rows = await this.#db.select().from(sessions).orderBy(
       sessions.sessionKey,
       sessions.trellisId,
-    );
+    ).limit(limit).offset(offset);
+    return rows.map((row: SessionRow) => decodeSessionEntry(row));
+  }
+
+  /** Returns sessions affected by previewing one deployment envelope change. */
+  async listEntriesForDeploymentEnvelopePreview(
+    deploymentId: string,
+  ): Promise<SessionStorageEntry[]> {
+    await this.#deleteExpiredSessions();
+    const rows = await this.#db.select().from(sessions).where(
+      or(eq(sessions.deploymentId, deploymentId), eq(sessions.type, "user")),
+    ).orderBy(sessions.sessionKey, sessions.trellisId);
     return rows.map((row: SessionRow) => decodeSessionEntry(row));
   }
 
@@ -439,5 +524,18 @@ export class SqlSessionRepository {
       eq(sessions.contractDigest, contractDigest),
     ).orderBy(sessions.sessionKey, sessions.trellisId);
     return rows.map((row: SessionRow) => decodeSessionRow(row));
+  }
+
+  /** Returns session entries for requested contract digests ordered by digest and key. */
+  async listEntriesByContractDigests(
+    contractDigests: Iterable<string>,
+  ): Promise<SessionStorageEntry[]> {
+    await this.#deleteExpiredSessions();
+    const requested = [...new Set(contractDigests)];
+    if (requested.length === 0) return [];
+    const rows = await this.#db.select().from(sessions).where(
+      inArray(sessions.contractDigest, requested),
+    ).orderBy(sessions.contractDigest, sessions.sessionKey, sessions.trellisId);
+    return rows.map((row: SessionRow) => decodeSessionEntry(row));
   }
 }

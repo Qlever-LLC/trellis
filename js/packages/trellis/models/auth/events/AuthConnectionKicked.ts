@@ -1,7 +1,7 @@
 import Type, { type Static } from "typebox";
 import { EventHeaderSchema } from "../../trellis/EventHeader.ts";
 
-export const AuthConnectionKickedEventSchema = Type.Intersect([
+export const AuthConnectionsKickedEventSchema = Type.Intersect([
   EventHeaderSchema,
   Type.Object({
     origin: Type.String(),
@@ -11,6 +11,6 @@ export const AuthConnectionKickedEventSchema = Type.Intersect([
   }),
 ]);
 
-export type AuthConnectionKickedEvent = Static<
-  typeof AuthConnectionKickedEventSchema
+export type AuthConnectionsKickedEvent = Static<
+  typeof AuthConnectionsKickedEventSchema
 >;

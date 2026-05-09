@@ -5,8 +5,6 @@ import type { AuthRuntimeDeps } from "./runtime_deps.ts";
 import { registerApprovalAndUserRpcs } from "./registration/approval_users.ts";
 import { registerDeviceAdminAndActivation } from "./registration/device_admin_activation.ts";
 import { registerAuthHttpRoutes } from "./registration/http_routes.ts";
-import { registerInstalledContractRpcs } from "./registration/installed_contracts.ts";
-import { registerPortalPolicyAdminRpcs } from "./registration/portal_policy_admin.ts";
 import { registerServiceAdminRpcs } from "./registration/service_admin.ts";
 import { registerSessionRpcs } from "./registration/session.ts";
 import type {
@@ -14,14 +12,16 @@ import type {
   AuthRuntime,
 } from "./registration/types.ts";
 import type {
-  SqlContractApprovalRepository,
+  SqlIdentityEnvelopeRepository,
+  SqlDeploymentContractEvidenceRepository,
+  SqlDeploymentEnvelopeRepository,
+  SqlDeploymentGrantOverrideRepository,
+  SqlDeploymentPortalRouteRepository,
+  SqlDeploymentResourceBindingRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
-  SqlDevicePortalSelectionRepository,
-  SqlLoginPortalSelectionRepository,
-  SqlPortalDefaultRepository,
-  SqlPortalRepository,
+  SqlEnvelopeExpansionRequestRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -35,12 +35,14 @@ type AuthRegistrationDeps =
     trellis: AuthRuntime;
     contracts: AuthContractsRuntime;
     contractStorage: SqlContractStorageRepository;
+    deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+    deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
+    deploymentContractEvidenceStorage: SqlDeploymentContractEvidenceRepository;
+    deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
+    deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
+    envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
     userStorage: SqlUserProjectionRepository;
-    contractApprovalStorage: SqlContractApprovalRepository;
-    portalStorage: SqlPortalRepository;
-    portalDefaultStorage: SqlPortalDefaultRepository;
-    loginPortalSelectionStorage: SqlLoginPortalSelectionRepository;
-    devicePortalSelectionStorage: SqlDevicePortalSelectionRepository;
+    contractApprovalStorage: SqlIdentityEnvelopeRepository;
     deviceDeploymentStorage: SqlDeviceDeploymentRepository;
     deviceInstanceStorage: SqlDeviceInstanceRepository;
     deviceActivationStorage: SqlDeviceActivationRepository;
@@ -61,8 +63,6 @@ type AuthRegistrationDeps =
     | "trellis"
     | "deviceActivationReviewStorage"
     | "deviceProvisioningSecretStorage"
-    | "instanceGrantPolicyStorage"
-    | "portalProfileStorage"
   >;
 
 /**
@@ -75,16 +75,14 @@ export async function registerAuth(deps: AuthRegistrationDeps): Promise<void> {
     sessionKey: string;
     revokedBy: string;
   }) => {
-    (await deps.trellis.publish("Auth.SessionRevoked", event)).inspectErr(
+    (await deps.trellis.publish("Auth.Sessions.Revoked", event)).inspectErr(
       (error) =>
-        deps.logger.warn({ error }, "Failed to publish Auth.SessionRevoked"),
+        deps.logger.warn({ error }, "Failed to publish Auth.Sessions.Revoked"),
     );
   };
-  await registerInstalledContractRpcs(deps);
   await registerServiceAdminRpcs(deps);
   await registerSessionRpcs(deps);
   await registerApprovalAndUserRpcs({ ...deps, publishSessionRevoked });
-  await registerPortalPolicyAdminRpcs({ ...deps, publishSessionRevoked });
   await registerDeviceAdminAndActivation({ ...deps, publishSessionRevoked });
   registerAuthHttpRoutes(deps);
 }

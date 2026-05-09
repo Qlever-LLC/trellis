@@ -2,7 +2,7 @@ import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { digestContractManifest } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 
-import { ContractStore } from "./store.ts";
+import { createTestContracts } from "./test_contracts.ts";
 
 function digestContract(contract: TrellisContractV1): string {
   return digestContractManifest(contract);
@@ -172,40 +172,40 @@ function makeStateContract(
 }
 
 Deno.test("contract store allows multiple digests for one contract id when only one is active", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
   const contract1 = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
   const contract2 = makeContract("graph@v1", "rpc.v1.Graph.Ping2", "graph");
   const digest1 = await digestContract(contract1);
   const digest2 = await digestContract(contract2);
 
-  store.activate(digest1, contract1);
-  store.add(digest2, contract2);
+  store.activateTestContract({ digest: digest1, contract: contract1 });
+  store.addKnownTestContract({ digest: digest2, contract: contract2 });
 
   assertEquals(
-    store.getContract(digest1, { includeInactive: true }),
+    await store.getContract(digest1, { includeInactive: true }),
     contract1,
   );
   assertEquals(
-    store.getContract(digest2, { includeInactive: true }),
+    await store.getContract(digest2, { includeInactive: true }),
     contract2,
   );
-  assertEquals(store.getActiveContractsById("graph@v1"), [contract1]);
+  assertEquals(await store.getActiveContractsById("graph@v1"), [contract1]);
 });
 
 Deno.test("contract store allows two active digests for one contract id during rollout", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
   const contract1 = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
   const contract2 = makeContract("graph@v1", "rpc.v1.Graph.Ping2", "graph");
   const digest1 = await digestContract(contract1);
   const digest2 = await digestContract(contract2);
 
-  store.activate(digest1, contract1);
-  store.add(digest2, contract2);
+  store.activateTestContract({ digest: digest1, contract: contract1 });
+  store.addKnownTestContract({ digest: digest2, contract: contract2 });
 
-  store.setActiveDigests([digest1, digest2]);
+  store.setActiveTestDigests([digest1, digest2]);
 
-  assertEquals(store.getContract(digest1), contract1);
-  assertEquals(store.getContract(digest2), contract2);
+  assertEquals(await store.getContract(digest1), contract1);
+  assertEquals(await store.getContract(digest2), contract2);
   assertEquals(
     store.findActiveSubject("rpc.v1.Graph.Ping")?.contractId,
     "graph@v1",
@@ -214,14 +214,14 @@ Deno.test("contract store allows two active digests for one contract id during r
     store.findActiveSubject("rpc.v1.Graph.Ping2")?.contractId,
     "graph@v1",
   );
-  assertEquals(store.getActiveContractsById("graph@v1"), [
+  assertEquals(await store.getActiveContractsById("graph@v1"), [
     contract1,
     contract2,
   ]);
 });
 
 Deno.test("contract store rejects same-lineage subject collisions across logical surfaces", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
   const contract1 = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
   const contract2 = {
     ...makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph"),
@@ -235,19 +235,19 @@ Deno.test("contract store rejects same-lineage subject collisions across logical
   const digest1 = await digestContract(contract1);
   const digest2 = await digestContract(contract2);
 
-  store.activate(digest1, contract1);
-  store.add(digest2, contract2);
+  store.activateTestContract({ digest: digest1, contract: contract1 });
+  store.addKnownTestContract({ digest: digest2, contract: contract2 });
 
   assertThrows(
-    () => store.setActiveDigests([digest1, digest2]),
+    () => store.setActiveTestDigests([digest1, digest2]),
     Error,
     "already registered by",
   );
-  assertEquals(store.getActiveContractsById("graph@v1"), [contract1]);
+  assertEquals(await store.getActiveContractsById("graph@v1"), [contract1]);
 });
 
 Deno.test("contract store validates proposed active digests without mutating active state", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
   const contract1 = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
   const contract2 = {
     ...makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph"),
@@ -261,36 +261,36 @@ Deno.test("contract store validates proposed active digests without mutating act
   const digest1 = await digestContract(contract1);
   const digest2 = await digestContract(contract2);
 
-  store.activate(digest1, contract1);
-  store.add(digest2, contract2);
+  store.activateTestContract({ digest: digest1, contract: contract1 });
+  store.addKnownTestContract({ digest: digest2, contract: contract2 });
 
   assertThrows(
-    () => store.validateActiveDigests([digest1, digest2]),
+    () => store.validateActiveTestDigests([digest1, digest2]),
     Error,
     "already registered by",
   );
   assertEquals(
-    store.getActiveCatalog().contracts.map((entry) => entry.digest),
+    (await store.getActiveCatalog()).contracts.map((entry) => entry.digest),
     [
       digest1,
     ],
   );
-  assertEquals(store.getActiveContractsById("graph@v1"), [contract1]);
+  assertEquals(await store.getActiveContractsById("graph@v1"), [contract1]);
 });
 
-Deno.test("contract store rejects unknown active digests", () => {
-  const store = new ContractStore();
+Deno.test("contract store rejects unknown active digests", async () => {
+  const store = createTestContracts();
   const contract = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
 
-  store.activate("known-digest", contract);
+  store.activateTestContract({ digest: "known-digest", contract });
 
   assertThrows(
-    () => store.setActiveDigests(["known-digest", "missing-digest"]),
+    () => store.setActiveTestDigests(["known-digest", "missing-digest"]),
     Error,
     "Unknown active contract digest 'missing-digest'",
   );
   assertEquals(
-    store.getActiveCatalog().contracts.map((entry) => entry.digest),
+    (await store.getActiveCatalog()).contracts.map((entry) => entry.digest),
     [
       "known-digest",
     ],
@@ -298,17 +298,17 @@ Deno.test("contract store rejects unknown active digests", () => {
 });
 
 Deno.test("contract store rejects activating duplicate subjects", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
   const contract1 = makeContract("graph@v1", "rpc.v1.Shared.Ping", "graph");
   const contract2 = makeContract("other@v1", "rpc.v1.Shared.Ping", "other");
   const digest1 = await digestContract(contract1);
   const digest2 = await digestContract(contract2);
 
-  store.activate(digest1, contract1);
+  store.activateTestContract({ digest: digest1, contract: contract1 });
 
   await assertRejects(
     async () => {
-      store.activate(digest2, contract2);
+      store.activateTestContract({ digest: digest2, contract: contract2 });
     },
     Error,
     "already registered by",
@@ -316,7 +316,7 @@ Deno.test("contract store rejects activating duplicate subjects", async () => {
 });
 
 Deno.test("contract store rejects activating subject templates with colliding wildcard subjects", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
   const contract1 = {
     ...makeEventContract("events.v1.Shared.Changed.{/partner/id/origin}", [
       "/partner/id/origin",
@@ -334,26 +334,26 @@ Deno.test("contract store rejects activating subject templates with colliding wi
   const digest1 = await digestContract(contract1);
   const digest2 = await digestContract(contract2);
 
-  store.activate(digest1, contract1);
+  store.activateTestContract({ digest: digest1, contract: contract1 });
 
   assertThrows(
-    () => store.activate(digest2, contract2),
+    () => store.activateTestContract({ digest: digest2, contract: contract2 }),
     Error,
     "Subject 'events.v1.Shared.Changed.*' already registered by",
   );
 });
 
 Deno.test("contract store catalog includes active contracts in id order", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
   const graph = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
   const auth = makeContract("auth@v1", "rpc.v1.Auth.Ping", "auth");
   const graphDigest = await digestContract(graph);
   const authDigest = await digestContract(auth);
 
-  store.activate(graphDigest, graph);
-  store.activate(authDigest, auth);
+  store.activateTestContract({ digest: graphDigest, contract: graph });
+  store.activateTestContract({ digest: authDigest, contract: auth });
 
-  assertEquals(store.getActiveCatalog(), {
+  assertEquals(await store.getActiveCatalog(), {
     format: "trellis.catalog.v1",
     contracts: [
       {
@@ -372,8 +372,8 @@ Deno.test("contract store catalog includes active contracts in id order", async 
   });
 });
 
-Deno.test("contract store catalog orders active contracts by id then digest", () => {
-  const store = new ContractStore();
+Deno.test("contract store catalog orders active contracts by id then digest", async () => {
+  const store = createTestContracts();
   const graph = makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph");
   const graphNewer = makeContract(
     "graph@v1",
@@ -382,12 +382,12 @@ Deno.test("contract store catalog orders active contracts by id then digest", ()
   );
   const auth = makeContract("auth@v1", "rpc.v1.Auth.Ping", "auth");
 
-  store.activate("graph-b", graphNewer);
-  store.activate("auth-a", auth);
-  store.activate("graph-a", graph);
+  store.activateTestContract({ digest: "graph-b", contract: graphNewer });
+  store.activateTestContract({ digest: "auth-a", contract: auth });
+  store.activateTestContract({ digest: "graph-a", contract: graph });
 
   assertEquals(
-    store.getActiveCatalog().contracts.map(({ id, digest }) => ({
+    (await store.getActiveCatalog()).contracts.map(({ id, digest }) => ({
       id,
       digest,
     })),
@@ -400,9 +400,9 @@ Deno.test("contract store catalog orders active contracts by id then digest", ()
 });
 
 Deno.test("contract store ignores unknown top-level contract fields", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
-  const validated = await store.validate({
+  const validated = await store.validateContract({
     ...makeContract("graph@v1", "rpc.v1.Graph.Ping", "graph"),
     xFutureMetadata: { hello: "world" },
   });
@@ -415,9 +415,9 @@ Deno.test("contract store ignores unknown top-level contract fields", async () =
 });
 
 Deno.test("contract store preserves operations when validating contracts", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
-  const validated = await store.validate(
+  const validated = await store.validateContract(
     makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
   );
 
@@ -436,7 +436,7 @@ Deno.test("contract store preserves operations when validating contracts", async
 });
 
 Deno.test("contract store rejects operation descriptors without output", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
   const contract = makeOperationContract(
     "billing@v1",
     "operations.v1.Billing.Refund",
@@ -446,7 +446,7 @@ Deno.test("contract store rejects operation descriptors without output", async (
 
   await assertRejects(
     () =>
-      store.validate({
+      store.validateContract({
         ...contract,
         operations: {
           Refund: operationWithoutOutput,
@@ -458,9 +458,9 @@ Deno.test("contract store rejects operation descriptors without output", async (
 });
 
 Deno.test("contract store preserves exported schema declarations when validating contracts", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
-  const validated = await store.validate({
+  const validated = await store.validateContract({
     ...makeContract("exports@v1", "rpc.v1.Exports.Ping", "exports"),
     exports: {
       schemas: ["PingOutput"],
@@ -473,11 +473,11 @@ Deno.test("contract store preserves exported schema declarations when validating
 });
 
 Deno.test("contract store rejects exported schema names missing from the registry", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     async () => {
-      await store.validate({
+      await store.validateContract({
         ...makeContract("exports-invalid@v1", "rpc.v1.Exports.Ping", "exports"),
         exports: {
           schemas: ["MissingSchema"],
@@ -490,11 +490,11 @@ Deno.test("contract store rejects exported schema names missing from the registr
 });
 
 Deno.test("contract store rejects embedded schemas that are not Draft 2019-09 schemas", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
-      store.validate({
+      store.validateContract({
         ...makeContract(
           "schema-invalid@v1",
           "rpc.v1.SchemaInvalid.Ping",
@@ -511,11 +511,11 @@ Deno.test("contract store rejects embedded schemas that are not Draft 2019-09 sc
 });
 
 Deno.test("contract store rejects remote refs in embedded schemas", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
-      store.validate({
+      store.validateContract({
         ...makeContract("schema-ref@v1", "rpc.v1.SchemaRef.Ping", "schema"),
         schemas: {
           PingInput: { $ref: "https://example.com/schemas/input.json" },
@@ -528,11 +528,11 @@ Deno.test("contract store rejects remote refs in embedded schemas", async () => 
 });
 
 Deno.test("contract store rejects local refs in embedded schemas", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
-      store.validate({
+      store.validateContract({
         ...makeContract(
           "schema-local-ref@v1",
           "rpc.v1.SchemaLocalRef.Ping",
@@ -554,11 +554,11 @@ Deno.test("contract store rejects local refs in embedded schemas", async () => {
 });
 
 Deno.test("contract store rejects KV resource schema names missing from the registry", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     async () => {
-      await store.validate({
+      await store.validateContract({
         ...makeContract("kv-invalid@v1", "rpc.v1.Kv.Ping", "kv"),
         resources: {
           kv: {
@@ -576,12 +576,12 @@ Deno.test("contract store rejects KV resource schema names missing from the regi
 });
 
 Deno.test("contract store rejects state accepted version schemas missing from the registry", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
   const contract = makeStateContract("state-invalid@v1");
 
   await assertRejects(
     async () => {
-      await store.validate({
+      await store.validateContract({
         ...contract,
         state: {
           preferences: {
@@ -599,20 +599,20 @@ Deno.test("contract store rejects state accepted version schemas missing from th
 });
 
 Deno.test("contract store preserves top-level jobs when validating contracts", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
-  const validated = await store.validate(makeJobsContract("jobs@v1"));
+  const validated = await store.validateContract(makeJobsContract("jobs@v1"));
 
   assertEquals(validated.contract.jobs?.process?.payload?.schema, "JobPayload");
   assertEquals(validated.contract.jobs?.process?.result?.schema, "JobResult");
 });
 
 Deno.test("contract store rejects legacy resources.jobs contracts", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     async () => {
-      await store.validate({
+      await store.validateContract({
         format: "trellis.contract.v1",
         id: "jobs@v1",
         displayName: "Jobs",
@@ -638,9 +638,9 @@ Deno.test("contract store rejects legacy resources.jobs contracts", async () => 
 });
 
 Deno.test("contract store accepts event template params in subject order", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
-  const validated = await store.validate(
+  const validated = await store.validateContract(
     makeEventContract(
       "events.v1.Partner.Changed.{/partner/id/origin}.{/partner/id/id}",
       ["/partner/id/origin", "/partner/id/id"],
@@ -654,11 +654,11 @@ Deno.test("contract store accepts event template params in subject order", async
 });
 
 Deno.test("contract store rejects malformed event subject template tokens", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
-      store.validate(
+      store.validateContract(
         makeEventContract(
           "events.v1.Partner.Changed.{partner/id}",
           ["/partner/id"],
@@ -670,11 +670,11 @@ Deno.test("contract store rejects malformed event subject template tokens", asyn
 });
 
 Deno.test("contract store rejects missing event params for template subjects", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
-      store.validate(
+      store.validateContract(
         makeEventContract(
           "events.v1.Partner.Changed.{/partner/id/origin}",
         ),
@@ -685,11 +685,11 @@ Deno.test("contract store rejects missing event params for template subjects", a
 });
 
 Deno.test("contract store rejects mismatched event template params", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
-      store.validate(
+      store.validateContract(
         makeEventContract(
           "events.v1.Partner.Changed.{/partner/id/origin}",
           ["/partner/id/id"],
@@ -701,11 +701,11 @@ Deno.test("contract store rejects mismatched event template params", async () =>
 });
 
 Deno.test("contract store rejects reordered event template params", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
-      store.validate(
+      store.validateContract(
         makeEventContract(
           "events.v1.Partner.Changed.{/partner/id/origin}.{/partner/id/id}",
           ["/partner/id/id", "/partner/id/origin"],
@@ -717,11 +717,11 @@ Deno.test("contract store rejects reordered event template params", async () => 
 });
 
 Deno.test("contract store rejects event template params missing from payload schema", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
-      store.validate(
+      store.validateContract(
         makeEventContract(
           "events.v1.Partner.Changed.{/partner/missing}",
           ["/partner/missing"],
@@ -733,11 +733,11 @@ Deno.test("contract store rejects event template params missing from payload sch
 });
 
 Deno.test("contract store rejects event template params through non-object payload properties", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
-      store.validate(
+      store.validateContract(
         makeEventContract(
           "events.v1.Partner.Changed.{/partner/id/origin/value}",
           ["/partner/id/origin/value"],
@@ -749,11 +749,11 @@ Deno.test("contract store rejects event template params through non-object paylo
 });
 
 Deno.test("contract store rejects raw subject declarations", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
-      store.validate({
+      store.validateContract({
         ...makeContract("subjects@v1", "rpc.v1.Subjects.Ping", "subjects"),
         subjects: {
           Audit: { subject: "nats.audit" },
@@ -765,11 +765,11 @@ Deno.test("contract store rejects raw subject declarations", async () => {
 });
 
 Deno.test("contract store rejects raw subject uses", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
-      store.validate({
+      store.validateContract({
         ...makeContract("subject-uses@v1", "rpc.v1.SubjectUses.Ping", "uses"),
         uses: {
           audit: {
@@ -784,11 +784,11 @@ Deno.test("contract store rejects raw subject uses", async () => {
 });
 
 Deno.test("contract store rejects stream resources", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
-      store.validate({
+      store.validateContract({
         ...makeContract("streams@v1", "rpc.v1.Streams.Ping", "streams"),
         resources: {
           stream: {
@@ -802,9 +802,9 @@ Deno.test("contract store rejects stream resources", async () => {
 });
 
 Deno.test("contract store preserves store resources when validating contracts", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
-  const validated = await store.validate(makeStoreContract("store@v1"));
+  const validated = await store.validateContract(makeStoreContract("store@v1"));
 
   assertEquals(
     validated.contract.resources?.store?.uploads?.purpose,
@@ -813,9 +813,11 @@ Deno.test("contract store preserves store resources when validating contracts", 
 });
 
 Deno.test("contract store preserves top-level state when validating contracts", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
-  const validated = await store.validate(makeStateContract("stateful@v1"));
+  const validated = await store.validateContract(
+    makeStateContract("stateful@v1"),
+  );
 
   assertEquals(
     validated.contract.state?.preferences?.kind,
@@ -828,14 +830,14 @@ Deno.test("contract store preserves top-level state when validating contracts", 
 });
 
 Deno.test("contract store indexes active operation subjects", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
   const contract = makeOperationContract(
     "billing@v1",
     "operations.v1.Billing.Refund",
   );
   const digest = await digestContract(contract);
 
-  store.activate(digest, contract);
+  store.activateTestContract({ digest, contract });
 
   assertEquals(
     store.findActiveSubject("operations.v1.Billing.Refund")?.contractId,

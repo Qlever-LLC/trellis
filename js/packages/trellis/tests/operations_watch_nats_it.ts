@@ -97,7 +97,7 @@ const billing = defineServiceContract(
     displayName: "Billing Watch Test",
     description: "Exercise operations watch streams over NATS.",
     uses: {
-      auth: auth.use({ rpc: { call: ["Auth.ValidateRequest"] } }),
+      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
     },
     operations: {
       "Billing.Refund": {
@@ -143,7 +143,7 @@ function startPermissiveAuthResponder(
   nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"],
   observe?: (input: { sessionKey: string; capabilities?: string[] }) => void,
 ): void {
-  const sub = nc.subscribe("rpc.v1.Auth.ValidateRequest");
+  const sub = nc.subscribe("rpc.v1.Auth.Requests.Validate");
   void (async () => {
     for await (const msg of sub) {
       const input = msg.json() as {

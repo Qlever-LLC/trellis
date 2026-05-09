@@ -1,4 +1,4 @@
-import type { AuthActivateDeviceOutput } from "@qlever-llc/trellis/auth";
+import type { AuthResolveDeviceUserAuthoritiesOutput } from "@qlever-llc/trellis/auth";
 import type { TerminalOperation } from "@qlever-llc/trellis";
 
 type DeviceActivationProgressInput = {
@@ -8,12 +8,12 @@ type DeviceActivationProgressInput = {
   requestedAt: string | Date;
 };
 type PendingReviewDeviceActivationOutput = Extract<
-  AuthActivateDeviceOutput,
+  AuthResolveDeviceUserAuthoritiesOutput,
   { status: "pending_review" }
 >;
 
 function isDeviceActivationProgressInput(
-  value: AuthActivateDeviceOutput,
+  value: AuthResolveDeviceUserAuthoritiesOutput,
 ): value is PendingReviewDeviceActivationOutput {
   const record = value as Record<string, unknown>;
   return record.status === "pending_review" &&
@@ -115,7 +115,7 @@ export function createInvalidDeviceActivationView(
 
 export function mapDeviceActivationOutput(
   flowId: string,
-  result: AuthActivateDeviceOutput,
+  result: AuthResolveDeviceUserAuthoritiesOutput,
 ): DeviceActivationView {
   if (result.status === "activated") {
     return {
@@ -253,7 +253,7 @@ export function mapDeviceActivationFailure(
 
 export function mapDeviceActivationTerminal(
   flowId: string,
-  terminal: TerminalOperation<unknown, AuthActivateDeviceOutput>,
+  terminal: TerminalOperation<unknown, AuthResolveDeviceUserAuthoritiesOutput>,
 ): DeviceActivationView | null {
   if (terminal.state === "completed") {
     return terminal.output

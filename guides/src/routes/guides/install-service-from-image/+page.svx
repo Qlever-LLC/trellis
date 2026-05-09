@@ -1,4 +1,4 @@
-This guide covers installing and running a service from a published OCI image. You do not need the service source tree — the contract artifact is embedded in the image.
+This guide covers creating and running a service from a published OCI image. You do not need the service source tree — the contract artifact is embedded in the image.
 
 If you are developing a service locally and have the source checked out, see [Install a service from source](/guides/install-service-from-source) instead.
 
@@ -25,22 +25,21 @@ Confirm the session is active:
 trellis auth status
 ```
 
-## 2. Install the contract from the image
+## 2. Create the deployment from the image
 
 ```sh
 trellis deploy create svc/my-service
-trellis deploy apply svc/my-service --image ghcr.io/my-org/my-service:1.2.3
 trellis deploy provision svc/my-service
 ```
 
-The CLI pulls the image, reads the contract artifact from it (at the path declared by the `io.trellis.contract.path` label, or `/trellis/contract.json` by default), applies it to the service deployment, provisions required resources before the deployment record is mutated, then generates a service instance key and provisions an instance.
+The CLI creates the service deployment, then generates a service instance key and provisions an instance. Before starting the service, use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add the contract boundary from the image artifact to the deployment envelope. The artifact lives at the path declared by the `io.trellis.contract.path` label, or `/trellis/contract.json` by default.
 
 The CLI will:
 
 - generate a new Ed25519 instance seed locally
 - derive the public session key for the service instance
-- infer defaults such as display name, description, and namespaces from the contract
-- show an installation review before sending the request
+- infer deployment defaults such as display name, description, and namespaces
+- show a provisioning review before sending the request
 
 ## 3. Store the seed immediately
 
@@ -56,6 +55,10 @@ store the seed securely; it will not be shown again
 ```
 
 Save the seed to your secret manager or deployment system immediately. The CLI will not print it again.
+
+The printed `contractDigest` is runtime contract evidence. It is not the service
+deployment authority key; deployment authority comes from the service deployment
+envelope that you expand or shrink through Trellis Auth.
 
 ## 4. Run the container
 
@@ -75,38 +78,34 @@ For a permanent deployment, create a Quadlet unit for the service similar to the
 
 ## 5. Upgrade to a new version
 
-```sh
-trellis deploy apply svc/my-service --image ghcr.io/my-org/my-service:1.2.4
-```
+When you publish a new image, update the deployment envelope through the Console Envelopes page or `Auth.Envelopes.Expand`. Trellis validates the new boundary against the proposed active catalog, provisions any required resource changes before making it available, and keeps service instance keys the same. Restart the container with the new image tag after expanding the envelope. Shrink the envelope only after old containers no longer need the previous boundary.
 
-Applying the new image validates the new digest against the proposed active catalog, provisions any required resource changes before allowing the new digest, and keeps service instance keys the same. Restart the container with the new image tag after applying it. If the old container reconnects with a retired digest after unapply, Trellis rejects that exact digest rather than granting a stale runtime JWT.
+## What the envelope actually grants
 
-## What install actually grants
-
-Installation is not only metadata storage. It is the control-plane step that determines what the service is allowed to do.
+The deployment envelope is not only metadata storage. It is the control-plane boundary that determines what the service is allowed to do.
 
 Trellis derives service access from:
 
 - the service-owned RPC, event, and subject surfaces declared in the contract
 - explicit dependencies declared under `uses`
-- runtime-managed resource bindings created during install or upgrade
+- runtime-managed resource bindings created when the envelope expands
 
 ## Useful flags
 
 | Flag | Command | What it does |
 | --- | --- | --- |
 | `--namespace` | `deploy create svc/...` | Adds namespaces for the service deployment |
-| `-f` | `deploy apply` / `deploy remove` | Skips the interactive confirmation prompt |
 | `--instance-seed` | `deploy provision svc/...` | Uses an existing service instance seed |
 
 ## Practical deploy loop
 
 1. `trellis auth login http://localhost:3000` and follow the printed portal URL or QR code
-2. `trellis deploy create svc/my-service && trellis deploy apply svc/my-service --image ghcr.io/my-org/my-service:1.2.3 && trellis deploy provision svc/my-service`
+2. `trellis deploy create svc/my-service && trellis deploy provision svc/my-service`
 3. store the seed
-4. start the container with the right env
-5. confirm the expected RPCs, events, and bindings work
+4. add the image contract boundary to the deployment envelope in the Console or with `Auth.Envelopes.Expand`
+5. start the container with the right env
+6. confirm the expected RPCs, events, and bindings work
 
-Deployment apply and instance provisioning should happen before the container starts serving traffic. Service resource provisioning happens during apply/install/upgrade; after apply succeeds on an enabled deployment, the applied digest is active for catalog and auth even before an instance connects. Service bootstrap validates runtime availability/current digest state for that instance and consumes the persisted bindings; it does not activate the catalog entry.
+Deployment envelope expansion and instance provisioning should happen before the container starts serving traffic. Service resource provisioning happens when the envelope expands; after the boundary is available on an enabled deployment, it is active for catalog and auth even before an instance connects. Service bootstrap validates that the presented contract evidence fits the deployment envelope and consumes the persisted bindings; it does not activate the catalog entry.
 
 If you are building service images, include the generated contract artifact at `/trellis/contract.json`. If the image uses a different path, add an OCI label such as `io.trellis.contract.path=/path/to/contract.json` so the CLI can discover it automatically.

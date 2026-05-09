@@ -6,13 +6,45 @@ const UserParticipantKindSchema = Type.Union([
   Type.Literal("app"),
   Type.Literal("agent"),
 ]);
-
-export const AuthListUserGrantsSchema = Type.Object({});
-export type AuthListUserGrantsInput = Static<typeof AuthListUserGrantsSchema>;
-
-export const AuthUserGrantRowSchema = Type.Object({
+const IdentityAnchorSchema = Type.Union([
+  Type.Object({
+    kind: Type.Literal("web"),
+    contractId: Type.String({ minLength: 1 }),
+    origin: Type.String({ minLength: 1 }),
+  }),
+  Type.Object({
+    kind: Type.Literal("cli"),
+    contractId: Type.String({ minLength: 1 }),
+    sessionPublicKey: Type.String({ minLength: 1 }),
+  }),
+  Type.Object({
+    kind: Type.Literal("native"),
+    contractId: Type.String({ minLength: 1 }),
+    sessionPublicKey: Type.String({ minLength: 1 }),
+  }),
+  Type.Object({
+    kind: Type.Literal("device-user"),
+    contractId: Type.String({ minLength: 1 }),
+    devicePublicKey: Type.String({ minLength: 1 }),
+  }),
+]);
+const ContractEvidenceSchema = Type.Object({
   contractDigest: DigestSchema,
   contractId: Type.String({ minLength: 1 }),
+});
+
+export const AuthIdentitiesGrantsListSchema = Type.Object({
+  offset: Type.Optional(Type.Integer({ minimum: 0 })),
+  limit: Type.Integer({ minimum: 0, maximum: 500 }),
+}, { additionalProperties: false });
+export type AuthIdentitiesGrantsListInput = Static<
+  typeof AuthIdentitiesGrantsListSchema
+>;
+
+export const AuthUserGrantRowSchema = Type.Object({
+  identityEnvelopeId: Type.String({ minLength: 1 }),
+  identityAnchor: IdentityAnchorSchema,
+  contractEvidence: ContractEvidenceSchema,
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
   participantKind: UserParticipantKindSchema,
@@ -22,9 +54,9 @@ export const AuthUserGrantRowSchema = Type.Object({
 });
 export type AuthUserGrantRow = Static<typeof AuthUserGrantRowSchema>;
 
-export const AuthListUserGrantsResponseSchema = Type.Object({
+export const AuthIdentitiesGrantsListResponseSchema = Type.Object({
   grants: Type.Array(AuthUserGrantRowSchema),
 });
-export type AuthListUserGrantsResponse = Static<
-  typeof AuthListUserGrantsResponseSchema
+export type AuthIdentitiesGrantsListResponse = Static<
+  typeof AuthIdentitiesGrantsListResponseSchema
 >;

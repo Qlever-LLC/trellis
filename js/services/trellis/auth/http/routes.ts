@@ -76,9 +76,9 @@ export function registerHttpRoutes(
   registerBootstrapRoutes(app, context);
   registerBrowserAuthRoutes(app, context);
   registerDeviceActivationHttpRoutes(app, {
-    portalStorage: opts.portalStorage,
-    portalDefaultStorage: opts.portalDefaultStorage,
-    devicePortalSelectionStorage: opts.devicePortalSelectionStorage,
+    deploymentPortalRouteStorage: opts.deploymentPortalRouteStorage,
+    contracts: opts.contracts,
+    deploymentEnvelopeStorage: opts.deploymentEnvelopeStorage,
     browserFlowsKV: opts.runtimeDeps.browserFlowsKV,
     deviceActivationReviewStorage: opts.deviceActivationReviewStorage,
     deviceActivationStorage: opts.deviceActivationStorage,

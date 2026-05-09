@@ -1,13 +1,5 @@
-import type {
-  ContractApprovalRecord,
-  InstanceGrantPolicy,
-  Session,
-} from "../schemas.ts";
+import type { Session } from "../schemas.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
-import {
-  matchingInstanceGrantPolicies,
-  userDelegationAllowed,
-} from "../grants/policy.ts";
 
 export type SessionPrincipal = {
   active: boolean;
@@ -36,20 +28,13 @@ export type SessionPrincipalError = {
     | "device_deployment_disabled"
     | "user_not_found"
     | "user_inactive"
-    | "insufficient_permissions"
-    | "service_role_on_user";
+    | "insufficient_permissions";
   context?: Record<string, unknown>;
 };
 
 type SessionPrincipalResult =
   | { ok: true; value: SessionPrincipal }
   | { ok: false; error: SessionPrincipalError };
-
-function hasServiceOnlyCapability(capabilities: string[]): boolean {
-  return capabilities.some((capability) =>
-    capability === "service" || capability.startsWith("service:")
-  );
-}
 
 export async function resolveSessionPrincipal(
   session: Session,
@@ -96,19 +81,12 @@ export async function resolveSessionPrincipal(
         {
           deploymentId: string;
           disabled: boolean;
-          preActivationPolicy?: "reject" | "device-owned";
         } | undefined
       >;
     };
     loadUserProjection: (
       trellisId: string,
     ) => Promise<UserProjectionEntry | null>;
-    loadStoredApproval?: (
-      key: string,
-    ) => Promise<ContractApprovalRecord | null>;
-    loadInstanceGrantPolicies?: (
-      contractId: string,
-    ) => Promise<InstanceGrantPolicy[]>;
   },
 ): Promise<SessionPrincipalResult> {
   if (session.type === "service") {
@@ -197,16 +175,6 @@ export async function resolveSessionPrincipal(
           },
         };
       }
-      if (deployment.preActivationPolicy !== "device-owned") {
-        return {
-          ok: false,
-          error: {
-            reason: "unknown_device",
-            context: { instanceId: session.instanceId },
-          },
-        };
-      }
-
       return {
         ok: true,
         value: {
@@ -318,36 +286,14 @@ export async function resolveSessionPrincipal(
   }
 
   const currentCapabilities = projection.capabilities ?? [];
-  const matchedPolicies = matchingInstanceGrantPolicies({
-    policies: await (deps.loadInstanceGrantPolicies?.(session.contractId) ??
-      Promise.resolve([])),
-    contractId: session.contractId,
-    appOrigin: session.app?.origin,
-  });
-  const storedApproval = deps.loadStoredApproval
-    ? await deps.loadStoredApproval(
-      `${session.trellisId}.${session.contractDigest}`,
-    )
-    : null;
   if (
-    !userDelegationAllowed({
-      active: projection.active,
-      explicitCapabilities: currentCapabilities,
-      delegatedCapabilities: session.delegatedCapabilities,
-      storedApproval,
-      matchedPolicies,
-    })
+    !session.delegatedCapabilities.every((capability) =>
+      currentCapabilities.includes(capability)
+    )
   ) {
     return {
       ok: false,
       error: { reason: "insufficient_permissions" },
-    };
-  }
-
-  if (hasServiceOnlyCapability(session.delegatedCapabilities)) {
-    return {
-      ok: false,
-      error: { reason: "service_role_on_user" },
     };
   }
 

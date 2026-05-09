@@ -12,21 +12,26 @@ import {
 import { getKvPermissionGrants } from "./resources.ts";
 import { CONTRACT_DIGEST as TRELLIS_JOBS_CONTRACT_DIGEST } from "#trellis-generated-sdk/jobs";
 import { CONTRACT as trellisAuthContract } from "../contracts/trellis_auth.ts";
-import { CONTRACT as trellisCoreContract } from "../contracts/trellis_core.ts";
-import { CONTRACT as trellisStateContract } from "../contracts/trellis_state.ts";
+import type {
+  EnvelopeBoundary,
+  EnvelopeBoundarySurface,
+} from "../auth/schemas.ts";
 
 type PermissionRule = {
   subject: string;
   requiredCapabilities: string[];
+  surface?: Omit<EnvelopeBoundarySurface, "required">;
 };
 
 type ServiceDescriptor = {
   sessionKey: string;
   contractDigest?: string;
+  envelopeBoundary?: EnvelopeBoundary;
 };
 
 type CallerContractDescriptor = {
   contractDigest: string;
+  identityEnvelope?: EnvelopeBoundary;
 };
 
 type PermissionState = {
@@ -42,7 +47,8 @@ const JETSTREAM_EVENT_CONTROL_SUBJECTS = [
   "$JS.ACK.>",
 ];
 
-const AUTH_VALIDATE_SUBJECT = trellisAuthContract.rpc?.["Auth.ValidateRequest"]
+const AUTH_VALIDATE_SUBJECT = trellisAuthContract.rpc
+  ?.["Auth.Requests.Validate"]
   ?.subject;
 const TRANSFER_UPLOAD_SUBJECT_PREFIX = "transfer.v1.upload";
 const TRANSFER_DOWNLOAD_SUBJECT_PREFIX = "transfer.v1.download";
@@ -63,12 +69,6 @@ function createPermissionState(contracts: ContractEntry[]): PermissionState {
   };
 }
 
-let state = createPermissionState([
-  { digest: trellisCoreContract.id, contract: trellisCoreContract },
-  { digest: trellisAuthContract.id, contract: trellisAuthContract },
-  { digest: trellisStateContract.id, contract: trellisStateContract },
-]);
-
 export function hasRequiredCapabilities(
   grantedCapabilities: string[],
   requiredCapabilities: string[],
@@ -81,6 +81,32 @@ export function hasRequiredCapabilities(
 
 function dedupe(subjects: Iterable<string>): string[] {
   return [...new Set(subjects)];
+}
+
+function envelopeHasSurface(
+  envelope: EnvelopeBoundary | undefined,
+  surface: Omit<EnvelopeBoundarySurface, "required"> | undefined,
+): boolean {
+  if (!envelope || !surface) return true;
+  return envelope.surfaces.some((allowed) =>
+    allowed.contractId === surface.contractId &&
+    allowed.kind === surface.kind &&
+    allowed.name === surface.name &&
+    allowed.action === surface.action
+  );
+}
+
+function permittedRuleSubjects(
+  rules: PermissionRule[],
+  capabilities: string[],
+  envelope: EnvelopeBoundary | undefined,
+): string[] {
+  return rules
+    .filter((rule) =>
+      envelopeHasSurface(envelope, rule.surface) &&
+      hasRequiredCapabilities(capabilities, rule.requiredCapabilities)
+    )
+    .map((rule) => rule.subject);
 }
 
 /**
@@ -117,9 +143,9 @@ export function operationControlCapabilityRules(
   ];
 }
 
-function resolvedUses(entry: ContractEntry) {
+function resolvedUses(entry: ContractEntry, permissionState: PermissionState) {
   return resolveContractUses(entry.contract, (alias, use, options) => {
-    const target = state.activeById.get(use.contract);
+    const target = permissionState.activeById.get(use.contract);
     if (!target) {
       if (!options.required) {
         return null;
@@ -132,43 +158,70 @@ function resolvedUses(entry: ContractEntry) {
   });
 }
 
-function implementedContracts(service: ServiceDescriptor): ContractEntry[] {
-  return state.contracts.filter((entry) =>
+function implementedContracts(
+  service: ServiceDescriptor,
+  permissionState: PermissionState,
+): ContractEntry[] {
+  return permissionState.contracts.filter((entry) =>
     service.contractDigest === entry.digest
   );
 }
 
-function callerContracts(caller: CallerContractDescriptor): ContractEntry[] {
-  return state.contracts.filter((entry) =>
+function callerContracts(
+  caller: CallerContractDescriptor,
+  permissionState: PermissionState,
+): ContractEntry[] {
+  return permissionState.contracts.filter((entry) =>
     caller.contractDigest === entry.digest
   );
 }
 
 function ownedPublishRules(entries: ContractEntry[]): PermissionRule[] {
   return entries.flatMap((entry) => [
-    ...Object.values(entry.contract.events ?? {}).map((event) => ({
+    ...Object.entries(entry.contract.events ?? {}).map(([name, event]) => ({
       subject: templateToWildcard(event.subject),
       requiredCapabilities: event.capabilities?.publish ?? [],
+      surface: {
+        contractId: entry.contract.id,
+        kind: "event" as const,
+        name,
+        action: "publish" as const,
+      },
     })),
   ]);
 }
 
 function ownedSubscribeRules(entries: ContractEntry[]): PermissionRule[] {
   return entries.flatMap((entry) =>
-    Object.values(entry.contract.events ?? {}).map((event) => ({
+    Object.entries(entry.contract.events ?? {}).map(([name, event]) => ({
       subject: templateToWildcard(event.subject),
       requiredCapabilities: event.capabilities?.subscribe ?? [],
+      surface: {
+        contractId: entry.contract.id,
+        kind: "event" as const,
+        name,
+        action: "subscribe" as const,
+      },
     }))
   );
 }
 
-function usedPublishRules(entries: ContractEntry[]): PermissionRule[] {
+function usedPublishRules(
+  entries: ContractEntry[],
+  permissionState: PermissionState,
+): PermissionRule[] {
   return entries.flatMap((entry) => {
-    const uses = resolvedUses(entry);
+    const uses = resolvedUses(entry, permissionState);
     return [
       ...uses.rpcCalls.map((method) => ({
         subject: templateToWildcard(method.method.subject),
         requiredCapabilities: method.method.capabilities?.call ?? [],
+        surface: {
+          contractId: method.contractId,
+          kind: "rpc" as const,
+          name: method.key,
+          action: "call" as const,
+        },
       })),
       ...uses.operationCalls.flatMap((operation) => {
         const controlSubject = templateToWildcard(
@@ -178,13 +231,39 @@ function usedPublishRules(entries: ContractEntry[]): PermissionRule[] {
           {
             subject: templateToWildcard(operation.operation.subject),
             requiredCapabilities: operation.operation.capabilities?.call ?? [],
+            surface: {
+              contractId: operation.contractId,
+              kind: "operation" as const,
+              name: operation.key,
+              action: "call" as const,
+            },
           },
-          ...operationControlCapabilityRules(operation.operation).map(
-            (requiredCapabilities) => ({
+          {
+            subject: controlSubject,
+            requiredCapabilities: operationReadCapabilities(
+              operation.operation,
+            ),
+            surface: {
+              contractId: operation.contractId,
+              kind: "operation" as const,
+              name: operation.key,
+              action: "read" as const,
+            },
+          },
+          ...(operationCancelCapabilities(operation.operation) !== undefined
+            ? [{
               subject: controlSubject,
-              requiredCapabilities,
-            }),
-          ),
+              requiredCapabilities: operationCancelCapabilities(
+                operation.operation,
+              ) ?? [],
+              surface: {
+                contractId: operation.contractId,
+                kind: "operation" as const,
+                name: operation.key,
+                action: "cancel" as const,
+              },
+            }]
+            : []),
         ];
       }),
       ...uses.operationCalls
@@ -194,80 +273,198 @@ function usedPublishRules(entries: ContractEntry[]): PermissionRule[] {
         .map((operation) => ({
           subject: `${TRANSFER_UPLOAD_SUBJECT_PREFIX}.*.*`,
           requiredCapabilities: operation.operation.capabilities?.call ?? [],
+          surface: {
+            contractId: operation.contractId,
+            kind: "operation" as const,
+            name: operation.key,
+            action: "call" as const,
+          },
         })),
       ...uses.rpcCalls
         .filter((method) => method.method.transfer?.direction === "receive")
         .map((method) => ({
           subject: `${TRANSFER_DOWNLOAD_SUBJECT_PREFIX}.*.*`,
           requiredCapabilities: method.method.capabilities?.call ?? [],
+          surface: {
+            contractId: method.contractId,
+            kind: "rpc" as const,
+            name: method.key,
+            action: "call" as const,
+          },
         })),
       ...uses.eventPublishes.map((event) => ({
         subject: templateToWildcard(event.event.subject),
         requiredCapabilities: event.event.capabilities?.publish ?? [],
+        surface: {
+          contractId: event.contractId,
+          kind: "event" as const,
+          name: event.key,
+          action: "publish" as const,
+        },
       })),
       ...uses.feedSubscribes.map((feed) => ({
         subject: templateToWildcard(feed.feed.subject),
         requiredCapabilities: feed.feed.capabilities?.subscribe ?? [],
+        surface: {
+          contractId: feed.contractId,
+          kind: "feed" as const,
+          name: feed.key,
+          action: "read" as const,
+        },
       })),
     ];
   });
 }
 
-function usedSubscribeRules(entries: ContractEntry[]): PermissionRule[] {
+function usedSubscribeRules(
+  entries: ContractEntry[],
+  permissionState: PermissionState,
+): PermissionRule[] {
   return entries.flatMap((entry) => {
-    const uses = resolvedUses(entry);
+    const uses = resolvedUses(entry, permissionState);
     return [
       ...uses.eventSubscribes.map((event) => ({
         subject: templateToWildcard(event.event.subject),
         requiredCapabilities: event.event.capabilities?.subscribe ?? [],
+        surface: {
+          contractId: event.contractId,
+          kind: "event" as const,
+          name: event.key,
+          action: "subscribe" as const,
+        },
       })),
     ];
   });
 }
 
-function handledRpcSubjects(service: ServiceDescriptor): string[] {
-  return implementedContracts(service).flatMap((entry) =>
-    Object.values<ContractRpcMethod>(entry.contract.rpc ?? {}).map((method) =>
-      templateToWildcard(method.subject)
-    )
+function handledRpcRules(
+  service: ServiceDescriptor,
+  permissionState: PermissionState,
+): PermissionRule[] {
+  return implementedContracts(service, permissionState).flatMap((entry) =>
+    Object.entries<ContractRpcMethod>(entry.contract.rpc ?? {}).map(([
+      name,
+      method,
+    ]) => ({
+      subject: templateToWildcard(method.subject),
+      requiredCapabilities: [],
+      surface: {
+        contractId: entry.contract.id,
+        kind: "rpc" as const,
+        name,
+        action: "call" as const,
+      },
+    }))
   );
 }
 
-function handledOperationSubjects(service: ServiceDescriptor): string[] {
-  return implementedContracts(service).flatMap((entry) =>
-    Object.values<ContractOperation>(entry.contract.operations ?? {}).flatMap((
-      operation,
-    ) => [
-      templateToWildcard(operation.subject),
-      templateToWildcard(`${operation.subject}.control`),
-    ])
+function handledOperationRules(
+  service: ServiceDescriptor,
+  permissionState: PermissionState,
+): PermissionRule[] {
+  return implementedContracts(service, permissionState).flatMap((entry) =>
+    Object.entries<ContractOperation>(entry.contract.operations ?? {}).flatMap((
+      [name, operation],
+    ) => {
+      const controlSubject = templateToWildcard(`${operation.subject}.control`);
+      return [
+        {
+          subject: templateToWildcard(operation.subject),
+          requiredCapabilities: [],
+          surface: {
+            contractId: entry.contract.id,
+            kind: "operation" as const,
+            name,
+            action: "call" as const,
+          },
+        },
+        {
+          subject: controlSubject,
+          requiredCapabilities: [],
+          surface: {
+            contractId: entry.contract.id,
+            kind: "operation" as const,
+            name,
+            action: "read" as const,
+          },
+        },
+        ...(operation.cancel
+          ? [{
+            subject: controlSubject,
+            requiredCapabilities: [],
+            surface: {
+              contractId: entry.contract.id,
+              kind: "operation" as const,
+              name,
+              action: "cancel" as const,
+            },
+          }]
+          : []),
+      ];
+    })
   );
 }
 
-function handledFeedSubjects(service: ServiceDescriptor): string[] {
-  return implementedContracts(service).flatMap((entry) =>
-    Object.values(
+function handledFeedRules(
+  service: ServiceDescriptor,
+  permissionState: PermissionState,
+): PermissionRule[] {
+  return implementedContracts(service, permissionState).flatMap((entry) =>
+    Object.entries(
       (entry.contract as { feeds?: Record<string, { subject: string }> })
         .feeds ??
         {},
-    ).map((feed) => templateToWildcard(feed.subject))
+    ).map(([name, feed]) => ({
+      subject: templateToWildcard(feed.subject),
+      requiredCapabilities: [],
+      surface: {
+        contractId: entry.contract.id,
+        kind: "feed" as const,
+        name,
+        action: "read" as const,
+      },
+    }))
   );
 }
 
-function handledTransferSubjects(service: ServiceDescriptor): string[] {
+function handledTransferRules(
+  service: ServiceDescriptor,
+  permissionState: PermissionState,
+): PermissionRule[] {
   const sessionPrefix = service.sessionKey.slice(0, 16);
-  return implementedContracts(service).flatMap((entry) => [
-    ...Object.values<ContractOperation>(entry.contract.operations ?? {})
-      .filter((operation) => operation.transfer?.direction === "send")
-      .map(() => `${TRANSFER_UPLOAD_SUBJECT_PREFIX}.${sessionPrefix}.*`),
-    ...Object.values<ContractRpcMethod>(entry.contract.rpc ?? {})
-      .filter((method) => method.transfer?.direction === "receive")
-      .map(() => `${TRANSFER_DOWNLOAD_SUBJECT_PREFIX}.${sessionPrefix}.*`),
+  return implementedContracts(service, permissionState).flatMap((entry) => [
+    ...Object.entries<ContractOperation>(entry.contract.operations ?? {})
+      .filter(([, operation]) => operation.transfer?.direction === "send")
+      .map(([name]) => ({
+        subject: `${TRANSFER_UPLOAD_SUBJECT_PREFIX}.${sessionPrefix}.*`,
+        requiredCapabilities: [],
+        surface: {
+          contractId: entry.contract.id,
+          kind: "operation" as const,
+          name,
+          action: "call" as const,
+        },
+      })),
+    ...Object.entries<ContractRpcMethod>(entry.contract.rpc ?? {})
+      .filter(([, method]) => method.transfer?.direction === "receive")
+      .map(([name]) => ({
+        subject: `${TRANSFER_DOWNLOAD_SUBJECT_PREFIX}.${sessionPrefix}.*`,
+        requiredCapabilities: [],
+        surface: {
+          contractId: entry.contract.id,
+          kind: "rpc" as const,
+          name,
+          action: "call" as const,
+        },
+      })),
   ]);
 }
 
-function implementsJobsAdminService(service: ServiceDescriptor): boolean {
-  return implementedContracts(service).some((entry) =>
+function implementsJobsAdminService(
+  service: ServiceDescriptor,
+  permissionState: PermissionState,
+): boolean {
+  return implementedContracts(service, permissionState).some((entry) =>
     entry.contract.id === TRELLIS_JOBS_CONTRACT_ID &&
     entry.digest === TRELLIS_JOBS_CONTRACT_DIGEST
   );
@@ -296,9 +493,10 @@ function jobsAdminRuntimePublishSubjects(): string[] {
 function hasDeclaredEventSubscriptions(
   capabilities: string[],
   service: ServiceDescriptor,
+  permissionState: PermissionState,
 ): boolean {
-  return implementedContracts(service).some((entry) =>
-    resolvedUses(entry).eventSubscribes.some((event) =>
+  return implementedContracts(service, permissionState).some((entry) =>
+    resolvedUses(entry, permissionState).eventSubscribes.some((event) =>
       hasRequiredCapabilities(
         capabilities,
         event.event.capabilities?.subscribe ?? [],
@@ -307,65 +505,59 @@ function hasDeclaredEventSubscriptions(
   );
 }
 
-export function setContracts(contracts: ContractEntry[]): void {
-  state = createPermissionState(contracts);
-}
-
-export function getContracts(): ContractEntry[] {
-  return state.contracts;
-}
-
 /**
- * Derive publish subjects for a user/app session from the approved caller digest.
+ * Derive publish subjects for a user/app session against an explicit contract set.
+ * This is used when the caller app contract is known but is not part of the
+ * service/device active catalog used for runtime-owned subjects.
  */
-export function getUserPublishSubjects(
+export function getUserPublishSubjectsForContracts(
   capabilities: string[],
   caller: CallerContractDescriptor,
+  contracts: ContractEntry[],
 ): string[] {
-  const entries = callerContracts(caller);
-  const rules = usedPublishRules(entries);
+  const permissionState = createPermissionState(contracts);
+  const entries = callerContracts(caller, permissionState);
+  const rules = usedPublishRules(entries, permissionState);
 
   return dedupe([
-    ...rules
-      .filter((rule) =>
-        hasRequiredCapabilities(capabilities, rule.requiredCapabilities)
-      )
-      .map((rule) => rule.subject),
+    ...permittedRuleSubjects(rules, capabilities, caller.identityEnvelope),
   ]);
 }
 
 /**
- * Derive subscribe subjects for a user/app session from the approved caller digest.
+ * Derive subscribe subjects for a user/app session against an explicit contract set.
  */
-export function getUserSubscribeSubjects(
+export function getUserSubscribeSubjectsForContracts(
   capabilities: string[],
   caller: CallerContractDescriptor,
+  contracts: ContractEntry[],
 ): string[] {
-  const entries = callerContracts(caller);
-  const rules = usedSubscribeRules(entries);
+  const permissionState = createPermissionState(contracts);
+  const entries = callerContracts(caller, permissionState);
+  const rules = usedSubscribeRules(entries, permissionState);
 
   return dedupe([
-    ...rules
-      .filter((rule) =>
-        hasRequiredCapabilities(capabilities, rule.requiredCapabilities)
-      )
-      .map((rule) => rule.subject),
+    ...permittedRuleSubjects(rules, capabilities, caller.identityEnvelope),
   ]);
 }
 
-export function getServicePublishSubjects(
+/**
+ * Derive publish subjects for a service session against an explicit contract set.
+ */
+export function getServicePublishSubjectsForContracts(
   capabilities: string[],
   service: ServiceDescriptor,
+  contracts: ContractEntry[],
 ): string[] {
-  const entries = implementedContracts(service);
-  const rules = [...ownedPublishRules(entries), ...usedPublishRules(entries)];
+  const permissionState = createPermissionState(contracts);
+  const entries = implementedContracts(service, permissionState);
+  const rules = [
+    ...ownedPublishRules(entries),
+    ...usedPublishRules(entries, permissionState),
+  ];
 
   return dedupe([
-    ...rules
-      .filter((rule) =>
-        hasRequiredCapabilities(capabilities, rule.requiredCapabilities)
-      )
-      .map((rule) => rule.subject),
+    ...permittedRuleSubjects(rules, capabilities, service.envelopeBoundary),
     ...(hasRequiredCapabilities(capabilities, ["service"])
       ? getKvPermissionGrants(operationStoreBucket(service.sessionKey), {
         allowCreate: true,
@@ -375,36 +567,57 @@ export function getServicePublishSubjects(
         AUTH_VALIDATE_SUBJECT
       ? [templateToWildcard(AUTH_VALIDATE_SUBJECT)]
       : []),
-    ...(hasDeclaredEventSubscriptions(capabilities, service)
+    ...(hasDeclaredEventSubscriptions(capabilities, service, permissionState)
       ? JETSTREAM_EVENT_CONTROL_SUBJECTS
       : []),
     ...(hasRequiredCapabilities(capabilities, ["service"]) &&
-        implementsJobsAdminService(service)
+        implementsJobsAdminService(service, permissionState)
       ? jobsAdminRuntimePublishSubjects()
       : []),
   ]);
 }
 
-export function getServiceSubscribeSubjects(
+/**
+ * Derive subscribe subjects for a service session against an explicit contract set.
+ */
+export function getServiceSubscribeSubjectsForContracts(
   capabilities: string[],
   service: ServiceDescriptor,
+  contracts: ContractEntry[],
 ): string[] {
-  const entries = implementedContracts(service);
+  const permissionState = createPermissionState(contracts);
+  const entries = implementedContracts(service, permissionState);
   const rules = [
     ...ownedSubscribeRules(entries),
-    ...usedSubscribeRules(entries),
+    ...usedSubscribeRules(entries, permissionState),
   ];
   const rpcSubjects = hasRequiredCapabilities(capabilities, ["service"])
-    ? handledRpcSubjects(service)
+    ? permittedRuleSubjects(
+      handledRpcRules(service, permissionState),
+      [],
+      service.envelopeBoundary,
+    )
     : [];
   const operationSubjects = hasRequiredCapabilities(capabilities, ["service"])
-    ? handledOperationSubjects(service)
+    ? permittedRuleSubjects(
+      handledOperationRules(service, permissionState),
+      [],
+      service.envelopeBoundary,
+    )
     : [];
   const feedSubjects = hasRequiredCapabilities(capabilities, ["service"])
-    ? handledFeedSubjects(service)
+    ? permittedRuleSubjects(
+      handledFeedRules(service, permissionState),
+      [],
+      service.envelopeBoundary,
+    )
     : [];
   const transferSubjects = hasRequiredCapabilities(capabilities, ["service"])
-    ? handledTransferSubjects(service)
+    ? permittedRuleSubjects(
+      handledTransferRules(service, permissionState),
+      [],
+      service.envelopeBoundary,
+    )
     : [];
 
   return dedupe([
@@ -412,10 +625,6 @@ export function getServiceSubscribeSubjects(
     ...operationSubjects,
     ...feedSubjects,
     ...transferSubjects,
-    ...rules
-      .filter((rule) =>
-        hasRequiredCapabilities(capabilities, rule.requiredCapabilities)
-      )
-      .map((rule) => rule.subject),
+    ...permittedRuleSubjects(rules, capabilities, service.envelopeBoundary),
   ]);
 }

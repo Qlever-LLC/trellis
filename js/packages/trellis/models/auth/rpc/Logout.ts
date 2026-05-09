@@ -1,13 +1,13 @@
 import Type, { type Static } from "typebox";
 
-export const AuthLogoutSchema = Type.Object(
+export const AuthSessionsLogoutSchema = Type.Object(
   {},
 );
-export type AuthLogoutInput = Static<typeof AuthLogoutSchema>;
+export type AuthSessionsLogoutInput = Static<typeof AuthSessionsLogoutSchema>;
 
-export const AuthLogoutResponseSchema = Type.Object(
+export const AuthSessionsLogoutResponseSchema = Type.Object(
   {
     success: Type.Boolean(),
   },
 );
-export type AuthLogoutResponse = Static<typeof AuthLogoutResponseSchema>;
+export type AuthSessionsLogoutResponse = Static<typeof AuthSessionsLogoutResponseSchema>;

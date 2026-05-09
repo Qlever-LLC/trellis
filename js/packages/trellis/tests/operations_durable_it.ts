@@ -54,7 +54,7 @@ async function createTestAuth(): Promise<
 function startPermissiveAuthResponder(
   nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"],
 ): void {
-  const sub = nc.subscribe("rpc.v1.Auth.ValidateRequest");
+  const sub = nc.subscribe("rpc.v1.Auth.Requests.Validate");
   void (async () => {
     for await (const msg of sub) {
       const input = msg.json() as { sessionKey: string };
@@ -117,7 +117,7 @@ const billing = defineServiceContract(
     displayName: "Billing Durable Test",
     description: "Exercise durable operations state over restart.",
     uses: {
-      auth: auth.use({ rpc: { call: ["Auth.ValidateRequest"] } }),
+      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
     },
     operations: {
       "Billing.Refund": {

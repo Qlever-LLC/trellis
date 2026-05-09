@@ -1,9 +1,9 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthListCapabilitiesOutput,
-    AuthListUsersOutput,
-    AuthUpdateUserInput,
+    AuthCapabilitiesListOutput,
+    AuthUsersListOutput,
+    AuthUsersUpdateInput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -15,8 +15,8 @@
   import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type UserView = AuthListUsersOutput["users"][number];
-  type CapabilityView = AuthListCapabilitiesOutput["capabilities"][number];
+  type UserView = AuthUsersListOutput["users"][number];
+  type CapabilityView = AuthCapabilitiesListOutput["capabilities"][number];
   type CapabilityGroup = {
     key: string;
     title: string;
@@ -111,8 +111,8 @@
       if (!hasTargetParams) return;
 
       const [usersResponse, capabilitiesResponse] = await Promise.all([
-        trellis.request("Auth.ListUsers", {}).take(),
-        trellis.request("Auth.ListCapabilities", {}).take(),
+        trellis.request("Auth.Users.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.Capabilities.List", { limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(usersResponse)) { error = errorMessage(usersResponse); return; }
       if (isErr(capabilitiesResponse)) { error = errorMessage(capabilitiesResponse); return; }
@@ -133,12 +133,12 @@
     savePending = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.UpdateUser", {
+      const response = await trellis.request("Auth.Users.Update", {
         origin: targetUser.origin,
         id: targetUser.id,
         active,
         capabilities: uniqueCapabilities(selectedCapabilities),
-      } satisfies AuthUpdateUserInput).take();
+      } satisfies AuthUsersUpdateInput).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Updated ${targetUser.name ?? targetUser.id}.`, "Updated");
       await load();

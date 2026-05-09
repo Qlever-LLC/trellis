@@ -1,11 +1,58 @@
 import { assert, assertEquals } from "@std/assert";
 
 import type { ContractRecord } from "../../catalog/schemas.ts";
+import { createTestContracts } from "../../catalog/test_contracts.ts";
+import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { deviceInstanceId } from "../admin/shared.ts";
+import type { DeploymentEnvelope } from "../schemas.ts";
 import { __testing__ } from "./callout.ts";
 
 const PUBLIC_IDENTITY_KEY = "A".repeat(43);
 const INSTANCE_ID = deviceInstanceId(PUBLIC_IDENTITY_KEY);
+const TEST_NOW = "2026-01-01T00:00:00.000Z";
+
+const DEVICE_CONTRACT: TrellisContractV1 = {
+  format: "trellis.contract.v1",
+  id: "example.device@v1",
+  displayName: "Example Device",
+  description: "Example device contract",
+  kind: "device",
+  schemas: { Empty: { type: "object" } },
+  rpc: {
+    "Example.Read": {
+      version: "v1",
+      subject: "rpc.v1.Example.Read",
+      input: { schema: "Empty" },
+      output: { schema: "Empty" },
+      capabilities: { call: ["example.read"] },
+    },
+  },
+};
+
+const FITTING_ENVELOPE: DeploymentEnvelope = {
+  deploymentId: "reader.default",
+  kind: "device",
+  disabled: false,
+  createdAt: TEST_NOW,
+  updatedAt: TEST_NOW,
+  boundary: {
+    contracts: [{ contractId: "example.device@v1", required: true }],
+    surfaces: [{
+      contractId: "example.device@v1",
+      kind: "rpc",
+      name: "Example.Read",
+      action: "call",
+      required: true,
+    }],
+    capabilities: ["example.read"],
+    resources: [],
+  },
+};
+
+const EMPTY_ENVELOPE: DeploymentEnvelope = {
+  ...FITTING_ENVELOPE,
+  boundary: { contracts: [], surfaces: [], capabilities: [], resources: [] },
+};
 
 function makeContractRecord(
   overrides: Partial<ContractRecord> = {},
@@ -16,12 +63,7 @@ function makeContractRecord(
     displayName: "Example Device",
     description: "Example device contract",
     installedAt: new Date("2026-01-01T00:00:00.000Z"),
-    contract: JSON.stringify({
-      id: "example.device@v1",
-      displayName: "Example Device",
-      description: "Example device contract",
-      namespaces: ["example"],
-    }),
+    contract: JSON.stringify(DEVICE_CONTRACT),
     analysisSummary: {
       namespaces: ["example"],
       rpcMethods: 1,
@@ -62,14 +104,19 @@ function makeContractRecord(
 }
 
 function makeGrantDeps(args: {
-  preActivationPolicy?: "reject" | "device-owned";
   instanceState?: "registered" | "activated" | "revoked" | "disabled";
   instanceDeploymentId?: string;
   activationDeploymentId?: string;
   deploymentDisabled?: boolean;
+  envelope?: DeploymentEnvelope;
   activation?: "activated" | "revoked" | null;
 }) {
   const contractRecord = makeContractRecord();
+  const contracts = createTestContracts();
+  contracts.addKnownTestContract({
+    digest: "digest-a",
+    contract: DEVICE_CONTRACT,
+  });
   return {
     deviceInstanceStorage: {
       get: async () => ({
@@ -98,18 +145,9 @@ function makeGrantDeps(args: {
     },
     deviceDeploymentStorage: {
       get: async () => {
-        const firstConnectPolicy: "reject" = "reject";
-        const compatibilityPolicy: "exact" = "exact";
         const deployment = {
           deploymentId: "reader.default",
-          firstConnectPolicy,
-          preActivationPolicy: args.preActivationPolicy ?? "reject",
           disabled: args.deploymentDisabled ?? false,
-          appliedContracts: [{
-            contractId: "example.device@v1",
-            compatibilityPolicy,
-            allowedDigests: ["digest-a"],
-          }],
         };
         return deployment;
       },
@@ -118,35 +156,43 @@ function makeGrantDeps(args: {
       get: async (digest: string) =>
         digest === "digest-a" ? contractRecord : undefined,
     },
+    contracts,
+    deploymentEnvelopeStorage: {
+      get: async () => args.envelope ?? FITTING_ENVELOPE,
+    },
   };
 }
 
-Deno.test("resolveDeviceRuntimeGrant denies registered devices by default", async () => {
+Deno.test("resolveDeviceRuntimeGrant allows registered device runtime authority when envelope fits", async () => {
   const deps = makeGrantDeps({ activation: null });
   const result = await __testing__.resolveDeviceRuntimeGrant(
     deps,
     PUBLIC_IDENTITY_KEY,
     deps.contractStorage,
     "digest-a",
+    deps.contracts,
   );
 
-  assertEquals(result, { ok: false, denial: "unknown_device" });
+  assert(result.ok);
+  assertEquals(result.value.authority, "admin_reviewed");
+  assertEquals(result.value.activation, null);
+  assertEquals(result.value.instance.instanceId, INSTANCE_ID);
 });
 
-Deno.test("resolveDeviceRuntimeGrant allows registered device-owned authority only under policy", async () => {
+Deno.test("resolveDeviceRuntimeGrant uses envelope fit instead of legacy policies", async () => {
   const deps = makeGrantDeps({
     activation: null,
-    preActivationPolicy: "device-owned",
   });
   const result = await __testing__.resolveDeviceRuntimeGrant(
     deps,
     PUBLIC_IDENTITY_KEY,
     deps.contractStorage,
     "digest-a",
+    deps.contracts,
   );
 
   assert(result.ok);
-  assertEquals(result.value.authority, "device_owned");
+  assertEquals(result.value.authority, "admin_reviewed");
   assertEquals(result.value.activation, null);
   assertEquals(result.value.instance.instanceId, INSTANCE_ID);
 });
@@ -158,6 +204,7 @@ Deno.test("resolveDeviceRuntimeGrant keeps activated devices user delegated", as
     PUBLIC_IDENTITY_KEY,
     deps.contractStorage,
     "digest-a",
+    deps.contracts,
   );
 
   assert(result.ok);
@@ -176,15 +223,15 @@ Deno.test("resolveDeviceRuntimeGrant rejects stale activation deployment", async
     PUBLIC_IDENTITY_KEY,
     deps.contractStorage,
     "digest-a",
+    deps.contracts,
   );
 
   assertEquals(result, { ok: false, denial: "device_activation_revoked" });
 });
 
-Deno.test("resolveDeviceRuntimeGrant denies pre-activation disabled deployment and disallowed digest", async () => {
+Deno.test("resolveDeviceRuntimeGrant denies pre-activation disabled deployment and envelope miss", async () => {
   const disabled = makeGrantDeps({
     activation: null,
-    preActivationPolicy: "device-owned",
     deploymentDisabled: true,
   });
   assertEquals(
@@ -193,22 +240,24 @@ Deno.test("resolveDeviceRuntimeGrant denies pre-activation disabled deployment a
       PUBLIC_IDENTITY_KEY,
       disabled.contractStorage,
       "digest-a",
+      disabled.contracts,
     ),
     { ok: false, denial: "device_deployment_disabled" },
   );
 
   const disallowed = makeGrantDeps({
     activation: null,
-    preActivationPolicy: "device-owned",
+    envelope: EMPTY_ENVELOPE,
   });
   assertEquals(
     await __testing__.resolveDeviceRuntimeGrant(
       disallowed,
       PUBLIC_IDENTITY_KEY,
       disallowed.contractStorage,
-      "digest-b",
+      "digest-a",
+      disallowed.contracts,
     ),
-    { ok: false, denial: "device_digest_not_allowed" },
+    { ok: false, denial: "device_envelope_miss" },
   );
 });
 
@@ -216,7 +265,6 @@ Deno.test("resolveDeviceRuntimeGrant denies pre-activation disabled and revoked 
   for (const instanceState of ["disabled", "revoked"] as const) {
     const deps = makeGrantDeps({
       activation: null,
-      preActivationPolicy: "device-owned",
       instanceState,
     });
 
@@ -226,6 +274,7 @@ Deno.test("resolveDeviceRuntimeGrant denies pre-activation disabled and revoked 
         PUBLIC_IDENTITY_KEY,
         deps.contractStorage,
         "digest-a",
+        deps.contracts,
       ),
       { ok: false, denial: "unknown_device" },
     );

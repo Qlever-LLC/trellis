@@ -181,7 +181,7 @@ Deno.test("contract storage lists all records in digest order", async () => {
     await repo.put(second);
     await repo.put(first);
 
-    assertEquals(await repo.list(), [first, second]);
+    assertEquals(await repo.listPage({ limit: 10 }), [first, second]);
   });
 });
 
@@ -195,7 +195,7 @@ Deno.test("contract storage deletes records by digest", async () => {
     await repo.delete(remove.digest);
 
     assertEquals(await repo.get(remove.digest), undefined);
-    assertEquals(await repo.list(), [keep]);
+    assertEquals(await repo.listPage({ limit: 10 }), [keep]);
   });
 });
 

@@ -1,17 +1,16 @@
 import {
-  createAuthListApprovalsHandler,
-  createAuthListUserGrantsHandler,
-  createAuthRevokeApprovalHandler,
-  createAuthRevokeUserGrantRpcHandler,
+  createAuthIdentitiesGrantsListHandler,
+  createAuthIdentitiesListHandler,
+  createAuthIdentityEnvelopesRevokeHandler,
 } from "../approval/rpc.ts";
 import { createKick } from "../callout/kick.ts";
 import {
-  createAuthListCapabilitiesHandler,
-  createAuthListUsersHandler,
-  createAuthUpdateUserHandler,
+  createAuthCapabilitiesListHandler,
+  createAuthUsersListHandler,
+  createAuthUsersUpdateHandler,
 } from "../session/users.ts";
 import type {
-  SqlContractApprovalRepository,
+  SqlIdentityEnvelopeRepository,
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
@@ -25,7 +24,7 @@ import type { Connection } from "../schemas.ts";
 
 export async function registerApprovalAndUserRpcs(deps: {
   trellis: RpcRegistrar;
-  contracts: Pick<AuthContractsRuntime, "contractStore">;
+  contracts: Pick<AuthContractsRuntime, "getActiveCapabilityDefinitions">;
   connectionsKV: RuntimeKV<Connection>;
   logger: AuthLogger;
   natsAuth: AuthRuntimeDeps["natsAuth"];
@@ -39,36 +38,25 @@ export async function registerApprovalAndUserRpcs(deps: {
     },
   ) => Promise<void>;
   userStorage: SqlUserProjectionRepository;
-  contractApprovalStorage: SqlContractApprovalRepository;
+  contractApprovalStorage: SqlIdentityEnvelopeRepository;
 }): Promise<void> {
   const kick = createKick(deps);
   await deps.trellis.mount(
-    "Auth.ListApprovals",
-    createAuthListApprovalsHandler({
+    "Auth.Identities.List",
+    createAuthIdentitiesListHandler({
       contractApprovalStorage: deps.contractApprovalStorage,
       logger: deps.logger,
     }),
   );
   await deps.trellis.mount(
-    "Auth.ListUserGrants",
-    createAuthListUserGrantsHandler({
+    "Auth.Identities.Grants.List",
+    createAuthIdentitiesGrantsListHandler({
       contractApprovalStorage: deps.contractApprovalStorage,
     }),
   );
   await deps.trellis.mount(
-    "Auth.RevokeApproval",
-    createAuthRevokeApprovalHandler({
-      connectionsKV: deps.connectionsKV,
-      contractApprovalStorage: deps.contractApprovalStorage,
-      kick,
-      logger: deps.logger,
-      publishSessionRevoked: deps.publishSessionRevoked,
-      sessionStorage: deps.sessionStorage,
-    }),
-  );
-  await deps.trellis.mount(
-    "Auth.RevokeUserGrant",
-    createAuthRevokeUserGrantRpcHandler({
+    "Auth.IdentityEnvelopes.Revoke",
+    createAuthIdentityEnvelopesRevokeHandler({
       connectionsKV: deps.connectionsKV,
       contractApprovalStorage: deps.contractApprovalStorage,
       kick,
@@ -79,15 +67,15 @@ export async function registerApprovalAndUserRpcs(deps: {
   );
 
   await deps.trellis.mount(
-    "Auth.ListUsers",
-    createAuthListUsersHandler(deps.userStorage, deps.logger),
+    "Auth.Users.List",
+    createAuthUsersListHandler(deps.userStorage, deps.logger),
   );
   await deps.trellis.mount(
-    "Auth.ListCapabilities",
-    createAuthListCapabilitiesHandler(deps.contracts.contractStore, deps.logger),
+    "Auth.Capabilities.List",
+    createAuthCapabilitiesListHandler(deps.contracts, deps.logger),
   );
   await deps.trellis.mount(
-    "Auth.UpdateUser",
-    createAuthUpdateUserHandler(deps.userStorage, deps.logger),
+    "Auth.Users.Update",
+    createAuthUsersUpdateHandler(deps.userStorage, deps.logger),
   );
 }

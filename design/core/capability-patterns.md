@@ -22,8 +22,8 @@ metadata, and role/capability usage patterns.
 Contracts declare capability requirements on RPCs, operations, events, and feeds. The
 owning contract may also declare human-facing metadata for each owned capability
 so approval UIs can explain the requested authority without inventing a separate
-scope catalog. Deployments grant capabilities through roles, groups, portal
-profiles, instance grant policies, or external identity mappings.
+scope catalog. Deployments grant capabilities through roles, groups, envelope
+grant overrides, or external identity mappings.
 
 Rules:
 
@@ -31,17 +31,17 @@ Rules:
 - contracts SHOULD declare top-level metadata for every capability they own
 - deployments assign capability bundles to users and services
 - deployments MAY also assign auth-owned dynamic capability overlays through
-  instance grant policies keyed by browser-app contract lineage and optional app
-  origin
-- services receive deployment policy at installation and contract upgrade time
+  envelope grant overrides keyed by the deployment or identity scope
+- services receive deployment policy through deployment-envelope creation,
+  expansion, and shrink decisions
 - authorization changes take effect immediately because auth derives subjects from active contracts and current grants
 - auth-owned self-service RPCs may intentionally require zero granted
   capabilities when ordinary authenticated user context is sufficient, such as
-  `Auth.Me` and `Auth.Logout`
+  `Auth.Sessions.Me` and `Auth.Sessions.Logout`
 - user, service, session, and grant projections store capability keys as strings;
   approval payloads carry capability metadata objects keyed by those strings
 
-Instance grant policies are deployment policy, not user-owned grants. They must
+Envelope grant overrides are deployment policy, not user-owned grants. They must
 not be copied onto the user projection, and they may be revoked dynamically so
 affected delegated sessions must reconnect and re-evaluate current policy.
 

@@ -1,6 +1,8 @@
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { isJsonValue } from "@qlever-llc/trellis/contracts";
 import type {
+  SqlDeploymentContractEvidenceRepository,
+  SqlDeploymentEnvelopeRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlServiceDeploymentRepository,
@@ -11,10 +13,20 @@ import {
   overlayStagedRecords,
 } from "./active_contracts.ts";
 import { analyzeContract } from "./analysis.ts";
-import { setContracts as setPermissionContracts } from "./permissions.ts";
-import { ContractStore } from "./store.ts";
 import {
-  resolveContractUsesFromStore,
+  type ActiveSubjectOwner,
+  buildActiveContractIndexes,
+  type ContractEntry,
+  findActiveSubject,
+  getActiveCapabilityDefinitions,
+  getActiveCatalog,
+  getContractsById,
+  validateActiveDigestEntries,
+  validateContractManifest,
+  type ValidatedContract,
+} from "./store.ts";
+import {
+  resolveContractUsesFromEntries,
   validateActiveContractCompatibility,
   validateActiveContractUses,
 } from "./uses.ts";
@@ -37,16 +49,22 @@ type InstalledContractRecord = {
 };
 
 type ServiceDeploymentRecord = Awaited<
-  ReturnType<SqlServiceDeploymentRepository["list"]>
+  ReturnType<SqlServiceDeploymentRepository["listPage"]>
 >[number];
 type ServiceInstanceRecord = Awaited<
-  ReturnType<SqlServiceInstanceRepository["list"]>
+  ReturnType<SqlServiceInstanceRepository["listPage"]>
 >[number];
 type DeviceDeploymentRecord = Awaited<
-  ReturnType<SqlDeviceDeploymentRepository["list"]>
+  ReturnType<SqlDeviceDeploymentRepository["listPage"]>
 >[number];
 type DeviceInstanceRecord = Awaited<
-  ReturnType<SqlDeviceInstanceRepository["list"]>
+  ReturnType<SqlDeviceInstanceRepository["listPage"]>
+>[number];
+type DeploymentEnvelopeRecord = Awaited<
+  ReturnType<SqlDeploymentEnvelopeRepository["listPage"]>
+>[number];
+type DeploymentContractEvidenceRecord = Awaited<
+  ReturnType<SqlDeploymentContractEvidenceRepository["listPage"]>
 >[number];
 
 type ActiveCatalogValidationOptions = {
@@ -56,6 +74,7 @@ type ActiveCatalogValidationOptions = {
   stagedServiceInstances?: Iterable<ServiceInstanceRecord>;
   stagedDeviceDeployments?: Iterable<DeviceDeploymentRecord>;
   stagedDeviceInstances?: Iterable<DeviceInstanceRecord>;
+  stagedDeploymentEnvelopes?: Iterable<DeploymentEnvelopeRecord>;
 };
 
 function describeContract(
@@ -102,12 +121,12 @@ function ensureSubjectMatchesVersion(
 }
 
 function checkOwnedSubject(args: {
-  contractStore: ContractStore;
+  activeSubjectIndex: ReadonlyMap<string, ActiveSubjectOwner>;
   validated: ValidatedContract;
   label: string;
   subject: string;
 }): void {
-  const prev = args.contractStore.findActiveSubject(args.subject);
+  const prev = findActiveSubject(args.activeSubjectIndex, args.subject);
   if (
     prev && prev.digest !== args.validated.digest &&
     prev.contractId !== args.validated.contract.id
@@ -120,24 +139,24 @@ function checkOwnedSubject(args: {
   }
 }
 
-type ValidatedContract = Awaited<ReturnType<ContractStore["validate"]>>;
-
 async function hydrateStoredContract(args: {
-  contractStore: ContractStore;
   logger: CatalogLogger;
   record: InstalledContractRecord;
   message: string;
-}): Promise<void> {
+}): Promise<ContractEntry | undefined> {
   try {
     const parsed = JSON.parse(args.record.contract);
     if (!isJsonValue(parsed)) {
       throw new Error("stored contract is not valid JSON value");
     }
-    const validated = await args.contractStore.validate(parsed);
+    const validated = await validateContractManifest(parsed);
     if (validated.digest !== args.record.digest) {
       throw new Error("stored contract digest does not match persisted digest");
     }
-    args.contractStore.add(validated.digest, validated.contract);
+    return {
+      digest: validated.digest,
+      contract: validated.contract,
+    };
   } catch (error) {
     args.logger.warn({
       digest: args.record.digest,
@@ -145,24 +164,24 @@ async function hydrateStoredContract(args: {
       err: error instanceof Error ? error : undefined,
       errorMessage: getErrorMessage(error),
     }, args.message);
+    return undefined;
   }
 }
 
 async function loadStoredContractOrThrow(args: {
-  contractStore: ContractStore;
   record: InstalledContractRecord;
   message: string;
-}): Promise<void> {
+}): Promise<ContractEntry> {
   try {
     const parsed = JSON.parse(args.record.contract);
     if (!isJsonValue(parsed)) {
       throw new Error("stored contract is not valid JSON value");
     }
-    const validated = await args.contractStore.validate(parsed);
+    const validated = await validateContractManifest(parsed);
     if (validated.digest !== args.record.digest) {
       throw new Error("stored contract digest does not match persisted digest");
     }
-    args.contractStore.add(validated.digest, validated.contract);
+    return { digest: validated.digest, contract: validated.contract };
   } catch (error) {
     throw new Error(`${args.message} '${args.record.digest}'`, {
       cause: error,
@@ -171,11 +190,11 @@ async function loadStoredContractOrThrow(args: {
 }
 
 function getRequiredServiceCapabilities(
-  contractStore: ContractStore,
+  activeEntries: readonly ContractEntry[],
   contract: TrellisContractV1,
 ): string[] {
   const capabilities = new Set<string>(["service"]);
-  const uses = resolveContractUsesFromStore(contractStore, contract);
+  const uses = resolveContractUsesFromEntries(activeEntries, contract);
 
   for (const event of Object.values(contract.events ?? {})) {
     for (const capability of event.capabilities?.publish ?? []) {
@@ -216,31 +235,35 @@ function getRequiredServiceCapabilities(
   return [...capabilities].sort((left, right) => left.localeCompare(right));
 }
 
-async function collectInstalledContractRecords(
-  contractStorage: SqlContractStorageRepository,
-): Promise<{
-  byDigest: Map<string, InstalledContractRecord>;
-}> {
+function collectDeploymentEvidenceContractRecords(
+  evidence: DeploymentContractEvidenceRecord[],
+): Map<string, InstalledContractRecord> {
   const byDigest = new Map<string, InstalledContractRecord>();
-  try {
-    for (const entry of await contractStorage.list()) {
-      const record: InstalledContractRecord = {
-        digest: entry.digest,
-        id: entry.id,
-        contract: entry.contract,
-      };
-      byDigest.set(entry.digest, record);
-    }
-  } catch (error) {
-    throw new Error("Failed to list installed contracts", { cause: error });
+  for (const entry of evidence) {
+    if (byDigest.has(entry.contractDigest)) continue;
+    byDigest.set(entry.contractDigest, {
+      digest: entry.contractDigest,
+      id: entry.contractId,
+      contract: JSON.stringify(entry.contract),
+    });
   }
-
-  return { byDigest };
+  return byDigest;
 }
 
 export function createContractsModule(opts: {
   builtinContracts: Array<{ digest: string; contract: TrellisContractV1 }>;
   contractStorage: SqlContractStorageRepository;
+  deploymentContractEvidenceStorage?: Pick<
+    SqlDeploymentContractEvidenceRepository,
+    | "listByDigest"
+    | "listByDigests"
+    | "listByContractId"
+    | "listByDeployments"
+  >;
+  deploymentEnvelopeStorage: Pick<
+    SqlDeploymentEnvelopeRepository,
+    "listEnabled"
+  >;
   serviceInstanceStorage: SqlServiceInstanceRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
@@ -248,25 +271,157 @@ export function createContractsModule(opts: {
   logger?: CatalogLogger;
 }) {
   const logger = opts.logger ?? consoleLogger;
-  const contractStore = new ContractStore(opts.builtinContracts);
+  const builtinEntries = opts.builtinContracts.map((entry) => ({
+    digest: entry.digest,
+    contract: entry.contract,
+  }));
+  const builtinByDigest = new Map(
+    builtinEntries.map((entry) => [entry.digest, entry.contract]),
+  );
+  const builtinDigests = new Set(
+    opts.builtinContracts.map((entry) => entry.digest),
+  );
 
-  async function loadPersistedContractsIntoStore(): Promise<void> {
-    const installedContracts = await collectInstalledContractRecords(
-      opts.contractStorage,
-    );
-    for (const installed of installedContracts.byDigest.values()) {
-      if (
-        contractStore.getContract(installed.digest, { includeInactive: true })
-      ) {
-        continue;
-      }
-      await hydrateStoredContract({
-        contractStore,
+  async function getKnownEntry(
+    digest: string,
+  ): Promise<ContractEntry | undefined> {
+    const builtin = builtinByDigest.get(digest);
+    if (builtin) return { digest, contract: builtin };
+
+    const stored = await opts.contractStorage.get(digest);
+    if (stored) {
+      return await hydrateStoredContract({
         logger,
-        record: installed,
+        record: {
+          digest: stored.digest,
+          id: stored.id,
+          contract: stored.contract,
+        },
         message: "Failed to hydrate persisted contract",
       });
     }
+
+    const evidence = (await opts.deploymentContractEvidenceStorage
+      ?.listByDigest(digest) ?? [])[0];
+    if (!evidence) return undefined;
+    return await hydrateStoredContract({
+      logger,
+      record: {
+        digest: evidence.contractDigest,
+        id: evidence.contractId,
+        contract: JSON.stringify(evidence.contract),
+      },
+      message: "Failed to hydrate deployment contract evidence",
+    });
+  }
+
+  async function loadEntriesForDigests(args: {
+    digests: Iterable<string>;
+    deploymentContractEvidence?: DeploymentContractEvidenceRecord[];
+    message: string;
+  }): Promise<ContractEntry[]> {
+    const requested = new Set(args.digests);
+    const entriesByDigest = new Map<string, TrellisContractV1>();
+    for (const digest of requested) {
+      const builtin = builtinByDigest.get(digest);
+      if (builtin) entriesByDigest.set(digest, builtin);
+    }
+
+    const missingAfterBuiltins = [...requested].filter((digest) =>
+      !entriesByDigest.has(digest)
+    );
+    const stored = await opts.contractStorage.getMany(missingAfterBuiltins);
+    for (const record of stored) {
+      const entry = await loadStoredContractOrThrow({
+        record: {
+          digest: record.digest,
+          id: record.id,
+          contract: record.contract,
+        },
+        message: args.message,
+      });
+      entriesByDigest.set(entry.digest, entry.contract);
+    }
+
+    const missingAfterStored = [...requested].filter((digest) =>
+      !entriesByDigest.has(digest)
+    );
+    const evidenceContracts = collectDeploymentEvidenceContractRecords(
+      args.deploymentContractEvidence?.filter((entry) =>
+        missingAfterStored.includes(entry.contractDigest)
+      ) ??
+        await opts.deploymentContractEvidenceStorage?.listByDigests(
+          missingAfterStored,
+        ) ?? [],
+    );
+    for (const digest of missingAfterStored) {
+      const evidence = evidenceContracts.get(digest);
+      if (!evidence) {
+        throw new Error(`Unknown active contract digest '${digest}'`);
+      }
+      const entry = await loadStoredContractOrThrow({
+        record: evidence,
+        message: args.message,
+      });
+      entriesByDigest.set(entry.digest, entry.contract);
+    }
+
+    return validateActiveDigestEntries(entriesByDigest, requested);
+  }
+
+  async function getKnownEntriesByContractId(
+    contractId: string,
+  ): Promise<ContractEntry[]> {
+    const entries = new Map<string, TrellisContractV1>();
+    for (const entry of builtinEntries) {
+      if (entry.contract.id === contractId) {
+        entries.set(entry.digest, entry.contract);
+      }
+    }
+    for (
+      const record of await opts.contractStorage.listByContractId(contractId)
+    ) {
+      if (entries.has(record.digest)) continue;
+      const entry = await hydrateStoredContract({
+        logger,
+        record: {
+          digest: record.digest,
+          id: record.id,
+          contract: record.contract,
+        },
+        message: "Failed to hydrate persisted contract",
+      });
+      if (entry) entries.set(entry.digest, entry.contract);
+    }
+    for (
+      const evidence of await opts.deploymentContractEvidenceStorage
+        ?.listByContractId(contractId) ?? []
+    ) {
+      if (entries.has(evidence.contractDigest)) continue;
+      const entry = await hydrateStoredContract({
+        logger,
+        record: {
+          digest: evidence.contractDigest,
+          id: evidence.contractId,
+          contract: JSON.stringify(evidence.contract),
+        },
+        message: "Failed to hydrate deployment contract evidence",
+      });
+      if (entry) entries.set(entry.digest, entry.contract);
+    }
+    return [...entries.entries()]
+      .map(([digest, contract]) => ({ digest, contract }))
+      .sort((left, right) => left.digest.localeCompare(right.digest));
+  }
+
+  async function loadActiveEntries(
+    validationOpts?: ActiveCatalogValidationOptions,
+  ): Promise<ContractEntry[]> {
+    const active = await collectProposedActiveDigests(validationOpts);
+    return await loadEntriesForDigests({
+      digests: active,
+      message: "Failed to load active contract",
+    });
   }
 
   async function validateManagedContract(args: {
@@ -283,9 +438,13 @@ export function createContractsModule(opts: {
       throw new Error("contract must be an object");
     }
 
-    await loadPersistedContractsIntoStore();
-    const validated = await contractStore.validate(args.contract);
-    resolveContractUsesFromStore(contractStore, validated.contract);
+    const validated = await validateContractManifest(args.contract);
+    const entries = await validateActiveCatalogEntries();
+    const indexes = buildActiveContractIndexes(
+      new Map(entries.map((entry) => [entry.digest, entry.contract])),
+      entries.map((entry) => entry.digest),
+    );
+    resolveContractUsesFromEntries(entries, validated.contract);
 
     const usedNamespaces = new Set<string>();
     for (const method of Object.values(validated.contract.rpc ?? {})) {
@@ -295,7 +454,7 @@ export function createContractsModule(opts: {
       if (!ns) throw new Error(`Invalid RPC subject '${method.subject}'`);
       usedNamespaces.add(ns);
       checkOwnedSubject({
-        contractStore,
+        activeSubjectIndex: indexes.activeSubjectIndex,
         validated,
         label: "RPC subject",
         subject: method.subject,
@@ -317,7 +476,7 @@ export function createContractsModule(opts: {
       }
       usedNamespaces.add(ns);
       checkOwnedSubject({
-        contractStore,
+        activeSubjectIndex: indexes.activeSubjectIndex,
         validated,
         label: "Operation subject",
         subject: operation.subject,
@@ -331,7 +490,7 @@ export function createContractsModule(opts: {
       if (!ns) throw new Error(`Invalid event subject '${event.subject}'`);
       usedNamespaces.add(ns);
       checkOwnedSubject({
-        contractStore,
+        activeSubjectIndex: indexes.activeSubjectIndex,
         validated,
         label: "Event subject",
         subject: event.subject,
@@ -403,8 +562,6 @@ export function createContractsModule(opts: {
       analysis: analyzed.analysis,
     });
 
-    contractStore.add(validated.digest, validated.contract);
-
     return {
       id: validated.contract.id,
       digest: validated.digest,
@@ -428,36 +585,14 @@ export function createContractsModule(opts: {
   async function collectProposedActiveDigests(
     validationOpts?: ActiveCatalogValidationOptions,
   ): Promise<Set<string>> {
-    const installedContracts = await collectInstalledContractRecords(
-      opts.contractStorage,
-    );
-
     const active = validationOpts?.proposedDigests
       ? new Set(validationOpts.proposedDigests)
-      : await collectProposedActiveDigestsFromRecords(validationOpts);
+      : await collectProposedActiveDigestsFromRecords(
+        validationOpts,
+      );
 
     for (const digest of validationOpts?.extraActiveDigests ?? []) {
       active.add(digest);
-    }
-
-    for (const digest of active) {
-      if (contractStore.getContract(digest, { includeInactive: true })) {
-        continue;
-      }
-      const entry = installedContracts.byDigest.get(digest) ??
-        await opts.contractStorage.get(digest);
-      if (!entry) {
-        throw new Error(`Unknown active contract digest '${digest}'`);
-      }
-      await loadStoredContractOrThrow({
-        contractStore,
-        record: {
-          digest: entry.digest,
-          id: entry.id,
-          contract: entry.contract,
-        },
-        message: "Failed to load active contract",
-      });
     }
 
     return active;
@@ -466,30 +601,22 @@ export function createContractsModule(opts: {
   async function collectProposedActiveDigestsFromRecords(
     validationOpts?: ActiveCatalogValidationOptions,
   ): Promise<Set<string>> {
-    const serviceDeployments = overlayStagedRecords(
-      await opts.serviceDeploymentStorage.list(),
-      validationOpts?.stagedServiceDeployments,
-      (deployment) => deployment.deploymentId,
+    const deploymentEnvelopes = overlayStagedRecords(
+      await opts.deploymentEnvelopeStorage.listEnabled(),
+      validationOpts?.stagedDeploymentEnvelopes,
+      (envelope) => envelope.deploymentId,
     );
-    const deviceDeployments = overlayStagedRecords(
-      await opts.deviceDeploymentStorage.list(),
-      validationOpts?.stagedDeviceDeployments,
-      (deployment) => deployment.deploymentId,
-    );
-    const deviceInstances = overlayStagedRecords(
-      await opts.deviceInstanceStorage.list(),
-      validationOpts?.stagedDeviceInstances,
-      (instance) => instance.instanceId,
-    );
-
+    const deploymentContractEvidence = await opts
+      .deploymentContractEvidenceStorage?.listByDeployments(
+        deploymentEnvelopes.map((envelope) => envelope.deploymentId),
+      ) ?? [];
     const active = collectActiveContractDigests({
-      builtinDigests: contractStore.getBuiltinDigests(),
+      builtinDigests: [...builtinDigests],
       builtinContractIds: opts.builtinContracts.map(({ contract }) =>
         contract.id
       ),
-      serviceDeployments,
-      deviceDeployments,
-      deviceInstances,
+      deploymentEnvelopes,
+      deploymentContractEvidence,
     });
     return active;
   }
@@ -498,8 +625,7 @@ export function createContractsModule(opts: {
     validationOpts?: ActiveCatalogValidationOptions,
     opts?: { skipActiveUsesValidation?: boolean },
   ): Promise<Array<{ digest: string; contract: TrellisContractV1 }>> {
-    const active = await collectProposedActiveDigests(validationOpts);
-    const activeEntries = contractStore.validateActiveDigests(active);
+    const activeEntries = await loadActiveEntries(validationOpts);
     validateActiveContractCompatibility(activeEntries);
     if (opts?.skipActiveUsesValidation !== true) {
       validateActiveContractUses(activeEntries);
@@ -521,29 +647,59 @@ export function createContractsModule(opts: {
     });
   }
 
-  function activateEntries(
-    activeEntries: Array<{ digest: string; contract: TrellisContractV1 }>,
-  ): void {
-    contractStore.setActiveDigests(activeEntries.map((entry) => entry.digest));
-    setPermissionContracts(activeEntries);
-  }
-
   async function refreshActiveContracts(
     validationOpts?: ActiveCatalogValidationOptions,
   ): Promise<void> {
-    const activeEntries = await validateActiveCatalog(validationOpts);
-    activateEntries(activeEntries);
+    await validateActiveCatalog(validationOpts);
   }
 
   async function refreshActiveContractsForRemoval(
     validationOpts?: ActiveCatalogValidationOptions,
   ): Promise<void> {
-    const activeEntries = await validateActiveCatalogForRemoval(validationOpts);
-    activateEntries(activeEntries);
+    await validateActiveCatalogForRemoval(validationOpts);
   }
 
   return {
-    contractStore,
+    validateContract: validateContractManifest,
+    getBuiltinDigests: () => [...builtinDigests],
+    getContract: async (
+      digest: string,
+      opts?: { includeInactive?: boolean },
+    ) => {
+      if (!opts?.includeInactive) {
+        const active = await collectProposedActiveDigests();
+        if (!active.has(digest)) {
+          return undefined;
+        }
+      }
+      const entry = await getKnownEntry(digest);
+      return entry?.contract;
+    },
+    getKnownContract: async (digest: string) => {
+      const entry = await getKnownEntry(digest);
+      return entry?.contract;
+    },
+    getKnownEntriesByContractId,
+    getActiveEntries: validateActiveCatalog,
+    getActiveContractsById: async (id: string) =>
+      getContractsById(await validateActiveCatalog(), id),
+    getKnownContractsById: async (id: string) =>
+      getContractsById(await getKnownEntriesByContractId(id), id),
+    findActiveSubject: async (subject: string) => {
+      const entries = await validateActiveCatalog();
+      const byDigest = new Map(
+        entries.map((entry) => [entry.digest, entry.contract]),
+      );
+      const indexes = buildActiveContractIndexes(
+        byDigest,
+        entries.map((entry) => entry.digest),
+      );
+      return findActiveSubject(indexes.activeSubjectIndex, subject);
+    },
+    getActiveCatalog: async () =>
+      getActiveCatalog(await validateActiveCatalog()),
+    getActiveCapabilityDefinitions: async () =>
+      getActiveCapabilityDefinitions(await validateActiveCatalog()),
     installDeviceContract,
     installServiceContract,
     refreshActiveContracts,

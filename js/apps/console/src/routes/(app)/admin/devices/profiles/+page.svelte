@@ -1,9 +1,8 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthListDeviceDeploymentsInput,
-    AuthListDeviceDeploymentsOutput,
-    AuthListInstalledContractsOutput,
+    AuthDeploymentsListInput,
+    AuthDeploymentsListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
@@ -15,8 +14,7 @@
   import { errorMessage } from "../../../../../lib/format";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type Deployment = AuthListDeviceDeploymentsOutput["deployments"][number];
-  type InstalledContract = AuthListInstalledContractsOutput["contracts"][number];
+  type Deployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "device" }>;
   type DisabledFilter = "all" | "active" | "disabled";
 
   const trellis = getTrellis();
@@ -25,42 +23,37 @@
   let error = $state<string | null>(null);
 
   let deployments = $state<Deployment[]>([]);
-  let contracts = $state<InstalledContract[]>([]);
 
-  let contractFilter = $state("");
+  let deploymentFilter = $state("");
   let disabledFilter = $state<DisabledFilter>("all");
 
-  function deploymentQuery(): AuthListDeviceDeploymentsInput {
+  function deploymentQuery(): AuthDeploymentsListInput {
     return {
+      kind: "device",
       disabled: disabledFilter === "all" ? undefined : disabledFilter === "disabled",
+      limit: 500,
+      offset: 0,
     };
   }
 
-  function matchesContractFilter(deployment: Deployment): boolean {
-    const filter = contractFilter.trim().toLowerCase();
+  function matchesDeploymentFilter(deployment: Deployment): boolean {
+    const filter = deploymentFilter.trim().toLowerCase();
     if (!filter) return true;
-    return deployment.appliedContracts.some((entry) =>
-      entry.contractId.toLowerCase().includes(filter)
-    );
+    return deployment.deploymentId.toLowerCase().includes(filter);
   }
 
   const filteredDeployments = $derived.by(() =>
-    deployments.filter((deployment) => matchesContractFilter(deployment))
+    deployments.filter((deployment) => matchesDeploymentFilter(deployment))
   );
 
   async function load() {
     loading = true;
     error = null;
     try {
-      const [deploymentsResponse, contractsResponse] = await Promise.all([
-        trellis.request("Auth.ListDeviceDeployments", deploymentQuery()).take(),
-        trellis.request("Auth.ListInstalledContracts", {}).take(),
-      ]);
+      const deploymentsResponse = await trellis.request("Auth.Deployments.List", deploymentQuery()).take();
       if (isErr(deploymentsResponse)) { error = errorMessage(deploymentsResponse); return; }
-      if (isErr(contractsResponse)) { error = errorMessage(contractsResponse); return; }
 
-      deployments = deploymentsResponse.deployments ?? [];
-      contracts = contractsResponse.contracts ?? [];
+      deployments = (deploymentsResponse.deployments ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -74,7 +67,7 @@
 </script>
 
 <section class="space-y-4">
-  <PageToolbar title="Device deployments" description="Manage activation review requirements and inspect applied contracts.">
+  <PageToolbar title="Device deployments" description="Manage activation review requirements and inspect deployment authority.">
     {#snippet actions()}
       <details class="dropdown dropdown-end">
         <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
@@ -90,8 +83,8 @@
   <div class="flex flex-wrap items-end justify-between gap-3">
     <form class="flex flex-wrap items-end gap-2" onsubmit={(event) => { event.preventDefault(); void load(); }}>
       <label class="form-control gap-1">
-        <span class="label-text text-xs">Contract filter</span>
-        <input class="input input-bordered input-sm w-56" bind:value={contractFilter} list="installed-contract-ids" placeholder="Any contract" />
+        <span class="label-text text-xs">Deployment filter</span>
+        <input class="input input-bordered input-sm w-56" bind:value={deploymentFilter} placeholder="Any deployment" />
       </label>
 
       <label class="form-control gap-1">
@@ -108,12 +101,6 @@
 
   </div>
 
-  <datalist id="installed-contract-ids">
-    {#each contracts as contract (contract.digest)}
-      <option value={contract.id}></option>
-    {/each}
-  </datalist>
-
   {#if error}
     <div class="alert alert-error"><span>{error}</span></div>
   {/if}
@@ -129,8 +116,7 @@
         <thead>
           <tr>
             <th>Deployment</th>
-            <th>Contract</th>
-            <th>Allowed Digests</th>
+            <th>Authority</th>
             <th>Review</th>
             <th>Status</th>
             <th></th>
@@ -140,37 +126,7 @@
           {#each filteredDeployments as deployment (deployment.deploymentId)}
             <tr>
               <td class="trellis-identifier font-medium">{deployment.deploymentId}</td>
-              <td class="text-base-content/60">
-                {#if deployment.appliedContracts.length === 0}
-                  <span class="text-base-content/40">None</span>
-                {:else}
-                  <div class="flex flex-col gap-1">
-                    {#each deployment.appliedContracts as applied, index (`${applied.contractId}:${index}`)}
-                      <span class="flex items-center gap-1">
-                        <span>{applied.contractId}</span>
-                        <span class="badge badge-ghost badge-xs">{applied.allowedDigests.length}</span>
-                      </span>
-                    {/each}
-                  </div>
-                {/if}
-              </td>
-              <td>
-                {#if deployment.appliedContracts.length === 0}
-                  <span class="text-base-content/40">None</span>
-                {:else}
-                  <div class="trellis-token-list">
-                    {#each deployment.appliedContracts as applied, index (`${applied.contractId}:${index}`)}
-                      {#if applied.allowedDigests.length === 0}
-                        <span class="badge badge-ghost badge-xs">Lineage allowed</span>
-                      {:else}
-                        {#each applied.allowedDigests as digest (digest)}
-                          <span class="badge badge-outline badge-xs font-mono">{digest}</span>
-                        {/each}
-                      {/if}
-                    {/each}
-                  </div>
-                {/if}
-              </td>
+              <td><a class="btn btn-ghost btn-xs" href={resolve(`/admin/envelopes?deployment=${encodeURIComponent(deployment.deploymentId)}`)}>Review envelope</a></td>
               <td class="text-base-content/60">{deployment.reviewMode ?? "none"}</td>
               <td>
                 {#if deployment.disabled}

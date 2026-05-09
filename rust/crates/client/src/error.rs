@@ -174,11 +174,11 @@ mod tests {
 
     #[test]
     fn formats_bootstrap_http_failure_payload_human_readably() {
-        let raw = r#"{"allowedDigests":["digest-old"],"currentContractDigest":"digest-old","currentContractId":"trellis.jobs@v1","deploymentId":"svc/jobs","expectedContractDigest":"digest-new","expectedContractId":"trellis.jobs@v1","instanceId":"svc_1","message":"Service instance 'svc_1' is not allowed to run digest 'digest-new'. Re-apply the current contract to the deployment.","reason":"service_contract_mismatch"}"#;
+        let raw = r#"{"contractDigest":"digest-new","contractId":"trellis.jobs@v1","deploymentId":"svc/jobs","instanceId":"svc_1","message":"Service deployment 'svc/jobs' envelope does not cover contract 'trellis.jobs@v1' digest 'digest-new'. An expansion request was created.","reason":"envelope_expansion_required","requestId":"req_1"}"#;
 
         assert_eq!(
             format_bootstrap_http_payload(raw),
-            "service_contract_mismatch: Service instance 'svc_1' is not allowed to run digest 'digest-new'. Re-apply the current contract to the deployment. (allowedDigests=digest-old, currentContractDigest=digest-old, currentContractId=trellis.jobs@v1, deploymentId=svc/jobs, expectedContractDigest=digest-new, expectedContractId=trellis.jobs@v1, instanceId=svc_1)"
+            "envelope_expansion_required: Service deployment 'svc/jobs' envelope does not cover contract 'trellis.jobs@v1' digest 'digest-new'. An expansion request was created. (contractDigest=digest-new, contractId=trellis.jobs@v1, deploymentId=svc/jobs, instanceId=svc_1, requestId=req_1)"
         );
     }
 

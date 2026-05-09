@@ -36,7 +36,7 @@ use trellis_service_jobs::{
     JobsServiceMode, SqliteJobsStore,
 };
 
-use trellis_auth::{AuthValidateRequestRequest, AuthValidateRequestResponse};
+use trellis_auth::{AuthRequestsValidateRequest, AuthRequestsValidateResponse};
 use trellis_auth_adapters::AuthRequestValidatorClientPort;
 use trellis_core_bootstrap::CoreBootstrapClientPort;
 use trellis_sdk_core::types::{
@@ -47,6 +47,12 @@ use trellis_sdk_core::types::{
     TrellisCatalogResponseCatalog, TrellisCatalogResponseCatalogContractsItem,
 };
 use trellis_service::RpcDescriptor;
+
+static JOBS_DB_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn lock_jobs_db_env() -> tokio::sync::MutexGuard<'static, ()> {
+    JOBS_DB_ENV_LOCK.lock().await
+}
 
 struct FakeCoreClient;
 
@@ -123,9 +129,9 @@ struct FakeAuthValidateClient;
 impl AuthRequestValidatorClientPort for FakeAuthValidateClient {
     fn auth_validate_request<'a>(
         &'a self,
-        _input: &'a AuthValidateRequestRequest,
-    ) -> BoxFuture<'a, Result<AuthValidateRequestResponse, TrellisClientError>> {
-        ready(Ok(AuthValidateRequestResponse {
+        _input: &'a AuthRequestsValidateRequest,
+    ) -> BoxFuture<'a, Result<AuthRequestsValidateResponse, TrellisClientError>> {
+        ready(Ok(AuthRequestsValidateResponse {
             allowed: true,
             caller: json!({
                 "type": "service",
@@ -134,7 +140,7 @@ impl AuthRequestValidatorClientPort for FakeAuthValidateClient {
                 "active": true,
                 "capabilities": ["service"],
             }),
-            inbox_prefix: "_INBOX.test".to_string(),
+            inbox_prefix: "_INBOX.svc_session".to_string(),
         }))
         .boxed()
     }
@@ -255,7 +261,11 @@ fn start_nats_container() -> (RuntimeContainer, String) {
 
 async fn connect_with_retry(server: &str) -> async_nats::Client {
     for _ in 0..30 {
-        if let Ok(client) = async_nats::connect(server).await {
+        if let Ok(client) = async_nats::ConnectOptions::new()
+            .custom_inbox_prefix("_INBOX.svc_session")
+            .connect(server)
+            .await
+        {
             return client;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -649,6 +659,7 @@ fn sample_jobs_binding() -> JobsBinding {
 
 #[tokio::test]
 async fn run_jobs_service_with_clients_serves_jobs_health_list_services_list_and_get_over_nats() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -746,6 +757,7 @@ async fn run_jobs_service_with_clients_serves_jobs_health_list_services_list_and
 
 #[tokio::test]
 async fn worker_presence_projection_survives_owner_restart_and_rpc_only_reads_durable_state() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let owner_client = connect_with_retry(&server).await;
     let rpc_client = connect_with_retry(&server).await;
@@ -828,6 +840,7 @@ async fn worker_presence_projection_survives_owner_restart_and_rpc_only_reads_du
 
 #[tokio::test]
 async fn run_jobs_service_with_clients_projects_stream_events_into_sql_state() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -890,6 +903,7 @@ async fn run_jobs_service_with_clients_projects_stream_events_into_sql_state() {
 
 #[tokio::test]
 async fn run_jobs_service_with_clients_serves_jobs_cancel_and_retry_mutations() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -975,6 +989,7 @@ async fn run_jobs_service_with_clients_serves_jobs_cancel_and_retry_mutations() 
 
 #[tokio::test]
 async fn run_jobs_service_with_clients_filters_jobs_list_results() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -1040,6 +1055,7 @@ async fn run_jobs_service_with_clients_filters_jobs_list_results() {
 
 #[tokio::test]
 async fn run_jobs_service_with_clients_worker_creates_and_processes_job_using_trellis_jobs() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -1183,6 +1199,7 @@ async fn run_jobs_service_with_clients_worker_creates_and_processes_job_using_tr
 
 #[tokio::test]
 async fn run_jobs_service_with_clients_rpc_only_serves_rpcs_without_owning_projection_loops() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -1242,6 +1259,7 @@ async fn run_jobs_service_with_clients_rpc_only_serves_rpcs_without_owning_proje
 
 #[tokio::test]
 async fn run_jobs_service_owner_and_rpc_only_coexist_with_shared_projected_state() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let owner_client = connect_with_retry(&server).await;
     let rpc_only_client = connect_with_retry(&server).await;
@@ -1317,6 +1335,7 @@ async fn run_jobs_service_owner_and_rpc_only_coexist_with_shared_projected_state
 
 #[tokio::test]
 async fn run_single_queue_worker_host_shutdown_requeues_work_end_to_end() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -1451,6 +1470,7 @@ async fn run_single_queue_worker_host_shutdown_requeues_work_end_to_end() {
 
 #[tokio::test]
 async fn run_jobs_service_with_clients_cancels_active_worker_job() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -1566,6 +1586,7 @@ async fn run_jobs_service_with_clients_cancels_active_worker_job() {
 
 #[tokio::test]
 async fn start_worker_host_from_binding_projects_worker_presence_and_processes_jobs() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -1674,6 +1695,7 @@ async fn start_worker_host_from_binding_projects_worker_presence_and_processes_j
 
 #[tokio::test]
 async fn start_worker_host_from_binding_honors_queue_concurrency() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -1822,6 +1844,7 @@ async fn start_worker_host_from_binding_honors_queue_concurrency() {
 #[tokio::test]
 async fn run_jobs_service_with_clients_does_not_process_work_if_job_was_cancelled_before_worker_startup(
 ) {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -1960,6 +1983,7 @@ async fn run_jobs_service_with_clients_does_not_process_work_if_job_was_cancelle
 
 #[tokio::test]
 async fn run_janitor_once_publishes_expired_events_and_projector_materializes_state() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -2048,6 +2072,7 @@ async fn run_janitor_once_publishes_expired_events_and_projector_materializes_st
 #[tokio::test]
 async fn run_jobs_service_with_clients_maps_max_deliveries_advisory_to_dead_event_and_projects_dead_state(
 ) {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
@@ -2155,12 +2180,15 @@ async fn run_jobs_service_with_clients_maps_max_deliveries_advisory_to_dead_even
 
 #[tokio::test]
 async fn run_jobs_service_with_clients_serves_jobs_dlq_list_replay_and_dismiss() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;
 
     let js = jetstream::new(service_client.clone());
     seed_jobs_infrastructure(&js).await;
+    let jobs_db_path = format!("/tmp/{}.sqlite", unique_name("jobs_sql"));
+    std::env::set_var("TRELLIS_JOBS_DB_PATH", &jobs_db_path);
 
     let mut dead1 = sample_job("job-dead-1", "2026-03-28T11:59:00.000Z", JobState::Dead);
     dead1.last_error = Some("dlq-1".to_string());
@@ -2270,6 +2298,7 @@ async fn run_jobs_service_with_clients_serves_jobs_dlq_list_replay_and_dismiss()
 
 #[tokio::test]
 async fn run_jobs_service_with_clients_rejects_invalid_mutation_states() {
+    let _db_env_guard = lock_jobs_db_env().await;
     let (_container, server) = start_nats_container();
     let service_client = connect_with_retry(&server).await;
     let requester_client = connect_with_retry(&server).await;

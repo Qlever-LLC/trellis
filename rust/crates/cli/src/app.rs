@@ -5,10 +5,8 @@ use std::time::Duration;
 
 use crate::agent_contract::agent_contract_json;
 use crate::cli::*;
-use crate::contract_input::{default_image_contract_path, resolve_contract_input};
 use crate::output;
 use crate::self_update::{ReleaseChannel, SelfUpdateTarget};
-use crate::{contract_input, core_client};
 use async_nats::jetstream;
 use async_nats::jetstream::kv;
 use async_nats::jetstream::stream;
@@ -28,7 +26,6 @@ use trellis_client::{TrellisClient, TrellisClientError};
 mod auth;
 mod bootstrap;
 mod deploy;
-mod portals;
 mod runtime;
 mod self_cmd;
 
@@ -88,7 +85,6 @@ pub async fn run() -> miette::Result<()> {
         TopLevelCommand::Auth(command) => auth::run(format, command).await?,
         TopLevelCommand::Bootstrap(command) => bootstrap::run(command).await?,
         TopLevelCommand::Keygen(args) => runtime::keygen_command(format, &args)?,
-        TopLevelCommand::Portal(command) => portals::run(format, command).await?,
         TopLevelCommand::Deploy(command) => deploy::run(format, command).await?,
         TopLevelCommand::Self_(command) => self_cmd::run(format, command)?,
         TopLevelCommand::Version => runtime::version_command(format)?,
@@ -586,117 +582,11 @@ pub(crate) fn generate_session_keypair() -> (String, String) {
     (base64url_encode(&seed), base64url_encode(&public_key))
 }
 
-pub(crate) fn contract_review_rows(loaded: &trellis_contracts::LoadedManifest) -> Vec<Vec<String>> {
-    let kv_resources = loaded
-        .value
-        .get("resources")
-        .and_then(Value::as_object)
-        .and_then(|resources| resources.get("kv"))
-        .and_then(Value::as_object)
-        .map(|kv| kv.len())
-        .unwrap_or(0);
-
-    vec![
-        vec!["contract".to_string(), loaded.manifest.id.clone()],
-        vec![
-            "display name".to_string(),
-            loaded.manifest.display_name.clone(),
-        ],
-        vec![
-            "description".to_string(),
-            loaded.manifest.description.clone(),
-        ],
-        vec!["digest".to_string(), loaded.digest.clone()],
-        vec![
-            "rpc methods".to_string(),
-            loaded.manifest.rpc.len().to_string(),
-        ],
-        vec![
-            "events".to_string(),
-            loaded.manifest.events.len().to_string(),
-        ],
-        vec!["kv resources".to_string(), kv_resources.to_string()],
-    ]
-}
-
-pub(crate) fn prompt_for_confirmation(prompt: &str) -> miette::Result<bool> {
-    print!("{prompt} [y/N]: ");
-    io::Write::flush(&mut io::stdout()).into_diagnostic()?;
-    let mut line = String::new();
-    io::stdin().read_line(&mut line).into_diagnostic()?;
-    let trimmed = line.trim().to_ascii_lowercase();
-    Ok(trimmed == "y" || trimmed == "yes")
-}
-
 pub(crate) fn json_value_label(value: &Value) -> String {
     value
         .as_str()
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| value.to_string())
-}
-
-pub(crate) fn portal_target_id(target: &PortalTargetArgs) -> Option<&str> {
-    if target.builtin {
-        None
-    } else {
-        target.portal_id.as_deref()
-    }
-}
-
-pub(crate) fn portal_target_label(portal_id: Option<&str>) -> String {
-    portal_id.unwrap_or("builtin").to_string()
-}
-
-pub(crate) fn resolve_device_contract_source(
-    value: &str,
-) -> miette::Result<Option<contract_input::ResolvedContractInput>> {
-    let path = Path::new(value);
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let resolved = if path
-        .extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
-    {
-        resolve_contract_input(
-            Some(path),
-            None,
-            None,
-            "CONTRACT",
-            default_image_contract_path(),
-        )?
-    } else {
-        resolve_contract_input(
-            None,
-            Some(path),
-            None,
-            "CONTRACT",
-            default_image_contract_path(),
-        )?
-    };
-
-    Ok(Some(resolved))
-}
-
-pub(crate) async fn resolve_contract_lineage_id(
-    connected: &TrellisClient,
-    contract: &str,
-) -> miette::Result<String> {
-    if let Some(resolved) = resolve_device_contract_source(contract)? {
-        return Ok(resolved.loaded.manifest.id);
-    }
-
-    let core_client = core_client::CoreClient::new(connected);
-    let catalog = core_client.catalog().await.into_diagnostic()?.catalog;
-    let exists = catalog
-        .contracts
-        .into_iter()
-        .any(|entry| entry.id == contract);
-
-    miette::ensure!(exists, "no active contract found for id '{contract}'");
-    Ok(contract.to_string())
 }
 
 pub(crate) fn release_channel(prerelease: bool) -> ReleaseChannel {

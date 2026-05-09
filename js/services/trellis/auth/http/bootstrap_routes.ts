@@ -6,7 +6,6 @@ import { createServiceBootstrapHandler } from "../bootstrap/service.ts";
 import { verifyDomainSig } from "../crypto.ts";
 import { buildClientTransports } from "../transports.ts";
 import type { AuthHttpRouteContext } from "./route_context.ts";
-import { parseContractApprovalKey } from "./support.ts";
 
 /** Registers client and service bootstrap HTTP endpoints. */
 export function registerBootstrapRoutes(
@@ -19,23 +18,12 @@ export function registerBootstrapRoutes(
   app.post(
     "/bootstrap/client",
     createClientBootstrapHandler({
-      contractStore: opts.contractStore,
+      contracts: opts.contracts,
       transports: buildClientTransports(config),
       sentinel: sentinelCreds,
       sessionStorage,
       loadUserProjection: async (trellisId) => {
         return await opts.userStorage.get(trellisId) ?? null;
-      },
-      loadStoredApproval: async (key) => {
-        const approvalKey = parseContractApprovalKey(key);
-        if (!approvalKey) return null;
-        return await opts.contractApprovalStorage.get(
-          approvalKey.userTrellisId,
-          approvalKey.contractDigest,
-        ) ?? null;
-      },
-      loadInstanceGrantPolicies: async (contractId: string) => {
-        return await opts.loadEffectiveGrantPolicies(contractId);
       },
       verifyIdentityProof: ({ sessionKey, iat, sig }) =>
         verifyDomainSig(sessionKey, "bootstrap-client", String(iat), sig),
@@ -45,7 +33,7 @@ export function registerBootstrapRoutes(
   app.post(
     "/bootstrap/service",
     createServiceBootstrapHandler({
-      contractStore: opts.contractStore,
+      contracts: opts.contracts,
       transports: buildClientTransports(config),
       sentinel: sentinelCreds,
       loadServiceInstance: async (instanceKey) => {
@@ -65,8 +53,13 @@ export function registerBootstrapRoutes(
       loadServiceDeployment: async (deploymentId) => {
         return await opts.serviceDeploymentStorage.get(deploymentId) ?? null;
       },
-      saveServiceDeployment: async (deployment) => {
-        await opts.serviceDeploymentStorage.put(deployment);
+      deploymentEnvelopeStorage: opts.deploymentEnvelopeStorage,
+      deploymentResourceBindingStorage: opts.deploymentResourceBindingStorage,
+      deploymentContractEvidenceStorage: opts.deploymentContractEvidenceStorage,
+      envelopeExpansionRequestStorage: opts.envelopeExpansionRequestStorage,
+      nats: opts.runtimeDeps.natsTrellis,
+      resourceProvisioningOptions: {
+        jetstreamReplicas: config.nats.jetstream.replicas,
       },
       storePresentedContract: async ({ contract, digest, canonical }) => {
         if (await opts.contractStorage.has(digest)) return;

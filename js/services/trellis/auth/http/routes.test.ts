@@ -9,7 +9,7 @@ import {
 } from "@qlever-llc/trellis/auth";
 
 import type { Config } from "../../config.ts";
-import { ContractStore } from "../../catalog/store.ts";
+import { createTestContracts } from "../../catalog/test_contracts.ts";
 import { authHttpRateLimitKey } from "./routes.ts";
 import { buildAuthStartSignaturePayload } from "./start_request.ts";
 import type { Session } from "../schemas.ts";
@@ -93,16 +93,15 @@ async function registerTestRoutes(): Promise<Hono> {
     delete: () => Promise.resolve(undefined),
     list: () => Promise.resolve([]),
     listByDeployment: () => Promise.resolve([]),
+    listEnabledByContractId: () => Promise.resolve([]),
+    getFirstEnabledForDeployments: () => Promise.resolve(undefined),
   };
 
   registerHttpRoutes(app, {
     contractStorage: storage,
     userStorage: storage,
     contractApprovalStorage: storage,
-    portalStorage: storage,
-    portalDefaultStorage: storage,
-    loginPortalSelectionStorage: storage,
-    devicePortalSelectionStorage: storage,
+    deploymentPortalRouteStorage: storage,
     serviceDeploymentStorage: storage,
     serviceInstanceStorage: storage,
     deviceDeploymentStorage: storage,
@@ -110,10 +109,15 @@ async function registerTestRoutes(): Promise<Hono> {
     deviceActivationStorage: storage,
     deviceActivationReviewStorage: storage,
     deviceProvisioningSecretStorage: storage,
+    deploymentEnvelopeStorage: storage,
+    deploymentGrantOverrideStorage: storage,
+    deploymentResourceBindingStorage: storage,
+    deploymentContractEvidenceStorage: storage,
+    envelopeExpansionRequestStorage: storage,
     config,
     kick: async () => {},
     loadEffectiveGrantPolicies: () => Promise.resolve([]),
-    contractStore: { getContract: () => undefined },
+    contracts: createTestContracts(),
     providers: {},
     runtimeDeps: {
       browserFlowsKV: {
@@ -261,8 +265,7 @@ Deno.test({
 });
 
 Deno.test({
-  name:
-    "auth HTTP bind caches app contracts without activating them in catalog",
+  name: "auth HTTP start does not activate app contracts in catalog",
   sanitizeResources: false,
   fn: async () => {
     const { registerHttpRoutes } = await import("./routes.ts");
@@ -288,7 +291,7 @@ Deno.test({
     );
     request.sig = base64urlEncode(await auth.sign(digest));
 
-    const contractStore = new ContractStore();
+    const contracts = createTestContracts();
     const sessions = new Map<string, Session>();
     sessions.set(auth.sessionKey, {
       type: "user",
@@ -298,6 +301,7 @@ Deno.test({
       id: "123",
       email: "user@example.com",
       name: "User",
+      identityEnvelopeId: "env-client",
       contractDigest: "old-digest",
       contractId: "client.example@v1",
       contractDisplayName: "Example Client",
@@ -333,7 +337,10 @@ Deno.test({
       put: () => Promise.resolve(undefined),
       delete: () => Promise.resolve(undefined),
       list: () => Promise.resolve([]),
+      listEnabled: () => Promise.resolve([]),
       listByDeployment: () => Promise.resolve([]),
+      listEnabledByContractId: () => Promise.resolve([]),
+      getFirstEnabledForDeployments: () => Promise.resolve(undefined),
     };
 
     registerHttpRoutes(app, {
@@ -359,10 +366,7 @@ Deno.test({
           }),
       },
       contractApprovalStorage: emptyStorage,
-      portalStorage: emptyStorage,
-      portalDefaultStorage: emptyStorage,
-      loginPortalSelectionStorage: emptyStorage,
-      devicePortalSelectionStorage: emptyStorage,
+      deploymentPortalRouteStorage: emptyStorage,
       serviceDeploymentStorage: emptyStorage,
       serviceInstanceStorage: emptyStorage,
       deviceDeploymentStorage: emptyStorage,
@@ -370,10 +374,15 @@ Deno.test({
       deviceActivationStorage: emptyStorage,
       deviceActivationReviewStorage: emptyStorage,
       deviceProvisioningSecretStorage: emptyStorage,
+      deploymentEnvelopeStorage: emptyStorage,
+      deploymentGrantOverrideStorage: emptyStorage,
+      deploymentResourceBindingStorage: emptyStorage,
+      deploymentContractEvidenceStorage: emptyStorage,
+      envelopeExpansionRequestStorage: emptyStorage,
       config,
       kick: async () => {},
       loadEffectiveGrantPolicies: () => Promise.resolve([]),
-      contractStore,
+      contracts,
       providers: {},
       runtimeDeps: {
         browserFlowsKV: kv,
@@ -404,11 +413,11 @@ Deno.test({
     });
 
     assertEquals(response.status, 200);
-    assertEquals((await response.json()).status, "bound");
-    assertEquals(contractStore.getActiveCatalog().contracts, []);
+    assertEquals((await response.json()).status, "flow_started");
+    assertEquals((await contracts.getActiveCatalog()).contracts, []);
     assertEquals(
-      contractStore.getKnownContractsById("client.example@v1").length,
-      1,
+      (await contracts.getKnownContractsById("client.example@v1")).length,
+      0,
     );
   },
 });

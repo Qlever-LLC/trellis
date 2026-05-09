@@ -49,7 +49,12 @@
     initialized = true;
   });
 
-  function redirectToLogin(_loginUrl: string): void {
+  function redirectToLogin(loginUrl: string): void {
+    if (loginUrl) {
+      window.location.href = loginUrl;
+      return;
+    }
+
     window.location.href = buildConsoleLoginUrl({
       redirectTo: currentPath(),
       location: window.location,

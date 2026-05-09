@@ -2,16 +2,20 @@ import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import { Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
-import type { ContractStore } from "../../catalog/store.ts";
+import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { AuthLogger } from "../runtime_deps.ts";
-import type { SqlUserProjectionRepository } from "../storage.ts";
+import type {
+  BoundedListQuery,
+  SqlUserProjectionRepository,
+} from "../storage.ts";
 
 type RpcUser = { id: string; origin: string; capabilities?: string[] };
 
 const PLATFORM_CAPABILITIES = [{
   key: "admin",
   displayName: "Administer Trellis",
-  description: "Manage Trellis users, sessions, deployments, and runtime policy.",
+  description:
+    "Manage Trellis users, sessions, deployments, and runtime policy.",
   source: "platform" as const,
 }];
 
@@ -31,15 +35,17 @@ function requireUserCaller(caller: {
   };
 }
 
-/** Creates the Auth.ListUsers RPC handler backed by SQL user storage. */
-export function createAuthListUsersHandler(
+/** Creates the Auth.Users.List RPC handler backed by SQL user storage. */
+export function createAuthUsersListHandler(
   userStorage: SqlUserProjectionRepository,
   logger: Pick<AuthLogger, "trace">,
 ) {
   return async (
     {
+      input,
       context: { caller },
     }: {
+      input: BoundedListQuery;
       context: {
         caller: {
           type: string;
@@ -52,11 +58,11 @@ export function createAuthListUsersHandler(
   ) => {
     const user = requireUserCaller(caller);
     logger.trace(
-      { rpc: "Auth.ListUsers", caller: `${user.origin}.${user.id}` },
+      { rpc: "Auth.Users.List", caller: `${user.origin}.${user.id}` },
       "RPC request",
     );
 
-    const users = (await userStorage.list()).map((entry) => ({
+    const users = (await userStorage.listPage(input)).map((entry) => ({
       origin: entry.origin,
       id: entry.id,
       name: entry.name,
@@ -72,15 +78,17 @@ export function createAuthListUsersHandler(
   };
 }
 
-/** Creates the Auth.ListCapabilities RPC handler backed by active contracts. */
-export function createAuthListCapabilitiesHandler(
-  contractStore: ContractStore,
+/** Creates the Auth.Capabilities.List RPC handler backed by active contracts. */
+export function createAuthCapabilitiesListHandler(
+  contracts: Pick<ContractsModule, "getActiveCapabilityDefinitions">,
   logger: Pick<AuthLogger, "trace">,
 ) {
   return async (
     {
+      input,
       context: { caller },
     }: {
+      input: BoundedListQuery;
       context: {
         caller: {
           type: string;
@@ -93,24 +101,29 @@ export function createAuthListCapabilitiesHandler(
   ) => {
     const user = requireUserCaller(caller);
     logger.trace(
-      { rpc: "Auth.ListCapabilities", caller: `${user.origin}.${user.id}` },
+      { rpc: "Auth.Capabilities.List", caller: `${user.origin}.${user.id}` },
       "RPC request",
     );
 
     const capabilities = [
       ...PLATFORM_CAPABILITIES,
-      ...contractStore.getActiveCapabilityDefinitions().map((capability) => ({
-        ...capability,
-        source: "contract" as const,
-      })),
+      ...(await contracts.getActiveCapabilityDefinitions()).map(
+        (capability) => ({
+          ...capability,
+          source: "contract" as const,
+        }),
+      ),
     ].sort((left, right) => left.key.localeCompare(right.key));
 
-    return Result.ok({ capabilities });
+    const offset = input.offset ?? 0;
+    return Result.ok({
+      capabilities: capabilities.slice(offset, offset + input.limit),
+    });
   };
 }
 
-/** Creates the Auth.UpdateUser RPC handler backed by SQL user storage. */
-export function createAuthUpdateUserHandler(
+/** Creates the Auth.Users.Update RPC handler backed by SQL user storage. */
+export function createAuthUsersUpdateHandler(
   userStorage: SqlUserProjectionRepository,
   logger: Pick<AuthLogger, "trace">,
 ) {
@@ -137,7 +150,7 @@ export function createAuthUpdateUserHandler(
   ) => {
     const user = requireUserCaller(caller);
     logger.trace({
-      rpc: "Auth.UpdateUser",
+      rpc: "Auth.Users.Update",
       target: `${req.origin}.${req.id}`,
       caller: `${user.origin}.${user.id}`,
     }, "RPC request");

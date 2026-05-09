@@ -1,144 +1,53 @@
 use crate::{
-    contract_digest, AdminSessionState, ApprovalEntryRecord, AuthGetInstalledContractRequest,
-    AuthGetInstalledContractResponse, AuthValidateRequestRequest, AuthValidateRequestResponse,
-    AuthenticatedUser, DisableInstanceGrantPolicyRequest, InstanceGrantPolicyRecord,
-    ListApprovalsRequest, RevokeApprovalRequest, TrellisAuthError,
-    UpsertInstanceGrantPolicyRequest,
+    AdminSessionState, ApprovalEntryRecord, AuthRequestsValidateRequest,
+    AuthRequestsValidateResponse, AuthenticatedUser, ListApprovalsRequest, RevokeApprovalRequest,
+    TrellisAuthError,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::BTreeMap;
 use trellis_client::{RpcDescriptor, TrellisClient, UserConnectOptions};
 
-use crate::protocol::{
-    DisableInstanceGrantPolicyResponse, ListApprovalsResponse, ListInstanceGrantPoliciesResponse,
-    LogoutResponse, MeResponse, RevokeApprovalResponse, UpsertInstanceGrantPolicyResponse,
+use crate::protocol::LogoutResponse;
+use trellis_sdk_auth::{
+    rpc::{
+        AuthDeploymentsCreateRpc, AuthDeploymentsDisableRpc, AuthDeploymentsEnableRpc,
+        AuthDeploymentsListRpc, AuthDeploymentsRemoveRpc, AuthIdentitiesListRpc,
+        AuthIdentityEnvelopesRevokeRpc, AuthSessionsMeRpc, Empty,
+    },
+    types::{
+        AuthDeploymentsCreateRequest, AuthDeploymentsDisableRequest, AuthDeploymentsEnableRequest,
+        AuthDeploymentsListRequest, AuthDeploymentsRemoveRequest, AuthSessionsMeRequest,
+    },
 };
-use trellis_sdk_auth::rpc::Empty;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+const AUTH_CLIENT_LIST_LIMIT: i64 = 500;
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct PortalRecord {
-    pub portal_id: String,
-    pub entry_url: String,
+pub struct ServiceDeploymentRecord {
+    pub kind: String,
+    pub deployment_id: String,
+    pub namespaces: Vec<String>,
     pub disabled: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct PortalDefaultRecord {
-    pub portal_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LoginPortalSelectionRecord {
-    pub contract_id: String,
-    pub portal_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DevicePortalSelectionRecord {
+pub struct DeviceDeploymentRecord {
+    pub kind: String,
     pub deployment_id: String,
-    pub portal_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_mode: Option<serde_json::Value>,
+    pub disabled: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CreatePortalResponse {
-    portal: PortalRecord,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct ListPortalsResponse {
-    portals: Vec<PortalRecord>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct DisablePortalResponse {
-    success: bool,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GetPortalDefaultResponse {
-    default_portal: PortalDefaultRecord,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SetPortalDefaultRequest {
-    portal_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SetPortalDefaultResponse {
-    default_portal: PortalDefaultRecord,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct ListLoginPortalSelectionsResponse {
-    selections: Vec<LoginPortalSelectionRecord>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SetLoginPortalSelectionRequest {
-    contract_id: String,
-    portal_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct SetLoginPortalSelectionResponse {
-    selection: LoginPortalSelectionRecord,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ClearLoginPortalSelectionRequest {
-    contract_id: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct ClearLoginPortalSelectionResponse {
-    success: bool,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct ListDevicePortalSelectionsResponse {
-    selections: Vec<DevicePortalSelectionRecord>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SetDevicePortalSelectionRequest {
-    deployment_id: String,
-    portal_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct SetDevicePortalSelectionResponse {
-    selection: DevicePortalSelectionRecord,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ClearDevicePortalSelectionRequest {
-    deployment_id: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct ClearDevicePortalSelectionResponse {
-    success: bool,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CreatePortalRequest {
-    portal_id: String,
-    entry_url: String,
+struct DeviceDeploymentCreateRequest<'a> {
+    kind: &'static str,
+    deployment_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    review_mode: Option<&'a str>,
 }
 
 /// Connect an authenticated admin client from the stored session state.
@@ -166,7 +75,7 @@ pub struct AuthClient<'a> {
 pub struct RemoveDeviceDeploymentOptions {
     /// Also remove dependent device instances and activation records.
     pub cascade: Option<bool>,
-    /// Garbage-collect installed contract records that are no longer referenced.
+    /// Garbage-collect deployment contract records that are no longer referenced.
     pub purge_unused_contracts: Option<bool>,
 }
 
@@ -176,8 +85,6 @@ pub struct RemoveServiceDeploymentOptions {
     /// Also remove dependent service instances and activation records.
     pub cascade: Option<bool>,
     /// Delete service-owned physical resource bindings before durable removal.
-    pub purge_resources: Option<bool>,
-    /// Garbage-collect installed contract records that are no longer referenced.
     pub purge_unused_contracts: Option<bool>,
 }
 
@@ -210,10 +117,21 @@ impl<'a> AuthClient<'a> {
 
     /// Return the currently authenticated user.
     pub async fn me(&self) -> Result<AuthenticatedUser, TrellisAuthError> {
-        Ok(self
-            .call::<_, MeResponse>("rpc.v1.Auth.Me", &Empty {})
-            .await?
-            .user)
+        let response = self
+            .call_rpc::<AuthSessionsMeRpc>(&AuthSessionsMeRequest(BTreeMap::new()))
+            .await?;
+        let participant_kind = response
+            .participant_kind
+            .as_str()
+            .unwrap_or("none")
+            .to_string();
+
+        match participant_kind.as_str() {
+            "app" | "agent" if !response.user.is_null() => {
+                Ok(serde_json::from_value(response.user)?)
+            }
+            _ => Err(TrellisAuthError::NotUserSession(participant_kind)),
+        }
     }
 
     /// List stored app approval decisions.
@@ -223,315 +141,35 @@ impl<'a> AuthClient<'a> {
         digest: Option<&str>,
     ) -> Result<Vec<ApprovalEntryRecord>, TrellisAuthError> {
         let request = ListApprovalsRequest {
+            limit: AUTH_CLIENT_LIST_LIMIT,
+            offset: None,
             user: user.map(ToOwned::to_owned),
-            digest: digest.map(ToOwned::to_owned),
         };
-        Ok(self
-            .call::<_, ListApprovalsResponse>("rpc.v1.Auth.ListApprovals", &request)
+        let approvals = self
+            .call_rpc::<AuthIdentitiesListRpc>(&request)
             .await?
-            .approvals)
+            .approvals;
+        Ok(match digest {
+            Some(digest) => approvals
+                .into_iter()
+                .filter(|entry| entry.contract_evidence.contract_digest == digest)
+                .collect(),
+            None => approvals,
+        })
     }
 
     /// Revoke one stored approval decision.
     pub async fn revoke_approval(
         &self,
-        digest: &str,
+        identity_envelope_id: &str,
         user: Option<&str>,
     ) -> Result<bool, TrellisAuthError> {
         let request = RevokeApprovalRequest {
-            contract_digest: digest.to_string(),
+            identity_envelope_id: identity_envelope_id.to_string(),
             user: user.map(ToOwned::to_owned),
         };
         Ok(self
-            .call::<_, RevokeApprovalResponse>("rpc.v1.Auth.RevokeApproval", &request)
-            .await?
-            .success)
-    }
-
-    /// List registered portals.
-    pub async fn list_portals(&self) -> Result<Vec<PortalRecord>, TrellisAuthError> {
-        Ok(self
-            .call::<_, ListPortalsResponse>("rpc.v1.Auth.ListPortals", &trellis_sdk_auth::Empty {})
-            .await?
-            .portals)
-    }
-
-    /// Create or replace a portal record.
-    pub async fn create_portal(
-        &self,
-        portal_id: &str,
-        entry_url: &str,
-    ) -> Result<PortalRecord, TrellisAuthError> {
-        Ok(self
-            .call::<_, CreatePortalResponse>(
-                "rpc.v1.Auth.CreatePortal",
-                &CreatePortalRequest {
-                    portal_id: portal_id.to_string(),
-                    entry_url: entry_url.to_string(),
-                },
-            )
-            .await?
-            .portal)
-    }
-
-    /// List configured portal profiles.
-    pub async fn list_portal_profiles(
-        &self,
-    ) -> Result<Vec<trellis_sdk_auth::AuthListPortalProfilesResponseProfilesItem>, TrellisAuthError>
-    {
-        Ok(self
-            .call::<_, trellis_sdk_auth::AuthListPortalProfilesResponse>(
-                "rpc.v1.Auth.ListPortalProfiles",
-                &trellis_sdk_auth::AuthListPortalProfilesRequest(BTreeMap::new()),
-            )
-            .await?
-            .profiles)
-    }
-
-    /// Create or replace a portal profile.
-    pub async fn set_portal_profile(
-        &self,
-        portal_id: &str,
-        entry_url: &str,
-        contract_id: &str,
-        allowed_origins: Option<&[String]>,
-    ) -> Result<trellis_sdk_auth::AuthSetPortalProfileResponseProfile, TrellisAuthError> {
-        Ok(self
-            .call::<_, trellis_sdk_auth::AuthSetPortalProfileResponse>(
-                "rpc.v1.Auth.SetPortalProfile",
-                &trellis_sdk_auth::AuthSetPortalProfileRequest {
-                    allowed_origins: allowed_origins.map(|values| values.to_vec()),
-                    contract_id: contract_id.to_string(),
-                    entry_url: entry_url.to_string(),
-                    portal_id: portal_id.to_string(),
-                },
-            )
-            .await?
-            .profile)
-    }
-
-    /// Disable a portal profile.
-    pub async fn disable_portal_profile(
-        &self,
-        portal_id: &str,
-    ) -> Result<trellis_sdk_auth::AuthDisablePortalProfileResponseProfile, TrellisAuthError> {
-        Ok(self
-            .call::<_, trellis_sdk_auth::AuthDisablePortalProfileResponse>(
-                "rpc.v1.Auth.DisablePortalProfile",
-                &trellis_sdk_auth::AuthDisablePortalProfileRequest {
-                    portal_id: portal_id.to_string(),
-                },
-            )
-            .await?
-            .profile)
-    }
-
-    /// Disable a portal.
-    pub async fn disable_portal(&self, portal_id: &str) -> Result<bool, TrellisAuthError> {
-        Ok(self
-            .call::<_, DisablePortalResponse>(
-                "rpc.v1.Auth.DisablePortal",
-                &trellis_sdk_auth::AuthDisablePortalRequest {
-                    portal_id: portal_id.to_string(),
-                },
-            )
-            .await?
-            .success)
-    }
-
-    /// Get the deployment-wide login portal default.
-    pub async fn get_login_portal_default(&self) -> Result<PortalDefaultRecord, TrellisAuthError> {
-        Ok(self
-            .call::<_, GetPortalDefaultResponse>(
-                "rpc.v1.Auth.GetLoginPortalDefault",
-                &trellis_sdk_auth::Empty {},
-            )
-            .await?
-            .default_portal)
-    }
-
-    /// Set the deployment-wide login portal default.
-    pub async fn set_login_portal_default(
-        &self,
-        portal_id: Option<&str>,
-    ) -> Result<PortalDefaultRecord, TrellisAuthError> {
-        Ok(self
-            .call::<_, SetPortalDefaultResponse>(
-                "rpc.v1.Auth.SetLoginPortalDefault",
-                &SetPortalDefaultRequest {
-                    portal_id: portal_id.map(ToOwned::to_owned),
-                },
-            )
-            .await?
-            .default_portal)
-    }
-
-    /// List deployment-wide instance grant policies.
-    pub async fn list_instance_grant_policies(
-        &self,
-    ) -> Result<Vec<InstanceGrantPolicyRecord>, TrellisAuthError> {
-        Ok(self
-            .call::<_, ListInstanceGrantPoliciesResponse>(
-                "rpc.v1.Auth.ListInstanceGrantPolicies",
-                &trellis_sdk_auth::Empty {},
-            )
-            .await?
-            .policies)
-    }
-
-    /// Create or replace one deployment-wide instance grant policy.
-    pub async fn upsert_instance_grant_policy(
-        &self,
-        contract_id: &str,
-        implied_capabilities: &[String],
-        allowed_origins: Option<&[String]>,
-    ) -> Result<InstanceGrantPolicyRecord, TrellisAuthError> {
-        Ok(self
-            .call::<_, UpsertInstanceGrantPolicyResponse>(
-                "rpc.v1.Auth.UpsertInstanceGrantPolicy",
-                &UpsertInstanceGrantPolicyRequest {
-                    allowed_origins: allowed_origins.map(|values| values.to_vec()),
-                    contract_id: contract_id.to_string(),
-                    implied_capabilities: implied_capabilities.to_vec(),
-                },
-            )
-            .await?
-            .policy)
-    }
-
-    /// Disable one deployment-wide instance grant policy.
-    pub async fn disable_instance_grant_policy(
-        &self,
-        contract_id: &str,
-    ) -> Result<InstanceGrantPolicyRecord, TrellisAuthError> {
-        Ok(self
-            .call::<_, DisableInstanceGrantPolicyResponse>(
-                "rpc.v1.Auth.DisableInstanceGrantPolicy",
-                &DisableInstanceGrantPolicyRequest {
-                    contract_id: contract_id.to_string(),
-                },
-            )
-            .await?
-            .policy)
-    }
-
-    /// List contract-specific login portal selections.
-    pub async fn list_login_portal_selections(
-        &self,
-    ) -> Result<Vec<LoginPortalSelectionRecord>, TrellisAuthError> {
-        Ok(self
-            .call::<_, ListLoginPortalSelectionsResponse>(
-                "rpc.v1.Auth.ListLoginPortalSelections",
-                &trellis_sdk_auth::Empty {},
-            )
-            .await?
-            .selections)
-    }
-
-    /// Create or replace a contract-specific login portal selection.
-    pub async fn set_login_portal_selection(
-        &self,
-        contract_id: &str,
-        portal_id: Option<&str>,
-    ) -> Result<LoginPortalSelectionRecord, TrellisAuthError> {
-        Ok(self
-            .call::<_, SetLoginPortalSelectionResponse>(
-                "rpc.v1.Auth.SetLoginPortalSelection",
-                &SetLoginPortalSelectionRequest {
-                    contract_id: contract_id.to_string(),
-                    portal_id: portal_id.map(ToOwned::to_owned),
-                },
-            )
-            .await?
-            .selection)
-    }
-
-    /// Clear a contract-specific login portal selection.
-    pub async fn clear_login_portal_selection(
-        &self,
-        contract_id: &str,
-    ) -> Result<bool, TrellisAuthError> {
-        Ok(self
-            .call::<_, ClearLoginPortalSelectionResponse>(
-                "rpc.v1.Auth.ClearLoginPortalSelection",
-                &ClearLoginPortalSelectionRequest {
-                    contract_id: contract_id.to_string(),
-                },
-            )
-            .await?
-            .success)
-    }
-
-    /// Get the deployment-wide device portal default.
-    pub async fn get_device_portal_default(&self) -> Result<PortalDefaultRecord, TrellisAuthError> {
-        Ok(self
-            .call::<_, GetPortalDefaultResponse>(
-                "rpc.v1.Auth.GetDevicePortalDefault",
-                &trellis_sdk_auth::Empty {},
-            )
-            .await?
-            .default_portal)
-    }
-
-    /// Set the deployment-wide device portal default.
-    pub async fn set_device_portal_default(
-        &self,
-        portal_id: Option<&str>,
-    ) -> Result<PortalDefaultRecord, TrellisAuthError> {
-        Ok(self
-            .call::<_, SetPortalDefaultResponse>(
-                "rpc.v1.Auth.SetDevicePortalDefault",
-                &SetPortalDefaultRequest {
-                    portal_id: portal_id.map(ToOwned::to_owned),
-                },
-            )
-            .await?
-            .default_portal)
-    }
-
-    /// List deployment-specific device portal selections.
-    pub async fn list_device_portal_selections(
-        &self,
-    ) -> Result<Vec<DevicePortalSelectionRecord>, TrellisAuthError> {
-        Ok(self
-            .call::<_, ListDevicePortalSelectionsResponse>(
-                "rpc.v1.Auth.ListDevicePortalSelections",
-                &trellis_sdk_auth::Empty {},
-            )
-            .await?
-            .selections)
-    }
-
-    /// Create or replace a deployment-specific device portal selection.
-    pub async fn set_device_portal_selection(
-        &self,
-        deployment_id: &str,
-        portal_id: Option<&str>,
-    ) -> Result<DevicePortalSelectionRecord, TrellisAuthError> {
-        Ok(self
-            .call::<_, SetDevicePortalSelectionResponse>(
-                "rpc.v1.Auth.SetDevicePortalSelection",
-                &SetDevicePortalSelectionRequest {
-                    deployment_id: deployment_id.to_string(),
-                    portal_id: portal_id.map(ToOwned::to_owned),
-                },
-            )
-            .await?
-            .selection)
-    }
-
-    /// Clear a deployment-specific device portal selection.
-    pub async fn clear_device_portal_selection(
-        &self,
-        deployment_id: &str,
-    ) -> Result<bool, TrellisAuthError> {
-        Ok(self
-            .call::<_, ClearDevicePortalSelectionResponse>(
-                "rpc.v1.Auth.ClearDevicePortalSelection",
-                &ClearDevicePortalSelectionRequest {
-                    deployment_id: deployment_id.to_string(),
-                },
-            )
+            .call_rpc::<AuthIdentityEnvelopesRevokeRpc>(&request)
             .await?
             .success)
     }
@@ -539,31 +177,23 @@ impl<'a> AuthClient<'a> {
     /// List device deployments.
     pub async fn list_device_deployments(
         &self,
-        contract_id: Option<&str>,
         disabled: bool,
-    ) -> Result<
-        Vec<trellis_sdk_auth::AuthListDeviceDeploymentsResponseDeploymentsItem>,
-        TrellisAuthError,
-    > {
-        let mut deployments = self
-            .call_rpc::<trellis_sdk_auth::rpc::AuthListDeviceDeploymentsRpc>(
-                &trellis_sdk_auth::AuthListDeviceDeploymentsRequest {
-                    disabled: if disabled { Some(true) } else { None },
-                },
-            )
+    ) -> Result<Vec<DeviceDeploymentRecord>, TrellisAuthError> {
+        let deployments = self
+            .call_rpc::<AuthDeploymentsListRpc>(&AuthDeploymentsListRequest {
+                disabled: if disabled { Some(true) } else { None },
+                kind: Some(serde_json::json!("device")),
+                limit: AUTH_CLIENT_LIST_LIMIT,
+                offset: None,
+            })
             .await?
             .deployments;
 
-        if let Some(contract_id) = contract_id {
-            deployments.retain(|deployment| {
-                deployment
-                    .applied_contracts
-                    .iter()
-                    .any(|contract| contract.contract_id == contract_id)
-            });
-        }
-
-        Ok(deployments)
+        deployments
+            .into_iter()
+            .map(serde_json::from_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     /// Create a device deployment.
@@ -571,62 +201,18 @@ impl<'a> AuthClient<'a> {
         &self,
         deployment_id: &str,
         review_mode: Option<&str>,
-        contract: Option<BTreeMap<String, Value>>,
-    ) -> Result<trellis_sdk_auth::AuthCreateDeviceDeploymentResponseDeployment, TrellisAuthError>
-    {
+    ) -> Result<DeviceDeploymentRecord, TrellisAuthError> {
         let response = self
-            .call_rpc::<trellis_sdk_auth::rpc::AuthCreateDeviceDeploymentRpc>(
-                &trellis_sdk_auth::AuthCreateDeviceDeploymentRequest {
-                    deployment_id: deployment_id.to_string(),
-                    first_connect_policy: None,
-                    pre_activation_policy: None,
-                    review_mode: review_mode.map(|value| serde_json::json!(value)),
-                },
-            )
+            .call_rpc::<AuthDeploymentsCreateRpc>(&AuthDeploymentsCreateRequest(
+                serde_json::to_value(DeviceDeploymentCreateRequest {
+                    kind: "device",
+                    deployment_id,
+                    review_mode,
+                })?,
+            ))
             .await?;
 
-        if let Some(contract) = contract {
-            let expected_digest = contract_digest(&serde_json::to_string(&contract)?)?;
-            let applied = self
-                .call_rpc::<trellis_sdk_auth::rpc::AuthApplyDeviceDeploymentContractRpc>(
-                    &trellis_sdk_auth::AuthApplyDeviceDeploymentContractRequest {
-                        deployment_id: deployment_id.to_string(),
-                        contract,
-                        compatibility_policy: None,
-                        expected_digest,
-                        replace_existing: None,
-                    },
-                )
-                .await?;
-            return Ok(trellis_sdk_auth::AuthCreateDeviceDeploymentResponseDeployment {
-                applied_contracts: applied
-                    .deployment
-                    .applied_contracts
-                    .into_iter()
-                    .map(|item| trellis_sdk_auth::AuthCreateDeviceDeploymentResponseDeploymentAppliedContractsItem {
-                        allowed_digests: item.allowed_digests,
-                        compatibility_policy: item.compatibility_policy,
-                        contract_id: item.contract_id,
-                    })
-                    .collect(),
-                disabled: applied.deployment.disabled,
-                deployment_id: applied.deployment.deployment_id,
-                first_connect_policy: applied.deployment.first_connect_policy,
-                pre_activation_policy: applied.deployment.pre_activation_policy,
-                review_mode: applied.deployment.review_mode,
-            });
-        }
-
-        Ok(response.deployment)
-    }
-
-    /// Apply one contract lineage or digest set to a device deployment.
-    pub async fn apply_device_deployment_contract(
-        &self,
-        input: &trellis_sdk_auth::AuthApplyDeviceDeploymentContractRequest,
-    ) -> Result<trellis_sdk_auth::AuthApplyDeviceDeploymentContractResponse, TrellisAuthError> {
-        self.call_rpc::<trellis_sdk_auth::rpc::AuthApplyDeviceDeploymentContractRpc>(input)
-            .await
+        Ok(serde_json::from_value(response.deployment)?)
     }
 
     /// Disable a device deployment.
@@ -635,13 +221,13 @@ impl<'a> AuthClient<'a> {
         deployment_id: &str,
     ) -> Result<bool, TrellisAuthError> {
         let response = self
-            .call_rpc::<trellis_sdk_auth::rpc::AuthDisableDeviceDeploymentRpc>(
-                &trellis_sdk_auth::AuthDisableDeviceDeploymentRequest {
-                    deployment_id: deployment_id.to_string(),
-                },
-            )
+            .call_rpc::<AuthDeploymentsDisableRpc>(&AuthDeploymentsDisableRequest {
+                deployment_id: deployment_id.to_string(),
+                kind: serde_json::json!("device"),
+            })
             .await?;
-        Ok(response.deployment.disabled)
+        let deployment: DeviceDeploymentRecord = serde_json::from_value(response.deployment)?;
+        Ok(deployment.disabled)
     }
 
     /// Enable a device deployment.
@@ -650,23 +236,13 @@ impl<'a> AuthClient<'a> {
         deployment_id: &str,
     ) -> Result<bool, TrellisAuthError> {
         let response = self
-            .call_rpc::<trellis_sdk_auth::rpc::AuthEnableDeviceDeploymentRpc>(
-                &trellis_sdk_auth::AuthEnableDeviceDeploymentRequest {
-                    deployment_id: deployment_id.to_string(),
-                },
-            )
+            .call_rpc::<AuthDeploymentsEnableRpc>(&AuthDeploymentsEnableRequest {
+                deployment_id: deployment_id.to_string(),
+                kind: serde_json::json!("device"),
+            })
             .await?;
-        Ok(!response.deployment.disabled)
-    }
-
-    /// Unapply one contract lineage or digest set from a device deployment.
-    pub async fn unapply_device_deployment_contract(
-        &self,
-        input: &trellis_sdk_auth::AuthUnapplyDeviceDeploymentContractRequest,
-    ) -> Result<trellis_sdk_auth::AuthUnapplyDeviceDeploymentContractResponse, TrellisAuthError>
-    {
-        self.call_rpc::<trellis_sdk_auth::rpc::AuthUnapplyDeviceDeploymentContractRpc>(input)
-            .await
+        let deployment: DeviceDeploymentRecord = serde_json::from_value(response.deployment)?;
+        Ok(!deployment.disabled)
     }
 
     /// Remove a device deployment.
@@ -701,13 +277,12 @@ impl<'a> AuthClient<'a> {
         options: RemoveDeviceDeploymentOptions,
     ) -> Result<bool, TrellisAuthError> {
         let response = self
-            .call_rpc::<trellis_sdk_auth::rpc::AuthRemoveDeviceDeploymentRpc>(
-                &trellis_sdk_auth::AuthRemoveDeviceDeploymentRequest {
-                    cascade: options.cascade,
-                    deployment_id: deployment_id.to_string(),
-                    purge_unused_contracts: options.purge_unused_contracts,
-                },
-            )
+            .call_rpc::<AuthDeploymentsRemoveRpc>(&AuthDeploymentsRemoveRequest {
+                cascade: options.cascade,
+                deployment_id: deployment_id.to_string(),
+                kind: serde_json::json!("device"),
+                purge_unused_contracts: options.purge_unused_contracts,
+            })
             .await?;
         Ok(response.success)
     }
@@ -719,12 +294,11 @@ impl<'a> AuthClient<'a> {
         public_identity_key: &str,
         activation_key: &str,
         metadata: Option<BTreeMap<String, String>>,
-    ) -> Result<trellis_sdk_auth::AuthProvisionDeviceInstanceResponseInstance, TrellisAuthError>
-    {
+    ) -> Result<trellis_sdk_auth::AuthDevicesProvisionResponseInstance, TrellisAuthError> {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthProvisionDeviceInstanceResponse>(
-                "rpc.v1.Auth.ProvisionDeviceInstance",
-                &trellis_sdk_auth::AuthProvisionDeviceInstanceRequest {
+            .call::<_, trellis_sdk_auth::AuthDevicesProvisionResponse>(
+                "rpc.v1.Auth.Devices.Provision",
+                &trellis_sdk_auth::AuthDevicesProvisionRequest {
                     deployment_id: deployment_id.to_string(),
                     public_identity_key: public_identity_key.to_string(),
                     activation_key: activation_key.to_string(),
@@ -740,13 +314,14 @@ impl<'a> AuthClient<'a> {
         &self,
         deployment_id: Option<&str>,
         state: Option<&str>,
-    ) -> Result<Vec<trellis_sdk_auth::AuthListDeviceInstancesResponseInstancesItem>, TrellisAuthError>
-    {
+    ) -> Result<Vec<trellis_sdk_auth::AuthDevicesListResponseInstancesItem>, TrellisAuthError> {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthListDeviceInstancesResponse>(
-                "rpc.v1.Auth.ListDeviceInstances",
-                &trellis_sdk_auth::AuthListDeviceInstancesRequest {
+            .call::<_, trellis_sdk_auth::AuthDevicesListResponse>(
+                "rpc.v1.Auth.Devices.List",
+                &trellis_sdk_auth::AuthDevicesListRequest {
                     deployment_id: deployment_id.map(ToOwned::to_owned),
+                    limit: AUTH_CLIENT_LIST_LIMIT,
+                    offset: None,
                     state: state.map(|value| serde_json::json!(value)),
                 },
             )
@@ -760,9 +335,9 @@ impl<'a> AuthClient<'a> {
         instance_id: &str,
     ) -> Result<bool, TrellisAuthError> {
         let response = self
-            .call::<_, trellis_sdk_auth::AuthDisableDeviceInstanceResponse>(
-                "rpc.v1.Auth.DisableDeviceInstance",
-                &trellis_sdk_auth::AuthDisableDeviceInstanceRequest {
+            .call::<_, trellis_sdk_auth::AuthDevicesDisableResponse>(
+                "rpc.v1.Auth.Devices.Disable",
+                &trellis_sdk_auth::AuthDevicesDisableRequest {
                     instance_id: instance_id.to_string(),
                 },
             )
@@ -776,9 +351,9 @@ impl<'a> AuthClient<'a> {
         instance_id: &str,
     ) -> Result<bool, TrellisAuthError> {
         let response = self
-            .call::<_, trellis_sdk_auth::AuthEnableDeviceInstanceResponse>(
-                "rpc.v1.Auth.EnableDeviceInstance",
-                &trellis_sdk_auth::AuthEnableDeviceInstanceRequest {
+            .call::<_, trellis_sdk_auth::AuthDevicesEnableResponse>(
+                "rpc.v1.Auth.Devices.Enable",
+                &trellis_sdk_auth::AuthDevicesEnableRequest {
                     instance_id: instance_id.to_string(),
                 },
             )
@@ -792,9 +367,9 @@ impl<'a> AuthClient<'a> {
         instance_id: &str,
     ) -> Result<bool, TrellisAuthError> {
         let response = self
-            .call::<_, trellis_sdk_auth::AuthRemoveDeviceInstanceResponse>(
-                "rpc.v1.Auth.RemoveDeviceInstance",
-                &trellis_sdk_auth::AuthRemoveDeviceInstanceRequest {
+            .call::<_, trellis_sdk_auth::AuthDevicesRemoveResponse>(
+                "rpc.v1.Auth.Devices.Remove",
+                &trellis_sdk_auth::AuthDevicesRemoveRequest {
                     instance_id: instance_id.to_string(),
                 },
             )
@@ -809,15 +384,17 @@ impl<'a> AuthClient<'a> {
         deployment_id: Option<&str>,
         state: Option<&str>,
     ) -> Result<
-        Vec<trellis_sdk_auth::AuthListDeviceActivationsResponseActivationsItem>,
+        Vec<trellis_sdk_auth::AuthDeviceUserAuthoritiesListResponseActivationsItem>,
         TrellisAuthError,
     > {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthListDeviceActivationsResponse>(
-                "rpc.v1.Auth.ListDeviceActivations",
-                &trellis_sdk_auth::AuthListDeviceActivationsRequest {
+            .call::<_, trellis_sdk_auth::AuthDeviceUserAuthoritiesListResponse>(
+                "rpc.v1.Auth.DeviceUserAuthorities.List",
+                &trellis_sdk_auth::AuthDeviceUserAuthoritiesListRequest {
                     instance_id: instance_id.map(ToOwned::to_owned),
                     deployment_id: deployment_id.map(ToOwned::to_owned),
+                    limit: AUTH_CLIENT_LIST_LIMIT,
+                    offset: None,
                     state: state.map(|value| serde_json::json!(value)),
                 },
             )
@@ -831,9 +408,9 @@ impl<'a> AuthClient<'a> {
         instance_id: &str,
     ) -> Result<bool, TrellisAuthError> {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthRevokeDeviceActivationResponse>(
-                "rpc.v1.Auth.RevokeDeviceActivation",
-                &trellis_sdk_auth::AuthRevokeDeviceActivationRequest {
+            .call::<_, trellis_sdk_auth::AuthDeviceUserAuthoritiesRevokeResponse>(
+                "rpc.v1.Auth.DeviceUserAuthorities.Revoke",
+                &trellis_sdk_auth::AuthDeviceUserAuthoritiesRevokeRequest {
                     instance_id: instance_id.to_string(),
                 },
             )
@@ -848,15 +425,17 @@ impl<'a> AuthClient<'a> {
         deployment_id: Option<&str>,
         state: Option<&str>,
     ) -> Result<
-        Vec<trellis_sdk_auth::AuthListDeviceActivationReviewsResponseReviewsItem>,
+        Vec<trellis_sdk_auth::AuthDeviceUserAuthoritiesReviewsListResponseReviewsItem>,
         TrellisAuthError,
     > {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthListDeviceActivationReviewsResponse>(
-                "rpc.v1.Auth.ListDeviceActivationReviews",
-                &trellis_sdk_auth::AuthListDeviceActivationReviewsRequest {
+            .call::<_, trellis_sdk_auth::AuthDeviceUserAuthoritiesReviewsListResponse>(
+                "rpc.v1.Auth.DeviceUserAuthorities.Reviews.List",
+                &trellis_sdk_auth::AuthDeviceUserAuthoritiesReviewsListRequest {
                     instance_id: instance_id.map(ToOwned::to_owned),
                     deployment_id: deployment_id.map(ToOwned::to_owned),
+                    limit: AUTH_CLIENT_LIST_LIMIT,
+                    offset: None,
                     state: state.map(|value| serde_json::json!(value)),
                 },
             )
@@ -870,10 +449,11 @@ impl<'a> AuthClient<'a> {
         review_id: &str,
         decision: &str,
         reason: Option<&str>,
-    ) -> Result<trellis_sdk_auth::AuthDecideDeviceActivationReviewResponse, TrellisAuthError> {
+    ) -> Result<trellis_sdk_auth::AuthDeviceUserAuthoritiesReviewsDecideResponse, TrellisAuthError>
+    {
         self.call(
-            "rpc.v1.Auth.DecideDeviceActivationReview",
-            &trellis_sdk_auth::AuthDecideDeviceActivationReviewRequest {
+            "rpc.v1.Auth.DeviceUserAuthorities.Reviews.Decide",
+            &trellis_sdk_auth::AuthDeviceUserAuthoritiesReviewsDecideRequest {
                 review_id: review_id.to_string(),
                 decision: serde_json::json!(decision),
                 reason: reason.map(ToOwned::to_owned),
@@ -885,83 +465,66 @@ impl<'a> AuthClient<'a> {
     /// Create one service deployment.
     pub async fn create_service_deployment(
         &self,
-        input: &trellis_sdk_auth::AuthCreateServiceDeploymentRequest,
-    ) -> Result<trellis_sdk_auth::AuthCreateServiceDeploymentResponseDeployment, TrellisAuthError>
-    {
-        Ok(self
-            .call_rpc::<trellis_sdk_auth::rpc::AuthCreateServiceDeploymentRpc>(input)
-            .await?
-            .deployment)
+        deployment_id: &str,
+        namespaces: Vec<String>,
+    ) -> Result<ServiceDeploymentRecord, TrellisAuthError> {
+        let response = self
+            .call_rpc::<AuthDeploymentsCreateRpc>(&AuthDeploymentsCreateRequest(
+                serde_json::json!({
+                    "kind": "service",
+                    "deploymentId": deployment_id,
+                    "namespaces": namespaces,
+                }),
+            ))
+            .await?;
+        Ok(serde_json::from_value(response.deployment)?)
     }
 
     /// List service deployments.
     pub async fn list_service_deployments(
         &self,
         disabled: bool,
-    ) -> Result<
-        Vec<trellis_sdk_auth::AuthListServiceDeploymentsResponseDeploymentsItem>,
-        TrellisAuthError,
-    > {
-        Ok(self
-            .call_rpc::<trellis_sdk_auth::rpc::AuthListServiceDeploymentsRpc>(
-                &trellis_sdk_auth::AuthListServiceDeploymentsRequest {
-                    disabled: if disabled { Some(true) } else { None },
-                },
-            )
-            .await?
-            .deployments)
-    }
-
-    /// Apply one contract to a service deployment.
-    pub async fn apply_service_deployment_contract(
-        &self,
-        input: &trellis_sdk_auth::AuthApplyServiceDeploymentContractRequest,
-    ) -> Result<trellis_sdk_auth::AuthApplyServiceDeploymentContractResponse, TrellisAuthError>
-    {
-        self.call_rpc::<trellis_sdk_auth::rpc::AuthApplyServiceDeploymentContractRpc>(input)
-            .await
-    }
-
-    /// Unapply one service deployment contract or digest set.
-    pub async fn unapply_service_deployment_contract(
-        &self,
-        input: &trellis_sdk_auth::AuthUnapplyServiceDeploymentContractRequest,
-    ) -> Result<trellis_sdk_auth::AuthUnapplyServiceDeploymentContractResponse, TrellisAuthError>
-    {
-        self.call_rpc::<trellis_sdk_auth::rpc::AuthUnapplyServiceDeploymentContractRpc>(input)
-            .await
+    ) -> Result<Vec<ServiceDeploymentRecord>, TrellisAuthError> {
+        self.call_rpc::<AuthDeploymentsListRpc>(&AuthDeploymentsListRequest {
+            disabled: if disabled { Some(true) } else { None },
+            kind: Some(serde_json::json!("service")),
+            limit: AUTH_CLIENT_LIST_LIMIT,
+            offset: None,
+        })
+        .await?
+        .deployments
+        .into_iter()
+        .map(serde_json::from_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Into::into)
     }
 
     /// Disable one service deployment.
     pub async fn disable_service_deployment(
         &self,
         deployment_id: &str,
-    ) -> Result<trellis_sdk_auth::AuthDisableServiceDeploymentResponseDeployment, TrellisAuthError>
-    {
-        Ok(self
-            .call_rpc::<trellis_sdk_auth::rpc::AuthDisableServiceDeploymentRpc>(
-                &trellis_sdk_auth::AuthDisableServiceDeploymentRequest {
-                    deployment_id: deployment_id.to_string(),
-                },
-            )
-            .await?
-            .deployment)
+    ) -> Result<ServiceDeploymentRecord, TrellisAuthError> {
+        let response = self
+            .call_rpc::<AuthDeploymentsDisableRpc>(&AuthDeploymentsDisableRequest {
+                deployment_id: deployment_id.to_string(),
+                kind: serde_json::json!("service"),
+            })
+            .await?;
+        Ok(serde_json::from_value(response.deployment)?)
     }
 
     /// Enable one service deployment.
     pub async fn enable_service_deployment(
         &self,
         deployment_id: &str,
-    ) -> Result<trellis_sdk_auth::AuthEnableServiceDeploymentResponseDeployment, TrellisAuthError>
-    {
-        Ok(self
-            .call_rpc::<trellis_sdk_auth::rpc::AuthEnableServiceDeploymentRpc>(
-                &trellis_sdk_auth::AuthEnableServiceDeploymentRequest {
-                    deployment_id: deployment_id.to_string(),
-                },
-            )
-            .await?
-            .deployment)
+    ) -> Result<ServiceDeploymentRecord, TrellisAuthError> {
+        let response = self
+            .call_rpc::<AuthDeploymentsEnableRpc>(&AuthDeploymentsEnableRequest {
+                deployment_id: deployment_id.to_string(),
+                kind: serde_json::json!("service"),
+            })
+            .await?;
+        Ok(serde_json::from_value(response.deployment)?)
     }
 
     /// Remove one service deployment.
@@ -983,7 +546,6 @@ impl<'a> AuthClient<'a> {
             deployment_id,
             RemoveServiceDeploymentOptions {
                 cascade,
-                purge_resources: None,
                 purge_unused_contracts: None,
             },
         )
@@ -997,14 +559,12 @@ impl<'a> AuthClient<'a> {
         options: RemoveServiceDeploymentOptions,
     ) -> Result<bool, TrellisAuthError> {
         Ok(self
-            .call_rpc::<trellis_sdk_auth::rpc::AuthRemoveServiceDeploymentRpc>(
-                &trellis_sdk_auth::AuthRemoveServiceDeploymentRequest {
-                    cascade: options.cascade,
-                    deployment_id: deployment_id.to_string(),
-                    purge_resources: options.purge_resources,
-                    purge_unused_contracts: options.purge_unused_contracts,
-                },
-            )
+            .call_rpc::<AuthDeploymentsRemoveRpc>(&AuthDeploymentsRemoveRequest {
+                cascade: options.cascade,
+                deployment_id: deployment_id.to_string(),
+                kind: serde_json::json!("service"),
+                purge_unused_contracts: options.purge_unused_contracts,
+            })
             .await?
             .success)
     }
@@ -1012,12 +572,12 @@ impl<'a> AuthClient<'a> {
     /// Provision one service instance.
     pub async fn provision_service_instance(
         &self,
-        input: &trellis_sdk_auth::AuthProvisionServiceInstanceRequest,
-    ) -> Result<trellis_sdk_auth::AuthProvisionServiceInstanceResponseInstance, TrellisAuthError>
+        input: &trellis_sdk_auth::AuthServiceInstancesProvisionRequest,
+    ) -> Result<trellis_sdk_auth::AuthServiceInstancesProvisionResponseInstance, TrellisAuthError>
     {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthProvisionServiceInstanceResponse>(
-                "rpc.v1.Auth.ProvisionServiceInstance",
+            .call::<_, trellis_sdk_auth::AuthServiceInstancesProvisionResponse>(
+                "rpc.v1.Auth.ServiceInstances.Provision",
                 input,
             )
             .await?
@@ -1030,15 +590,17 @@ impl<'a> AuthClient<'a> {
         deployment_id: Option<&str>,
         disabled: Option<bool>,
     ) -> Result<
-        Vec<trellis_sdk_auth::AuthListServiceInstancesResponseInstancesItem>,
+        Vec<trellis_sdk_auth::AuthServiceInstancesListResponseInstancesItem>,
         TrellisAuthError,
     > {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthListServiceInstancesResponse>(
-                "rpc.v1.Auth.ListServiceInstances",
-                &trellis_sdk_auth::AuthListServiceInstancesRequest {
+            .call::<_, trellis_sdk_auth::AuthServiceInstancesListResponse>(
+                "rpc.v1.Auth.ServiceInstances.List",
+                &trellis_sdk_auth::AuthServiceInstancesListRequest {
                     deployment_id: deployment_id.map(ToOwned::to_owned),
                     disabled,
+                    limit: AUTH_CLIENT_LIST_LIMIT,
+                    offset: None,
                 },
             )
             .await?
@@ -1049,12 +611,12 @@ impl<'a> AuthClient<'a> {
     pub async fn disable_service_instance(
         &self,
         instance_id: &str,
-    ) -> Result<trellis_sdk_auth::AuthDisableServiceInstanceResponseInstance, TrellisAuthError>
+    ) -> Result<trellis_sdk_auth::AuthServiceInstancesDisableResponseInstance, TrellisAuthError>
     {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthDisableServiceInstanceResponse>(
-                "rpc.v1.Auth.DisableServiceInstance",
-                &trellis_sdk_auth::AuthDisableServiceInstanceRequest {
+            .call::<_, trellis_sdk_auth::AuthServiceInstancesDisableResponse>(
+                "rpc.v1.Auth.ServiceInstances.Disable",
+                &trellis_sdk_auth::AuthServiceInstancesDisableRequest {
                     instance_id: instance_id.to_string(),
                 },
             )
@@ -1066,11 +628,12 @@ impl<'a> AuthClient<'a> {
     pub async fn enable_service_instance(
         &self,
         instance_id: &str,
-    ) -> Result<trellis_sdk_auth::AuthEnableServiceInstanceResponseInstance, TrellisAuthError> {
+    ) -> Result<trellis_sdk_auth::AuthServiceInstancesEnableResponseInstance, TrellisAuthError>
+    {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthEnableServiceInstanceResponse>(
-                "rpc.v1.Auth.EnableServiceInstance",
-                &trellis_sdk_auth::AuthEnableServiceInstanceRequest {
+            .call::<_, trellis_sdk_auth::AuthServiceInstancesEnableResponse>(
+                "rpc.v1.Auth.ServiceInstances.Enable",
+                &trellis_sdk_auth::AuthServiceInstancesEnableRequest {
                     instance_id: instance_id.to_string(),
                 },
             )
@@ -1084,9 +647,9 @@ impl<'a> AuthClient<'a> {
         instance_id: &str,
     ) -> Result<bool, TrellisAuthError> {
         Ok(self
-            .call::<_, trellis_sdk_auth::AuthRemoveServiceInstanceResponse>(
-                "rpc.v1.Auth.RemoveServiceInstance",
-                &trellis_sdk_auth::AuthRemoveServiceInstanceRequest {
+            .call::<_, trellis_sdk_auth::AuthServiceInstancesRemoveResponse>(
+                "rpc.v1.Auth.ServiceInstances.Remove",
+                &trellis_sdk_auth::AuthServiceInstancesRemoveRequest {
                     instance_id: instance_id.to_string(),
                 },
             )
@@ -1094,36 +657,23 @@ impl<'a> AuthClient<'a> {
             .success)
     }
 
-    /// Fetch one installed contract by digest.
-    pub async fn get_installed_contract(
-        &self,
-        input: &AuthGetInstalledContractRequest,
-    ) -> Result<AuthGetInstalledContractResponse, TrellisAuthError> {
-        self.call("rpc.v1.Auth.GetInstalledContract", input).await
-    }
-
     /// Validate one request payload.
     pub async fn validate_request(
         &self,
-        input: &AuthValidateRequestRequest,
-    ) -> Result<AuthValidateRequestResponse, TrellisAuthError> {
-        self.call("rpc.v1.Auth.ValidateRequest", input).await
+        input: &AuthRequestsValidateRequest,
+    ) -> Result<AuthRequestsValidateResponse, TrellisAuthError> {
+        self.call("rpc.v1.Auth.Requests.Validate", input).await
     }
 
     /// List service deployments.
-    pub async fn list_services(
-        &self,
-    ) -> Result<
-        Vec<trellis_sdk_auth::AuthListServiceDeploymentsResponseDeploymentsItem>,
-        TrellisAuthError,
-    > {
+    pub async fn list_services(&self) -> Result<Vec<ServiceDeploymentRecord>, TrellisAuthError> {
         self.list_service_deployments(false).await
     }
 
     /// Log out the current admin session remotely.
     pub async fn logout(&self) -> Result<bool, TrellisAuthError> {
         Ok(self
-            .call::<_, LogoutResponse>("rpc.v1.Auth.Logout", &Empty {})
+            .call::<_, LogoutResponse>("rpc.v1.Auth.Sessions.Logout", &Empty {})
             .await?
             .success)
     }
@@ -1131,226 +681,105 @@ impl<'a> AuthClient<'a> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{json, Value};
+    use serde_json::json;
 
-    use super::{
-        CreatePortalRequest, DevicePortalSelectionRecord, GetPortalDefaultResponse,
-        LoginPortalSelectionRecord, PortalDefaultRecord, PortalRecord,
-        SetDevicePortalSelectionRequest, SetDevicePortalSelectionResponse,
-        SetLoginPortalSelectionRequest,
-    };
-    use crate::{
-        InstanceGrantPolicyRecord, InstanceGrantPolicySourceRecord,
-        UpsertInstanceGrantPolicyRequest,
-    };
+    use super::{DeviceDeploymentCreateRequest, DeviceDeploymentRecord};
 
     #[test]
-    fn portal_create_requests_serialize_with_camel_case_fields() {
-        let value = serde_json::to_value(CreatePortalRequest {
-            portal_id: "main".to_string(),
-            entry_url: "https://portal.example.com/auth".to_string(),
+    fn device_deployment_requests_omit_absent_review_mode() {
+        let without_review_mode = serde_json::to_value(DeviceDeploymentCreateRequest {
+            kind: "device",
+            deployment_id: "reader",
+            review_mode: None,
         })
-        .expect("serialize portal create request");
-
+        .expect("serialize device deployment create request");
         assert_eq!(
-            value,
-            json!({
-                "portalId": "main",
-                "entryUrl": "https://portal.example.com/auth"
-            })
+            without_review_mode,
+            json!({ "kind": "device", "deploymentId": "reader" })
+        );
+        assert!(!without_review_mode
+            .as_object()
+            .expect("request object")
+            .contains_key("reviewMode"));
+
+        let with_review_mode = serde_json::to_value(DeviceDeploymentCreateRequest {
+            kind: "device",
+            deployment_id: "reader",
+            review_mode: Some("required"),
+        })
+        .expect("serialize device deployment create request with review mode");
+        assert_eq!(
+            with_review_mode,
+            json!({ "kind": "device", "deploymentId": "reader", "reviewMode": "required" })
         );
     }
 
     #[test]
-    fn portal_records_and_defaults_deserialize_from_camel_case_fields() {
-        let portal: PortalRecord = serde_json::from_value(json!({
-            "portalId": "main",
-            "entryUrl": "https://portal.example.com/auth",
-            "disabled": false
-        }))
-        .expect("deserialize portal record");
-        assert_eq!(portal.portal_id, "main");
-        assert_eq!(portal.entry_url, "https://portal.example.com/auth");
-
-        let response: GetPortalDefaultResponse = serde_json::from_value(json!({
-            "defaultPortal": {
-                "portalId": Value::Null
-            }
-        }))
-        .expect("deserialize portal default response");
-        assert_eq!(response.default_portal.portal_id, None);
-
-        let default_value = serde_json::to_value(PortalDefaultRecord {
-            portal_id: Some("main".to_string()),
+    fn device_deployment_records_omit_absent_review_mode() {
+        let record = serde_json::to_value(DeviceDeploymentRecord {
+            kind: "device".to_string(),
+            deployment_id: "reader".to_string(),
+            review_mode: None,
+            disabled: false,
         })
-        .expect("serialize portal default record");
-        assert_eq!(default_value, json!({ "portalId": "main" }));
-    }
+        .expect("serialize device deployment record");
 
-    #[test]
-    fn portal_selection_types_use_camel_case_json() {
-        let login_request = serde_json::to_value(SetLoginPortalSelectionRequest {
-            contract_id: "trellis.console@v1".to_string(),
-            portal_id: Some("main".to_string()),
-        })
-        .expect("serialize login portal selection request");
         assert_eq!(
-            login_request,
-            json!({
-                "contractId": "trellis.console@v1",
-                "portalId": "main"
-            })
+            record,
+            json!({ "kind": "device", "deploymentId": "reader", "disabled": false })
         );
-
-        let login_record: LoginPortalSelectionRecord = serde_json::from_value(json!({
-            "contractId": "trellis.console@v1",
-            "portalId": "main"
-        }))
-        .expect("deserialize login portal selection record");
-        assert_eq!(login_record.contract_id, "trellis.console@v1");
-        assert_eq!(login_record.portal_id.as_deref(), Some("main"));
-
-        let device_request = serde_json::to_value(SetDevicePortalSelectionRequest {
-            deployment_id: "reader.default".to_string(),
-            portal_id: None,
-        })
-        .expect("serialize device portal selection request");
-        assert_eq!(
-            device_request,
-            json!({
-                "deploymentId": "reader.default",
-                "portalId": Value::Null
-            })
-        );
-
-        let device_response: SetDevicePortalSelectionResponse = serde_json::from_value(json!({
-            "selection": {
-                "deploymentId": "reader.default",
-                "portalId": "main"
-            }
-        }))
-        .expect("deserialize device portal selection response");
-        assert_eq!(device_response.selection.deployment_id, "reader.default");
-        assert_eq!(device_response.selection.portal_id.as_deref(), Some("main"));
-
-        let device_record_value = serde_json::to_value(DevicePortalSelectionRecord {
-            deployment_id: "reader.default".to_string(),
-            portal_id: Some("main".to_string()),
-        })
-        .expect("serialize device portal selection record");
-        assert_eq!(
-            device_record_value,
-            json!({
-                "deploymentId": "reader.default",
-                "portalId": "main"
-            })
-        );
-    }
-
-    #[test]
-    fn instance_grant_policy_types_use_camel_case_json() {
-        let request = serde_json::to_value(UpsertInstanceGrantPolicyRequest {
-            allowed_origins: Some(vec!["https://console.example.com".to_string()]),
-            contract_id: "trellis.console@v1".to_string(),
-            implied_capabilities: vec!["admin".to_string()],
-        })
-        .expect("serialize instance grant policy request");
-        assert_eq!(
-            request,
-            json!({
-                "allowedOrigins": ["https://console.example.com"],
-                "contractId": "trellis.console@v1",
-                "impliedCapabilities": ["admin"]
-            })
-        );
-
-        let record: InstanceGrantPolicyRecord = serde_json::from_value(json!({
-            "contractId": "trellis.console@v1",
-            "allowedOrigins": ["https://console.example.com"],
-            "impliedCapabilities": ["admin"],
-            "disabled": false,
-            "createdAt": "2026-01-01T00:00:00Z",
-            "updatedAt": "2026-01-02T00:00:00Z",
-            "source": {
-                "kind": "admin_policy"
-            }
-        }))
-        .expect("deserialize instance grant policy record");
-        assert_eq!(record.contract_id, "trellis.console@v1");
-        assert_eq!(
-            record.allowed_origins,
-            Some(vec!["https://console.example.com".to_string()])
-        );
-
-        let value = serde_json::to_value(InstanceGrantPolicyRecord {
-            allowed_origins: None,
-            contract_id: "trellis.console@v1".to_string(),
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            disabled: true,
-            implied_capabilities: vec![],
-            source: InstanceGrantPolicySourceRecord {
-                created_by: None,
-                kind: "admin_policy".to_string(),
-                updated_by: None,
-            },
-            updated_at: "2026-01-02T00:00:00Z".to_string(),
-        })
-        .expect("serialize instance grant policy record");
-        assert_eq!(
-            value,
-            json!({
-                "contractId": "trellis.console@v1",
-                "createdAt": "2026-01-01T00:00:00Z",
-                "disabled": true,
-                "impliedCapabilities": [],
-                "source": { "kind": "admin_policy" },
-                "updatedAt": "2026-01-02T00:00:00Z"
-            })
-        );
+        assert!(!record
+            .as_object()
+            .expect("record object")
+            .contains_key("reviewMode"));
     }
 
     #[test]
     fn remove_deployment_requests_serialize_optional_cascade() {
         let service_without_cascade =
-            serde_json::to_value(trellis_sdk_auth::AuthRemoveServiceDeploymentRequest {
+            serde_json::to_value(trellis_sdk_auth::AuthDeploymentsRemoveRequest {
                 cascade: None,
                 deployment_id: "api".to_string(),
-                purge_resources: None,
+                kind: json!("service"),
                 purge_unused_contracts: None,
             })
             .expect("serialize service remove request");
-        assert_eq!(service_without_cascade, json!({ "deploymentId": "api" }));
+        assert_eq!(
+            service_without_cascade,
+            json!({ "deploymentId": "api", "kind": "service" })
+        );
 
         let service_with_cascade =
-            serde_json::to_value(trellis_sdk_auth::AuthRemoveServiceDeploymentRequest {
+            serde_json::to_value(trellis_sdk_auth::AuthDeploymentsRemoveRequest {
                 cascade: Some(true),
                 deployment_id: "api".to_string(),
-                purge_resources: None,
+                kind: json!("service"),
                 purge_unused_contracts: None,
             })
             .expect("serialize service cascade remove request");
         assert_eq!(
             service_with_cascade,
-            json!({ "cascade": true, "deploymentId": "api" })
+            json!({ "cascade": true, "deploymentId": "api", "kind": "service" })
         );
 
         let device_with_cascade =
-            serde_json::to_value(trellis_sdk_auth::AuthRemoveDeviceDeploymentRequest {
+            serde_json::to_value(trellis_sdk_auth::AuthDeploymentsRemoveRequest {
                 cascade: Some(true),
                 deployment_id: "reader".to_string(),
+                kind: json!("device"),
                 purge_unused_contracts: None,
             })
             .expect("serialize device cascade remove request");
         assert_eq!(
             device_with_cascade,
-            json!({ "cascade": true, "deploymentId": "reader" })
+            json!({ "cascade": true, "deploymentId": "reader", "kind": "device" })
         );
 
         let service_with_purge =
-            serde_json::to_value(trellis_sdk_auth::AuthRemoveServiceDeploymentRequest {
+            serde_json::to_value(trellis_sdk_auth::AuthDeploymentsRemoveRequest {
                 cascade: Some(true),
                 deployment_id: "api".to_string(),
-                purge_resources: Some(true),
+                kind: json!("service"),
                 purge_unused_contracts: Some(true),
             })
             .expect("serialize service purge remove request");
@@ -1359,15 +788,16 @@ mod tests {
             json!({
                 "cascade": true,
                 "deploymentId": "api",
-                "purgeResources": true,
+                "kind": "service",
                 "purgeUnusedContracts": true
             })
         );
 
         let device_with_purge =
-            serde_json::to_value(trellis_sdk_auth::AuthRemoveDeviceDeploymentRequest {
+            serde_json::to_value(trellis_sdk_auth::AuthDeploymentsRemoveRequest {
                 cascade: Some(true),
                 deployment_id: "reader".to_string(),
+                kind: json!("device"),
                 purge_unused_contracts: Some(true),
             })
             .expect("serialize device purge remove request");
@@ -1376,6 +806,7 @@ mod tests {
             json!({
                 "cascade": true,
                 "deploymentId": "reader",
+                "kind": "device",
                 "purgeUnusedContracts": true
             })
         );

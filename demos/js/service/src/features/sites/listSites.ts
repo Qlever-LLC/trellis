@@ -5,7 +5,7 @@ import contract from "../../../contract.ts";
 type Args = RpcArgs<typeof contract, "Sites.List">;
 type Result = RpcResult<typeof contract, "Sites.List">;
 
-export async function listSites({ trellis }: Args): Promise<Result> {
+export async function listSites({ input, trellis }: Args): Promise<Result> {
   const sites: SiteSummary[] = [];
   const keys = await trellis.kv.siteSummaries.keys(">").orThrow();
 
@@ -18,5 +18,5 @@ export async function listSites({ trellis }: Args): Promise<Result> {
 
   sites.sort((left, right) => left.siteName.localeCompare(right.siteName));
 
-  return ok({ sites });
+  return ok({ sites: sites.slice(input.offset, input.offset + input.limit) });
 }

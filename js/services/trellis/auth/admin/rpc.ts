@@ -8,60 +8,39 @@ import {
 
 import type { AuthLogger, RuntimeKV } from "../runtime_deps.ts";
 import {
-  type CompatibilityPolicy,
   type DeviceActivationReview,
   type DeviceDeployment,
   type DeviceInstance,
-  type DevicePortalSelection,
   type DeviceProvisioningSecret,
-  isCompatibilityPolicy,
-  normalizeDeviceAppliedContracts,
   type ProvisionDeviceInstanceRequest,
   validateDeviceDeploymentRequest,
   validateDeviceProvisionRequest,
 } from "./shared.ts";
 import { deriveDeviceConfirmationCode } from "@qlever-llc/trellis/auth";
-import type { Connection, InstanceGrantPolicy } from "../schemas.ts";
+import type { Connection } from "../schemas.ts";
+import type { DeploymentEnvelope, EnvelopeBoundary } from "../schemas.ts";
 import type {
-  SqlContractApprovalRepository,
+  BoundedListQuery,
+  SqlDeploymentContractEvidenceRepository,
   SqlDeviceProvisioningSecretRepository,
-  SqlInstanceGrantPolicyRepository,
-  SqlLoginPortalSelectionRepository,
-  SqlPortalDefaultRepository,
-  SqlPortalProfileRepository,
-  SqlPortalRepository,
+  SqlIdentityEnvelopeRepository,
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
+import { MAX_STORAGE_LIST_LIMIT } from "../storage.ts";
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
 import {
-  collectAppliedContractDigests,
+  collectDeploymentContractEvidenceDigests,
   purgeUnusedInstalledContracts,
 } from "./contract_gc.ts";
-export {
-  authClearDevicePortalSelectionHandler,
-  authClearLoginPortalSelectionHandler,
-  authDisableInstanceGrantPolicyHandler,
-  authDisablePortalHandler,
-  authDisablePortalProfileHandler,
-  authGetDevicePortalDefaultHandler,
-  authGetLoginPortalDefaultHandler,
-  authListDevicePortalSelectionsHandler,
-  authListInstanceGrantPoliciesHandler,
-  authListLoginPortalSelectionsHandler,
-  authListPortalProfilesHandler,
-  authListPortalsHandler,
-  authSetDevicePortalDefaultHandler,
-  authSetDevicePortalSelectionHandler,
-  authSetLoginPortalDefaultHandler,
-  authSetLoginPortalSelectionHandler,
-  authUpsertInstanceGrantPolicyHandler,
-  createAuthCreatePortalHandler,
-  createAuthSetPortalProfileHandler,
-  createPortalPolicyAdminHandlers,
-} from "./portal_policy_rpc.ts";
-
 type RpcUser = { capabilities?: string[]; origin?: string; id?: string };
+const EMPTY_BOUNDARY: EnvelopeBoundary = {
+  contracts: [],
+  surfaces: [],
+  capabilities: [],
+  resources: [],
+};
+
 type DeviceActivation = {
   instanceId: string;
   publicIdentityKey: string;
@@ -140,7 +119,17 @@ export type AdminRpcDeps = {
   browserFlowsKV: RuntimeKV<unknown>;
   builtinContractDigests?: Iterable<string>;
   connectionsKV: RuntimeKV<Connection>;
-  contractApprovalStorage: Pick<SqlContractApprovalRepository, "get" | "list">;
+  contractApprovalStorage:
+    & Pick<
+      SqlIdentityEnvelopeRepository,
+      "get" | "listPage"
+    >
+    & Partial<
+      Pick<
+        SqlIdentityEnvelopeRepository,
+        "listByApprovalEvidenceContractDigests" | "listPage"
+      >
+    >;
   contractStorage?: { delete(digest: string): Promise<void> };
   deviceActivationReviewStorage: {
     get(reviewId: string): Promise<DeviceActivationReviewRecord | undefined>;
@@ -149,59 +138,71 @@ export type AdminRpcDeps = {
     ): Promise<DeviceActivationReviewRecord | undefined>;
     put(record: DeviceActivationReviewRecord): Promise<void>;
     delete(reviewId: string): Promise<void>;
-    list(): Promise<DeviceActivationReviewRecord[]>;
+    listPage(query: BoundedListQuery): Promise<DeviceActivationReviewRecord[]>;
+    listFiltered?(filters: {
+      instanceId?: string;
+      deploymentId?: string;
+      state?: string;
+      deploymentIds?: Iterable<string>;
+    }, query: BoundedListQuery): Promise<DeviceActivationReviewRecord[]>;
   };
   deviceActivationStorage: {
     get(instanceId: string): Promise<DeviceActivation | undefined>;
     put(record: DeviceActivation): Promise<void>;
     delete(instanceId: string): Promise<void>;
-    list(): Promise<DeviceActivation[]>;
+    listPage(query: BoundedListQuery): Promise<DeviceActivation[]>;
+    listFiltered?(filters: {
+      instanceId?: string;
+      deploymentId?: string;
+      state?: string;
+    }, query: BoundedListQuery): Promise<DeviceActivation[]>;
   };
   deviceDeploymentStorage: {
     get(deploymentId: string): Promise<DeviceDeployment | undefined>;
     put(record: DeviceDeployment): Promise<void>;
     delete(deploymentId: string): Promise<void>;
-    list(): Promise<DeviceDeployment[]>;
+    listPage(query: BoundedListQuery): Promise<DeviceDeployment[]>;
+    listFiltered?(
+      filters: { disabled?: boolean },
+      query: BoundedListQuery,
+    ): Promise<DeviceDeployment[]>;
+    listByDeploymentIds?(
+      deploymentIds: Iterable<string>,
+      filters?: { disabled?: boolean },
+    ): Promise<Array<{ deploymentId: string; disabled?: boolean }>>;
   };
+  deploymentEnvelopeStorage: {
+    get(deploymentId: string): Promise<DeploymentEnvelope | undefined>;
+    put(record: DeploymentEnvelope): Promise<void>;
+  };
+  deploymentContractEvidenceStorage?:
+    & Pick<
+      SqlDeploymentContractEvidenceRepository,
+      "listPage" | "listByDeployment"
+    >
+    & Partial<Pick<SqlDeploymentContractEvidenceRepository, "listByDigests">>;
   deviceInstanceStorage: {
     get(instanceId: string): Promise<DeviceInstance | undefined>;
     put(record: DeviceInstance): Promise<void>;
     delete(instanceId: string): Promise<void>;
-    list(): Promise<DeviceInstance[]>;
-  };
-  devicePortalSelectionStorage: {
-    get(deploymentId: string): Promise<DevicePortalSelection | undefined>;
-    put(record: DevicePortalSelection): Promise<void>;
-    delete(deploymentId: string): Promise<void>;
-    list(): Promise<DevicePortalSelection[]>;
+    listPage(query: BoundedListQuery): Promise<DeviceInstance[]>;
+    listByDeployment?(deploymentId: string): Promise<DeviceInstance[]>;
+    listByDeployments?(
+      deploymentIds: Iterable<string>,
+    ): Promise<DeviceInstance[]>;
+    listByDeploymentsAndStates?(
+      deploymentIds: Iterable<string>,
+      states: Iterable<string>,
+    ): Promise<DeviceInstance[]>;
+    listByStates?(states: Iterable<string>): Promise<DeviceInstance[]>;
   };
   deviceProvisioningSecretStorage: Pick<
     SqlDeviceProvisioningSecretRepository,
     "get" | "put" | "delete"
   >;
-  instanceGrantPolicyStorage: Pick<
-    SqlInstanceGrantPolicyRepository,
-    "get" | "put" | "list"
-  >;
   kick: (serverId: string, clientId: number) => Promise<void>;
-  loadEffectiveGrantPolicies: (
-    contractId: string,
-  ) => Promise<InstanceGrantPolicy[]>;
   logger: Pick<AuthLogger, "trace" | "warn">;
   operationCompletion?: OperationCompletion;
-  loginPortalSelectionStorage: Pick<
-    SqlLoginPortalSelectionRepository,
-    "get" | "put" | "delete" | "list"
-  >;
-  portalDefaultStorage: Pick<
-    SqlPortalDefaultRepository,
-    "getLogin" | "getDevice" | "putLogin" | "putDevice"
-  >;
-  portalProfileStorage: Pick<
-    SqlPortalProfileRepository,
-    "get" | "put" | "list"
-  >;
-  portalStorage: Pick<SqlPortalRepository, "get" | "put" | "list">;
   publishSessionRevoked: (
     event: {
       origin: string;
@@ -210,19 +211,29 @@ export type AdminRpcDeps = {
       revokedBy: string;
     },
   ) => Promise<void>;
-  sessionStorage: Pick<
-    SqlSessionRepository,
-    | "deleteByPublicIdentityKey"
-    | "deleteBySessionKey"
-    | "listEntries"
-  >;
+  sessionStorage:
+    & Pick<
+      SqlSessionRepository,
+      | "deleteByPublicIdentityKey"
+      | "deleteBySessionKey"
+    >
+    & Partial<Pick<SqlSessionRepository, "listEntriesByContractDigests">>;
   serviceDeploymentStorage?: {
-    list(): Promise<
-      Array<{ appliedContracts: Array<{ allowedDigests: string[] }> }>
-    >;
+    listPage(
+      query: BoundedListQuery,
+    ): Promise<Array<{ deploymentId: string; disabled?: boolean }>>;
+    listByDeploymentIds?(
+      deploymentIds: Iterable<string>,
+      filters?: { disabled?: boolean },
+    ): Promise<Array<{ deploymentId: string; disabled?: boolean }>>;
   };
   serviceInstanceStorage?: {
-    list(): Promise<Array<{ currentContractDigest?: string | null }>>;
+    listPage(
+      query: BoundedListQuery,
+    ): Promise<Array<{ currentContractDigest?: string | null }>>;
+    listByCurrentContractDigests?(
+      contractDigests: Iterable<string>,
+    ): Promise<Array<{ currentContractDigest?: string | null }>>;
   };
   eventPublisher?: {
     publish(event: string, payload: unknown): AsyncResult<unknown, BaseError>;
@@ -231,6 +242,8 @@ export type AdminRpcDeps = {
 };
 
 type AdminRpcContext = AdminRpcDeps;
+
+type DeviceDeploymentRpcContext = AdminRpcDeps;
 
 type AdminRpcHandler<Args, Response> = (
   args: Args,
@@ -251,12 +264,13 @@ function isAdmin(user: RpcUser): boolean {
 function reviewableDeployments(user: RpcUser): Set<string> | null {
   if (isAdmin(user)) return null;
   const capabilities = user.capabilities ?? [];
-  if (capabilities.includes("device.review")) return null;
+  if (capabilities.includes("trellis.auth::device.review")) return null;
 
   const deployments = new Set<string>();
   for (const capability of capabilities) {
-    if (!capability.startsWith("device.review.")) continue;
-    const deploymentId = capability.slice("device.review.".length).trim();
+    if (!capability.startsWith("trellis.auth::device.review.")) continue;
+    const deploymentId = capability.slice("trellis.auth::device.review.".length)
+      .trim();
     if (deploymentId) deployments.add(deploymentId);
   }
 
@@ -287,42 +301,154 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-function missingGcDependency(name: string): UnexpectedError {
+function missingInstalledContractCleanupDependency(
+  name: string,
+): UnexpectedError {
   return new UnexpectedError({
-    cause: new Error(`unused contract purge requires ${name}`),
+    cause: new Error(`unused contract cleanup requires ${name}`),
   });
 }
 
-function buildInstalledContractGcDeps(
+function buildInstalledContractCleanupDeps(
   ctx: AdminRpcContext,
 ):
   | { ok: true; deps: Parameters<typeof purgeUnusedInstalledContracts>[1] }
   | { ok: false; error: UnexpectedError } {
   if (!ctx.contractStorage) {
-    return { ok: false, error: missingGcDependency("contractStorage") };
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency("contractStorage"),
+    };
   }
   if (!ctx.serviceDeploymentStorage) {
     return {
       ok: false,
-      error: missingGcDependency("serviceDeploymentStorage"),
+      error: missingInstalledContractCleanupDependency(
+        "serviceDeploymentStorage",
+      ),
     };
   }
   if (!ctx.serviceInstanceStorage) {
     return {
       ok: false,
-      error: missingGcDependency("serviceInstanceStorage"),
+      error: missingInstalledContractCleanupDependency(
+        "serviceInstanceStorage",
+      ),
     };
   }
+  if (!ctx.deploymentContractEvidenceStorage) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "deploymentContractEvidenceStorage",
+      ),
+    };
+  }
+  if (!ctx.serviceDeploymentStorage.listByDeploymentIds) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "serviceDeploymentStorage.listByDeploymentIds",
+      ),
+    };
+  }
+  if (!ctx.deviceDeploymentStorage.listByDeploymentIds) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "deviceDeploymentStorage.listByDeploymentIds",
+      ),
+    };
+  }
+  if (!ctx.deploymentContractEvidenceStorage.listByDigests) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "deploymentContractEvidenceStorage.listByDigests",
+      ),
+    };
+  }
+  if (!ctx.serviceInstanceStorage.listByCurrentContractDigests) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "serviceInstanceStorage.listByCurrentContractDigests",
+      ),
+    };
+  }
+  if (!ctx.sessionStorage.listEntriesByContractDigests) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "sessionStorage.listEntriesByContractDigests",
+      ),
+    };
+  }
+  if (!ctx.contractApprovalStorage.listByApprovalEvidenceContractDigests) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "contractApprovalStorage.listByApprovalEvidenceContractDigests",
+      ),
+    };
+  }
+  const serviceDeploymentStorage = ctx.serviceDeploymentStorage
+    .listByDeploymentIds;
+  const deviceDeploymentStorage =
+    ctx.deviceDeploymentStorage.listByDeploymentIds;
+  const listEvidenceByDigests = ctx.deploymentContractEvidenceStorage
+    .listByDigests;
+  const listInstancesByDigest = ctx.serviceInstanceStorage
+    .listByCurrentContractDigests;
+  const listSessionsByDigest = ctx.sessionStorage.listEntriesByContractDigests;
+  const listApprovalsByDigest = ctx.contractApprovalStorage
+    .listByApprovalEvidenceContractDigests;
   return {
     ok: true,
     deps: {
       builtinContractDigests: ctx.builtinContractDigests ?? [],
       contractStorage: ctx.contractStorage,
-      serviceDeploymentStorage: ctx.serviceDeploymentStorage,
-      deviceDeploymentStorage: ctx.deviceDeploymentStorage,
-      serviceInstanceStorage: ctx.serviceInstanceStorage,
-      sessionStorage: ctx.sessionStorage,
-      contractApprovalStorage: ctx.contractApprovalStorage,
+      serviceDeploymentStorage: {
+        listByDeploymentIds: (deploymentIds, filters) =>
+          serviceDeploymentStorage.call(
+            ctx.serviceDeploymentStorage,
+            deploymentIds,
+            filters,
+          ),
+      },
+      deviceDeploymentStorage: {
+        listByDeploymentIds: (deploymentIds, filters) =>
+          deviceDeploymentStorage.call(
+            ctx.deviceDeploymentStorage,
+            deploymentIds,
+            filters,
+          ),
+      },
+      deploymentContractEvidenceStorage: {
+        listByDigests: (contractDigests) =>
+          listEvidenceByDigests.call(
+            ctx.deploymentContractEvidenceStorage,
+            contractDigests,
+          ),
+      },
+      serviceInstanceStorage: {
+        listByCurrentContractDigests: (contractDigests) =>
+          listInstancesByDigest.call(
+            ctx.serviceInstanceStorage,
+            contractDigests,
+          ),
+      },
+      sessionStorage: {
+        listEntriesByContractDigests: (contractDigests) =>
+          listSessionsByDigest.call(ctx.sessionStorage, contractDigests),
+      },
+      contractApprovalStorage: {
+        listByApprovalEvidenceContractDigests: (contractDigests) =>
+          listApprovalsByDigest.call(
+            ctx.contractApprovalStorage,
+            contractDigests,
+          ),
+      },
     },
   };
 }
@@ -397,7 +523,7 @@ async function rollbackRefreshFailure<T>(
 }
 
 async function loadDeviceDeployment(
-  ctx: AdminRpcContext,
+  ctx: DeviceDeploymentRpcContext,
   deploymentId: string,
 ): Promise<DeviceDeployment | null> {
   return await ctx.deviceDeploymentStorage.get(deploymentId) ?? null;
@@ -467,28 +593,127 @@ async function loadDeviceActivation(
   return await ctx.deviceActivationStorage.get(instanceId) ?? null;
 }
 
+async function setDeviceDeploymentEnvelopeDisabled(args: {
+  ctx: DeviceDeploymentRpcContext;
+  deploymentId: string;
+  disabled: boolean;
+}): Promise<void> {
+  const envelope = await args.ctx.deploymentEnvelopeStorage.get(
+    args.deploymentId,
+  );
+  if (!envelope) throw new Error("deployment envelope not found");
+  if (envelope.disabled === args.disabled) return;
+  await args.ctx.deploymentEnvelopeStorage.put({
+    ...envelope,
+    disabled: args.disabled,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+async function setDeviceDeploymentEnvelopeDisabledIfPresent(args: {
+  ctx: DeviceDeploymentRpcContext;
+  deploymentId: string;
+  disabled: boolean;
+}): Promise<void> {
+  const envelope = await args.ctx.deploymentEnvelopeStorage.get(
+    args.deploymentId,
+  );
+  if (!envelope || envelope.disabled === args.disabled) return;
+  await args.ctx.deploymentEnvelopeStorage.put({
+    ...envelope,
+    disabled: args.disabled,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 async function listDeviceDeployments(
-  ctx: AdminRpcContext,
+  ctx: DeviceDeploymentRpcContext,
+  filters: { disabled?: boolean },
+  query: BoundedListQuery,
 ): Promise<DeviceDeployment[]> {
-  return await ctx.deviceDeploymentStorage.list();
+  return await ctx.deviceDeploymentStorage.listFiltered!(filters, query);
 }
 
 async function listDeviceInstances(
-  ctx: AdminRpcContext,
+  ctx: DeviceDeploymentRpcContext,
+  query: BoundedListQuery,
 ): Promise<DeviceInstance[]> {
-  return await ctx.deviceInstanceStorage.list();
+  return await ctx.deviceInstanceStorage.listPage(query);
+}
+
+async function listDeviceInstancesForDeployment(
+  ctx: DeviceDeploymentRpcContext,
+  deploymentId: string,
+): Promise<DeviceInstance[]> {
+  return await ctx.deviceInstanceStorage.listByDeployment!(deploymentId);
+}
+
+async function listDeviceInstancesFiltered(
+  ctx: DeviceDeploymentRpcContext,
+  filters: { deploymentId?: string; state?: string },
+  query: BoundedListQuery,
+): Promise<DeviceInstance[]> {
+  if (filters.deploymentId && filters.state) {
+    return await ctx.deviceInstanceStorage.listByDeploymentsAndStates!(
+      [filters.deploymentId],
+      [filters.state],
+    );
+  }
+  if (filters.deploymentId) {
+    return await ctx.deviceInstanceStorage.listByDeployment!(
+      filters.deploymentId,
+    );
+  }
+  if (filters.state) {
+    return await ctx.deviceInstanceStorage.listByStates!([filters.state]);
+  }
+  return await listDeviceInstances(ctx, query);
 }
 
 async function listDeviceActivations(
   ctx: AdminRpcContext,
+  filters: { instanceId?: string; deploymentId?: string; state?: string },
+  query: BoundedListQuery,
 ): Promise<DeviceActivation[]> {
-  return await ctx.deviceActivationStorage.list();
+  return await ctx.deviceActivationStorage.listFiltered!(filters, query);
 }
 
-async function listDeviceActivationReviews(ctx: AdminRpcContext): Promise<
-  DeviceActivationReviewRecord[]
-> {
-  return await ctx.deviceActivationReviewStorage.list();
+async function listDeviceActivationReviews(
+  ctx: AdminRpcContext,
+  filters: {
+    instanceId?: string;
+    deploymentId?: string;
+    state?: string;
+    deploymentIds?: Iterable<string>;
+  },
+  query: BoundedListQuery,
+): Promise<DeviceActivationReviewRecord[]> {
+  return await ctx.deviceActivationReviewStorage.listFiltered!(filters, query);
+}
+
+async function listDeviceActivationReviewsForDeploymentRemoval(
+  ctx: AdminRpcContext,
+  deploymentId: string,
+  instances: DeviceInstance[],
+): Promise<DeviceActivationReviewRecord[]> {
+  const reviews = new Map<string, DeviceActivationReviewRecord>();
+  for (
+    const review of await listDeviceActivationReviews(ctx, { deploymentId }, {
+      limit: MAX_STORAGE_LIST_LIMIT,
+    })
+  ) {
+    reviews.set(review.reviewId, review);
+  }
+  for (const instance of instances) {
+    for (
+      const review of await listDeviceActivationReviews(ctx, {
+        instanceId: instance.instanceId,
+      }, { limit: MAX_STORAGE_LIST_LIMIT })
+    ) {
+      reviews.set(review.reviewId, review);
+    }
+  }
+  return [...reviews.values()];
 }
 
 function toPublicReview(
@@ -511,7 +736,7 @@ function toPublicReview(
 }
 
 async function kickDeviceRuntimeAccess(
-  ctx: AdminRpcContext,
+  ctx: DeviceDeploymentRpcContext,
   publicIdentityKey: string,
 ): Promise<void> {
   await revokeRuntimeAccessForSession({
@@ -612,7 +837,7 @@ async function completeTerminalDeviceActivationReview(
   });
 }
 
-export function createAuthCreateDeviceDeploymentHandler() {
+export function createAuthDeploymentsDeviceCreateHandler() {
   return async (
     {
       input: req,
@@ -621,7 +846,7 @@ export function createAuthCreateDeviceDeploymentHandler() {
       input: Parameters<typeof validateDeviceDeploymentRequest>[0];
       context: { caller: RpcUser };
     },
-    ctx: AdminRpcContext,
+    ctx: DeviceDeploymentRpcContext,
   ) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const validation = validateDeviceDeploymentRequest(req);
@@ -629,212 +854,60 @@ export function createAuthCreateDeviceDeploymentHandler() {
     const { deployment } = validation.take() as {
       deployment: DeviceDeployment;
     };
-    await ctx.deviceDeploymentStorage.put(deployment);
+    const previous = await ctx.deviceDeploymentStorage.get(
+      deployment.deploymentId,
+    );
+    try {
+      await ctx.deviceDeploymentStorage.put(deployment);
+      const existingEnvelope = await ctx.deploymentEnvelopeStorage.get(
+        deployment.deploymentId,
+      );
+      if (!existingEnvelope) {
+        const now = new Date().toISOString();
+        await ctx.deploymentEnvelopeStorage.put({
+          deploymentId: deployment.deploymentId,
+          kind: "device",
+          disabled: false,
+          createdAt: now,
+          updatedAt: now,
+          boundary: EMPTY_BOUNDARY,
+        });
+      }
+    } catch (error) {
+      if (previous) {
+        await ctx.deviceDeploymentStorage.put(previous).catch(() => undefined);
+      } else {
+        await ctx.deviceDeploymentStorage.delete(deployment.deploymentId).catch(
+          () => undefined,
+        );
+      }
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
     return Result.ok({ deployment });
   };
 }
 
 export const authListDeviceDeploymentsHandler = async (
   { input: req, context: { caller } }: {
-    input: { disabled?: boolean };
+    input: BoundedListQuery & { disabled?: boolean };
     context: { caller: RpcUser };
   },
-  ctx: AdminRpcContext,
+  ctx: DeviceDeploymentRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  let deployments = await listDeviceDeployments(ctx);
-  if (req.disabled !== undefined) {
-    deployments = deployments.filter((deployment) =>
-      deployment.disabled === req.disabled
-    );
-  }
+  const deployments = await listDeviceDeployments(ctx, {
+    disabled: req.disabled,
+  }, req);
   return Result.ok({ deployments });
 };
 
-export function createAuthApplyDeviceDeploymentContractHandler(deps: {
-  installDeviceContract: (
-    contract: unknown,
-  ) => Promise<
-    { id: string; digest: string; displayName: string; description: string }
-  >;
-  refreshActiveContracts: () => Promise<void>;
-  validateActiveCatalog: ActiveCatalogValidator;
-}) {
-  return async (
-    {
-      input: req,
-      context: { caller },
-    }: {
-      input: {
-        deploymentId: string;
-        contract: unknown;
-        expectedDigest: string;
-        compatibilityPolicy?: CompatibilityPolicy | string;
-        replaceExisting?: boolean;
-      };
-      context: { caller: RpcUser };
-    },
-    ctx: AdminRpcContext,
-  ) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
-    const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
-    if (!deployment) {
-      return invalidRequest({
-        deploymentId: req.deploymentId,
-        reason: "device_deployment_not_found",
-      });
-    }
-    const compatibilityPolicy = req.compatibilityPolicy ?? "exact";
-    if (!isCompatibilityPolicy(compatibilityPolicy)) {
-      return invalidRequest({
-        compatibilityPolicy: req.compatibilityPolicy,
-        reason: "invalid_compatibility_policy",
-      });
-    }
-    let installed;
-    try {
-      installed = await deps.installDeviceContract(req.contract);
-    } catch (error) {
-      return invalidRequest({
-        deploymentId: req.deploymentId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-    if (req.expectedDigest !== installed.digest) {
-      return invalidRequest({
-        deploymentId: req.deploymentId,
-        reason: "contract_digest_mismatch",
-        expectedDigest: req.expectedDigest,
-        actualDigest: installed.digest,
-        contractId: installed.id,
-      });
-    }
-    const nextDeployment: DeviceDeployment = {
-      ...deployment,
-      appliedContracts: normalizeDeviceAppliedContracts([
-        ...(req.replaceExisting
-          ? deployment.appliedContracts.filter((applied) =>
-            applied.contractId !== installed.id
-          )
-          : deployment.appliedContracts),
-        {
-          contractId: installed.id,
-          compatibilityPolicy,
-          allowedDigests: [installed.digest],
-        },
-      ]),
-    };
-    try {
-      await deps.validateActiveCatalog({
-        stagedDeviceDeployments: [nextDeployment],
-      });
-    } catch (error) {
-      return Result.err(
-        new UnexpectedError({
-          cause: error instanceof Error ? error : new Error(String(error)),
-        }),
-      );
-    }
-    await ctx.deviceDeploymentStorage.put(nextDeployment);
-    const refreshed = await refreshActiveContracts(deps);
-    if (isErr(refreshed)) {
-      await ctx.deviceDeploymentStorage.put(deployment);
-      return refreshed;
-    }
-    const instances = (await listDeviceInstances(ctx)).filter((instance) =>
-      instance.deploymentId === deployment.deploymentId
-    );
-    for (const instance of instances) {
-      await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
-    }
-    return Result.ok({
-      deployment: nextDeployment,
-      contract: {
-        digest: installed.digest,
-        id: installed.id,
-        displayName: installed.displayName,
-        description: installed.description,
-        installedAt: new Date().toISOString(),
-      },
-    });
-  };
-}
-
-export function createAuthUnapplyDeviceDeploymentContractHandler(
-  deps: ActiveContractsDeps & { validateActiveCatalog: ActiveCatalogValidator },
-) {
-  return async (
-    {
-      input: req,
-      context: { caller },
-    }: {
-      input: { deploymentId: string; contractId: string; digests?: string[] };
-      context: { caller: RpcUser };
-    },
-    ctx: AdminRpcContext,
-  ) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
-    const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
-    if (!deployment) {
-      return invalidRequest({
-        deploymentId: req.deploymentId,
-        reason: "device_deployment_not_found",
-      });
-    }
-    const removeDigests = new Set(req.digests ?? []);
-    const nextDeployment: DeviceDeployment = {
-      ...deployment,
-      appliedContracts: normalizeDeviceAppliedContracts(
-        deployment.appliedContracts
-          .map((applied) => {
-            if (applied.contractId !== req.contractId) return applied;
-            if (removeDigests.size === 0) return null;
-            const remaining = applied.allowedDigests.filter((digest) =>
-              !removeDigests.has(digest)
-            );
-            return remaining.length > 0
-              ? { ...applied, allowedDigests: remaining }
-              : null;
-          })
-          .filter((value): value is NonNullable<typeof value> =>
-            value !== null
-          ),
-      ),
-    };
-    try {
-      await deps.validateActiveCatalog({
-        stagedDeviceDeployments: [nextDeployment],
-      });
-    } catch (error) {
-      return Result.err(
-        new UnexpectedError({
-          cause: error instanceof Error ? error : new Error(String(error)),
-        }),
-      );
-    }
-    await ctx.deviceDeploymentStorage.put(nextDeployment);
-    const refreshed = await refreshActiveContracts(deps);
-    if (isErr(refreshed)) {
-      await ctx.deviceDeploymentStorage.put(deployment);
-      return refreshed;
-    }
-    const instances = (await listDeviceInstances(ctx)).filter((instance) =>
-      instance.deploymentId === deployment.deploymentId
-    );
-    for (const instance of instances) {
-      await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
-    }
-    return Result.ok({ deployment: nextDeployment });
-  };
-}
-
-export function createAuthDisableDeviceDeploymentHandler(
+export function createAuthDeploymentsDeviceDisableHandler(
   deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
     input: { deploymentId: string };
     context: { caller: RpcUser };
-  }, ctx: AdminRpcContext) => {
+  }, ctx: DeviceDeploymentRpcContext) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
     if (!deployment) {
@@ -848,19 +921,37 @@ export function createAuthDisableDeviceDeploymentHandler(
       stagedDeviceDeployments: [nextDeployment],
     });
     if (isErr(validated)) return validated;
-    await ctx.deviceDeploymentStorage.put(nextDeployment);
+    try {
+      await ctx.deviceDeploymentStorage.put(nextDeployment);
+      await setDeviceDeploymentEnvelopeDisabled({
+        ctx,
+        deploymentId: nextDeployment.deploymentId,
+        disabled: true,
+      });
+    } catch (error) {
+      await ctx.deviceDeploymentStorage.put(deployment).catch(() => undefined);
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) {
       return await rollbackRefreshFailure<
         { deployment: typeof nextDeployment }
       >(
         refreshed.error,
-        () => ctx.deviceDeploymentStorage.put(deployment),
+        async () => {
+          await ctx.deviceDeploymentStorage.put(deployment);
+          await setDeviceDeploymentEnvelopeDisabled({
+            ctx,
+            deploymentId: deployment.deploymentId,
+            disabled: deployment.disabled,
+          });
+        },
       );
     }
     for (
-      const instance of (await listDeviceInstances(ctx)).filter((entry) =>
-        entry.deploymentId === req.deploymentId
+      const instance of await listDeviceInstancesForDeployment(
+        ctx,
+        req.deploymentId,
       )
     ) {
       await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
@@ -869,13 +960,13 @@ export function createAuthDisableDeviceDeploymentHandler(
   };
 }
 
-export function createAuthEnableDeviceDeploymentHandler(
+export function createAuthDeploymentsDeviceEnableHandler(
   deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
     input: { deploymentId: string };
     context: { caller: RpcUser };
-  }, ctx: AdminRpcContext) => {
+  }, ctx: DeviceDeploymentRpcContext) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
     if (!deployment) {
@@ -889,21 +980,38 @@ export function createAuthEnableDeviceDeploymentHandler(
       stagedDeviceDeployments: [nextDeployment],
     });
     if (isErr(validated)) return validated;
-    await ctx.deviceDeploymentStorage.put(nextDeployment);
+    try {
+      await ctx.deviceDeploymentStorage.put(nextDeployment);
+      await setDeviceDeploymentEnvelopeDisabled({
+        ctx,
+        deploymentId: nextDeployment.deploymentId,
+        disabled: false,
+      });
+    } catch (error) {
+      await ctx.deviceDeploymentStorage.put(deployment).catch(() => undefined);
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
     const refreshed = await refreshActiveContracts(deps);
     if (isErr(refreshed)) {
       return await rollbackRefreshFailure<
         { deployment: typeof nextDeployment }
       >(
         refreshed.error,
-        () => ctx.deviceDeploymentStorage.put(deployment),
+        async () => {
+          await ctx.deviceDeploymentStorage.put(deployment);
+          await setDeviceDeploymentEnvelopeDisabled({
+            ctx,
+            deploymentId: deployment.deploymentId,
+            disabled: deployment.disabled,
+          });
+        },
       );
     }
     return Result.ok({ deployment: nextDeployment });
   };
 }
 
-export function createAuthRemoveDeviceDeploymentHandler(
+export function createAuthDeploymentsDeviceRemoveHandler(
   deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
@@ -913,7 +1021,7 @@ export function createAuthRemoveDeviceDeploymentHandler(
       purgeUnusedContracts?: boolean;
     };
     context: { caller: RpcUser };
-  }, ctx: AdminRpcContext) => {
+  }, ctx: DeviceDeploymentRpcContext) => {
     if (!isAdmin(caller)) return insufficientPermissions();
     if (req.purgeUnusedContracts === true && req.cascade !== true) {
       return invalidRequest({
@@ -921,8 +1029,9 @@ export function createAuthRemoveDeviceDeploymentHandler(
         reason: "unused_contract_purge_requires_cascade",
       });
     }
-    const instances = (await listDeviceInstances(ctx)).filter((instance) =>
-      instance.deploymentId === req.deploymentId
+    const instances = await listDeviceInstancesForDeployment(
+      ctx,
+      req.deploymentId,
     );
     if (instances.length > 0 && req.cascade !== true) {
       return invalidRequest({
@@ -941,7 +1050,6 @@ export function createAuthRemoveDeviceDeploymentHandler(
       stagedDeviceDeployments: [{
         ...deployment,
         disabled: true,
-        appliedContracts: [],
       }],
     };
     if (instances.length > 0) {
@@ -958,19 +1066,21 @@ export function createAuthRemoveDeviceDeploymentHandler(
     };
     const validated = await validateActiveCatalog(removalDeps, validationOpts);
     if (isErr(validated)) return validated;
-    let installedGcDeps:
+    let installedContractCleanupDeps:
       | Parameters<typeof purgeUnusedInstalledContracts>[1]
       | undefined;
+    let removedContractEvidence: Awaited<
+      ReturnType<SqlDeploymentContractEvidenceRepository["listByDeployment"]>
+    > = [];
     if (req.purgeUnusedContracts === true) {
-      const gcDeps = buildInstalledContractGcDeps(ctx);
-      if (!gcDeps.ok) return Result.err(gcDeps.error);
-      installedGcDeps = gcDeps.deps;
+      const cleanupDeps = buildInstalledContractCleanupDeps(ctx);
+      if (!cleanupDeps.ok) return Result.err(cleanupDeps.error);
+      installedContractCleanupDeps = cleanupDeps.deps;
+      removedContractEvidence = await ctx.deploymentContractEvidenceStorage!
+        .listByDeployment(req.deploymentId);
     }
     const provisioningSecrets: DeviceProvisioningSecret[] = [];
     const activations: DeviceActivation[] = [];
-    const portalSelection = await ctx.devicePortalSelectionStorage.get(
-      req.deploymentId,
-    );
     for (const instance of instances) {
       const provisioningSecret = await loadDeviceProvisioningSecret(
         ctx,
@@ -980,14 +1090,12 @@ export function createAuthRemoveDeviceDeploymentHandler(
       const activation = await loadDeviceActivation(ctx, instance.instanceId);
       if (activation) activations.push(activation);
     }
-    const instanceIds = new Set(
-      instances.map((instance) => instance.instanceId),
-    );
-    const activationReviews = (await listDeviceActivationReviews(ctx)).filter(
-      (review) =>
-        review.deploymentId === req.deploymentId ||
-        instanceIds.has(review.instanceId),
-    );
+    const activationReviews =
+      await listDeviceActivationReviewsForDeploymentRemoval(
+        ctx,
+        req.deploymentId,
+        instances,
+      );
     try {
       for (const instance of instances) {
         await kickDeviceRuntimeAccess(ctx, instance.publicIdentityKey);
@@ -997,6 +1105,11 @@ export function createAuthRemoveDeviceDeploymentHandler(
     }
     const restoreDeletedRecords = async () => {
       await ctx.deviceDeploymentStorage.put(deployment);
+      await setDeviceDeploymentEnvelopeDisabledIfPresent({
+        ctx,
+        deploymentId: deployment.deploymentId,
+        disabled: deployment.disabled,
+      });
       for (const instance of instances) {
         await ctx.deviceInstanceStorage.put(instance);
       }
@@ -1014,11 +1127,13 @@ export function createAuthRemoveDeviceDeploymentHandler(
       for (const review of activationReviews) {
         await ctx.deviceActivationReviewStorage.put(review);
       }
-      if (portalSelection) {
-        await ctx.devicePortalSelectionStorage.put(portalSelection);
-      }
     };
     try {
+      await setDeviceDeploymentEnvelopeDisabledIfPresent({
+        ctx,
+        deploymentId: req.deploymentId,
+        disabled: true,
+      });
       for (const instance of instances) {
         await ctx.deviceInstanceStorage.delete(instance.instanceId);
         await ctx.deviceProvisioningSecretStorage.delete(instance.instanceId);
@@ -1026,9 +1141,6 @@ export function createAuthRemoveDeviceDeploymentHandler(
       }
       for (const review of activationReviews) {
         await ctx.deviceActivationReviewStorage.delete(review.reviewId);
-      }
-      if (portalSelection) {
-        await ctx.devicePortalSelectionStorage.delete(req.deploymentId);
       }
       await ctx.deviceDeploymentStorage.delete(req.deploymentId);
     } catch (error) {
@@ -1054,18 +1166,22 @@ export function createAuthRemoveDeviceDeploymentHandler(
       );
     }
     if (req.purgeUnusedContracts === true) {
-      if (!installedGcDeps) {
-        return Result.err(missingGcDependency("installedContractGcDeps"));
+      if (!installedContractCleanupDeps) {
+        return Result.err(
+          missingInstalledContractCleanupDependency(
+            "installedContractCleanupDeps",
+          ),
+        );
       }
       try {
         await purgeUnusedInstalledContracts(
-          collectAppliedContractDigests(deployment),
-          installedGcDeps,
+          collectDeploymentContractEvidenceDigests(removedContractEvidence),
+          installedContractCleanupDeps,
         );
       } catch (error) {
         ctx.logger.warn(
           { deploymentId: req.deploymentId, error: toError(error) },
-          "Failed to purge unused installed contracts after device deployment removal",
+          "Failed to clean up unused installed contracts after device deployment removal",
         );
       }
     }
@@ -1076,7 +1192,7 @@ export function createAuthRemoveDeviceDeploymentHandler(
   };
 }
 
-export function createAuthProvisionDeviceInstanceHandler() {
+export function createAuthDevicesProvisionHandler() {
   return async (
     {
       input: req,
@@ -1114,25 +1230,17 @@ export function createAuthProvisionDeviceInstanceHandler() {
 
 export const authListDeviceInstancesHandler = async (
   { input: req, context: { caller } }: {
-    input: { deploymentId?: string; state?: string };
+    input: BoundedListQuery & { deploymentId?: string; state?: string };
     context: { caller: RpcUser };
   },
   ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  let instances = await listDeviceInstances(ctx);
-  if (req.deploymentId) {
-    instances = instances.filter((instance) =>
-      instance.deploymentId === req.deploymentId
-    );
-  }
-  if (req.state) {
-    instances = instances.filter((instance) => instance.state === req.state);
-  }
+  const instances = await listDeviceInstancesFiltered(ctx, req, req);
   return Result.ok({ instances });
 };
 
-export function createAuthDisableDeviceInstanceHandler(
+export function createAuthDevicesDisableHandler(
   deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
@@ -1165,7 +1273,7 @@ export function createAuthDisableDeviceInstanceHandler(
   };
 }
 
-export function createAuthEnableDeviceInstanceHandler(
+export function createAuthDevicesEnableHandler(
   deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
@@ -1203,7 +1311,7 @@ export function createAuthEnableDeviceInstanceHandler(
   };
 }
 
-export function createAuthRemoveDeviceInstanceHandler(
+export function createAuthDevicesRemoveHandler(
   deps: ActiveCatalogDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
@@ -1255,28 +1363,17 @@ export function createAuthRemoveDeviceInstanceHandler(
 
 export const authListDeviceActivationsHandler = async (
   { input: req, context: { caller } }: {
-    input: { instanceId?: string; deploymentId?: string; state?: string };
+    input: BoundedListQuery & {
+      instanceId?: string;
+      deploymentId?: string;
+      state?: string;
+    };
     context: { caller: RpcUser };
   },
   ctx: AdminRpcContext,
 ) => {
   if (!isAdmin(caller)) return insufficientPermissions();
-  let activations = await listDeviceActivations(ctx);
-  if (req.instanceId) {
-    activations = activations.filter((activation) =>
-      activation.instanceId === req.instanceId
-    );
-  }
-  if (req.deploymentId) {
-    activations = activations.filter((activation) =>
-      activation.deploymentId === req.deploymentId
-    );
-  }
-  if (req.state) {
-    activations = activations.filter((activation) =>
-      activation.state === req.state
-    );
-  }
+  const activations = await listDeviceActivations(ctx, req, req);
   return Result.ok({ activations });
 };
 
@@ -1302,7 +1399,11 @@ export const authRevokeDeviceActivationHandler = async (
 
 export const authListDeviceActivationReviewsHandler = async (
   { input: req, context: { caller } }: {
-    input: { instanceId?: string; deploymentId?: string; state?: string };
+    input: BoundedListQuery & {
+      instanceId?: string;
+      deploymentId?: string;
+      state?: string;
+    };
     context: { caller: RpcUser };
   },
   ctx: AdminRpcContext,
@@ -1315,23 +1416,14 @@ export const authListDeviceActivationReviewsHandler = async (
   ) {
     return insufficientPermissions();
   }
-  let reviews = await listDeviceActivationReviews(ctx);
-  if (req.instanceId) {
-    reviews = reviews.filter((review) => review.instanceId === req.instanceId);
-  }
-  if (req.deploymentId) {
-    reviews = reviews.filter((review) =>
-      review.deploymentId === req.deploymentId
-    );
-  }
-  if (req.state) {
-    reviews = reviews.filter((review) => review.state === req.state);
-  }
-  if (allowedDeployments !== null) {
-    reviews = reviews.filter((review) =>
-      allowedDeployments.has(review.deploymentId)
-    );
-  }
+  const reviews = await listDeviceActivationReviews(ctx, {
+    instanceId: req.instanceId,
+    deploymentId: req.deploymentId,
+    state: req.state,
+    ...(allowedDeployments !== null && !req.deploymentId
+      ? { deploymentIds: allowedDeployments }
+      : {}),
+  }, req);
   return Result.ok({ reviews: reviews.map(toPublicReview) });
 };
 
@@ -1438,7 +1530,7 @@ export const authDecideDeviceActivationReviewHandler = async (
     operationOutput,
   );
   if (completed.isErr()) return completed;
-  (await ctx.eventPublisher?.publish("Auth.DeviceActivationApproved", {
+  (await ctx.eventPublisher?.publish("Auth.DeviceUserAuthorities.Approved", {
     reviewId: updatedReview.reviewId,
     flowId: updatedReview.flowId,
     instanceId: updatedReview.instanceId,
@@ -1456,21 +1548,21 @@ export const authDecideDeviceActivationReviewHandler = async (
   }))?.inspectErr((error: unknown) =>
     ctx.logger.warn(
       { error, reviewId: updatedReview.reviewId },
-      "Failed to publish Auth.DeviceActivationApproved",
+      "Failed to publish Auth.DeviceUserAuthorities.Approved",
     )
   );
-  (await ctx.eventPublisher?.publish("Auth.DeviceActivated", {
+  (await ctx.eventPublisher?.publish("Auth.DeviceUserAuthorities.Resolved", {
     instanceId: activation.instanceId,
     publicIdentityKey: activation.publicIdentityKey,
     deploymentId: activation.deploymentId,
-    activatedAt: activation.activatedAt,
-    activatedBy: activation.activatedBy,
+    resolvedAt: activation.activatedAt,
+    resolvedBy: activation.activatedBy,
     flowId: updatedReview.flowId,
     reviewId: updatedReview.reviewId,
   }))?.inspectErr((error: unknown) =>
     ctx.logger.warn(
       { error, instanceId: activation.instanceId },
-      "Failed to publish Auth.DeviceActivated",
+      "Failed to publish Auth.DeviceUserAuthorities.Resolved",
     )
   );
   return Result.ok({
@@ -1483,11 +1575,6 @@ export const authDecideDeviceActivationReviewHandler = async (
 /** Creates device admin handlers bound to explicit runtime deps. */
 export function createDeviceAdminHandlers(
   deps: AdminRpcDeps & {
-    installDeviceContract: (
-      contract: unknown,
-    ) => Promise<
-      { id: string; digest: string; displayName: string; description: string }
-    >;
     refreshActiveContracts: ActiveContractsDeps["refreshActiveContracts"];
     refreshActiveContractsForRemoval?: ActiveContractsDeps[
       "refreshActiveContractsForRemoval"
@@ -1505,19 +1592,7 @@ export function createDeviceAdminHandlers(
   return {
     createDeviceDeployment: bindAdminRpcHandler(
       deps,
-      createAuthCreateDeviceDeploymentHandler(),
-    ),
-    applyDeviceDeploymentContract: bindAdminRpcHandler(
-      deps,
-      createAuthApplyDeviceDeploymentContractHandler({
-        installDeviceContract: deps.installDeviceContract,
-        refreshActiveContracts: deps.refreshActiveContracts,
-        validateActiveCatalog: deps.validateActiveCatalog,
-      }),
-    ),
-    unapplyDeviceDeploymentContract: bindAdminRpcHandler(
-      deps,
-      createAuthUnapplyDeviceDeploymentContractHandler(activeContractsDeps),
+      createAuthDeploymentsDeviceCreateHandler(),
     ),
     listDeviceDeployments: bindAdminRpcHandler(
       deps,
@@ -1525,19 +1600,19 @@ export function createDeviceAdminHandlers(
     ),
     disableDeviceDeployment: bindAdminRpcHandler(
       deps,
-      createAuthDisableDeviceDeploymentHandler(activeContractsDeps),
+      createAuthDeploymentsDeviceDisableHandler(activeContractsDeps),
     ),
     enableDeviceDeployment: bindAdminRpcHandler(
       deps,
-      createAuthEnableDeviceDeploymentHandler(activeContractsDeps),
+      createAuthDeploymentsDeviceEnableHandler(activeContractsDeps),
     ),
     removeDeviceDeployment: bindAdminRpcHandler(
       deps,
-      createAuthRemoveDeviceDeploymentHandler(activeContractsDeps),
+      createAuthDeploymentsDeviceRemoveHandler(activeContractsDeps),
     ),
     provisionDeviceInstance: bindAdminRpcHandler(
       deps,
-      createAuthProvisionDeviceInstanceHandler(),
+      createAuthDevicesProvisionHandler(),
     ),
     listDeviceInstances: bindAdminRpcHandler(
       deps,
@@ -1545,15 +1620,15 @@ export function createDeviceAdminHandlers(
     ),
     disableDeviceInstance: bindAdminRpcHandler(
       deps,
-      createAuthDisableDeviceInstanceHandler(activeContractsDeps),
+      createAuthDevicesDisableHandler(activeContractsDeps),
     ),
     enableDeviceInstance: bindAdminRpcHandler(
       deps,
-      createAuthEnableDeviceInstanceHandler(activeContractsDeps),
+      createAuthDevicesEnableHandler(activeContractsDeps),
     ),
     removeDeviceInstance: bindAdminRpcHandler(
       deps,
-      createAuthRemoveDeviceInstanceHandler(activeContractsDeps),
+      createAuthDevicesRemoveHandler(activeContractsDeps),
     ),
     listDeviceActivations: bindAdminRpcHandler(
       deps,

@@ -2,7 +2,7 @@ import { assert, assertEquals } from "@std/assert";
 
 import { contract as consoleContract } from "../../../apps/console/contract.ts";
 import { planUserContractApproval } from "../auth/approval/plan.ts";
-import { ContractStore } from "../catalog/store.ts";
+import { createTestContracts } from "../catalog/test_contracts.ts";
 import { resolveBuiltinContracts } from "./control_plane.ts";
 
 Deno.test("resolveBuiltinContracts includes Trellis Jobs as a standard API", () => {
@@ -18,9 +18,12 @@ Deno.test("resolveBuiltinContracts includes Trellis Jobs as a standard API", () 
 });
 
 Deno.test("console approval resolves Jobs access from built-in contracts", async () => {
-  const store = new ContractStore(resolveBuiltinContracts());
+  const contracts = createTestContracts(resolveBuiltinContracts());
 
-  const plan = await planUserContractApproval(store, consoleContract.CONTRACT);
+  const plan = await planUserContractApproval(
+    contracts,
+    consoleContract.CONTRACT,
+  );
 
   assertEquals(plan.contract.id, "trellis.console@v1");
   assert(

@@ -2,6 +2,7 @@ import { assertEquals } from "@std/assert";
 import { Hono } from "@hono/hono";
 
 import { buildVersionInfo, registerVersionRoute } from "./version.ts";
+import manifest from "./deno.json" with { type: "json" };
 
 function env(values: Record<string, string | undefined>) {
   return {
@@ -14,7 +15,7 @@ function env(values: Record<string, string | undefined>) {
 Deno.test("buildVersionInfo uses package version by default", () => {
   assertEquals(buildVersionInfo(env({})), {
     service: "trellis",
-    version: "0.8.0",
+    version: manifest.version,
   });
 });
 
@@ -41,6 +42,6 @@ Deno.test("GET /version returns public version metadata", async () => {
   assertEquals(response.status, 200);
   assertEquals(await response.json(), {
     service: "trellis",
-    version: "0.8.0",
+    version: manifest.version,
   });
 });

@@ -13,7 +13,7 @@ order: 15
 - [auth-protocol.md](./auth-protocol.md) - proofs, connect payloads, and
   pre-auth wait rules
 - [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md) -
-  device lineage and allowed-digest rules
+  device lineage and contract evidence rules
 
 ## Context
 
@@ -40,8 +40,8 @@ Key decisions:
   policy from preregistered records
 - the activation portal is still a browser web app; if it calls Trellis after
   login, it does so as the logged-in user rather than as a service
-- devices present an exact `contractDigest` at runtime; deployments validate
-  `allowedDigests`
+- devices present contract evidence at runtime; deployments validate the derived
+  boundary against the deployment envelope
 - device deployments do not carry a separate rollout-target digest field
 - device review is a first-class optional gate controlled by `reviewMode`
 - the provisioning/admin path may generate the device root secret locally, but
@@ -116,12 +116,11 @@ online auth.
 ```json
 {
   "deploymentId": "reader.default",
-  "appliedContracts": [
-    {
-      "contractId": "acme.reader@v1",
-      "allowedDigests": ["<digest-v1>", "<digest-v2>"]
-    }
-  ],
+  "envelope": {
+    "contracts": ["acme.reader@v1"],
+    "capabilities": ["acme.reader::read"]
+  },
+  "contractEvidence": ["<digest-v1>", "<digest-v2>"],
   "reviewMode": "none",
   "disabled": false
 }
@@ -131,16 +130,14 @@ Rules:
 
 - `deploymentId` is the stable server-side identifier attached to the device
   instance and activation record
-- `appliedContracts` stores the allowed contract lineages and digest sets for
-  the deployment
+- `envelope` stores the authority boundary for the deployment
 - each `contractId` identifies one contract lineage
-- each `allowedDigests` list may contain multiple active digests in that lineage
-  during rollout
-- activated devices present an exact `contractDigest`; auth checks that digest
-  against one applied contract's `allowedDigests`
-- each allowed digest must resolve to an active catalog entry for the same
-  contract lineage; unknown or inactive digests are rejected instead of falling
-  back to another digest in the deployment
+- `contractEvidence` records the digests and derived boundaries reviewed for the
+  deployment; it is evidence/version metadata, not authority
+- activated devices present contract evidence; auth checks that the derived
+  required boundary fits the deployment envelope
+- unknown or inactive evidence is rejected instead of falling back to another
+  digest in the deployment
 - `reviewMode: "required"` means portal completion creates or resumes a pending
   review rather than activating immediately
 - there is no separate rollout-target digest field
@@ -163,24 +160,21 @@ path.
 
 Routing rules:
 
-- app and CLI login flows resolve a portal from explicit deployment-owned login
-  portal selection records keyed by `contractId`, then the deployment login
-  default custom portal when configured, and finally the built-in Trellis login
+- app and CLI login flows resolve portal routing from app identity and current
+  deployment-envelope metadata, then fall back to the built-in Trellis login
   portal
-- activated-device flows resolve a portal from explicit deployment-owned device
-  portal selection records keyed by `deploymentId`, then the deployment device
-  default custom portal when configured, and finally the built-in Trellis device
-  portal
+- activated-device flows resolve portal routing from the device deployment
+  envelope, then fall back to the built-in Trellis device portal
 
 This is automatic resolution in the sense that callers do not choose the portal
 explicitly. It is still explicit on the server side because Trellis relies on
-stored portal, login-selection, device-selection, and device-deployment records
-plus the built-in Trellis fallback.
+stored deployment-envelope metadata, device-deployment records, and the built-in
+Trellis fallback.
 
 ### 6) Known-device activation uses one auth-owned operation
 
 Known preregistered device activation uses one requester-visible auth-owned
-operation: `Auth.ActivateDevice`.
+operation: `Auth.DeviceUserAuthorities.Resolve`.
 
 Happy path without review:
 
@@ -208,9 +202,9 @@ contract rather than service credentials or portal-specific contract machinery.
 If `reviewMode` is `required`, the activation flow inserts an auth-owned
 pending-review step:
 
-- `Auth.ActivateDevice` creates or resumes a review record instead of activating
-  immediately
-- auth emits `events.v1.Auth.DeviceActivationReviewRequested` for reviewer
+- `Auth.DeviceUserAuthorities.Resolve` creates or resumes a review record
+  instead of activating immediately
+- auth emits `events.v1.Auth.DeviceUserAuthorities.ReviewRequested` for reviewer
   automation
 - a service or privileged user with `trellis.auth::device.review` or `admin`
   decides the review through auth RPCs
@@ -269,9 +263,8 @@ Rules:
 - Trellis understands `name`, `serialNumber`, and `modelNumber` for default
   admin display, but the map may also include deployment-specific opaque keys
 - auth, activation, and connect-info decisions do not depend on this metadata
-- device instances do not store a current contract id or digest; connect-info
-  and runtime auth resolve the presented digest against the enabled device
-  deployment's applied contract digest set
+- device instances do not store authority; connect-info and runtime auth resolve
+  the presented contract evidence against the enabled device deployment envelope
 
 `DeviceProvisioningSecret` is the auth-owned activation secret material keyed by
 `instanceId`.
@@ -302,8 +295,8 @@ Rules:
 
 `DeviceActivationRecord` is the final auth decision for that instance once
 activation is granted. It also keeps the activating user identity when the
-device was activated through a browser or review flow so `Auth.Me` can surface
-that user later.
+device was activated through a browser or review flow so `Auth.Sessions.Me` can
+surface that user later.
 
 ```json
 {
@@ -412,7 +405,7 @@ type DeviceConnectInfo = {
   };
   auth: {
     mode: "device_identity";
-    authority: "device_owned" | "user_delegated";
+    authority: "admin_reviewed" | "user_delegated";
     iatSkewSeconds: number;
   };
 };
@@ -422,22 +415,23 @@ Rules:
 
 - Trellis returns `natsServers` and sentinel credentials from deployment state
 - connect info is served by `POST /auth/devices/connect-info` and the matching
-  `Auth.GetDeviceConnectInfo` RPC wrapper, not by bootstrap-route state cached
-  on the device
+  `Auth.Devices.ConnectInfo.Get` RPC wrapper, not by bootstrap-route state
+  cached on the device
 - devices should refresh connect info on startup rather than treating cached
   transport data as a permanent source of truth
-- `auth.authority` distinguishes deployment-owned device authority from
+- `auth.authority` distinguishes admin/review-approved setup authority from
   user-delegated authority added by activation
 - reboot-safe storage should keep the root secret, not connect info, sentinel
   credentials, or hard-coded NATS topology; any Deno activation-state
   persistence stays internal to the Deno activation helper
 
-### 11) Runtime auth presents an exact digest
+### 11) Runtime auth presents contract evidence
 
-Runtime auth happens after connect-info returns `ready`. Activation is required
-for user-delegated authority, but a registered provisioned device may receive
-device-owned authority before activation when its device deployment explicitly
-sets `preActivationPolicy: "device-owned"`.
+Runtime auth happens after connect-info returns `ready`. Device runtime is gated
+by registration, lifecycle state, and a presented contract boundary that fits the
+enabled device deployment envelope. Activation is the user-delegated authority
+path; admin review can grant setup authority, but neither path replaces the
+runtime envelope check.
 
 At connect time the device presents:
 
@@ -447,25 +441,25 @@ At connect time the device presents:
 Auth validates:
 
 1. the known device instance by public identity key
-2. either activation state is `activated`, or no activation exists and the
-   instance is still `registered` under a deployment with
-   `preActivationPolicy: "device-owned"`
+2. lifecycle state allows runtime connection: either activation state is
+   `activated`, or no activation exists and the instance is still `registered`
+   under an admin/review-approved setup flow
 3. the device deployment is present and enabled
-4. `contractDigest` is included in one
-   `deployment.appliedContracts[].allowedDigests` entry, and that entry supplies
-   the matching `contractId` for connect info
+4. the presented contract evidence derives a required boundary that fits the
+   device deployment envelope
 
-This lets old and new device digests coexist during rollout while keeping
-validation explicit. Pre-activation device-owned sessions do not create or
-mutate activation records; activation remains the separate step that adds
-user-delegated authority.
+This lets old and new device evidence coexist during rollout while keeping
+validation explicit. Activation is not the runtime gate by itself: registration,
+lifecycle state, and envelope fit remain mandatory. Admin/review-approved setup
+sessions do not create or mutate activation records; activation remains the
+separate step that adds user-delegated authority.
 
 Lifecycle events are:
 
-- `events.v1.Auth.DeviceActivationRequested`
-- `events.v1.Auth.DeviceActivationReviewRequested`
-- `events.v1.Auth.DeviceActivationApproved`
-- `events.v1.Auth.DeviceActivated`
+- `events.v1.Auth.DeviceUserAuthorities.Requested`
+- `events.v1.Auth.DeviceUserAuthorities.ReviewRequested`
+- `events.v1.Auth.DeviceUserAuthorities.Approved`
+- `events.v1.Auth.DeviceUserAuthorities.Resolved`
 
 ## Client library boundary
 
@@ -491,9 +485,10 @@ Rules:
   auth-owned ready/connect-info envelope
 - portal and admin browser apps SHOULD prefer a typed device-activation client
   wrapper over manually spelling auth RPC method names and payload shapes
-- authenticated portal-side activation starts the `Auth.ActivateDevice`
-  operation; review and completion are observed through operation progress and
-  watch/wait semantics rather than a separate status-poll RPC
+- authenticated portal-side activation starts the
+  `Auth.DeviceUserAuthorities.Resolve` operation; review and completion are
+  observed through operation progress and watch/wait semantics rather than a
+  separate status-poll RPC
 - the TypeScript device runtime connect helper is a pure runtime entrypoint; if
   Trellis says activation is still required it returns a transport error instead
   of starting activation on the caller's behalf
@@ -510,15 +505,15 @@ Rules:
   the TypeScript runtime connect helper publishes baseline heartbeats
   automatically and exposes the same callback-based `health` helper surface used
   by services for enriching those heartbeats
-- Deno device runtimes SHOULD use the high-level activation-status helper before
-  connecting; it reports `activated`, `activation_required`, or `not_ready`
+- Deno device runtimes MAY use the high-level device-user authority helper after
+  registration when they need user-delegated authority; runtime connectivity
+  itself is still controlled by lifecycle checks and deployment-envelope fit
 - callers do not manage or persist serialized local activation state directly
 - Deno file-backed activation persistence stays internal to that
   activation-status helper, with storage-location overrides when the runtime
   needs to control the storage location
-- online approval waiting and offline confirmation actions are exposed only on
-  activation-required status and transition the helper to later activated status
-  for a separate runtime connect call
+- online approval waiting and offline confirmation actions resolve
+  user-delegated authority; they do not enable device-owned runtime access
 - Rust activated-device code SHOULD use the Rust helpers for deterministic
   identity derivation, activation payload and URL construction, wait-request
   signing, activation wait, connect-info retrieval, and confirmation-code
@@ -526,7 +521,8 @@ Rules:
   logic
 - Rust callers may use lower-level generated SDK surfaces for authenticated
   portal-side activation until a small typed convenience wrapper is available,
-  but those calls still follow the `Auth.ActivateDevice` operation model
+  but those calls still follow the `Auth.DeviceUserAuthorities.Resolve`
+  operation model
 - any future Rust device runtime helper should follow the same service-style
   connect pattern as the TypeScript device runtime helper and remain a thin
   wrapper over the public auth HTTP and RPC surfaces
@@ -556,19 +552,19 @@ export const device = defineDeviceContract(() => ({
 
 export default device;
 
-const activation = await checkDeviceActivation({
+const authority = await checkDeviceActivation({
   trellisUrl,
   contract: device,
   rootSecret,
 });
 
-if (activation.status === "activation_required") {
-  console.info(activation.activationUrl);
-  await activation.waitForOnlineApproval();
+if (authority.status === "not_ready") {
+  throw new Error(`Device user authority is not ready: ${authority.reason}`);
 }
 
-if (activation.status === "not_ready") {
-  throw new Error(`Device is not ready: ${activation.reason}`);
+if (authority.status !== "activated") {
+  console.info(authority.activationUrl);
+  await authority.waitForOnlineApproval();
 }
 
 const trellis = await TrellisDevice.connect({
@@ -577,7 +573,7 @@ const trellis = await TrellisDevice.connect({
   rootSecret,
 }).orThrow();
 
-const me = await trellis.request("Auth.Me", {});
+const me = await trellis.request("Auth.Sessions.Me", {});
 if (isErr(me)) throw me.error;
 ```
 
@@ -585,8 +581,8 @@ Rules:
 
 - a normal activated-device participant may own no RPCs, operations, events, or
   resources at all; a small `uses`-only contract is valid
-- requesting `Auth.Me` from a device runtime is valid because device contracts
-  receive baseline auth access automatically
+- requesting `Auth.Sessions.Me` from a device runtime is valid because device
+  contracts receive baseline auth access automatically
 - device-local UI and review flow handling belong around
   `checkDeviceActivation(...)`, not inside `connect()`
 - demos and applications should check activation status first and then connect

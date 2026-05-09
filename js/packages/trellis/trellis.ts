@@ -27,8 +27,8 @@ import {
 } from "./contract_support/mod.ts";
 import type { StaticDecode } from "typebox";
 import {
-  AuthValidateRequestResponseSchema,
-  AuthValidateRequestSchema,
+  AuthRequestsValidateResponseSchema,
+  AuthRequestsValidateSchema,
 } from "./auth/protocol.ts";
 import {
   AsyncResult,
@@ -131,14 +131,14 @@ type InferRuntimeRpcError<T> = T extends {
 } ? TError
   : never;
 
-export type AuthValidateRequestResponse = StaticDecode<
-  typeof AuthValidateRequestResponseSchema
+export type AuthRequestsValidateResponse = StaticDecode<
+  typeof AuthRequestsValidateResponseSchema
 >;
-export type AuthValidateRequestInput = StaticDecode<
-  typeof AuthValidateRequestSchema
+export type AuthRequestsValidateInput = StaticDecode<
+  typeof AuthRequestsValidateSchema
 >;
 
-export type SessionCaller = AuthValidateRequestResponse["caller"];
+export type SessionCaller = AuthRequestsValidateResponse["caller"];
 
 /**
  * Safely extract JSON from a NATS message.
@@ -2670,7 +2670,7 @@ export class Trellis<
           }
 
           let auth:
-            | AuthValidateRequestResponse
+            | AuthRequestsValidateResponse
             | AuthError
             | RemoteError
             | TransportError
@@ -2727,11 +2727,11 @@ export class Trellis<
                   ? auth.toSerializable()
                   : undefined,
               },
-              "Auth.ValidateRequest failed",
+              "Auth.Requests.Validate failed",
             );
             span.setStatus({
               code: SpanStatusCode.ERROR,
-              message: "Auth.ValidateRequest failed",
+              message: "Auth.Requests.Validate failed",
             });
             if (auth instanceof BaseError) {
               return err(auth);
@@ -3377,9 +3377,9 @@ export class Trellis<
   }
 
   protected requestAuthValidate(
-    input: AuthValidateRequestInput,
+    input: AuthRequestsValidateInput,
   ): AsyncResult<
-    AuthValidateRequestResponse,
+    AuthRequestsValidateResponse,
     AuthError | RemoteError | TransportError | ValidationError | UnexpectedError
   > {
     const request = this.request.bind(this) as (
@@ -3394,8 +3394,8 @@ export class Trellis<
       | ValidationError
       | UnexpectedError
     >;
-    return request("Auth.ValidateRequest", input) as AsyncResult<
-      AuthValidateRequestResponse,
+    return request("Auth.Requests.Validate", input) as AsyncResult<
+      AuthRequestsValidateResponse,
       | AuthError
       | RemoteError
       | TransportError

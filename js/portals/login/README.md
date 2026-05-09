@@ -20,12 +20,12 @@ The app has two distinct roles:
   page, the portal stays on its completion screen so the user can return to the
   terminal instead of looping back through browser navigation.
 - `/_trellis/portal/devices/activate` resumes a preserved `flowId` after sign-in
-  and starts the `Auth.ActivateDevice` operation over the Trellis runtime.
-  Review-required deployments continue watching that same operation; the admin
-  review decision completes it with the activated or rejected terminal result.
-  There is no portal-side review polling fallback: the Trellis service records
-  pending-review progress and defers terminal completion durably until the
-  review RPC decides the operation.
+  and starts the `Auth.DeviceUserAuthorities.Resolve` operation over the Trellis
+  runtime. Review-required deployments continue watching that same operation;
+  the admin review decision completes it with the activated or rejected terminal
+  result. There is no portal-side review polling fallback: the Trellis service
+  records pending-review progress and defers terminal completion durably until
+  the review RPC decides the operation.
 - SvelteKit runtime assets are served under `/_trellis/assets/*` to keep the
   built-in portal's asset namespace inside the Trellis-owned prefix.
 
@@ -59,8 +59,8 @@ PUBLIC_TRELLIS_URL=http://localhost:3000 deno task build
 
 NATS WebSocket still defaults to `ws://localhost:8080`. NATS is required for
 `/_trellis/portal/devices/activate` because that route starts and watches the
-`Auth.ActivateDevice` operation over the Trellis runtime. Device connect info is
-served separately by `POST /auth/devices/connect-info`.
+`Auth.DeviceUserAuthorities.Resolve` operation over the Trellis runtime. Device
+connect info is served separately by `POST /auth/devices/connect-info`.
 
 Portal approval and activation copy should describe exact-digest authorization.
 User approvals are for the delegated app or agent contract digest shown in the
@@ -75,17 +75,14 @@ enabled service deployment; Trellis does not wait for a service instance to
 connect. If the implementing service is down, follow-on app calls may fail, but
 the portal should not describe that as an inactive contract dependency.
 
-For device activation to succeed, the portal contract digest must be allowed on
-the relevant device deployment through `appliedContracts[].allowedDigests` or an
-empty allowed-digest lineage entry. Trellis treats `allowedDigests` as a rollout
-allow-list: the presented digest must be known for the lineage and allowed by
-the deployment, but the list itself is not an active-catalog assertion for every
-digest. Trellis fails the activation path instead of substituting another digest
-when the presented digest is unknown, retired, or not allowed.
+For device-user authority resolution to succeed, the portal contract boundary
+must fit the relevant device deployment envelope. Trellis fails the authority
+resolution path instead of substituting another contract when the presented
+contract evidence is unknown or exceeds the deployment envelope.
 
 If a custom portal needs to call Trellis after login, model that follow-on
-access with a normal `app` contract and a portal profile. Passive portals that
-only render flow state do not need their own Trellis contract.
+access with a normal `app` contract and deployment-owned portal routing. Passive
+portals that only render flow state do not need their own Trellis contract.
 
 Custom portal selection is deployment-owned routing policy. Browser login
 selections are keyed directly by app contract id, device activation selections

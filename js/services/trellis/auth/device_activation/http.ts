@@ -13,15 +13,14 @@ import {
 } from "../bootstrap/device.ts";
 import { buildClientTransports } from "../transports.ts";
 import type { Config } from "../../config.ts";
+import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type {
-  SqlDevicePortalSelectionRepository,
-  SqlPortalDefaultRepository,
-  SqlPortalRepository,
+  SqlDeploymentEnvelopeRepository,
+  SqlDeploymentPortalRouteRepository,
 } from "../storage.ts";
 import { randomToken } from "../crypto.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
-import { resolveDevicePortal } from "../http/support.ts";
 import { isDeviceProofIatFresh } from "./shared.ts";
 
 type DeviceActivationFlow = {
@@ -48,7 +47,6 @@ type DeviceInstance = {
 
 type DeviceDeployment = {
   deploymentId: string;
-  appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   reviewMode?: "none" | "required";
   disabled: boolean;
 };
@@ -71,12 +69,6 @@ type DeviceActivationReview = {
   reason?: string;
 };
 
-type Portal = {
-  portalId: string;
-  entryUrl: string;
-  disabled?: boolean;
-};
-
 type DeviceActivationRequest = {
   payload: {
     publicIdentityKey: string;
@@ -93,13 +85,21 @@ type DeviceActivationRequestResponse = {
 };
 
 type DeviceActivationPortalDeps = {
-  portalStorage: SqlPortalRepository;
-  portalDefaultStorage: SqlPortalDefaultRepository;
-  devicePortalSelectionStorage: SqlDevicePortalSelectionRepository;
+  deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
 };
 
 type DeviceActivationHttpDeps =
   & DeviceActivationPortalDeps
+  & {
+    contracts: Pick<
+      ContractsModule,
+      | "getActiveContractsById"
+      | "getActiveEntries"
+      | "getContract"
+      | "validateContract"
+    >;
+    deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+  }
   & Pick<
     AuthRuntimeDeps,
     | "browserFlowsKV"
@@ -216,28 +216,9 @@ async function findDeviceActivationFlow(input: {
   return null;
 }
 
-async function listPortals(
-  deps: DeviceActivationPortalDeps,
-): Promise<Portal[]> {
-  return await deps.portalStorage.list();
-}
-
-async function listDevicePortalSelections(
-  deps: DeviceActivationPortalDeps,
-): Promise<
-  Array<{ deploymentId: string; portalId: string | null }>
-> {
-  return await deps.devicePortalSelectionStorage.list();
-}
-
-async function loadDevicePortalDefaultId(
-  deps: DeviceActivationPortalDeps,
-): Promise<string | null | undefined> {
-  return (await deps.portalDefaultStorage.getDevice())?.portalId;
-}
-
 function deviceBootstrapDeps(deps: DeviceActivationHttpDeps) {
   return {
+    contracts: deps.contracts,
     transports: buildClientTransports(deps.config),
     sentinel: deps.sentinelCreds,
     loadDeviceInstance: (instanceId: string) =>
@@ -246,6 +227,7 @@ function deviceBootstrapDeps(deps: DeviceActivationHttpDeps) {
       loadDeviceActivation(deps, instanceId),
     loadDeviceDeployment: (deploymentId: string) =>
       loadDeviceDeployment(deps, deploymentId),
+    deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
     verifyIdentityProof: verifyDeviceConnectInfoIdentityProof,
   };
 }
@@ -322,14 +304,11 @@ async function createDeviceActivationRequest(
     throw new Error("Failed to create device activation flow");
   }
 
-  const portalResolution = resolveDevicePortal({
-    deploymentId: deployment.deploymentId,
-    portals: await listPortals(deps),
-    defaultPortalId: await loadDevicePortalDefaultId(deps),
-    selections: await listDevicePortalSelections(deps),
-  });
-  const portalEntryUrl = portalResolution.kind === "custom"
-    ? portalResolution.portal.entryUrl
+  const route = await deps.deploymentPortalRouteStorage.get(
+    deployment.deploymentId,
+  );
+  const portalEntryUrl = route && !route.disabled && route.entryUrl
+    ? route.entryUrl
     : builtinPortalEntryUrl(deps.config);
   const portalUrl = new URL(portalEntryUrl);
   portalUrl.searchParams.set("flowId", flowId);

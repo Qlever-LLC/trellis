@@ -1,6 +1,6 @@
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertRejects } from "@std/assert";
-import { ContractStore } from "../../catalog/store.ts";
+import { createTestContracts } from "../../catalog/test_contracts.ts";
 import { planUserContractApproval } from "./plan.ts";
 
 Deno.test("planUserContractApproval derives exact app capabilities and subjects", async () => {
@@ -21,7 +21,7 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
       EmptyOutput: { type: "object" },
       DownloadRequest: { type: "object" },
       DownloadResponse: { type: "object" },
-      AuthConnectEvent: { type: "object" },
+      AuthConnectionsOpenedEvent: { type: "object" },
       EvidenceUploadRequest: {
         type: "object",
         properties: {
@@ -33,9 +33,9 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
       EvidenceUploadResponse: { type: "object" },
     },
     rpc: {
-      "Auth.Me": {
+      "Auth.Sessions.Me": {
         version: "v1",
-        subject: "rpc.v1.example.Auth.Me",
+        subject: "rpc.v1.example.Auth.Sessions.Me",
         input: { schema: "EmptyInput" },
         output: { schema: "EmptyOutput" },
         capabilities: { call: ["users:read"] },
@@ -50,10 +50,10 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
       },
     },
     events: {
-      "Auth.Connect": {
+      "Auth.Connections.Opened": {
         version: "v1",
-        subject: "events.v1.example.Auth.Connect",
-        event: { schema: "AuthConnectEvent" },
+        subject: "events.v1.example.Auth.Connections.Opened",
+        event: { schema: "AuthConnectionsOpenedEvent" },
         capabilities: { publish: ["audit:write"], subscribe: ["audit:read"] },
       },
     },
@@ -77,13 +77,13 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
         version: "v1",
         subject: "feeds.v1.example.Activity.Live",
         input: { schema: "EmptyInput" },
-        event: { schema: "AuthConnectEvent" },
+        event: { schema: "AuthConnectionsOpenedEvent" },
         capabilities: { subscribe: ["activity:read"] },
       },
     },
   };
 
-  const store = new ContractStore([{
+  const store = createTestContracts([{
     digest: "dep-digest",
     contract: dependency,
   }]);
@@ -97,9 +97,9 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     uses: {
       auth: {
         contract: "example.auth@v1",
-        rpc: { call: ["Auth.Me", "Evidence.Download"] },
+        rpc: { call: ["Auth.Sessions.Me", "Evidence.Download"] },
         operations: { call: ["Evidence.Upload"] },
-        events: { subscribe: ["Auth.Connect"] },
+        events: { subscribe: ["Auth.Connections.Opened"] },
         feeds: { subscribe: ["Activity.Live"] },
       },
     },
@@ -132,13 +132,13 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     "feeds.v1.example.Activity.Live",
     "operations.v1.example.Evidence.Upload",
     "operations.v1.example.Evidence.Upload.control",
-    "rpc.v1.example.Auth.Me",
+    "rpc.v1.example.Auth.Sessions.Me",
     "rpc.v1.example.Evidence.Download",
     "transfer.v1.download.*.*",
     "transfer.v1.upload.*.*",
   ]);
   assertEquals(plan.subscribeSubjects, [
-    "events.v1.example.Auth.Connect",
+    "events.v1.example.Auth.Connections.Opened",
   ]);
 });
 
@@ -168,7 +168,7 @@ Deno.test("planUserContractApproval includes operation read and declared cancel 
     },
   };
 
-  const store = new ContractStore([{
+  const store = createTestContracts([{
     digest: "dep-digest",
     contract: dependency,
   }]);
@@ -208,7 +208,7 @@ Deno.test("planUserContractApproval includes operation read and declared cancel 
 });
 
 Deno.test("planUserContractApproval rejects app contracts with raw subjects", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
@@ -228,7 +228,7 @@ Deno.test("planUserContractApproval rejects app contracts with raw subjects", as
 });
 
 Deno.test("planUserContractApproval rejects app contracts with raw subject uses", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
@@ -280,7 +280,7 @@ Deno.test("planUserContractApproval maps explicit transfer declarations by direc
     },
   };
 
-  const store = new ContractStore([{
+  const store = createTestContracts([{
     digest: "dep-digest",
     contract: dependency,
   }]);
@@ -315,7 +315,7 @@ Deno.test("planUserContractApproval maps explicit transfer declarations by direc
 });
 
 Deno.test("planUserContractApproval rejects app contracts with inactive dependencies", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
@@ -328,7 +328,7 @@ Deno.test("planUserContractApproval rejects app contracts with inactive dependen
         uses: {
           auth: {
             contract: "missing.auth@v1",
-            rpc: { call: ["Auth.Me"] },
+            rpc: { call: ["Auth.Sessions.Me"] },
           },
         },
       }),
@@ -338,7 +338,7 @@ Deno.test("planUserContractApproval rejects app contracts with inactive dependen
 });
 
 Deno.test("planUserContractApproval rejects agent contracts with inactive dependencies", async () => {
-  const store = new ContractStore();
+  const store = createTestContracts();
 
   await assertRejects(
     () =>
@@ -372,17 +372,17 @@ Deno.test("planUserContractApproval rejects inactive dependency surfaces even wh
       EmptyOutput: { type: "object" },
     },
     rpc: {
-      "Auth.Me": {
+      "Auth.Sessions.Me": {
         version: "v1",
-        subject: "rpc.v1.example.Auth.Me",
+        subject: "rpc.v1.example.Auth.Sessions.Me",
         input: { schema: "EmptyInput" },
         output: { schema: "EmptyOutput" },
       },
     },
   };
 
-  const store = new ContractStore();
-  store.add("dep-digest", dependency);
+  const store = createTestContracts();
+  store.addKnownTestContract({ digest: "dep-digest", contract: dependency });
 
   await assertRejects(
     () =>
@@ -395,7 +395,7 @@ Deno.test("planUserContractApproval rejects inactive dependency surfaces even wh
         uses: {
           auth: {
             contract: "example.auth@v1",
-            rpc: { call: ["Auth.Me"] },
+            rpc: { call: ["Auth.Sessions.Me"] },
           },
         },
       }),
@@ -416,16 +416,16 @@ Deno.test("planUserContractApproval still rejects invalid active dependencies", 
       EmptyOutput: { type: "object" },
     },
     rpc: {
-      "Auth.Me": {
+      "Auth.Sessions.Me": {
         version: "v1",
-        subject: "rpc.v1.example.Auth.Me",
+        subject: "rpc.v1.example.Auth.Sessions.Me",
         input: { schema: "EmptyInput" },
         output: { schema: "EmptyOutput" },
       },
     },
   };
 
-  const store = new ContractStore([{
+  const store = createTestContracts([{
     digest: "dep-digest",
     contract: dependency,
   }]);

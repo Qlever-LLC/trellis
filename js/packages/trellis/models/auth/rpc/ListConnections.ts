@@ -33,11 +33,11 @@ const ConnectionRowBaseSchema = {
   connectedAt: Type.String(),
 };
 
-export const AuthListConnectionsSchema = Type.Object({
+export const AuthConnectionsListSchema = Type.Object({
   user: Type.Optional(Type.String()),
   sessionKey: Type.Optional(Type.String()),
 });
-export type AuthListConnectionsInput = Static<typeof AuthListConnectionsSchema>;
+export type AuthConnectionsListInput = Static<typeof AuthConnectionsListSchema>;
 
 export const AuthConnectionRowSchema = Type.Union([
   Type.Object({
@@ -69,9 +69,9 @@ export const AuthConnectionRowSchema = Type.Union([
 ]);
 export type AuthConnectionRow = Static<typeof AuthConnectionRowSchema>;
 
-export const AuthListConnectionsResponseSchema = Type.Object({
+export const AuthConnectionsListResponseSchema = Type.Object({
   connections: Type.Array(AuthConnectionRowSchema),
 });
-export type AuthListConnectionsResponse = Static<
-  typeof AuthListConnectionsResponseSchema
+export type AuthConnectionsListResponse = Static<
+  typeof AuthConnectionsListResponseSchema
 >;

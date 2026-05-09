@@ -2869,7 +2869,7 @@ mod tests {
                     },
                     "auth": {
                         "contract": "trellis.auth@v1",
-                        "rpc": { "call": ["Auth.Me"] }
+                        "rpc": { "call": ["Auth.Sessions.Me"] }
                     }
                 }
             }),
@@ -2998,8 +2998,8 @@ mod tests {
                     },
                     "auth": {
                         "contract": "trellis.auth@v1",
-                        "rpc": { "call": ["Auth.Me"] },
-                        "events": { "publish": ["Auth.Connect"], "subscribe": ["Auth.Connect"] }
+                        "rpc": { "call": ["Auth.Sessions.Me"] },
+                        "events": { "publish": ["Auth.Connections.Opened"], "subscribe": ["Auth.Connections.Opened"] }
                     }
                 },
                 "rpc": {
@@ -3053,23 +3053,23 @@ mod tests {
                 "description": "Auth.",
                 "kind": "service",
                 "schemas": {
-                    "AuthMeInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "AuthMeOutput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "AuthConnectEvent": {"type":"object","properties":{"user":{"type":"string"}},"required":["user"],"additionalProperties":false}
+                    "AuthSessionsMeInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
+                    "AuthSessionsMeOutput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
+                    "AuthConnectionsOpenedEvent": {"type":"object","properties":{"user":{"type":"string"}},"required":["user"],"additionalProperties":false}
                 },
                 "rpc": {
-                    "Auth.Me": {
+                    "Auth.Sessions.Me": {
                         "version":"v1",
-                        "subject":"rpc.v1.Auth.Me",
-                        "input":{"schema":"AuthMeInput"},
-                        "output":{"schema":"AuthMeOutput"}
+                        "subject":"rpc.v1.Auth.Sessions.Me",
+                        "input":{"schema":"AuthSessionsMeInput"},
+                        "output":{"schema":"AuthSessionsMeOutput"}
                     }
                 },
                 "events": {
-                    "Auth.Connect": {
+                    "Auth.Connections.Opened": {
                         "version":"v1",
-                        "subject":"events.v1.Auth.Connect",
-                        "event":{"schema":"AuthConnectEvent"}
+                        "subject":"events.v1.Auth.Connections.Opened",
+                        "event":{"schema":"AuthConnectionsOpenedEvent"}
                     }
                 }
             }),

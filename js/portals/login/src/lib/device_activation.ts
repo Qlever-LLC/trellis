@@ -23,8 +23,8 @@ type PortalAuthState = Omit<DeviceActivationAuth, "init"> & {
   init(): Promise<SessionKeyHandle>;
 };
 
-type ActivateDeviceOperationClient = {
-  operation(operation: "Auth.ActivateDevice"): {
+type ResolveDeviceUserAuthoritiesOperationClient = {
+  operation(operation: "Auth.DeviceUserAuthorities.Resolve"): {
     input(input: { flowId: string }): {
       start(): {
         orThrow(): Promise<DeviceActivationOperationRef>;
@@ -119,14 +119,14 @@ export function createPortalDeviceActivationController() {
           "Connected Trellis client is missing operation support",
         );
       }
-      const activationClient: ActivateDeviceOperationClient = {
+      const activationClient: ResolveDeviceUserAuthoritiesOperationClient = {
         operation: operation.bind(trellis),
       };
 
       return {
         async activateDevice(input): Promise<DeviceActivationOperationRef> {
           return await activationClient
-            .operation("Auth.ActivateDevice")
+            .operation("Auth.DeviceUserAuthorities.Resolve")
             .input(input)
             .start()
             .orThrow();

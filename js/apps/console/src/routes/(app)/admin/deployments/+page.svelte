@@ -1,12 +1,11 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthListDeviceActivationReviewsOutput,
-    AuthListDeviceActivationsOutput,
-    AuthListDeviceDeploymentsOutput,
-    AuthListDeviceInstancesOutput,
-    AuthListServiceDeploymentsOutput,
-    AuthListServiceInstancesOutput,
+    AuthDeviceUserAuthoritiesReviewsListOutput,
+    AuthDeviceUserAuthoritiesListOutput,
+    AuthDeploymentsListOutput,
+    AuthDevicesListOutput,
+    AuthServiceInstancesListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
@@ -19,14 +18,15 @@
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { getTrellis } from "../../../../lib/trellis";
 
-  type ServiceDeployment = AuthListServiceDeploymentsOutput["deployments"][number];
-  type ServiceInstance = AuthListServiceInstancesOutput["instances"][number];
-  type DeviceDeployment = AuthListDeviceDeploymentsOutput["deployments"][number];
-  type DeviceInstance = AuthListDeviceInstancesOutput["instances"][number] & {
+  type Deployment = AuthDeploymentsListOutput["deployments"][number];
+  type ServiceDeployment = Extract<Deployment, { kind: "service" }>;
+  type ServiceInstance = AuthServiceInstancesListOutput["instances"][number];
+  type DeviceDeployment = Extract<Deployment, { kind: "device" }>;
+  type DeviceInstance = AuthDevicesListOutput["instances"][number] & {
     metadata?: Record<string, string>;
   };
-  type DeviceActivation = AuthListDeviceActivationsOutput["activations"][number];
-  type DeviceReview = AuthListDeviceActivationReviewsOutput["reviews"][number];
+  type DeviceActivation = AuthDeviceUserAuthoritiesListOutput["activations"][number];
+  type DeviceReview = AuthDeviceUserAuthoritiesReviewsListOutput["reviews"][number];
   type DeploymentKind = "service" | "device";
   type KindFilter = "all" | DeploymentKind;
   type StatusFilter = "all" | "active" | "disabled";
@@ -37,7 +37,6 @@
     kind: DeploymentKind;
     deploymentId: string;
     disabled: boolean;
-    contractCount: number;
     activeInstanceCount: number;
     totalInstanceCount: number;
     statusLabel: string;
@@ -83,7 +82,6 @@
         kind: "service",
         deploymentId: deployment.deploymentId,
         disabled: deployment.disabled,
-        contractCount: deployment.appliedContracts.length,
         activeInstanceCount: activeInstances.length,
         totalInstanceCount: instances.length,
         statusLabel,
@@ -92,7 +90,6 @@
           "service",
           deployment.deploymentId,
           ...deployment.namespaces,
-          ...deployment.appliedContracts.flatMap((contract) => [contract.contractId, ...contract.allowedDigests]),
           ...instances.flatMap((instance) => [instance.instanceId, instance.instanceKey, instance.currentContractId ?? "", instance.currentContractDigest ?? ""]),
         ].join(" ").toLowerCase(),
       };
@@ -107,7 +104,6 @@
         kind: "device",
         deploymentId: deployment.deploymentId,
         disabled: deployment.disabled,
-        contractCount: deployment.appliedContracts.length,
         activeInstanceCount: activeInstances.length,
         totalInstanceCount: instances.length,
         statusLabel: status.label,
@@ -116,7 +112,6 @@
           "device",
           deployment.deploymentId,
           deployment.reviewMode ?? "",
-          ...deployment.appliedContracts.flatMap((contract) => [contract.contractId, ...contract.allowedDigests]),
           ...instances.flatMap((instance) => [instance.instanceId, instance.publicIdentityKey, ...Object.values(instance.metadata ?? {})]),
         ].join(" ").toLowerCase(),
       };
@@ -230,12 +225,12 @@
         deviceActivationsResponse,
         deviceReviewsResponse,
       ] = await Promise.all([
-        trellis.request("Auth.ListServiceDeployments", {}).take(),
-        trellis.request("Auth.ListServiceInstances", {}).take(),
-        trellis.request("Auth.ListDeviceDeployments", {}).take(),
-        trellis.request("Auth.ListDeviceInstances", {}).take(),
-        trellis.request("Auth.ListDeviceActivations", {}).take(),
-        trellis.request("Auth.ListDeviceActivationReviews", {}).take(),
+        trellis.request("Auth.Deployments.List", { kind: "service", limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.Deployments.List", { kind: "device", limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.Devices.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.DeviceUserAuthorities.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.DeviceUserAuthorities.Reviews.List", { limit: 500, offset: 0 }).take(),
       ]);
 
       if (isErr(serviceDeploymentsResponse)) { error = errorMessage(serviceDeploymentsResponse); return; }
@@ -245,9 +240,9 @@
       if (isErr(deviceActivationsResponse)) { error = errorMessage(deviceActivationsResponse); return; }
       if (isErr(deviceReviewsResponse)) { error = errorMessage(deviceReviewsResponse); return; }
 
-      serviceDeployments = serviceDeploymentsResponse.deployments ?? [];
+      serviceDeployments = (serviceDeploymentsResponse.deployments ?? []).filter((deployment): deployment is ServiceDeployment => deployment.kind === "service");
       serviceInstances = serviceInstancesResponse.instances ?? [];
-      deviceDeployments = deviceDeploymentsResponse.deployments ?? [];
+      deviceDeployments = (deviceDeploymentsResponse.deployments ?? []).filter((deployment): deployment is DeviceDeployment => deployment.kind === "device");
       deviceInstances = deviceInstancesResponse.instances ?? [];
       deviceActivations = deviceActivationsResponse.activations ?? [];
       deviceReviews = deviceReviewsResponse.reviews ?? [];
@@ -287,7 +282,7 @@
         <div class="mb-3 space-y-3">
           <label class="input input-bordered input-sm flex items-center gap-2">
             <Icon name="search" size={14} class="text-base-content/50" />
-            <input bind:value={search} class="grow" placeholder="Search deployments, contracts, instances" />
+            <input bind:value={search} class="grow" placeholder="Search deployments and instances" />
           </label>
 
           <div class="grid grid-cols-2 gap-2">
@@ -317,7 +312,7 @@
         {:else}
           <div class="overflow-x-auto">
             <table class="table table-sm trellis-table">
-              <thead><tr><th>Deployment</th><th>Kind</th><th>Instances</th><th>Contracts</th><th>Status</th></tr></thead>
+              <thead><tr><th>Deployment</th><th>Kind</th><th>Instances</th><th>Status</th></tr></thead>
               <tbody>
                 {#each filteredDeployments as deployment (deployment.key)}
                   <tr class={{ "bg-base-200/60": selectedKey === deployment.key }}>
@@ -328,7 +323,6 @@
                     </td>
                     <td><span class="badge badge-outline badge-xs capitalize">{deployment.kind}</span></td>
                     <td class="text-base-content/60">{deployment.activeInstanceCount}/{deployment.totalInstanceCount}</td>
-                    <td class="text-base-content/60">{deployment.contractCount}</td>
                     <td><StatusBadge label={deployment.statusLabel} status={deployment.statusVariant} /></td>
                   </tr>
                 {/each}
@@ -353,7 +347,7 @@
               {#if selectedDeployment.kind === "service"}
                 <a class="btn btn-outline btn-sm" href={resolve(`/admin/services?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Service detail</a>
                 <a class="btn btn-ghost btn-sm" href={resolve("/admin/services/instances")}>Instances</a>
-                <a class="btn btn-ghost btn-sm" href={resolve(`/admin/services/contracts?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Contracts</a>
+                <a class="btn btn-ghost btn-sm" href={resolve(`/admin/envelopes?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Envelopes</a>
               {:else}
                 <a class="btn btn-outline btn-sm" href={resolve("/admin/devices/profiles")}>Device detail</a>
                 <a class="btn btn-ghost btn-sm" href={resolve("/admin/devices/instances")}>Instances</a>
@@ -380,7 +374,7 @@
               <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Kind</dt><dd class="mt-1 font-medium capitalize">{selectedDeployment.kind}</dd></div>
               <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Status</dt><dd class="mt-1"><StatusBadge label={selectedDeployment.statusLabel} status={selectedDeployment.statusVariant} /></dd></div>
               <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Instances</dt><dd class="mt-1 font-medium">{selectedDeployment.activeInstanceCount}/{selectedDeployment.totalInstanceCount} active</dd></div>
-              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Contracts</dt><dd class="mt-1 font-medium">{selectedDeployment.contractCount} applied</dd></div>
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Authority</dt><dd class="mt-1"><a class="btn btn-ghost btn-xs" href={resolve(`/admin/envelopes?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Open envelope</a></dd></div>
             </dl>
 
             <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
@@ -481,17 +475,8 @@
                 </div>
 
                 <div>
-                  <h3 class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-base-content/50">Applied contracts</h3>
-                  <div class="space-y-2">
-                    {#each selectedServiceDeployment.appliedContracts as applied, index (`${applied.contractId}:${index}`)}
-                      <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
-                        <div class="flex flex-wrap items-center justify-between gap-2"><span class="trellis-identifier font-medium">{applied.contractId}</span><a class="btn btn-ghost btn-xs" href={resolve(`/admin/services/contracts?deployment=${encodeURIComponent(selectedServiceDeployment.deploymentId)}`)}>Manage</a></div>
-                        <div class="mt-2 flex flex-wrap gap-1">{#each applied.allowedDigests as digest (digest)}<span class="trellis-identifier badge badge-outline badge-xs">{digest}</span>{:else}<span class="text-xs text-base-content/60">Lineage allowed</span>{/each}</div>
-                      </div>
-                    {:else}
-                      <EmptyState title="No applied contracts" description="Apply contracts from the service contracts workflow." class="py-4" />
-                    {/each}
-                  </div>
+                  <h3 class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-base-content/50">Deployment authority</h3>
+                  <a class="btn btn-ghost btn-xs" href={resolve(`/admin/envelopes?deployment=${encodeURIComponent(selectedServiceDeployment.deploymentId)}`)}>Review envelope</a>
                 </div>
               </div>
             </Panel>
@@ -585,17 +570,8 @@
                 </div>
 
                 <div>
-                  <h3 class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-base-content/50">Applied contracts</h3>
-                  <div class="space-y-2">
-                    {#each selectedDeviceDeployment.appliedContracts as applied, index (`${applied.contractId}:${index}`)}
-                      <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
-                        <div class="trellis-identifier font-medium">{applied.contractId}</div>
-                        <div class="mt-2 flex flex-wrap gap-1">{#each applied.allowedDigests as digest (digest)}<span class="trellis-identifier badge badge-outline badge-xs">{digest}</span>{:else}<span class="text-xs text-base-content/60">Lineage allowed</span>{/each}</div>
-                      </div>
-                    {:else}
-                      <EmptyState title="No applied contracts" description="No contracts are applied to this device deployment." class="py-4" />
-                    {/each}
-                  </div>
+                  <h3 class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-base-content/50">Deployment authority</h3>
+                  <a class="btn btn-ghost btn-xs" href={resolve(`/admin/envelopes?deployment=${encodeURIComponent(selectedDeviceDeployment.deploymentId)}`)}>Review envelope</a>
                 </div>
               </div>
             </Panel>

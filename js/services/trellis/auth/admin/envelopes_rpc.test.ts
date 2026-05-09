@@ -1,0 +1,1480 @@
+import { assert, assertEquals } from "@std/assert";
+import { Result } from "@qlever-llc/result";
+import {
+  digestContractManifest,
+  type TrellisContractV1,
+} from "@qlever-llc/trellis/contracts";
+import type {
+  AuthEnvelopeExpansionsListResponse,
+  AuthEnvelopesChangesPreviewResponse,
+  AuthEnvelopesExpandResponse,
+  AuthEnvelopesGetResponse,
+  AuthEnvelopesListResponse,
+  AuthEnvelopesShrinkResponse,
+} from "../../../../packages/trellis/auth/protocol.ts";
+
+import { createTestContracts } from "../../catalog/test_contracts.ts";
+import type { ContractResourceBindings } from "../../catalog/resources.ts";
+import type {
+  DeploymentContractEvidence,
+  DeploymentEnvelope,
+  DeploymentResourceBinding,
+  EnvelopeBoundary,
+  EnvelopeExpansionRequest,
+  IdentityEnvelopeRecord,
+  Session,
+} from "../schemas.ts";
+import {
+  createAuthEnvelopeExpansionsListHandler,
+  createAuthEnvelopeExpansionsRejectHandler,
+  createAuthEnvelopesApproveRequestHandler,
+  createAuthEnvelopesChangesPreviewHandler,
+  createAuthEnvelopesExpandHandler,
+  createAuthEnvelopesGetHandler,
+  createAuthEnvelopesListHandler,
+  createAuthEnvelopesShrinkHandler,
+} from "./envelopes_rpc.ts";
+
+const adminContext = {
+  caller: { type: "user", id: "admin", capabilities: ["admin"] },
+};
+
+const EMPTY_BOUNDARY: EnvelopeBoundary = {
+  contracts: [],
+  surfaces: [],
+  capabilities: [],
+  resources: [],
+};
+
+class InMemoryDeploymentEnvelopeStorage {
+  #records = new Map<string, DeploymentEnvelope>();
+  putCount = 0;
+  onApproveExpansion?: (record: {
+    envelope: DeploymentEnvelope;
+    delta: EnvelopeBoundary;
+    resourceBindings: DeploymentResourceBinding[];
+    contractEvidence: DeploymentContractEvidence;
+    request: { requestId: string; state: "approved" };
+  }) => Promise<boolean>;
+
+  seed(record: DeploymentEnvelope): void {
+    this.#records.set(record.deploymentId, record);
+  }
+
+  async get(deploymentId: string): Promise<DeploymentEnvelope | undefined> {
+    await Promise.resolve();
+    return this.#records.get(deploymentId);
+  }
+
+  async put(record: DeploymentEnvelope): Promise<void> {
+    await Promise.resolve();
+    this.putCount += 1;
+    this.#records.set(record.deploymentId, record);
+  }
+
+  async approveExpansion(record: {
+    envelope: DeploymentEnvelope;
+    delta: EnvelopeBoundary;
+    resourceBindings: DeploymentResourceBinding[];
+    contractEvidence: DeploymentContractEvidence;
+    request: { requestId: string; state: "approved" };
+  }): Promise<boolean> {
+    await Promise.resolve();
+    this.putCount += 1;
+    this.#records.set(record.envelope.deploymentId, record.envelope);
+    return await this.onApproveExpansion?.(record) ?? true;
+  }
+
+  async list(): Promise<DeploymentEnvelope[]> {
+    await Promise.resolve();
+    return [...this.#records.values()].sort((left, right) =>
+      left.deploymentId.localeCompare(right.deploymentId)
+    );
+  }
+
+  async listEnabled(): Promise<DeploymentEnvelope[]> {
+    return (await this.list()).filter((record) => !record.disabled);
+  }
+
+  async listFiltered(filters: {
+    kind?: string;
+    disabled?: boolean;
+  } = {}): Promise<DeploymentEnvelope[]> {
+    return (await this.list()).filter((record) =>
+      (filters.kind === undefined || record.kind === filters.kind) &&
+      (filters.disabled === undefined || record.disabled === filters.disabled)
+    );
+  }
+}
+
+class InMemoryDeploymentResourceBindingStorage {
+  #records = new Map<string, DeploymentResourceBinding>();
+  putCount = 0;
+
+  async get(
+    deploymentId: string,
+    kind: string,
+    alias: string,
+  ): Promise<DeploymentResourceBinding | undefined> {
+    await Promise.resolve();
+    return this.#records.get(`${deploymentId}:${kind}:${alias}`);
+  }
+
+  async put(record: DeploymentResourceBinding): Promise<void> {
+    await Promise.resolve();
+    this.putCount += 1;
+    this.#records.set(
+      `${record.deploymentId}:${record.kind}:${record.alias}`,
+      record,
+    );
+  }
+
+  seed(record: DeploymentResourceBinding): void {
+    this.#records.set(
+      `${record.deploymentId}:${record.kind}:${record.alias}`,
+      record,
+    );
+  }
+
+  async listByDeployment(
+    deploymentId: string,
+  ): Promise<DeploymentResourceBinding[]> {
+    await Promise.resolve();
+    return this.list().filter((binding) =>
+      binding.deploymentId === deploymentId
+    );
+  }
+
+  list(): DeploymentResourceBinding[] {
+    return [...this.#records.values()].sort((left, right) =>
+      left.kind.localeCompare(right.kind) ||
+      left.alias.localeCompare(right.alias)
+    );
+  }
+}
+
+class InMemoryIdentityEnvelopeStorage {
+  #records: IdentityEnvelopeRecord[] = [];
+
+  seed(record: IdentityEnvelopeRecord): void {
+    this.#records.push(record);
+  }
+
+  async list(): Promise<IdentityEnvelopeRecord[]> {
+    await Promise.resolve();
+    return [...this.#records];
+  }
+
+  async listApproved(): Promise<IdentityEnvelopeRecord[]> {
+    return (await this.list()).filter((record) => record.answer === "approved");
+  }
+}
+
+class InMemoryDeploymentPortalRouteStorage {
+  #records = new Map<
+    string,
+    {
+      deploymentId: string;
+      portalId: string | null;
+      entryUrl: string | null;
+      disabled: boolean;
+      updatedAt: string;
+    }
+  >();
+
+  seed(
+    record: {
+      deploymentId: string;
+      portalId: string | null;
+      entryUrl: string | null;
+      disabled: boolean;
+      updatedAt: string;
+    },
+  ): void {
+    this.#records.set(record.deploymentId, record);
+  }
+
+  async get(deploymentId: string) {
+    await Promise.resolve();
+    return this.#records.get(deploymentId);
+  }
+}
+
+type TestDeploymentGrantOverride = {
+  deploymentId: string;
+  identityKind: "web" | "cli" | "native" | "device-user" | "any";
+  contractId: string | null;
+  origin: string | null;
+  sessionPublicKey: string | null;
+  devicePublicKey: string | null;
+  capability: string;
+};
+
+class InMemoryDeploymentGrantOverrideStorage {
+  #records: TestDeploymentGrantOverride[] = [];
+
+  seed(record: TestDeploymentGrantOverride): void {
+    this.#records.push(record);
+  }
+
+  async listByDeployment(deploymentId: string) {
+    await Promise.resolve();
+    return this.#records.filter((record) =>
+      record.deploymentId === deploymentId
+    );
+  }
+}
+
+class InMemoryDeploymentContractEvidenceStorage {
+  #records = new Map<string, DeploymentContractEvidence>();
+  putCount = 0;
+
+  async get(
+    deploymentId: string,
+    contractDigest: string,
+  ): Promise<DeploymentContractEvidence | undefined> {
+    await Promise.resolve();
+    return this.#records.get(`${deploymentId}:${contractDigest}`);
+  }
+
+  async put(record: DeploymentContractEvidence): Promise<void> {
+    await Promise.resolve();
+    this.putCount += 1;
+    this.#records.set(
+      `${record.deploymentId}:${record.contractDigest}`,
+      record,
+    );
+  }
+
+  seed(record: DeploymentContractEvidence): void {
+    this.#records.set(
+      `${record.deploymentId}:${record.contractDigest}`,
+      record,
+    );
+  }
+
+  async listByDeployment(
+    deploymentId: string,
+  ): Promise<DeploymentContractEvidence[]> {
+    await Promise.resolve();
+    return [...this.#records.values()]
+      .filter((record) => record.deploymentId === deploymentId)
+      .sort((left, right) =>
+        left.contractId.localeCompare(right.contractId) ||
+        left.contractDigest.localeCompare(right.contractDigest)
+      );
+  }
+}
+
+class InMemoryEnvelopeExpansionRequestStorage {
+  #records: EnvelopeExpansionRequest[] = [];
+
+  seed(record: EnvelopeExpansionRequest): void {
+    this.#records.push(record);
+  }
+
+  async listByDeployment(
+    deploymentId: string,
+  ): Promise<EnvelopeExpansionRequest[]> {
+    await Promise.resolve();
+    return (await this.list()).filter((record) =>
+      record.deploymentId === deploymentId
+    );
+  }
+
+  async list(): Promise<EnvelopeExpansionRequest[]> {
+    await Promise.resolve();
+    return [...this.#records].sort((left, right) =>
+      left.deploymentId.localeCompare(right.deploymentId) ||
+      left.createdAt.localeCompare(right.createdAt) ||
+      left.requestId.localeCompare(right.requestId)
+    );
+  }
+
+  async listFiltered(filters: {
+    deploymentId?: string;
+    state?: string;
+  } = {}): Promise<EnvelopeExpansionRequest[]> {
+    return (await this.list()).filter((record) =>
+      (filters.deploymentId === undefined ||
+        record.deploymentId === filters.deploymentId) &&
+      (filters.state === undefined || record.state === filters.state)
+    );
+  }
+
+  async get(requestId: string): Promise<EnvelopeExpansionRequest | undefined> {
+    await Promise.resolve();
+    return this.#records.find((record) => record.requestId === requestId);
+  }
+
+  async updateState(record: {
+    requestId: string;
+    state: "pending" | "approved" | "rejected";
+    decidedAt: string | null;
+    decidedBy: Record<string, unknown> | null;
+    decisionReason: string | null;
+  }): Promise<boolean> {
+    await Promise.resolve();
+    const current = await this.get(record.requestId);
+    if (!current || current.state !== "pending") return false;
+    Object.assign(current, {
+      state: record.state,
+      decidedAt: record.decidedAt,
+      decidedBy: record.decidedBy,
+      decisionReason: record.decisionReason,
+    });
+    return true;
+  }
+}
+
+class InMemorySessionStorage {
+  #records = new Map<string, Session>();
+  deleted: string[] = [];
+
+  seed(sessionKey: string, session: Session): void {
+    this.#records.set(sessionKey, session);
+  }
+
+  async listEntries(): Promise<
+    Array<{ sessionKey: string; session: Session }>
+  > {
+    await Promise.resolve();
+    return [...this.#records.entries()]
+      .map(([sessionKey, session]) => ({ sessionKey, session }))
+      .sort((left, right) => left.sessionKey.localeCompare(right.sessionKey));
+  }
+
+  async listEntriesForDeploymentEnvelopePreview(
+    deploymentId: string,
+  ): Promise<Array<{ sessionKey: string; session: Session }>> {
+    return (await this.listEntries()).filter((entry) =>
+      entry.session.type === "user" ||
+      ("deploymentId" in entry.session &&
+        entry.session.deploymentId === deploymentId)
+    );
+  }
+
+  async deleteBySessionKey(sessionKey: string): Promise<void> {
+    await Promise.resolve();
+    this.deleted.push(sessionKey);
+    this.#records.delete(sessionKey);
+  }
+}
+
+function dependencyContract(): TrellisContractV1 {
+  return {
+    format: "trellis.contract.v1",
+    id: "acme.platform@v1",
+    displayName: "Platform",
+    description: "Platform API",
+    kind: "service",
+    capabilities: {
+      "platform.read": {
+        displayName: "Read platform",
+        description: "Read platform data.",
+      },
+      "events.publish": {
+        displayName: "Publish events",
+        description: "Publish events.",
+      },
+    },
+    schemas: { Empty: { type: "object" } },
+    rpc: {
+      Read: {
+        version: "v1",
+        subject: "rpc.v1.platform.Read",
+        input: { schema: "Empty" },
+        output: { schema: "Empty" },
+        capabilities: { call: ["platform.read"] },
+      },
+    },
+    events: {
+      Changed: {
+        version: "v1",
+        subject: "events.v1.platform.Changed",
+        event: { schema: "Empty" },
+        capabilities: { publish: ["events.publish"] },
+      },
+    },
+  };
+}
+
+function serviceContract(): TrellisContractV1 {
+  return {
+    format: "trellis.contract.v1",
+    id: "acme.billing@v1",
+    displayName: "Billing",
+    description: "Billing service",
+    kind: "service",
+    capabilities: {
+      "billing.call": {
+        displayName: "Call billing",
+        description: "Call billing RPCs.",
+      },
+    },
+    schemas: { Empty: { type: "object" } },
+    uses: {
+      required: {
+        platform: {
+          contract: "acme.platform@v1",
+          rpc: { call: ["Read"] },
+        },
+      },
+    },
+    rpc: {
+      Charge: {
+        version: "v1",
+        subject: "rpc.v1.billing.Charge",
+        input: { schema: "Empty" },
+        output: { schema: "Empty" },
+        capabilities: { call: ["billing.call"] },
+      },
+    },
+  };
+}
+
+function resourceContract(): TrellisContractV1 {
+  return {
+    ...serviceContract(),
+    resources: {
+      kv: {
+        cache: {
+          purpose: "Cache billing records",
+          schema: { schema: "Empty" },
+          required: true,
+          history: 2,
+          ttlMs: 1000,
+        },
+      },
+      store: {
+        uploads: {
+          purpose: "Uploaded billing files",
+          required: true,
+          ttlMs: 2000,
+          maxTotalBytes: 100000,
+        },
+      },
+    },
+    jobs: {
+      reconcile: {
+        payload: { schema: "Empty" },
+        maxDeliver: 3,
+      },
+    },
+  };
+}
+
+function makeEnvelope(
+  boundary = EMPTY_BOUNDARY,
+  overrides: Partial<Omit<DeploymentEnvelope, "boundary">> = {},
+): DeploymentEnvelope {
+  return {
+    deploymentId: "billing.default",
+    kind: "service",
+    disabled: false,
+    createdAt: "2026-05-07T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+    boundary,
+    ...overrides,
+  };
+}
+
+function expandedBoundary(): EnvelopeBoundary {
+  return {
+    contracts: [
+      { contractId: "acme.billing@v1", required: true },
+      { contractId: "acme.platform@v1", required: true },
+    ],
+    surfaces: [
+      {
+        contractId: "acme.platform@v1",
+        kind: "rpc",
+        name: "Read",
+        action: "call",
+        required: true,
+      },
+    ],
+    capabilities: ["platform.read"],
+    resources: [{ kind: "kv", alias: "cache", required: true }],
+  };
+}
+
+function shrunkBoundary(): EnvelopeBoundary {
+  return {
+    contracts: [{ contractId: "acme.billing@v1", required: true }],
+    surfaces: [],
+    capabilities: [],
+    resources: [],
+  };
+}
+
+function makeEvidence(
+  contract = serviceContract(),
+): DeploymentContractEvidence {
+  return {
+    deploymentId: "billing.default",
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+    contract,
+    firstSeenAt: "2026-05-07T00:00:00.000Z",
+    lastSeenAt: "2026-05-07T00:00:00.000Z",
+  };
+}
+
+function makeServiceSession(contract = serviceContract()): Session {
+  return {
+    type: "service",
+    trellisId: "service-trellis-id",
+    origin: "service",
+    id: "svc-1",
+    email: "svc@example.com",
+    name: "Billing service",
+    createdAt: new Date("2026-05-07T00:00:00.000Z"),
+    lastAuth: new Date("2026-05-07T00:00:00.000Z"),
+    instanceId: "instance-1",
+    deploymentId: "billing.default",
+    instanceKey: "session-key-1",
+    currentContractId: contract.id,
+    currentContractDigest: digestContractManifest(contract),
+  };
+}
+
+function makeDeps(options: {
+  envelope?: DeploymentEnvelope;
+  contracts?: ReturnType<typeof createTestContracts>;
+  provisionResourceBindings?: () => Promise<ContractResourceBindings>;
+} = {}) {
+  const envelopes = new InMemoryDeploymentEnvelopeStorage();
+  envelopes.seed(options.envelope ?? makeEnvelope());
+  const resources = new InMemoryDeploymentResourceBindingStorage();
+  const evidence = new InMemoryDeploymentContractEvidenceStorage();
+  const contracts = options.contracts ?? createTestContracts([{
+    digest: "platform-digest",
+    contract: dependencyContract(),
+  }]);
+  return {
+    envelopes,
+    resources,
+    evidence,
+    handler: createAuthEnvelopesExpandHandler({
+      contracts,
+      deploymentEnvelopeStorage: envelopes,
+      deploymentResourceBindingStorage: resources,
+      deploymentContractEvidenceStorage: evidence,
+      provisionResourceBindings: options.provisionResourceBindings
+        ? async () => await options.provisionResourceBindings?.() ?? {}
+        : async () => ({}),
+      now: () => new Date("2026-05-07T01:00:00.000Z"),
+      logger: { trace: () => {} },
+    }),
+  };
+}
+
+Deno.test("Auth.Envelopes.List returns admin-visible envelope authority rows", async () => {
+  const envelopes = new InMemoryDeploymentEnvelopeStorage();
+  envelopes.seed(
+    makeEnvelope({
+      capabilities: ["billing.call"],
+      contracts: [],
+      surfaces: [],
+      resources: [],
+    }),
+  );
+  envelopes.seed(
+    makeEnvelope(EMPTY_BOUNDARY, {
+      deploymentId: "phone.default",
+      kind: "device",
+      disabled: true,
+    }),
+  );
+  const handler = createAuthEnvelopesListHandler({
+    deploymentEnvelopeStorage: envelopes,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { disabled: false },
+    context: adminContext,
+  });
+  const value = result.take() as AuthEnvelopesListResponse;
+
+  assertEquals(value.envelopes.map((envelope) => envelope.deploymentId), [
+    "billing.default",
+  ]);
+  assertEquals(value.envelopes[0]?.boundary.capabilities, ["billing.call"]);
+});
+
+Deno.test("Auth.Envelopes.Get returns envelope detail for Console review", async () => {
+  const envelopes = new InMemoryDeploymentEnvelopeStorage();
+  const resources = new InMemoryDeploymentResourceBindingStorage();
+  const evidence = new InMemoryDeploymentContractEvidenceStorage();
+  const requests = new InMemoryEnvelopeExpansionRequestStorage();
+  const portalRoutes = new InMemoryDeploymentPortalRouteStorage();
+  const grantOverrides = new InMemoryDeploymentGrantOverrideStorage();
+  const contract = serviceContract();
+  const digest = digestContractManifest(contract);
+
+  envelopes.seed(makeEnvelope());
+  resources.seed({
+    deploymentId: "billing.default",
+    kind: "kv",
+    alias: "cache",
+    binding: { bucket: "billing-cache" },
+    limits: null,
+    createdAt: "2026-05-07T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+  });
+  evidence.seed(makeEvidence(contract));
+  requests.seed({
+    requestId: "req-1",
+    deploymentId: "billing.default",
+    requestedByKind: "service",
+    requestedBy: { deploymentId: "billing.default" },
+    contractId: contract.id,
+    contractDigest: digest,
+    contract,
+    state: "pending",
+    createdAt: "2026-05-07T00:00:00.000Z",
+    decidedAt: null,
+    decidedBy: null,
+    decisionReason: null,
+    delta: expandedBoundary(),
+  });
+  portalRoutes.seed({
+    deploymentId: "billing.default",
+    portalId: "ops",
+    entryUrl: "https://ops.example.com",
+    disabled: false,
+    updatedAt: "2026-05-07T00:00:00.000Z",
+  });
+  grantOverrides.seed({
+    deploymentId: "billing.default",
+    identityKind: "web",
+    contractId: contract.id,
+    origin: "https://app.example.com",
+    sessionPublicKey: null,
+    devicePublicKey: null,
+    capability: "billing.call",
+  });
+  const handler = createAuthEnvelopesGetHandler({
+    deploymentEnvelopeStorage: envelopes,
+    deploymentResourceBindingStorage: resources,
+    deploymentContractEvidenceStorage: evidence,
+    envelopeExpansionRequestStorage: requests,
+    deploymentPortalRouteStorage: portalRoutes,
+    deploymentGrantOverrideStorage: grantOverrides,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { deploymentId: "billing.default" },
+    context: adminContext,
+  });
+  const value = result.take() as AuthEnvelopesGetResponse;
+
+  assertEquals(value.envelope.deploymentId, "billing.default");
+  assertEquals(value.resourceBindings.map((binding) => binding.alias), [
+    "cache",
+  ]);
+  assertEquals(value.contractEvidence.map((record) => record.contractDigest), [
+    digest,
+  ]);
+  assertEquals(value.expansionRequests.map((request) => request.requestId), [
+    "req-1",
+  ]);
+  assertEquals(value.portalRoute?.portalId, "ops");
+  assertEquals(value.grantOverrides.map((override) => override.capability), [
+    "billing.call",
+  ]);
+});
+
+Deno.test("Auth.EnvelopeExpansions.List returns filtered expansion requests", async () => {
+  const contract = serviceContract();
+  const requests = new InMemoryEnvelopeExpansionRequestStorage();
+  requests.seed({
+    requestId: "request-2",
+    deploymentId: "phone.default",
+    requestedByKind: "device",
+    requestedBy: { instanceId: "device-1" },
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+    contract,
+    state: "pending",
+    createdAt: "2026-05-07T00:01:00.000Z",
+    decidedAt: null,
+    decidedBy: null,
+    decisionReason: null,
+    delta: EMPTY_BOUNDARY,
+  });
+  requests.seed({
+    requestId: "request-1",
+    deploymentId: "billing.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "svc-1" },
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+    contract,
+    state: "pending",
+    createdAt: "2026-05-07T00:00:00.000Z",
+    decidedAt: null,
+    decidedBy: null,
+    decisionReason: null,
+    delta: expandedBoundary(),
+  });
+  requests.seed({
+    requestId: "request-3",
+    deploymentId: "billing.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "svc-2" },
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+    contract,
+    state: "approved",
+    createdAt: "2026-05-07T00:02:00.000Z",
+    decidedAt: "2026-05-07T01:00:00.000Z",
+    decidedBy: { type: "user", id: "admin" },
+    decisionReason: null,
+    delta: EMPTY_BOUNDARY,
+  });
+  const handler = createAuthEnvelopeExpansionsListHandler({
+    envelopeExpansionRequestStorage: requests,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { deploymentId: "billing.default", state: "pending" },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  const value = result.take() as AuthEnvelopeExpansionsListResponse;
+  assertEquals(value.requests.map((request) => request.requestId), [
+    "request-1",
+  ]);
+  assertEquals(value.requests[0]?.delta, expandedBoundary());
+});
+
+Deno.test("Auth.Envelopes.Expand expands modeled rows and stores evidence", async () => {
+  const contract = serviceContract();
+  const { handler, envelopes, evidence } = makeDeps();
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      contract,
+      expectedDigest: digestContractManifest(contract),
+    },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  const value = result.take() as AuthEnvelopesExpandResponse;
+  assertEquals(envelopes.putCount, 1);
+  assertEquals(evidence.putCount, 1);
+  assertEquals(value.envelope.boundary.contracts, [
+    { contractId: "acme.billing@v1", required: true },
+    { contractId: "acme.platform@v1", required: true },
+  ]);
+  assertEquals(value.envelope.boundary.capabilities, [
+    "platform.read",
+  ]);
+  assertEquals(value.delta.contracts, value.envelope.boundary.contracts);
+  assertEquals(
+    value.contractEvidence.contractDigest,
+    digestContractManifest(contract),
+  );
+});
+
+Deno.test("Auth.EnvelopeExpansions.Approve expands envelope from pending request", async () => {
+  const contract = serviceContract();
+  const { envelopes, resources, evidence } = makeDeps();
+  const requests = new InMemoryEnvelopeExpansionRequestStorage();
+  envelopes.onApproveExpansion = async (record) => {
+    const updated = await requests.updateState({
+      requestId: record.request.requestId,
+      state: "approved",
+      decidedAt: "2026-05-07T01:00:00.000Z",
+      decidedBy: { type: "user", id: "admin" },
+      decisionReason: "demo approval",
+    });
+    for (const binding of record.resourceBindings) await resources.put(binding);
+    await evidence.put(record.contractEvidence);
+    return updated;
+  };
+  requests.seed({
+    requestId: "request-1",
+    deploymentId: "billing.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "svc-1" },
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+    contract,
+    state: "pending",
+    createdAt: "2026-05-07T00:00:00.000Z",
+    decidedAt: null,
+    decidedBy: null,
+    decisionReason: null,
+    delta: EMPTY_BOUNDARY,
+  });
+  const handler = createAuthEnvelopesApproveRequestHandler({
+    contracts: createTestContracts([{
+      digest: "platform-digest",
+      contract: dependencyContract(),
+    }]),
+    deploymentEnvelopeStorage: envelopes,
+    deploymentResourceBindingStorage: resources,
+    deploymentContractEvidenceStorage: evidence,
+    envelopeExpansionRequestStorage: requests,
+    provisionResourceBindings: async () => ({}),
+    now: () => new Date("2026-05-07T01:00:00.000Z"),
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { requestId: "request-1", reason: "demo approval" },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  const value = result.take();
+  if (Result.isErr(value)) throw value.error;
+  assertEquals(value.request.state, "approved");
+  assertEquals(value.request.decisionReason, "demo approval");
+  assertEquals(envelopes.putCount, 1);
+  assertEquals(evidence.putCount, 1);
+  assertEquals((await requests.get("request-1"))?.state, "approved");
+});
+
+Deno.test("Auth.EnvelopeExpansions.Approve rejects terminal requests", async () => {
+  const contract = serviceContract();
+  const { envelopes, resources, evidence } = makeDeps();
+  const requests = new InMemoryEnvelopeExpansionRequestStorage();
+  requests.seed({
+    requestId: "request-approved",
+    deploymentId: "billing.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "svc-1" },
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+    contract,
+    state: "approved",
+    createdAt: "2026-05-07T00:00:00.000Z",
+    decidedAt: "2026-05-07T00:30:00.000Z",
+    decidedBy: { type: "user", id: "admin" },
+    decisionReason: null,
+    delta: EMPTY_BOUNDARY,
+  });
+  const handler = createAuthEnvelopesApproveRequestHandler({
+    contracts: createTestContracts([{
+      digest: "platform-digest",
+      contract: dependencyContract(),
+    }]),
+    deploymentEnvelopeStorage: envelopes,
+    deploymentResourceBindingStorage: resources,
+    deploymentContractEvidenceStorage: evidence,
+    envelopeExpansionRequestStorage: requests,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { requestId: "request-approved" },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(envelopes.putCount, 0);
+});
+
+Deno.test("Auth.EnvelopeExpansions.Reject rejects pending request", async () => {
+  const contract = serviceContract();
+  const requests = new InMemoryEnvelopeExpansionRequestStorage();
+  requests.seed({
+    requestId: "request-1",
+    deploymentId: "billing.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "svc-1" },
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+    contract,
+    state: "pending",
+    createdAt: "2026-05-07T00:00:00.000Z",
+    decidedAt: null,
+    decidedBy: null,
+    decisionReason: null,
+    delta: EMPTY_BOUNDARY,
+  });
+  const handler = createAuthEnvelopeExpansionsRejectHandler({
+    envelopeExpansionRequestStorage: requests,
+    now: () => new Date("2026-05-07T01:00:00.000Z"),
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { requestId: "request-1", reason: "not needed" },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  const value = result.take();
+  if (Result.isErr(value)) throw value.error;
+  assertEquals(value.request.state, "rejected");
+  assertEquals(value.request.decisionReason, "not needed");
+  assertEquals((await requests.get("request-1"))?.state, "rejected");
+});
+
+Deno.test("Auth.EnvelopeExpansions.Reject rejects terminal requests", async () => {
+  const contract = serviceContract();
+  const requests = new InMemoryEnvelopeExpansionRequestStorage();
+  requests.seed({
+    requestId: "request-rejected",
+    deploymentId: "billing.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "svc-1" },
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+    contract,
+    state: "rejected",
+    createdAt: "2026-05-07T00:00:00.000Z",
+    decidedAt: "2026-05-07T00:30:00.000Z",
+    decidedBy: { type: "user", id: "admin" },
+    decisionReason: null,
+    delta: EMPTY_BOUNDARY,
+  });
+  const handler = createAuthEnvelopeExpansionsRejectHandler({
+    envelopeExpansionRequestStorage: requests,
+    now: () => new Date("2026-05-07T01:00:00.000Z"),
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { requestId: "request-rejected", reason: "not needed" },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals((await requests.get("request-rejected"))?.state, "rejected");
+});
+
+Deno.test("Auth.Envelopes.Expand rejects expected digest mismatch", async () => {
+  const { handler, envelopes, resources, evidence } = makeDeps();
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      contract: serviceContract(),
+      expectedDigest: "wrong-digest",
+    },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(envelopes.putCount, 0);
+  assertEquals(resources.putCount, 0);
+  assertEquals(evidence.putCount, 0);
+});
+
+Deno.test("Auth.Envelopes.Expand rejects invalid contract", async () => {
+  const { handler, envelopes, evidence } = makeDeps();
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      contract: { id: "missing-format" },
+      expectedDigest: "digest-a",
+    },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(envelopes.putCount, 0);
+  assertEquals(evidence.putCount, 0);
+});
+
+Deno.test("Auth.Envelopes.Expand provisions and stores resource delta bindings", async () => {
+  const contract = resourceContract();
+  let provisionCount = 0;
+  const { handler, resources } = makeDeps({
+    provisionResourceBindings: async () => {
+      provisionCount += 1;
+      return {
+        kv: { cache: { bucket: "svc_cache", history: 2, ttlMs: 1000 } },
+        store: {
+          uploads: { name: "svc_uploads", ttlMs: 2000, maxTotalBytes: 100000 },
+        },
+        jobs: {
+          namespace: "billing_jobs",
+          workStream: "JOBS_WORK",
+          queues: {
+            reconcile: {
+              queueType: "reconcile",
+              publishPrefix: "trellis.jobs.billing.reconcile",
+              workSubject: "trellis.work.billing.reconcile",
+              consumerName: "billing-reconcile",
+              payload: { schema: "Empty" },
+              maxDeliver: 3,
+              backoffMs: [5000],
+              ackWaitMs: 300000,
+              progress: true,
+              logs: true,
+              dlq: true,
+              concurrency: 1,
+            },
+          },
+        },
+      };
+    },
+  });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      contract,
+      expectedDigest: digestContractManifest(contract),
+    },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  assertEquals(provisionCount, 1);
+  assertEquals(
+    resources.list().map((binding) => [binding.kind, binding.alias]),
+    [
+      ["jobs", "reconcile"],
+      ["kv", "cache"],
+      ["store", "uploads"],
+    ],
+  );
+  const value = result.take() as AuthEnvelopesExpandResponse;
+  assertEquals(value.resourceBindings.length, 3);
+});
+
+Deno.test("Auth.Envelopes.Expand repairs missing bindings for existing envelope resources", async () => {
+  const contract = resourceContract();
+  let provisionCount = 0;
+  const { handler, resources } = makeDeps({
+    envelope: makeEnvelope({
+      contracts: [],
+      surfaces: [],
+      capabilities: [],
+      resources: [
+        { kind: "jobs", alias: "reconcile", required: true },
+        { kind: "kv", alias: "cache", required: true },
+        { kind: "store", alias: "uploads", required: true },
+      ],
+    }),
+    provisionResourceBindings: async () => {
+      provisionCount += 1;
+      return {
+        kv: { cache: { bucket: "svc_cache", history: 2, ttlMs: 1000 } },
+        store: {
+          uploads: { name: "svc_uploads", ttlMs: 2000, maxTotalBytes: 100000 },
+        },
+        jobs: {
+          namespace: "billing_jobs",
+          workStream: "JOBS_WORK",
+          queues: {
+            reconcile: {
+              queueType: "reconcile",
+              publishPrefix: "trellis.jobs.billing.reconcile",
+              workSubject: "trellis.work.billing.reconcile",
+              consumerName: "billing-reconcile",
+              payload: { schema: "Empty" },
+              maxDeliver: 3,
+              backoffMs: [5000],
+              ackWaitMs: 300000,
+              progress: true,
+              logs: true,
+              dlq: true,
+              concurrency: 1,
+            },
+          },
+        },
+      };
+    },
+  });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      contract,
+      expectedDigest: digestContractManifest(contract),
+    },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  assertEquals(provisionCount, 1);
+  assertEquals(
+    resources.list().map((binding) => [binding.kind, binding.alias]),
+    [
+      ["jobs", "reconcile"],
+      ["kv", "cache"],
+      ["store", "uploads"],
+    ],
+  );
+  const value = result.take() as AuthEnvelopesExpandResponse;
+  assertEquals(value.resourceBindings.length, 3);
+  assertEquals(value.delta.resources, []);
+});
+
+Deno.test("Auth.Envelopes.Expand rejects missing non-transfer resource bindings", async () => {
+  const contract = resourceContract();
+  const { handler, envelopes, resources, evidence } = makeDeps({
+    provisionResourceBindings: async () => ({
+      kv: { cache: { bucket: "svc_cache", history: 2, ttlMs: 1000 } },
+    }),
+  });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      contract,
+      expectedDigest: digestContractManifest(contract),
+    },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(envelopes.putCount, 0);
+  assertEquals(resources.list(), []);
+  assertEquals(evidence.putCount, 0);
+});
+
+Deno.test("Auth.Envelopes.Expand is idempotent for repeated expansion", async () => {
+  const contract = serviceContract();
+  const { handler, envelopes, evidence } = makeDeps();
+  const input = {
+    deploymentId: "billing.default",
+    contract,
+    expectedDigest: digestContractManifest(contract),
+  };
+
+  const first = await handler({ input, context: adminContext });
+  if (first.isErr()) throw first.error;
+  const second = await handler({ input, context: adminContext });
+  if (second.isErr()) throw second.error;
+
+  assertEquals(envelopes.putCount, 1);
+  assertEquals(evidence.putCount, 2);
+  const value = second.take() as AuthEnvelopesExpandResponse;
+  assertEquals(value.delta, EMPTY_BOUNDARY);
+});
+
+Deno.test("Auth.Envelopes.Changes.Preview reports shrink impact without mutating", async () => {
+  const envelopes = new InMemoryDeploymentEnvelopeStorage();
+  envelopes.seed(makeEnvelope(expandedBoundary()));
+  envelopes.seed({
+    ...makeEnvelope({
+      contracts: [{ contractId: "acme.platform@v1", required: true }],
+      surfaces: [],
+      capabilities: ["platform.read"],
+      resources: [],
+    }),
+    deploymentId: "cli.identity",
+    kind: "cli",
+  });
+  const resources = new InMemoryDeploymentResourceBindingStorage();
+  resources.seed({
+    deploymentId: "billing.default",
+    kind: "kv",
+    alias: "cache",
+    binding: { bucket: "svc_cache", history: 2, ttlMs: 1000 },
+    limits: null,
+    createdAt: "2026-05-07T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+  });
+  const evidence = new InMemoryDeploymentContractEvidenceStorage();
+  evidence.seed(makeEvidence());
+  const identityEnvelopes = new InMemoryIdentityEnvelopeStorage();
+  identityEnvelopes.seed({
+    identityEnvelopeId: "identity-envelope-1",
+    userTrellisId: "github.123",
+    origin: "github",
+    id: "123",
+    identityAnchor: {
+      kind: "web",
+      contractId: "acme.billing@v1",
+      origin: "https://billing.example",
+    },
+    answer: "approved",
+    answeredAt: new Date("2026-05-07T00:00:00.000Z"),
+    updatedAt: new Date("2026-05-07T00:00:00.000Z"),
+    approvalEvidence: {
+      contractDigest: digestContractManifest(serviceContract()),
+      contractId: "acme.billing@v1",
+      displayName: "Billing",
+      description: "Billing app",
+      participantKind: "app",
+      capabilities: {},
+    },
+    publishSubjects: [],
+    subscribeSubjects: [],
+  });
+  const requests = new InMemoryEnvelopeExpansionRequestStorage();
+  requests.seed({
+    requestId: "request-1",
+    deploymentId: "billing.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "instance-1" },
+    contractId: "acme.platform@v1",
+    contractDigest: "platform-digest",
+    contract: dependencyContract(),
+    state: "pending",
+    createdAt: "2026-05-07T00:00:00.000Z",
+    decidedAt: null,
+    decidedBy: null,
+    decisionReason: null,
+    delta: {
+      contracts: [{ contractId: "acme.platform@v1", required: true }],
+      surfaces: [],
+      capabilities: ["platform.read"],
+      resources: [],
+    },
+  });
+  const sessions = new InMemorySessionStorage();
+  sessions.seed("session-key-1", makeServiceSession());
+  const handler = createAuthEnvelopesChangesPreviewHandler({
+    contracts: createTestContracts([
+      {
+        digest: "platform-digest",
+        contract: dependencyContract(),
+      },
+      {
+        digest: digestContractManifest(serviceContract()),
+        contract: serviceContract(),
+      },
+    ]),
+    deploymentEnvelopeStorage: envelopes,
+    deploymentResourceBindingStorage: resources,
+    deploymentContractEvidenceStorage: evidence,
+    identityEnvelopeStorage: identityEnvelopes,
+    envelopeExpansionRequestStorage: requests,
+    sessionStorage: sessions,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      proposedBoundary: shrunkBoundary(),
+    },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  const value = result.take() as AuthEnvelopesChangesPreviewResponse;
+  assertEquals(envelopes.putCount, 0);
+  assertEquals(value.impact.removed.contracts, [
+    { contractId: "acme.platform@v1", required: true },
+  ]);
+  assertEquals(
+    value.impact.impactedSessions.map((session) => session.sessionKey),
+    [
+      "session-key-1",
+    ],
+  );
+  assertEquals(value.impact.impactedServiceInstances.length, 1);
+  assertEquals(
+    value.impact.impactedIdentityEnvelopes.map((envelope) =>
+      envelope.identityEnvelopeId
+    ),
+    ["identity-envelope-1"],
+  );
+  assertEquals(
+    value.impact.impactedPendingRequests.map((request) => request.requestId),
+    [
+      "request-1",
+    ],
+  );
+  assertEquals(value.impact.orphanedResources, [{
+    kind: "kv",
+    alias: "cache",
+  }]);
+});
+
+Deno.test("Auth.Envelopes.Changes.Preview skips sessions with unknown contract boundaries", async () => {
+  const envelopes = new InMemoryDeploymentEnvelopeStorage();
+  envelopes.seed(makeEnvelope(expandedBoundary()));
+  const sessions = new InMemorySessionStorage();
+  sessions.seed("session-key-1", makeServiceSession());
+  const handler = createAuthEnvelopesChangesPreviewHandler({
+    contracts: createTestContracts(),
+    deploymentEnvelopeStorage: envelopes,
+    deploymentResourceBindingStorage:
+      new InMemoryDeploymentResourceBindingStorage(),
+    deploymentContractEvidenceStorage:
+      new InMemoryDeploymentContractEvidenceStorage(),
+    sessionStorage: sessions,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      proposedBoundary: shrunkBoundary(),
+    },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  const value = result.take() as AuthEnvelopesChangesPreviewResponse;
+  assertEquals(
+    value.impact.impactedSessions.map((session) => session.sessionKey),
+    [],
+  );
+});
+
+Deno.test("Auth.Envelopes.Changes.Preview uses known digest fallback boundaries", async () => {
+  const envelopes = new InMemoryDeploymentEnvelopeStorage();
+  envelopes.seed(makeEnvelope(expandedBoundary()));
+  const sessions = new InMemorySessionStorage();
+  const contract = serviceContract();
+  sessions.seed("session-key-1", makeServiceSession(contract));
+  const handler = createAuthEnvelopesChangesPreviewHandler({
+    contracts: createTestContracts([{
+      digest: digestContractManifest(contract),
+      contract,
+    }, {
+      digest: "platform-digest",
+      contract: dependencyContract(),
+    }]),
+    deploymentEnvelopeStorage: envelopes,
+    deploymentResourceBindingStorage:
+      new InMemoryDeploymentResourceBindingStorage(),
+    deploymentContractEvidenceStorage:
+      new InMemoryDeploymentContractEvidenceStorage(),
+    sessionStorage: sessions,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      proposedBoundary: shrunkBoundary(),
+    },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  const value = result.take() as AuthEnvelopesChangesPreviewResponse;
+  assertEquals(
+    value.impact.impactedSessions.map((session) => session.sessionKey),
+    ["session-key-1"],
+  );
+  assertEquals(value.impact.impactedSessions[0]?.missing, {
+    contracts: [{ contractId: "acme.platform@v1", required: true }],
+    surfaces: [{
+      contractId: "acme.billing@v1",
+      kind: "rpc",
+      name: "Charge",
+      action: "call",
+      required: true,
+    }, {
+      contractId: "acme.platform@v1",
+      kind: "rpc",
+      name: "Read",
+      action: "call",
+      required: true,
+    }],
+    capabilities: ["platform.read"],
+    resources: [],
+  });
+});
+
+Deno.test("Auth.Envelopes.Shrink rejects proposed boundaries that add authority", async () => {
+  const envelopes = new InMemoryDeploymentEnvelopeStorage();
+  envelopes.seed(makeEnvelope(shrunkBoundary()));
+  const handler = createAuthEnvelopesShrinkHandler({
+    contracts: createTestContracts(),
+    deploymentEnvelopeStorage: envelopes,
+    deploymentResourceBindingStorage:
+      new InMemoryDeploymentResourceBindingStorage(),
+    deploymentContractEvidenceStorage:
+      new InMemoryDeploymentContractEvidenceStorage(),
+    sessionStorage: new InMemorySessionStorage(),
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      proposedBoundary: expandedBoundary(),
+      confirm: true,
+    },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(envelopes.putCount, 0);
+});
+
+Deno.test("Auth.Envelopes.Shrink requires confirmation, revokes impacted sessions, and retains resources and evidence", async () => {
+  const envelopes = new InMemoryDeploymentEnvelopeStorage();
+  envelopes.seed(makeEnvelope(expandedBoundary()));
+  const resources = new InMemoryDeploymentResourceBindingStorage();
+  resources.seed({
+    deploymentId: "billing.default",
+    kind: "kv",
+    alias: "cache",
+    binding: { bucket: "svc_cache", history: 2, ttlMs: 1000 },
+    limits: null,
+    createdAt: "2026-05-07T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+  });
+  const evidence = new InMemoryDeploymentContractEvidenceStorage();
+  evidence.seed(makeEvidence());
+  const sessions = new InMemorySessionStorage();
+  sessions.seed("session-key-1", makeServiceSession());
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
+  const handler = createAuthEnvelopesShrinkHandler({
+    contracts: createTestContracts([{
+      digest: "platform-digest",
+      contract: dependencyContract(),
+    }]),
+    deploymentEnvelopeStorage: envelopes,
+    deploymentResourceBindingStorage: resources,
+    deploymentContractEvidenceStorage: evidence,
+    envelopeExpansionRequestStorage:
+      new InMemoryEnvelopeExpansionRequestStorage(),
+    sessionStorage: sessions,
+    kick: async (serverId, clientId) => {
+      kicked.push({ serverId, clientId });
+    },
+    revokeSessionRuntimeAccess: async (sessionKey) => {
+      await sessions.deleteBySessionKey(sessionKey);
+      kicked.push({ serverId: "server-a", clientId: 7 });
+    },
+    now: () => new Date("2026-05-07T01:00:00.000Z"),
+    logger: { trace: () => {} },
+  });
+
+  const rejected = await handler({
+    input: {
+      deploymentId: "billing.default",
+      proposedBoundary: shrunkBoundary(),
+      confirm: false,
+    },
+    context: adminContext,
+  });
+  assert(rejected.isErr());
+  assertEquals(envelopes.putCount, 0);
+
+  const applied = await handler({
+    input: {
+      deploymentId: "billing.default",
+      proposedBoundary: shrunkBoundary(),
+      confirm: true,
+    },
+    context: adminContext,
+  });
+
+  if (applied.isErr()) throw applied.error;
+  const value = applied.take() as AuthEnvelopesShrinkResponse;
+  assertEquals(value.envelope.boundary, shrunkBoundary());
+  assertEquals(value.retainedResources, [{ kind: "kv", alias: "cache" }]);
+  assertEquals(
+    resources.list().map((binding) => [binding.kind, binding.alias]),
+    [["kv", "cache"]],
+  );
+  assertEquals((await evidence.listByDeployment("billing.default")).length, 1);
+  assertEquals(sessions.deleted, ["session-key-1"]);
+  assertEquals(kicked, [{ serverId: "server-a", clientId: 7 }]);
+});

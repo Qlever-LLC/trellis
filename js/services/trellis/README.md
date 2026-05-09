@@ -208,11 +208,11 @@ This follows `design/contracts/trellis-contracts-catalog.md`.
 
 ### Device activation review flow
 
-1. `Auth.ActivateDevice` starts a durable activation operation and records the
+1. `Auth.DeviceUserAuthorities.Resolve` starts a durable activation operation and records the
    review linkage needed for an admin decision.
 2. Device activation review records are persisted in SQLite and include the
    original operation id.
-3. `Auth.DecideDeviceActivationReview` approves or rejects the review and then
+3. `Auth.DeviceUserAuthorities.Reviews.Decide` approves or rejects the review and then
    durably completes the original activation operation with the decision result.
 4. The operation result is therefore available through the operations runtime;
    activation no longer depends on live polling of the review row.

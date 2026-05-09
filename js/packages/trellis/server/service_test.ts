@@ -872,6 +872,88 @@ Deno.test("TrellisService.connect surfaces bootstrap failure reasons", async () 
   }
 });
 
+Deno.test("TrellisService.connect waits for pending envelope expansion", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCount = 0;
+
+  try {
+    globalThis.fetch = (() => {
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              reason: "envelope_expansion_required",
+              message:
+                "Service deployment 'demo-js' envelope does not cover contract 'trellis.demo-service@v1'. An expansion request was created.",
+              requestId: "request_123",
+            }),
+            {
+              status: 202,
+              headers: {
+                "Content-Type": "application/json",
+                "Retry-After": "0",
+              },
+            },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "ready",
+            serverNow: 1_700_000_120,
+            connectInfo: {
+              sessionKey: "session-key",
+              contractId: core.CONTRACT_ID,
+              contractDigest: core.CONTRACT_DIGEST,
+              transports: {
+                native: { natsServers: ["nats://127.0.0.1:4222"] },
+              },
+              transport: {
+                sentinel: { jwt: "jwt", seed: "seed" },
+              },
+              auth: {
+                mode: "service_identity",
+                iatSkewSeconds: 30,
+              },
+            },
+            binding: {
+              contractId: core.CONTRACT_ID,
+              digest: core.CONTRACT_DIGEST,
+              resources: { kv: {} },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    }) as typeof fetch;
+
+    await assertRejects(
+      () =>
+        TrellisService.connect({
+          trellisUrl: "https://trellis.example.com",
+          contract: core,
+          name: "svc",
+          sessionKeySeed: TEST_SEED,
+          server: {},
+        }, {
+          connect: async (): Promise<NatsConnection> => {
+            throw new Error("stop-after-bootstrap");
+          },
+        }).orThrow(),
+      TransportError,
+      "Trellis could not open the service runtime connection.",
+    );
+    assertEquals(fetchCount, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("internal service connect accepts log false", async () => {
   const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,

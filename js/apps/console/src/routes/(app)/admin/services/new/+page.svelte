@@ -24,8 +24,9 @@
     error = null;
     try {
       const nextDeploymentId = deploymentId.trim();
-      const response = await trellis.request("Auth.CreateServiceDeployment", {
+      const response = await trellis.request("Auth.Deployments.Create", {
         deploymentId: nextDeploymentId,
+        kind: "service",
         namespaces: parseNamespaces(namespaces),
       }).take();
       if (isErr(response)) { error = errorMessage(response); return; }

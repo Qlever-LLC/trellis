@@ -2,287 +2,20 @@ use super::*;
 use clap::Parser;
 
 #[test]
-fn parses_portal_create_command() {
-    let cli = Cli::parse_from([
-        "trellis",
-        "portal",
-        "create",
-        "main",
-        "https://portal.example.com/auth",
-    ]);
-    match cli.command {
-        TopLevelCommand::Portal(command) => match command.command {
-            PortalSubcommand::Create(args) => {
-                assert_eq!(args.portal_id, "main");
-                assert_eq!(args.entry_url, "https://portal.example.com/auth");
-            }
-            other => panic!("unexpected portal command: {other:?}"),
-        },
-        other => panic!("unexpected top-level command: {other:?}"),
-    }
+fn rejects_portal_command_tree() {
+    let error = Cli::try_parse_from(["trellis", "portal", "list"])
+        .expect_err("portal command tree should fail");
+
+    assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
 }
 
 #[test]
-fn rejects_portal_create_contract_flag() {
-    let error = Cli::try_parse_from([
-        "trellis",
-        "portal",
-        "create",
-        "main",
-        "https://portal.example.com/auth",
-        "--contract",
-        "./js/apps/portal/contracts/trellis_app.ts",
-    ])
-    .unwrap_err();
+fn rejects_auth_grant_command() {
+    let error = Cli::try_parse_from(["trellis", "auth", "grant", "list"])
+        .expect_err("auth grant command should fail");
 
-    assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
-    assert!(error.to_string().contains("--contract"));
-}
-
-#[test]
-fn rejects_portal_create_capability_flag() {
-    let error = Cli::try_parse_from([
-        "trellis",
-        "portal",
-        "create",
-        "main",
-        "https://portal.example.com/auth",
-        "--capability",
-        "portal.login",
-    ])
-    .unwrap_err();
-
-    assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
-    assert!(error.to_string().contains("--capability"));
-}
-
-#[test]
-fn rejects_portal_create_allow_origin_flag() {
-    let error = Cli::try_parse_from([
-        "trellis",
-        "portal",
-        "create",
-        "main",
-        "https://portal.example.com/auth",
-        "--allow-origin",
-        "https://portal.example.com",
-    ])
-    .unwrap_err();
-
-    assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
-    assert!(error.to_string().contains("--allow-origin"));
-}
-
-#[test]
-fn parses_portal_profile_set_command() {
-    let cli = Cli::parse_from([
-        "trellis",
-        "portal",
-        "profile",
-        "set",
-        "main",
-        "https://portal.example.com/auth",
-        "./js/apps/portal/contracts/trellis_app.ts",
-        "--allow-origin",
-        "https://portal.example.com",
-    ]);
-    match cli.command {
-        TopLevelCommand::Portal(command) => match command.command {
-            PortalSubcommand::Profile(profile) => match profile.command {
-                PortalProfileSubcommand::Set(args) => {
-                    assert_eq!(args.portal_id, "main");
-                    assert_eq!(args.entry_url, "https://portal.example.com/auth");
-                    assert_eq!(args.contract, "./js/apps/portal/contracts/trellis_app.ts");
-                    assert_eq!(args.allowed_origins, vec!["https://portal.example.com"]);
-                }
-                other => panic!("unexpected portal profile command: {other:?}"),
-            },
-            other => panic!("unexpected portal command: {other:?}"),
-        },
-        other => panic!("unexpected top-level command: {other:?}"),
-    }
-}
-
-#[test]
-fn parses_portal_profile_disable_command() {
-    let cli = Cli::parse_from(["trellis", "portal", "profile", "disable", "main"]);
-    match cli.command {
-        TopLevelCommand::Portal(command) => match command.command {
-            PortalSubcommand::Profile(profile) => match profile.command {
-                PortalProfileSubcommand::Disable(args) => {
-                    assert_eq!(args.portal_id, "main");
-                }
-                other => panic!("unexpected portal profile command: {other:?}"),
-            },
-            other => panic!("unexpected portal command: {other:?}"),
-        },
-        other => panic!("unexpected top-level command: {other:?}"),
-    }
-}
-
-#[test]
-fn rejects_removed_portal_create_app_contract_id_flag() {
-    let error = Cli::try_parse_from([
-        "trellis",
-        "portal",
-        "create",
-        "main",
-        "https://portal.example.com/auth",
-        "--app-contract-id",
-        "trellis.portal@v1",
-    ])
-    .unwrap_err();
-
-    assert!(error.to_string().contains("--app-contract-id"));
-}
-
-#[test]
-fn rejects_removed_portal_create_manifest_flag() {
-    let error = Cli::try_parse_from([
-        "trellis",
-        "portal",
-        "create",
-        "main",
-        "https://portal.example.com/auth",
-        "--manifest",
-        "./contracts/portal-app.json",
-    ])
-    .unwrap_err();
-
-    assert!(error.to_string().contains("--manifest"));
-}
-
-#[test]
-fn rejects_removed_portal_create_source_flag() {
-    let error = Cli::try_parse_from([
-        "trellis",
-        "portal",
-        "create",
-        "main",
-        "https://portal.example.com/auth",
-        "--source",
-        "./contracts/portal-app.ts",
-    ])
-    .unwrap_err();
-
-    assert!(error.to_string().contains("--source"));
-}
-
-#[test]
-fn rejects_removed_portal_create_image_flag() {
-    let error = Cli::try_parse_from([
-        "trellis",
-        "portal",
-        "create",
-        "main",
-        "https://portal.example.com/auth",
-        "--image",
-        "ghcr.io/acme/portal-app:latest",
-    ])
-    .unwrap_err();
-
-    assert!(error.to_string().contains("--image"));
-}
-
-#[test]
-fn parses_portal_login_set_command() {
-    let cli = Cli::parse_from([
-        "trellis",
-        "portal",
-        "login",
-        "set",
-        "trellis.console@v1",
-        "--portal",
-        "main",
-    ]);
-    match cli.command {
-        TopLevelCommand::Portal(command) => match command.command {
-            PortalSubcommand::Login(login) => match login.command {
-                PortalLoginSubcommand::Set(args) => {
-                    assert_eq!(args.contract_id, "trellis.console@v1");
-                    assert_eq!(args.target.portal_id.as_deref(), Some("main"));
-                    assert!(!args.target.builtin);
-                }
-                other => panic!("unexpected portal login command: {other:?}"),
-            },
-            other => panic!("unexpected portal command: {other:?}"),
-        },
-        other => panic!("unexpected top-level command: {other:?}"),
-    }
-}
-
-#[test]
-fn parses_portal_device_set_command() {
-    let cli = Cli::parse_from([
-        "trellis",
-        "portal",
-        "device",
-        "set",
-        "reader.standard",
-        "--portal",
-        "main",
-    ]);
-    match cli.command {
-        TopLevelCommand::Portal(command) => match command.command {
-            PortalSubcommand::Device(device) => match device.command {
-                PortalDeviceSubcommand::Set(args) => {
-                    assert_eq!(args.deployment, "reader.standard");
-                    assert_eq!(args.target.portal_id.as_deref(), Some("main"));
-                    assert!(!args.target.builtin);
-                }
-                other => panic!("unexpected portal device command: {other:?}"),
-            },
-            other => panic!("unexpected portal command: {other:?}"),
-        },
-        other => panic!("unexpected top-level command: {other:?}"),
-    }
-}
-
-#[test]
-fn parses_portal_device_set_default_builtin_command() {
-    let cli = Cli::parse_from(["trellis", "portal", "device", "set-default", "--builtin"]);
-    match cli.command {
-        TopLevelCommand::Portal(command) => match command.command {
-            PortalSubcommand::Device(device) => match device.command {
-                PortalDeviceSubcommand::SetDefault(args) => {
-                    assert!(args.target.builtin);
-                    assert!(args.target.portal_id.is_none());
-                }
-                other => panic!("unexpected portal device command: {other:?}"),
-            },
-            other => panic!("unexpected portal command: {other:?}"),
-        },
-        other => panic!("unexpected top-level command: {other:?}"),
-    }
-}
-
-#[test]
-fn parses_auth_grant_set_command() {
-    let cli = Cli::parse_from([
-        "trellis",
-        "auth",
-        "grant",
-        "set",
-        "trellis.console@v1",
-        "--capability",
-        "admin",
-        "--allow-origin",
-        "https://console.example.com",
-    ]);
-    match cli.command {
-        TopLevelCommand::Auth(command) => match command.command {
-            AuthSubcommand::Grant(grant) => match grant.command {
-                AuthGrantSubcommand::Set(args) => {
-                    assert_eq!(args.contract, "trellis.console@v1");
-                    assert_eq!(args.capabilities, vec!["admin"]);
-                    assert_eq!(args.allowed_origins, vec!["https://console.example.com"]);
-                }
-                other => panic!("unexpected auth grant command: {other:?}"),
-            },
-            other => panic!("unexpected auth command: {other:?}"),
-        },
-        other => panic!("unexpected top-level command: {other:?}"),
-    }
+    assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
+    assert!(error.to_string().contains("grant"));
 }
 
 #[test]
@@ -308,6 +41,79 @@ fn rejects_auth_login_without_trellis_url() {
         clap::error::ErrorKind::MissingRequiredArgument
     );
     assert!(error.to_string().contains("<TRELLIS_URL>"));
+}
+
+#[test]
+fn parses_bootstrap_local_nats_defaults() {
+    let cli = Cli::parse_from([
+        "trellis",
+        "bootstrap",
+        "local-nats",
+        "--out",
+        "./local-nats",
+    ]);
+
+    match cli.command {
+        TopLevelCommand::Bootstrap(command) => match command.command {
+            BootstrapSubcommand::LocalNats(args) => {
+                assert_eq!(args.out, std::path::PathBuf::from("./local-nats"));
+                assert!(!args.force);
+                assert_eq!(args.container_runtime, LocalNatsContainerRuntimeArg::Auto);
+                assert_eq!(args.nats_box_image, "docker.io/natsio/nats-box:latest");
+                assert_eq!(args.operator_name, "Qlever");
+                assert_eq!(args.system_account, "SYS");
+                assert_eq!(args.auth_account, "AUTH");
+                assert_eq!(args.trellis_account, "TRELLIS");
+                assert_eq!(args.server_name, "trellis-local");
+            }
+            other => panic!("unexpected bootstrap command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_bootstrap_local_nats_overrides() {
+    let cli = Cli::parse_from([
+        "trellis",
+        "bootstrap",
+        "local-nats",
+        "--out",
+        "./nats",
+        "--force",
+        "--container-runtime",
+        "podman",
+        "--nats-box-image",
+        "example/nats-box:dev",
+        "--operator-name",
+        "Acme",
+        "--system-account",
+        "SYSTEM",
+        "--auth-account",
+        "LOGIN",
+        "--trellis-account",
+        "APP",
+        "--server-name",
+        "dev-nats",
+    ]);
+
+    match cli.command {
+        TopLevelCommand::Bootstrap(command) => match command.command {
+            BootstrapSubcommand::LocalNats(args) => {
+                assert_eq!(args.out, std::path::PathBuf::from("./nats"));
+                assert!(args.force);
+                assert_eq!(args.container_runtime, LocalNatsContainerRuntimeArg::Podman);
+                assert_eq!(args.nats_box_image, "example/nats-box:dev");
+                assert_eq!(args.operator_name, "Acme");
+                assert_eq!(args.system_account, "SYSTEM");
+                assert_eq!(args.auth_account, "LOGIN");
+                assert_eq!(args.trellis_account, "APP");
+                assert_eq!(args.server_name, "dev-nats");
+            }
+            other => panic!("unexpected bootstrap command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
 }
 
 #[test]
@@ -403,7 +209,6 @@ fn parses_deploy_remove_force_and_cascade_separately() {
         "svc/api",
         "-f",
         "--cascade",
-        "--purge-resources",
         "--purge-unused-contracts",
     ]);
     match cli.command {
@@ -413,7 +218,6 @@ fn parses_deploy_remove_force_and_cascade_separately() {
                 assert_eq!(args.reference.id, "api");
                 assert!(args.force);
                 assert!(args.cascade);
-                assert!(args.purge_resources);
                 assert!(args.purge_unused_contracts);
                 args.validate().expect("service purge flags are valid");
             }
@@ -431,7 +235,6 @@ fn parses_deploy_remove_force_and_cascade_separately() {
                 assert!(!args.force);
                 assert!(args.cascade);
                 assert!(!args.purge);
-                assert!(!args.purge_resources);
                 assert!(!args.purge_unused_contracts);
             }
             other => panic!("unexpected deploy command: {other:?}"),
@@ -442,20 +245,6 @@ fn parses_deploy_remove_force_and_cascade_separately() {
 
 #[test]
 fn rejects_deploy_remove_purge_flags_without_cascade() {
-    let resource_error = Cli::try_parse_from([
-        "trellis",
-        "deploy",
-        "remove",
-        "svc/api",
-        "--purge-resources",
-    ])
-    .expect_err("resource purge should require cascade");
-    assert_eq!(
-        resource_error.kind(),
-        clap::error::ErrorKind::MissingRequiredArgument
-    );
-    assert!(resource_error.to_string().contains("--cascade"));
-
     let contracts_error = Cli::try_parse_from([
         "trellis",
         "deploy",
@@ -480,27 +269,7 @@ fn rejects_deploy_remove_purge_flags_without_cascade() {
 }
 
 #[test]
-fn rejects_deploy_remove_resource_purge_for_device_refs() {
-    let args = DeployRemoveArgs {
-        reference: DeployRef {
-            kind: DeployKind::Device,
-            id: "reader".to_string(),
-        },
-        force: true,
-        cascade: true,
-        purge: false,
-        purge_resources: true,
-        purge_unused_contracts: false,
-    };
-
-    let error = args
-        .validate()
-        .expect_err("device resource purge should fail before RPC");
-    assert!(error.contains("--purge-resources"));
-}
-
-#[test]
-fn deploy_remove_purge_expands_to_target_supported_purge_options() {
+fn deploy_remove_purge_expands_to_unused_contract_purge() {
     let service = Cli::parse_from([
         "trellis",
         "deploy",
@@ -514,7 +283,6 @@ fn deploy_remove_purge_expands_to_target_supported_purge_options() {
             DeploySubcommand::Remove(args) => {
                 assert_eq!(args.reference.kind, DeployKind::Service);
                 assert!(args.purge);
-                assert!(args.should_purge_resources());
                 assert!(args.should_purge_unused_contracts());
                 args.validate().expect("service --purge is valid");
             }
@@ -536,7 +304,6 @@ fn deploy_remove_purge_expands_to_target_supported_purge_options() {
             DeploySubcommand::Remove(args) => {
                 assert_eq!(args.reference.kind, DeployKind::Device);
                 assert!(args.purge);
-                assert!(!args.should_purge_resources());
                 assert!(args.should_purge_unused_contracts());
                 args.validate().expect("device --purge is valid");
             }
@@ -681,13 +448,13 @@ fn parses_deploy_review_approve_command() {
 }
 
 #[test]
-fn parses_auth_approval_revoke_contract_digest_positional() {
+fn parses_auth_approval_revoke_identity_envelope_id_positional() {
     let cli = Cli::parse_from([
         "trellis",
         "auth",
         "approval",
         "revoke",
-        "sha256:deadbeef",
+        "ienv_123",
         "--user",
         "acme.alice",
     ]);
@@ -695,7 +462,7 @@ fn parses_auth_approval_revoke_contract_digest_positional() {
         TopLevelCommand::Auth(command) => match command.command {
             AuthSubcommand::Approval(command) => match command.command {
                 AuthApprovalSubcommand::Revoke(args) => {
-                    assert_eq!(args.digest, "sha256:deadbeef");
+                    assert_eq!(args.identity_envelope_id, "ienv_123");
                     assert_eq!(args.user.as_deref(), Some("acme.alice"));
                 }
                 other => panic!("unexpected approval command: {other:?}"),
@@ -758,7 +525,7 @@ fn rejects_plural_device_command() {
 fn rejects_legacy_portal_device_default_nested_set_command() {
     let error = Cli::try_parse_from(["trellis", "portal", "device", "default", "set", "--builtin"])
         .expect_err("nested default set syntax should fail");
-    assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+    assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
 }
 
 #[test]

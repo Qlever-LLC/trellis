@@ -1,15 +1,17 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, type SQL } from "drizzle-orm";
 import type { StaticDecode } from "typebox";
 import Value from "typebox/value";
 
 import type { TrellisStorageDb } from "../../storage/db.ts";
 import { serviceDeployments, serviceInstances } from "../../storage/schema.ts";
 import { ServiceDeploymentSchema, ServiceInstanceSchema } from "../schemas.ts";
-import { parseJsonField } from "./shared.ts";
+import {
+  type BoundedListQuery,
+  boundedListQuery,
+  parseJsonField,
+} from "./shared.ts";
 
-type ServiceDeployment = StaticDecode<typeof ServiceDeploymentSchema> & {
-  firstConnectPolicy?: "reject" | "quarantine" | "auto-accept-compatible";
-};
+type ServiceDeployment = StaticDecode<typeof ServiceDeploymentSchema>;
 type ServiceInstance = StaticDecode<typeof ServiceInstanceSchema>;
 
 type ServiceDeploymentRow = typeof serviceDeployments.$inferSelect;
@@ -17,18 +19,15 @@ type ServiceDeploymentInsert = typeof serviceDeployments.$inferInsert;
 type ServiceInstanceRow = typeof serviceInstances.$inferSelect;
 type ServiceInstanceInsert = typeof serviceInstances.$inferInsert;
 
+type DisabledFilter = { disabled?: boolean };
+
 function decodeServiceDeploymentRow(
   row: ServiceDeploymentRow,
 ): ServiceDeployment {
   return Value.Decode(ServiceDeploymentSchema, {
     deploymentId: row.deploymentId,
     namespaces: parseJsonField("service deployment namespaces", row.namespaces),
-    firstConnectPolicy: row.firstConnectPolicy ?? "reject",
     disabled: row.disabled,
-    appliedContracts: parseJsonField(
-      "service deployment applied contracts",
-      row.appliedContracts,
-    ),
   });
 }
 
@@ -38,9 +37,7 @@ function encodeServiceDeploymentRecord(
   return {
     deploymentId: record.deploymentId,
     namespaces: JSON.stringify(record.namespaces),
-    firstConnectPolicy: record.firstConnectPolicy ?? "reject",
     disabled: record.disabled,
-    appliedContracts: JSON.stringify(record.appliedContracts),
   };
 }
 
@@ -109,9 +106,7 @@ export class SqlServiceDeploymentRepository {
       target: serviceDeployments.deploymentId,
       set: {
         namespaces: row.namespaces,
-        firstConnectPolicy: row.firstConnectPolicy,
         disabled: row.disabled,
-        appliedContracts: row.appliedContracts,
       },
     });
   }
@@ -123,11 +118,48 @@ export class SqlServiceDeploymentRepository {
     );
   }
 
-  /** Returns service deployments ordered by deployment id. */
-  async list(): Promise<ServiceDeployment[]> {
+  /** Returns a bounded page of service deployments ordered by deployment id. */
+  async listPage(query: BoundedListQuery): Promise<ServiceDeployment[]> {
+    const { offset, limit } = boundedListQuery(query);
     const rows = await this.#db.select().from(serviceDeployments).orderBy(
       serviceDeployments.deploymentId,
+    ).limit(limit).offset(offset);
+    return rows.map((row: ServiceDeploymentRow) =>
+      decodeServiceDeploymentRow(row)
     );
+  }
+
+  /** Returns service deployments for requested deployment ids. */
+  async listByDeploymentIds(
+    deploymentIds: Iterable<string>,
+    filters: DisabledFilter = {},
+  ): Promise<ServiceDeployment[]> {
+    const requested = [...new Set(deploymentIds)];
+    if (requested.length === 0) return [];
+    const conditions: SQL[] = [
+      inArray(serviceDeployments.deploymentId, requested),
+    ];
+    if (filters.disabled !== undefined) {
+      conditions.push(eq(serviceDeployments.disabled, filters.disabled));
+    }
+    const rows = await this.#db.select().from(serviceDeployments).where(
+      and(...conditions),
+    ).orderBy(serviceDeployments.deploymentId);
+    return rows.map((row: ServiceDeploymentRow) =>
+      decodeServiceDeploymentRow(row)
+    );
+  }
+
+  /** Returns service deployments matching simple indexed filters. */
+  async listFiltered(
+    filters: DisabledFilter,
+    query: BoundedListQuery,
+  ): Promise<ServiceDeployment[]> {
+    const { offset, limit } = boundedListQuery(query);
+    if (filters.disabled === undefined) return await this.listPage(query);
+    const rows = await this.#db.select().from(serviceDeployments).where(
+      eq(serviceDeployments.disabled, filters.disabled),
+    ).orderBy(serviceDeployments.deploymentId).limit(limit).offset(offset);
     return rows.map((row: ServiceDeploymentRow) =>
       decodeServiceDeploymentRow(row)
     );
@@ -188,19 +220,84 @@ export class SqlServiceInstanceRepository {
     );
   }
 
-  /** Returns service instances ordered by instance id. */
-  async list(): Promise<ServiceInstance[]> {
+  /** Returns a bounded page of service instances ordered by instance id. */
+  async listPage(query: BoundedListQuery): Promise<ServiceInstance[]> {
+    const { offset, limit } = boundedListQuery(query);
     const rows = await this.#db.select().from(serviceInstances).orderBy(
+      serviceInstances.instanceId,
+    ).limit(limit).offset(offset);
+    return rows.map((row: ServiceInstanceRow) => decodeServiceInstanceRow(row));
+  }
+
+  /** Returns service instances matching simple indexed filters. */
+  async listFiltered(
+    filters: DisabledFilter,
+    query: BoundedListQuery,
+  ): Promise<ServiceInstance[]> {
+    const { offset, limit } = boundedListQuery(query);
+    if (filters.disabled === undefined) return await this.listPage(query);
+    const rows = await this.#db.select().from(serviceInstances).where(
+      eq(serviceInstances.disabled, filters.disabled),
+    ).orderBy(serviceInstances.instanceId).limit(limit).offset(offset);
+    return rows.map((row: ServiceInstanceRow) => decodeServiceInstanceRow(row));
+  }
+
+  /** Returns instances running one of the requested current contract digests. */
+  async listByCurrentContractDigests(
+    contractDigests: Iterable<string>,
+  ): Promise<ServiceInstance[]> {
+    const requested = [...new Set(contractDigests)];
+    if (requested.length === 0) return [];
+    const rows = await this.#db.select().from(serviceInstances).where(
+      inArray(serviceInstances.currentContractDigest, requested),
+    ).orderBy(
+      serviceInstances.currentContractDigest,
+      serviceInstances.deploymentId,
       serviceInstances.instanceId,
     );
     return rows.map((row: ServiceInstanceRow) => decodeServiceInstanceRow(row));
   }
 
   /** Returns service instances for one deployment ordered by instance id. */
-  async listByDeployment(deploymentId: string): Promise<ServiceInstance[]> {
+  async listByDeployment(
+    deploymentId: string,
+    filters: DisabledFilter = {},
+  ): Promise<ServiceInstance[]> {
+    const conditions: SQL[] = [eq(serviceInstances.deploymentId, deploymentId)];
+    if (filters.disabled !== undefined) {
+      conditions.push(eq(serviceInstances.disabled, filters.disabled));
+    }
     const rows = await this.#db.select().from(serviceInstances).where(
-      eq(serviceInstances.deploymentId, deploymentId),
+      and(...conditions),
     ).orderBy(serviceInstances.instanceId);
+    return rows.map((row: ServiceInstanceRow) => decodeServiceInstanceRow(row));
+  }
+
+  /** Returns instances for deployments running one of the requested digests. */
+  async listByDeploymentAndDigest(
+    deploymentIds: Iterable<string>,
+    contractDigests: Iterable<string>,
+    filters: DisabledFilter = {},
+  ): Promise<ServiceInstance[]> {
+    const requestedDeployments = [...new Set(deploymentIds)];
+    const requestedDigests = [...new Set(contractDigests)];
+    if (requestedDeployments.length === 0 || requestedDigests.length === 0) {
+      return [];
+    }
+    const conditions: SQL[] = [
+      inArray(serviceInstances.deploymentId, requestedDeployments),
+      inArray(serviceInstances.currentContractDigest, requestedDigests),
+    ];
+    if (filters.disabled !== undefined) {
+      conditions.push(eq(serviceInstances.disabled, filters.disabled));
+    }
+    const rows = await this.#db.select().from(serviceInstances).where(
+      and(...conditions),
+    ).orderBy(
+      serviceInstances.deploymentId,
+      serviceInstances.currentContractDigest,
+      serviceInstances.instanceId,
+    );
     return rows.map((row: ServiceInstanceRow) => decodeServiceInstanceRow(row));
   }
 }

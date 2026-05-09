@@ -87,12 +87,12 @@ declare const rootAppTrellis: RootTrellis<typeof appContract.API.trellis>;
 async function typecheckClientConnectRequestSurface() {
   const connected = connectedAppClient;
 
-  const me = await connected.request("Auth.Me", {}).orThrow();
+  const me = await connected.request("Auth.Sessions.Me", {}).orThrow();
   const deviceId: string | undefined = me.device?.deviceId;
   const participantKind: "app" | "agent" | "device" | "service" =
     me.participantKind;
   type ClientMethod = Parameters<typeof connected.request>[0];
-  const authMeMethod: ClientMethod = "Auth.Me";
+  const authMeMethod: ClientMethod = "Auth.Sessions.Me";
   const selectedMethod: ClientMethod = "Selection.Selected";
 
   const selected = await connected.request("Selection.Selected", {}).orThrow();
@@ -186,7 +186,7 @@ async function typecheckTrellisClientConnectRequestSurface() {
     contract: appContract,
   }).orThrow();
 
-  const me = await connected.request("Auth.Me", {}).orThrow();
+  const me = await connected.request("Auth.Sessions.Me", {}).orThrow();
   const participantKind: "app" | "agent" | "device" | "service" =
     me.participantKind;
   const preferences = await connected.state.preferences.get().orThrow();
@@ -198,7 +198,7 @@ async function typecheckTrellisClientConnectRequestSurface() {
   }
 
   type ClientMethod = Parameters<typeof connected.request>[0];
-  const authMeMethod: ClientMethod = "Auth.Me";
+  const authMeMethod: ClientMethod = "Auth.Sessions.Me";
   const selectedMethod: ClientMethod = "Selection.Selected";
   const selected = await connected.request("Selection.Selected", {}).orThrow();
   const selectedValue: string = selected.value;
@@ -242,12 +242,12 @@ async function typecheckDeviceConnectRequestSurface() {
     rootSecret: new Uint8Array([1]),
   }).orThrow();
 
-  const me = await connected.request("Auth.Me", {}).orThrow();
+  const me = await connected.request("Auth.Sessions.Me", {}).orThrow();
   const deviceId: string | undefined = me.device?.deviceId;
   const participantKind: "app" | "agent" | "device" | "service" =
     me.participantKind;
   type DeviceMethod = Parameters<typeof connected.request>[0];
-  const authMeMethod: DeviceMethod = "Auth.Me";
+  const authMeMethod: DeviceMethod = "Auth.Sessions.Me";
 
   return { authMeMethod, deviceId, participantKind };
 }

@@ -22,10 +22,11 @@ For device onboarding, the portal may need to do more than show login screens. F
 
 Some flows may also pause for administrative review before the final step is allowed. That review might be done manually by an admin user or by a local Trellis service that checks some outside condition first.
 
-For device activation, a required review is still part of the original
-`Auth.ActivateDevice` operation. The custom portal should keep watching or
-waiting on that operation; the admin review decision completes the same operation
-with either the activated output or a rejected terminal result.
+For device-user authority resolution, a required review is still part of the
+original `Auth.DeviceUserAuthorities.Resolve` operation. The custom portal
+should keep watching or waiting on that operation; the admin review decision
+completes the same operation with either the activated output or a rejected
+terminal result.
 
 Trellis trusts a portal because a Trellis admin registered its URL. A portal
 record is routing configuration, not a `portal` contract kind. If the portal also
@@ -61,7 +62,7 @@ export const portalContract = defineAppContract(() => ({
 }));
 ```
 
-Baseline app auth such as `Auth.Me` and `Auth.Logout` is derived automatically.
+Baseline app auth such as `Auth.Sessions.Me` and `Auth.Sessions.Logout` is derived automatically.
 Declare only additional Trellis-owned surfaces that the portal app needs.
 
 ## 3. Implement the portal flow
@@ -125,10 +126,10 @@ For a SvelteKit portal, the target shape is a page like `src/routes/login/+page.
   <h1>Approve {portal.state.approval.displayName}</h1>
   <p>Signed in as {portal.state.user.name ?? portal.state.user.email ?? portal.state.user.id}</p>
   <p>{portal.state.approval.description}</p>
-  <p>Contract digest: {portal.state.approval.contractDigest}</p>
+  <p>Contract evidence: {portal.state.approval.contractId}</p>
   <ul>
-    {#each portal.state.approval.capabilities as cap}
-      <li>{cap}</li>
+    {#each Object.entries(portal.state.approval.capabilities) as [key, capability]}
+      <li><strong>{capability.displayName}</strong>: {capability.description} <code>{key}</code></li>
     {/each}
   </ul>
   <button onclick={() => portal.approve()}>Approve</button>
@@ -154,16 +155,16 @@ The helper shown above is the intended public shape. Under the hood it still use
 the app contract requested. A portal should present it as application access
 inside Trellis, not as provider-owned OAuth scopes.
 
-`portal.state.approval.contractDigest` is the exact reviewed digest being
-approved. Custom portals should show this digest, or at least make clear that the
-decision is digest-specific. Approval is not keyed only by app name or contract
-lineage.
+`portal.state.approval.contractDigest` is technical evidence for the reviewed
+contract body. Custom portals may show it in an advanced details view, but the
+user-facing decision should be framed around the app identity, requested
+capabilities, and contract evidence rather than a digest-only grant key.
 
 The `portal.state.app.context` payload is optional and app-defined. Portals must validate fields and should only access the fields they define.
 
 This is still a static SPA. The portal can read `flowId` straight from the browser URL, so it does not need a SvelteKit server route or redirect shim.
 
-Set your `entryUrl` to `https://my-portal.example.com/login` when registering the portal in step 5.
+Use `https://my-portal.example.com/login` as the portal route entry URL when configuring the deployment envelope.
 
 ## 4. Deploy the portal app
 
@@ -177,148 +178,40 @@ deno task build
 
 Deploy the `build/` output to your hosting provider and note the base URL, for example `https://my-portal.example.com`.
 
-## 5. Register the portal
+## 5. Configure portal routing
 
-With the portal deployed, register it with Trellis.
+Trellis no longer exposes standalone portal administration RPCs or working
+`trellis portal *` commands. Built-in login and device portals are implicit.
+Custom portal routing is deployment-envelope metadata, not a separate portal
+authority surface.
 
-For a passive portal that only handles sign-in and approval:
+Use the Console Envelopes page or operator tooling that writes deployment
+envelope metadata to point a deployment at your portal entry URL. Treat the route
+as browser routing configuration only: it decides which web app renders the auth
+flow, but it does not grant capabilities, approval, or service authority.
 
-```sh
-trellis portal create my-portal https://my-portal.example.com/login
-```
+For login flows, route by the app identity being authenticated. For device
+activation, route by the device deployment. Leaving the route unset uses the
+built-in Trellis portal.
 
-For a portal that also talks to Trellis after login:
-
-```sh
-trellis portal create my-portal https://my-portal.example.com/login
-trellis portal profile set my-portal https://my-portal.example.com/login my-portal@v1
-```
-
-Flag meanings:
-
-- `my-portal`: stable deployment-owned identifier for this portal
-- `https://my-portal.example.com/login`: browser entry point Trellis redirects into for auth or activation flows
-- `trellis portal profile set`: optional browser app contract policy used only when the portal later calls Trellis as the logged-in user
-
-## 6. Choose where Trellis uses this portal
-
-Once a portal is registered, Trellis trusts it to carry out the flows it is selected for. Portal choice is always a deployment-admin decision.
-
-Login selections are keyed directly by browser app contract id. Device selections are keyed directly by device deployment id. Selecting `--builtin` stores a `null` portal for that exact key, forcing the built-in Trellis portal even when a deployment custom default exists.
-
-### For all browser logins
-
-```sh
-trellis portal login set-default --portal my-portal
-```
-
-To switch back to the built-in Trellis login portal:
-
-```sh
-trellis portal login set-default --builtin
-```
-
-### For one browser app
-
-```sh
-trellis portal login set my-console@v1 --portal my-portal
-```
-
-To force the built-in Trellis login portal for one app, even when a custom login default exists:
-
-```sh
-trellis portal login set my-console@v1 --builtin
-```
-
-To remove the app-specific rule and return to the login default chain:
-
-```sh
-trellis portal login clear my-console@v1
-```
-
-### For all device onboarding
-
-```sh
-trellis portal device set-default --portal my-portal
-```
-
-To switch back to the built-in Trellis device portal:
-
-```sh
-trellis portal device set-default --builtin
-```
-
-### For one device deployment
-
-```sh
-trellis portal device set my-device.default --portal my-portal
-```
-
-To force the built-in Trellis device portal for one deployment, even when a custom device default exists:
-
-```sh
-trellis portal device set my-device.default --builtin
-```
-
-To remove the deployment-specific rule and return to the device default chain:
-
-```sh
-trellis portal device clear my-device.default
-```
-
-## 7. Test the flow
+## 6. Test the flow
 
 Open the Trellis-connected browser app or device flow you want to test. The browser should redirect to your custom portal, let you complete the flow, and then continue into a normal authenticated user session or device activation.
 
-## Updating the portal record
+## Updating the portal route
 
-Re-register the portal if the `entryUrl` changes, and update the portal profile if the portal app contract changes:
+Update the deployment-envelope portal route when the `entryUrl` changes. Do not
+model a portal URL change as deployment authority; the portal route is browser
+routing metadata.
 
-```sh
-trellis portal create my-portal https://my-portal.example.com/login
-trellis portal profile set my-portal https://my-portal.example.com/login my-portal@v2
-```
+If the portal app contract changes, treat it like any other browser app contract
+change: the portal presents the new contract during login, and Trellis resolves
+it through the user's identity envelope and any deployment grant overrides. It
+does not receive service deployment authority.
 
-For a passive portal, skip the portal profile command.
+## Disabling a custom portal
 
-`create` replaces the existing active portal record.
-
-Updating the portal profile changes only the user-authenticated browser app contract associated with the portal. It does not install or upgrade a service principal.
-
-## Updating login portal policy
-
-Change the login default:
-
-```sh
-trellis portal login set-default --portal my-portal
-```
-
-Change one app-specific rule:
-
-```sh
-trellis portal login set my-console@v1 --portal my-portal
-```
-
-## Updating device portal policy
-
-Change the device default:
-
-```sh
-trellis portal device set-default --portal my-portal
-```
-
-Change one device-deployment rule:
-
-```sh
-trellis portal device set my-device.default --portal my-portal
-```
-
-## Disabling the portal
-
-To disable the custom portal record:
-
-```sh
-trellis portal disable my-portal
-```
-
-After disabling it, point any login or device selection rules back to `--builtin` or another custom portal.
+Remove the deployment-envelope route or point it back to the built-in portal.
+Existing user approvals and device activations remain governed by identity and
+deployment envelopes; disabling a portal route only changes future browser flow
+routing.

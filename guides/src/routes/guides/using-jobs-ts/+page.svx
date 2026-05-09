@@ -219,7 +219,7 @@ service.jobs.chargePayment.handle(async ({ job }) => {
 
 1. Update job schemas and the contract's top-level `jobs` map
 2. Rebuild contract artifacts: `deno task prepare`
-3. Apply the updated contract in Trellis if queues changed: `trellis deploy apply svc/<id> ...`
+3. Expand the deployment envelope in the Console or with `Auth.Envelopes.Expand` if queues changed
 4. Restart the service
 
 ## Next steps

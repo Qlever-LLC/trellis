@@ -166,29 +166,6 @@ export function registerFlowRoutes(
       flowId,
     });
 
-    if (
-      resolution.effectiveApproval.kind === "admin_policy" ||
-      resolution.effectiveApproval.kind === "portal_profile"
-    ) {
-      return c.json(
-        await buildPortalFlowState({
-          flowId,
-          flow,
-          app: appMeta,
-          providers: providersList,
-          resolution,
-          ...(resolution.missingCapabilities.length === 0 &&
-              !getApprovalResolutionBlocker(resolution)
-            ? {
-              redirectLocation: buildRedirectLocation(pending.redirectTo, {
-                flowId,
-              }),
-            }
-            : { returnLocation }),
-        }),
-      );
-    }
-
     if (resolution.missingCapabilities.length > 0) {
       return c.json(
         await buildPortalFlowState({

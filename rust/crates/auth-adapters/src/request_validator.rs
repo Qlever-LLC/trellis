@@ -7,7 +7,7 @@ use futures_util::future::BoxFuture;
 use sha2::{Digest, Sha256};
 
 use trellis_auth::{
-    AuthClient, AuthValidateRequestRequest, AuthValidateRequestResponse, TrellisAuthError,
+    AuthClient, AuthRequestsValidateRequest, AuthRequestsValidateResponse, TrellisAuthError,
 };
 use trellis_client::{TrellisClient, TrellisClientError};
 use trellis_service::{RequestContext, RequestValidator, ServerError};
@@ -15,15 +15,15 @@ use trellis_service::{RequestContext, RequestValidator, ServerError};
 pub trait AuthRequestValidatorClientPort: Send + Sync {
     fn auth_validate_request<'a>(
         &'a self,
-        input: &'a AuthValidateRequestRequest,
-    ) -> BoxFuture<'a, Result<AuthValidateRequestResponse, TrellisClientError>>;
+        input: &'a AuthRequestsValidateRequest,
+    ) -> BoxFuture<'a, Result<AuthRequestsValidateResponse, TrellisClientError>>;
 }
 
 impl<'a> AuthRequestValidatorClientPort for AuthClient<'a> {
     fn auth_validate_request<'b>(
         &'b self,
-        input: &'b AuthValidateRequestRequest,
-    ) -> BoxFuture<'b, Result<AuthValidateRequestResponse, TrellisClientError>> {
+        input: &'b AuthRequestsValidateRequest,
+    ) -> BoxFuture<'b, Result<AuthRequestsValidateResponse, TrellisClientError>> {
         Box::pin(async move { self.validate_request(input).await.map_err(map_auth_error) })
     }
 }
@@ -31,8 +31,8 @@ impl<'a> AuthRequestValidatorClientPort for AuthClient<'a> {
 impl AuthRequestValidatorClientPort for Arc<TrellisClient> {
     fn auth_validate_request<'a>(
         &'a self,
-        input: &'a AuthValidateRequestRequest,
-    ) -> BoxFuture<'a, Result<AuthValidateRequestResponse, TrellisClientError>> {
+        input: &'a AuthRequestsValidateRequest,
+    ) -> BoxFuture<'a, Result<AuthRequestsValidateResponse, TrellisClientError>> {
         Box::pin(async move {
             AuthClient::new(self.as_ref())
                 .validate_request(input)
@@ -91,7 +91,7 @@ pub fn make_validate_request(
     subject: &str,
     payload: &[u8],
     context: &RequestContext,
-) -> Result<AuthValidateRequestRequest, ServerError> {
+) -> Result<AuthRequestsValidateRequest, ServerError> {
     let session_key =
         context
             .session_key
@@ -108,7 +108,7 @@ pub fn make_validate_request(
             subject: subject.to_string(),
         })?;
 
-    Ok(AuthValidateRequestRequest {
+    Ok(AuthRequestsValidateRequest {
         capabilities: None,
         payload_hash: payload_hash_base64url(payload),
         proof,
@@ -119,6 +119,6 @@ pub fn make_validate_request(
 
 pub fn map_validate_request_error(subject: &str, error: TrellisClientError) -> ServerError {
     ServerError::Nats(format!(
-        "Auth.ValidateRequest failed for {subject}: {error}"
+        "Auth.Requests.Validate failed for {subject}: {error}"
     ))
 }

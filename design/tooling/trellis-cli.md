@@ -135,31 +135,10 @@ trellis auth login <trellis-url>
 trellis auth logout
 trellis auth status
 trellis auth approval list [--user <origin.id>] [--digest <contractDigest>]
-trellis auth approval revoke <contractDigest> [--user <origin.id>]
-trellis auth grant list
-trellis auth grant set <contractId|path> [--capability <capability>...] [--allow-origin <origin>...]
-trellis auth grant disable <contractId>
-trellis portal list
-trellis portal create <portalId> <entryUrl>
-trellis portal disable <portalId>
-trellis portal profile list
-trellis portal profile set <portalId> <entryUrl> <contractId|path> [--allow-origin <origin>...]
-trellis portal profile disable <portalId>
-trellis portal login default
-trellis portal login set-default (--builtin | --portal <portalId>)
-trellis portal login list
-trellis portal login set <contractId> (--builtin | --portal <portalId>)
-trellis portal login clear <contractId>
-trellis portal device default
-trellis portal device set-default (--builtin | --portal <portalId>)
-trellis portal device list
-trellis portal device set <deploymentId> (--builtin | --portal <portalId>)
-trellis portal device clear <deploymentId>
-trellis deploy list <svc|dev> [--contract <contractId>] [--disabled]
+trellis auth approval revoke <identityEnvelopeId> [--user <origin.id>]
+trellis deploy list <svc|dev> [--disabled]
 trellis deploy show <svc/id|dev/id>
 trellis deploy create <svc/id|dev/id> [--namespace <ns>...] [--review-mode <none|required>]
-trellis deploy apply <svc/id|dev/id> (--source <file> | --manifest <file> | --image <ref>) [-f] [--replace]
-trellis deploy unapply <svc/id|dev/id> <contractId> [--digest <digest>...]
 trellis deploy disable <svc/id|dev/id>
 trellis deploy enable <svc/id|dev/id>
 trellis deploy remove <svc/id|dev/id> [-f] [--cascade] [--purge] [--purge-resources] [--purge-unused-contracts]
@@ -181,56 +160,44 @@ trellis completion <shell>
 
 Operational command behavior:
 
-- `trellis auth login <trellis-url>` is a normal contract-bearing client login, not a
-  bootstrap bypass; it enters the auth-owned browser flow and continues through
-  the resolved portal before storing local session material for later admin RPC
-  calls; runtime transport details are discovered from the bind flow and
-  persisted internally rather than exposed as normal CLI flags
-- normal authenticated CLI commands reconnect with freshly generated runtime auth
-  proofs derived from the stored session key, current contract digest, and
-  `iat`; the current contract digest is the normalized contract identity digest,
-  not a hash of human-facing display metadata; when the local agent contract
-  digest changes, the CLI starts the normal auth request flow with the full agent
-  contract, may complete immediately when the existing delegated grant already
-  covers the new contract, otherwise prints the detached portal login URL, may
-  render a QR code, does not auto-open a browser or start a localhost callback
-  listener, and completes by polling the auth-owned flow before reconnecting NATS
-  and issuing admin RPCs
+- `trellis auth login <trellis-url>` is a normal contract-bearing client login,
+  not a bootstrap bypass; it enters the auth-owned browser flow and continues
+  through the resolved portal before storing local session material for later
+  admin RPC calls; runtime transport details are discovered from the bind flow
+  and persisted internally rather than exposed as normal CLI flags
+- normal authenticated CLI commands reconnect with freshly generated runtime
+  auth proofs derived from the stored session key, current contract digest, and
+  `iat`; the current contract digest is runtime contract evidence, not a hash of
+  human-facing display metadata; when the local CLI contract digest changes, the
+  CLI starts the normal auth request flow with the full contract, may complete
+  immediately when the existing identity envelope already covers the new
+  boundary, otherwise prints the detached portal login URL, may render a QR
+  code, does not auto-open a browser or start a localhost callback listener, and
+  completes by polling the auth-owned flow before reconnecting NATS and issuing
+  admin RPCs
 - generic NATS authorization failures during authenticated command reconnects do
-  not by themselves prove the stored local session was revoked; the CLI preserves
-  local session material unless auth returns an explicit `session_not_found`,
-  `revoked`, or `rejected` signal
-- `trellis portal *` manages registered custom portal web apps used to replace
-  the built-in Trellis portal for login flows, device flows, or both; portal
-  records are routing config only (`portalId`, `entryUrl`, `disabled`)
-- `trellis portal profile *` manages auth-owned portal trust profiles keyed by
-  `portalId`; `set` upserts the routed portal record, binds one browser app
-  contract lineage and optional origin restrictions to that portal, and lets
-  auth derive implied capabilities server-side
-- `trellis portal login *` manages deployment-owned login portal policy,
-  including the deployment login default and any contract-specific selections
-- `trellis portal device *` manages deployment-owned device portal policy,
-  including the deployment device default and any device-deployment selections
+  not by themselves prove the stored local session was revoked; the CLI
+  preserves local session material unless auth returns an explicit
+  `session_not_found`, `revoked`, or `rejected` signal
 - `trellis auth approval list` shows stored delegated approval decisions for app
-  and agent contracts from the `trellis` service, with server-side filtering by
-  exact contract digest and optionally by user when the caller is an admin
-- `trellis auth approval revoke` removes a stored `user <-> contractDigest`
-  decision, removes reconnect authority for that delegated app or agent grant,
-  and revokes matching active delegated sessions in the `trellis` service
-- `trellis deploy apply --replace` replaces the target deployment's active
-  allowed digest set for the submitted contract lineage instead of adding a
-  second active digest; this is intended for coordinated or unreleased breaking
-  same-lineage development and does not mutate historical catalog digest records
-- `trellis auth grant *` manages deployment-wide delegated grant policies keyed
-  by app or agent contract lineage; `set` may resolve the lineage from either a
-  contract id or a local contract source path, may optionally restrict matching
-  browser origins for app callers, and causes affected delegated sessions to
-  reconnect so auth re-evaluates current policy
+  and CLI contracts from the `trellis` service; each row includes an
+  `identityEnvelopeId` and contract evidence, with optional filtering by exact
+  contract digest and by user for admin callers; the command pages through the
+  bounded `Auth.Identities.List` RPC rather than requesting an unbounded list
+- `trellis auth approval revoke` revokes the addressed identity envelope through
+  `Auth.IdentityEnvelopes.Revoke` and revokes matching active delegated sessions
+  in the `trellis` service; contract digest remains list/filter evidence, not
+  the revocation key
+- `trellis portal *` is no longer a public auth API surface. Built-in portals
+  are implicit; custom portal routing is deployment-envelope metadata managed by
+  operator tooling or Console surfaces that understand envelope state.
 - `trellis deploy *` manages deployment-owned service and device deployments;
   service refs use `svc/<id>` and device refs use `dev/<id>`, with `deployment`,
   `deployments`, `dep`, and `d` as aliases for the top-level command
-- `trellis deploy apply` and `trellis deploy unapply` manage the allowed digest
-  set for one service or device deployment after the deployment exists
+- deployment envelope expansion and shrink are Trellis Auth admin surfaces;
+  until the CLI exposes first-class envelope commands, operators use the Console
+  Envelopes page or generated `Auth.Envelopes.*` RPC clients to change service
+  and device deployment authority
 - `trellis deploy provision <dev/id>` is the ergonomic provisioning path for
   device development and deployment: it generates a root secret locally, derives
   the device keys, registers the instance with auth using activation-only secret
@@ -239,43 +206,44 @@ Operational command behavior:
   bundle for the device or operator
 - `trellis deploy instances *` is the lower-level instance inspection surface;
   the default device table promotes `name`, `serial`, and `model` columns when
-  present, while `--show-metadata` reveals the remaining opaque metadata entries
-- `trellis deploy review *` manages pending device review decisions
-  and is intended for `trellis.auth::device.review` automation services or
-  admins
-- service deployments own contract digest allowance, namespace allowance, and
+  present, while `--show-metadata` reveals the remaining opaque metadata entries;
+  instance and review list commands must pass an explicit page size to the
+  underlying admin list RPC and may pass deployment/state filters
+- `trellis deploy review *` manages pending device review decisions and is
+  intended for `trellis.auth::device.review` automation services or admins
+- service deployments own deployment envelopes, namespace allowance, and
   reversible deployment state
 - service instances are concrete service principals under one deployment,
   including provisioning, inspection, and reversible lifecycle changes
-- deployment create flows are intentionally metadata-light; human-facing contract
-  names continue to come from the applied contract manifests rather than from a
+- deployment create flows are intentionally metadata-light; human-facing
+  contract names continue to come from contract evidence rather than from a
   separate deployment-local `displayName` or `description`
 - deployments may rely on the built-in Trellis portal with no portal setup, or
-  register one or more custom portals, optionally configure portal profiles for
-  browser portal apps, choose separate login and device default custom portals,
-  assign portals to specific browser contracts or device deployments, then create
-  device deployments and provision device instances for activated-device flows;
-  install automation may offer convenience wrappers, but the underlying actions
-  remain explicit admin calls
+  register one or more custom portals, choose separate login and device default
+  custom portals, assign portals to specific browser contracts or device
+  deployments, then create device deployments and provision device instances for
+  activated-device flows; install automation may offer convenience wrappers, but
+  the underlying actions remain explicit admin calls
 - `trellis bootstrap nats` creates the shared event stream and Trellis-owned KV
   buckets needed before the runtime starts; these buckets are for OAuth state,
-  pending auth, browser flows, active connection presence, and the public Trellis
-  State API; `--jetstream-replicas` defaults to `1` for standalone installs and
-  should match the target NATS topology, commonly `3` for production clusters
+  pending auth, browser flows, active connection presence, and the public
+  Trellis State API; `--jetstream-replicas` defaults to `1` for standalone
+  installs and should match the target NATS topology, commonly `3` for
+  production clusters
 - `trellis bootstrap admin` bootstraps the initial admin user in Trellis service
   SQLite storage; by default it writes `/var/lib/trellis/trellis.sqlite` and
-  seeds `admin`, `trellis.catalog.read`, and `trellis.contract.read` so the first
-  console user can load discovery data
+  seeds `admin`, `trellis.catalog.read`, and `trellis.contract.read` so the
+  first console user can load discovery data
 - `trellis keygen` remains an explicit offline utility for operators who want to
   separate key generation from install
 - the runtime/operator CLI no longer exposes direct transport flags like
   `--servers` or `--creds` outside explicit bootstrap-only flows
 
 Normal authenticated CLI behavior is contract-governed in the same architectural
-sense as browser apps: the CLI authenticates as an `agent` participant with a
-generated agent contract, approval is stored against the exact contract digest,
-and Trellis auth does not create normal client sessions without such a
-contract.
+sense as browser apps: the CLI presents a generated contract, approval is stored
+in an identity envelope anchored to the CLI session public key, and Trellis auth
+does not create normal client sessions without contract evidence that fits that
+envelope.
 
 ### Explicitness rule
 
@@ -306,8 +274,8 @@ The developer-facing CLI boundary is the contract source.
 - app and service repos SHOULD wrap contract preparation into their normal
   `dev`, `build`, and CI tasks rather than making end users run separate
   manifest commands during routine browser-app development
-- operators may install or upgrade from generated manifests or OCI images that
-  embed `/trellis/contract.json`
+- operators may expand deployment envelopes from generated manifests or OCI
+  images that embed `/trellis/contract.json`
 - OCI images may override that default path with the `io.trellis.contract.path`
   label
 

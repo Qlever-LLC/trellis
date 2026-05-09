@@ -41,11 +41,11 @@
     error = null;
     sessionsWarning = null;
     try {
-      const usersResponse = await trellis.request("Auth.ListUsers", {}).take();
+      const usersResponse = await trellis.request("Auth.Users.List", { limit: 500, offset: 0 }).take();
       if (isErr(usersResponse)) { error = errorMessage(usersResponse); return; }
       users = usersResponse.users ?? [];
 
-      const sessionsResponse = await trellis.request("Auth.ListSessions", {}).take();
+      const sessionsResponse = await trellis.request("Auth.Sessions.List", { limit: 500, offset: 0 }).take();
       if (isErr(sessionsResponse)) {
         sessionsWarning = `Last-auth metadata unavailable: ${errorMessage(sessionsResponse)}`;
         userLastAuth = {};

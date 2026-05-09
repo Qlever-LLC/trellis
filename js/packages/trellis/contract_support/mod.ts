@@ -5,11 +5,11 @@ import Type, {
   type TSchema,
 } from "typebox";
 import type { BaseError } from "@qlever-llc/result";
-import type { AuthMeResponse } from "../auth/protocol.ts";
+import type { AuthSessionsMeResponse } from "../auth/protocol.ts";
 import { TrellisError } from "../errors/TrellisError.ts";
 import type {
-  AuthLogoutInput,
-  AuthLogoutResponse,
+  AuthSessionsLogoutInput,
+  AuthSessionsLogoutResponse,
 } from "../models/auth/rpc/Logout.ts";
 import type {
   StateDeleteInput,
@@ -779,10 +779,10 @@ export type EmptyApi = {
 
 type BaselineAuthApi = {
   rpc: {
-    "Auth.Me": RPCDesc<Schema<Record<string, never>>, Schema<AuthMeResponse>>;
-    "Auth.Logout": RPCDesc<
-      Schema<AuthLogoutInput>,
-      Schema<AuthLogoutResponse>
+    "Auth.Sessions.Me": RPCDesc<Schema<Record<string, never>>, Schema<AuthSessionsMeResponse>>;
+    "Auth.Sessions.Logout": RPCDesc<
+      Schema<AuthSessionsLogoutInput>,
+      Schema<AuthSessionsLogoutResponse>
     >;
   };
   operations: {};
@@ -1110,7 +1110,7 @@ const TRELLIS_AUTH_CONTRACT_ID = "trellis.auth@v1";
 const TRELLIS_STATE_CONTRACT_ID = "trellis.state@v1";
 const TRELLIS_HEALTH_CONTRACT_ID = "trellis.health@v1";
 
-const BASELINE_AUTH_RPC_CALL = ["Auth.Me", "Auth.Logout"] as const;
+const BASELINE_AUTH_RPC_CALL = ["Auth.Sessions.Me", "Auth.Sessions.Logout"] as const;
 const BASELINE_STATE_RPC_CALL = [
   "State.Get",
   "State.Put",
@@ -1149,11 +1149,11 @@ function trellisEventDesc<TEvent>(
 
 const BASELINE_AUTH_API: BaselineAuthApi = {
   rpc: {
-    "Auth.Me": trellisRpcDesc<Record<string, never>, AuthMeResponse>(
-      "Auth.Me",
+    "Auth.Sessions.Me": trellisRpcDesc<Record<string, never>, AuthSessionsMeResponse>(
+      "Auth.Sessions.Me",
     ),
-    "Auth.Logout": trellisRpcDesc<AuthLogoutInput, AuthLogoutResponse>(
-      "Auth.Logout",
+    "Auth.Sessions.Logout": trellisRpcDesc<AuthSessionsLogoutInput, AuthSessionsLogoutResponse>(
+      "Auth.Sessions.Logout",
     ),
   },
   operations: {},
@@ -2090,7 +2090,11 @@ function resolveSchemaRef(
   context: string,
 ): JsonSchema {
   assertSchemaRefExists(schemas, ref, context);
-  return cloneSchema(schemas![ref.schema]);
+  const schema = schemas?.[ref.schema];
+  if (!schema) {
+    throw new Error(`${context} references missing schema '${ref.schema}'`);
+  }
+  return cloneSchema(schema);
 }
 
 function digestCanonicalJson(value: JsonValue): string {
@@ -2686,10 +2690,16 @@ function buildContractKvMetadata(
   const metadata: ContractKvMetadata = {};
   for (const [alias, resource] of Object.entries(kv)) {
     assertSchemaRefExists(schemas, resource.schema, `kv resource '${alias}'`);
+    const schema = schemas?.[resource.schema.schema];
+    if (!schema) {
+      throw new Error(
+        `kv resource '${alias}' references missing schema '${resource.schema.schema}'`,
+      );
+    }
     metadata[alias] = {
       required: resource.required ?? true,
       value: undefined,
-      schema: schemas![resource.schema.schema],
+      schema,
     };
   }
   return metadata;

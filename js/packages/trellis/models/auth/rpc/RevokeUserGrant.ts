@@ -1,15 +1,13 @@
 import Type, { type Static } from "typebox";
 
-const DigestSchema = Type.String({ pattern: "^[A-Za-z0-9_-]+$" });
-
-export const AuthRevokeUserGrantSchema = Type.Object({
-  contractDigest: DigestSchema,
+export const AuthIdentityEnvelopesRevokeSchema = Type.Object({
+  identityEnvelopeId: Type.String({ minLength: 1 }),
 });
-export type AuthRevokeUserGrantInput = Static<typeof AuthRevokeUserGrantSchema>;
+export type AuthIdentityEnvelopesRevokeInput = Static<typeof AuthIdentityEnvelopesRevokeSchema>;
 
-export const AuthRevokeUserGrantResponseSchema = Type.Object({
+export const AuthIdentityEnvelopesRevokeResponseSchema = Type.Object({
   success: Type.Boolean(),
 });
-export type AuthRevokeUserGrantResponse = Static<
-  typeof AuthRevokeUserGrantResponseSchema
+export type AuthIdentityEnvelopesRevokeResponse = Static<
+  typeof AuthIdentityEnvelopesRevokeResponseSchema
 >;

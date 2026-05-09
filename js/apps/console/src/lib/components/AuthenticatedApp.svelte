@@ -3,7 +3,7 @@
   import { base } from "$app/paths";
   import { page } from "$app/state";
   import { clearSessionKey } from "@qlever-llc/trellis/auth/browser";
-  import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthSessionsMeOutput } from "@qlever-llc/trellis/sdk/auth";
   import type { Snippet } from "svelte";
   import { onDestroy, onMount } from "svelte";
   import {
@@ -31,7 +31,7 @@
   let authFailure = $state<string | null>(null);
   const connectionStatus = $derived<ConnectionStatus["phase"]>(connection.status.phase);
   let navSections = $state<NavSection[]>(getVisibleNavSections(null));
-  let profile = $state<AuthMeOutput["user"] | null>(null);
+  let profile = $state<AuthSessionsMeOutput["user"] | null>(null);
   let profileLoaded = $state(false);
 
   function resolveAppPath(path: string): string {
@@ -114,7 +114,6 @@
       } catch (error) {
         if (!active) return;
         authFailure = errorMessage(error);
-        window.location.href = buildLoginUrl(currentPath());
       } finally {
         if (active) {
           profileLoaded = true;

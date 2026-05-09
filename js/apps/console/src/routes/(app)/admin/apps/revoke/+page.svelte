@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
-  import type { AuthListApprovalsOutput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthIdentitiesListOutput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { onMount } from "svelte";
@@ -12,7 +12,7 @@
   import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type ApprovalEntry = AuthListApprovalsOutput["approvals"][number];
+  type ApprovalEntry = AuthIdentitiesListOutput["approvals"][number];
 
   const trellis = getTrellis();
   const notifications = getNotifications();
@@ -23,19 +23,19 @@
   let approvals = $state<ApprovalEntry[]>([]);
   let selectedKey = $state("");
 
-  const selectedApproval = $derived(approvals.find((entry) => `${entry.user}:${entry.approval.contractDigest}` === selectedKey) ?? null);
+  const selectedApproval = $derived(approvals.find((entry) => entry.identityEnvelopeId === selectedKey) ?? null);
 
   async function load() {
     loading = true;
     error = null;
     try {
       const requestedUser = page.url.searchParams.get("user") ?? undefined;
-      const requestedDigest = page.url.searchParams.get("contractDigest");
-      const response = await trellis.request("Auth.ListApprovals", { user: requestedUser }).take();
+      const requestedGrant = page.url.searchParams.get("grant");
+      const response = await trellis.request("Auth.Identities.List", { user: requestedUser, limit: 500, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       approvals = response.approvals ?? [];
-      const match = approvals.find((entry) => entry.user === requestedUser && entry.approval.contractDigest === requestedDigest) ?? approvals[0] ?? null;
-      selectedKey = match ? `${match.user}:${match.approval.contractDigest}` : "";
+      const match = approvals.find((entry) => entry.user === requestedUser && entry.identityEnvelopeId === requestedGrant) ?? approvals[0] ?? null;
+      selectedKey = match?.identityEnvelopeId ?? "";
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -48,8 +48,8 @@
     pending = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.RevokeApproval", {
-        contractDigest: selectedApproval.approval.contractDigest,
+      const response = await trellis.request("Auth.IdentityEnvelopes.Revoke", {
+        identityEnvelopeId: selectedApproval.identityEnvelopeId,
         user: selectedApproval.user,
       }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
@@ -88,17 +88,18 @@
         <label class="form-control gap-1">
           <span class="label-text text-xs">Approval</span>
           <select class="select select-bordered select-sm" bind:value={selectedKey} required>
-            {#each approvals as entry (`${entry.user}:${entry.approval.contractDigest}`)}
-              <option value={`${entry.user}:${entry.approval.contractDigest}`}>{entry.user} — {entry.approval.displayName ?? entry.approval.contractId ?? entry.approval.contractDigest}</option>
+            {#each approvals as entry (entry.identityEnvelopeId)}
+              <option value={entry.identityEnvelopeId}>{entry.user} — {entry.displayName ?? entry.contractEvidence.contractId ?? entry.contractEvidence.contractDigest}</option>
             {/each}
           </select>
         </label>
 
         {#if selectedApproval}
           <div class="rounded-box border border-base-300 p-3 text-sm">
-            <div class="font-medium">{selectedApproval.approval.displayName ?? selectedApproval.approval.contractId ?? "App approval"}</div>
+            <div class="font-medium">{selectedApproval.displayName ?? selectedApproval.contractEvidence.contractId ?? "App approval"}</div>
             <div class="text-base-content/60">User: {selectedApproval.user}</div>
-            <div class="trellis-identifier text-base-content/60">{selectedApproval.approval.contractDigest}</div>
+            <div class="trellis-identifier text-base-content/60">{selectedApproval.identityEnvelopeId}</div>
+            <div class="trellis-identifier text-base-content/60">{selectedApproval.contractEvidence.contractDigest}</div>
             <div class="text-xs text-base-content/60">Approved {formatDate(selectedApproval.answeredAt)}</div>
           </div>
         {/if}

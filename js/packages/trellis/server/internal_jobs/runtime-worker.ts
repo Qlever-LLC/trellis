@@ -541,23 +541,30 @@ export async function startWorkerHostFromBinding(
 
   const cancellation = new JobCancellationToken();
   const heartbeatLoops = options.heartbeatPublisher
-    ? await Promise.all(queueTypes.map((queueType) =>
-      startWorkerHeartbeatLoop({
+    ? await Promise.all(queueTypes.map((queueType) => {
+      const queue = binding.jobs.queues[queueType];
+      if (!queue) {
+        throw new Error(`Worker queue '${queueType}' is not configured`);
+      }
+      return startWorkerHeartbeatLoop({
         publisher: options.heartbeatPublisher!,
         service: binding.jobs.namespace,
         jobType: queueType,
         instanceId: options.instanceId,
-        concurrency: binding.jobs.queues[queueType].concurrency,
+        concurrency: queue.concurrency,
         version: options.version,
         intervalMs: options.heartbeatIntervalMs,
         nowIso: options.nowIso,
-      })
-    ))
+      });
+    }))
     : [];
 
   const workers: Array<{ stop(): Promise<void> }> = [];
   for (const queueType of queueTypes) {
     const queue = binding.jobs.queues[queueType];
+    if (!queue) {
+      throw new Error(`Worker queue '${queueType}' is not configured`);
+    }
     for (
       let workerIndex = 0;
       workerIndex < queue.concurrency;

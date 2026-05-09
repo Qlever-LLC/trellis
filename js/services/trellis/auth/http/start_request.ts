@@ -1,7 +1,16 @@
 import { HTTPException } from "@hono/hono/http-exception";
 import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
 
-import type { PendingAuth, SessionApprovalSource } from "../schemas.ts";
+import {
+  type EnvelopeBoundary,
+  type PendingAuth,
+  type SessionApprovalSource,
+} from "../schemas.ts";
+import {
+  computeEnvelopeDelta,
+  type EnvelopeIdentityAnchor,
+  evaluateEnvelopeFit,
+} from "../envelope_decision.ts";
 import {
   type ApprovalResolution,
   buildAppIdentity,
@@ -48,7 +57,26 @@ export type CurrentUserSession = {
   delegatedCapabilities: string[];
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
+  identityEnvelope?: EnvelopeBoundary;
   approvalSource?: SessionApprovalSource;
+  identityAnchor?: EnvelopeIdentityAnchor;
+  sessionPublicKey?: string;
+};
+
+export type UserFacingApprovalResolution =
+  | {
+    status: "approved";
+    source: "existing_envelope" | "user_decision" | "deployment_grant";
+  }
+  | { status: "approval_required"; delta: EnvelopeBoundary }
+  | { status: "insufficient_capabilities"; missingCapabilities: string[] }
+  | { status: "unavailable"; missingAvailability: EnvelopeBoundary };
+
+const EMPTY_BOUNDARY: EnvelopeBoundary = {
+  contracts: [],
+  surfaces: [],
+  capabilities: [],
+  resources: [],
 };
 
 function canonicalizeJsonValue(value: unknown): string {
@@ -90,43 +118,150 @@ function isSubset(requested: string[], current: string[]): boolean {
   return requested.every((value) => currentSet.has(value));
 }
 
-function sameAppIdentity(
-  session: CurrentUserSession,
+function boundaryFromApprovalPlan(
   resolution: ApprovalResolution,
-): boolean {
-  const sessionContractId = session.app?.contractId ?? session.contractId;
-  const sessionOrigin = session.app?.origin;
-  return sessionContractId === resolution.app?.contractId &&
-    sessionOrigin === resolution.app?.origin;
+): EnvelopeBoundary {
+  return {
+    contracts: [],
+    surfaces: [],
+    capabilities: approvalCapabilityKeys(resolution.plan.approval),
+    resources: [],
+  };
 }
 
-export function canAutoApproveFromCurrentSession(
-  session: CurrentUserSession,
-  resolution: ApprovalResolution,
+function sameIdentityAnchor(
+  left: EnvelopeIdentityAnchor,
+  right: EnvelopeIdentityAnchor,
 ): boolean {
-  if (session.contractId !== resolution.plan.contract.id) {
+  if (left.contractId !== right.contractId) {
     return false;
   }
-  if (!sameAppIdentity(session, resolution)) {
-    return false;
+  switch (left.kind) {
+    case "web":
+      return right.kind === "web" && left.origin === right.origin;
+    case "cli":
+    case "native":
+      return right.kind === left.kind &&
+        left.sessionPublicKey === right.sessionPublicKey;
+    case "device-user":
+      return right.kind === "device-user" &&
+        left.devicePublicKey === right.devicePublicKey;
+  }
+}
+
+function currentSessionIdentityAnchor(
+  session: CurrentUserSession,
+): EnvelopeIdentityAnchor {
+  if (session.identityAnchor) return session.identityAnchor;
+  const sessionContractId = session.app?.contractId ?? session.contractId;
+  const sessionOrigin = session.app?.origin;
+  if (sessionOrigin) {
+    return {
+      kind: "web",
+      contractId: sessionContractId,
+      origin: sessionOrigin,
+    };
+  }
+  return {
+    kind: "cli",
+    contractId: sessionContractId,
+    sessionPublicKey: session.sessionPublicKey ?? session.contractId,
+  };
+}
+
+function requestedIdentityAnchor(args: {
+  sessionKey: string;
+  resolution: ApprovalResolution;
+}): EnvelopeIdentityAnchor {
+  if (args.resolution.app?.origin) {
+    return {
+      kind: "web",
+      contractId: args.resolution.app.contractId,
+      origin: args.resolution.app.origin,
+    };
+  }
+  return {
+    kind: "cli",
+    contractId: args.resolution.app?.contractId ??
+      args.resolution.plan.contract.id,
+    sessionPublicKey: args.sessionKey,
+  };
+}
+
+export function resolveCurrentSessionApproval(
+  args: {
+    requestedIdentity: EnvelopeIdentityAnchor;
+    resolution: ApprovalResolution;
+    systemAvailabilityEnvelope?: EnvelopeBoundary;
+  } & CurrentUserSession,
+): UserFacingApprovalResolution {
+  if (args.resolution.missingCapabilities.length > 0) {
+    return {
+      status: "insufficient_capabilities",
+      missingCapabilities: args.resolution.missingCapabilities,
+    };
+  }
+
+  const requestedBoundary = args.resolution.requestedBoundary ??
+    boundaryFromApprovalPlan(args.resolution);
+  const requestedAvailabilityBoundary = {
+    ...requestedBoundary,
+    capabilities: [],
+  };
+  const systemAvailabilityEnvelope = args.systemAvailabilityEnvelope ??
+    args.resolution.systemAvailabilityEnvelope;
+  const systemAvailabilityFit = systemAvailabilityEnvelope
+    ? evaluateEnvelopeFit(
+      systemAvailabilityEnvelope,
+      requestedAvailabilityBoundary,
+    )
+    : {
+      fits: true,
+      missingAvailability: EMPTY_BOUNDARY,
+      missingCapabilities: [],
+    };
+  if (!systemAvailabilityFit.fits) {
+    return {
+      status: "unavailable",
+      missingAvailability: systemAvailabilityFit.missingAvailability,
+    };
+  }
+
+  const existingIdentity = currentSessionIdentityAnchor(args);
+  if (!sameIdentityAnchor(existingIdentity, args.requestedIdentity)) {
+    return { status: "approval_required", delta: EMPTY_BOUNDARY };
+  }
+
+  if (!args.identityEnvelope) {
+    return { status: "approval_required", delta: requestedBoundary };
+  }
+
+  const delta = computeEnvelopeDelta(args.identityEnvelope, requestedBoundary);
+  if (
+    delta.contracts.length > 0 || delta.surfaces.length > 0 ||
+    delta.capabilities.length > 0 || delta.resources.length > 0
+  ) {
+    return { status: "approval_required", delta };
+  }
+
+  if (
+    !isSubset(
+      args.resolution.plan.publishSubjects,
+      args.delegatedPublishSubjects,
+    )
+  ) {
+    return { status: "approval_required", delta: EMPTY_BOUNDARY };
   }
   if (
     !isSubset(
-      approvalCapabilityKeys(resolution.plan.approval),
-      session.delegatedCapabilities,
+      args.resolution.plan.subscribeSubjects,
+      args.delegatedSubscribeSubjects,
     )
   ) {
-    return false;
+    return { status: "approval_required", delta: EMPTY_BOUNDARY };
   }
-  if (
-    !isSubset(resolution.plan.publishSubjects, session.delegatedPublishSubjects)
-  ) {
-    return false;
-  }
-  return isSubset(
-    resolution.plan.subscribeSubjects,
-    session.delegatedSubscribeSubjects,
-  );
+
+  return { status: "approved", source: "existing_envelope" };
 }
 
 export function createAuthStartRequestHandler(deps: {
@@ -192,19 +327,23 @@ export function createAuthStartRequestHandler(deps: {
       };
       resolution = await deps.getApprovalResolution(pendingValue);
 
+      const currentSessionApproval = resolveCurrentSessionApproval({
+        ...existingSession,
+        requestedIdentity: requestedIdentityAnchor({
+          sessionKey: req.sessionKey,
+          resolution,
+        }),
+        resolution,
+      });
       const approvalReady = getApprovalResolutionBlocker(resolution) === null &&
-        resolution.missingCapabilities.length === 0 &&
-        (
-          resolution.effectiveApproval.answer === "approved" ||
-          canAutoApproveFromCurrentSession(existingSession, resolution)
-        );
+        currentSessionApproval.status === "approved";
 
       if (approvalReady) {
         return await deps.bindApprovedSession({
           pendingValue,
           resolution,
-          approvalSource: resolution.effectiveApproval.answer === "approved"
-            ? resolution.effectiveApproval.kind
+          approvalSource: currentSessionApproval.source === "user_decision"
+            ? "stored_approval"
             : existingSession.approvalSource ?? "stored_approval",
         });
       }

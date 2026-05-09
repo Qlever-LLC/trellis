@@ -63,7 +63,7 @@ export function registerBrowserAuthRoutes(
     getApprovalResolution: context.requireApprovalResolution,
     planContract: async (contract) => {
       try {
-        return await planUserContractApproval(opts.contractStore, contract);
+        return await planUserContractApproval(opts.contracts, contract);
       } catch (error) {
         const message = getApprovalResolutionErrorMessage(error);
         if (message) {
@@ -83,7 +83,7 @@ export function registerBrowserAuthRoutes(
         throw new HTTPException(400, { message: "contract is required" });
       }
 
-      const known = opts.contractStore.getKnownContract(req.contractDigest);
+      const known = await opts.contracts.getKnownContract(req.contractDigest);
       if (known && req.contract === undefined) {
         return known;
       }
@@ -93,7 +93,7 @@ export function registerBrowserAuthRoutes(
 
       let validated;
       try {
-        validated = await opts.contractStore.validate(req.contract);
+        validated = await opts.contracts.validateContract(req.contract);
       } catch (error) {
         logger.warn({ error }, "Unable to validate app auth contract manifest");
         throw new HTTPException(409, { message: "invalid_manifest" });
@@ -113,7 +113,6 @@ export function registerBrowserAuthRoutes(
           contract: validated.canonical,
         });
       }
-      opts.contractStore.add(validated.digest, validated.contract);
       return validated.contract;
     },
     bindApprovedSession: (args) => context.bindResolvedUserSession(args),

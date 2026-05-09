@@ -19,11 +19,24 @@ import { templateToWildcard } from "./subject_templates.ts";
 type CatalogEntry = TrellisCatalogV1["contracts"][number];
 const JsonObjectSchema = Type.Object({}, { additionalProperties: true });
 
-type ActiveSubjectOwner = {
+export type ContractEntry = { digest: string; contract: TrellisContractV1 };
+
+export type ValidatedContract = {
+  digest: string;
+  canonical: string;
+  contract: TrellisContractV1;
+};
+
+export type ActiveSubjectOwner = {
   digest: string;
   contractId: string;
   displayName: string;
   surface: string;
+};
+
+export type ActiveContractIndexes = {
+  digestsByContractId: Map<string, Set<string>>;
+  activeSubjectIndex: Map<string, ActiveSubjectOwner>;
 };
 
 export type ActiveCapabilityDefinition = {
@@ -358,360 +371,224 @@ function validateSchemaRefs(contract: TrellisContractV1) {
   }
 }
 
-export class ContractStore {
-  readonly #contractsByDigest = new Map<string, TrellisContractV1>();
-  readonly #activeDigests = new Set<string>();
-  readonly #builtinDigests = new Set<string>();
-  readonly #activeDigestsById = new Map<string, Set<string>>();
-  readonly #activeSubjectIndex = new Map<
-    string,
-    ActiveSubjectOwner
-  >();
-  readonly #validator: ReturnType<typeof compileSchema>;
+let validator: ReturnType<typeof compileSchema> | undefined;
 
-  constructor(
-    builtins: Array<{ digest: string; contract: TrellisContractV1 }> = [],
-  ) {
-    const schemaPath = new URL(
-      "../../../packages/trellis/contract_support/schemas/trellis.contract.v1.schema.json",
-      import.meta.url,
-    );
-    const contractSchema = Value.Parse(
-      JsonObjectSchema,
-      JSON.parse(Deno.readTextFileSync(schemaPath)),
-    );
-    this.#validator = compileSchema(contractSchema, { drafts: [draft2019] });
+function contractValidator(): ReturnType<typeof compileSchema> {
+  if (validator) return validator;
+  const schemaPath = new URL(
+    "../../../packages/trellis/contract_support/schemas/trellis.contract.v1.schema.json",
+    import.meta.url,
+  );
+  const contractSchema = Value.Parse(
+    JsonObjectSchema,
+    JSON.parse(Deno.readTextFileSync(schemaPath)),
+  );
+  validator = compileSchema(contractSchema, { drafts: [draft2019] });
+  return validator;
+}
 
-    for (const builtin of builtins) {
-      this.add(builtin.digest, builtin.contract);
-      this.#activeDigests.add(builtin.digest);
-      this.#builtinDigests.add(builtin.digest);
+function indexActiveId(
+  index: Map<string, Set<string>>,
+  digest: string,
+  contract: TrellisContractV1,
+): void {
+  const digests = index.get(contract.id) ?? new Set<string>();
+  digests.add(digest);
+  index.set(contract.id, digests);
+}
+
+function indexActiveSubject(
+  index: Map<string, ActiveSubjectOwner>,
+  digest: string,
+  contract: TrellisContractV1,
+  subject: string,
+  surface: string,
+): void {
+  const effectiveSubject = templateToWildcard(subject);
+  const prev = index.get(effectiveSubject);
+  if (prev && (prev.contractId !== contract.id || prev.surface !== surface)) {
+    throw new Error(
+      `Subject '${effectiveSubject}' already registered by '${prev.displayName}' (${prev.contractId})`,
+    );
+  }
+  index.set(effectiveSubject, {
+    digest,
+    contractId: contract.id,
+    displayName: contract.displayName,
+    surface,
+  });
+}
+
+export function buildActiveContractIndexes(
+  entriesByDigest: ReadonlyMap<string, TrellisContractV1>,
+  digests: Iterable<string>,
+): ActiveContractIndexes {
+  const digestsByContractId = new Map<string, Set<string>>();
+  const activeSubjectIndex = new Map<string, ActiveSubjectOwner>();
+  for (const digest of digests) {
+    const contract = entriesByDigest.get(digest);
+    if (!contract) {
+      throw new Error(`Unknown active contract digest '${digest}'`);
     }
-    this.#rebuildActiveSubjectIndex();
-  }
 
-  add(digest: string, contract: TrellisContractV1): void {
-    this.#contractsByDigest.set(digest, contract);
-  }
+    indexActiveId(digestsByContractId, digest, contract);
 
-  #indexActiveId(
-    index: Map<string, Set<string>>,
-    digest: string,
-    contract: TrellisContractV1,
-  ): void {
-    const digests = index.get(contract.id) ??
-      new Set<string>();
-    digests.add(digest);
-    index.set(contract.id, digests);
-  }
-
-  #indexActiveSubject(
-    index: Map<string, ActiveSubjectOwner>,
-    digest: string,
-    contract: TrellisContractV1,
-    subject: string,
-    surface: string,
-  ) {
-    const effectiveSubject = templateToWildcard(subject);
-    const prev = index.get(effectiveSubject);
-    if (prev && (prev.contractId !== contract.id || prev.surface !== surface)) {
-      throw new Error(
-        `Subject '${effectiveSubject}' already registered by '${prev.displayName}' (${prev.contractId})`,
+    for (
+      const [key, m] of Object.entries(contract.rpc ?? {}) as Array<
+        [string, NonNullable<TrellisContractV1["rpc"]>[string]]
+      >
+    ) {
+      indexActiveSubject(
+        activeSubjectIndex,
+        digest,
+        contract,
+        m.subject,
+        `rpc.${key}`,
       );
     }
-    index.set(effectiveSubject, {
-      digest,
-      contractId: contract.id,
-      displayName: contract.displayName,
-      surface,
-    });
-  }
-
-  #buildActiveIndexes(activeDigests: Iterable<string>): {
-    activeDigestsById: Map<string, Set<string>>;
-    activeSubjectIndex: Map<string, ActiveSubjectOwner>;
-  } {
-    const activeDigestsById = new Map<string, Set<string>>();
-    const activeSubjectIndex = new Map<string, ActiveSubjectOwner>();
-    for (const digest of activeDigests) {
-      const contract = this.#contractsByDigest.get(digest);
-      if (!contract) {
-        throw new Error(`Unknown active contract digest '${digest}'`);
-      }
-
-      this.#indexActiveId(activeDigestsById, digest, contract);
-
-      for (
-        const [key, m] of Object.entries(contract.rpc ?? {}) as Array<
-          [string, NonNullable<TrellisContractV1["rpc"]>[string]]
-        >
-      ) {
-        this.#indexActiveSubject(
-          activeSubjectIndex,
-          digest,
-          contract,
-          m.subject,
-          `rpc.${key}`,
-        );
-      }
-      for (
-        const [key, o] of Object.entries(contract.operations ?? {}) as Array<
-          [string, NonNullable<TrellisContractV1["operations"]>[string]]
-        >
-      ) {
-        this.#indexActiveSubject(
-          activeSubjectIndex,
-          digest,
-          contract,
-          o.subject,
-          `operations.${key}`,
-        );
-      }
-      for (
-        const [key, e] of Object.entries(contract.events ?? {}) as Array<
-          [string, NonNullable<TrellisContractV1["events"]>[string]]
-        >
-      ) {
-        this.#indexActiveSubject(
-          activeSubjectIndex,
-          digest,
-          contract,
-          e.subject,
-          `events.${key}`,
-        );
-      }
-    }
-    return { activeDigestsById, activeSubjectIndex };
-  }
-
-  #rebuildActiveSubjectIndex(): void {
-    const { activeDigestsById, activeSubjectIndex } = this.#buildActiveIndexes(
-      this.#activeDigests,
-    );
-    this.#activeDigestsById.clear();
-    this.#activeSubjectIndex.clear();
-    for (const [id, digests] of activeDigestsById) {
-      this.#activeDigestsById.set(id, digests);
-    }
-    for (const [subject, owner] of activeSubjectIndex) {
-      this.#activeSubjectIndex.set(subject, owner);
-    }
-  }
-
-  findActiveSubject(
-    subject: string,
-  ): ActiveSubjectOwner | undefined {
-    return this.#activeSubjectIndex.get(templateToWildcard(subject));
-  }
-
-  isActiveDigest(digest: string): boolean {
-    return this.#activeDigests.has(digest);
-  }
-
-  activateDigest(digest: string): void {
-    if (!this.#contractsByDigest.has(digest)) {
-      return;
-    }
-    this.#activeDigests.add(digest);
-    this.#rebuildActiveSubjectIndex();
-  }
-
-  /**
-   * Return every active compatible contract digest for a contract lineage.
-   */
-  getActiveContractsById(id: string): TrellisContractV1[] {
-    const digests = this.#activeDigestsById.get(id);
-    if (!digests) return [];
-
-    const contracts: TrellisContractV1[] = [];
-    for (const digest of digests) {
-      const contract = this.#contractsByDigest.get(digest);
-      if (contract) contracts.push(contract);
-    }
-    return contracts;
-  }
-
-  getKnownContractsById(id: string): TrellisContractV1[] {
-    const contracts: TrellisContractV1[] = [];
-    for (const contract of this.#contractsByDigest.values()) {
-      if (contract.id === id) contracts.push(contract);
-    }
-    return contracts;
-  }
-
-  setActiveDigests(digests: Iterable<string>): void {
-    const nextActiveDigests = new Set<string>();
-    for (const digest of digests) {
-      if (!this.#contractsByDigest.has(digest)) {
-        throw new Error(`Unknown active contract digest '${digest}'`);
-      }
-      nextActiveDigests.add(digest);
-    }
-    const { activeDigestsById, activeSubjectIndex } = this.#buildActiveIndexes(
-      nextActiveDigests,
-    );
-
-    this.#activeDigests.clear();
-    for (const digest of nextActiveDigests) {
-      this.#activeDigests.add(digest);
-    }
-    this.#activeDigestsById.clear();
-    for (const [id, activeIdDigests] of activeDigestsById) {
-      this.#activeDigestsById.set(id, activeIdDigests);
-    }
-    this.#activeSubjectIndex.clear();
-    for (const [subject, owner] of activeSubjectIndex) {
-      this.#activeSubjectIndex.set(subject, owner);
-    }
-  }
-
-  /**
-   * Validate a proposed active digest set without changing active catalog state.
-   */
-  validateActiveDigests(
-    digests: Iterable<string>,
-  ): Array<{ digest: string; contract: TrellisContractV1 }> {
-    const proposedDigests = new Set<string>();
-    for (const digest of digests) {
-      if (!this.#contractsByDigest.has(digest)) {
-        throw new Error(`Unknown active contract digest '${digest}'`);
-      }
-      proposedDigests.add(digest);
-    }
-    this.#buildActiveIndexes(proposedDigests);
-
-    const entries: Array<{ digest: string; contract: TrellisContractV1 }> = [];
-    for (const digest of proposedDigests) {
-      const contract = this.#contractsByDigest.get(digest);
-      if (!contract) {
-        throw new Error(`Unknown active contract digest '${digest}'`);
-      }
-      entries.push({ digest, contract });
-    }
-    return entries;
-  }
-
-  getBuiltinDigests(): string[] {
-    return [...this.#builtinDigests];
-  }
-
-  getContract(
-    digest: string,
-    opts?: { includeInactive?: boolean },
-  ): TrellisContractV1 | undefined {
-    if (!opts?.includeInactive && !this.isActiveDigest(digest)) {
-      return undefined;
-    }
-    return this.#contractsByDigest.get(digest);
-  }
-
-  /**
-   * Return a validated contract cached by digest, regardless of active catalog
-   * membership.
-   */
-  getKnownContract(digest: string): TrellisContractV1 | undefined {
-    return this.#contractsByDigest.get(digest);
-  }
-
-  getActiveContracts(): TrellisContractV1[] {
-    const out: TrellisContractV1[] = [];
-    for (const digest of this.#activeDigests) {
-      const c = this.#contractsByDigest.get(digest);
-      if (c) out.push(c);
-    }
-    return out;
-  }
-
-  getActiveEntries(): Array<{ digest: string; contract: TrellisContractV1 }> {
-    const out: Array<{ digest: string; contract: TrellisContractV1 }> = [];
-    for (const digest of this.#activeDigests) {
-      const contract = this.#contractsByDigest.get(digest);
-      if (contract) out.push({ digest, contract });
-    }
-    return out;
-  }
-
-  getActiveCapabilityDefinitions(): ActiveCapabilityDefinition[] {
-    const capabilities = new Map<string, ActiveCapabilityDefinition>();
-    const entries = this.getActiveEntries().sort((left, right) =>
-      left.contract.id.localeCompare(right.contract.id) ||
-      left.digest.localeCompare(right.digest)
-    );
-
-    for (const { digest, contract } of entries) {
-      for (const [key, metadata] of Object.entries(contract.capabilities ?? {})) {
-        if (capabilities.has(key)) continue;
-        capabilities.set(key, {
-          key,
-          displayName: metadata.displayName,
-          description: metadata.description,
-          ...(metadata.consequence ? { consequence: metadata.consequence } : {}),
-          contractId: contract.id,
-          contractDigest: digest,
-          contractDisplayName: contract.displayName,
-        });
-      }
-    }
-
-    return [...capabilities.values()].sort((left, right) =>
-      left.key.localeCompare(right.key)
-    );
-  }
-
-  getActiveCatalog(): TrellisCatalogV1 {
-    const entries: CatalogEntry[] = [];
-    for (const digest of this.#activeDigests) {
-      const contract = this.#contractsByDigest.get(digest);
-      if (!contract) continue;
-      entries.push({
-        id: contract.id,
+    for (
+      const [key, o] of Object.entries(contract.operations ?? {}) as Array<
+        [string, NonNullable<TrellisContractV1["operations"]>[string]]
+      >
+    ) {
+      indexActiveSubject(
+        activeSubjectIndex,
         digest,
-        displayName: contract.displayName,
-        description: contract.description,
+        contract,
+        o.subject,
+        `operations.${key}`,
+      );
+    }
+    for (
+      const [key, e] of Object.entries(contract.events ?? {}) as Array<
+        [string, NonNullable<TrellisContractV1["events"]>[string]]
+      >
+    ) {
+      indexActiveSubject(
+        activeSubjectIndex,
+        digest,
+        contract,
+        e.subject,
+        `events.${key}`,
+      );
+    }
+  }
+  return { digestsByContractId, activeSubjectIndex };
+}
+
+export function validateActiveDigestEntries(
+  entriesByDigest: ReadonlyMap<string, TrellisContractV1>,
+  digests: Iterable<string>,
+): ContractEntry[] {
+  const proposedDigests = new Set<string>();
+  for (const digest of digests) {
+    if (!entriesByDigest.has(digest)) {
+      throw new Error(`Unknown active contract digest '${digest}'`);
+    }
+    proposedDigests.add(digest);
+  }
+  buildActiveContractIndexes(entriesByDigest, proposedDigests);
+
+  const entries: ContractEntry[] = [];
+  for (const digest of proposedDigests) {
+    const contract = entriesByDigest.get(digest);
+    if (!contract) {
+      throw new Error(`Unknown active contract digest '${digest}'`);
+    }
+    entries.push({ digest, contract });
+  }
+  return entries;
+}
+
+export function findActiveSubject(
+  index: ReadonlyMap<string, ActiveSubjectOwner>,
+  subject: string,
+): ActiveSubjectOwner | undefined {
+  return index.get(templateToWildcard(subject));
+}
+
+export function getContractsById(
+  entries: Iterable<ContractEntry>,
+  id: string,
+): TrellisContractV1[] {
+  const contracts: TrellisContractV1[] = [];
+  for (const entry of entries) {
+    if (entry.contract.id === id) contracts.push(entry.contract);
+  }
+  return contracts;
+}
+
+export function getActiveCapabilityDefinitions(
+  entries: Iterable<ContractEntry>,
+): ActiveCapabilityDefinition[] {
+  const capabilities = new Map<string, ActiveCapabilityDefinition>();
+  const sortedEntries = [...entries].sort((left, right) =>
+    left.contract.id.localeCompare(right.contract.id) ||
+    left.digest.localeCompare(right.digest)
+  );
+
+  for (const { digest, contract } of sortedEntries) {
+    for (const [key, metadata] of Object.entries(contract.capabilities ?? {})) {
+      if (capabilities.has(key)) continue;
+      capabilities.set(key, {
+        key,
+        displayName: metadata.displayName,
+        description: metadata.description,
+        ...(metadata.consequence ? { consequence: metadata.consequence } : {}),
+        contractId: contract.id,
+        contractDigest: digest,
+        contractDisplayName: contract.displayName,
       });
     }
-    entries.sort((a, b) =>
-      a.id.localeCompare(b.id) || a.digest.localeCompare(b.digest)
-    );
-    return { format: "trellis.catalog.v1", contracts: entries };
   }
 
-  async validate(
-    raw: unknown,
-  ): Promise<
-    { digest: string; canonical: string; contract: TrellisContractV1 }
-  > {
-    assertObject(raw);
-    if (!isJsonValue(raw)) {
-      throw new Error("Contract must be a pure JSON value");
-    }
-    assertNoUnsupportedSubjects(raw);
+  return [...capabilities.values()].sort((left, right) =>
+    left.key.localeCompare(right.key)
+  );
+}
 
-    const { valid, errors } = this.#validator.validate(raw);
-    if (!valid) {
-      const msg = errors.map((
-        e: { data: { pointer: string }; message: string },
-      ) => `${e.data.pointer}: ${e.message}`).join("\n");
-      throw new Error(`Invalid contract:\n${msg}`);
-    }
+export function getActiveCatalog(
+  entries: Iterable<ContractEntry>,
+): TrellisCatalogV1 {
+  const contracts: CatalogEntry[] = [];
+  for (const { digest, contract } of entries) {
+    contracts.push({
+      id: contract.id,
+      digest,
+      displayName: contract.displayName,
+      description: contract.description,
+    });
+  }
+  contracts.sort((a, b) =>
+    a.id.localeCompare(b.id) || a.digest.localeCompare(b.digest)
+  );
+  return { format: "trellis.catalog.v1", contracts };
+}
 
-    assertValidContractValue(raw);
-    const contract = normalizeContractManifest(raw);
-    validateEmbeddedSchemas(contract);
-    validateSchemaRefs(contract);
-    validateEventTemplateParams(contract);
-    const canonical = canonicalizeJson(raw as JsonValue);
-    const digest = digestContractManifest(contract);
+export async function validateContractManifest(
+  raw: unknown,
+): Promise<ValidatedContract> {
+  assertObject(raw);
+  if (!isJsonValue(raw)) {
+    throw new Error("Contract must be a pure JSON value");
+  }
+  assertNoUnsupportedSubjects(raw);
 
-    return { digest, canonical, contract };
+  const { valid, errors } = contractValidator().validate(raw);
+  if (!valid) {
+    const msg = errors.map((
+      e: { data: { pointer: string }; message: string },
+    ) => `${e.data.pointer}: ${e.message}`).join("\n");
+    throw new Error(`Invalid contract:\n${msg}`);
   }
 
-  /**
-   * Add a validated contract and mark it active.
-   */
-  activate(digest: string, contract: TrellisContractV1): void {
-    this.add(digest, contract);
-    this.#activeDigests.add(digest);
-    this.#rebuildActiveSubjectIndex();
-  }
+  assertValidContractValue(raw);
+  const contract = normalizeContractManifest(raw);
+  validateEmbeddedSchemas(contract);
+  validateSchemaRefs(contract);
+  validateEventTemplateParams(contract);
+  const canonical = canonicalizeJson(raw as JsonValue);
+  const digest = digestContractManifest(contract);
+
+  return { digest, canonical, contract };
 }

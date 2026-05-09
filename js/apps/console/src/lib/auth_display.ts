@@ -48,8 +48,11 @@ export type ConnectionRecord = SharedRecord & {
 };
 
 export type UserGrantRecord = {
-  contractDigest: string;
-  contractId: string;
+  identityEnvelopeId: string;
+  contractEvidence: {
+    contractDigest: string;
+    contractId: string;
+  };
   displayName: string;
   description: string;
   participantKind: "app" | "agent";
@@ -161,10 +164,10 @@ export function describeUserGrant(
   grant: UserGrantRecord,
 ): { title: string; details: string } {
   return {
-    title: grant.displayName || grant.contractId,
+    title: grant.displayName || grant.contractEvidence.contractId,
     details: joinDetails([
       `${participantKindLabel(grant.participantKind)} grant`,
-      grant.contractId,
+      grant.contractEvidence.contractId,
     ]),
   };
 }

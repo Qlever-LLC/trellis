@@ -100,6 +100,7 @@ function sessionStorageFromKV(kv: InMemoryKV<Session>) {
 function userSessionFields() {
   return {
     participantKind: "app" as const,
+    identityEnvelopeId: "env-console",
     contractDigest: "digest",
     contractId: "trellis.console@v1",
     contractDisplayName: "Trellis Console",
@@ -110,7 +111,7 @@ function userSessionFields() {
     },
     delegatedCapabilities: ["admin"],
     delegatedPublishSubjects: ["rpc.v1.Auth.ListServices"],
-    delegatedSubscribeSubjects: ["events.v1.Auth.Connect"],
+    delegatedSubscribeSubjects: ["events.v1.Auth.Connections.Opened"],
   };
 }
 
@@ -322,13 +323,14 @@ Deno.test("ensureBoundUserSession clears stale app identity when the rebound ses
     email: "new@example.com",
     name: "Alice",
     participantKind: "app",
+    identityEnvelopeId: "env-console",
     contractDigest: "digest",
     contractId: "trellis.console@v1",
     contractDisplayName: "Trellis Console",
     contractDescription: "Admin app",
     delegatedCapabilities: ["admin"],
     delegatedPublishSubjects: ["rpc.v1.Auth.ListServices"],
-    delegatedSubscribeSubjects: ["events.v1.Auth.Connect"],
+    delegatedSubscribeSubjects: ["events.v1.Auth.Connections.Opened"],
   });
 
   const v = res.take();

@@ -1,32 +1,6 @@
-use std::path::PathBuf;
 use std::str::FromStr;
 
-use clap::{ArgGroup, Args, Subcommand, ValueEnum};
-
-#[derive(Debug, Args, Clone)]
-#[command(group(
-    ArgGroup::new("contract-source")
-        .args(["manifest", "source", "image"])
-        .required(true)
-        .multiple(false)
-))]
-/// One concrete way to load a contract before deployment.
-pub struct ContractInputArgs {
-    #[arg(long, value_name = "CONTRACT_JSON", group = "contract-source")]
-    pub manifest: Option<PathBuf>,
-
-    #[arg(long, value_name = "CONTRACT_SOURCE", group = "contract-source")]
-    pub source: Option<PathBuf>,
-
-    #[arg(long, value_name = "OCI_IMAGE", group = "contract-source")]
-    pub image: Option<String>,
-
-    #[arg(long, default_value = "CONTRACT")]
-    pub source_export: String,
-
-    #[arg(long, default_value = "/trellis/contract.json")]
-    pub image_contract_path: String,
-}
+use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
 /// Review mode enforced for newly activated devices in a deployment.
@@ -36,10 +10,10 @@ pub enum DeviceReviewMode {
 }
 
 impl DeviceReviewMode {
-    pub fn as_wire_value(self) -> &'static str {
+    pub fn as_optional_wire_value(self) -> Option<&'static str> {
         match self {
-            Self::None => "none",
-            Self::Required => "required",
+            Self::None => None,
+            Self::Required => Some("required"),
         }
     }
 }
@@ -114,10 +88,6 @@ pub enum DeploySubcommand {
     Show(DeployRefArgs),
     /// Create one deployment.
     Create(DeployCreateArgs),
-    /// Apply one contract lineage or digest set to a deployment.
-    Apply(DeployApplyArgs),
-    /// Unapply one contract lineage or digest set from a deployment.
-    Unapply(DeployUnapplyArgs),
     /// Disable one deployment.
     Disable(DeployRefArgs),
     /// Enable one deployment.
@@ -184,9 +154,6 @@ pub struct DeployListArgs {
 
     #[arg(long)]
     pub disabled: bool,
-
-    #[arg(long = "contract")]
-    pub contract: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -208,33 +175,6 @@ pub struct DeployCreateArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct DeployApplyArgs {
-    #[arg(value_name = "REF")]
-    pub reference: DeployRef,
-
-    #[command(flatten)]
-    pub contract: ContractInputArgs,
-
-    #[arg(short = 'f', long)]
-    pub force: bool,
-
-    #[arg(long)]
-    pub replace: bool,
-}
-
-#[derive(Debug, Args)]
-pub struct DeployUnapplyArgs {
-    #[arg(value_name = "REF")]
-    pub reference: DeployRef,
-
-    #[arg(value_name = "CONTRACT")]
-    pub contract_id: String,
-
-    #[arg(long = "digest", value_delimiter = ',')]
-    pub digests: Vec<String>,
-}
-
-#[derive(Debug, Args)]
 pub struct DeployRemoveArgs {
     #[arg(value_name = "REF")]
     pub reference: DeployRef,
@@ -248,9 +188,6 @@ pub struct DeployRemoveArgs {
     #[arg(long, requires = "cascade")]
     pub purge: bool,
 
-    #[arg(long = "purge-resources", requires = "cascade")]
-    pub purge_resources: bool,
-
     #[arg(long = "purge-unused-contracts", requires = "cascade")]
     pub purge_unused_contracts: bool,
 }
@@ -258,21 +195,13 @@ pub struct DeployRemoveArgs {
 impl DeployRemoveArgs {
     /// Validate remove options that depend on the parsed deployment kind.
     pub fn validate(&self) -> Result<(), String> {
-        if (self.purge || self.purge_resources || self.purge_unused_contracts) && !self.cascade {
+        if (self.purge || self.purge_unused_contracts) && !self.cascade {
             return Err("purge flags require --cascade".to_string());
-        }
-        if self.reference.kind == DeployKind::Device && self.purge_resources {
-            return Err("--purge-resources is only supported for service deployments".to_string());
         }
         Ok(())
     }
 
-    /// Returns whether service-owned physical resources should be purged.
-    pub fn should_purge_resources(&self) -> bool {
-        self.reference.kind == DeployKind::Service && (self.purge || self.purge_resources)
-    }
-
-    /// Returns whether unused installed contract records should be purged.
+    /// Returns whether unused deployment contract records should be purged.
     pub fn should_purge_unused_contracts(&self) -> bool {
         self.purge || self.purge_unused_contracts
     }

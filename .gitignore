@@ -52,6 +52,7 @@ guides/static/api/typescript/
 xtask/target/
 rust/target/
 rust/**/target/
+demos/rust/target/
 xtask/Cargo.lock
 rust/xtask/Cargo.lock
 rust/tools/generate/Cargo.lock

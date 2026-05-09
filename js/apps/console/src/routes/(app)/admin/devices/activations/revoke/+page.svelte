@@ -1,8 +1,8 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthListDeviceActivationsOutput,
-    AuthRevokeDeviceActivationInput,
+    AuthDeviceUserAuthoritiesListOutput,
+    AuthDeviceUserAuthoritiesRevokeInput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -15,7 +15,7 @@
   import { getNotifications } from "$lib/notifications.svelte";
   import { getTrellis } from "$lib/trellis";
 
-  type Activation = AuthListDeviceActivationsOutput["activations"][number];
+  type Activation = AuthDeviceUserAuthoritiesListOutput["activations"][number];
 
   const trellis = getTrellis();
   const notifications = getNotifications();
@@ -33,7 +33,7 @@
     loading = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.ListDeviceActivations", { state: "activated" }).take();
+      const response = await trellis.request("Auth.DeviceUserAuthorities.List", { state: "activated", limit: 500, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       const loadedActivations = response.activations ?? [];
       const loadedActiveActivations = loadedActivations.filter((activation) => activation.state === "activated");
@@ -57,8 +57,8 @@
     error = null;
     try {
       const response = await trellis.request(
-        "Auth.RevokeDeviceActivation",
-        { instanceId: selectedActivation.instanceId } satisfies AuthRevokeDeviceActivationInput,
+        "Auth.DeviceUserAuthorities.Revoke",
+        { instanceId: selectedActivation.instanceId } satisfies AuthDeviceUserAuthoritiesRevokeInput,
       ).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Device activation revoked for ${selectedActivation.instanceId}.`, "Revoked");

@@ -10,35 +10,29 @@ import {
   Result,
 } from "@qlever-llc/result";
 import type { NatsConnection } from "@nats-io/nats-core";
-import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import {
-  type ContractResourceBindings,
   createNatsResourcePurgeManager,
-  provisionContractResourceBindings,
   type PurgeableContractResourceBindings,
   purgeContractResourceBindings,
-  type ResourceProvisioningOptions,
 } from "../../catalog/resources.ts";
 
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import {
   type Connection,
-  type ContractApprovalRecord,
+  type DeploymentEnvelope,
+  type DeploymentResourceBinding,
+  type EnvelopeBoundary,
+  type IdentityEnvelopeRecord,
   ServiceInstanceSchema,
 } from "../schemas.ts";
-import type { SqlSessionRepository } from "../storage.ts";
+import type { BoundedListQuery, SqlSessionRepository } from "../storage.ts";
 import type { StaticDecode } from "typebox";
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
 import {
-  collectAppliedContractDigests,
+  collectDeploymentContractEvidenceDigests,
   purgeUnusedInstalledContracts,
 } from "./contract_gc.ts";
 import {
-  applyInstalledServiceDeploymentContract,
-  type CompatibilityPolicy,
-  type FirstConnectPolicy,
-  isCompatibilityPolicy,
-  normalizeAppliedContracts,
   type ServiceDeployment,
   validateServiceDeploymentRequest,
   validateServiceProvisionRequest,
@@ -48,35 +42,82 @@ type ServiceInstance = StaticDecode<typeof ServiceInstanceSchema>;
 
 type RpcUser = { type: string; id?: string; capabilities?: string[] };
 
+const EMPTY_BOUNDARY: EnvelopeBoundary = {
+  contracts: [],
+  surfaces: [],
+  capabilities: [],
+  resources: [],
+};
+
 type ServiceDeploymentStorage = {
   get(deploymentId: string): Promise<ServiceDeployment | undefined>;
   put(record: ServiceDeployment): Promise<void>;
   delete(deploymentId: string): Promise<void>;
-  list(): Promise<ServiceDeployment[]>;
+  listPage(query: BoundedListQuery): Promise<ServiceDeployment[]>;
+  listFiltered(
+    filters: { disabled?: boolean },
+    query: BoundedListQuery,
+  ): Promise<ServiceDeployment[]>;
+  listByDeploymentIds?(
+    deploymentIds: Iterable<string>,
+    filters?: { disabled?: boolean },
+  ): Promise<ServiceDeployment[]>;
 };
 type ServiceInstanceStorage = {
   get(instanceId: string): Promise<ServiceInstance | undefined>;
   getByInstanceKey(instanceKey: string): Promise<ServiceInstance | undefined>;
   put(record: ServiceInstance): Promise<void>;
   delete(instanceId: string): Promise<void>;
-  list(): Promise<ServiceInstance[]>;
-  listByDeployment(deploymentId: string): Promise<ServiceInstance[]>;
+  listPage(query: BoundedListQuery): Promise<ServiceInstance[]>;
+  listFiltered(
+    filters: { disabled?: boolean },
+    query: BoundedListQuery,
+  ): Promise<ServiceInstance[]>;
+  listByCurrentContractDigests?(
+    contractDigests: Iterable<string>,
+  ): Promise<ServiceInstance[]>;
+  listByDeployment(
+    deploymentId: string,
+    filters?: { disabled?: boolean },
+  ): Promise<ServiceInstance[]>;
 };
 type RuntimeKickDeps = {
   connectionsKV: KVLike<Connection>;
   sessionStorage:
     & Pick<SqlSessionRepository, "deleteByInstanceKey">
-    & Partial<Pick<SqlSessionRepository, "listEntries">>;
+    & Partial<
+      Pick<SqlSessionRepository, "listEntries" | "listEntriesByContractDigests">
+    >;
 };
-type InstalledContractGcDeps = {
+type InstalledContractCleanupDeps = {
   builtinContractDigests?: Iterable<string>;
   contractStorage?: { delete(digest: string): Promise<void> };
   deviceDeploymentStorage?: {
-    list(): Promise<
-      Array<{ appliedContracts: Array<{ allowedDigests: string[] }> }>
+    listByDeploymentIds?(
+      deploymentIds: Iterable<string>,
+      filters?: { disabled?: boolean },
+    ): Promise<Array<{ deploymentId: string; disabled?: boolean }>>;
+  };
+  deploymentContractEvidenceStorage?: {
+    listByDeployment(deploymentId: string): Promise<
+      Array<
+        { deploymentId: string; contractId: string; contractDigest: string }
+      >
+    >;
+    listByDigests?(contractDigests: Iterable<string>): Promise<
+      Array<
+        { deploymentId: string; contractId: string; contractDigest: string }
+      >
     >;
   };
-  contractApprovalStorage?: { list(): Promise<ContractApprovalRecord[]> };
+  contractApprovalStorage?: {
+    listByApprovalEvidenceContractDigests?(
+      contractDigests: Iterable<string>,
+    ): Promise<IdentityEnvelopeRecord[]>;
+  };
+};
+type DeploymentResourceBindingStorage = {
+  listByDeployment(deploymentId: string): Promise<DeploymentResourceBinding[]>;
 };
 type ActiveCatalogValidator = (validationOpts: {
   extraActiveDigests?: Iterable<string>;
@@ -86,6 +127,10 @@ type ActiveCatalogValidator = (validationOpts: {
 type ActiveContractsRefresher = (
   validationOpts?: Parameters<ActiveCatalogValidator>[0],
 ) => Promise<void>;
+type DeploymentEnvelopeStorage = {
+  get(deploymentId: string): Promise<DeploymentEnvelope | undefined>;
+  put(record: DeploymentEnvelope): Promise<void>;
+};
 
 export type ServiceAdminRpcDeps = {
   logger:
@@ -93,6 +138,7 @@ export type ServiceAdminRpcDeps = {
     & Partial<Pick<AuthRuntimeDeps["logger"], "warn">>;
   serviceDeploymentStorage: ServiceDeploymentStorage;
   serviceInstanceStorage: ServiceInstanceStorage;
+  deploymentEnvelopeStorage?: DeploymentEnvelopeStorage;
 };
 
 type KVLike<V> = {
@@ -178,6 +224,43 @@ async function validateActiveCatalog(
   }
 }
 
+async function setDeploymentEnvelopeDisabled(args: {
+  storage: DeploymentEnvelopeStorage;
+  deploymentId: string;
+  disabled: boolean;
+  now?: string;
+}): Promise<DeploymentEnvelope> {
+  const envelope = await args.storage.get(args.deploymentId);
+  if (!envelope) throw new Error("deployment envelope not found");
+  if (envelope.disabled === args.disabled) return envelope;
+  await args.storage.put({
+    ...envelope,
+    disabled: args.disabled,
+    updatedAt: args.now ?? new Date().toISOString(),
+  });
+  return envelope;
+}
+
+async function setDeploymentEnvelopeDisabledIfPresent(args: {
+  storage: DeploymentEnvelopeStorage;
+  deploymentId: string;
+  disabled: boolean;
+  now?: string;
+}): Promise<void> {
+  let envelope: DeploymentEnvelope | undefined;
+  try {
+    envelope = await args.storage.get(args.deploymentId);
+  } catch {
+    return;
+  }
+  if (!envelope || envelope.disabled === args.disabled) return;
+  await args.storage.put({
+    ...envelope,
+    disabled: args.disabled,
+    updatedAt: args.now ?? new Date().toISOString(),
+  });
+}
+
 async function rollbackRefreshFailure<T>(
   refreshError: UnexpectedError,
   rollback: () => Promise<void>,
@@ -201,58 +284,223 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-function missingGcDependency(name: string): UnexpectedError {
+function missingInstalledContractCleanupDependency(
+  name: string,
+): UnexpectedError {
   return new UnexpectedError({
-    cause: new Error(`unused contract purge requires ${name}`),
+    cause: new Error(`unused contract cleanup requires ${name}`),
   });
 }
 
-function buildInstalledContractGcDeps(
+function stringField(
+  value: Record<string, unknown>,
+  field: string,
+): string | undefined {
+  const fieldValue = value[field];
+  return typeof fieldValue === "string" && fieldValue.length > 0
+    ? fieldValue
+    : undefined;
+}
+
+function deploymentResourceBindingsToPurgeable(
+  bindings: DeploymentResourceBinding[],
+): PurgeableContractResourceBindings[] {
+  const purgeable: PurgeableContractResourceBindings = {};
+  for (const binding of bindings) {
+    if (binding.kind === "kv") {
+      const bucket = stringField(binding.binding, "bucket");
+      if (bucket) {
+        purgeable.kv ??= {};
+        purgeable.kv[binding.alias] = {
+          bucket,
+          history: typeof binding.binding.history === "number"
+            ? binding.binding.history
+            : 0,
+          ttlMs: typeof binding.binding.ttlMs === "number"
+            ? binding.binding.ttlMs
+            : 0,
+          ...(typeof binding.binding.maxValueBytes === "number"
+            ? { maxValueBytes: binding.binding.maxValueBytes }
+            : {}),
+        };
+      }
+      continue;
+    }
+    if (binding.kind === "store") {
+      const name = stringField(binding.binding, "name");
+      if (name) {
+        purgeable.store ??= {};
+        purgeable.store[binding.alias] = {
+          name,
+          ttlMs: typeof binding.binding.ttlMs === "number"
+            ? binding.binding.ttlMs
+            : 0,
+          ...(typeof binding.binding.maxTotalBytes === "number"
+            ? { maxTotalBytes: binding.binding.maxTotalBytes }
+            : {}),
+        };
+      }
+    }
+  }
+  return [purgeable];
+}
+
+function buildInstalledContractCleanupDeps(
   deps:
     & {
       serviceDeploymentStorage: ServiceDeploymentStorage;
       serviceInstanceStorage: ServiceInstanceStorage;
     }
     & RuntimeKickDeps
-    & InstalledContractGcDeps,
+    & InstalledContractCleanupDeps,
 ):
   | { ok: true; deps: Parameters<typeof purgeUnusedInstalledContracts>[1] }
   | { ok: false; error: UnexpectedError } {
   if (!deps.contractStorage) {
-    return { ok: false, error: missingGcDependency("contractStorage") };
-  }
-  if (!deps.deviceDeploymentStorage) {
-    return { ok: false, error: missingGcDependency("deviceDeploymentStorage") };
-  }
-  if (!deps.contractApprovalStorage) {
-    return { ok: false, error: missingGcDependency("contractApprovalStorage") };
-  }
-  if (!deps.sessionStorage.listEntries) {
     return {
       ok: false,
-      error: missingGcDependency("sessionStorage.listEntries"),
+      error: missingInstalledContractCleanupDependency("contractStorage"),
     };
   }
+  if (!deps.deviceDeploymentStorage) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "deviceDeploymentStorage",
+      ),
+    };
+  }
+  if (!deps.contractApprovalStorage) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "contractApprovalStorage",
+      ),
+    };
+  }
+  if (!deps.deploymentContractEvidenceStorage) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "deploymentContractEvidenceStorage",
+      ),
+    };
+  }
+  if (!deps.serviceDeploymentStorage.listByDeploymentIds) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "serviceDeploymentStorage.listByDeploymentIds",
+      ),
+    };
+  }
+  if (!deps.deviceDeploymentStorage.listByDeploymentIds) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "deviceDeploymentStorage.listByDeploymentIds",
+      ),
+    };
+  }
+  if (!deps.deploymentContractEvidenceStorage.listByDigests) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "deploymentContractEvidenceStorage.listByDigests",
+      ),
+    };
+  }
+  if (!deps.serviceInstanceStorage.listByCurrentContractDigests) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "serviceInstanceStorage.listByCurrentContractDigests",
+      ),
+    };
+  }
+  if (!deps.sessionStorage.listEntriesByContractDigests) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "sessionStorage.listEntriesByContractDigests",
+      ),
+    };
+  }
+  if (!deps.contractApprovalStorage.listByApprovalEvidenceContractDigests) {
+    return {
+      ok: false,
+      error: missingInstalledContractCleanupDependency(
+        "contractApprovalStorage.listByApprovalEvidenceContractDigests",
+      ),
+    };
+  }
+  const serviceDeploymentStorage = deps.serviceDeploymentStorage
+    .listByDeploymentIds;
+  const deviceDeploymentStorage = deps.deviceDeploymentStorage
+    .listByDeploymentIds;
+  const listEvidenceByDigests = deps.deploymentContractEvidenceStorage
+    .listByDigests;
+  const listInstancesByDigest = deps.serviceInstanceStorage
+    .listByCurrentContractDigests;
+  const listSessionsByDigest = deps.sessionStorage.listEntriesByContractDigests;
+  const listApprovalsByDigest = deps.contractApprovalStorage
+    .listByApprovalEvidenceContractDigests;
   return {
     ok: true,
     deps: {
       builtinContractDigests: deps.builtinContractDigests ?? [],
       contractStorage: deps.contractStorage,
-      serviceDeploymentStorage: deps.serviceDeploymentStorage,
-      deviceDeploymentStorage: deps.deviceDeploymentStorage,
-      serviceInstanceStorage: deps.serviceInstanceStorage,
-      sessionStorage: { listEntries: deps.sessionStorage.listEntries },
-      contractApprovalStorage: deps.contractApprovalStorage,
+      serviceDeploymentStorage: {
+        listByDeploymentIds: (deploymentIds, filters) =>
+          serviceDeploymentStorage.call(
+            deps.serviceDeploymentStorage,
+            deploymentIds,
+            filters,
+          ),
+      },
+      deviceDeploymentStorage: {
+        listByDeploymentIds: (deploymentIds, filters) =>
+          deviceDeploymentStorage.call(
+            deps.deviceDeploymentStorage,
+            deploymentIds,
+            filters,
+          ),
+      },
+      deploymentContractEvidenceStorage: {
+        listByDigests: (contractDigests) =>
+          listEvidenceByDigests.call(
+            deps.deploymentContractEvidenceStorage,
+            contractDigests,
+          ),
+      },
+      serviceInstanceStorage: {
+        listByCurrentContractDigests: (contractDigests) =>
+          listInstancesByDigest.call(
+            deps.serviceInstanceStorage,
+            contractDigests,
+          ),
+      },
+      sessionStorage: {
+        listEntriesByContractDigests: (contractDigests) =>
+          listSessionsByDigest.call(deps.sessionStorage, contractDigests),
+      },
+      contractApprovalStorage: {
+        listByApprovalEvidenceContractDigests: (contractDigests) =>
+          listApprovalsByDigest.call(
+            deps.contractApprovalStorage,
+            contractDigests,
+          ),
+      },
     },
   };
 }
 
-export function createAuthListServiceDeploymentsHandler(
+export function createAuthDeploymentsServiceListHandler(
   serviceDeps: ServiceAdminRpcDeps,
 ) {
   return async (
     { input: req, context: { caller } }: {
-      input: { disabled?: boolean };
+      input: BoundedListQuery & { disabled?: boolean };
       context: { caller: RpcUser };
     },
   ): Promise<
@@ -260,11 +508,14 @@ export function createAuthListServiceDeploymentsHandler(
   > => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const { logger, serviceDeploymentStorage } = serviceDeps;
-    logger.trace({ rpc: "Auth.ListServiceDeployments", caller }, "RPC request");
+    logger.trace(
+      { rpc: "Auth.Deployments.List", kind: "service", caller },
+      "RPC request",
+    );
     try {
-      const deployments = (await serviceDeploymentStorage.list()).filter((
-        deployment,
-      ) => req.disabled === undefined || deployment.disabled === req.disabled);
+      const deployments = await serviceDeploymentStorage.listFiltered!({
+        disabled: req.disabled,
+      }, req);
       return Result.ok({ deployments });
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
@@ -272,7 +523,7 @@ export function createAuthListServiceDeploymentsHandler(
   };
 }
 
-export function createAuthCreateServiceDeploymentHandler(
+export function createAuthDeploymentsServiceCreateHandler(
   serviceDeps: ServiceAdminRpcDeps,
 ) {
   return async (
@@ -283,7 +534,6 @@ export function createAuthCreateServiceDeploymentHandler(
       input: {
         deploymentId: string;
         namespaces: string[];
-        firstConnectPolicy?: FirstConnectPolicy | string;
       };
       context: { caller: RpcUser };
     },
@@ -291,7 +541,8 @@ export function createAuthCreateServiceDeploymentHandler(
     if (!isAdmin(caller)) return insufficientPermissions();
     const { logger, serviceDeploymentStorage } = serviceDeps;
     logger.trace({
-      rpc: "Auth.CreateServiceDeployment",
+      rpc: "Auth.Deployments.Create",
+      kind: "service",
       caller,
       deploymentId: req.deploymentId,
     }, "RPC request");
@@ -310,273 +561,41 @@ export function createAuthCreateServiceDeploymentHandler(
 
     try {
       await serviceDeploymentStorage.put(deployment);
+      if (serviceDeps.deploymentEnvelopeStorage) {
+        const existingEnvelope = await serviceDeps.deploymentEnvelopeStorage
+          .get(
+            deployment.deploymentId,
+          );
+        if (!existingEnvelope) {
+          const now = new Date().toISOString();
+          await serviceDeps.deploymentEnvelopeStorage.put({
+            deploymentId: deployment.deploymentId,
+            kind: "service",
+            disabled: false,
+            createdAt: now,
+            updatedAt: now,
+            boundary: EMPTY_BOUNDARY,
+          });
+        }
+      }
     } catch (error) {
+      await serviceDeploymentStorage.delete(deployment.deploymentId).catch(() =>
+        undefined
+      );
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
     return Result.ok({ deployment });
   };
 }
 
-export function createAuthApplyServiceDeploymentContractHandler(deps: {
-  installServiceContract: (contract: unknown) => Promise<{
-    id: string;
-    digest: string;
-    displayName: string;
-    description: string;
-    usedNamespaces: string[];
-    contract: TrellisContractV1;
-  }>;
-  nats?: NatsConnection;
-  provisionResourceBindings?: (
-    nats: NatsConnection | undefined,
-    contract: TrellisContractV1,
-    deploymentId: string,
-    options?: ResourceProvisioningOptions,
-  ) => Promise<ContractResourceBindings>;
-  resourceProvisioningOptions?: ResourceProvisioningOptions;
-  refreshActiveContracts: () => Promise<void>;
-  serviceDeploymentStorage: ServiceDeploymentStorage;
-  validateActiveCatalog?: ActiveCatalogValidator;
-  logger: Pick<AuthRuntimeDeps["logger"], "trace">;
-}) {
-  return async (args: {
-    input: {
-      deploymentId: string;
-      contract: unknown;
-      expectedDigest: string;
-      compatibilityPolicy?: CompatibilityPolicy | string;
-      replaceExisting?: boolean;
-    };
-    context: { caller: RpcUser };
-  }) => {
-    const { input: req, context: { caller } } = args;
-    if (!isAdmin(caller)) return insufficientPermissions();
-    deps.logger.trace({
-      rpc: "Auth.ApplyServiceDeploymentContract",
-      caller,
-      deploymentId: req.deploymentId,
-    }, "RPC request");
-
-    const deployment = await deps.serviceDeploymentStorage.get(
-      req.deploymentId,
-    );
-    if (!deployment) {
-      return invalid("/deploymentId", "service deployment not found", {
-        deploymentId: req.deploymentId,
-      });
-    }
-
-    const compatibilityPolicy = req.compatibilityPolicy ?? "exact";
-    if (!isCompatibilityPolicy(compatibilityPolicy)) {
-      return invalid(
-        "/compatibilityPolicy",
-        "invalid compatibility policy",
-        { compatibilityPolicy: req.compatibilityPolicy },
-      );
-    }
-
-    const installed = await deps.installServiceContract(req.contract);
-    if (req.expectedDigest !== installed.digest) {
-      return invalid(
-        "/expectedDigest",
-        "contract digest does not match reviewed digest",
-        {
-          expectedDigest: req.expectedDigest,
-          actualDigest: installed.digest,
-          contractId: installed.id,
-        },
-      );
-    }
-
-    if (deps.validateActiveCatalog && !req.replaceExisting) {
-      const validatedDigest = await validateActiveCatalog(
-        deps.validateActiveCatalog,
-        { extraActiveDigests: [installed.digest] },
-      );
-      if (isErr(validatedDigest)) return validatedDigest;
-    }
-
-    let resourceBindings;
-    try {
-      resourceBindings = await (deps.provisionResourceBindings ??
-        provisionContractResourceBindings)(
-          deps.nats,
-          installed.contract,
-          deployment.deploymentId,
-          deps.resourceProvisioningOptions,
-        );
-    } catch (error) {
-      return Result.err(new UnexpectedError({ cause: toError(error) }));
-    }
-
-    const nextDeployment = applyInstalledServiceDeploymentContract(
-      deployment,
-      { ...installed, resourceBindings },
-      { compatibilityPolicy, replaceExisting: req.replaceExisting },
-    );
-
-    if (deps.validateActiveCatalog) {
-      const validatedDeployment = await validateActiveCatalog(
-        deps.validateActiveCatalog,
-        { stagedServiceDeployments: [nextDeployment] },
-      );
-      if (isErr(validatedDeployment)) return validatedDeployment;
-    }
-
-    try {
-      await deps.serviceDeploymentStorage.put(nextDeployment);
-    } catch (error) {
-      return Result.err(new UnexpectedError({ cause: toError(error) }));
-    }
-
-    const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
-    if (isErr(refreshed)) {
-      try {
-        await deps.serviceDeploymentStorage.put(deployment);
-      } catch (rollbackError) {
-        return Result.err(
-          new UnexpectedError({
-            cause: new AggregateError(
-              [refreshed.error, toError(rollbackError)],
-              "active catalog refresh failed and service deployment rollback failed",
-            ),
-          }),
-        );
-      }
-      return refreshed;
-    }
-
-    return Result.ok({
-      deployment: nextDeployment,
-      contract: {
-        digest: installed.digest,
-        id: installed.id,
-        displayName: installed.displayName,
-        description: installed.description,
-        installedAt: new Date().toISOString(),
-      },
-    });
-  };
-}
-
-export function createAuthUnapplyServiceDeploymentContractHandler(
-  deps: {
-    kick: (serverId: string, clientId: number) => Promise<void>;
-    refreshActiveContracts: () => Promise<void>;
-    validateActiveCatalog: ActiveCatalogValidator;
-    logger: Pick<AuthRuntimeDeps["logger"], "trace">;
-    serviceDeploymentStorage: ServiceDeploymentStorage;
-    serviceInstanceStorage: ServiceInstanceStorage;
-  } & RuntimeKickDeps,
-) {
-  return async (
-    {
-      input: req,
-      context: { caller },
-    }: {
-      input: { deploymentId: string; contractId: string; digests?: string[] };
-      context: { caller: RpcUser };
-    },
-  ) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
-    const { logger, serviceDeploymentStorage, serviceInstanceStorage } = deps;
-    logger.trace({
-      rpc: "Auth.UnapplyServiceDeploymentContract",
-      caller,
-      deploymentId: req.deploymentId,
-    }, "RPC request");
-    const deployment = await serviceDeploymentStorage.get(req.deploymentId);
-    if (!deployment) {
-      return invalid("/deploymentId", "service deployment not found", {
-        deploymentId: req.deploymentId,
-      });
-    }
-
-    const removeDigests = new Set(req.digests ?? []);
-    const nextContracts = deployment.appliedContracts
-      .map((applied: ServiceDeployment["appliedContracts"][number]) => {
-        if (applied.contractId !== req.contractId) return applied;
-        if (removeDigests.size === 0) return null;
-        const remaining = applied.allowedDigests.filter((digest: string) =>
-          !removeDigests.has(digest)
-        );
-        return remaining.length > 0
-          ? {
-            ...applied,
-            allowedDigests: remaining,
-            resourceBindingsByDigest: Object.fromEntries(
-              Object.entries(applied.resourceBindingsByDigest ?? {}).filter(
-                ([digest]) => remaining.includes(digest),
-              ),
-            ),
-          }
-          : null;
-      })
-      .filter((
-        value: ServiceDeployment["appliedContracts"][number] | null,
-      ): value is ServiceDeployment["appliedContracts"][number] =>
-        value !== null
-      );
-
-    const nextDeployment: ServiceDeployment = {
-      ...deployment,
-      appliedContracts: normalizeAppliedContracts(nextContracts),
-    };
-
-    try {
-      await deps.validateActiveCatalog({
-        stagedServiceDeployments: [nextDeployment],
-      });
-    } catch (error) {
-      return Result.err(new UnexpectedError({ cause: toError(error) }));
-    }
-
-    try {
-      await serviceDeploymentStorage.put(nextDeployment);
-    } catch (error) {
-      return Result.err(new UnexpectedError({ cause: toError(error) }));
-    }
-
-    const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
-    if (isErr(refreshed)) {
-      try {
-        await serviceDeploymentStorage.put(deployment);
-      } catch (error) {
-        return Result.err(new UnexpectedError({ cause: toError(error) }));
-      }
-      return refreshed;
-    }
-
-    for (
-      const instance of await instancesForDeployment(
-        deployment.deploymentId,
-        serviceInstanceStorage,
-      )
-    ) {
-      if (instance.currentContractId !== req.contractId) continue;
-      if (
-        removeDigests.size > 0 && instance.currentContractDigest &&
-        !removeDigests.has(instance.currentContractDigest)
-      ) continue;
-      await kickInstanceRuntimeAccess({
-        instanceKey: instance.instanceKey,
-        kick: deps.kick,
-        connectionsKV: deps.connectionsKV,
-        sessionStorage: deps.sessionStorage,
-      });
-    }
-
-    return Result.ok({ deployment: nextDeployment });
-  };
-}
-
-export function createAuthDisableServiceDeploymentHandler(
+export function createAuthDeploymentsServiceDisableHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
     validateActiveCatalog: ActiveCatalogValidator;
     serviceDeploymentStorage: ServiceDeploymentStorage;
     serviceInstanceStorage: ServiceInstanceStorage;
+    deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
   } & RuntimeKickDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
@@ -584,7 +603,11 @@ export function createAuthDisableServiceDeploymentHandler(
     context: { caller: RpcUser };
   }) => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const { serviceDeploymentStorage, serviceInstanceStorage } = deps;
+    const {
+      deploymentEnvelopeStorage,
+      serviceDeploymentStorage,
+      serviceInstanceStorage,
+    } = deps;
     const deployment = await serviceDeploymentStorage.get(req.deploymentId);
     if (!deployment) {
       return invalid("/deploymentId", "service deployment not found", {
@@ -598,7 +621,13 @@ export function createAuthDisableServiceDeploymentHandler(
     if (isErr(validated)) return validated;
     try {
       await serviceDeploymentStorage.put(nextDeployment);
+      await setDeploymentEnvelopeDisabled({
+        storage: deploymentEnvelopeStorage,
+        deploymentId: nextDeployment.deploymentId,
+        disabled: true,
+      });
     } catch (error) {
+      await serviceDeploymentStorage.put(deployment).catch(() => undefined);
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
     const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
@@ -607,7 +636,14 @@ export function createAuthDisableServiceDeploymentHandler(
         { deployment: typeof nextDeployment }
       >(
         refreshed.error,
-        () => serviceDeploymentStorage.put(deployment),
+        async () => {
+          await serviceDeploymentStorage.put(deployment);
+          await setDeploymentEnvelopeDisabled({
+            storage: deploymentEnvelopeStorage,
+            deploymentId: deployment.deploymentId,
+            disabled: deployment.disabled,
+          });
+        },
       );
     }
     for (
@@ -627,10 +663,11 @@ export function createAuthDisableServiceDeploymentHandler(
   };
 }
 
-export function createAuthEnableServiceDeploymentHandler(deps: {
+export function createAuthDeploymentsServiceEnableHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
   validateActiveCatalog: ActiveCatalogValidator;
   serviceDeploymentStorage: ServiceDeploymentStorage;
+  deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
 }) {
   return async (
     { input: req, context: { caller } }: {
@@ -644,7 +681,7 @@ export function createAuthEnableServiceDeploymentHandler(deps: {
     >
   > => {
     if (!isAdmin(caller)) return insufficientPermissions();
-    const { serviceDeploymentStorage } = deps;
+    const { deploymentEnvelopeStorage, serviceDeploymentStorage } = deps;
     const deployment = await serviceDeploymentStorage.get(req.deploymentId);
     if (!deployment) {
       return invalid("/deploymentId", "service deployment not found", {
@@ -658,21 +695,34 @@ export function createAuthEnableServiceDeploymentHandler(deps: {
     if (isErr(validated)) return validated;
     try {
       await serviceDeploymentStorage.put(nextDeployment);
+      await setDeploymentEnvelopeDisabled({
+        storage: deploymentEnvelopeStorage,
+        deploymentId: nextDeployment.deploymentId,
+        disabled: false,
+      });
     } catch (error) {
+      await serviceDeploymentStorage.put(deployment).catch(() => undefined);
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
     const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
     if (isErr(refreshed)) {
       return await rollbackRefreshFailure(
         refreshed.error,
-        () => serviceDeploymentStorage.put(deployment),
+        async () => {
+          await serviceDeploymentStorage.put(deployment);
+          await setDeploymentEnvelopeDisabled({
+            storage: deploymentEnvelopeStorage,
+            deploymentId: deployment.deploymentId,
+            disabled: deployment.disabled,
+          });
+        },
       );
     }
     return Result.ok({ deployment: nextDeployment });
   };
 }
 
-export function createAuthRemoveServiceDeploymentHandler(
+export function createAuthDeploymentsServiceRemoveHandler(
   deps:
     & {
       refreshActiveContracts: ActiveContractsRefresher;
@@ -681,7 +731,9 @@ export function createAuthRemoveServiceDeploymentHandler(
       validateActiveCatalogForRemoval?: ActiveCatalogValidator;
       serviceDeploymentStorage: ServiceDeploymentStorage;
       serviceInstanceStorage: ServiceInstanceStorage;
+      deploymentEnvelopeStorage?: DeploymentEnvelopeStorage;
       nats?: NatsConnection;
+      deploymentResourceBindingStorage?: DeploymentResourceBindingStorage;
       logger?: {
         trace?: AuthRuntimeDeps["logger"]["trace"];
         warn?: AuthRuntimeDeps["logger"]["warn"];
@@ -694,7 +746,7 @@ export function createAuthRemoveServiceDeploymentHandler(
     & {
       kick: (serverId: string, clientId: number) => Promise<void>;
     }
-    & InstalledContractGcDeps,
+    & InstalledContractCleanupDeps,
 ) {
   return async (
     { input: req, context: { caller } }: {
@@ -721,7 +773,7 @@ export function createAuthRemoveServiceDeploymentHandler(
     if (req.purgeUnusedContracts === true && req.cascade !== true) {
       return invalid(
         "/purgeUnusedContracts",
-        "unused contract purge requires cascade removal",
+        "unused contract cleanup requires cascade removal",
         { deploymentId: req.deploymentId },
       );
     }
@@ -748,7 +800,6 @@ export function createAuthRemoveServiceDeploymentHandler(
       stagedServiceDeployments: [{
         ...existing,
         disabled: true,
-        appliedContracts: [],
       }],
     };
     if (instances.length > 0) {
@@ -762,23 +813,48 @@ export function createAuthRemoveServiceDeploymentHandler(
       validationOpts,
     );
     if (isErr(validated)) return validated;
-    let installedGcDeps:
+    let installedContractCleanupDeps:
       | Parameters<typeof purgeUnusedInstalledContracts>[1]
       | undefined;
+    let removedContractEvidence: Array<{
+      deploymentId: string;
+      contractId: string;
+      contractDigest: string;
+    }> = [];
     if (req.purgeUnusedContracts === true) {
-      const gcDeps = buildInstalledContractGcDeps(deps);
-      if (!gcDeps.ok) return Result.err(gcDeps.error);
-      installedGcDeps = gcDeps.deps;
+      const cleanupDeps = buildInstalledContractCleanupDeps(deps);
+      if (!cleanupDeps.ok) return Result.err(cleanupDeps.error);
+      installedContractCleanupDeps = cleanupDeps.deps;
+      removedContractEvidence = await deps.deploymentContractEvidenceStorage!
+        .listByDeployment(req.deploymentId);
     }
     const restoreDeletedRecords = async () => {
       await serviceDeploymentStorage.put(existing);
+      if (deps.deploymentEnvelopeStorage) {
+        await setDeploymentEnvelopeDisabledIfPresent({
+          storage: deps.deploymentEnvelopeStorage,
+          deploymentId: existing.deploymentId,
+          disabled: existing.disabled,
+        });
+      }
       for (const instance of instances) {
         await serviceInstanceStorage.put(instance);
       }
     };
     if (req.purgeResources === true) {
-      const bindings = existing.appliedContracts.flatMap((applied) =>
-        Object.values(applied.resourceBindingsByDigest ?? {})
+      if (!deps.deploymentResourceBindingStorage) {
+        return Result.err(
+          new UnexpectedError({
+            cause: new Error(
+              "resource purge requires deploymentResourceBindingStorage",
+            ),
+          }),
+        );
+      }
+      const bindings = deploymentResourceBindingsToPurgeable(
+        await deps.deploymentResourceBindingStorage.listByDeployment(
+          req.deploymentId,
+        ),
       );
       try {
         if (deps.purgeResourceBindings) {
@@ -820,6 +896,13 @@ export function createAuthRemoveServiceDeploymentHandler(
       }
     }
     try {
+      if (deps.deploymentEnvelopeStorage) {
+        await setDeploymentEnvelopeDisabledIfPresent({
+          storage: deps.deploymentEnvelopeStorage,
+          deploymentId: req.deploymentId,
+          disabled: true,
+        });
+      }
       for (const instance of instances) {
         await serviceInstanceStorage.delete(instance.instanceId);
       }
@@ -849,18 +932,22 @@ export function createAuthRemoveServiceDeploymentHandler(
       );
     }
     if (req.purgeUnusedContracts === true) {
-      if (!installedGcDeps) {
-        return Result.err(missingGcDependency("installedContractGcDeps"));
+      if (!installedContractCleanupDeps) {
+        return Result.err(
+          missingInstalledContractCleanupDependency(
+            "installedContractCleanupDeps",
+          ),
+        );
       }
       try {
         await purgeUnusedInstalledContracts(
-          collectAppliedContractDigests(existing),
-          installedGcDeps,
+          collectDeploymentContractEvidenceDigests(removedContractEvidence),
+          installedContractCleanupDeps,
         );
       } catch (error) {
         deps.logger?.warn?.(
           { deploymentId: req.deploymentId, error: toError(error) },
-          "Failed to purge unused installed contracts after service deployment removal",
+          "Failed to clean up unused installed contracts after service deployment removal",
         );
       }
     }
@@ -868,7 +955,7 @@ export function createAuthRemoveServiceDeploymentHandler(
   };
 }
 
-export function createAuthProvisionServiceInstanceHandler(
+export function createAuthServiceInstancesProvisionHandler(
   serviceDeps: ServiceAdminRpcDeps,
 ) {
   return async (
@@ -884,7 +971,7 @@ export function createAuthProvisionServiceInstanceHandler(
     const { logger, serviceDeploymentStorage, serviceInstanceStorage } =
       serviceDeps;
     logger.trace({
-      rpc: "Auth.ProvisionServiceInstance",
+      rpc: "Auth.ServiceInstances.Provision",
       caller,
       deploymentId: req.deploymentId,
     }, "RPC request");
@@ -920,12 +1007,12 @@ export function createAuthProvisionServiceInstanceHandler(
   };
 }
 
-export function createAuthListServiceInstancesHandler(
+export function createAuthServiceInstancesListHandler(
   serviceDeps: ServiceAdminRpcDeps,
 ) {
   return async (
     { input: req, context: { caller } }: {
-      input: { deploymentId?: string; disabled?: boolean };
+      input: BoundedListQuery & { deploymentId?: string; disabled?: boolean };
       context: { caller: RpcUser };
     },
   ): Promise<
@@ -933,14 +1020,16 @@ export function createAuthListServiceInstancesHandler(
   > => {
     if (!isAdmin(caller)) return insufficientPermissions();
     const { logger, serviceInstanceStorage } = serviceDeps;
-    logger.trace({ rpc: "Auth.ListServiceInstances", caller }, "RPC request");
+    logger.trace({ rpc: "Auth.ServiceInstances.List", caller }, "RPC request");
     try {
-      const instances = (req.deploymentId === undefined
-        ? await serviceInstanceStorage.list()
-        : await serviceInstanceStorage.listByDeployment(req.deploymentId))
-        .filter((instance) =>
-          req.disabled === undefined || instance.disabled === req.disabled
-        );
+      const instances = req.deploymentId === undefined
+        ? await serviceInstanceStorage.listFiltered(
+          { disabled: req.disabled },
+          req,
+        )
+        : await serviceInstanceStorage.listByDeployment(req.deploymentId, {
+          disabled: req.disabled,
+        });
       return Result.ok({ instances });
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
@@ -967,7 +1056,10 @@ async function setInstanceDisabled(
       instanceId: args.instanceId,
     });
   }
-  const nextInstance = { ...instance, disabled: args.disabled };
+  const nextInstance: ServiceInstance = {
+    ...instance,
+    disabled: args.disabled,
+  };
   const validated = await validateActiveCatalog(args.validateActiveCatalog, {
     stagedServiceInstances: [nextInstance],
   });
@@ -993,7 +1085,7 @@ async function setInstanceDisabled(
   return Result.ok({ instance: nextInstance });
 }
 
-export function createAuthDisableServiceInstanceHandler(
+export function createAuthServiceInstancesDisableHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
@@ -1019,7 +1111,7 @@ export function createAuthDisableServiceInstanceHandler(
   };
 }
 
-export function createAuthEnableServiceInstanceHandler(
+export function createAuthServiceInstancesEnableHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
@@ -1045,7 +1137,7 @@ export function createAuthEnableServiceInstanceHandler(
   };
 }
 
-export function createAuthRemoveServiceInstanceHandler(
+export function createAuthServiceInstancesRemoveHandler(
   deps: {
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;

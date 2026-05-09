@@ -14,6 +14,7 @@ export const TrellisSurfaceStatusRequestSchema = Type.Object({
       Type.Literal("call"),
       Type.Literal("publish"),
       Type.Literal("subscribe"),
+      Type.Literal("read"),
     ]),
   ),
 });
@@ -23,12 +24,19 @@ export type TrellisSurfaceStatusRequest = Static<
 
 export const TrellisSurfaceStatusResponseSchema = Type.Object({
   status: Type.Union([
-    Type.Object({ state: Type.Literal("available") }),
+    Type.Object({
+      state: Type.Literal("available"),
+      liveImplementer: Type.Boolean(),
+      runtime: Type.Union([
+        Type.Literal("live"),
+        Type.Literal("no_live_implementer"),
+        Type.Literal("disabled"),
+      ]),
+    }),
     Type.Object({
       state: Type.Literal("unavailable"),
       reason: Type.Union([
-        Type.Literal("no_live_implementer"),
-        Type.Literal("disabled"),
+        Type.Literal("envelope_unavailable"),
       ]),
     }),
     Type.Object({

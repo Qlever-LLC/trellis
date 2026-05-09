@@ -1,15 +1,15 @@
 import Type, { type Static } from "typebox";
 
-export const AuthRevokeSessionSchema = Type.Object(
+export const AuthSessionsRevokeSchema = Type.Object(
   {
     sessionKey: Type.String(),
   },
 );
-export type AuthRevokeSessionInput = Static<typeof AuthRevokeSessionSchema>;
+export type AuthSessionsRevokeInput = Static<typeof AuthSessionsRevokeSchema>;
 
-export const AuthRevokeSessionResponseSchema = Type.Object(
+export const AuthSessionsRevokeResponseSchema = Type.Object(
   { success: Type.Boolean() },
 );
-export type AuthRevokeSessionResponse = Static<
-  typeof AuthRevokeSessionResponseSchema
+export type AuthSessionsRevokeResponse = Static<
+  typeof AuthSessionsRevokeResponseSchema
 >;

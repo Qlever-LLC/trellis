@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Args)]
 /// Namespace for bootstrap commands.
@@ -13,7 +13,57 @@ pub struct BootstrapCommand {
 /// Bootstrap targets for a fresh deployment.
 pub enum BootstrapSubcommand {
     Nats(NatsBootstrapArgs),
+    #[command(name = "local-nats")]
+    LocalNats(LocalNatsBootstrapArgs),
     Admin(BootstrapAdminArgs),
+}
+
+#[derive(Debug, Args)]
+/// Generate local NATS operator, accounts, config, credentials, and auth callout material.
+pub struct LocalNatsBootstrapArgs {
+    #[arg(long)]
+    /// Output directory for generated local NATS bootstrap files.
+    pub out: PathBuf,
+
+    #[arg(long)]
+    /// Replace an existing non-empty output directory.
+    pub force: bool,
+
+    #[arg(long, value_enum, default_value_t = LocalNatsContainerRuntimeArg::Auto)]
+    /// Container runtime used to run nats-box and nsc.
+    pub container_runtime: LocalNatsContainerRuntimeArg,
+
+    #[arg(long, default_value = "docker.io/natsio/nats-box:latest")]
+    /// nats-box image containing nsc.
+    pub nats_box_image: String,
+
+    #[arg(long, default_value = "Qlever")]
+    /// NATS operator name.
+    pub operator_name: String,
+
+    #[arg(long, default_value = "SYS")]
+    /// NATS system account name.
+    pub system_account: String,
+
+    #[arg(long, default_value = "AUTH")]
+    /// Trellis auth account name.
+    pub auth_account: String,
+
+    #[arg(long, default_value = "TRELLIS")]
+    /// Trellis runtime account name.
+    pub trellis_account: String,
+
+    #[arg(long, default_value = "trellis-local")]
+    /// Local NATS server name written to nats.conf.
+    pub server_name: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+/// Container runtime choices for local NATS bootstrap generation.
+pub enum LocalNatsContainerRuntimeArg {
+    Auto,
+    Podman,
+    Docker,
 }
 
 #[derive(Debug, Args)]

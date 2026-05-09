@@ -12,16 +12,16 @@ import {
   openTrellisStorageDb,
 } from "../../storage/db.ts";
 import type { TrellisStorage } from "../../storage/db.ts";
-import { SqlContractApprovalRepository } from "../storage.ts";
-import { createAuthRevokeApprovalHandler } from "./rpc.ts";
+import { SqlIdentityEnvelopeRepository } from "../storage.ts";
+import { createAuthIdentityEnvelopesRevokeHandler } from "./rpc.ts";
 import {
-  createAuthListUserGrantsHandler,
-  createAuthRevokeUserGrantHandler,
+  createAuthIdentitiesGrantsListHandler,
+  createUserGrantRevokeHandler,
 } from "./user_grants.ts";
 import { connectionKey } from "../session/connections.ts";
 import type {
   Connection,
-  ContractApprovalRecord,
+  IdentityEnvelopeRecord,
   Session,
 } from "../schemas.ts";
 
@@ -111,7 +111,7 @@ function sessionStorageFromKV(kv: InMemoryKV<Session>) {
 
 async function withApprovalRepository(
   test: (
-    approvals: SqlContractApprovalRepository,
+    approvals: SqlIdentityEnvelopeRepository,
     storage: TrellisStorage,
   ) => Promise<void>,
 ): Promise<void> {
@@ -124,7 +124,7 @@ async function withApprovalRepository(
 
   try {
     await initializeTrellisStorageSchema(storage);
-    await test(new SqlContractApprovalRepository(storage.db), storage);
+    await test(new SqlIdentityEnvelopeRepository(storage.db), storage);
   } finally {
     storage.client.close();
     await Deno.remove(dbPath).catch(() => undefined);
@@ -133,16 +133,23 @@ async function withApprovalRepository(
 
 function makeApproval(
   userTrellisId: string,
-  overrides: Partial<ContractApprovalRecord> = {},
-): ContractApprovalRecord {
+  overrides: Partial<IdentityEnvelopeRecord> = {},
+): IdentityEnvelopeRecord {
+  const identityEnvelopeId = overrides.identityEnvelopeId ?? "env-agent";
   return {
+    identityEnvelopeId,
     userTrellisId,
     origin: "github",
     id: "123",
+    identityAnchor: {
+      kind: "cli",
+      contractId: "trellis.agent@v1",
+      sessionPublicKey: "session-agent",
+    },
     answer: "approved",
     answeredAt: new Date("2026-04-10T00:00:00.000Z"),
     updatedAt: new Date("2026-04-11T00:00:00.000Z"),
-    approval: {
+    approvalEvidence: {
       contractDigest: "digest-agent",
       contractId: "trellis.agent@v1",
       displayName: "Trellis Agent",
@@ -161,13 +168,19 @@ function makeApproval(
   };
 }
 
-Deno.test("Auth.ListUserGrants returns the caller's approved app and agent grants", async () => {
+Deno.test("Auth.Identities.Grants.List returns the caller's approved app and agent grants", async () => {
   await withApprovalRepository(async (contractApprovalStorage) => {
     const userTrellisId = await trellisIdFromOriginId("github", "123");
     await contractApprovalStorage.put(makeApproval(userTrellisId));
     await contractApprovalStorage.put(makeApproval(userTrellisId, {
+      identityEnvelopeId: "env-denied",
+      identityAnchor: {
+        kind: "web",
+        contractId: "trellis.console@v1",
+        origin: "https://console.example",
+      },
       answer: "denied",
-      approval: {
+      approvalEvidence: {
         contractDigest: "digest-denied",
         contractId: "trellis.console@v1",
         displayName: "Console",
@@ -182,10 +195,11 @@ Deno.test("Auth.ListUserGrants returns the caller's approved app and agent grant
       },
     }));
 
-    const handler = createAuthListUserGrantsHandler({
+    const handler = createAuthIdentitiesGrantsListHandler({
       contractApprovalStorage,
     });
     const result = await handler({
+      input: { limit: 10 },
       context: {
         caller: {
           type: "user",
@@ -201,8 +215,16 @@ Deno.test("Auth.ListUserGrants returns the caller's approved app and agent grant
     assertEquals(value, {
       grants: [
         {
-          contractDigest: "digest-agent",
-          contractId: "trellis.agent@v1",
+          identityEnvelopeId: "env-agent",
+          identityAnchor: {
+            kind: "cli",
+            contractId: "trellis.agent@v1",
+            sessionPublicKey: "session-agent",
+          },
+          contractEvidence: {
+            contractDigest: "digest-agent",
+            contractId: "trellis.agent@v1",
+          },
           displayName: "Trellis Agent",
           description: "Local delegated tooling",
           participantKind: "agent",
@@ -215,7 +237,7 @@ Deno.test("Auth.ListUserGrants returns the caller's approved app and agent grant
   });
 });
 
-Deno.test("Auth.RevokeUserGrant deletes the caller grant and matching user sessions", async () => {
+Deno.test("Auth.IdentityEnvelopes.Revoke deletes the caller grant and matching user sessions", async () => {
   await withApprovalRepository(async (contractApprovalStorage) => {
     const userTrellisId = await trellisIdFromOriginId("github", "123");
     const sessionKV = new InMemoryKV<Session>();
@@ -232,6 +254,7 @@ Deno.test("Auth.RevokeUserGrant deletes the caller grant and matching user sessi
       email: "ada@example.com",
       name: "Ada",
       participantKind: "agent",
+      identityEnvelopeId: "env-agent",
       contractDigest: "digest-agent",
       contractId: "trellis.agent@v1",
       contractDisplayName: "Trellis Agent",
@@ -248,7 +271,7 @@ Deno.test("Auth.RevokeUserGrant deletes the caller grant and matching user sessi
       connectedAt: new Date("2026-04-11T00:00:00.000Z"),
     });
 
-    const handler = createAuthRevokeUserGrantHandler({
+    const handler = createUserGrantRevokeHandler({
       contractApprovalStorage,
       sessionStorage: sessionStorageFromKV(sessionKV),
       connectionsKV,
@@ -258,7 +281,7 @@ Deno.test("Auth.RevokeUserGrant deletes the caller grant and matching user sessi
       publishSessionRevoked: async () => {},
     });
     const result = await handler({
-      input: { contractDigest: "digest-agent" },
+      input: { identityEnvelopeId: "env-agent" },
       context: {
         caller: {
           type: "user",
@@ -275,7 +298,7 @@ Deno.test("Auth.RevokeUserGrant deletes the caller grant and matching user sessi
     assertEquals(kicked.length, 1);
     assertEquals(kicked[0], { serverId: "n1", clientId: 7 });
     assertEquals(
-      await contractApprovalStorage.get(userTrellisId, "digest-agent"),
+      await contractApprovalStorage.get("env-agent"),
       undefined,
     );
     assertEquals(
@@ -285,7 +308,7 @@ Deno.test("Auth.RevokeUserGrant deletes the caller grant and matching user sessi
   });
 });
 
-Deno.test("Auth.RevokeApproval deletes a self grant and matching user sessions", async () => {
+Deno.test("Auth.IdentityEnvelopes.Revoke deletes a self grant and matching user sessions", async () => {
   await withApprovalRepository(async (contractApprovalStorage) => {
     const userTrellisId = await trellisIdFromOriginId("github", "123");
     const sessionKV = new InMemoryKV<Session>();
@@ -307,6 +330,7 @@ Deno.test("Auth.RevokeApproval deletes a self grant and matching user sessions",
       email: "ada@example.com",
       name: "Ada",
       participantKind: "agent",
+      identityEnvelopeId: "env-agent",
       contractDigest: "digest-agent",
       contractId: "trellis.agent@v1",
       contractDisplayName: "Trellis Agent",
@@ -326,7 +350,7 @@ Deno.test("Auth.RevokeApproval deletes a self grant and matching user sessions",
       },
     );
 
-    const handler = createAuthRevokeApprovalHandler({
+    const handler = createAuthIdentityEnvelopesRevokeHandler({
       contractApprovalStorage,
       sessionStorage: sessionStorageFromKV(sessionKV),
       connectionsKV,
@@ -340,7 +364,7 @@ Deno.test("Auth.RevokeApproval deletes a self grant and matching user sessions",
     });
 
     const result = await handler({
-      input: { contractDigest: "digest-agent" },
+      input: { identityEnvelopeId: "env-agent" },
       context: {
         caller: {
           type: "user",
@@ -362,7 +386,7 @@ Deno.test("Auth.RevokeApproval deletes a self grant and matching user sessions",
       revokedBy: "github.123",
     }]);
     assertEquals(
-      await contractApprovalStorage.get(userTrellisId, "digest-agent"),
+      await contractApprovalStorage.get("env-agent"),
       undefined,
     );
     assertEquals(isErr(await sessionKV.get("sk_approval").take()), true);

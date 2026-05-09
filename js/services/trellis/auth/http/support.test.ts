@@ -2,21 +2,18 @@ import { assertEquals, assertThrows } from "@std/assert";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 
 import { ContractUseDependencyError } from "../../catalog/uses.ts";
-import { ContractStore } from "../../catalog/store.ts";
-import type { ContractApprovalRecord, PendingAuth } from "../schemas.ts";
+import { createTestContracts } from "../../catalog/test_contracts.ts";
+import type { IdentityEnvelopeRecord, PendingAuth } from "../schemas.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import {
   applyApprovalDecision,
   buildRedirectLocation,
-  contractApprovalKey,
   decodeContractQuery,
   decodeOpenObjectQuery,
   encodeBase64Url,
   getApprovalResolution,
   getApprovalResolutionBlocker,
   getCookie,
-  resolveDevicePortal,
-  resolveLoginPortal,
   shouldUseSecureOauthCookie,
 } from "./support.ts";
 
@@ -26,27 +23,40 @@ function encodeJsonQueryPayload(value: unknown): string {
   return encodeBase64Url(new TextEncoder().encode(JSON.stringify(value)));
 }
 
+function approvalCapabilities(keys: string[]) {
+  return Object.fromEntries(keys.map((key) => [key, {
+    displayName: key,
+    description: key,
+  }]));
+}
+
 function storedAppApproval(args: {
   userTrellisId: string;
   answer: "approved" | "denied";
   capabilities: string[];
   answeredAt?: Date;
-}): ContractApprovalRecord {
+}): IdentityEnvelopeRecord {
   const answeredAt = args.answeredAt ?? new Date();
   return {
+    identityEnvelopeId: "env-console",
     userTrellisId: args.userTrellisId,
     origin: "github",
     id: "123",
+    identityAnchor: {
+      kind: "web",
+      contractId: "trellis.console@v1",
+      origin: "https://console.example",
+    },
     answer: args.answer,
     answeredAt,
     updatedAt: answeredAt,
-    approval: {
+    approvalEvidence: {
       contractId: "trellis.console@v1",
       contractDigest: "digest",
       displayName: "Console",
       description: "Admin",
       participantKind: "app",
-      capabilities: args.capabilities,
+      capabilities: approvalCapabilities(args.capabilities),
     },
     publishSubjects: [],
     subscribeSubjects: [],
@@ -209,7 +219,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
             displayName: "Console",
             description: "Admin",
             participantKind: "app",
-            capabilities: ["admin"],
+            capabilities: approvalCapabilities(["admin"]),
           },
           publishSubjects: [],
           subscribeSubjects: [],
@@ -219,6 +229,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
         userId: "123",
         userEmail: "user@example.com",
         userName: "User",
+        sessionPublicKey: "A".repeat(43),
         existingProjection: null,
         existingCapabilities: ["admin"],
         effectiveCapabilities: ["admin"],
@@ -268,7 +279,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
             displayName: "Console",
             description: "Admin",
             participantKind: "app",
-            capabilities: ["admin"],
+            capabilities: approvalCapabilities(["admin"]),
           },
           publishSubjects: [],
           subscribeSubjects: [],
@@ -278,6 +289,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
         userId: "123",
         userEmail: "user@example.com",
         userName: "User",
+        sessionPublicKey: "A".repeat(43),
         existingProjection: null,
         existingCapabilities: [],
         effectiveCapabilities: [],
@@ -332,7 +344,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
             displayName: "Console",
             description: "Admin",
             participantKind: "app",
-            capabilities: ["admin", "audit"],
+            capabilities: approvalCapabilities(["admin", "audit"]),
           },
           publishSubjects: [],
           subscribeSubjects: [],
@@ -342,6 +354,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
         userId: "123",
         userEmail: "user@example.com",
         userName: "User",
+        sessionPublicKey: "A".repeat(43),
         existingProjection: null,
         existingCapabilities: ["admin"],
         effectiveCapabilities: ["admin"],
@@ -396,7 +409,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
             displayName: "Console",
             description: "Admin",
             participantKind: "app",
-            capabilities: ["admin"],
+            capabilities: approvalCapabilities(["admin"]),
           },
           publishSubjects: [],
           subscribeSubjects: [],
@@ -406,6 +419,7 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
         userId: "123",
         userEmail: "user@example.com",
         userName: "User",
+        sessionPublicKey: "A".repeat(43),
         existingProjection: null,
         existingCapabilities: ["admin"],
         effectiveCapabilities: ["admin"],
@@ -468,7 +482,7 @@ Deno.test("buildPortalFlowState asks again after a stored denial", async () => {
           displayName: "Console",
           description: "Admin",
           participantKind: "app",
-          capabilities: ["admin"],
+          capabilities: approvalCapabilities(["admin"]),
         },
         publishSubjects: [],
         subscribeSubjects: [],
@@ -478,6 +492,7 @@ Deno.test("buildPortalFlowState asks again after a stored denial", async () => {
       userId: "123",
       userEmail: "user@example.com",
       userName: "User",
+      sessionPublicKey: "A".repeat(43),
       existingProjection: null,
       existingCapabilities: ["admin"],
       effectiveCapabilities: ["admin"],
@@ -521,7 +536,7 @@ Deno.test("buildPortalFlowState asks again after a stored denial", async () => {
 });
 
 Deno.test("getApprovalResolution uses injected loaders", async () => {
-  const contractStore = new ContractStore();
+  const contracts = createTestContracts();
   const pending: PendingAuth = {
     user: {
       origin: "github",
@@ -552,17 +567,7 @@ Deno.test("getApprovalResolution uses injected loaders", async () => {
     createdAt: new Date(),
   };
   const expectedTrellisId = await trellisIdFromOriginId("github", "123");
-  let requestedApprovalKey: string | null = null;
-
-  const resolution = await getApprovalResolution(contractStore, pending, {
-    loadStoredApproval: async (key) => {
-      requestedApprovalKey = key;
-      return storedAppApproval({
-        userTrellisId: expectedTrellisId,
-        answer: "approved",
-        capabilities: ["audit"],
-      });
-    },
+  const resolution = await getApprovalResolution(contracts, pending, {
     loadUserProjection: async (trellisId) => {
       assertEquals(trellisId, expectedTrellisId);
       return {
@@ -577,10 +582,6 @@ Deno.test("getApprovalResolution uses injected loaders", async () => {
   });
 
   assertEquals(resolution.trellisId, expectedTrellisId);
-  assertEquals(
-    requestedApprovalKey,
-    contractApprovalKey(expectedTrellisId, resolution.plan.digest),
-  );
   assertEquals(resolution.missingCapabilities, ["audit"]);
   assertEquals(resolution.existingProjection, {
     origin: "github",
@@ -590,15 +591,15 @@ Deno.test("getApprovalResolution uses injected loaders", async () => {
     active: true,
     capabilities: [],
   });
-  assertEquals(resolution.storedApproval?.answer, "approved");
+  assertEquals(resolution.storedApproval, null);
   assertEquals(resolution.app, {
     contractId: "trellis.console@v1",
     origin: "http://localhost:5173",
   });
 });
 
-Deno.test("getApprovalResolution prefers matching instance grant policy over stored denial", async () => {
-  const contractStore = new ContractStore();
+Deno.test("getApprovalResolution keeps user approval explicit despite stored denial", async () => {
+  const contracts = createTestContracts();
   const pending: PendingAuth = {
     user: {
       origin: "github",
@@ -629,13 +630,7 @@ Deno.test("getApprovalResolution prefers matching instance grant policy over sto
     createdAt: new Date(),
   };
 
-  const resolution = await getApprovalResolution(contractStore, pending, {
-    loadStoredApproval: async () =>
-      storedAppApproval({
-        userTrellisId: "trellis-123",
-        answer: "denied",
-        capabilities: ["audit"],
-      }),
+  const resolution = await getApprovalResolution(contracts, pending, {
     loadUserProjection: async () => ({
       origin: "github",
       id: "123",
@@ -644,17 +639,6 @@ Deno.test("getApprovalResolution prefers matching instance grant policy over sto
       active: true,
       capabilities: [],
     }),
-    loadInstanceGrantPolicies: async () => [{
-      contractId: "trellis.console@v1",
-      impliedCapabilities: ["audit"],
-      allowedOrigins: ["https://app.example.com"],
-      disabled: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      source: {
-        kind: "admin_policy",
-      },
-    }],
   });
 
   assertEquals(resolution.app, {
@@ -662,20 +646,15 @@ Deno.test("getApprovalResolution prefers matching instance grant policy over sto
     origin: "https://app.example.com",
   });
   assertEquals(resolution.existingCapabilities, []);
-  assertEquals(resolution.effectiveCapabilities, ["audit"]);
-  assertEquals(resolution.missingCapabilities, []);
-  assertEquals(resolution.matchedPolicies.map((policy) => policy.contractId), [
-    "trellis.console@v1",
-  ]);
-  assertEquals(resolution.effectiveApproval, {
-    answer: "approved",
-    kind: "admin_policy",
-  });
-  assertEquals(resolution.storedApproval?.answer, "denied");
+  assertEquals(resolution.effectiveCapabilities, []);
+  assertEquals(resolution.missingCapabilities, ["audit"]);
+  assertEquals(resolution.matchedPolicies, []);
+  assertEquals(resolution.effectiveApproval, { answer: "none", kind: "none" });
+  assertEquals(resolution.storedApproval, null);
 });
 
 Deno.test("getApprovalResolution prefers persisted app identity over redirect-derived origin", async () => {
-  const contractStore = new ContractStore();
+  const contracts = createTestContracts();
   const pending: PendingAuth = {
     user: {
       origin: "github",
@@ -699,8 +678,7 @@ Deno.test("getApprovalResolution prefers persisted app identity over redirect-de
     createdAt: new Date(),
   };
 
-  const resolution = await getApprovalResolution(contractStore, pending, {
-    loadStoredApproval: async () => null,
+  const resolution = await getApprovalResolution(contracts, pending, {
     loadUserProjection: async () => ({
       origin: "github",
       id: "123",
@@ -709,27 +687,258 @@ Deno.test("getApprovalResolution prefers persisted app identity over redirect-de
       active: true,
       capabilities: [],
     }),
-    loadInstanceGrantPolicies: async () => [{
-      contractId: "trellis.console@v1",
-      impliedCapabilities: ["audit"],
-      allowedOrigins: ["https://app.example.com"],
+  });
+
+  assertEquals(resolution.app, pending.app);
+  assertEquals(resolution.matchedPolicies, []);
+});
+
+Deno.test("getApprovalResolution resolves system availability from enabled deployment envelopes", async () => {
+  const contracts = createTestContracts();
+  const now = new Date().toISOString();
+  const pending: PendingAuth = {
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "https://app.example.com/callback",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.console@v1",
+      displayName: "Console",
+      description: "Admin",
+      kind: "app",
+    },
+    createdAt: new Date(),
+  };
+
+  const resolution = await getApprovalResolution(contracts, pending, {
+    loadUserProjection: async () => null,
+    loadDeploymentEnvelopes: async () => [{
+      deploymentId: "billing.enabled",
+      kind: "service",
       disabled: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      source: {
-        kind: "admin_policy",
+      createdAt: now,
+      updatedAt: now,
+      boundary: {
+        contracts: [{ contractId: "billing@v1", required: true }],
+        surfaces: [],
+        capabilities: [],
+        resources: [],
+      },
+    }, {
+      deploymentId: "billing.disabled",
+      kind: "service",
+      disabled: true,
+      createdAt: now,
+      updatedAt: now,
+      boundary: {
+        contracts: [{ contractId: "disabled@v1", required: true }],
+        surfaces: [],
+        capabilities: [],
+        resources: [],
       },
     }],
   });
 
-  assertEquals(resolution.app, pending.app);
-  assertEquals(resolution.matchedPolicies.map((policy) => policy.contractId), [
-    "trellis.console@v1",
-  ]);
+  assertEquals(resolution.systemAvailabilityEnvelope, {
+    contracts: [{ contractId: "billing@v1", required: true }],
+    surfaces: [],
+    capabilities: [],
+    resources: [],
+  });
+});
+
+Deno.test("getApprovalResolution applies matching deployment grant overrides as capability overlays", async () => {
+  const contracts = createTestContracts();
+  const now = new Date().toISOString();
+  const pending: PendingAuth = {
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "https://app.example.com/callback",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.console@v1",
+      displayName: "Console",
+      description: "Admin",
+      kind: "app",
+      capabilities: approvalCapabilities(["audit"]),
+      schemas: { AuditEvent: { type: "object" } },
+      events: {
+        "Audit.Recorded": {
+          version: "v1",
+          subject: "trellis.console.audit",
+          event: { schema: "AuditEvent" },
+          capabilities: { publish: ["audit"] },
+        },
+      },
+    },
+    createdAt: new Date(),
+  };
+
+  const resolution = await getApprovalResolution(contracts, pending, {
+    loadUserProjection: async () => ({
+      origin: "github",
+      id: "123",
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: [],
+    }),
+    loadDeploymentEnvelopes: async () => [{
+      deploymentId: "app.enabled",
+      kind: "app",
+      disabled: false,
+      createdAt: now,
+      updatedAt: now,
+      boundary: {
+        contracts: [],
+        surfaces: [],
+        capabilities: [],
+        resources: [],
+      },
+    }],
+    loadDeploymentGrantOverrides: async (deploymentId) => [{
+      deploymentId,
+      identityKind: "web",
+      contractId: "trellis.console@v1",
+      origin: "https://app.example.com",
+      sessionPublicKey: null,
+      devicePublicKey: null,
+      capability: "audit",
+    }],
+  });
+
+  assertEquals(resolution.effectiveCapabilities, ["audit"]);
+  assertEquals(resolution.missingCapabilities, []);
+  assertEquals(resolution.systemAvailabilityEnvelope, {
+    contracts: [],
+    surfaces: [],
+    capabilities: [],
+    resources: [],
+  });
+});
+
+Deno.test("getApprovalResolution does not treat deployment envelope capabilities as user capabilities", async () => {
+  const contracts = createTestContracts();
+  const now = new Date().toISOString();
+  const pending: PendingAuth = {
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "https://app.example.com/callback",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.console@v1",
+      displayName: "Console",
+      description: "Admin",
+      kind: "app",
+      capabilities: approvalCapabilities(["audit"]),
+      schemas: { AuditEvent: { type: "object" } },
+      events: {
+        "Audit.Recorded": {
+          version: "v1",
+          subject: "trellis.console.audit",
+          event: { schema: "AuditEvent" },
+          capabilities: { publish: ["audit"] },
+        },
+      },
+    },
+    createdAt: new Date(),
+  };
+
+  const resolution = await getApprovalResolution(contracts, pending, {
+    loadUserProjection: async () => ({
+      origin: "github",
+      id: "123",
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: [],
+    }),
+    loadDeploymentEnvelopes: async () => [{
+      deploymentId: "system.enabled",
+      kind: "service",
+      disabled: false,
+      createdAt: now,
+      updatedAt: now,
+      boundary: {
+        contracts: [],
+        surfaces: [],
+        capabilities: ["audit"],
+        resources: [],
+      },
+    }],
+  });
+
+  assertEquals(resolution.effectiveCapabilities, []);
+  assertEquals(resolution.missingCapabilities, ["audit"]);
+  assertEquals(resolution.systemAvailabilityEnvelope?.capabilities, ["audit"]);
+});
+
+Deno.test("getApprovalResolution loads persisted identity envelope approvals", async () => {
+  const contracts = createTestContracts();
+  const userTrellisId = await trellisIdFromOriginId("github", "123");
+  const pending: PendingAuth = {
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "https://console.example/callback",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.console@v1",
+      displayName: "Console",
+      description: "Admin",
+      kind: "app",
+    },
+    createdAt: new Date(),
+  };
+  const storedApproval = storedAppApproval({
+    userTrellisId,
+    answer: "approved",
+    capabilities: [],
+  });
+
+  const resolution = await getApprovalResolution(contracts, pending, {
+    loadUserProjection: async () => ({
+      origin: "github",
+      id: "123",
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: [],
+    }),
+    loadIdentityEnvelopesByUser: async (trellisId) => {
+      assertEquals(trellisId, userTrellisId);
+      return [storedApproval];
+    },
+  });
+
+  assertEquals(resolution.storedApproval, storedApproval);
+  assertEquals(resolution.effectiveApproval, {
+    kind: "stored_approval",
+    answer: "approved",
+  });
 });
 
 Deno.test("getApprovalResolutionBlocker rejects inactive users from completing bind", async () => {
-  const contractStore = new ContractStore();
+  const contracts = createTestContracts();
   const pending: PendingAuth = {
     user: {
       origin: "github",
@@ -749,8 +958,7 @@ Deno.test("getApprovalResolutionBlocker rejects inactive users from completing b
     createdAt: new Date(),
   };
 
-  const resolution = await getApprovalResolution(contractStore, pending, {
-    loadStoredApproval: async () => null,
+  const resolution = await getApprovalResolution(contracts, pending, {
     loadUserProjection: async () => ({
       origin: "github",
       id: "123",
@@ -788,6 +996,7 @@ Deno.test("shouldUseSecureOauthCookie logs through injected logger", () => {
       },
       nats: {
         servers: "nats://localhost:4222",
+        jetstream: { replicas: 1 },
         trellis: { credsPath: "/tmp/trellis.creds" },
         auth: { credsPath: "/tmp/auth.creds" },
         sentinelCredsPath: "/tmp/sentinel.creds",
@@ -843,6 +1052,7 @@ Deno.test("shouldUseSecureOauthCookie allows insecure cookies on plain-http loop
       },
       nats: {
         servers: "nats://localhost:4222",
+        jetstream: { replicas: 1 },
         trellis: { credsPath: "/tmp/trellis.creds" },
         auth: { credsPath: "/tmp/auth.creds" },
         sentinelCredsPath: "/tmp/sentinel.creds",
@@ -887,6 +1097,7 @@ Deno.test("shouldUseSecureOauthCookie keeps plain-http non-loopback OAuth cookie
       },
       nats: {
         servers: "nats://localhost:4222",
+        jetstream: { replicas: 1 },
         trellis: { credsPath: "/tmp/trellis.creds" },
         auth: { credsPath: "/tmp/auth.creds" },
         sentinelCredsPath: "/tmp/sentinel.creds",
@@ -931,6 +1142,7 @@ Deno.test("shouldUseSecureOauthCookie honors exact insecure cookie origin allowl
       },
       nats: {
         servers: "nats://localhost:4222",
+        jetstream: { replicas: 1 },
         trellis: { credsPath: "/tmp/trellis.creds" },
         auth: { credsPath: "/tmp/auth.creds" },
         sentinelCredsPath: "/tmp/sentinel.creds",
@@ -975,6 +1187,7 @@ Deno.test("shouldUseSecureOauthCookie keeps non-loopback plain-http cookies secu
       },
       nats: {
         servers: "nats://localhost:4222",
+        jetstream: { replicas: 1 },
         trellis: { credsPath: "/tmp/trellis.creds" },
         auth: { credsPath: "/tmp/auth.creds" },
         sentinelCredsPath: "/tmp/sentinel.creds",
@@ -1019,6 +1232,7 @@ Deno.test("shouldUseSecureOauthCookie keeps https OAuth cookies secure", () => {
       },
       nats: {
         servers: "nats://localhost:4222",
+        jetstream: { replicas: 1 },
         trellis: { credsPath: "/tmp/trellis.creds" },
         auth: { credsPath: "/tmp/auth.creds" },
         sentinelCredsPath: "/tmp/sentinel.creds",
@@ -1039,95 +1253,4 @@ Deno.test("shouldUseSecureOauthCookie keeps https OAuth cookies secure", () => {
   );
 
   assertEquals(secure, true);
-});
-
-Deno.test("resolveLoginPortal prefers contract selection over default and builtin", () => {
-  const selectedPortal = resolveLoginPortal({
-    contractId: "trellis.console@v1",
-    portals: [
-      { portalId: "default", entryUrl: "https://default.example.com" },
-      { portalId: "contract", entryUrl: "https://contract.example.com" },
-    ],
-    defaultPortalId: "default",
-    selections: [
-      { contractId: "trellis.console@v1", portalId: "contract" },
-    ],
-  });
-  assertEquals(selectedPortal, {
-    kind: "custom",
-    portal: { portalId: "contract", entryUrl: "https://contract.example.com" },
-  });
-
-  const forcedBuiltin = resolveLoginPortal({
-    contractId: "trellis.console@v1",
-    portals: [{ portalId: "default", entryUrl: "https://default.example.com" }],
-    defaultPortalId: "default",
-    selections: [{ contractId: "trellis.console@v1", portalId: null }],
-  });
-  assertEquals(forcedBuiltin, { kind: "builtin" });
-
-  const defaultPortal = resolveLoginPortal({
-    contractId: "trellis.console@v1",
-    portals: [{ portalId: "default", entryUrl: "https://default.example.com" }],
-    defaultPortalId: "default",
-    selections: [],
-  });
-  assertEquals(defaultPortal, {
-    kind: "custom",
-    portal: { portalId: "default", entryUrl: "https://default.example.com" },
-  });
-
-  const builtinFallback = resolveLoginPortal({
-    contractId: "trellis.console@v1",
-    portals: [],
-    defaultPortalId: undefined,
-    selections: [],
-  });
-  assertEquals(builtinFallback, { kind: "builtin" });
-});
-
-Deno.test("resolveDevicePortal prefers deployment selection over default and builtin", () => {
-  const selectedPortal = resolveDevicePortal({
-    deploymentId: "reader.default",
-    portals: [
-      { portalId: "default", entryUrl: "https://default.example.com" },
-      { portalId: "deployment", entryUrl: "https://deployment.example.com" },
-    ],
-    defaultPortalId: "default",
-    selections: [{ deploymentId: "reader.default", portalId: "deployment" }],
-  });
-  assertEquals(selectedPortal, {
-    kind: "custom",
-    portal: {
-      portalId: "deployment",
-      entryUrl: "https://deployment.example.com",
-    },
-  });
-
-  const forcedBuiltin = resolveDevicePortal({
-    deploymentId: "reader.default",
-    portals: [{ portalId: "default", entryUrl: "https://default.example.com" }],
-    defaultPortalId: "default",
-    selections: [{ deploymentId: "reader.default", portalId: null }],
-  });
-  assertEquals(forcedBuiltin, { kind: "builtin" });
-
-  const defaultPortal = resolveDevicePortal({
-    deploymentId: "reader.default",
-    portals: [{ portalId: "default", entryUrl: "https://default.example.com" }],
-    defaultPortalId: "default",
-    selections: [],
-  });
-  assertEquals(defaultPortal, {
-    kind: "custom",
-    portal: { portalId: "default", entryUrl: "https://default.example.com" },
-  });
-
-  const builtinFallback = resolveDevicePortal({
-    deploymentId: "reader.default",
-    portals: [],
-    defaultPortalId: undefined,
-    selections: [],
-  });
-  assertEquals(builtinFallback, { kind: "builtin" });
 });

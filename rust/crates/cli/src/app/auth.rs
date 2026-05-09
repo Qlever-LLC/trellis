@@ -1,5 +1,5 @@
 use crate::agent_contract::agent_contract_json;
-use crate::app::{connect_authenticated_cli_client, resolve_contract_lineage_id};
+use crate::app::connect_authenticated_cli_client;
 use crate::cli::*;
 use crate::output;
 use miette::IntoDiagnostic;
@@ -29,11 +29,6 @@ pub(super) async fn run(format: OutputFormat, command: AuthCommand) -> miette::R
         AuthSubcommand::Approval(command) => match command.command {
             AuthApprovalSubcommand::List(args) => approvals_list_command(format, &args).await,
             AuthApprovalSubcommand::Revoke(args) => approvals_revoke_command(format, &args).await,
-        },
-        AuthSubcommand::Grant(command) => match command.command {
-            AuthGrantSubcommand::List => grants_list_command(format).await,
-            AuthGrantSubcommand::Set(args) => grants_set_command(format, &args).await,
-            AuthGrantSubcommand::Disable(args) => grants_disable_command(format, &args).await,
         },
         AuthSubcommand::Status => status_command(format).await,
     }
@@ -182,17 +177,28 @@ async fn approvals_list_command(
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| entry.answer.to_string());
             vec![
+                entry.identity_envelope_id,
                 entry.user,
-                entry.approval.display_name,
+                entry.display_name,
                 answer,
-                entry.approval.contract_digest,
+                entry.contract_evidence.contract_digest,
                 entry.updated_at,
             ]
         })
         .collect();
     println!(
         "{}",
-        output::table(&["user", "app", "answer", "digest", "updated"], rows)
+        output::table(
+            &[
+                "identityEnvelopeId",
+                "user",
+                "app",
+                "answer",
+                "digest",
+                "updated"
+            ],
+            rows
+        )
     );
     Ok(())
 }
@@ -204,14 +210,14 @@ async fn approvals_revoke_command(
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let success = auth_client
-        .revoke_approval(&args.digest, args.user.as_deref())
+        .revoke_approval(&args.identity_envelope_id, args.user.as_deref())
         .await
         .into_diagnostic()?;
 
     if output::is_json(format) {
         output::print_json(&json!({
             "success": success,
-            "digest": args.digest,
+            "identityEnvelopeId": args.identity_envelope_id,
             "user": args.user,
         }))?;
         return Ok(());
@@ -222,113 +228,10 @@ async fn approvals_revoke_command(
     } else {
         output::print_info("no matching approval found");
     }
-    output::print_info(&format!("digest={}", args.digest));
+    output::print_info(&format!("identityEnvelopeId={}", args.identity_envelope_id));
     if let Some(user) = &args.user {
         output::print_info(&format!("user={user}"));
     }
-    Ok(())
-}
-
-async fn grants_list_command(format: OutputFormat) -> miette::Result<()> {
-    let (_state, connected) = connect_authenticated_cli_client(format).await?;
-    let auth_client = authlib::AuthClient::new(&connected);
-    let policies = auth_client
-        .list_instance_grant_policies()
-        .await
-        .into_diagnostic()?;
-
-    if output::is_json(format) {
-        output::print_json(&json!({ "policies": policies }))?;
-        return Ok(());
-    }
-
-    if policies.is_empty() {
-        output::print_info("no instance grant policies configured");
-        return Ok(());
-    }
-
-    let rows = policies
-        .into_iter()
-        .map(|policy| {
-            vec![
-                policy.contract_id,
-                policy.implied_capabilities.join(", "),
-                policy.allowed_origins.unwrap_or_default().join(", "),
-                if policy.disabled {
-                    "Disabled"
-                } else {
-                    "Active"
-                }
-                .to_string(),
-                policy.updated_at,
-            ]
-        })
-        .collect::<Vec<_>>();
-    println!(
-        "{}",
-        output::table(
-            &["contract", "capabilities", "origins", "state", "updated"],
-            rows,
-        )
-    );
-    Ok(())
-}
-
-async fn grants_set_command(format: OutputFormat, args: &AuthGrantSetArgs) -> miette::Result<()> {
-    let (_state, connected) = connect_authenticated_cli_client(format).await?;
-    let auth_client = authlib::AuthClient::new(&connected);
-    let contract_id = resolve_contract_lineage_id(&connected, &args.contract).await?;
-    let policy = auth_client
-        .upsert_instance_grant_policy(
-            &contract_id,
-            &args.capabilities,
-            if args.allowed_origins.is_empty() {
-                None
-            } else {
-                Some(args.allowed_origins.as_slice())
-            },
-        )
-        .await
-        .into_diagnostic()?;
-    if output::is_json(format) {
-        output::print_json(&json!({ "policy": policy }))?;
-        return Ok(());
-    }
-
-    output::print_success("instance grant policy saved");
-    output::print_info(&format!("contractId={}", policy.contract_id));
-    output::print_info(&format!(
-        "capabilities={}",
-        if policy.implied_capabilities.is_empty() {
-            "-".to_string()
-        } else {
-            policy.implied_capabilities.join(", ")
-        }
-    ));
-    output::print_info(&format!(
-        "allowedOrigins={}",
-        policy.allowed_origins.unwrap_or_default().join(", ")
-    ));
-    Ok(())
-}
-
-async fn grants_disable_command(
-    format: OutputFormat,
-    args: &AuthGrantDisableArgs,
-) -> miette::Result<()> {
-    let (_state, connected) = connect_authenticated_cli_client(format).await?;
-    let auth_client = authlib::AuthClient::new(&connected);
-    let policy = auth_client
-        .disable_instance_grant_policy(&args.contract_id)
-        .await
-        .into_diagnostic()?;
-    if output::is_json(format) {
-        output::print_json(&json!({ "policy": policy }))?;
-        return Ok(());
-    }
-
-    output::print_success("instance grant policy disabled");
-    output::print_info(&format!("contractId={}", policy.contract_id));
     Ok(())
 }
 

@@ -8,20 +8,6 @@
       "when": 1777161600000,
       "tag": "00000_baseline",
       "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1778025600000,
-      "tag": "00001_deployment_policy_envelope",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1778112000000,
-      "tag": "00002_device_pre_activation_policy",
-      "breakpoints": true
     }
   ]
 }

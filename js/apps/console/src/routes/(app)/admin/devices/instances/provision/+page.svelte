@@ -1,8 +1,8 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthListDeviceDeploymentsOutput,
-    AuthProvisionDeviceInstanceInput,
+    AuthDeploymentsListOutput,
+    AuthDevicesProvisionInput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
@@ -14,7 +14,7 @@
   import { getNotifications } from "$lib/notifications.svelte";
   import { getTrellis } from "$lib/trellis";
 
-  type Deployment = AuthListDeviceDeploymentsOutput["deployments"][number];
+  type Deployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "device" }>;
   type DeviceMetadata = Record<string, string>;
 
   const trellis = getTrellis();
@@ -38,9 +38,9 @@
     loading = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.ListDeviceDeployments", {}).take();
+      const response = await trellis.request("Auth.Deployments.List", { kind: "device", limit: 500, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
-      const loadedDeployments = response.deployments ?? [];
+      const loadedDeployments = (response.deployments ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
       const loadedActiveDeployments = loadedDeployments.filter((deployment) => !deployment.disabled);
       deployments = loadedDeployments;
       if (!provisionDeploymentId && loadedActiveDeployments.length) {
@@ -88,13 +88,13 @@
     try {
       const metadata = parseProvisionMetadata();
       const response = await trellis.request(
-        "Auth.ProvisionDeviceInstance",
+        "Auth.Devices.Provision",
         {
           deploymentId: provisionDeploymentId,
           publicIdentityKey: publicIdentityKey.trim(),
           activationKey: activationKey.trim(),
           ...(metadata ? { metadata } : {}),
-        } satisfies AuthProvisionDeviceInstanceInput,
+        } satisfies AuthDevicesProvisionInput,
       ).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success("Device instance provisioned.", "Provisioned");

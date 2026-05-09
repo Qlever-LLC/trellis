@@ -14,7 +14,7 @@
   }
 </script>
 
-{#await trellis.request("Auth.Me", {}).orThrow() then me}
+{#await trellis.request("Auth.Sessions.Me", {}).orThrow() then me}
   <span>{displayParticipantKind(me.participantKind)}</span>
   <span>{displayDeviceId(me.device?.deviceId)}</span>
 {/await}

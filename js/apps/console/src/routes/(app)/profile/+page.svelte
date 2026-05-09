@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
-  import type { AuthMeOutput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthSessionsMeOutput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
@@ -25,7 +25,7 @@
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let user = $state<AuthMeOutput["user"] | null>(null);
+  let user = $state<AuthSessionsMeOutput["user"] | null>(null);
   let participantKind = $state<ParticipantKind | null>(null);
   const connectionStatus = $derived(connection.status.phase);
   let grants = $state<UserGrantRecord[]>([]);
@@ -37,7 +37,7 @@
       const me = await getAuthenticatedUser(trellis);
       user = me.user ?? null;
       participantKind = me.participantKind;
-      const grantsResponse = await trellis.request("Auth.ListUserGrants", {}).take();
+      const grantsResponse = await trellis.request("Auth.Identities.Grants.List", { limit: 100, offset: 0 }).take();
       if (isErr(grantsResponse)) { error = errorMessage(grantsResponse); return; }
       grants = grantsResponse.grants ?? [];
     } catch (e) {
@@ -123,7 +123,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each grants as grant (grant.contractDigest)}
+              {#each grants as grant (grant.identityEnvelopeId)}
                 {@const summary = describeUserGrant(grant)}
                 <tr>
                   <td>
@@ -136,8 +136,8 @@
                     </span>
                   </td>
                   <td>
-                    <div class="trellis-identifier text-base-content/60">{grant.contractId}</div>
-                    <div class="trellis-identifier text-base-content/40">{grant.contractDigest.slice(0, 12)}…</div>
+                    <div class="trellis-identifier text-base-content/60">{grant.contractEvidence.contractId}</div>
+                    <div class="trellis-identifier text-base-content/40">{grant.contractEvidence.contractDigest.slice(0, 12)}…</div>
                   </td>
                   <td class="text-xs text-base-content/60">
                     {#if grant.capabilities.length}
@@ -158,7 +158,7 @@
                     <details class="dropdown dropdown-end">
                       <summary class="btn btn-ghost btn-xs">Actions</summary>
                       <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2">
-                        <li><a class="text-error" href={resolve(`/profile/grants/revoke?grant=${encodeURIComponent(grant.contractDigest)}`)}>Revoke</a></li>
+                        <li><a class="text-error" href={resolve(`/profile/grants/revoke?grant=${encodeURIComponent(grant.identityEnvelopeId)}`)}>Revoke</a></li>
                       </ul>
                     </details>
                   </td>

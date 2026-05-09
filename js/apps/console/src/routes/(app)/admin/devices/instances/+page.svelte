@@ -1,9 +1,9 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthListDeviceInstancesInput,
-    AuthListDeviceInstancesOutput,
-    AuthListDeviceDeploymentsOutput,
+    AuthDevicesListInput,
+    AuthDevicesListOutput,
+    AuthDeploymentsListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
@@ -15,11 +15,11 @@
   import { errorMessage, formatDate } from "../../../../../lib/format";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type Instance = AuthListDeviceInstancesOutput["instances"][number] & {
+  type Instance = AuthDevicesListOutput["instances"][number] & {
     metadata?: Record<string, string>;
   };
-  type Deployment = AuthListDeviceDeploymentsOutput["deployments"][number];
-  type InstanceState = NonNullable<AuthListDeviceInstancesInput["state"]> | "all";
+  type Deployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "device" }>;
+  type InstanceState = NonNullable<AuthDevicesListInput["state"]> | "all";
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
 
   const trellis = getTrellis();
@@ -35,10 +35,12 @@
 
   let showMetadata = $state(false);
 
-  function instanceQuery(): AuthListDeviceInstancesInput {
+  function instanceQuery(): AuthDevicesListInput {
     return {
       deploymentId: deploymentFilter || undefined,
       state: stateFilter === "all" ? undefined : stateFilter,
+      limit: 500,
+      offset: 0,
     };
   }
 
@@ -47,14 +49,14 @@
     error = null;
     try {
       const [instancesResponse, deploymentsResponse] = await Promise.all([
-        trellis.request("Auth.ListDeviceInstances", instanceQuery()).take(),
-        trellis.request("Auth.ListDeviceDeployments", {}).take(),
+        trellis.request("Auth.Devices.List", instanceQuery()).take(),
+        trellis.request("Auth.Deployments.List", { kind: "device", limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(instancesResponse)) { error = errorMessage(instancesResponse); return; }
       if (isErr(deploymentsResponse)) { error = errorMessage(deploymentsResponse); return; }
 
       instances = instancesResponse.instances ?? [];
-      deployments = deploymentsResponse.deployments ?? [];
+      deployments = (deploymentsResponse.deployments ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
     } catch (e) {
       error = errorMessage(e);
     } finally {

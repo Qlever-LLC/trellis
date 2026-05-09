@@ -54,7 +54,7 @@ Create `contracts/orders_service.manifest.json`:
     },
     "auth": {
       "contract": "trellis.auth@v1",
-      "events": { "subscribe": ["Auth.Connect"] }
+      "events": { "subscribe": ["Auth.Connections.Opened"] }
     }
   },
   "resources": {
@@ -148,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-`connect_service` verifies the contract digest is installed and still allowed for the service instance, then resolves the persisted resource bindings for that exact digest. The digest becomes active in the Trellis service catalog when it is applied to an enabled service deployment; it does not wait for this instance to connect.
+`connect_service` verifies that the presented contract evidence fits the enabled deployment envelope, then resolves the persisted resource bindings for that boundary. The boundary becomes active in the Trellis service catalog when it is available on an enabled service deployment; it does not wait for this instance to connect.
 
 ## 6. Open KV stores
 
@@ -226,11 +226,10 @@ service.stop().await?;
 cargo build --release
 ```
 
-Apply the contract to a service deployment and provision one service instance. The applied digest becomes active for catalog/auth after apply; the instance is for runtime availability and current-digest enforcement:
+Create a service deployment and provision one service instance. Before starting the service runtime, use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add the service contract boundary to the deployment envelope:
 
 ```sh
 trellis deploy create svc/orders-service
-trellis deploy apply svc/orders-service --source ./contracts/orders_service.rs
 trellis deploy provision svc/orders-service
 ```
 

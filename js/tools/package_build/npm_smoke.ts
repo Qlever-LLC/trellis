@@ -17,6 +17,7 @@ const runtimeImports = [
   "@qlever-llc/trellis/auth",
   "@qlever-llc/trellis/contracts",
   "@qlever-llc/trellis/errors",
+  "@qlever-llc/trellis/generate",
   "@qlever-llc/trellis/health",
   "@qlever-llc/trellis/host",
   "@qlever-llc/trellis/host/node",
@@ -291,7 +292,7 @@ import { createTrellisApp, TrellisProvider, type TrellisProviderProps } from "@q
 type AuthClient = Client;
 type ProviderProps = TrellisProviderProps;
 
-const authUse = auth.use({ rpc: { call: ["Auth.Me"] } });
+const authUse = auth.use({ rpc: { call: ["Auth.Sessions.Me"] } });
 const healthUse = health.use({ events: { publish: ["Health.Heartbeat"] } });
 const stateUse = state.use({ rpc: { call: ["State.Get"] } });
 const rpc = API.owned.rpc;

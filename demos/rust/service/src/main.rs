@@ -1183,13 +1183,15 @@ fn demo_refresh_jobs_binding() -> trellis_jobs::bindings::JobsBinding {
 
 async fn assignments_list(
     state: SharedState,
-    _input: AssignmentsListRequest,
+    input: AssignmentsListRequest,
 ) -> Result<AssignmentsListResponse, ServerError> {
     let state = state.lock().expect("demo state lock");
     Ok(AssignmentsListResponse {
         assignments: state
             .assignments
             .iter()
+            .skip(input.offset as usize)
+            .take(input.limit as usize)
             .map(assignment_to_response)
             .collect(),
     })
@@ -1197,13 +1199,15 @@ async fn assignments_list(
 
 async fn sites_list(
     site_summaries: SiteSummaryStore,
-    _input: SitesListRequest,
+    input: SitesListRequest,
 ) -> Result<SitesListResponse, ServerError> {
     Ok(SitesListResponse {
         sites: site_summaries
             .list()
             .await?
             .iter()
+            .skip(input.offset as usize)
+            .take(input.limit as usize)
             .map(site_to_list_response)
             .collect(),
     })
@@ -1237,6 +1241,8 @@ async fn evidence_list(
                     .as_ref()
                     .is_none_or(|prefix| evidence.key.starts_with(prefix))
             })
+            .skip(input.offset as usize)
+            .take(input.limit as usize)
             .map(evidence_to_response)
             .collect(),
     })
@@ -1326,11 +1332,17 @@ async fn evidence_delete(
 
 async fn reports_list(
     state: SharedState,
-    _input: ReportsListRequest,
+    input: ReportsListRequest,
 ) -> Result<ReportsListResponse, ServerError> {
     let state = state.lock().expect("demo state lock");
     Ok(ReportsListResponse {
-        reports: state.reports.clone(),
+        reports: state
+            .reports
+            .iter()
+            .skip(input.offset as usize)
+            .take(input.limit as usize)
+            .cloned()
+            .collect(),
     })
 }
 
@@ -2561,13 +2573,16 @@ mod tests {
     use futures_util::StreamExt;
     use serde::de::DeserializeOwned;
     use serde::Serialize;
-    use trellis_auth::{AuthValidateRequestRequest, AuthValidateRequestResponse};
+    use trellis_auth::{AuthRequestsValidateRequest, AuthRequestsValidateResponse};
     use trellis_client::TrellisClientError;
     use trellis_sdk_demo_service::operations;
     use trellis_sdk_demo_service::rpc;
     use trellis_service::{OperationDescriptor, RpcDescriptor, UploadTransferChunk};
 
     use super::*;
+
+    const LIST_LIMIT: i64 = 50;
+    const LIST_OFFSET: i64 = 0;
 
     fn args() -> Args {
         Args {
@@ -2586,10 +2601,10 @@ mod tests {
     impl AuthRequestValidatorClientPort for FakeAuthValidatorClient {
         fn auth_validate_request<'a>(
             &'a self,
-            input: &'a AuthValidateRequestRequest,
+            input: &'a AuthRequestsValidateRequest,
         ) -> Pin<
             Box<
-                dyn Future<Output = Result<AuthValidateRequestResponse, TrellisClientError>>
+                dyn Future<Output = Result<AuthRequestsValidateResponse, TrellisClientError>>
                     + Send
                     + 'a,
             >,
@@ -2599,7 +2614,7 @@ mod tests {
                 .expect("seen subjects lock")
                 .push(input.subject.clone());
             Box::pin(async move {
-                Ok(AuthValidateRequestResponse {
+                Ok(AuthRequestsValidateResponse {
                     allowed: self.allowed,
                     caller: serde_json::json!({ "type": "service", "id": "demo" }),
                     inbox_prefix: "_INBOX.demo".to_string(),
@@ -2728,8 +2743,14 @@ mod tests {
     #[tokio::test]
     async fn router_serves_generated_rpc_descriptors() {
         let router = build_router();
-        let response: SitesListResponse =
-            call::<rpc::SitesListRpc>(&router, SitesListRequest(BTreeMap::new())).await;
+        let response: SitesListResponse = call::<rpc::SitesListRpc>(
+            &router,
+            SitesListRequest {
+                limit: LIST_LIMIT,
+                offset: LIST_OFFSET,
+            },
+        )
+        .await;
 
         assert_eq!(response.sites[0].site_id, "site-west-yard");
     }
@@ -2960,6 +2981,8 @@ mod tests {
         let evidence: EvidenceListResponse = call::<rpc::EvidenceListRpc>(
             &router,
             EvidenceListRequest {
+                limit: LIST_LIMIT,
+                offset: LIST_OFFSET,
                 prefix: Some("site-north/transformer-a/photo.txt".to_string()),
             },
         )
@@ -3092,8 +3115,14 @@ mod tests {
         )
         .await;
 
-        let listed: SitesListResponse =
-            call::<rpc::SitesListRpc>(&router, SitesListRequest(BTreeMap::new())).await;
+        let listed: SitesListResponse = call::<rpc::SitesListRpc>(
+            &router,
+            SitesListRequest {
+                limit: LIST_LIMIT,
+                offset: LIST_OFFSET,
+            },
+        )
+        .await;
         assert_eq!(listed.sites[0].last_report_at, FIXED_NOW);
 
         let fetched: SitesGetResponse = call::<rpc::SitesGetRpc>(

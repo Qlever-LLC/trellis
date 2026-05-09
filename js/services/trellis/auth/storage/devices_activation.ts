@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, type SQL } from "drizzle-orm";
 import type { StaticDecode } from "typebox";
 import Value from "typebox/value";
 
@@ -19,7 +19,12 @@ import {
   DeviceProvisioningSecretSchema,
   DeviceSchema,
 } from "../schemas.ts";
-import { isoString, parseJsonField } from "./shared.ts";
+import {
+  type BoundedListQuery,
+  boundedListQuery,
+  isoString,
+  parseJsonField,
+} from "./shared.ts";
 
 type DeviceDeployment = StaticDecode<typeof DeviceDeploymentSchema>;
 type DeviceInstance = StaticDecode<typeof DeviceSchema>;
@@ -38,17 +43,13 @@ type DeviceActivationInsert = typeof deviceActivations.$inferInsert;
 type DeviceActivationReviewRow = typeof deviceActivationReviews.$inferSelect;
 type DeviceActivationReviewInsert = typeof deviceActivationReviews.$inferInsert;
 
+type DisabledFilter = { disabled?: boolean };
+
 function decodeDeviceDeploymentRow(row: DeviceDeploymentRow): DeviceDeployment {
   return Value.Decode(DeviceDeploymentSchema, {
     deploymentId: row.deploymentId,
     reviewMode: row.reviewMode ?? undefined,
-    firstConnectPolicy: row.firstConnectPolicy ?? "reject",
-    preActivationPolicy: row.preActivationPolicy ?? "reject",
     disabled: row.disabled,
-    appliedContracts: parseJsonField(
-      "device deployment applied contracts",
-      row.appliedContracts,
-    ),
   });
 }
 
@@ -58,10 +59,7 @@ function encodeDeviceDeploymentRecord(
   return {
     deploymentId: record.deploymentId,
     reviewMode: record.reviewMode ?? null,
-    firstConnectPolicy: record.firstConnectPolicy ?? "reject",
-    preActivationPolicy: record.preActivationPolicy ?? "reject",
     disabled: record.disabled,
-    appliedContracts: JSON.stringify(record.appliedContracts),
   };
 }
 
@@ -215,10 +213,7 @@ export class SqlDeviceDeploymentRepository {
       target: deviceDeployments.deploymentId,
       set: {
         reviewMode: row.reviewMode,
-        firstConnectPolicy: row.firstConnectPolicy,
-        preActivationPolicy: row.preActivationPolicy,
         disabled: row.disabled,
-        appliedContracts: row.appliedContracts,
       },
     });
   }
@@ -230,11 +225,48 @@ export class SqlDeviceDeploymentRepository {
     );
   }
 
-  /** Returns device deployments ordered by deployment id. */
-  async list(): Promise<DeviceDeployment[]> {
+  /** Returns a bounded page of device deployments ordered by deployment id. */
+  async listPage(query: BoundedListQuery): Promise<DeviceDeployment[]> {
+    const { offset, limit } = boundedListQuery(query);
     const rows = await this.#db.select().from(deviceDeployments).orderBy(
       deviceDeployments.deploymentId,
+    ).limit(limit).offset(offset);
+    return rows.map((row: DeviceDeploymentRow) =>
+      decodeDeviceDeploymentRow(row)
     );
+  }
+
+  /** Returns device deployments for requested deployment ids. */
+  async listByDeploymentIds(
+    deploymentIds: Iterable<string>,
+    filters: DisabledFilter = {},
+  ): Promise<DeviceDeployment[]> {
+    const requested = [...new Set(deploymentIds)];
+    if (requested.length === 0) return [];
+    const conditions: SQL[] = [
+      inArray(deviceDeployments.deploymentId, requested),
+    ];
+    if (filters.disabled !== undefined) {
+      conditions.push(eq(deviceDeployments.disabled, filters.disabled));
+    }
+    const rows = await this.#db.select().from(deviceDeployments).where(
+      and(...conditions),
+    ).orderBy(deviceDeployments.deploymentId);
+    return rows.map((row: DeviceDeploymentRow) =>
+      decodeDeviceDeploymentRow(row)
+    );
+  }
+
+  /** Returns device deployments matching simple indexed filters. */
+  async listFiltered(
+    filters: DisabledFilter,
+    query: BoundedListQuery,
+  ): Promise<DeviceDeployment[]> {
+    const { offset, limit } = boundedListQuery(query);
+    if (filters.disabled === undefined) return await this.listPage(query);
+    const rows = await this.#db.select().from(deviceDeployments).where(
+      eq(deviceDeployments.disabled, filters.disabled),
+    ).orderBy(deviceDeployments.deploymentId).limit(limit).offset(offset);
     return rows.map((row: DeviceDeploymentRow) =>
       decodeDeviceDeploymentRow(row)
     );
@@ -283,11 +315,12 @@ export class SqlDeviceInstanceRepository {
     );
   }
 
-  /** Returns device instances ordered by instance id. */
-  async list(): Promise<DeviceInstance[]> {
+  /** Returns a bounded page of device instances ordered by instance id. */
+  async listPage(query: BoundedListQuery): Promise<DeviceInstance[]> {
+    const { offset, limit } = boundedListQuery(query);
     const rows = await this.#db.select().from(deviceInstances).orderBy(
       deviceInstances.instanceId,
-    );
+    ).limit(limit).offset(offset);
     return rows.map((row: DeviceInstanceRow) => decodeDeviceInstanceRow(row));
   }
 
@@ -296,6 +329,51 @@ export class SqlDeviceInstanceRepository {
     const rows = await this.#db.select().from(deviceInstances).where(
       eq(deviceInstances.deploymentId, deploymentId),
     ).orderBy(deviceInstances.instanceId);
+    return rows.map((row: DeviceInstanceRow) => decodeDeviceInstanceRow(row));
+  }
+
+  /** Returns device instances for requested deployments ordered by deployment and instance id. */
+  async listByDeployments(
+    deploymentIds: Iterable<string>,
+  ): Promise<DeviceInstance[]> {
+    const requested = [...new Set(deploymentIds)];
+    if (requested.length === 0) return [];
+    const rows = await this.#db.select().from(deviceInstances).where(
+      inArray(deviceInstances.deploymentId, requested),
+    ).orderBy(deviceInstances.deploymentId, deviceInstances.instanceId);
+    return rows.map((row: DeviceInstanceRow) => decodeDeviceInstanceRow(row));
+  }
+
+  /** Returns device instances in one of the requested states ordered by state and instance id. */
+  async listByStates(states: Iterable<string>): Promise<DeviceInstance[]> {
+    const requested = [...new Set(states)];
+    if (requested.length === 0) return [];
+    const rows = await this.#db.select().from(deviceInstances).where(
+      inArray(deviceInstances.state, requested),
+    ).orderBy(deviceInstances.state, deviceInstances.instanceId);
+    return rows.map((row: DeviceInstanceRow) => decodeDeviceInstanceRow(row));
+  }
+
+  /** Returns device instances for deployments and states using indexed predicates. */
+  async listByDeploymentsAndStates(
+    deploymentIds: Iterable<string>,
+    states: Iterable<string>,
+  ): Promise<DeviceInstance[]> {
+    const requestedDeployments = [...new Set(deploymentIds)];
+    const requestedStates = [...new Set(states)];
+    if (requestedDeployments.length === 0 || requestedStates.length === 0) {
+      return [];
+    }
+    const rows = await this.#db.select().from(deviceInstances).where(
+      and(
+        inArray(deviceInstances.deploymentId, requestedDeployments),
+        inArray(deviceInstances.state, requestedStates),
+      ),
+    ).orderBy(
+      deviceInstances.deploymentId,
+      deviceInstances.state,
+      deviceInstances.instanceId,
+    );
     return rows.map((row: DeviceInstanceRow) => decodeDeviceInstanceRow(row));
   }
 }
@@ -382,11 +460,38 @@ export class SqlDeviceActivationRepository {
     );
   }
 
-  /** Returns device activations ordered by instance id. */
-  async list(): Promise<DeviceActivation[]> {
+  /** Returns a bounded page of device activations ordered by instance id. */
+  async listPage(query: BoundedListQuery): Promise<DeviceActivation[]> {
+    const { offset, limit } = boundedListQuery(query);
     const rows = await this.#db.select().from(deviceActivations).orderBy(
       deviceActivations.instanceId,
+    ).limit(limit).offset(offset);
+    return rows.map((row: DeviceActivationRow) =>
+      decodeDeviceActivationRow(row)
     );
+  }
+
+  /** Returns device activations matching simple indexed filters. */
+  async listFiltered(filters: {
+    instanceId?: string;
+    deploymentId?: string;
+    state?: string;
+  }, query: BoundedListQuery): Promise<DeviceActivation[]> {
+    const { offset, limit } = boundedListQuery(query);
+    const conditions: SQL[] = [];
+    if (filters.instanceId !== undefined) {
+      conditions.push(eq(deviceActivations.instanceId, filters.instanceId));
+    }
+    if (filters.deploymentId !== undefined) {
+      conditions.push(eq(deviceActivations.deploymentId, filters.deploymentId));
+    }
+    if (filters.state !== undefined) {
+      conditions.push(eq(deviceActivations.state, filters.state));
+    }
+    if (conditions.length === 0) return await this.listPage(query);
+    const rows = await this.#db.select().from(deviceActivations).where(
+      and(...conditions),
+    ).orderBy(deviceActivations.instanceId).limit(limit).offset(offset);
     return rows.map((row: DeviceActivationRow) =>
       decodeDeviceActivationRow(row)
     );
@@ -452,11 +557,53 @@ export class SqlDeviceActivationReviewRepository {
     );
   }
 
-  /** Returns device activation reviews ordered by review id. */
-  async list(): Promise<DeviceActivationReviewRecord[]> {
+  /** Returns a bounded page of device activation reviews ordered by review id. */
+  async listPage(
+    query: BoundedListQuery,
+  ): Promise<DeviceActivationReviewRecord[]> {
+    const { offset, limit } = boundedListQuery(query);
     const rows = await this.#db.select().from(deviceActivationReviews).orderBy(
       deviceActivationReviews.reviewId,
+    ).limit(limit).offset(offset);
+    return rows.map((row: DeviceActivationReviewRow) =>
+      decodeDeviceActivationReviewRow(row)
     );
+  }
+
+  /** Returns device activation reviews matching simple indexed filters. */
+  async listFiltered(filters: {
+    instanceId?: string;
+    deploymentId?: string;
+    state?: string;
+    deploymentIds?: Iterable<string>;
+  }, query: BoundedListQuery): Promise<DeviceActivationReviewRecord[]> {
+    const { offset, limit } = boundedListQuery(query);
+    const conditions: SQL[] = [];
+    if (filters.instanceId !== undefined) {
+      conditions.push(
+        eq(deviceActivationReviews.instanceId, filters.instanceId),
+      );
+    }
+    if (filters.deploymentId !== undefined) {
+      conditions.push(
+        eq(deviceActivationReviews.deploymentId, filters.deploymentId),
+      );
+    }
+    if (filters.deploymentIds !== undefined) {
+      const requested = [...new Set(filters.deploymentIds)];
+      if (requested.length === 0) return [];
+      conditions.push(inArray(deviceActivationReviews.deploymentId, requested));
+    }
+    if (filters.state !== undefined) {
+      conditions.push(eq(deviceActivationReviews.state, filters.state));
+    }
+    if (conditions.length === 0) return await this.listPage(query);
+    const rows = await this.#db.select().from(deviceActivationReviews).where(
+      and(...conditions),
+    ).orderBy(
+      deviceActivationReviews.requestedAt,
+      deviceActivationReviews.reviewId,
+    ).limit(limit).offset(offset);
     return rows.map((row: DeviceActivationReviewRow) =>
       decodeDeviceActivationReviewRow(row)
     );

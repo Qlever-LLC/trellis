@@ -5,10 +5,10 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import {
-  AuthMeResponseSchema,
-  AuthMeSchema,
-  AuthValidateRequestResponseSchema,
-  AuthValidateRequestSchema,
+  AuthSessionsMeResponseSchema,
+  AuthSessionsMeSchema,
+  AuthRequestsValidateResponseSchema,
+  AuthRequestsValidateSchema,
 } from "@qlever-llc/trellis/auth";
 import { assert, assertEquals, assertExists, assertRejects } from "@std/assert";
 
@@ -98,10 +98,10 @@ const NotFoundError = defineError({
 });
 
 const authSchemas = {
-  AuthValidateRequestInput: AuthValidateRequestSchema,
-  AuthValidateRequestOutput: AuthValidateRequestResponseSchema,
-  AuthMeInput: AuthMeSchema,
-  AuthMeOutput: AuthMeResponseSchema,
+  AuthRequestsValidateInput: AuthRequestsValidateSchema,
+  AuthRequestsValidateOutput: AuthRequestsValidateResponseSchema,
+  AuthSessionsMeInput: AuthSessionsMeSchema,
+  AuthSessionsMeOutput: AuthSessionsMeResponseSchema,
   EmptySchema,
   TraceOutput: Type.Object({ traceId: Type.String() }),
   EventPayload: Type.Object({
@@ -128,10 +128,10 @@ const emptyContract = defineServiceContract({}, () => ({
 const authContract = defineServiceContract(
   {
     schemas: {
-      AuthValidateRequestInput: authSchemas.AuthValidateRequestInput,
-      AuthValidateRequestOutput: authSchemas.AuthValidateRequestOutput,
-      AuthMeInput: authSchemas.AuthMeInput,
-      AuthMeOutput: authSchemas.AuthMeOutput,
+      AuthRequestsValidateInput: authSchemas.AuthRequestsValidateInput,
+      AuthRequestsValidateOutput: authSchemas.AuthRequestsValidateOutput,
+      AuthSessionsMeInput: authSchemas.AuthSessionsMeInput,
+      AuthSessionsMeOutput: authSchemas.AuthSessionsMeOutput,
     },
   },
   () => ({
@@ -139,17 +139,17 @@ const authContract = defineServiceContract(
     displayName: "Auth RPC Test",
     description: "Expose auth RPCs for integration tests.",
     rpc: {
-      "Auth.ValidateRequest": {
+      "Auth.Requests.Validate": {
         version: "v1",
-        input: schemaRef("AuthValidateRequestInput"),
-        output: schemaRef("AuthValidateRequestOutput"),
+        input: schemaRef("AuthRequestsValidateInput"),
+        output: schemaRef("AuthRequestsValidateOutput"),
         authRequired: false,
         errors: ["AuthError", "ValidationError", "UnexpectedError"],
       },
-      "Auth.Me": {
+      "Auth.Sessions.Me": {
         version: "v1",
-        input: schemaRef("AuthMeInput"),
-        output: schemaRef("AuthMeOutput"),
+        input: schemaRef("AuthSessionsMeInput"),
+        output: schemaRef("AuthSessionsMeOutput"),
         errors: ["AuthError", "ValidationError", "UnexpectedError"],
       },
     },
@@ -168,7 +168,7 @@ const traceContract = defineServiceContract(
     displayName: "Trace RPC Test",
     description: "Exercise traced RPC calls against a dependent auth contract.",
     uses: {
-      auth: authContract.use({ rpc: { call: ["Auth.ValidateRequest"] } }),
+      auth: authContract.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
     },
     rpc: {
       "Test.Trace": {
@@ -259,7 +259,7 @@ Deno.test({
         );
 
         const result = await client.request(
-          "Auth.ValidateRequest",
+          "Auth.Requests.Validate",
           JSON.parse(
             '{"proof":"test-proof","subject":"rpc.Test","payloadHash":"not-a-hash"}',
           ),
@@ -374,10 +374,10 @@ Deno.test({
         { name: "trace-service" },
       );
 
-      // The server auth path for non-auth RPCs calls Auth.ValidateRequest internally.
-      // For this unit integration, mount a permissive Auth.ValidateRequest handler.
+      // The server auth path for non-auth RPCs calls Auth.Requests.Validate internally.
+      // For this unit integration, mount a permissive Auth.Requests.Validate handler.
       await authService.mount(
-        "Auth.ValidateRequest",
+        "Auth.Requests.Validate",
         async ({ input }: { input: unknown }) => {
           const authInput = input as { sessionKey: string };
           return ok({
@@ -422,7 +422,7 @@ Deno.test({
       await nc.close();
     });
 
-    await t.step("AuthValidateRequest RPC round-trip works", async () => {
+    await t.step("AuthRequestsValidate RPC round-trip works", async () => {
       const authService = createClient(
         authContract,
         nats.nc,
@@ -431,7 +431,7 @@ Deno.test({
       );
 
       await authService.mount(
-        "Auth.ValidateRequest",
+        "Auth.Requests.Validate",
         async ({ input }: { input: unknown }) => {
           const authInput = input as { sessionKey: string };
           return ok({
@@ -458,7 +458,7 @@ Deno.test({
         { caller: { trellisId?: string; id?: string; deviceId?: string } }
       >(async () => {
         const r = await client.request(
-          "Auth.ValidateRequest",
+          "Auth.Requests.Validate",
           {
             sessionKey: "valid-session",
             proof: "proof",
@@ -471,7 +471,7 @@ Deno.test({
         const v = r.take();
         if (isErr(v)) return null;
         return v;
-      }, { description: "AuthValidateRequest responder ready" }) as {
+      }, { description: "AuthRequestsValidate responder ready" }) as {
         allowed: boolean;
         caller: {
           type: string;
@@ -510,7 +510,7 @@ Deno.test({
       );
 
       await authService.mount(
-        "Auth.ValidateRequest",
+        "Auth.Requests.Validate",
         async ({ input }: { input: unknown }) => {
           const authInput = input as { sessionKey: string };
           return ok({
@@ -521,7 +521,7 @@ Deno.test({
         },
       );
 
-      await meService.mount("Auth.Me", async ({ context: ctx }) => {
+      await meService.mount("Auth.Sessions.Me", async ({ context: ctx }) => {
         if (ctx.caller.type !== "user") {
           throw new Error("expected user caller");
         }
@@ -554,7 +554,7 @@ Deno.test({
       );
       const response = await waitFor<{ user: { id: string } | null }>(
         async () => {
-          const r = await client.request("Auth.Me", {}, { timeout: 500 });
+          const r = await client.request("Auth.Sessions.Me", {}, { timeout: 500 });
           const v = r.take();
           if (isErr(v)) return null;
           return v;
@@ -584,7 +584,7 @@ Deno.test({
         );
 
         await authService.mount(
-          "Auth.ValidateRequest",
+          "Auth.Requests.Validate",
           async ({ input }: { input: unknown }) => {
             const authInput = input as { sessionKey: string };
             return ok({
@@ -595,7 +595,7 @@ Deno.test({
           },
         );
 
-        await meService.mount("Auth.Me", async ({ context: ctx }) => {
+        await meService.mount("Auth.Sessions.Me", async ({ context: ctx }) => {
           if (ctx.caller.type !== "user") {
             throw new Error("expected user caller");
           }
@@ -628,7 +628,7 @@ Deno.test({
         );
         const response = await waitFor<{ user: { id: string } | null }>(
           () =>
-            client.request("Auth.Me", {}, { timeout: 500 }).orThrow().catch(
+            client.request("Auth.Sessions.Me", {}, { timeout: 500 }).orThrow().catch(
               () => null,
             ),
           { description: "Me responder ready for request().orThrow()" },
@@ -663,7 +663,7 @@ Deno.test({
 
     let validateCalls = 0;
     await authService.mount(
-      "Auth.ValidateRequest",
+      "Auth.Requests.Validate",
       async ({ input }: { input: unknown }) => {
         const authInput = input as { sessionKey: string };
         validateCalls += 1;
@@ -678,7 +678,7 @@ Deno.test({
       },
     );
 
-    await meService.mount("Auth.Me", async ({ context: ctx }) => {
+    await meService.mount("Auth.Sessions.Me", async ({ context: ctx }) => {
       if (ctx.caller.type !== "user") {
         throw new Error("expected user caller");
       }
@@ -712,7 +712,7 @@ Deno.test({
 
     const response = await waitFor<{ user: { id: string } | null }>(
       async () => {
-        const r = await client.request("Auth.Me", {}, { timeout: 500 });
+        const r = await client.request("Auth.Sessions.Me", {}, { timeout: 500 });
         const v = r.take();
         if (isErr(v)) return null;
         return v;

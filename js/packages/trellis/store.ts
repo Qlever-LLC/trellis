@@ -15,6 +15,7 @@ import { StoreError } from "./errors/index.ts";
 
 const INTERNAL_CONTENT_TYPE_METADATA_KEY = "__trellis_content_type";
 const DEFAULT_STORE_WAIT_POLL_INTERVAL_MS = 250;
+const MAX_STORE_LIST_LIMIT = 500;
 
 export type StoreBody =
   | Uint8Array
@@ -37,6 +38,13 @@ export type StoreOpenOptions = {
 export type StorePutOptions = {
   contentType?: string;
   metadata?: Record<string, string>;
+};
+
+/** Explicit bounded query for listing object metadata in a typed store. */
+export type StoreListOptions = {
+  prefix?: string;
+  offset?: number;
+  limit: number;
 };
 
 export type StoreInfo = {
@@ -110,6 +118,43 @@ function streamFromAsyncIterable(
       await iterator.return?.(reason);
     },
   });
+}
+
+function validateStoreListOptions(
+  opts: StoreListOptions,
+): ResultType<Required<StoreListOptions>, StoreError> {
+  if (!Number.isInteger(opts.limit) || opts.limit < 0) {
+    return Result.err(
+      new StoreError({
+        operation: "list",
+        context: { reason: "invalid_limit", limit: opts.limit },
+      }),
+    );
+  }
+  if (opts.limit > MAX_STORE_LIST_LIMIT) {
+    return Result.err(
+      new StoreError({
+        operation: "list",
+        context: {
+          reason: "limit_exceeded",
+          limit: opts.limit,
+          maxLimit: MAX_STORE_LIST_LIMIT,
+        },
+      }),
+    );
+  }
+
+  const offset = opts.offset ?? 0;
+  if (!Number.isInteger(offset) || offset < 0) {
+    return Result.err(
+      new StoreError({
+        operation: "list",
+        context: { reason: "invalid_offset", offset },
+      }),
+    );
+  }
+
+  return Result.ok({ prefix: opts.prefix ?? "", offset, limit: opts.limit });
 }
 
 function enforceMaxObjectBytes(
@@ -400,21 +445,23 @@ export class TypedStore {
     })());
   }
 
-  list(prefix = ""): AsyncResult<AsyncIterable<StoreInfo>, StoreError> {
+  list(opts: StoreListOptions): AsyncResult<StoreInfo[], StoreError> {
     return AsyncResult.from((async () => {
+      const query = validateStoreListOptions(opts);
+      if (query.isErr()) return Result.err(query.error);
+
+      const { prefix, offset, limit } = query.unwrapOrElse(() => {
+        throw new Error("unreachable");
+      });
       try {
         const objects = await this.#store.list();
-        const filtered = objects
+        const listed = objects
           .filter((info) => !info.deleted && info.name.startsWith(prefix))
-          .map(storeInfoFromObjectInfo);
+          .map(storeInfoFromObjectInfo)
+          .sort((left, right) => left.key.localeCompare(right.key))
+          .slice(offset, offset + limit);
 
-        async function* iterate(): AsyncIterable<StoreInfo> {
-          for (const info of filtered) {
-            yield info;
-          }
-        }
-
-        return Result.ok(iterate());
+        return Result.ok(listed);
       } catch (cause) {
         return Result.err(
           new StoreError({ operation: "list", cause, context: { prefix } }),

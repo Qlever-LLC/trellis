@@ -59,7 +59,7 @@ Caller-visible asynchronous APIs are defined separately in
 Jobs remain service-private execution machinery.
 
 The shared streams used by jobs are Trellis-owned runtime infrastructure.
-Trellis provisions or binds those resources during service apply/install for
+Trellis provisions or binds those resources during service envelope expansion for
 jobs-enabled services. The Jobs admin runtime may host the built-in
 `trellis.jobs@v1` RPCs, but it does not own or control the contract. Ordinary
 services and demos should not need an extra manual `trellis.jobs@v1` install
@@ -248,8 +248,8 @@ Ordinary services do not bind to or write any admin projection storage.
 ### Provisioning Model
 
 Shared jobs infrastructure is Trellis-owned runtime state. Trellis provisions or
-binds it during service apply/install for jobs-enabled environments rather than
-requiring a separate manual jobs install step or first-bootstrap side effect.
+binds it during service envelope expansion for jobs-enabled environments rather
+than requiring a separate manual jobs install step or first-bootstrap side effect.
 
 - normal services declare top-level `jobs` to participate in jobs processing
   without owning the shared stream topology directly
@@ -258,7 +258,7 @@ requiring a separate manual jobs install step or first-bootstrap side effect.
   work, and SQL projections for the built-in Jobs API, but ordinary service-local
   workers do not depend on a manual jobs service deployment to start
 - the `trellis` service provisions or binds the shared jobs resources during
-  service apply/install before jobs-enabled services start
+  service envelope expansion before jobs-enabled services start
 - the `jobs` service and service-local workers create only dynamic per-job-type
   consumers at runtime
 - the runtime should consume those bindings, rather than hard-coding an
@@ -278,7 +278,7 @@ service-declared contract resources.
 Normal consuming service contracts should declare top-level `jobs`. The JSON
 examples below show the resolved JetStream configuration the jobs runtime expects
 after binding. Trellis should provision these shared resources during service
-apply/install so service-local workers can rely on the bindings without a
+envelope expansion so service-local workers can rely on the bindings without a
 separate infrastructure install step.
 
 Trellis jobs require `nats-server` 2.10.0 or newer. This is the runtime floor
@@ -779,10 +779,11 @@ derivation. The system does **not** grant broad end-user capabilities for direct
 jobs access.
 
 As in `../auth/trellis-auth.md` and `../contracts/trellis-contracts-catalog.md`,
-runtime service ownership is derived from the installed service principal and
-installed contract record, not from contract metadata alone. The `<service>`
-subject segment used by Jobs must therefore be bound to the installed service
-identity used for routing and permission derivation.
+runtime service ownership is derived from the service principal and the service
+deployment envelope that the presented contract evidence must fit, not from
+contract metadata alone. The `<service>` subject segment used by Jobs must
+therefore be bound to the service identity used for routing and permission
+derivation.
 
 | Capability / rule                         | Permissions                                                                                                                                        |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |

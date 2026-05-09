@@ -3,18 +3,13 @@ import type { NatsConnection } from "@nats-io/transport-deno";
 import type { Msg } from "@nats-io/nats-core";
 import type { Connection, SentinelCreds } from "./schemas.ts";
 import type {
-  SqlContractApprovalRepository,
+  SqlIdentityEnvelopeRepository,
+  SqlDeploymentPortalRouteRepository,
   SqlDeviceActivationRepository,
   SqlDeviceActivationReviewRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
-  SqlDevicePortalSelectionRepository,
   SqlDeviceProvisioningSecretRepository,
-  SqlInstanceGrantPolicyRepository,
-  SqlLoginPortalSelectionRepository,
-  SqlPortalDefaultRepository,
-  SqlPortalProfileRepository,
-  SqlPortalRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -62,18 +57,13 @@ export type AuthRuntimeDeps = {
       payload: unknown,
     ): AsyncResult<unknown, BaseError>;
   };
-  contractApprovalStorage: SqlContractApprovalRepository;
+  contractApprovalStorage: SqlIdentityEnvelopeRepository;
+  deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
   deviceActivationReviewStorage: SqlDeviceActivationReviewRepository;
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceInstanceStorage: SqlDeviceInstanceRepository;
-  devicePortalSelectionStorage: SqlDevicePortalSelectionRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
   deviceProvisioningSecretStorage: SqlDeviceProvisioningSecretRepository;
-  instanceGrantPolicyStorage: SqlInstanceGrantPolicyRepository;
-  loginPortalSelectionStorage: SqlLoginPortalSelectionRepository;
-  portalDefaultStorage: SqlPortalDefaultRepository;
-  portalProfileStorage: SqlPortalProfileRepository;
-  portalStorage: SqlPortalRepository;
   serviceInstanceStorage: SqlServiceInstanceRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
   sessionStorage: SqlSessionRepository;

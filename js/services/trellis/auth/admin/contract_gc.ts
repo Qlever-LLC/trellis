@@ -1,11 +1,14 @@
-import type { ContractApprovalRecord, Session } from "../schemas.ts";
+import type { IdentityEnvelopeRecord, Session } from "../schemas.ts";
 
-type AppliedDeploymentContract = {
-  allowedDigests: string[];
+type Deployment = {
+  deploymentId: string;
+  disabled?: boolean;
 };
 
-type DeploymentWithAppliedContracts = {
-  appliedContracts: AppliedDeploymentContract[];
+type DeploymentContractEvidence = {
+  deploymentId: string;
+  contractId: string;
+  contractDigest: string;
 };
 
 type ServiceInstanceWithCurrentContract = {
@@ -16,38 +19,61 @@ type SessionEntry = {
   session: Session;
 };
 
-type ContractGcDeps = {
+type InstalledContractCleanupDeps = {
   builtinContractDigests: Iterable<string>;
   contractStorage: { delete(digest: string): Promise<void> };
   serviceDeploymentStorage: {
-    list(): Promise<DeploymentWithAppliedContracts[]>;
+    listByDeploymentIds(
+      deploymentIds: Iterable<string>,
+      filters?: { disabled?: boolean },
+    ): Promise<Deployment[]>;
   };
   deviceDeploymentStorage: {
-    list(): Promise<DeploymentWithAppliedContracts[]>;
+    listByDeploymentIds(
+      deploymentIds: Iterable<string>,
+      filters?: { disabled?: boolean },
+    ): Promise<Deployment[]>;
+  };
+  deploymentContractEvidenceStorage: {
+    listByDigests(
+      contractDigests: Iterable<string>,
+    ): Promise<DeploymentContractEvidence[]>;
   };
   serviceInstanceStorage: {
-    list(): Promise<ServiceInstanceWithCurrentContract[]>;
+    listByCurrentContractDigests(
+      contractDigests: Iterable<string>,
+    ): Promise<ServiceInstanceWithCurrentContract[]>;
   };
-  sessionStorage: { listEntries(): Promise<SessionEntry[]> };
-  contractApprovalStorage: { list(): Promise<ContractApprovalRecord[]> };
+  sessionStorage: {
+    listEntriesByContractDigests(
+      contractDigests: Iterable<string>,
+    ): Promise<SessionEntry[]>;
+  };
+  contractApprovalStorage: {
+    listByApprovalEvidenceContractDigests(
+      contractDigests: Iterable<string>,
+    ): Promise<IdentityEnvelopeRecord[]>;
+  };
 };
 
-/** Returns all allowed digests from applied deployment contract records. */
-export function collectAppliedContractDigests(
-  deployment: DeploymentWithAppliedContracts,
+/** Returns all digests from deployment contract evidence records. */
+export function collectDeploymentContractEvidenceDigests(
+  evidence: Iterable<DeploymentContractEvidence>,
 ): string[] {
-  return deployment.appliedContracts.flatMap((applied) =>
-    applied.allowedDigests
-  );
+  return [...evidence].map((record) => record.contractDigest);
 }
 
 function addDeploymentReferences(
   referenced: Set<string>,
-  deployments: DeploymentWithAppliedContracts[],
+  deployments: Deployment[],
+  evidence: DeploymentContractEvidence[],
 ): void {
-  for (const deployment of deployments) {
-    for (const digest of collectAppliedContractDigests(deployment)) {
-      referenced.add(digest);
+  const activeDeploymentIds = new Set(
+    deployments.map((deployment) => deployment.deploymentId),
+  );
+  for (const record of evidence) {
+    if (activeDeploymentIds.has(record.deploymentId)) {
+      referenced.add(record.contractDigest);
     }
   }
 }
@@ -65,7 +91,7 @@ function sessionContractDigest(session: Session): string | undefined {
  */
 export async function purgeUnusedInstalledContracts(
   candidateDigests: Iterable<string>,
-  deps: ContractGcDeps,
+  deps: InstalledContractCleanupDeps,
 ): Promise<void> {
   const builtins = new Set(deps.builtinContractDigests);
   const candidates = new Set<string>();
@@ -75,25 +101,49 @@ export async function purgeUnusedInstalledContracts(
   if (candidates.size === 0) return;
 
   const referenced = new Set<string>();
-  addDeploymentReferences(
-    referenced,
-    await deps.serviceDeploymentStorage.list(),
+  const deploymentContractEvidence = await deps
+    .deploymentContractEvidenceStorage
+    .listByDigests(candidates);
+  const candidateDeploymentIds = deploymentContractEvidence.map((record) =>
+    record.deploymentId
   );
   addDeploymentReferences(
     referenced,
-    await deps.deviceDeploymentStorage.list(),
+    await deps.serviceDeploymentStorage.listByDeploymentIds(
+      candidateDeploymentIds,
+      { disabled: false },
+    ),
+    deploymentContractEvidence,
   );
-  for (const instance of await deps.serviceInstanceStorage.list()) {
+  addDeploymentReferences(
+    referenced,
+    await deps.deviceDeploymentStorage.listByDeploymentIds(
+      candidateDeploymentIds,
+      { disabled: false },
+    ),
+    deploymentContractEvidence,
+  );
+  for (
+    const instance of await deps.serviceInstanceStorage
+      .listByCurrentContractDigests(candidates)
+  ) {
     if (instance.currentContractDigest) {
       referenced.add(instance.currentContractDigest);
     }
   }
-  for (const entry of await deps.sessionStorage.listEntries()) {
+  for (
+    const entry of await deps.sessionStorage.listEntriesByContractDigests(
+      candidates,
+    )
+  ) {
     const digest = sessionContractDigest(entry.session);
     if (digest) referenced.add(digest);
   }
-  for (const approval of await deps.contractApprovalStorage.list()) {
-    referenced.add(approval.approval.contractDigest);
+  for (
+    const envelope of await deps.contractApprovalStorage
+      .listByApprovalEvidenceContractDigests(candidates)
+  ) {
+    referenced.add(envelope.approvalEvidence.contractDigest);
   }
 
   for (const digest of candidates) {

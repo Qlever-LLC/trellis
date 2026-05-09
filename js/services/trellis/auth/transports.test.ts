@@ -30,6 +30,7 @@ function makeConfig(): Config {
     },
     nats: {
       servers: "nats://127.0.0.1:4222, localhost:4223",
+      jetstream: { replicas: 1 },
       trellis: { credsPath: "/tmp/trellis.creds" },
       auth: { credsPath: "/tmp/auth.creds" },
       sentinelCredsPath: "/tmp/sentinel.creds",

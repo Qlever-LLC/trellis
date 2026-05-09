@@ -1,6 +1,6 @@
 import {
   ApprovalDecisionSchema,
-  AuthValidateRequestSchema as AuthValidateRequestRequestSchema,
+  AuthRequestsValidateSchema as AuthRequestsValidateRequestSchema,
   type BindResponse,
   BindResponseSchema,
   BindSuccessResponseSchema,
@@ -15,13 +15,6 @@ import {
   DeviceActivationRecordSchema,
   DeviceActivationReviewSchema,
   DeviceDeploymentSchema,
-  DevicePortalDefaultSchema,
-  DevicePortalSelectionSchema,
-  InstanceGrantPolicySchema,
-  LoginPortalDefaultSchema,
-  LoginPortalSelectionSchema,
-  PortalProfileSchema,
-  PortalSchema,
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
 } from "../../../packages/trellis/auth/protocol.ts";
@@ -62,13 +55,6 @@ export {
   DeviceActivationRecordSchema,
   DeviceActivationReviewSchema,
   DeviceDeploymentSchema,
-  DevicePortalDefaultSchema,
-  DevicePortalSelectionSchema,
-  InstanceGrantPolicySchema,
-  LoginPortalDefaultSchema,
-  LoginPortalSelectionSchema,
-  PortalProfileSchema,
-  PortalSchema,
   SentinelCredsSchema,
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
@@ -202,39 +188,268 @@ export type ContractApproval = AuthContractApproval;
 export type UserParticipantKind = StaticDecode<
   typeof UserParticipantKindSchema
 >;
-export type InstanceGrantPolicy = StaticDecode<
-  typeof InstanceGrantPolicySchema
+export const DeploymentEnvelopeKindSchema = Type.Union([
+  Type.Literal("service"),
+  Type.Literal("device"),
+  Type.Literal("app"),
+  Type.Literal("cli"),
+  Type.Literal("native"),
+  Type.Literal("device-user"),
+]);
+export type DeploymentEnvelopeKind = StaticDecode<
+  typeof DeploymentEnvelopeKindSchema
 >;
-export type PortalProfile = StaticDecode<typeof PortalProfileSchema>;
+
+export const EnvelopeSurfaceKindSchema = Type.Union([
+  Type.Literal("rpc"),
+  Type.Literal("operation"),
+  Type.Literal("event"),
+  Type.Literal("feed"),
+]);
+export type EnvelopeSurfaceKind = StaticDecode<
+  typeof EnvelopeSurfaceKindSchema
+>;
+
+export const EnvelopeSurfaceActionSchema = Type.Union([
+  Type.Literal("call"),
+  Type.Literal("publish"),
+  Type.Literal("subscribe"),
+  Type.Literal("read"),
+  Type.Literal("cancel"),
+]);
+export type EnvelopeSurfaceAction = StaticDecode<
+  typeof EnvelopeSurfaceActionSchema
+>;
+
+export const EnvelopeResourceKindSchema = Type.Union([
+  Type.Literal("kv"),
+  Type.Literal("store"),
+  Type.Literal("jobs"),
+  Type.Literal("transfer"),
+]);
+export type EnvelopeResourceKind = StaticDecode<
+  typeof EnvelopeResourceKindSchema
+>;
+
+export const EnvelopeBoundaryContractSchema = Type.Object({
+  contractId: Type.String({ minLength: 1 }),
+  required: Type.Boolean(),
+}, { additionalProperties: false });
+export type EnvelopeBoundaryContract = StaticDecode<
+  typeof EnvelopeBoundaryContractSchema
+>;
+
+export const EnvelopeBoundarySurfaceSchema = Type.Object({
+  contractId: Type.String({ minLength: 1 }),
+  kind: EnvelopeSurfaceKindSchema,
+  name: Type.String({ minLength: 1 }),
+  action: EnvelopeSurfaceActionSchema,
+  required: Type.Boolean(),
+}, { additionalProperties: false });
+export type EnvelopeBoundarySurface = StaticDecode<
+  typeof EnvelopeBoundarySurfaceSchema
+>;
+
+export const EnvelopeBoundaryResourceSchema = Type.Object({
+  kind: EnvelopeResourceKindSchema,
+  alias: Type.String({ minLength: 1 }),
+  required: Type.Boolean(),
+}, { additionalProperties: false });
+export type EnvelopeBoundaryResource = StaticDecode<
+  typeof EnvelopeBoundaryResourceSchema
+>;
+
+export const EnvelopeBoundarySchema = Type.Object({
+  contracts: Type.Array(EnvelopeBoundaryContractSchema),
+  surfaces: Type.Array(EnvelopeBoundarySurfaceSchema),
+  capabilities: Type.Array(Type.String({ minLength: 1 })),
+  resources: Type.Array(EnvelopeBoundaryResourceSchema),
+}, { additionalProperties: false });
+export type EnvelopeBoundary = StaticDecode<typeof EnvelopeBoundarySchema>;
+export const EnvelopeDeltaSchema = EnvelopeBoundarySchema;
+export type EnvelopeDelta = EnvelopeBoundary;
+
+export const DeploymentEnvelopeSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
+  kind: DeploymentEnvelopeKindSchema,
+  disabled: Type.Boolean(),
+  createdAt: DurableIsoDateStringSchema,
+  updatedAt: DurableIsoDateStringSchema,
+  boundary: EnvelopeBoundarySchema,
+}, { additionalProperties: false });
+export type DeploymentEnvelope = StaticDecode<typeof DeploymentEnvelopeSchema>;
+
+export const DeploymentPortalRouteSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
+  portalId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  entryUrl: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  disabled: Type.Boolean(),
+  updatedAt: DurableIsoDateStringSchema,
+}, { additionalProperties: false });
+export type DeploymentPortalRoute = StaticDecode<
+  typeof DeploymentPortalRouteSchema
+>;
+
+export const DeploymentGrantOverrideIdentityKindSchema = Type.Union([
+  Type.Literal("web"),
+  Type.Literal("cli"),
+  Type.Literal("native"),
+  Type.Literal("device-user"),
+  Type.Literal("any"),
+]);
+export type DeploymentGrantOverrideIdentityKind = StaticDecode<
+  typeof DeploymentGrantOverrideIdentityKindSchema
+>;
+
+export const DeploymentGrantOverrideSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
+  identityKind: DeploymentGrantOverrideIdentityKindSchema,
+  contractId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  origin: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  sessionPublicKey: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  devicePublicKey: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  capability: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+export type DeploymentGrantOverride = StaticDecode<
+  typeof DeploymentGrantOverrideSchema
+>;
+
+export const DeploymentResourceBindingSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
+  kind: EnvelopeResourceKindSchema,
+  alias: Type.String({ minLength: 1 }),
+  binding: Type.Record(Type.String(), Type.Unknown()),
+  limits: Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
+  createdAt: DurableIsoDateStringSchema,
+  updatedAt: DurableIsoDateStringSchema,
+}, { additionalProperties: false });
+export type DeploymentResourceBinding = StaticDecode<
+  typeof DeploymentResourceBindingSchema
+>;
+
+export const DeploymentContractEvidenceSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
+  contractId: Type.String({ minLength: 1 }),
+  contractDigest: Type.String({ minLength: 1 }),
+  contract: Type.Record(Type.String(), Type.Unknown()),
+  firstSeenAt: DurableIsoDateStringSchema,
+  lastSeenAt: DurableIsoDateStringSchema,
+}, { additionalProperties: false });
+export type DeploymentContractEvidence = StaticDecode<
+  typeof DeploymentContractEvidenceSchema
+>;
+
+export const EnvelopeExpansionRequestStateSchema = Type.Union([
+  Type.Literal("pending"),
+  Type.Literal("approved"),
+  Type.Literal("rejected"),
+]);
+export type EnvelopeExpansionRequestState = StaticDecode<
+  typeof EnvelopeExpansionRequestStateSchema
+>;
+
+export const EnvelopeExpansionRequestActorKindSchema = Type.Union([
+  Type.Literal("service"),
+  Type.Literal("device"),
+  Type.Literal("user"),
+  Type.Literal("admin"),
+  Type.Literal("automation"),
+]);
+export type EnvelopeExpansionRequestActorKind = StaticDecode<
+  typeof EnvelopeExpansionRequestActorKindSchema
+>;
+
+export const EnvelopeExpansionRequestSchema = Type.Object({
+  requestId: Type.String({ minLength: 1 }),
+  deploymentId: Type.String({ minLength: 1 }),
+  requestedByKind: EnvelopeExpansionRequestActorKindSchema,
+  requestedBy: Type.Record(Type.String(), Type.Unknown()),
+  contractId: Type.String({ minLength: 1 }),
+  contractDigest: Type.String({ minLength: 1 }),
+  contract: Type.Record(Type.String(), Type.Unknown()),
+  state: EnvelopeExpansionRequestStateSchema,
+  createdAt: DurableIsoDateStringSchema,
+  decidedAt: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
+  decidedBy: Type.Union([
+    Type.Record(Type.String(), Type.Unknown()),
+    Type.Null(),
+  ]),
+  decisionReason: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  delta: EnvelopeDeltaSchema,
+}, { additionalProperties: false });
+export type EnvelopeExpansionRequest = StaticDecode<
+  typeof EnvelopeExpansionRequestSchema
+>;
+
+export const EnvelopeExpansionRequestStateUpdateSchema = Type.Object({
+  requestId: Type.String({ minLength: 1 }),
+  state: EnvelopeExpansionRequestStateSchema,
+  decidedAt: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
+  decidedBy: Type.Union([
+    Type.Record(Type.String(), Type.Unknown()),
+    Type.Null(),
+  ]),
+  decisionReason: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+}, { additionalProperties: false });
+export type EnvelopeExpansionRequestStateUpdate = StaticDecode<
+  typeof EnvelopeExpansionRequestStateUpdateSchema
+>;
 
 export const SessionApprovalSourceSchema = Type.Union([
   Type.Literal("stored_approval"),
-  Type.Literal("admin_policy"),
-  Type.Literal("portal_profile"),
+  Type.Literal("deployment_grant"),
 ]);
 export type SessionApprovalSource = StaticDecode<
   typeof SessionApprovalSourceSchema
 >;
 
-export const ContractApprovalRecordSchema = Type.Object({
+export const IdentityAnchorSchema = Type.Union([
+  Type.Object({
+    kind: Type.Literal("web"),
+    contractId: Type.String({ minLength: 1 }),
+    origin: Type.String({ minLength: 1 }),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal("cli"),
+    contractId: Type.String({ minLength: 1 }),
+    sessionPublicKey: Type.String({ minLength: 1 }),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal("native"),
+    contractId: Type.String({ minLength: 1 }),
+    sessionPublicKey: Type.String({ minLength: 1 }),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal("device-user"),
+    contractId: Type.String({ minLength: 1 }),
+    devicePublicKey: Type.String({ minLength: 1 }),
+  }, { additionalProperties: false }),
+]);
+export type IdentityAnchor = StaticDecode<typeof IdentityAnchorSchema>;
+
+export const IdentityEnvelopeRecordSchema = Type.Object({
+  identityEnvelopeId: Type.String({ minLength: 1 }),
   userTrellisId: Type.String({ minLength: 1 }),
   origin: Type.String({ minLength: 1 }),
   id: Type.String({ minLength: 1 }),
+  identityAnchor: IdentityAnchorSchema,
   answer: ApprovalDecisionSchema,
   answeredAt: IsoDateSchema,
   updatedAt: IsoDateSchema,
-  approval: ContractApprovalSchema,
+  approvalEvidence: ContractApprovalSchema,
   publishSubjects: Type.Array(Type.String()),
   subscribeSubjects: Type.Array(Type.String()),
 }, { additionalProperties: false });
-export type ContractApprovalRecord = {
+export type IdentityEnvelopeRecord = {
+  identityEnvelopeId: string;
   userTrellisId: string;
   origin: string;
   id: string;
+  identityAnchor: IdentityAnchor;
   answer: ApprovalDecision;
   answeredAt: Date;
   updatedAt: Date;
-  approval: ContractApproval;
+  approvalEvidence: ContractApproval;
   publishSubjects: string[];
   subscribeSubjects: string[];
 };
@@ -268,12 +483,14 @@ export const UserSessionSchema = Type.Object({
   type: Type.Literal("user"),
   ...SessionBaseFields,
   participantKind: UserParticipantKindSchema,
+  identityEnvelopeId: Type.Optional(Type.String({ minLength: 1 })),
   contractDigest: Type.String({ pattern: "^[A-Za-z0-9_-]+$" }),
   contractId: Type.String({ minLength: 1 }),
   contractDisplayName: Type.String({ minLength: 1 }),
   contractDescription: Type.String({ minLength: 1 }),
   app: Type.Optional(AppIdentitySchema),
   approvalSource: Type.Optional(SessionApprovalSourceSchema),
+  identityEnvelope: Type.Optional(EnvelopeBoundarySchema),
   delegatedCapabilities: Type.Array(Type.String()),
   delegatedPublishSubjects: Type.Array(Type.String()),
   delegatedSubscribeSubjects: Type.Array(Type.String()),
@@ -325,14 +542,14 @@ export const ConnectionSchema = Type.Object({
 }, { additionalProperties: false });
 export type Connection = StaticDecode<typeof ConnectionSchema>;
 
-export const AuthLogoutRequestSchema = Type.Object({}, {
+export const AuthSessionsLogoutRequestSchema = Type.Object({}, {
   additionalProperties: false,
 });
-export type AuthLogoutRequest = StaticDecode<typeof AuthLogoutRequestSchema>;
+export type AuthSessionsLogoutRequest = StaticDecode<typeof AuthSessionsLogoutRequestSchema>;
 
-export const AuthLogoutResponseSchema = Type.Object({
+export const AuthSessionsLogoutResponseSchema = Type.Object({
   success: Type.Boolean(),
 }, { additionalProperties: false });
-export type AuthLogoutResponse = StaticDecode<typeof AuthLogoutResponseSchema>;
+export type AuthSessionsLogoutResponse = StaticDecode<typeof AuthSessionsLogoutResponseSchema>;
 
-export { AuthValidateRequestRequestSchema };
+export { AuthRequestsValidateRequestSchema };

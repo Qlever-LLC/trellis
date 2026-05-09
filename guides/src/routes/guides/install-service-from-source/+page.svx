@@ -1,4 +1,4 @@
-This guide covers installing and running a service from its source tree during development. You need the contract source file checked out locally.
+This guide covers creating and running a service from its source tree during development. You need the contract source file checked out locally.
 
 If you are deploying a published service from an OCI image, see [Install a service from an image](/guides/install-service-from-image) instead.
 
@@ -27,7 +27,7 @@ trellis auth status
 
 ## 2. Prepare local generated artifacts
 
-Before installing, run the repo-local prepare task for the service source tree so the local `contracts/` directory and generated artifacts are refreshed using `trellis-generate`.
+Before creating the deployment, run the repo-local prepare task for the service source tree so the local `contracts/` directory and generated artifacts are refreshed using `trellis-generate`.
 
 For Deno workspace repos:
 
@@ -41,26 +41,23 @@ For Rust workspace repos:
 cargo xtask prepare
 ```
 
-## 3. Install from source
+## 3. Create from source
 
 ```sh
 trellis deploy create svc/my-service
-trellis deploy apply svc/my-service --source ./contracts/my_service.ts
 trellis deploy provision svc/my-service
 ```
 
-The CLI reads the contract definition directly from source, applies it to the service deployment, provisions required resources before the deployment record is mutated, then generates a service instance key and provisions an instance.
+The CLI creates the service deployment, then generates a service instance key and provisions an instance. Before starting the service, use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add the service contract boundary from your source artifact to the deployment envelope.
 
 The CLI will:
 
 - generate a new Ed25519 instance seed locally
 - derive the public session key for the service instance
-- infer defaults such as display name, description, and namespaces from the contract
-- show an installation review before sending the request
+- infer deployment defaults such as display name, description, and namespaces
+- show a provisioning review before sending the request
 
-During apply, the CLI sends the digest shown in that review as `expectedDigest`.
-Trellis recomputes the digest from the submitted manifest and rejects the apply
-if the value changed before any resources or deployment records are mutated.
+Envelope expansion verifies the submitted manifest boundary before making it available. Later contract changes should expand or shrink the deployment envelope rather than applying or removing individual digests.
 
 ## 4. Store the seed immediately
 
@@ -76,6 +73,10 @@ store the seed securely; it will not be shown again
 ```
 
 Save the seed to your env file or secret store immediately. The CLI will not print it again.
+
+The printed `contractDigest` is runtime contract evidence. It is not the service
+deployment authority key; deployment authority comes from the service deployment
+envelope that you expand or shrink through Trellis Auth.
 
 ## 5. Start the service process
 
@@ -97,40 +98,33 @@ or:
 npm run dev
 ```
 
-## 6. Upgrade when the contract changes
+## 6. Update when the contract changes
 
-When you change the contract, apply the new digest to the service deployment:
+When you change the contract, update the deployment envelope through the Console Envelopes page or `Auth.Envelopes.Expand`. Trellis validates the new boundary against the proposed active catalog, provisions any required resource changes before making it available, and keeps the service instance key the same. Restart the service process after expanding the envelope. Shrink the envelope only after running service instances no longer need the old boundary.
 
-```sh
-trellis deploy apply svc/my-service --source ./contracts/my_service.ts
-```
+## What the envelope actually grants
 
-Applying a new digest validates the reviewed contract digest against the proposed active catalog, provisions any required resource changes before updating the deployment record, and keeps the service instance key the same. Restart the service process after applying the updated contract. A process that reconnects with a retired digest after unapply is rejected during NATS auth instead of receiving stale service permissions.
-
-## What install actually grants
-
-Installation is not only metadata storage. It is the control-plane step that determines what the service is allowed to do.
+The deployment envelope is not only metadata storage. It is the control-plane boundary that determines what the service is allowed to do.
 
 Trellis derives service access from:
 
 - the service-owned RPC, event, and subject surfaces declared in the contract
 - explicit dependencies declared under `uses`
-- runtime-managed resource bindings created during install or upgrade
+- runtime-managed resource bindings created when the envelope expands
 
 ## Useful flags
 
 | Flag | Command | What it does |
 | --- | --- | --- |
 | `--namespace` | `deploy create svc/...` | Adds namespaces for the service deployment |
-| `-f` | `deploy apply` / `deploy remove` | Skips the interactive confirmation prompt |
 | `--instance-seed` | `deploy provision svc/...` | Uses an existing service instance seed |
 
 ## Development loop
 
 1. update schemas and the `defineServiceContract(...)` module
 2. run the repo-local prepare task (`deno task prepare` or `cargo xtask prepare`)
-3. `trellis deploy apply svc/my-service --source ./contracts/my_service.ts`
+3. expand or shrink the deployment envelope in the Console or with `Auth.Envelopes.Expand`
 4. restart the service
 5. confirm the expected RPCs, events, and bindings work
 
-If apply or the following active-catalog refresh fails, Trellis rolls the durable deployment record back. Once apply succeeds on an enabled service deployment, its applied digest is active for catalog and auth. Service bootstrap only proves a running instance is using an installed digest still allowed by that deployment, so failed or absent service starts do not control catalog activation.
+If envelope expansion or the following active-catalog refresh fails, Trellis rolls the durable deployment record back. Once the boundary is available on an enabled service deployment, it is active for catalog and auth. Service bootstrap only proves a running instance fits the deployment envelope, so failed or absent service starts do not control catalog activation.

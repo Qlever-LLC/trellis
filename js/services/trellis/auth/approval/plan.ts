@@ -6,12 +6,12 @@ import type {
 } from "@qlever-llc/trellis/contracts";
 import type { ContractApprovalCapability } from "@qlever-llc/trellis/auth";
 import {
-  resolveContractUsesFromStore,
+  resolveContractUsesFromEntries,
   sortUniqueStrings,
   templateToWildcard,
 } from "../../catalog/uses.ts";
 import { operationControlCapabilityRules } from "../../catalog/permissions.ts";
-import type { ContractStore } from "../../catalog/store.ts";
+import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { ContractApproval } from "../schemas.ts";
 
 export type UserContractApprovalPlan = {
@@ -44,11 +44,14 @@ function approvalCapabilitiesObject(
 }
 
 export async function planUserContractApproval(
-  contractStore: ContractStore,
+  contracts: Pick<ContractsModule, "validateContract" | "getActiveEntries">,
   rawContract: unknown,
 ): Promise<UserContractApprovalPlan> {
-  const validated = await contractStore.validate(rawContract);
-  const uses = resolveContractUsesFromStore(contractStore, validated.contract);
+  const validated = await contracts.validateContract(rawContract);
+  const uses = resolveContractUsesFromEntries(
+    await contracts.getActiveEntries(),
+    validated.contract,
+  );
   if (
     validated.contract.kind !== "app" && validated.contract.kind !== "agent"
   ) {

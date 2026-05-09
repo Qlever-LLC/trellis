@@ -24,11 +24,11 @@ export function getTrellis(): TrellisConsoleClient {
 }
 
 export function getAuthenticatedUser(trellis: TrellisConsoleClient) {
-  return trellis.request("Auth.Me", {}).orThrow();
+  return trellis.request("Auth.Sessions.Me", {}).orThrow();
 }
 
 export function logoutAuthenticatedUser(trellis: TrellisConsoleClient) {
-  return trellis.request("Auth.Logout", {}).orThrow();
+  return trellis.request("Auth.Sessions.Logout", {}).orThrow();
 }
 
 export function getConnection() {

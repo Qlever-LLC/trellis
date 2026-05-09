@@ -1,20 +1,14 @@
 import { assertEquals } from "@std/assert";
+import type {
+  ContractOperation,
+  TrellisContractV1,
+} from "@qlever-llc/trellis/contracts";
 
 import type { ContractRecord } from "../../catalog/schemas.ts";
+import type { ContractsModule } from "../../catalog/runtime.ts";
+import type { EnvelopeBoundary } from "../schemas.ts";
 
-import {
-  deriveDeviceRuntimeAccess,
-  resolveDeviceContractDigest,
-} from "./runtime_access.ts";
-
-const PROFILE = {
-  deploymentId: "reader.default",
-  appliedContracts: [{
-    contractId: "acme.reader@v1",
-    allowedDigests: ["digest-a", "digest-b", "digest-uses"],
-  }],
-  disabled: false,
-};
+import { deriveDeviceRuntimeAccess } from "./runtime_access.ts";
 
 function makeContractRecord(digest: string): ContractRecord {
   return {
@@ -76,7 +70,7 @@ function makeUsesContractRecord(): ContractRecord {
       uses: {
         auth: {
           contract: "trellis.auth@v1",
-          rpc: { call: ["Auth.Me"] },
+          rpc: { call: ["Auth.Sessions.Me"] },
         },
         billing: {
           contract: "billing@v1",
@@ -87,30 +81,46 @@ function makeUsesContractRecord(): ContractRecord {
   };
 }
 
-Deno.test("resolveDeviceContractDigest rejects missing device contract digests", () => {
-  assertEquals(resolveDeviceContractDigest(PROFILE, undefined), {
-    ok: false,
-    reason: "invalid_auth_token",
-  });
-});
+function createDependencyContracts(
+  billingOperation: ContractOperation,
+): Pick<ContractsModule, "getActiveEntries"> {
+  const authContract: TrellisContractV1 = {
+    format: "trellis.contract.v1",
+    id: "trellis.auth@v1",
+    displayName: "Auth",
+    description: "Auth API",
+    kind: "service",
+    rpc: {
+      "Auth.Sessions.Me": {
+        subject: "rpc.v1.Auth.Sessions.Me",
+        version: "v1",
+        transfer: { direction: "receive" },
+        capabilities: { call: [] },
+        input: { schema: "object" },
+        output: { schema: "object" },
+      },
+    },
+  };
+  const billingContract: TrellisContractV1 = {
+    format: "trellis.contract.v1",
+    id: "billing@v1",
+    displayName: "Billing",
+    description: "Billing API",
+    kind: "service",
+    operations: {
+      "Billing.Refund": billingOperation,
+    },
+  };
+  return {
+    getActiveEntries: async () => [
+      { digest: "digest-auth", contract: authContract },
+      { digest: "digest-billing", contract: billingContract },
+    ],
+  };
+}
 
-Deno.test("resolveDeviceContractDigest keeps explicit allowed device digests", () => {
-  assertEquals(resolveDeviceContractDigest(PROFILE, "digest-b"), {
-    ok: true,
-    value: "digest-b",
-  });
-});
-
-Deno.test("resolveDeviceContractDigest rejects digests outside the allowed active set", () => {
-  assertEquals(resolveDeviceContractDigest(PROFILE, "digest-c"), {
-    ok: false,
-    reason: "device_digest_not_allowed",
-  });
-});
-
-Deno.test("deriveDeviceRuntimeAccess preserves the caller-selected digest", () => {
-  const access = deriveDeviceRuntimeAccess(
-    PROFILE,
+Deno.test("deriveDeviceRuntimeAccess preserves the caller-selected digest", async () => {
+  const access = await deriveDeviceRuntimeAccess(
     makeContractRecord("digest-b"),
   );
   assertEquals(access.ok, true);
@@ -133,60 +143,31 @@ Deno.test("deriveDeviceRuntimeAccess preserves the caller-selected digest", () =
   );
 });
 
-Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract uses", () => {
-  const fakeContractStore = {
-    getActiveContractsById(contractId: string) {
-      if (contractId === "trellis.auth@v1") {
-        return [{
-          id: "trellis.auth@v1",
-          displayName: "Auth",
-          description: "Auth API",
-          rpc: {
-            "Auth.Me": {
-              subject: "rpc.v1.Auth.Me",
-              version: "v1",
-              transfer: { direction: "receive" },
-              capabilities: { call: [] },
-              request: { schema: "object" },
-              response: { schema: "object" },
-            },
-          },
-        }];
-      }
-      if (contractId === "billing@v1") {
-        return [{
-          id: "billing@v1",
-          displayName: "Billing",
-          description: "Billing API",
-          operations: {
-            "Billing.Refund": {
-              subject: "operations.v1.Billing.Refund",
-              version: "v1",
-              transfer: {
-                direction: "send",
-                store: "uploads",
-                key: "/key",
-              },
-              capabilities: { call: ["billing.refund"] },
-              input: { schema: "object" },
-              output: { schema: "object" },
-            },
-          },
-        }];
-      }
-      return [];
+Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract uses", async () => {
+  const contracts = createDependencyContracts({
+    subject: "operations.v1.Billing.Refund",
+    version: "v1",
+    transfer: {
+      direction: "send",
+      store: "uploads",
+      key: "/key",
     },
-  };
+    capabilities: { call: ["billing.refund"] },
+    input: { schema: "object" },
+    output: { schema: "object" },
+  });
 
-  const access = deriveDeviceRuntimeAccess(
-    PROFILE,
+  const access = await deriveDeviceRuntimeAccess(
     makeUsesContractRecord(),
-    fakeContractStore as never,
+    contracts,
   );
   assertEquals(access.ok, true);
   if (!access.ok) return;
 
-  assertEquals(access.value.publishSubjects.includes("rpc.v1.Auth.Me"), true);
+  assertEquals(
+    access.value.publishSubjects.includes("rpc.v1.Auth.Sessions.Me"),
+    true,
+  );
   assertEquals(
     access.value.publishSubjects.includes("operations.v1.Billing.Refund"),
     true,
@@ -212,52 +193,61 @@ Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract use
   assertEquals(access.value.capabilities.includes("billing.refund"), true);
 });
 
-Deno.test("deriveDeviceRuntimeAccess includes operation control when call capabilities satisfy read", () => {
-  const fakeContractStore = {
-    getActiveContractsById(contractId: string) {
-      if (contractId === "trellis.auth@v1") {
-        return [{
-          id: "trellis.auth@v1",
-          displayName: "Auth",
-          description: "Auth API",
-          rpc: {
-            "Auth.Me": {
-              subject: "rpc.v1.Auth.Me",
-              version: "v1",
-              capabilities: { call: [] },
-              request: { schema: "object" },
-              response: { schema: "object" },
-            },
-          },
-        }];
-      }
-      if (contractId === "billing@v1") {
-        return [{
-          id: "billing@v1",
-          displayName: "Billing",
-          description: "Billing API",
-          operations: {
-            "Billing.Refund": {
-              subject: "operations.v1.Billing.Refund",
-              version: "v1",
-              capabilities: {
-                call: ["billing.refund"],
-                read: ["billing.refund"],
-              },
-              input: { schema: "object" },
-              output: { schema: "object" },
-            },
-          },
-        }];
-      }
-      return [];
-    },
+Deno.test("deriveDeviceRuntimeAccess gates optional use subjects by deployment envelope", async () => {
+  const contracts = createDependencyContracts({
+    subject: "operations.v1.Billing.Refund",
+    version: "v1",
+    capabilities: { call: ["billing.refund"] },
+    input: { schema: "object" },
+    output: { schema: "object" },
+  });
+  const envelope: EnvelopeBoundary = {
+    contracts: [{ contractId: "trellis.auth@v1", required: true }],
+    surfaces: [{
+      contractId: "trellis.auth@v1",
+      kind: "rpc",
+      name: "Auth.Sessions.Me",
+      action: "call",
+      required: true,
+    }],
+    capabilities: [],
+    resources: [],
   };
 
-  const access = deriveDeviceRuntimeAccess(
-    PROFILE,
+  const access = await deriveDeviceRuntimeAccess(
     makeUsesContractRecord(),
-    fakeContractStore as never,
+    contracts,
+    envelope,
+  );
+  assertEquals(access.ok, true);
+  if (!access.ok) return;
+
+  assertEquals(
+    access.value.publishSubjects.includes("rpc.v1.Auth.Sessions.Me"),
+    true,
+  );
+  assertEquals(
+    access.value.publishSubjects.includes("operations.v1.Billing.Refund"),
+    false,
+  );
+  assertEquals(access.value.capabilities.includes("billing.refund"), false);
+});
+
+Deno.test("deriveDeviceRuntimeAccess includes operation control when call capabilities satisfy read", async () => {
+  const contracts = createDependencyContracts({
+    subject: "operations.v1.Billing.Refund",
+    version: "v1",
+    capabilities: {
+      call: ["billing.refund"],
+      read: ["billing.refund"],
+    },
+    input: { schema: "object" },
+    output: { schema: "object" },
+  });
+
+  const access = await deriveDeviceRuntimeAccess(
+    makeUsesContractRecord(),
+    contracts,
   );
   assertEquals(access.ok, true);
   if (!access.ok) return;
@@ -270,54 +260,23 @@ Deno.test("deriveDeviceRuntimeAccess includes operation control when call capabi
   );
 });
 
-Deno.test("deriveDeviceRuntimeAccess includes operation control when cancel is enabled and granted", () => {
-  const fakeContractStore = {
-    getActiveContractsById(contractId: string) {
-      if (contractId === "trellis.auth@v1") {
-        return [{
-          id: "trellis.auth@v1",
-          displayName: "Auth",
-          description: "Auth API",
-          rpc: {
-            "Auth.Me": {
-              subject: "rpc.v1.Auth.Me",
-              version: "v1",
-              capabilities: { call: [] },
-              request: { schema: "object" },
-              response: { schema: "object" },
-            },
-          },
-        }];
-      }
-      if (contractId === "billing@v1") {
-        return [{
-          id: "billing@v1",
-          displayName: "Billing",
-          description: "Billing API",
-          operations: {
-            "Billing.Refund": {
-              subject: "operations.v1.Billing.Refund",
-              version: "v1",
-              cancel: true,
-              capabilities: {
-                call: ["billing.cancel"],
-                read: ["billing.read"],
-                cancel: ["billing.cancel"],
-              },
-              input: { schema: "object" },
-              output: { schema: "object" },
-            },
-          },
-        }];
-      }
-      return [];
+Deno.test("deriveDeviceRuntimeAccess includes operation control when cancel is enabled and granted", async () => {
+  const contracts = createDependencyContracts({
+    subject: "operations.v1.Billing.Refund",
+    version: "v1",
+    cancel: true,
+    capabilities: {
+      call: ["billing.cancel"],
+      read: ["billing.read"],
+      cancel: ["billing.cancel"],
     },
-  };
+    input: { schema: "object" },
+    output: { schema: "object" },
+  });
 
-  const access = deriveDeviceRuntimeAccess(
-    PROFILE,
+  const access = await deriveDeviceRuntimeAccess(
     makeUsesContractRecord(),
-    fakeContractStore as never,
+    contracts,
   );
   assertEquals(access.ok, true);
   if (!access.ok) return;
@@ -330,53 +289,22 @@ Deno.test("deriveDeviceRuntimeAccess includes operation control when cancel is e
   );
 });
 
-Deno.test("deriveDeviceRuntimeAccess ignores cancel capabilities when cancel is disabled", () => {
-  const fakeContractStore = {
-    getActiveContractsById(contractId: string) {
-      if (contractId === "trellis.auth@v1") {
-        return [{
-          id: "trellis.auth@v1",
-          displayName: "Auth",
-          description: "Auth API",
-          rpc: {
-            "Auth.Me": {
-              subject: "rpc.v1.Auth.Me",
-              version: "v1",
-              capabilities: { call: [] },
-              request: { schema: "object" },
-              response: { schema: "object" },
-            },
-          },
-        }];
-      }
-      if (contractId === "billing@v1") {
-        return [{
-          id: "billing@v1",
-          displayName: "Billing",
-          description: "Billing API",
-          operations: {
-            "Billing.Refund": {
-              subject: "operations.v1.Billing.Refund",
-              version: "v1",
-              capabilities: {
-                call: ["billing.cancel"],
-                read: ["billing.read"],
-                cancel: ["billing.cancel"],
-              },
-              input: { schema: "object" },
-              output: { schema: "object" },
-            },
-          },
-        }];
-      }
-      return [];
+Deno.test("deriveDeviceRuntimeAccess ignores cancel capabilities when cancel is disabled", async () => {
+  const contracts = createDependencyContracts({
+    subject: "operations.v1.Billing.Refund",
+    version: "v1",
+    capabilities: {
+      call: ["billing.cancel"],
+      read: ["billing.read"],
+      cancel: ["billing.cancel"],
     },
-  };
+    input: { schema: "object" },
+    output: { schema: "object" },
+  });
 
-  const access = deriveDeviceRuntimeAccess(
-    PROFILE,
+  const access = await deriveDeviceRuntimeAccess(
     makeUsesContractRecord(),
-    fakeContractStore as never,
+    contracts,
   );
   assertEquals(access.ok, true);
   if (!access.ok) return;

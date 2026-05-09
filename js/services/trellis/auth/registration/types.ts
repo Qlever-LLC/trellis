@@ -40,9 +40,14 @@ export type AuthRuntime =
 
 export type AuthContractsRuntime = Pick<
   ContractsModule,
-  | "contractStore"
-  | "installDeviceContract"
-  | "installServiceContract"
+  | "getActiveCapabilityDefinitions"
+  | "getActiveContractsById"
+  | "getActiveEntries"
+  | "getBuiltinDigests"
+  | "getContract"
+  | "getKnownContract"
+  | "getKnownContractsById"
+  | "validateContract"
   | "refreshActiveContracts"
   | "refreshActiveContractsForRemoval"
   | "validateActiveCatalog"

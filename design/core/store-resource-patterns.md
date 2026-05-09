@@ -92,17 +92,17 @@ Rules:
   - `maxTotalBytes`: optional desired total-store size limit in bytes; omit it
     when the store should not request a finite total-size limit
 - contracts request logical stores; Trellis chooses the concrete physical store
-  identity at service apply/install or upgrade time
-- Trellis validates store declarations from the exact applied contract digest,
-  but physical store identity is scoped to the deployment/profile and contract
-  lineage rather than the digest so compatible service updates preserve objects
-- required stores fail install or upgrade when Trellis cannot provision or bind
+  identity at service envelope expansion or shrink/expand update time
+- Trellis validates store declarations from contract evidence, but physical store
+  identity is scoped to the deployment and contract lineage rather than the
+  digest so compatible service updates preserve objects
+- required stores fail envelope expansion when Trellis cannot provision or bind
   them
 - optional stores (`required: false`) may be omitted from bindings if
   provisioning fails or object-store support is unavailable
 - when `maxTotalBytes` is omitted, Trellis reconciles the backing NATS object
-  store to the unlimited `max_bytes` sentinel instead of preserving a stale
-  finite limit from an older contract digest
+  store to the backend sentinel for "no contract-requested finite total limit"
+  instead of preserving a stale finite limit from an older contract digest
 
 ### Binding Shape
 
@@ -170,7 +170,10 @@ class TypedStore {
     opts?: StoreWaitOptions,
   ): AsyncResult<TypedStoreEntry, StoreError>;
   delete(key: string): AsyncResult<void, StoreError>;
-  list(prefix?: string): AsyncResult<AsyncIterable<StoreInfo>, StoreError>;
+  list(opts: { prefix?: string; offset?: number; limit: number }): AsyncResult<
+    StoreInfo[],
+    StoreError
+  >;
   status(): AsyncResult<StoreStatus, StoreError>;
 }
 
@@ -211,8 +214,8 @@ Rules:
   same `TypedStoreEntry` shape a direct `get(...)` would have returned
 - `waitFor(...)` remains a store primitive rather than a policy helper: it does
   not read, stream, move, or delete bytes on the caller's behalf
-- `list(prefix?)` is prefix-based in v1 and does not define pagination or watch
-  semantics yet
+- `list(...)` is prefix-based in v1 and requires a `limit`; it may accept
+  `offset` and MUST NOT expose an unbounded list mode
 - `stream()` is the primary body-access path for large values; `bytes()` is a
   convenience helper
 

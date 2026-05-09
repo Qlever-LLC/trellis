@@ -1,4 +1,11 @@
-import { integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  unique,
+} from "drizzle-orm/sqlite-core";
 import { ulid } from "ulid";
 
 export const contracts = sqliteTable(
@@ -31,95 +38,38 @@ export const users = sqliteTable(
   },
 );
 
-export const contractApprovals = sqliteTable(
-  "contract_approvals",
+export const identityEnvelopes = sqliteTable(
+  "identity_envelopes",
   {
     id: text("id").primaryKey().$defaultFn(() => ulid()),
+    identityEnvelopeId: text("identity_envelope_id").notNull().unique(),
     userTrellisId: text("user_trellis_id").notNull(),
     origin: text("origin").notNull(),
     externalId: text("external_id").notNull(),
-    contractDigest: text("contract_digest").notNull(),
+    identityAnchorKind: text("identity_anchor_kind").notNull(),
+    identityAnchor: text("identity_anchor").notNull(),
+    evidenceContractDigest: text("evidence_contract_digest").notNull(),
     contractId: text("contract_id").notNull(),
     participantKind: text("participant_kind").notNull(),
     answer: text("answer").notNull(),
     answeredAt: text("answered_at").notNull(),
     updatedAt: text("updated_at").notNull(),
-    approval: text("approval").notNull(),
+    approvalEvidence: text("approval_evidence").notNull(),
     publishSubjects: text("publish_subjects").notNull(),
     subscribeSubjects: text("subscribe_subjects").notNull(),
   },
   (table) => [
-    unique("contract_approvals_user_digest_unique").on(
+    unique("identity_envelopes_user_anchor_unique").on(
       table.userTrellisId,
-      table.contractDigest,
+      table.identityAnchorKind,
+      table.identityAnchor,
+    ),
+    index("identity_envelopes_answer_idx").on(table.answer),
+    index("identity_envelopes_answer_evidence_digest_idx").on(
+      table.answer,
+      table.evidenceContractDigest,
     ),
   ],
-);
-
-export const portals = sqliteTable(
-  "portals",
-  {
-    id: text("id").primaryKey().$defaultFn(() => ulid()),
-    portalId: text("portal_id").notNull().unique(),
-    entryUrl: text("entry_url").notNull(),
-    disabled: integer("disabled", { mode: "boolean" }).notNull(),
-  },
-);
-
-export const portalProfiles = sqliteTable(
-  "portal_profiles",
-  {
-    id: text("id").primaryKey().$defaultFn(() => ulid()),
-    portalId: text("portal_id").notNull().unique(),
-    entryUrl: text("entry_url").notNull(),
-    contractId: text("contract_id").notNull(),
-    allowedOrigins: text("allowed_origins"),
-    impliedCapabilities: text("implied_capabilities").notNull(),
-    disabled: integer("disabled", { mode: "boolean" }).notNull(),
-    createdAt: text("created_at").notNull(),
-    updatedAt: text("updated_at").notNull(),
-  },
-);
-
-export const portalDefaults = sqliteTable(
-  "portal_defaults",
-  {
-    id: text("id").primaryKey().$defaultFn(() => ulid()),
-    defaultKey: text("default_key").notNull().unique(),
-    portalId: text("portal_id"),
-  },
-);
-
-export const loginPortalSelections = sqliteTable(
-  "login_portal_selections",
-  {
-    id: text("id").primaryKey().$defaultFn(() => ulid()),
-    contractId: text("contract_id").notNull().unique(),
-    portalId: text("portal_id"),
-  },
-);
-
-export const devicePortalSelections = sqliteTable(
-  "device_portal_selections",
-  {
-    id: text("id").primaryKey().$defaultFn(() => ulid()),
-    deploymentId: text("deployment_id").notNull().unique(),
-    portalId: text("portal_id"),
-  },
-);
-
-export const instanceGrantPolicies = sqliteTable(
-  "instance_grant_policies",
-  {
-    id: text("id").primaryKey().$defaultFn(() => ulid()),
-    contractId: text("contract_id").notNull().unique(),
-    allowedOrigins: text("allowed_origins"),
-    impliedCapabilities: text("implied_capabilities").notNull(),
-    disabled: integer("disabled", { mode: "boolean" }).notNull(),
-    createdAt: text("created_at").notNull(),
-    updatedAt: text("updated_at").notNull(),
-    source: text("source").notNull(),
-  },
 );
 
 export const serviceDeployments = sqliteTable(
@@ -128,12 +78,9 @@ export const serviceDeployments = sqliteTable(
     id: text("id").primaryKey().$defaultFn(() => ulid()),
     deploymentId: text("deployment_id").notNull().unique(),
     namespaces: text("namespaces").notNull(),
-    firstConnectPolicy: text("first_connect_policy").notNull().default(
-      "reject",
-    ),
     disabled: integer("disabled", { mode: "boolean" }).notNull(),
-    appliedContracts: text("applied_contracts").notNull(),
   },
+  (table) => [index("service_deployments_disabled_idx").on(table.disabled)],
 );
 
 export const serviceInstances = sqliteTable(
@@ -150,6 +97,26 @@ export const serviceInstances = sqliteTable(
     resourceBindings: text("resource_bindings"),
     createdAt: text("created_at").notNull(),
   },
+  (table) => [
+    index("service_instances_deployment_id_idx").on(table.deploymentId),
+    index("service_instances_disabled_idx").on(table.disabled),
+    index("service_instances_current_contract_digest_idx").on(
+      table.currentContractDigest,
+    ),
+    index("service_instances_deployment_disabled_idx").on(
+      table.deploymentId,
+      table.disabled,
+    ),
+    index("service_instances_deployment_digest_idx").on(
+      table.deploymentId,
+      table.currentContractDigest,
+    ),
+    index("service_instances_deployment_digest_disabled_idx").on(
+      table.deploymentId,
+      table.currentContractDigest,
+      table.disabled,
+    ),
+  ],
 );
 
 export const deviceDeployments = sqliteTable(
@@ -158,15 +125,9 @@ export const deviceDeployments = sqliteTable(
     id: text("id").primaryKey().$defaultFn(() => ulid()),
     deploymentId: text("deployment_id").notNull().unique(),
     reviewMode: text("review_mode"),
-    firstConnectPolicy: text("first_connect_policy").notNull().default(
-      "reject",
-    ),
-    preActivationPolicy: text("pre_activation_policy").notNull().default(
-      "reject",
-    ),
     disabled: integer("disabled", { mode: "boolean" }).notNull(),
-    appliedContracts: text("applied_contracts").notNull(),
   },
+  (table) => [index("device_deployments_disabled_idx").on(table.disabled)],
 );
 
 export const deviceInstances = sqliteTable(
@@ -182,6 +143,14 @@ export const deviceInstances = sqliteTable(
     activatedAt: text("activated_at"),
     revokedAt: text("revoked_at"),
   },
+  (table) => [
+    index("device_instances_deployment_id_idx").on(table.deploymentId),
+    index("device_instances_state_idx").on(table.state),
+    index("device_instances_deployment_state_idx").on(
+      table.deploymentId,
+      table.state,
+    ),
+  ],
 );
 
 export const deviceProvisioningSecrets = sqliteTable(
@@ -206,6 +175,13 @@ export const deviceActivations = sqliteTable(
     activatedAt: text("activated_at").notNull(),
     revokedAt: text("revoked_at"),
   },
+  (table) => [
+    index("device_activations_deployment_state_idx").on(
+      table.deploymentId,
+      table.state,
+    ),
+    index("device_activations_state_idx").on(table.state),
+  ],
 );
 
 export const deviceActivationReviews = sqliteTable(
@@ -224,6 +200,255 @@ export const deviceActivationReviews = sqliteTable(
     decidedAt: text("decided_at"),
     reason: text("reason"),
   },
+  (table) => [
+    index("device_activation_reviews_instance_state_idx").on(
+      table.instanceId,
+      table.state,
+    ),
+    index("device_activation_reviews_deployment_state_idx").on(
+      table.deploymentId,
+      table.state,
+    ),
+  ],
+);
+
+export const deploymentEnvelopes = sqliteTable(
+  "deployment_envelopes",
+  {
+    deploymentId: text("deployment_id").primaryKey(),
+    kind: text("kind").notNull(),
+    disabled: integer("disabled", { mode: "boolean" }).notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("deployment_envelopes_disabled_idx").on(table.disabled),
+    index("deployment_envelopes_kind_disabled_idx").on(
+      table.kind,
+      table.disabled,
+    ),
+  ],
+);
+
+export const deploymentEnvelopeContracts = sqliteTable(
+  "deployment_envelope_contracts",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    contractId: text("contract_id").notNull(),
+    required: integer("required", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deploymentId, table.contractId] }),
+    index("deployment_envelope_contracts_contract_deployment_idx").on(
+      table.contractId,
+      table.deploymentId,
+    ),
+  ],
+);
+
+export const deploymentEnvelopeSurfaces = sqliteTable(
+  "deployment_envelope_surfaces",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    contractId: text("contract_id").notNull(),
+    surfaceKind: text("surface_kind").notNull(),
+    surfaceName: text("surface_name").notNull(),
+    action: text("action").notNull(),
+    required: integer("required", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.deploymentId,
+        table.contractId,
+        table.surfaceKind,
+        table.surfaceName,
+        table.action,
+      ],
+    }),
+    index("deployment_envelope_surfaces_lookup_idx").on(
+      table.contractId,
+      table.surfaceKind,
+      table.surfaceName,
+      table.action,
+      table.deploymentId,
+    ),
+  ],
+);
+
+export const deploymentEnvelopeResources = sqliteTable(
+  "deployment_envelope_resources",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    resourceKind: text("resource_kind").notNull(),
+    resourceAlias: text("resource_alias").notNull(),
+    required: integer("required", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.deploymentId, table.resourceKind, table.resourceAlias],
+    }),
+  ],
+);
+
+export const deploymentEnvelopeCapabilities = sqliteTable(
+  "deployment_envelope_capabilities",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    capability: text("capability").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deploymentId, table.capability] }),
+  ],
+);
+
+export const deploymentPortalRoutes = sqliteTable(
+  "deployment_portal_routes",
+  {
+    deploymentId: text("deployment_id").primaryKey(),
+    portalId: text("portal_id"),
+    entryUrl: text("entry_url"),
+    disabled: integer("disabled", { mode: "boolean" }).notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+);
+
+export const deploymentGrantOverrides = sqliteTable(
+  "deployment_grant_overrides",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    deploymentId: text("deployment_id").notNull(),
+    grantKey: text("grant_key").notNull().unique(),
+    identityKind: text("identity_kind").notNull(),
+    contractId: text("contract_id"),
+    origin: text("origin"),
+    sessionPublicKey: text("session_public_key"),
+    devicePublicKey: text("device_public_key"),
+    capability: text("capability").notNull(),
+  },
+);
+
+export const deploymentResourceBindings = sqliteTable(
+  "deployment_resource_bindings",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    resourceKind: text("resource_kind").notNull(),
+    resourceAlias: text("resource_alias").notNull(),
+    bindingJson: text("binding_json").notNull(),
+    limitsJson: text("limits_json"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.deploymentId, table.resourceKind, table.resourceAlias],
+    }),
+  ],
+);
+
+export const deploymentContractEvidence = sqliteTable(
+  "deployment_contract_evidence",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    contractId: text("contract_id").notNull(),
+    contractDigest: text("contract_digest").notNull(),
+    contractJson: text("contract_json").notNull(),
+    firstSeenAt: text("first_seen_at").notNull(),
+    lastSeenAt: text("last_seen_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deploymentId, table.contractDigest] }),
+    index("deployment_contract_evidence_digest_idx").on(
+      table.contractDigest,
+    ),
+    index("deployment_contract_evidence_contract_deployment_idx").on(
+      table.contractId,
+      table.deploymentId,
+    ),
+  ],
+);
+
+export const envelopeExpansionRequests = sqliteTable(
+  "envelope_expansion_requests",
+  {
+    requestId: text("request_id").primaryKey(),
+    pendingKey: text("pending_key").unique(),
+    deploymentId: text("deployment_id").notNull(),
+    requestedByKind: text("requested_by_kind").notNull(),
+    requestedByJson: text("requested_by_json").notNull(),
+    contractId: text("contract_id").notNull(),
+    contractDigest: text("contract_digest").notNull(),
+    contractJson: text("contract_json").notNull(),
+    state: text("state").notNull(),
+    createdAt: text("created_at").notNull(),
+    decidedAt: text("decided_at"),
+    decidedByJson: text("decided_by_json"),
+    decisionReason: text("decision_reason"),
+  },
+  (table) => [
+    index("envelope_expansion_requests_deployment_state_idx").on(
+      table.deploymentId,
+      table.state,
+    ),
+    index("envelope_expansion_requests_state_idx").on(table.state),
+  ],
+);
+
+export const envelopeExpansionRequestContracts = sqliteTable(
+  "envelope_expansion_request_contracts",
+  {
+    requestId: text("request_id").notNull(),
+    contractId: text("contract_id").notNull(),
+    required: integer("required", { mode: "boolean" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.requestId, table.contractId] })],
+);
+
+export const envelopeExpansionRequestSurfaces = sqliteTable(
+  "envelope_expansion_request_surfaces",
+  {
+    requestId: text("request_id").notNull(),
+    contractId: text("contract_id").notNull(),
+    surfaceKind: text("surface_kind").notNull(),
+    surfaceName: text("surface_name").notNull(),
+    action: text("action").notNull(),
+    required: integer("required", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.requestId,
+        table.contractId,
+        table.surfaceKind,
+        table.surfaceName,
+        table.action,
+      ],
+    }),
+  ],
+);
+
+export const envelopeExpansionRequestCapabilities = sqliteTable(
+  "envelope_expansion_request_capabilities",
+  {
+    requestId: text("request_id").notNull(),
+    capability: text("capability").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.requestId, table.capability] })],
+);
+
+export const envelopeExpansionRequestResources = sqliteTable(
+  "envelope_expansion_request_resources",
+  {
+    requestId: text("request_id").notNull(),
+    resourceKind: text("resource_kind").notNull(),
+    resourceAlias: text("resource_alias").notNull(),
+    required: integer("required", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.requestId, table.resourceKind, table.resourceAlias],
+    }),
+  ],
 );
 
 export const sessions = sqliteTable(
@@ -235,6 +460,7 @@ export const sessions = sqliteTable(
     type: text("type").notNull(),
     origin: text("origin"),
     externalId: text("external_id"),
+    identityEnvelopeId: text("identity_envelope_id"),
     contractDigest: text("contract_digest"),
     contractId: text("contract_id"),
     participantKind: text("participant_kind"),
@@ -249,19 +475,17 @@ export const sessions = sqliteTable(
   },
   (table) => [
     unique("sessions_session_key_unique").on(table.sessionKey),
+    index("sessions_trellis_id_idx").on(table.trellisId),
+    index("sessions_deployment_id_idx").on(table.deploymentId),
+    index("sessions_type_idx").on(table.type),
+    index("sessions_contract_digest_idx").on(table.contractDigest),
   ],
 );
 
 export const schema = {
   contracts,
   users,
-  contractApprovals,
-  portals,
-  portalProfiles,
-  portalDefaults,
-  loginPortalSelections,
-  devicePortalSelections,
-  instanceGrantPolicies,
+  identityEnvelopes,
   serviceDeployments,
   serviceInstances,
   deviceDeployments,
@@ -269,5 +493,19 @@ export const schema = {
   deviceProvisioningSecrets,
   deviceActivations,
   deviceActivationReviews,
+  deploymentEnvelopes,
+  deploymentEnvelopeContracts,
+  deploymentEnvelopeSurfaces,
+  deploymentEnvelopeResources,
+  deploymentEnvelopeCapabilities,
+  deploymentPortalRoutes,
+  deploymentGrantOverrides,
+  deploymentResourceBindings,
+  deploymentContractEvidence,
+  envelopeExpansionRequests,
+  envelopeExpansionRequestContracts,
+  envelopeExpansionRequestSurfaces,
+  envelopeExpansionRequestCapabilities,
+  envelopeExpansionRequestResources,
   sessions,
 };

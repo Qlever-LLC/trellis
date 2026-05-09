@@ -1,7 +1,7 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthListServiceInstancesOutput,
+    AuthServiceInstancesListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
@@ -19,7 +19,7 @@
     JobsListOutput,
   } from "@qlever-llc/trellis/sdk/jobs";
 
-  type ServiceInstance = AuthListServiceInstancesOutput["instances"][number];
+  type ServiceInstance = AuthServiceInstancesListOutput["instances"][number];
   type Job = JobsListOutput["jobs"][number];
   type OverviewInstance = {
     service: string;
@@ -68,7 +68,7 @@
     { label: "Sessions", value: sessionCount },
     { label: "Connections", value: connectionCount },
     { label: "Jobs", value: totalJobCount, badge: `${activeJobCount} active`, badgeClass: "badge-success" },
-    { label: "Warnings", value: "Not loaded", detail: "Open Contracts" },
+    { label: "Warnings", value: "Not loaded", detail: "Contract warnings" },
   ]);
 
   function toOverviewInstance(instance: ServiceInstance): OverviewInstance {
@@ -146,9 +146,9 @@
     jobsUnavailableMessage = null;
     try {
       const [sessionsRes, connectionsRes, instancesRes] = await Promise.all([
-        trellis.request("Auth.ListSessions", {}).take(),
-        trellis.request("Auth.ListConnections", {}).take(),
-        trellis.request("Auth.ListServiceInstances", {}).take(),
+        trellis.request("Auth.Sessions.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.Connections.List", {}).take(),
+        trellis.request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(sessionsRes)) { error = errorMessage(sessionsRes); return; }
       if (isErr(connectionsRes)) { error = errorMessage(connectionsRes); return; }
@@ -296,8 +296,8 @@
         </section>
 
         <section class="card trellis-card overflow-hidden bg-base-100">
-          <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Contract Warnings</h2><a href={resolve("/admin/contracts")} class="btn btn-ghost btn-xs">View all</a></div>
-          <EmptyState title="No contract warnings loaded" description="Open Contracts to inspect installed contract analysis and derived runtime permissions." class="m-5" />
+          <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Envelope Authority</h2><a href={resolve("/admin/envelopes")} class="btn btn-ghost btn-xs">View all</a></div>
+          <EmptyState title="Envelope review available" description="Open Envelopes to inspect deployment authority, expansion requests, and runtime availability." class="m-5" />
         </section>
       </div>
     </div>

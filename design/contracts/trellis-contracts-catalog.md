@@ -25,7 +25,7 @@ same time:
 - clients and peer services need typed SDKs
 - documentation and tooling need a language-neutral artifact
 - operators need a reviewable description of which cloud resources a service
-  expects Trellis to provide before install or upgrade
+  expects Trellis to provide before deployment-envelope expansion
 
 Those needs apply across multiple repos and multiple implementation languages.
 
@@ -34,8 +34,8 @@ Those needs apply across multiple repos and multiple implementation languages.
 - Keep API ownership with the service that implements the API.
 - Define one canonical contract artifact for runtime and tooling.
 - Make the active deployment contract set discoverable at runtime.
-- Make cloud-provided service resources explicit and reviewable at contract
-  install or upgrade time.
+- Make cloud-provided service resources explicit and reviewable at
+  deployment-envelope expansion time.
 - Support generated SDKs and docs from the same source of truth.
 - Support operations, RPC, domain events, jobs, and contract-owned state.
 - Support declarative resource requests with cloud-assigned physical bindings.
@@ -196,7 +196,9 @@ Rules:
   contract schema refs.
 - `kind` drives discovery behavior in bootstrap-safe generation flows: `service`
   contracts generate manifests and SDKs, while `app`, `agent`, and `device`
-  contracts are verified.
+  contracts are verified. User-facing runtime identity is still envelope-bound:
+  browser apps anchor by origin, CLI/native tools by session public key, and
+  device-user flows by device public key rather than by contract digest alone.
 - `displayName` and `description` are human-facing manifest metadata for
   catalog, docs, and approval UI. They are not part of contract digest identity.
 - `capabilities` is human-facing approval metadata, but it is runtime authority
@@ -268,8 +270,9 @@ Rules:
 - runtimes MUST NOT compute a digest from a service-local normalized copy of a
   manifest unless that normalization is the shared contract manifest
   normalization for the current Trellis protocol version
-- deployment apply requests MUST carry the locally reviewed `expectedDigest` and
-  auth MUST reject the request if install computes a different digest
+- deployment envelope expansion requests that include contract evidence MUST
+  carry the locally reviewed digest, and auth MUST reject the request if
+  canonical digest computation produces different evidence
 - digest-stable metadata edits may update catalog display information without
   requiring new runtime permissions or new app approvals, but capability
   metadata edits are not digest-stable
@@ -305,15 +308,15 @@ communication surface:
 - `rpc`, `operations`, `events`, and `jobs` MUST evolve additively while
   multiple digests in the same lineage are active
 - `uses`, metadata, and other non-owned sections MAY vary by digest as long as
-  the exact digest being installed still validates successfully and dependency
+  the presented contract evidence still validates successfully and dependency
   resolution against active catalogs stays unambiguous
-- `resources` declarations are validated from the exact digest being installed;
+- `resources` declarations are validated from the presented contract evidence;
   they do not need to be additive across the lineage, but Trellis MUST validate
-  and bind the exact resource set requested by the digest bound to that
+  and bind the exact resource set requested by the evidence bound to that
   principal
-- physical resource identity is scoped to the deployment/profile and contract
-  lineage, not to the digest, so compatible service updates do not lose durable
-  data solely because the contract digest changed
+- physical resource identity is scoped to the deployment and contract lineage,
+  not to the digest, so compatible service updates do not lose durable data
+  solely because the contract digest changed
 - `jobs` are part of the owned execution surface and follow the same additive
   compatibility expectations as other owned contract sections while multiple
   digests in one lineage coexist
@@ -374,7 +377,7 @@ If a rollout needs one of those breaking changes, it MUST use a new contract
 `id` / major version rather than a second active digest in the same lineage.
 During early unreleased development, an operator MAY use deployment replace mode
 to activate a new same-lineage digest only when the replaced digest is removed
-from the deployment's active allowed set and no incompatible same-lineage digest
+from the active catalog/evidence set and no incompatible same-lineage digest
 remains concurrently active.
 
 ### 6.2) Capability metadata and global keys
@@ -445,10 +448,10 @@ Example:
         "contract": "trellis.auth@v1",
         "events": {
           "subscribe": [
-            "Auth.Connect",
-            "Auth.Disconnect",
-            "Auth.SessionRevoked",
-            "Auth.ConnectionKicked"
+            "Auth.Connections.Opened",
+            "Auth.Connections.Closed",
+            "Auth.Sessions.Revoked",
+            "Auth.Connections.Kicked"
           ]
         }
       }
@@ -720,7 +723,8 @@ subject entries.
 ### 10) Cloud resource requests
 
 The optional top-level `resources` map declares cloud-provided resources that
-the service expects Trellis to provision or bind during install or upgrade.
+the service expects Trellis to provision or bind during deployment-envelope
+expansion.
 
 Example:
 
@@ -755,10 +759,10 @@ Rules:
   author
 - aliases are part of the contract and are stable API surface for the service
 - the contract requests logical resources; Trellis assigns physical names and
-  backing infrastructure at install or upgrade time
-- Trellis validates requested resource declarations from the exact applied
-  contract digest, but chooses physical resource identities at the
-  deployment/profile/lineage scope rather than the digest scope
+  backing infrastructure when the deployment envelope expands
+- Trellis validates requested resource declarations from reviewed contract
+  evidence, but chooses physical resource identities at the deployment/lineage
+  scope rather than the digest scope
 - the v1 resource surface supports `resources.kv` and `resources.store`
 - a KV request declares:
   - `purpose`: required human-facing explanation of why the service needs the
@@ -778,11 +782,11 @@ Rules:
     automatic expiry requested
   - `maxTotalBytes`: optional desired total-store maximum in bytes; omitted
     means no finite total-size request and reconciles the backing NATS object
-    store to its unlimited `max_bytes` sentinel
+    store to the backend sentinel for "no contract-requested finite total limit"
   - `maxObjectBytes`: optional desired per-object maximum in bytes
-- install or upgrade approves the requested alias/type/spec, not general
+- envelope expansion approves the requested alias/type/spec, not general
   infrastructure-management credentials for the service
-- required resources fail install or upgrade if Trellis cannot provision or bind
+- required resources fail envelope expansion if Trellis cannot provision or bind
   them
 - optional resources (`required: false`) may be omitted from installed bindings
   if provisioning is unavailable or fails; service code must treat those aliases
@@ -984,7 +988,10 @@ contracts by digest.
 
 ### 13) Catalog format
 
-A deployment exposes its active contract set as `trellis.catalog.v1`.
+A deployment exposes its active contract projection as `trellis.catalog.v1`.
+Durable deployment envelope, contract-evidence, and resource-binding rows are
+the authority; in-memory contract/catalog objects are validation,
+projection, and cache state only.
 
 Shape:
 
@@ -1011,23 +1018,25 @@ Catalog rules:
   a separate active contract record
 - catalog ordering is not semantically significant, but implementations SHOULD
   return a stable order for diffability and testing
-- active catalog refresh is fail-closed: failure to list installed contracts or
-  hydrate required active contract state MUST fail startup or refresh rather
-  than publishing a partial active catalog
+- active catalog refresh is fail-closed: failure to query the bounded set of
+  deployment contract-evidence rows or hydrate required active contract state
+  MUST fail startup or refresh rather than publishing a partial active catalog
+- catalog refresh, surface-status checks, shrink previews, and unused
+  installed-contract cleanup MUST use targeted durable-store queries keyed by the
+  relevant deployment, digest, route, or install records rather than scanning
+  nearby local manifests or broad in-memory catalogs
 - refresh MUST validate every proposed active digest before replacing the
   in-memory catalog; unknown digests or divergent duplicate active surfaces keep
   the previous catalog unavailable rather than falling back to built-in
   manifests or a partial catalog
-- admin apply/unapply flows MUST use the same validation in dry-run mode against
-  staged deployment records before mutating the durable active set, so
-  incompatible digests fail before partial catalog state is persisted or exposed
-  to callers
-- active service digests are derived from enabled service deployments'
-  `appliedContracts[].allowedDigests` once apply succeeds, not from service
-  instances or their current runtime digest fields
-- active device digests are derived from enabled device deployments'
-  `appliedContracts[].allowedDigests`, not from per-device current-contract
-  fields
+- admin envelope expansion and shrink flows MUST use the same validation in
+  dry-run mode against staged deployment records before mutating the durable
+  active set, so incompatible boundaries fail before partial catalog state is
+  persisted or exposed to callers
+- active service boundaries are derived from enabled service deployment
+  envelopes, not from service instances or their current runtime evidence fields
+- active device boundaries are derived from enabled device deployment envelopes,
+  not from per-device current-contract fields
 
 Admin contract analysis records SHOULD expose enough derived metadata for CLI
 and console review without reimplementing catalog analysis in each client:
@@ -1073,6 +1082,8 @@ Semantics:
 
 - returns the active `trellis.catalog.v1` for the deployment
 - capability: `trellis.catalog.read`
+- returns a bounded deployment projection from durable active records; it is not
+  a repository scan or a way to enumerate inactive/local manifests
 
 #### `Trellis.Contract.Get`
 
@@ -1081,15 +1092,13 @@ Semantics:
 - capability: `trellis.contract.read`
 - for v1, callers only retrieve active contracts through this RPC
 
-Service install and upgrade are intentionally not part of the runtime discovery
-RPC set.
+Deployment envelope expansion and shrink are intentionally not part of the
+runtime discovery RPC set.
 
-- initial service deployment is a `trellis.auth@v1` admin operation exposed by
-  the `trellis` runtime service that takes a service public key and a candidate
-  contract
-- service contract upgrade is a `trellis.auth@v1` admin operation exposed by the
-  `trellis` runtime service that takes an existing service public key and a
-  replacement contract
+- initial service deployment creates an empty service deployment envelope and a
+  provisioned service instance key
+- service contract rollout expands the deployment envelope with reviewed
+  contract evidence before the service runtime can present that evidence
 - UI and CLI implementations MAY present a human review screen before calling
   those admin RPCs
 - services do not self-register contracts at runtime
@@ -1130,56 +1139,55 @@ Binding rules:
 
 ### 15) Installation and activation rules
 
-The `trellis` runtime service is the authority for the active contract set in a
-deployment.
+The `trellis` runtime service owns the durable deployment records that define a
+deployment's active contract authority.
 
 The `trellis` runtime service MUST:
 
 - validate manifests against `trellis.contract.v1`
 - compute canonical digests
-- store installed contracts by digest
-- maintain the active contract set for the deployment
+- store reviewed contract evidence by digest
+- maintain durable deployment envelope/evidence rows for the deployment and
+  publish an in-memory active catalog only as a fail-closed projection
 - reject active subject collisions across operations, RPCs, and events using the
   effective subject after event-template wildcard normalization
-- provision or bind required cloud resources before service apply/install or
-  upgrade succeeds
-- persist resource bindings so installed services can resolve them at runtime
-- bind each installed contract digest to the service principal public key that
+- provision or bind required cloud resources before service envelope expansion
+  or upgrade succeeds
+- persist resource bindings so service runtimes can resolve them at runtime
+- bind each service deployment envelope to the service principal public key that
   implements it, including Trellis-owned contracts bootstrapped onto the
   `trellis` service principal
 - support deployment-owned device deployment records that resolve a device class
-  to a contract lineage plus an allowed digest set
-- support deployment-owned portal records, portal profiles, and login/device
-  portal selection records for browser login and device-activation
-  customization, with built-in Trellis portal paths as the fallback
+  to a deployment envelope plus contract evidence
+- support deployment-owned portal-route metadata for browser login and
+  device-activation routing, with built-in Trellis portal paths as the fallback
 - remove the old submission/approval flow rather than preserving a compatibility
   path
-- ensure any stored user approval or consent decision references the exact
-  contract digest being approved
+- ensure any stored user approval or consent decision references the identity
+  envelope delta and contract evidence being approved
 
-Install or upgrade validation MUST also:
+Envelope expansion validation MUST also:
 
 - reject impossible or unsafe resource combinations before provisioning begins
 - validate newly installed service digests against the proposed active catalog
   before external resource provisioning begins
-- reject service or device deployment apply requests when the digest computed
-  during install differs from the caller's reviewed `expectedDigest`
-- validate the exact `resources` requested by the digest being installed, even
-  when other digests in the same lineage remain active
-- preserve physical resource identity across compatible digest changes for the
-  same deployment/profile/lineage unless an operator intentionally creates a new
-  lineage or profile
-- when install or activation is deployment-driven, validate that the digest
-  being bound is allowed by that deployment's contract lineage and allowed
-  digest set
-- portal records are deployment-owned routing config for browser UX only; they
-  are not a contract kind and do not create portal-specific install or auth
-  behavior
-- portal profiles are deployment-owned auth policy layered on top of routed
-  portal records; they imply approval for one browser app lineage without
-  changing contract install semantics
+- reject service or device deployment envelope changes when canonical digest
+  computation differs from the caller's reviewed contract evidence
+- validate the exact `resources` requested by the presented contract evidence,
+  even when other evidence in the same lineage remains active
+- preserve physical resource identity across compatible contract changes for the
+  same deployment and lineage unless an operator intentionally creates a new
+  lineage
+- when activation or runtime auth is deployment-driven, validate that the
+  presented contract evidence fits that deployment's envelope
+- portal routes are deployment-owned routing config for browser UX only; they
+  are not a contract kind, standalone portal authority, default/selection table,
+  or source of portal-specific install or auth behavior
+- grant overrides are deployment-owned metadata layered on top of envelopes;
+  they may pre-authorize envelope and capability decisions without changing
+  deployment-envelope semantics or inventing availability
 
-Operationally, install or upgrade fails if any of these conditions is true:
+Operationally, envelope expansion fails if any of these conditions is true:
 
 - any operation, RPC, or event subject string is already owned by a different
   active contract `id`
@@ -1188,12 +1196,11 @@ Operationally, install or upgrade fails if any of these conditions is true:
 - optional KV or store resources that cannot be provisioned are skipped and do
   not appear in installed bindings
 
-Upgrade rule:
+Rollout rule:
 
 - when a service rolls from one digest to another for the same contract `id`,
   the `trellis` runtime service MAY keep both digests active during rollout
-- each service principal still points to one exact installed digest at any
-  moment
+- each service instance still presents one exact contract digest at any moment
 - deployments MAY later retire the old digest once no principals still depend on
   it
 

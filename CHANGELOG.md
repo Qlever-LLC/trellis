@@ -8,38 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.8.4] - 2026-05-07
-
 ### Changed
 
-- Changed the Trellis npm package to expose `trellis-generate` as a package bin
-  instead of a `./generate` subpath export, allowing `npx trellis-generate` and
-  Deno's npm-bin runner to invoke the version-pinned generator launcher.
-- Changed Trellis repo-local prepare tasks to run the local generator launcher
-  source directly while keeping package consumers on the published npm bin.
-
-### Fixed
-
-- Fixed the npm `trellis-generate` launcher to use a Node wrapper that downloads,
-  caches, checksum-verifies, and executes the matching GitHub release binary, so
-  npm and `npx` users do not need Deno installed.
-- Fixed generator release tests to derive their expected Trellis runtime version
-  from the current package version instead of a hardcoded release.
-
-## [0.8.3] - 2026-05-07
-
-### Added
-
-- Added version-pinned `trellis-generate` launchers for Deno and Rust projects
-  so out-of-tree repositories can run the generator version required by their
-  Trellis dependency instead of relying on a globally installed binary.
-
-### Fixed
-
-- Fixed shell-first contract generation to keep generated artifacts stable when
-  preparing contracts from external repositories.
-- Serialized auth session store tests that mutate process-global environment
-  state so full Rust workspace test runs no longer race.
+- Reworked catalog and auth authority so installed contract evidence,
+  deployment envelopes, runtime bindings, and resource bindings are read from
+  durable storage instead of long-lived in-memory contract state.
+- Changed store and auth list-style APIs to require bounded requests, replacing
+  unbounded scans with explicit limits and targeted storage queries.
 
 ## [0.8.2] - 2026-05-01
 
@@ -83,9 +58,9 @@ and this project adheres to
 
 - Added unauthenticated `GET /version` on the Trellis service to report public
   build version and revision metadata for deployed containers.
-- Added `trellis-generate prepare --out <path>` to let callers choose the
-  output root for generated manifests and SDKs while scanning contracts from a
-  separate source path.
+- Added `trellis-generate prepare --out <path>` to let callers choose the output
+  root for generated manifests and SDKs while scanning contracts from a separate
+  source path.
 
 ### Fixed
 
@@ -98,8 +73,8 @@ and this project adheres to
 - Fixed hand-built `trellis` and `trellis-generate` binaries to include local
   git metadata in `--version` output while keeping official GitHub Actions
   release builds on the clean package version.
-- Fixed local app aliases and Trellis client SDK loading so generated Trellis SDK
-  imports resolve through linked packages instead of app-private
+- Fixed local app aliases and Trellis client SDK loading so generated Trellis
+  SDK imports resolve through linked packages instead of app-private
   `#trellis-generated-sdk/*` aliases, and added a regression test for
   out-of-tree SDK generation defaulting to the `@trellis-sdk/` scope.
 - Fixed generated TypeScript SDK dependency metadata to use the Trellis runtime
@@ -113,10 +88,10 @@ and this project adheres to
 
 ### Changed
 
-- Changed generated TypeScript SDK package names for non-Trellis-owned
-  contracts to default to the `@trellis-sdk/` scope, added `--prefix` for
-  custom generated SDK package prefixes, and updated demos/docs to consume
-  generated SDKs as linked packages instead of import-map aliases.
+- Changed generated TypeScript SDK package names for non-Trellis-owned contracts
+  to default to the `@trellis-sdk/` scope, added `--prefix` for custom generated
+  SDK package prefixes, and updated demos/docs to consume generated SDKs as
+  linked packages instead of import-map aliases.
 
 ### Fixed
 
@@ -150,10 +125,10 @@ and this project adheres to
   consumer-create API subject.
 - Documented the Trellis service v1 follow-up cleanup across design docs,
   guides, and portal notes: active subject collision checks now use the
-  effective wildcard subject for templated events, omitted store
-  `maxTotalBytes` reconciles object-store streams back to the unlimited
-  runtime default, and portal selection records are keyed directly by browser
-  app contract id or device deployment id.
+  effective wildcard subject for templated events, omitted store `maxTotalBytes`
+  reconciles object-store streams back to the unlimited runtime default, and
+  portal selection records are keyed directly by browser app contract id or
+  device deployment id.
 - Documented the final Trellis service v1 architecture cleanup across design
   docs, guides, the built-in portal, and demos: active catalog and approval
   planning now fail closed on inactive dependencies, embedded schemas reject all
@@ -168,9 +143,9 @@ and this project adheres to
   and clearer live-versus-fixture data handling.
 - Documented and surfaced the final v1 activation/state cleanup across design
   docs, guides, the built-in portal, and console: device activation review
-  decisions now complete the original `Auth.ActivateDevice` operation durably,
-  and State rejects unstamped pre-v1 entries instead of inferring current or
-  accepted-version metadata.
+  decisions now complete the original `Auth.DeviceUserAuthorities.Resolve`
+  operation durably, and State rejects unstamped pre-v1 entries instead of
+  inferring current or accepted-version metadata.
 - Documented and surfaced the final Trellis service hardening pass across design
   docs, guides, the built-in portal, and console: active-catalog dry-run
   validation now gates staged apply/bootstrap state, service apply/unapply roll
@@ -185,12 +160,11 @@ and this project adheres to
   runtime cleanup removes durable device sessions by public identity key, and
   store bindings no longer advertise unenforced per-object limits.
 - Aligned the Trellis service v1 deployment model so required resources are
-  provisioned during service deployment apply/install/upgrade before deployment
-  mutation, service bootstrap consumes persisted exact-digest bindings, physical
-  resource names remain deployment/profile/lineage scoped, app/agent contracts
-  are treated as approved-session contracts rather than active catalog entries,
-  baseline `Auth.ValidateRequest` may be auto-granted to service runtimes, and
-  device `allowedDigests` are rollout allow-lists.
+  provisioned from deployment envelopes before runtime binding, service
+  bootstrap consumes deployment-owned resource bindings, physical resource names
+  remain deployment scoped, app/agent contracts are treated as approved-session
+  contracts rather than active catalog entries, and baseline
+  `Auth.Requests.Validate` may be granted by resolved envelopes.
 - Changed same-lineage active digest projection to verify duplicate RPC,
   operation, event, and job schema refs by resolved schema compatibility instead
   of ref-name equality: canonically equal schemas and optional additive fields
@@ -302,7 +276,8 @@ and this project adheres to
   overloads.
 - Simplified portal auth by removing the portal contract kind and portal
   `appContractId`, keeping custom portals as routing config, and moving
-  authenticated device activation to a single `Auth.ActivateDevice` operation.
+  authenticated device activation to a single
+  `Auth.DeviceUserAuthorities.Resolve` operation.
 - Made the TypeScript service runtime surface v1-clean by removing the legacy
   `TrellisServer` public name, making `@qlever-llc/trellis/service*` explicit
   service-author entrypoints, hiding raw runtime and NATS transport internals
@@ -370,7 +345,7 @@ and this project adheres to
   local generated Trellis imports to repo-relative runtime paths.
 - Fixed `TrellisClient.connect(...)` and `TrellisDevice.connect(...)` so
   contract-driven RPC request typing is inferred from the passed contract rather
-  than widening typed responses like `Auth.Me` to `unknown`.
+  than widening typed responses like `Auth.Sessions.Me` to `unknown`.
 - Fixed activated-device state flows by preserving top-level contract `state`
   metadata, refreshing device reconnect permissions from the presented digest,
   and encoding state KV keys safely so the JavaScript state demo runs

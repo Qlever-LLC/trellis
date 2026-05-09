@@ -26,7 +26,6 @@ export const AuthErrorDataSchema = Type.Object({
     Type.Literal("session_already_bound"),
     Type.Literal("authtoken_already_used"),
     Type.Literal("oauth_session_key_mismatch"),
-    Type.Literal("service_role_on_user"),
     Type.Literal("reply_subject_mismatch"),
     Type.Literal("insufficient_permissions"),
     Type.Literal("forbidden"),

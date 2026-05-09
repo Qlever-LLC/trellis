@@ -15,25 +15,32 @@ import { CalloutLimiter } from "./limiter.ts";
 import { buildAuthCalloutPermissions } from "./permissions.ts";
 import type { Config } from "../../config.ts";
 import { getResourcePermissionGrants } from "../../catalog/resources.ts";
-import type { ContractStore } from "../../catalog/store.ts";
+import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
+import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
+import {
+  computeEnvelopeDelta,
+  evaluateEnvelopeFit,
+} from "../envelope_decision.ts";
 import { resolveUserReconnectSession } from "./user_reconnect.ts";
 import {
-  getServicePublishSubjects,
-  getServiceSubscribeSubjects,
+  getServicePublishSubjectsForContracts,
+  getServiceSubscribeSubjectsForContracts,
+  getUserPublishSubjectsForContracts,
+  getUserSubscribeSubjectsForContracts,
 } from "../../catalog/permissions.ts";
 import {
   deriveDeviceRuntimeAccess,
   type DeviceRuntimeAccess,
   type DeviceRuntimeAccessDenialReason,
-  resolveDeviceContractDigest,
 } from "../device_activation/runtime_access.ts";
 import type {
   Connection,
   DeviceActivationRecordSchema,
   DeviceDeploymentSchema,
   DeviceSchema,
+  ServiceSession,
   Session,
 } from "../schemas.ts";
 import type {
@@ -41,6 +48,7 @@ import type {
   NatsAuthRequest,
   NatsConnectOpts,
 } from "../nats_schemas.ts";
+import type { EnvelopeBoundary } from "../schemas.ts";
 import {
   AuthCalloutClaimsSchema,
   NatsDisconnectEventSchema,
@@ -57,11 +65,11 @@ import type {
   ServiceDeployment as AdminServiceDeployment,
   ServiceInstance as AdminServiceInstance,
 } from "../admin/shared.ts";
-import { parseContractApprovalKey } from "../http/support.ts";
 import type {
-  SqlContractApprovalRepository,
+  SqlDeploymentEnvelopeRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
+  SqlIdentityEnvelopeRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
 
@@ -73,6 +81,12 @@ type DeviceActivationRecord =
 type DeviceDeployment = StaticDecode<typeof DeviceDeploymentSchema>;
 type DeviceInstance = StaticDecode<typeof DeviceSchema>;
 type ParsedNatsAuthToken = StaticDecode<typeof NatsAuthTokenV1Schema>;
+type CalloutContractDeps = Pick<
+  ContractsModule,
+  | "getActiveEntries"
+  | "getKnownContract"
+  | "validateContract"
+>;
 type AuthCalloutDenialCode =
   | "auth_token_required"
   | "invalid_auth_token"
@@ -83,19 +97,20 @@ type AuthCalloutDenialCode =
   | "invalid_signature"
   | "unknown_service"
   | "service_disabled"
+  | "service_envelope_miss"
   | "unknown_device"
   | "device_activation_revoked"
   | "device_deployment_not_found"
   | "device_deployment_disabled"
   | "device_contract_not_found"
+  | "device_envelope_miss"
   | DeviceRuntimeAccessDenialReason
   | "session_not_found"
   | "contract_changed"
   | "approval_required"
   | "user_not_found"
   | "user_inactive"
-  | "insufficient_permissions"
-  | "service_role_on_user";
+  | "insufficient_permissions";
 
 type AuthCalloutStageResult<T> =
   | { ok: true; value: T }
@@ -208,7 +223,7 @@ function extractClientIp(natsReq: NatsAuthRequest): string | undefined {
 }
 
 type DeviceRuntimeGrant = DeviceRuntimeAccess & {
-  authority: "device_owned" | "user_delegated";
+  authority: "admin_reviewed" | "user_delegated";
   instance: {
     instanceId: string;
     publicIdentityKey: string;
@@ -226,7 +241,6 @@ type DeviceRuntimeGrant = DeviceRuntimeAccess & {
   } | null;
   deployment: {
     deploymentId: string;
-    appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
     disabled: boolean;
   };
 };
@@ -238,12 +252,6 @@ type ServiceRuntimeLoaders = {
   loadServiceDeployment(
     deploymentId: string,
   ): Promise<AdminServiceDeployment | null>;
-  loadInstanceGrantPolicies: Required<
-    Pick<
-      Parameters<typeof resolveSessionPrincipal>[2],
-      "loadInstanceGrantPolicies"
-    >
-  >["loadInstanceGrantPolicies"];
 };
 
 type DeviceRuntimeGrantDeps = {
@@ -252,7 +260,24 @@ type DeviceRuntimeGrantDeps = {
   };
   deviceActivationStorage: Pick<SqlDeviceActivationRepository, "get" | "put">;
   deviceDeploymentStorage: Pick<SqlDeviceDeploymentRepository, "get">;
+  deploymentEnvelopeStorage: Pick<SqlDeploymentEnvelopeRepository, "get">;
 };
+
+const EMPTY_BOUNDARY: EnvelopeBoundary = {
+  contracts: [],
+  surfaces: [],
+  capabilities: [],
+  resources: [],
+};
+
+function mergeBoundaries(...boundaries: EnvelopeBoundary[]): EnvelopeBoundary {
+  return computeEnvelopeDelta(EMPTY_BOUNDARY, {
+    contracts: boundaries.flatMap((boundary) => boundary.contracts),
+    surfaces: boundaries.flatMap((boundary) => boundary.surfaces),
+    capabilities: boundaries.flatMap((boundary) => boundary.capabilities),
+    resources: boundaries.flatMap((boundary) => boundary.resources),
+  });
+}
 
 async function findDeviceInstanceByIdentityKey(
   deps: Pick<DeviceRuntimeGrantDeps, "deviceInstanceStorage">,
@@ -280,8 +305,8 @@ async function resolveDeviceRuntimeGrant(
   deps: DeviceRuntimeGrantDeps,
   publicIdentityKey: string,
   contractStorage: Pick<SqlContractStorageRepository, "get">,
-  contractDigest?: string,
-  contractStore?: ContractStore,
+  contractDigest: string | undefined,
+  contracts: CalloutContractDeps,
 ): Promise<AuthCalloutStageResult<DeviceRuntimeGrant>> {
   const instance = await findDeviceInstanceByIdentityKey(
     deps,
@@ -318,30 +343,42 @@ async function resolveDeviceRuntimeGrant(
   );
   if (!deployment) return stageDeny("device_deployment_not_found");
   if (deployment.disabled) return stageDeny("device_deployment_disabled");
-  if (!activation && deployment.preActivationPolicy !== "device-owned") {
-    return stageDeny("unknown_device");
-  }
 
-  const digestResult = resolveDeviceContractDigest(
-    deployment,
-    contractDigest,
-  );
-  if (!digestResult.ok) return stageDeny(digestResult.reason);
+  if (typeof contractDigest !== "string" || contractDigest.length === 0) {
+    return stageDeny("invalid_auth_token");
+  }
   const activationActor = activation
     ? (activation as DeviceActivationRecord).activatedBy
     : undefined;
 
-  const contractRecord = await contractStorage.get(digestResult.value);
+  const contractRecord = await contractStorage.get(contractDigest);
   if (!contractRecord) return stageDeny("device_contract_not_found");
-  const accessResult = deriveDeviceRuntimeAccess(
-    deployment,
+  const envelope = await deps.deploymentEnvelopeStorage.get(
+    deployment.deploymentId,
+  );
+  if (!envelope || envelope.disabled) {
+    return stageDeny("device_deployment_disabled");
+  }
+  const contract = JSON.parse(contractRecord.contract);
+  const analysis = await analyzeContractEnvelopeBoundary(
+    contracts,
+    contract,
+  );
+  const requestedBoundary = mergeBoundaries(
+    analysis.required,
+    analysis.contributedAvailability,
+  );
+  const fit = evaluateEnvelopeFit(envelope.boundary, requestedBoundary);
+  if (!fit.fits) return stageDeny("device_envelope_miss");
+  const accessResult = await deriveDeviceRuntimeAccess(
     contractRecord,
-    contractStore,
+    contracts,
+    envelope.boundary,
   );
   if (!accessResult.ok) return stageDeny(accessResult.reason);
   return stageOk({
     ...accessResult.value,
-    authority: activation ? "user_delegated" : "device_owned",
+    authority: activation ? "user_delegated" : "admin_reviewed",
     instance: {
       instanceId: instance.instanceId,
       publicIdentityKey: instance.publicIdentityKey,
@@ -377,17 +414,21 @@ async function verifyRuntimeAuthTokenSignature(input: {
   );
 }
 
-function validateServiceRuntimeDigest(args: {
+async function validateServiceRuntimeDigest(args: {
   presentedContractDigest?: string;
   service: Pick<
     AdminServiceInstance,
     "currentContractId" | "currentContractDigest"
   >;
-  deployment: Pick<AdminServiceDeployment, "appliedContracts">;
-}): AuthCalloutStageResult<void> {
+  deployment: Pick<AdminServiceDeployment, "deploymentId">;
+  contractStorage: Pick<SqlContractStorageRepository, "get">;
+  contracts: CalloutContractDeps;
+  deploymentEnvelopeStorage: Pick<SqlDeploymentEnvelopeRepository, "get">;
+}): Promise<AuthCalloutStageResult<void>> {
+  const presentedContractDigest = args.presentedContractDigest;
   if (
-    typeof args.presentedContractDigest !== "string" ||
-    args.presentedContractDigest.length === 0
+    typeof presentedContractDigest !== "string" ||
+    presentedContractDigest.length === 0
   ) {
     return stageDeny("invalid_auth_token");
   }
@@ -399,19 +440,56 @@ function validateServiceRuntimeDigest(args: {
     currentContractDigest.length === 0 ||
     typeof currentContractId !== "string" ||
     currentContractId.length === 0 ||
-    args.presentedContractDigest !== currentContractDigest
+    presentedContractDigest !== currentContractDigest
   ) {
     return stageDeny("contract_changed");
   }
 
-  const appliedContract = args.deployment.appliedContracts.find((entry) =>
-    entry.contractId === currentContractId
+  const contractRecord = await args.contractStorage.get(
+    presentedContractDigest,
   );
-  if (!appliedContract?.allowedDigests.includes(args.presentedContractDigest)) {
+  if (!contractRecord) return stageDeny("contract_changed");
+  if (contractRecord.id !== currentContractId) {
     return stageDeny("contract_changed");
   }
+  const envelope = await args.deploymentEnvelopeStorage.get(
+    args.deployment.deploymentId,
+  );
+  if (!envelope || envelope.disabled) {
+    return stageDeny("service_envelope_miss");
+  }
+
+  const contract = JSON.parse(contractRecord.contract);
+  const analysis = await analyzeContractEnvelopeBoundary(
+    args.contracts,
+    contract,
+  );
+  const requestedBoundary = mergeBoundaries(
+    analysis.required,
+    analysis.contributedAvailability,
+  );
+  const fit = evaluateEnvelopeFit(envelope.boundary, requestedBoundary);
+  if (!fit.fits) return stageDeny("service_envelope_miss");
 
   return stageOk(undefined);
+}
+
+function refreshServiceSessionFromInstance(args: {
+  session: ServiceSession;
+  service: AdminServiceInstance;
+  deployment: AdminServiceDeployment | null;
+  now: Date;
+}): ServiceSession {
+  return {
+    ...args.session,
+    name: args.deployment?.deploymentId ?? args.service.instanceId,
+    instanceId: args.service.instanceId,
+    deploymentId: args.service.deploymentId,
+    instanceKey: args.service.instanceKey,
+    currentContractId: args.service.currentContractId ?? null,
+    currentContractDigest: args.service.currentContractDigest ?? null,
+    lastAuth: args.now,
+  };
 }
 
 export function startDisconnectCleanup(deps: {
@@ -468,14 +546,17 @@ export function startDisconnectCleanup(deps: {
           if (sessionValue) {
             if (sessionValue.type !== "device") {
               (
-                await trellis.publish("Auth.Disconnect", {
+                await trellis.publish("Auth.Connections.Closed", {
                   origin: sessionValue.origin,
                   id: sessionValue.id,
                   sessionKey: parsedKey.sessionKey,
                   userNkey,
                 })
               ).inspectErr((error: unknown) =>
-                logger.warn({ error }, "Failed to publish Auth.Disconnect")
+                logger.warn(
+                  { error },
+                  "Failed to publish Auth.Connections.Closed",
+                )
               );
             }
           }
@@ -508,7 +589,8 @@ export function startAuthCallout(
   opts: {
     contractStorage: SqlContractStorageRepository;
     userStorage: SqlUserProjectionRepository;
-    contractApprovalStorage: SqlContractApprovalRepository;
+    contractApprovalStorage: SqlIdentityEnvelopeRepository;
+    deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
     connectionsKV: AuthRuntimeDeps["connectionsKV"];
     deviceActivationStorage: AuthRuntimeDeps["deviceActivationStorage"];
     deviceDeploymentStorage: AuthRuntimeDeps["deviceDeploymentStorage"];
@@ -519,15 +601,14 @@ export function startAuthCallout(
     trellis: AuthRuntimeDeps["trellis"];
     loadServiceInstanceByKey: ServiceRuntimeLoaders["loadServiceInstance"];
     loadServiceDeployment: ServiceRuntimeLoaders["loadServiceDeployment"];
-    loadInstanceGrantPolicies:
-      ServiceRuntimeLoaders["loadInstanceGrantPolicies"];
-    contractStore?: ContractStore;
+    contracts: CalloutContractDeps;
     config: Config;
   },
 ): BackgroundTaskHandle {
   const {
     config,
     connectionsKV,
+    deploymentEnvelopeStorage,
     deviceActivationStorage,
     deviceDeploymentStorage,
     deviceInstanceStorage,
@@ -537,7 +618,6 @@ export function startAuthCallout(
     trellis,
     loadServiceInstanceByKey,
     loadServiceDeployment,
-    loadInstanceGrantPolicies,
   } = opts;
   const xkp = fromSeed(
     new TextEncoder().encode(config.nats.authCallout.sxSeed),
@@ -663,10 +743,13 @@ export function startAuthCallout(
       if (!serviceDeployment || serviceDeployment.disabled) {
         return stageDeny("service_disabled");
       }
-      const digestCheck = validateServiceRuntimeDigest({
+      const digestCheck = await validateServiceRuntimeDigest({
         presentedContractDigest: authToken.contractDigest,
         service,
         deployment: serviceDeployment,
+        contractStorage: opts.contractStorage,
+        contracts: opts.contracts,
+        deploymentEnvelopeStorage,
       });
       if (!digestCheck.ok) return digestCheck;
     }
@@ -698,11 +781,12 @@ export function startAuthCallout(
             deviceActivationStorage,
             deviceDeploymentStorage,
             deviceInstanceStorage,
+            deploymentEnvelopeStorage,
           },
           sessionKey,
           opts.contractStorage,
           authToken.contractDigest,
-          opts.contractStore,
+          opts.contracts,
         );
         if (!deviceGrantResult.ok) return deviceGrantResult;
         const deviceGrant = deviceGrantResult.value;
@@ -739,11 +823,12 @@ export function startAuthCallout(
           deviceActivationStorage,
           deviceDeploymentStorage,
           deviceInstanceStorage,
+          deploymentEnvelopeStorage,
         },
         sessionKey,
         opts.contractStorage,
         authToken.contractDigest,
-        opts.contractStore,
+        opts.contracts,
       );
       if (!currentGrantResult.ok) return currentGrantResult;
       const currentGrant = currentGrantResult.value;
@@ -776,7 +861,6 @@ export function startAuthCallout(
     }
 
     if (session.type === "user") {
-      if (!opts?.contractStore) return stageDeny("contract_changed");
       if (
         typeof authToken.contractDigest !== "string" ||
         authToken.contractDigest.length === 0
@@ -787,20 +871,9 @@ export function startAuthCallout(
       const resolvedReconnect = await resolveUserReconnectSession({
         session,
         presentedContractDigest: authToken.contractDigest,
-        contractStore: opts.contractStore,
+        contracts: opts.contracts,
         loadUserProjection: async (trellisId) => {
           return await opts.userStorage.get(trellisId) ?? null;
-        },
-        loadStoredApproval: async (key) => {
-          const approvalKey = parseContractApprovalKey(key);
-          if (!approvalKey) return null;
-          return await opts.contractApprovalStorage.get(
-            approvalKey.userTrellisId,
-            approvalKey.contractDigest,
-          ) ?? null;
-        },
-        loadInstanceGrantPolicies: async (contractId) => {
-          return await loadInstanceGrantPolicies(contractId);
         },
       });
       if (!resolvedReconnect.ok) {
@@ -810,6 +883,15 @@ export function startAuthCallout(
         ...resolvedReconnect.session,
         lastAuth: now,
       });
+    }
+
+    if (session.type === "service" && service) {
+      return stageOk(refreshServiceSessionFromInstance({
+        session,
+        service,
+        deployment: serviceDeployment,
+        now,
+      }));
     }
 
     return stageOk(session);
@@ -834,52 +916,108 @@ export function startAuthCallout(
       deviceActivationStorage,
       deviceInstanceStorage,
       deviceDeploymentStorage,
-      loadStoredApproval: async (key) => {
-        const approvalKey = parseContractApprovalKey(key);
-        if (!approvalKey) return null;
-        return await opts.contractApprovalStorage.get(
-          approvalKey.userTrellisId,
-          approvalKey.contractDigest,
-        ) ?? null;
-      },
-      loadInstanceGrantPolicies: async (contractId: string) => {
-        return await loadInstanceGrantPolicies(contractId);
-      },
     });
     if (!principal.ok) {
       return stageDeny(principal.error.reason);
     }
 
+    const isService = session.type === "service";
     if (principal.value.serviceState) {
       resourcePermissions = getResourcePermissionGrants(
         principal.value.serviceState.resourceBindings,
       );
     }
+    const serviceEnvelope = principal.value.serviceState
+      ? await deploymentEnvelopeStorage.get(
+        principal.value.serviceState.deploymentId,
+      )
+      : undefined;
+    if (isService && (!serviceEnvelope || serviceEnvelope.disabled)) {
+      return stageDeny("service_envelope_miss");
+    }
 
     const inboxPrefix = `_INBOX.${sessionKey.slice(0, 16)}`;
-    const isService = session.type === "service";
-    const delegatedPublish = session.type === "service"
+    const activeContractEntries = await opts.contracts.getActiveEntries();
+    const userContractEntries =
+      session.type === "user" && session.identityEnvelope
+        ? await (async () => {
+          const contract = await opts.contracts.getKnownContract(
+            session.contractDigest,
+          );
+          if (!contract) return activeContractEntries;
+          return [
+            ...activeContractEntries.filter((entry) =>
+              entry.digest !== session.contractDigest
+            ),
+            { digest: session.contractDigest, contract },
+          ];
+        })()
+        : [];
+    const userAllowedPublishSubjects =
+      session.type === "user" && session.identityEnvelope
+        ? getUserPublishSubjectsForContracts(
+          session.delegatedCapabilities,
+          {
+            contractDigest: session.contractDigest,
+            identityEnvelope: session.identityEnvelope,
+          },
+          userContractEntries,
+        )
+        : [];
+    const userAllowedSubscribeSubjects =
+      session.type === "user" && session.identityEnvelope
+        ? getUserSubscribeSubjectsForContracts(
+          session.delegatedCapabilities,
+          {
+            contractDigest: session.contractDigest,
+            identityEnvelope: session.identityEnvelope,
+          },
+          userContractEntries,
+        )
+        : [];
+    const delegatedPublish = session.type === "user" && session.identityEnvelope
+      ? session.delegatedPublishSubjects.filter((subject) =>
+        userAllowedPublishSubjects.includes(subject)
+      )
+      : session.type === "service"
       ? []
       : session.delegatedPublishSubjects!;
-    const delegatedSubscribe = session.type === "service"
-      ? []
-      : session.delegatedSubscribeSubjects!;
+    const delegatedSubscribe =
+      session.type === "user" && session.identityEnvelope
+        ? session.delegatedSubscribeSubjects.filter((subject) =>
+          userAllowedSubscribeSubjects.includes(subject)
+        )
+        : session.type === "service"
+        ? []
+        : session.delegatedSubscribeSubjects!;
     const permissions = buildAuthCalloutPermissions({
       publishAllow: [
         ...(isService
-          ? getServicePublishSubjects(principal.value.capabilities, {
-            sessionKey,
-            contractDigest: principal.value.serviceState?.currentContractDigest,
-          })
+          ? getServicePublishSubjectsForContracts(
+            principal.value.capabilities,
+            {
+              sessionKey,
+              contractDigest: principal.value.serviceState
+                ?.currentContractDigest,
+              envelopeBoundary: serviceEnvelope?.boundary,
+            },
+            activeContractEntries,
+          )
           : delegatedPublish),
         ...resourcePermissions.publish,
       ],
       subscribeAllow: isService
         ? [
-          ...getServiceSubscribeSubjects(principal.value.capabilities, {
-            sessionKey,
-            contractDigest: principal.value.serviceState?.currentContractDigest,
-          }),
+          ...getServiceSubscribeSubjectsForContracts(
+            principal.value.capabilities,
+            {
+              sessionKey,
+              contractDigest: principal.value.serviceState
+                ?.currentContractDigest,
+              envelopeBoundary: serviceEnvelope?.boundary,
+            },
+            activeContractEntries,
+          ),
           ...resourcePermissions.subscribe,
         ]
         : delegatedSubscribe,
@@ -1030,14 +1168,14 @@ export function startAuthCallout(
 
       if (session.type !== "device") {
         (
-          await trellis.publish("Auth.Connect", {
+          await trellis.publish("Auth.Connections.Opened", {
             origin: session.origin,
             id: session.id,
             sessionKey,
             userNkey: decoded.userNkey,
           })
         ).inspectErr((error: unknown) =>
-          logger.warn({ error }, "Failed to publish Auth.Connect")
+          logger.warn({ error }, "Failed to publish Auth.Connections.Opened")
         );
       }
 
@@ -1125,6 +1263,7 @@ export const __testing__ = {
   AUTH_CALLOUT_INTERNAL_ERROR,
   respondAuthCalloutError,
   resolveDeviceRuntimeGrant,
+  refreshServiceSessionFromInstance,
   validateServiceRuntimeDigest,
   verifyRuntimeAuthTokenSignature,
   waitForInFlightHandlers,

@@ -114,7 +114,7 @@ When NATS calls `$SYS.REQ.USER.AUTH`:
    context, active service/device contracts, and installed bindings, then issue
    a NATS JWT for the server-generated `user_nkey`.
 5. Update session liveness and active-connection tracking.
-6. Emit `events.v1.Auth.Connect` for user and service sessions.
+6. Emit `events.v1.Auth.Connections.Opened` for user and service sessions.
 
 Expected auth failures in those stages return typed denials and reason codes,
 such as `invalid_signature`, `iat_out_of_range`, or `service_disabled`. They
@@ -129,8 +129,8 @@ CASE: USER CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - lookup the session keyed by `sessionKey`
 - verify the bound session is still valid for the same app identity
 - verify user active
-- verify the presented `contractDigest` is a known approved app or agent digest
-  for that bound user/app context
+- verify the presented contract evidence fits the identity envelope for that
+  bound user/app context
 - derive permissions and issue JWT
 - update session liveness and active-connection tracking
 
@@ -139,11 +139,11 @@ CASE: SERVICE CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - verify sig = sign(hash("nats-connect:" + iat + ":" + contractDigest))
 - lookup the service instance keyed by `sessionKey`
 - reject if the service instance is disabled or its deployment is missing/disabled
-- reject if the service instance has no current contract digest, if the presented
-  digest differs from `service.currentContractDigest`, or if that current digest
-  is no longer allowed by the deployment's matching applied-contract lineage
-- lookup or create the session keyed by `sessionKey` only after the exact digest
-  authorization succeeds
+- reject if the service instance has no current contract evidence, if the
+  presented evidence differs from that runtime evidence, or if the required
+  boundary no longer fits the deployment envelope
+- lookup or create the session keyed by `sessionKey` only after envelope fit
+  succeeds
 - compute inboxPrefix
 - derive permissions from the exact current service contract state and issue JWT
 
@@ -152,20 +152,19 @@ CASE: DEVICE CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - verify sig = sign(hash("nats-connect:" + iat + ":" + contractDigest))
 - if sessionKey matches an installed device, follow the installed-device path instead
 - otherwise resolve the device instance by public identity key
-- require the presented `contractDigest` to match an allowed digest on the device deployment
+- require the presented contract evidence to fit the device deployment envelope
 - reject if the device is unknown, disabled, revoked, or its deployment is
   missing or disabled
 - if an activation record exists, require it to be activated and not revoked;
   this produces user-delegated device authority
-- if no activation record exists, require the instance to still be registered and
-  the deployment to set `preActivationPolicy: "device-owned"`; this produces
-  device-owned authority and MUST NOT create or mutate an activation record
+- if no activation record exists, require an admin/review-approved setup flow;
+  this MUST NOT create or mutate a user activation record
 - create or refresh a device session keyed by `sessionKey`
 - preserve `activatedAt` from the activation record for user-delegated device
-  authority; pre-activation device-owned sessions keep `activatedAt: null`
+  authority; admin/review-approved sessions keep `activatedAt: null`
 - compute inboxPrefix
 - derive permissions from the active device deployment and issue JWT
-- do not emit `events.v1.Auth.Connect` for device sessions
+- do not emit `events.v1.Auth.Connections.Opened` for device sessions
 ```
 
 ## Server-Relative Time
@@ -198,9 +197,10 @@ auth-callout payloads are not supported.
 
 The auth callout derives permissions from:
 
-- current session or service policy grants
-- known approved app/agent contracts for user sessions
-- the deployment's active service/device contracts
+- current session grants and grant overrides
+- presented contract evidence resolved against identity envelopes for user
+  sessions
+- deployment envelopes for service/device sessions
 - declared `operations`, `rpc`, `events`, and `uses`
 - installed resource bindings
 
@@ -223,26 +223,24 @@ Rules:
 
 ## RPC Message Signing
 
-Each authenticated RPC includes proof of session-key ownership.
+Each authenticated RPC includes proof of session-key ownership. Contract digest
+binding is established earlier during connect, bootstrap, or session creation;
+per-request RPC proofs do not carry or sign `contractDigest`.
 
 Proof input:
 
 ```ts
 function buildProofInput(
   sessionKey: string,
-  contractDigest: string,
   subject: string,
   payloadHash: Uint8Array,
 ): Uint8Array {
   const enc = new TextEncoder();
   const sessionKeyBytes = enc.encode(sessionKey);
-  const contractDigestBytes = enc.encode(contractDigest);
   const subjectBytes = enc.encode(subject);
 
   const buf = new Uint8Array(
-    4 + sessionKeyBytes.length + 4 + contractDigestBytes.length +
-      4 + subjectBytes.length + 4 +
-      payloadHash.length,
+    4 + sessionKeyBytes.length + 4 + subjectBytes.length + 4 + payloadHash.length,
   );
   const view = new DataView(buf.buffer);
 
@@ -251,10 +249,6 @@ function buildProofInput(
   offset += 4;
   buf.set(sessionKeyBytes, offset);
   offset += sessionKeyBytes.length;
-  view.setUint32(offset, contractDigestBytes.length);
-  offset += 4;
-  buf.set(contractDigestBytes, offset);
-  offset += contractDigestBytes.length;
   view.setUint32(offset, subjectBytes.length);
   offset += 4;
   buf.set(subjectBytes, offset);
@@ -269,7 +263,7 @@ function buildProofInput(
 payloadHash = SHA256(payload);
 proof = ed25519_sign(
   sessionKeyPrivate,
-  SHA256(buildProofInput(sessionKey, contractDigest, subject, payloadHash)),
+  SHA256(buildProofInput(sessionKey, subject, payloadHash)),
 );
 ```
 
@@ -278,26 +272,25 @@ Rules:
 - receivers MUST compute `payloadHash` from the raw request body they actually
   received
 - receivers MUST NOT trust a caller-supplied payload hash header
-- receivers MUST bind the proof to the authenticated `contractDigest` for the
-  current runtime session
+- receivers MUST verify the request against the stored authenticated
+  session/principal state created at connect, bootstrap, or session binding time
 - length-prefixing is mandatory and prevents boundary attacks
 
 Required message headers:
 
 ```text
 session-key: <sessionKey>
-contract-digest: <contractDigest>
 proof: <base64url(ed25519 signature)>
 ```
 
 Verification steps:
 
 1. Extract `session-key`
-2. Extract `contract-digest`
-3. Compute `payloadHash = SHA256(raw_request_body)`
-4. Reconstruct proof input and verify signature using `session-key` as the
+2. Compute `payloadHash = SHA256(raw_request_body)`
+3. Reconstruct proof input and verify signature using `session-key` as the
    public key
-5. Call `rpc.Auth.ValidateRequest` for session lookup and capability checking
+4. Call `rpc.Auth.Requests.Validate` for session lookup, stored
+   contract/principal context, and capability checking
 
 ## Pre-Auth Device Wait Verification
 
@@ -406,29 +399,28 @@ Rules:
 
 All auth errors use `AuthError` with a `reason` code.
 
-| Scenario                        | Reason Code                   |
-| ------------------------------- | ----------------------------- |
-| SessionKey header missing       | `missing_session_key`         |
-| Session not found               | `session_not_found`           |
-| Session expired                 | `session_expired`             |
-| Invalid signature               | `invalid_signature`           |
-| SessionKey mismatch in OAuth    | `oauth_session_key_mismatch`  |
-| Session already bound           | `session_already_bound`       |
-| AuthToken already used          | `authtoken_already_used`      |
-| Timestamp out of range          | `iat_out_of_range`            |
-| Approval required               | `approval_required`           |
-| Contract changed                | `contract_changed`            |
-| User inactive                   | `user_inactive`               |
-| User not found                  | `user_not_found`              |
-| Unknown service                 | `unknown_service`             |
-| Service disabled                | `service_disabled`            |
-| Unknown device                  | `unknown_device`              |
-| Device activation revoked       | `device_activation_revoked`   |
-| Device deployment not found     | `device_deployment_not_found` |
-| Device deployment disabled      | `device_deployment_disabled`  |
-| Service-only capability on user | `service_role_on_user`        |
-| Reply mismatch                  | `reply_subject_mismatch`      |
-| Missing capabilities            | `insufficient_permissions`    |
+| Scenario                     | Reason Code                   |
+| ---------------------------- | ----------------------------- |
+| SessionKey header missing    | `missing_session_key`         |
+| Session not found            | `session_not_found`           |
+| Session expired              | `session_expired`             |
+| Invalid signature            | `invalid_signature`           |
+| SessionKey mismatch in OAuth | `oauth_session_key_mismatch`  |
+| Session already bound        | `session_already_bound`       |
+| AuthToken already used       | `authtoken_already_used`      |
+| Timestamp out of range       | `iat_out_of_range`            |
+| Approval required            | `approval_required`           |
+| Contract changed             | `contract_changed`            |
+| User inactive                | `user_inactive`               |
+| User not found               | `user_not_found`              |
+| Unknown service              | `unknown_service`             |
+| Service disabled             | `service_disabled`            |
+| Unknown device               | `unknown_device`              |
+| Device activation revoked    | `device_activation_revoked`   |
+| Device deployment not found  | `device_deployment_not_found` |
+| Device deployment disabled   | `device_deployment_disabled`  |
+| Reply mismatch               | `reply_subject_mismatch`      |
+| Missing capabilities         | `insufficient_permissions`    |
 
 Detailed errors are acceptable because callers only reach them after passing
 connection-level auth.
@@ -446,10 +438,11 @@ return path and show sign-in UX. Non-browser clients may surface the same
 The portal-owned browser login UX uses `flowId` as the browser-visible
 identifier and keeps `authToken` internal to the Trellis runtime service.
 Trellis ships a built-in portal served by the Trellis HTTP server from static
-assets. Deployments may register custom portals and assign them to login or
-device flows through deployment-owned selection records. Device activation uses
-the same browser-visible `flowId` concept with `kind: "device_activation"` flow
-records rather than a separate public identifier. Portals are web apps, not
+assets. Deployments may carry portal-route metadata for login or device flows,
+but those routes are deployment-owned routing config only, not standalone
+portal/default/selection authority. Device activation uses the same
+browser-visible `flowId` concept with `kind: "device_activation"` flow records
+rather than a separate public identifier. Portals are web apps, not
 service-authenticated principals; if a portal later continues as a Trellis app
 after login, it does so under a normal user session.
 
@@ -490,7 +483,7 @@ Runtime storage responsibilities:
 
 | Storage                    | Logical contents                                                                                                                       | TTL                                          |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| SQL                        | Users, sessions, approved contract decisions, grant policies, portals, service records, device records, and installed contract records | Durable, with session expiry from `lastAuth` |
+| SQL                        | Users, sessions, identity-envelope grants, deployment grant overrides, service records, device records, deployment envelopes, portal-route metadata, and contract evidence | Durable, with session expiry from `lastAuth` |
 | `trellis_oauth_states` KV  | OAuth state mapping keyed by `hash(state)`                                                                                             | 5 min                                        |
 | `trellis_pending_auth` KV  | Pending authenticated bind keyed by `hash(authToken)`                                                                                  | 5 min                                        |
 | `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"`                                       | Browser-flow TTL                             |
@@ -501,9 +494,8 @@ raw token value.
 
 Browser flows are keyed by raw `flowId` because the flow identifier is
 browser-visible and used to fetch auth-owned portal state. Device activation
-records persist for the lifetime of the activated device unless revoked. Login
-portal selections, device portal selections, optional default-portal settings,
-and portal profiles are deployment-owned SQL records used by browser login and
+records persist for the lifetime of the activated device unless revoked. Portal
+routing metadata is deployment-owned envelope state used by browser login and
 device activation.
 
 ### Browser Flow Record
@@ -551,7 +543,7 @@ type UserSession = {
     contractId: string;
     origin?: string;
   };
-  approvalSource?: "stored_approval" | "admin_policy" | "portal_profile";
+  approvalSource?: "stored_approval" | "grant_override";
   delegatedCapabilities: string[];
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
@@ -594,7 +586,7 @@ Rules:
   and service sessions; the device instance identity remains part of the stored
   session value
 
-### Contract Approval Object
+### Identity Envelope Grant Object
 
 ```ts
 {
@@ -605,78 +597,46 @@ Rules:
   answeredAt: Date;
   updatedAt: Date;
   approval: {
-    contractDigest: string;
-    contractId: string;
-    displayName: string;
-    description: string;
-    capabilities: string[];
-  };
-  publishSubjects: string[];
-  subscribeSubjects: string[];
+    identityEnvelopeDelta: EnvelopeDelta;
+    contractEvidence: ContractEvidence;
+  }
 }
 ```
 
-Trellis stores one approval record per `user <-> contractDigest` pair when a
-durable contract approval decision exists. The normal portal denial path does
+Trellis stores identity-envelope grants when a durable approval decision exists.
+The presented contract digest is stored as contract evidence for audit and
+repeat resolution, not as the authority key. The normal portal denial path does
 not create or update a stored denial record; it is returned to the originating
 app as an `authError=approval_denied` browser callback so a later sign-in
-attempt can present the permission prompt again. Stored denial records may exist
-only from older data or explicit administrative surfaces, and the portal
-approval screen must allow a fresh user decision to replace them.
+attempt can present the permission prompt again.
 
-### Instance Grant Policy Object
+### Grant Override Object
 
 ```ts
 {
-  contractId: string;
-  allowedOrigins?: string[];
-  impliedCapabilities: string[];
+  overrideId: string;
+  target: {
+    contractId?: string;
+    origin?: string;
+    deploymentId?: string;
+  };
+  preauthorizedBoundary: EnvelopeBoundary;
   disabled: boolean;
   createdAt: string;
   updatedAt: string;
-  source: {
-    kind: "admin_policy";
-    createdBy?: {
-      origin: string;
-      id: string;
-    };
-    updatedBy?: {
-      origin: string;
-      id: string;
-    };
-  };
-}
-```
-
-Portal profiles are projected into the same effective-policy matching path using
-`source.kind = "portal_profile"` plus routed portal metadata:
-
-```ts
-{
-  contractId: string;
-  allowedOrigins?: string[];
-  impliedCapabilities: string[];
-  disabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-  source: {
-    kind: "portal_profile";
-    portalId: string;
-    entryUrl: string;
-  };
 }
 ```
 
 Rules:
 
-- the key is the target `contractId` lineage
-- matching enabled policies imply approval and additional effective capabilities
+- the `target` may match a contract lineage, app origin, deployment, or a
+  combination of those selectors
+- matching enabled overrides may pre-authorize envelope and capability decisions
   dynamically; they do not mutate the user projection
-- matching policy takes precedence over stored user denial while the policy is
-  enabled
-- optional `allowedOrigins` further restrict the policy to browser sessions that
-  present that app origin; they are separate from the deployment redirect
-  allowlist
+- matching overrides can satisfy approval while they remain enabled, but they
+  cannot create availability missing from the deployment envelope
+- `target.origin` restricts an override to browser sessions that present that
+  app origin; it is separate from redirect and origin validation
 
 ### Users Projection
 
@@ -691,8 +651,8 @@ Rules:
 
 This projection is Trellis-local and is updated by Trellis-managed flows.
 
-It stores explicit user state only. Deployment-wide implied app grants remain in
-the separate instance grant policy bucket.
+It stores explicit user state only. Deployment-wide implied app grants remain as
+separate grant override records.
 
 ### Active Connections
 
@@ -707,8 +667,8 @@ the separate instance grant policy bucket.
 Rules:
 
 - key is `<sessionKey>.<scopeId>.<user_nkey>` where `scopeId` is `trellisId` for
-  user sessions, service or installed-device identity for installed runtime
-  sessions, and `instanceId` for activated-device sessions
+  user sessions, the service principal for service runtime sessions, and
+  `instanceId` for device runtime sessions
 - disconnect cleanup is best-effort plus TTL-backed self-healing
 
 ## Event Authorization
@@ -717,21 +677,19 @@ The `trellis` service publishes `events.v1.Auth.*` as part of `trellis.auth@v1`.
 
 Events:
 
-- `events.v1.Auth.Connect`
-- `events.v1.Auth.Disconnect`
-- `events.v1.Auth.SessionRevoked`
-- `events.v1.Auth.ConnectionKicked`
-- `events.v1.Auth.DeviceActivationRequested`
-- `events.v1.Auth.DeviceActivationReviewRequested`
-- `events.v1.Auth.DeviceActivationApproved`
-- `events.v1.Auth.DeviceActivationRejected`
-- `events.v1.Auth.DeviceActivated`
-- `events.v1.Auth.DeviceActivationRevoked`
+- `events.v1.Auth.Connections.Opened`
+- `events.v1.Auth.Connections.Closed`
+- `events.v1.Auth.Sessions.Revoked`
+- `events.v1.Auth.Connections.Kicked`
+- `events.v1.Auth.DeviceUserAuthorities.Requested`
+- `events.v1.Auth.DeviceUserAuthorities.ReviewRequested`
+- `events.v1.Auth.DeviceUserAuthorities.Approved`
+- `events.v1.Auth.DeviceUserAuthorities.Resolved`
 
 Rules:
 
-- services may subscribe only if their installed contract explicitly declares
-  the events in `uses`
+- services may subscribe only if the presented contract evidence fits the
+  service deployment envelope and declares the events in `uses`
 - extra manual capability flags are not the contract boundary
 - user sessions must never receive service-only capabilities
 

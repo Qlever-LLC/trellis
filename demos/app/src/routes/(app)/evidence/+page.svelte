@@ -27,6 +27,7 @@
   const evidenceType = "field-photo";
   const evidenceTypeLabel = "Field photo";
   const evidencePageSize = 3;
+  const listPage = { limit: 50, offset: 0 };
 
   type CloseoutRoute = "/closeout" | `/closeout?${string}`;
 
@@ -191,7 +192,7 @@
     clearPreviewUrls();
 
     try {
-      const list = await trellis.request("Evidence.List", { prefix: "evidence/" }).orThrow();
+      const list = await trellis.request("Evidence.List", { ...listPage, prefix: "evidence/" }).orThrow();
       if (!mounted || requestId !== galleryRequestId) return;
       gallery = list.evidence
         .slice()

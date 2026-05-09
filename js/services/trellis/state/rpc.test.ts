@@ -74,9 +74,9 @@ function isMigrationRequired(value: unknown): value is {
     "migrationRequired" in value && value.migrationRequired === true;
 }
 
-function createContractStore() {
+function createContracts() {
   return {
-    getContract(digest: string) {
+    async getContract(digest: string) {
       if (digest === "acme.notes@v0-digest") {
         return {
           id: "acme.notes@v1",
@@ -231,7 +231,7 @@ Deno.test("State RPC accepts a session resolver without auth session storage met
       },
     },
     state,
-    contractStore: createContractStore(),
+    contracts: createContracts(),
   });
 
   sessions.set(
@@ -266,7 +266,7 @@ Deno.test("State RPC maps thrown session-storage failures to UnexpectedError", a
       },
     }),
     state,
-    contractStore: createContractStore(),
+    contracts: createContracts(),
   });
 
   const error = unwrapErr(
@@ -293,7 +293,7 @@ Deno.test("State RPC keeps missing sessions on the existing auth error path", as
   const handlers = createStateHandlers({
     sessionResolver: createSessionResolver(sessionKV),
     state,
-    contractStore: createContractStore(),
+    contracts: createContracts(),
   });
 
   const error = unwrapErr(
@@ -319,7 +319,7 @@ Deno.test("State RPC isolates named store state by contract id without caller sc
   const handlers = createStateHandlers({
     sessionResolver: createSessionResolver(sessionKV),
     state,
-    contractStore: createContractStore(),
+    contracts: createContracts(),
   });
 
   sessionKV.seed(
@@ -371,7 +371,7 @@ Deno.test("State RPC uses contract id lineage and state versions for migration d
   const handlers = createStateHandlers({
     sessionResolver: createSessionResolver(sessionKV),
     state,
-    contractStore: createContractStore(),
+    contracts: createContracts(),
   });
 
   sessionKV.seed(
@@ -440,7 +440,7 @@ Deno.test("State admin RPC schemas accept migration-required entries", async () 
   const handlers = createStateHandlers({
     sessionResolver: createSessionResolver(sessionKV),
     state,
-    contractStore: createContractStore(),
+    contracts: createContracts(),
   });
   const trellisId = await trellisIdFromOriginId("github", "123");
 
@@ -495,7 +495,7 @@ Deno.test("State RPC derives store metadata and enforces value versus map key se
   const handlers = createStateHandlers({
     sessionResolver: createSessionResolver(sessionKV),
     state,
-    contractStore: createContractStore(),
+    contracts: createContracts(),
   });
 
   sessionKV.seed(
@@ -598,7 +598,7 @@ Deno.test("State RPC accepts boolean JSON schemas for state stores", async () =>
   const handlers = createStateHandlers({
     sessionResolver: createSessionResolver(sessionKV),
     state,
-    contractStore: createContractStore(),
+    contracts: createContracts(),
   });
 
   sessionKV.seed(
@@ -632,7 +632,7 @@ Deno.test("State RPC derives normal caller ownership from the session", async ()
   const handlers = createStateHandlers({
     sessionResolver: createSessionResolver(sessionKV),
     state,
-    contractStore: createContractStore(),
+    contracts: createContracts(),
   });
 
   sessionKV.seed(
@@ -676,7 +676,7 @@ Deno.test("State admin RPCs inspect and delete named stores", async () => {
   const handlers = createStateHandlers({
     sessionResolver: createSessionResolver(sessionKV),
     state,
-    contractStore: createContractStore(),
+    contracts: createContracts(),
   });
   const trellisId = await trellisIdFromOriginId("github", "123");
 

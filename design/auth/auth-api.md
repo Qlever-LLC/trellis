@@ -8,7 +8,8 @@ order: 30
 
 ## Prerequisites
 
-- [trellis-auth.md](./trellis-auth.md) - auth architecture and approval model
+- [trellis-auth.md](./trellis-auth.md) - auth architecture and identity-envelope
+  model
 - [auth-protocol.md](./auth-protocol.md) - proofs, connect tokens, and internal
   state rules
 
@@ -19,16 +20,25 @@ This document defines the public Trellis auth API.
 It covers:
 
 - browser-flow broker, OAuth, and bind endpoints
-- browser-flow APIs consumed by portal, including detached agent login
+- browser-flow APIs consumed by portals, including detached CLI/native login
 - HTTP device activation endpoints
 - public and admin `rpc.Auth.*` endpoints
 - emitted auth events
 
 It does not define language-specific client APIs.
 
-Headings in this document use logical names like `rpc.Auth.Logout`. The wire
-subjects remain versioned forms such as `rpc.v1.Auth.Logout` and
-`operations.v1.Auth.ActivateDevice`.
+Headings in this document use logical grouped resource-first names such as
+`rpc.Auth.Devices.List`. The wire subjects remain versioned forms such as
+`rpc.v1.Auth.Devices.List` and
+`operations.v1.Auth.DeviceUserAuthorities.Resolve`.
+
+Public names use the resource group before the action. Examples:
+
+- `Auth.Deployments.Create`
+- `Auth.Devices.List`
+- `Auth.Envelopes.Expand`
+- `Auth.Envelopes.Shrink`
+- `Auth.EnvelopeExpansions.Approve`
 
 ## HTTP Endpoints
 
@@ -52,17 +62,16 @@ Activated-device endpoints are defined in
 payload, creates a short-lived auth-owned browser flow with
 `kind: "device_activation"`, resolves the activation portal, and returns a short
 `flowId`-based `activationUrl`. Portal resolution comes from the preregistered
-device instance and deployment-owned device portal policy, with fallback to the
-deployment device default custom portal when configured and finally to the
+device instance and deployment-owned portal-route metadata, with fallback to the
 built-in Trellis device portal. Callers do not provide portal ids or profile ids
 in the normal path.
 
 ### POST /auth/requests
 
-Starts the normal auth flow for an `app` or `agent` participant. The caller
-sends the initiating contract in the request body so auth can either
-auto-complete reauth immediately or create an auth-owned browser flow and return
-a short `flowId`-based login URL.
+Starts the normal auth flow for a contract-bearing user client such as a browser
+app, CLI, or native app. The caller sends the initiating contract in the request
+body so auth can either auto-complete reauth immediately or create an auth-owned
+browser flow and return a short `flowId`-based login URL.
 
 Request body:
 
@@ -72,7 +81,7 @@ Request body:
 | `redirectTo` | yes      | Post-login redirect URL                                                                                                                                  |
 | `sessionKey` | yes      | Client public session key                                                                                                                                |
 | `sig`        | yes      | `sign(hash("oauth-init:" + redirectTo + ":" + (provider ?? "") + ":" + canonicalJson(contract) + ":" + canonicalJson(context ?? null)))` by `sessionKey` |
-| `contract`   | yes      | Initiating browser-app contract manifest JSON for portal routing and approval planning                                                                   |
+| `contract`   | yes      | Initiating user-client contract manifest JSON for portal routing and approval planning                                                                   |
 | `context`    | no       | Opaque JSON payload for app and portal coordination                                                                                                      |
 
 Behavior:
@@ -84,35 +93,33 @@ Behavior:
    the requested contract envelope, rebind immediately and return
    `status: "bound"`
 5. Otherwise create an auth-owned browser flow record
-6. Resolve the matching login portal selection for the initiating contract id
-   when one exists
-7. Otherwise fall back to the deployment login default custom portal when
-   configured
-8. Otherwise use the built-in Trellis login portal served by the Trellis HTTP
+6. Resolve portal routing from the initiating app identity and deployment
+   envelope metadata
+7. Otherwise use the built-in Trellis login portal served by the Trellis HTTP
    server
-9. Return `status: "flow_started"` with `{ flowId, loginUrl }`
+8. Return `status: "flow_started"` with `{ flowId, loginUrl }`
 
 Rules:
 
-- browser apps send their contract manifest when they initiate login; they are
-  approved per-user during auth rather than pre-installed like services
-- app and agent auth may present a contract digest first; when auth does not
-  know that digest it returns `manifest_required`, and the client retries with
-  the full manifest for validation, digest verification, and flow storage
+- user-facing apps and tools send their contract manifest when they initiate
+  login; they are approved per-user during auth rather than pre-installed like
+  services
+- app, CLI, and native auth may present a contract digest first; when auth does
+  not know that digest it returns `manifest_required`, and the client retries
+  with the full manifest for validation, digest verification, and flow storage
 - bind later uses the contract already stored on the auth-owned browser flow
   rather than requiring the browser app to resubmit it
 - if present, `context` is stored on the browser flow and returned to portals as
   app-owned opaque data
-- a portal is trusted for this redirect only because deployment configuration
-  routed the flow there; portal records remain routing-only config and do not by
-  themselves grant delegated approval or service authority
+- a portal is trusted for this redirect only because deployment-envelope routing
+  metadata routed the flow there; portal routes do not by themselves grant
+  delegated approval or service authority
 - first login does not require pre-registering a portal because the built-in
   Trellis login portal is always available
-- auth MAY also apply a matching deployment-wide instance grant policy or
-  portal-profile policy for the app's contract lineage and optional app origin;
-  when one matches, or when an existing delegated session already grants a
-  strict superset of the requested subjects and capabilities for the same
-  contract lineage, auth may skip browser UX and return `bound` directly
+- auth MAY apply a matching grant override for the app's contract lineage and
+  optional app origin; when one matches, or when an existing identity envelope
+  already grants a strict superset of the requested boundary for the same app
+  identity, auth may skip browser UX and return `bound` directly
 
 ### GET /auth/login/:provider
 
@@ -255,9 +262,9 @@ Rules:
   denied flow state; normal user denial returns `redirect` to the originating
   app with `authError=approval_denied`, and portal helpers MAY treat an
   `approval_denied.returnLocation` as an immediate redirect target
-- for detached agent login, `redirect.location` may resolve to the same portal
-  login page; the built-in Trellis portal treats that same-page redirect as
-  completion UX and tells the user to return to the Trellis CLI rather than
+- for detached CLI/native login, `redirect.location` may resolve to the same
+  portal login page; the built-in Trellis portal treats that same-page redirect
+  as completion UX and tells the user to return to the Trellis CLI rather than
   redirecting again
 - portal does not invent auth-protocol next-step URLs locally, though it may
   still use its own local routes and UI state while rendering the flow
@@ -280,8 +287,9 @@ Rules:
   server-owned state attached to that flow
 - public portal helpers may expose decisions as `"approved" | "denied"`, but the
   HTTP request body remains the canonical boolean shape below
-- `approved: true` persists the approved contract decision when no policy source
-  already covers the request, then returns the normal redirect/bind continuation
+- `approved: true` persists the approved contract decision when no existing
+  identity envelope or grant override already covers the request, then returns
+  the normal redirect/bind continuation
 - `approved: false` does not persist a denied contract decision; it consumes the
   pending browser flow and returns a redirect to the caller's `redirectTo` with
   `authError=approval_denied`
@@ -367,21 +375,22 @@ Behavior:
 
 Rules:
 
-- normal browser and detached agent flows bind only through the auth-owned
+- normal browser and detached CLI/native flows bind only through the auth-owned
   browser flow after Trellis has already recorded an approval decision
 - flow bind still rechecks approval and capabilities defensively
 - portal is a browser UX surface only; bind remains auth-owned
 
-## Approval Management RPCs
+## Identity Envelope RPCs
 
-### rpc.Auth.ListApprovals
+### rpc.Auth.Identities.List
 
 Request:
 
 ```ts
 {
   user?: string;
-  digest?: string;
+  offset?: number;
+  limit: number;
 }
 ```
 
@@ -394,26 +403,37 @@ Response:
     answer: "approved" | "denied";
     answeredAt: string;
     updatedAt: string;
-    approval: {
+    identityEnvelopeId: string;
+    identityAnchor:
+      | { kind: "web"; contractId: string; origin: string }
+      | { kind: "cli"; contractId: string; sessionPublicKey: string }
+      | { kind: "native"; contractId: string; sessionPublicKey: string }
+      | { kind: "device-user"; contractId: string; devicePublicKey: string };
+    contractEvidence: {
       contractDigest: string;
       contractId: string;
-      displayName: string;
-      description: string;
-      capabilities: string[];
     };
+    displayName: string;
+    description: string;
+    capabilities: Record<string, ContractApprovalCapability>;
+    participantKind: "app" | "agent" | "device-user";
   }>;
 }
 ```
 
-Callers without `admin` see only their own approvals.
+Callers without `admin` see only their own identity-envelope grants.
 
-### rpc.Auth.RevokeApproval
+List RPCs are bounded. `limit` is required, `offset` is optional and defaults to
+the first row, and implementations MUST apply any filters in the database query
+before applying the bound.
+
+### rpc.Auth.IdentityEnvelopes.Revoke
 
 Request:
 
 ```ts
 {
-  contractDigest: string;
+  identityEnvelopeId: string;
   user?: string;
 }
 ```
@@ -426,21 +446,25 @@ Response:
 }
 ```
 
-Revocation removes the stored delegated approval for that exact digest, revokes
-matching active delegated sessions, and removes reconnect authority until a new
-approval is granted.
+Revocation removes the addressed identity-envelope grant, revokes matching
+active delegated sessions, and removes reconnect authority until a new approval
+expands the identity envelope again. `contractDigest` is evidence metadata, not
+the revocation key.
 
 ## Authenticated User RPCs
 
-These RPCs require `session-key`, `contract-digest`, and `proof` headers.
+These RPCs require `session-key` and `proof` headers. The contract digest is
+authenticated during connect, bootstrap, or session binding and is resolved for
+each request from stored session/principal state rather than from a per-request
+header.
 
 The following self-service auth RPCs intentionally require no granted
 capabilities beyond successful authenticated user context:
 
-- `rpc.Auth.Me`
-- `rpc.Auth.Logout`
+- `rpc.Auth.Sessions.Me`
+- `rpc.Auth.Sessions.Logout`
 
-### rpc.Auth.Logout
+### rpc.Auth.Sessions.Logout
 
 Request:
 
@@ -470,7 +494,7 @@ current contract body. Runtime reconnect auth is regenerated locally from
 `sessionKey + contractDigest + iat + sig`; auth does not issue renewable binding
 tokens.
 
-### rpc.Auth.Me
+### rpc.Auth.Sessions.Me
 
 Request:
 
@@ -482,6 +506,7 @@ Response:
 
 ```ts
 {
+  participantKind: "user" | "service" | "device";
   user: {
     id: string;
     origin: string;
@@ -517,14 +542,13 @@ Rules:
   activating user in `user`
 - service sessions receive the service envelope and null user/device entries
 
-### rpc.Auth.ValidateRequest
+### rpc.Auth.Requests.Validate
 
 Request:
 
 ```ts
 {
   sessionKey: string;
-  contractDigest: string;
   proof: string;
   subject: string;
   payloadHash: string;
@@ -575,9 +599,14 @@ This RPC is the capability and session lookup service used by other Trellis
 services. The caller shape is a union because users and devices all share the
 same post-auth authorization pipeline.
 
-`Auth.ValidateRequest` is a baseline auth surface for service runtimes. Trellis
-may make it available to services automatically, without requiring every service
-contract to declare an explicit auth `uses` entry for this RPC.
+The `proof` covers the session key, request subject, and raw payload hash. It
+does not include `contractDigest`; validation resolves contract context,
+principal identity, and capabilities from the authenticated session state that
+was created at connect, bootstrap, or session binding time.
+
+`Auth.Requests.Validate` is a baseline auth surface for service runtimes.
+Trellis may make it available to services automatically, without requiring every
+service contract to declare an explicit auth `uses` entry for this RPC.
 
 ## Device Activation Public Surface
 
@@ -589,85 +618,77 @@ Public auth-owned surfaces:
 
 - HTTP endpoints `POST /auth/devices/activate/requests`,
   `POST /auth/devices/activate/wait`, and `POST /auth/devices/connect-info`
-- operation subject `operations.v1.Auth.ActivateDevice`
-- portal, portal-override, device-deployment, device-instance, and device
+- operation subject `operations.v1.Auth.DeviceUserAuthorities.Resolve`
+- grouped deployment, envelope, service-instance, device-instance, and device
   lifecycle admin RPCs under `rpc.v1.Auth.*`
-- event subjects `events.v1.Auth.DeviceActivationRequested`,
-  `events.v1.Auth.DeviceActivationApproved`, `events.v1.Auth.DeviceActivated`,
-  and `events.v1.Auth.DeviceActivationReviewRequested`
+- event subjects `events.v1.Auth.DeviceUserAuthorities.Requested`,
+  `events.v1.Auth.DeviceUserAuthorities.Approved`,
+  `events.v1.Auth.DeviceUserAuthorities.Resolved`, and
+  `events.v1.Auth.DeviceUserAuthorities.ReviewRequested`
 
 Shared request and response types:
 
 ```ts
 type ActivationDecisionReason = string; // deployment-defined machine-readable code
 
-type Portal = {
-  portalId: string;
-  entryUrl: string;
-  disabled: boolean;
+type EnvelopeBoundary = {
+  contracts: Array<{ contractId: string; required: boolean }>;
+  surfaces: Array<{
+    contractId: string;
+    kind: "rpc" | "operation" | "event" | "feed";
+    name: string;
+    action: "call" | "publish" | "subscribe" | "read" | "cancel";
+    required: boolean;
+  }>;
+  capabilities: string[];
+  resources: Array<{
+    kind: "kv" | "store" | "jobs" | "transfer";
+    alias: string;
+    required: boolean;
+  }>;
 };
 
-type LoginPortalDefault = {
-  portalId: string | null; // null means use the built-in Trellis login portal
-};
-
-type DevicePortalDefault = {
-  portalId: string | null; // null means use the built-in Trellis device portal
-};
-
-type LoginPortalSelection = {
-  contractId: string;
-  portalId: string | null; // null forces the built-in Trellis login portal for this contract
-};
-
-type DevicePortalSelection = {
+type DeploymentEnvelope = {
   deploymentId: string;
-  portalId: string | null; // null forces the built-in Trellis device portal for this deployment
-};
-
-type InstanceGrantPolicy = {
-  contractId: string;
-  allowedOrigins?: string[];
-  impliedCapabilities: string[];
+  kind: "service" | "device" | "app" | "cli" | "native";
   disabled: boolean;
   createdAt: string;
   updatedAt: string;
-  source: {
-    kind: "admin_policy";
-    createdBy?: {
-      origin: string;
-      id: string;
-    };
-    updatedBy?: {
-      origin: string;
-      id: string;
-    };
-  };
+  boundary: EnvelopeBoundary;
 };
 
-type FirstConnectPolicy = "reject" | "quarantine" | "auto-accept-compatible";
-type CompatibilityPolicy = "exact" | "compatible-additive" | "manual";
-type DevicePreActivationPolicy = "reject" | "device-owned";
-
-type ServiceDeployment = {
+type DeploymentContractEvidence = {
   deploymentId: string;
-  namespaces: string[];
-  firstConnectPolicy: FirstConnectPolicy;
+  contractId: string;
+  contractDigest: string;
+  contract: Record<string, unknown>;
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
+type DeploymentPortalRoute = {
+  deploymentId: string;
+  portalId: string | null;
+  entryUrl: string | null;
   disabled: boolean;
-  appliedContracts: Array<{
-    contractId: string;
-    compatibilityPolicy: CompatibilityPolicy;
-    allowedDigests: string[];
-    resourceBindingsByDigest?: Record<string, Record<string, unknown>>;
-  }>;
+  updatedAt: string;
+};
+
+type DeploymentGrantOverride = {
+  deploymentId: string;
+  identityKind: "web" | "cli" | "native" | "device-user" | "any";
+  contractId: string | null;
+  origin: string | null;
+  sessionPublicKey: string | null;
+  devicePublicKey: string | null;
+  capability: string;
 };
 ```
 
-`resourceBindingsByDigest` is keyed by the exact contract digest that produced
-the binding. Physical resource identity remains scoped to the deployment lineage
-and profile/resource alias rather than to the digest, so re-applying a new
-digest for the same lineage updates the existing physical resource when the
-underlying resource API supports the requested setting change.
+`DeploymentContractEvidence` records the manifest digest and reviewed contract
+body used for envelope resolution. It is evidence, not an authority source.
+Authority comes from deployment envelopes, identity envelopes, and deployment
+grant overrides.
 
 ```ts
 type ServiceInstance = {
@@ -682,79 +703,90 @@ type ServiceInstance = {
   createdAt: string;
 };
 
-type CreateServiceDeploymentRequest = {
-  deploymentId: string;
-  namespaces: string[];
-  firstConnectPolicy?: FirstConnectPolicy;
+type AuthDeployment =
+  | {
+    kind: "service";
+    deploymentId: string;
+    namespaces: string[];
+    disabled: boolean;
+  }
+  | {
+    kind: "device";
+    deploymentId: string;
+    reviewMode?: "none" | "required";
+    disabled: boolean;
+  };
+
+type CreateDeploymentRequest =
+  | { kind: "service"; deploymentId: string; namespaces: string[] }
+  | { kind: "device"; deploymentId: string; reviewMode?: "none" | "required" };
+type CreateDeploymentResponse = { deployment: AuthDeployment };
+
+type ListDeploymentsRequest = {
+  kind?: "service" | "device";
+  disabled?: boolean;
+  offset?: number;
+  limit: number;
 };
-type CreateServiceDeploymentResponse = { deployment: ServiceDeployment };
+type ListDeploymentsResponse = { deployments: AuthDeployment[] };
 
-type ListServiceDeploymentsResponse = { deployments: ServiceDeployment[] };
-
-type ApplyServiceDeploymentContractRequest = {
+type ExpandEnvelopeRequest = {
   deploymentId: string;
   contract: Record<string, unknown>;
   expectedDigest: string;
-  compatibilityPolicy?: CompatibilityPolicy;
-  replaceExisting?: boolean;
 };
-type ApplyServiceDeploymentContractResponse = {
-  deployment: ServiceDeployment;
-  contract: {
-    id: string;
-    digest: string;
-    displayName: string;
-    description: string;
-    installedAt: string;
-  };
+type ExpandEnvelopeResponse = {
+  envelope: DeploymentEnvelope;
+  delta: EnvelopeBoundary;
+  contractEvidence: DeploymentContractEvidence;
+  resourceBindings: Array<Record<string, unknown>>;
+};
+
+type ShrinkEnvelopeRequest = {
+  deploymentId: string;
+  proposedBoundary: EnvelopeBoundary;
+  confirm: boolean;
+};
+type ShrinkEnvelopeResponse = {
+  envelope: DeploymentEnvelope;
+  impact: Record<string, unknown>;
+  retainedResources: Array<{ kind: string; alias: string }>;
 };
 ```
 
-Apply and unapply are command-style control-plane mutations. They are not
-long-running operations, but they must behave as all-or-nothing updates for the
-durable deployment record:
+Envelope expansion and shrink are command-style control-plane mutations. They
+are not long-running operations, but they must behave as all-or-nothing updates
+for the durable deployment record:
 
-- `Auth.ApplyServiceDeploymentContract` requires `expectedDigest`, recomputes
-  the digest from the submitted manifest, and rejects the mutation if the
-  reviewed digest does not match the installed digest. It then validates the
-  newly installed digest against the proposed active catalog before provisioning
-  external resources, provisions bindings from the exact digest, validates the
-  staged deployment record, then persists and refreshes the active catalog.
-  Resource declarations are exact-digest install input; Trellis no longer
-  rejects a same-lineage digest solely because its resource settings differ from
-  another active digest.
-- `Auth.UnapplyServiceDeploymentContract` validates the staged deployment before
-  persistence, then refreshes the active catalog before kicking affected runtime
+- `Auth.Envelopes.Expand` requires a reviewed delta, validates any presented
+  contract evidence by recomputing its digest and derived boundary, validates
+  the staged deployment record, then persists the durable deployment/evidence
+  rows and refreshes the active catalog projection.
+- `Auth.Envelopes.Shrink` validates the staged deployment before persistence,
+  then refreshes the active catalog projection before kicking affected runtime
   connections.
 - service and device deployment mutations fail closed when the proposed active
   set has inactive or missing `uses` dependencies; Trellis validates that staged
   catalog state before exposing it to runtime permissions.
+- catalog refresh, surface-status checks, portal routing resolution, shrink
+  previews, and unused installed-contract cleanup use targeted durable-store
+  queries for the addressed deployment, digest, route, or binding records rather
+  than broad local scans.
 - service and device deployment removal is the narrow exception: removal still
   validates active digests and active contract compatibility, but it may refresh
   the post-removal catalog without active `uses` validation so operators can
   tear down an already-broken active graph instead of being trapped by stale
   dependencies.
-- service and device apply calls are race-safe review submissions: the caller
-  must send the digest that was reviewed locally, and auth must compare it with
-  the digest produced by install before mutating durable deployment state.
+- service and device envelope changes are race-safe review submissions: auth
+  must compare the reviewed contract evidence with the recomputed evidence
+  before mutating durable deployment state.
 - if active-catalog refresh fails after persistence, auth rolls the deployment
   record back; if rollback also fails, the RPC returns an unexpected aggregate
-  failure rather than reporting a successful apply or unapply.
-- service bootstrap validates that the presented digest is installed, allowed by
-  the enabled parent deployment, and matches the service instance's current
-  runtime digest enforcement before persisting `currentContractDigest` or
-  resource binding state. Instance state affects runtime availability; it does
-  not activate catalog/auth surfaces.
-- strict first-connect behavior is the default: `firstConnectPolicy: "reject"`
-  and `compatibilityPolicy: "exact"` require an already installed and allowed
-  digest.
-- when a service deployment uses `firstConnectPolicy` set to
-  `"auto-accept-compatible"` and the applied lineage uses `compatibilityPolicy`
-  set to `"compatible-additive"`, service bootstrap may request the full
-  manifest with `manifest_required`, validate that the presented digest stays
-  within the deployment envelope, store the contract, append the digest to the
-  deployment's allowed set, and then continue bootstrap. NATS runtime auth still
-  presents only the digest.
+  failure rather than reporting a successful envelope change.
+- service bootstrap validates that the presented contract evidence fits the
+  enabled parent deployment envelope and matches the service instance's current
+  runtime evidence before persisting liveness state. Instance state affects
+  runtime availability; it does not activate catalog/auth surfaces.
 - the successful service bootstrap response includes the resolved resource
   binding payload for the presented digest; service runtimes use that binding to
   initialize KV, store, jobs, and transfer helpers without requiring a
@@ -762,19 +794,23 @@ durable deployment record:
   principal.
 
 ```ts
-type UnapplyServiceDeploymentContractRequest = {
+type DisableDeploymentRequest = {
+  kind: "service" | "device";
   deploymentId: string;
-  contractId: string;
-  digests?: string[];
 };
-type UnapplyServiceDeploymentContractResponse = {
-  deployment: ServiceDeployment;
+type EnableDeploymentRequest = {
+  kind: "service" | "device";
+  deploymentId: string;
 };
-
-type DisableServiceDeploymentRequest = { deploymentId: string };
-type EnableServiceDeploymentRequest = { deploymentId: string };
-type RemoveServiceDeploymentRequest = { deploymentId: string };
-type RemoveServiceDeploymentResponse = { success: boolean };
+type RemoveDeploymentRequest = {
+  kind: "service" | "device";
+  deploymentId: string;
+  cascade?: boolean;
+  // Also run unused installed-contract cleanup for contract digests that are no
+  // longer referenced by any installed deployment record.
+  purgeUnusedContracts?: boolean;
+};
+type RemoveDeploymentResponse = { success: boolean };
 
 type ProvisionServiceInstanceRequest = {
   deploymentId: string;
@@ -782,24 +818,17 @@ type ProvisionServiceInstanceRequest = {
 };
 type ProvisionServiceInstanceResponse = { instance: ServiceInstance };
 
+type ListServiceInstancesRequest = {
+  deploymentId?: string;
+  disabled?: boolean;
+  offset?: number;
+  limit: number;
+};
 type ListServiceInstancesResponse = { instances: ServiceInstance[] };
 type DisableServiceInstanceRequest = { instanceId: string };
 type EnableServiceInstanceRequest = { instanceId: string };
 type RemoveServiceInstanceRequest = { instanceId: string };
 type RemoveServiceInstanceResponse = { success: boolean };
-
-type DeviceDeployment = {
-  deploymentId: string;
-  appliedContracts: Array<{
-    contractId: string;
-    compatibilityPolicy: CompatibilityPolicy;
-    allowedDigests: string[];
-  }>;
-  reviewMode?: "none" | "required";
-  firstConnectPolicy: FirstConnectPolicy;
-  preActivationPolicy: DevicePreActivationPolicy;
-  disabled: boolean;
-};
 
 type DeviceInstance = {
   instanceId: string;
@@ -853,7 +882,7 @@ type DeviceConnectInfo = {
   };
   auth: {
     mode: "device_identity";
-    authority: "device_owned" | "user_delegated";
+    authority: "admin_reviewed" | "user_delegated";
     iatSkewSeconds: number;
   };
 };
@@ -908,95 +937,11 @@ type GetDeviceConnectInfoResponse = {
   connectInfo: DeviceConnectInfo;
 };
 
-`POST /auth/devices/connect-info` and `Auth.GetDeviceConnectInfo` return
-`auth.authority: "user_delegated"` for activated devices. They may return
-`auth.authority: "device_owned"` for registered devices without activation only
-when the device deployment has `preActivationPolicy: "device-owned"` and the
-presented digest is allowed by the deployment. The strict default is
-`preActivationPolicy: "reject"`, which preserves `activation_required` behavior.
-
-type CreatePortalRequest = {
-  portalId: string;
-  entryUrl: string;
-};
-type CreatePortalResponse = { portal: Portal };
-
-type ListPortalsResponse = { portals: Portal[] };
-type DisablePortalRequest = { portalId: string };
-
-type GetLoginPortalDefaultResponse = { defaultPortal: LoginPortalDefault };
-type ListInstanceGrantPoliciesResponse = { policies: InstanceGrantPolicy[] };
-type UpsertInstanceGrantPolicyRequest = {
-  contractId: string;
-  allowedOrigins?: string[];
-  impliedCapabilities: string[];
-};
-type UpsertInstanceGrantPolicyResponse = { policy: InstanceGrantPolicy };
-type DisableInstanceGrantPolicyRequest = { contractId: string };
-type DisableInstanceGrantPolicyResponse = { policy: InstanceGrantPolicy };
-type SetLoginPortalDefaultRequest = { portalId: string | null };
-type SetLoginPortalDefaultResponse = { defaultPortal: LoginPortalDefault };
-
-type SetLoginPortalSelectionRequest = {
-  contractId: string;
-  portalId: string | null;
-};
-type SetLoginPortalSelectionResponse = { selection: LoginPortalSelection };
-
-type ListLoginPortalSelectionsResponse = { selections: LoginPortalSelection[] };
-type ClearLoginPortalSelectionRequest = { contractId: string };
-
-type GetDevicePortalDefaultResponse = { defaultPortal: DevicePortalDefault };
-type SetDevicePortalDefaultRequest = { portalId: string | null };
-type SetDevicePortalDefaultResponse = { defaultPortal: DevicePortalDefault };
-
-type SetDevicePortalSelectionRequest = {
-  deploymentId: string;
-  portalId: string | null;
-};
-type SetDevicePortalSelectionResponse = { selection: DevicePortalSelection };
-
-type ListDevicePortalSelectionsResponse = {
-  selections: DevicePortalSelection[];
-};
-type ClearDevicePortalSelectionRequest = { deploymentId: string };
-
-type CreateDeviceDeploymentRequest = {
-  deploymentId: string;
-  reviewMode?: "none" | "required";
-  firstConnectPolicy?: FirstConnectPolicy;
-  preActivationPolicy?: DevicePreActivationPolicy;
-};
-type CreateDeviceDeploymentResponse = { deployment: DeviceDeployment };
-
-type ListDeviceDeploymentsResponse = { deployments: DeviceDeployment[] };
-type ApplyDeviceDeploymentContractRequest = {
-  deploymentId: string;
-  contract: Record<string, unknown>;
-  expectedDigest: string;
-  compatibilityPolicy?: CompatibilityPolicy;
-  replaceExisting?: boolean;
-};
-type ApplyDeviceDeploymentContractResponse = {
-  deployment: DeviceDeployment;
-  contract: {
-    id: string;
-    digest: string;
-    displayName: string;
-    description: string;
-    installedAt: string;
-  };
-};
-type UnapplyDeviceDeploymentContractRequest = {
-  deploymentId: string;
-  contractId: string;
-  digests?: string[];
-};
-type UnapplyDeviceDeploymentContractResponse = { deployment: DeviceDeployment };
-type DisableDeviceDeploymentRequest = { deploymentId: string };
-type EnableDeviceDeploymentRequest = { deploymentId: string };
-type RemoveDeviceDeploymentRequest = { deploymentId: string };
-type RemoveDeviceDeploymentResponse = { success: boolean };
+`POST /auth/devices/connect-info` and `Auth.Devices.ConnectInfo.Get` return
+`auth.authority: "user_delegated"` for activated devices and
+`auth.authority: "admin_reviewed"` for admin/review-approved setup flows.
+Runtime access still requires the presented contract evidence to fit the device
+deployment envelope.
 
 type ProvisionDeviceInstanceRequest = {
   deploymentId: string;
@@ -1006,15 +951,35 @@ type ProvisionDeviceInstanceRequest = {
 };
 type ProvisionDeviceInstanceResponse = { instance: DeviceInstance };
 
+type ListDeviceInstancesRequest = {
+  deploymentId?: string;
+  state?: "registered" | "activated" | "revoked" | "disabled";
+  offset?: number;
+  limit: number;
+};
 type ListDeviceInstancesResponse = { instances: DeviceInstance[] };
 type DisableDeviceInstanceRequest = { instanceId: string };
 type EnableDeviceInstanceRequest = { instanceId: string };
 type RemoveDeviceInstanceRequest = { instanceId: string };
 type RemoveDeviceInstanceResponse = { success: boolean };
 
+type ListDeviceActivationsRequest = {
+  instanceId?: string;
+  deploymentId?: string;
+  state?: "activated" | "revoked";
+  offset?: number;
+  limit: number;
+};
 type ListDeviceActivationsResponse = { activations: DeviceActivationRecord[] };
 type RevokeDeviceActivationRequest = { instanceId: string };
 
+type ListDeviceActivationReviewsRequest = {
+  instanceId?: string;
+  deploymentId?: string;
+  state?: "pending" | "approved" | "rejected";
+  offset?: number;
+  limit: number;
+};
 type ListDeviceActivationReviewsResponse = {
   reviews: DeviceActivationReview[];
 };
@@ -1034,132 +999,112 @@ type DecideDeviceActivationReviewResponse = {
 
 Portal rules:
 
-- Trellis always provides a built-in portal deployment for login and generic
-  device-activation routes; it is commonly served by the Trellis HTTP server
-  from static assets and is not represented as a mutable portal record
-- portals are per-instance deployments by default, and built-in or custom portal
-  apps should use explicit Trellis URL config rather than same-origin inference
-- a portal record registers only custom browser routing config: `portalId`,
-  `entryUrl`, and `disabled`
-- a portal profile is the auth-owned portal trust policy keyed by `portalId`; it
-  binds one browser app contract lineage and optional allowed origins to one
-  routed portal entry point and stores the server-derived implied capabilities
-- custom portals remain first-class, but there is no portal-specific contract
-  kind or portal-specific auth machinery
+- Trellis always provides built-in login and generic device-activation portal
+  routes; they are commonly served by the Trellis HTTP server from static assets
+  and are not represented as mutable portal records
+- portal routing is deployment-owned metadata exposed on envelope/detail views,
+  not a standalone portal/default/selection authority API
+- custom portal apps should use explicit Trellis URL config rather than
+  same-origin inference
+- portal routing metadata does not imply approval, capabilities, or
+  availability; approval and capabilities come from identity envelopes,
+  deployment envelopes, and grant overrides
+- custom portals remain first-class browser apps, but there is no
+  portal-specific contract kind or portal-specific auth machinery
 - if a portal later calls Trellis after bind, it does so as a normal
   user-authenticated browser app contract rather than through portal-specific
   contract handling
-- portals MUST NOT use service-authenticated install or upgrade flows as their
-  trust model
+- portals MUST NOT use service deployment authority as their trust model
 
-Portal selection rules:
+Portal routing rules:
 
-- login portal selection checks an explicit `contractId -> portalId` record
-  first, then the deployment login default custom portal, then the built-in
-  Trellis login portal
-- device activation checks an explicit `deploymentId -> portalId` record first,
-  then the deployment device default custom portal, then the built-in Trellis
-  device portal
-- selection records are keyed directly by browser app contract id or device
-  deployment id; Trellis does not maintain a separate derived selection key
-- a selection record with `portalId: null` forces the built-in Trellis portal
-  for that contract or device deployment, even when a deployment custom default
-  exists
-- clearing a contract or device-deployment selection removes the explicit rule
-  and returns that flow to the default chain
-- most deployments can rely only on the built-in portal or one of the two
-  deployment default custom portals
+- login flows resolve portal routing from the app identity and current
+  deployment envelope metadata, then fall back to the built-in Trellis login
+  portal
+- device activation resolves portal routing from the device deployment envelope,
+  then falls back to the built-in Trellis device portal
+- `portalId: null` means the built-in Trellis portal is used for that route
+- most deployments can rely on the built-in portal; custom routing is optional
 
 Library rule:
 
 - public client libraries MAY wrap these HTTP and RPC surfaces with higher-level
   browser-flow, portal, admin, service, and device-activation helpers, but those
   helpers MUST preserve these canonical wire shapes and the
-  `Auth.ActivateDevice` operation model
+  `Auth.DeviceUserAuthorities.Resolve` operation model
 - exact TypeScript helper declarations belong in the generated `/api` reference;
   exact Rust helper declarations belong in Rustdoc
 
 Device-activation observation rule:
 
 - portal-side review state is observed through normal operation `progress`,
-  `watch()`, and `wait()` semantics on `Auth.ActivateDevice`, not through a
-  separate status-poll RPC
-- when `Auth.DecideDeviceActivationReview` approves or rejects a review, it
-  completes the original `Auth.ActivateDevice` operation durably; retrying the
-  decision is accepted only when the existing completed operation output matches
-  the requested terminal result
+  `watch()`, and `wait()` semantics on `Auth.DeviceUserAuthorities.Resolve`, not
+  through a separate status-poll RPC
+- when `Auth.DeviceUserAuthorities.Reviews.Decide` approves or rejects a review,
+  it completes the original device-user authority operation durably; retrying
+  the decision is accepted only when the existing completed operation output
+  matches the requested terminal result
 
 Capability rule:
 
 - review-decision RPCs MUST allow callers with `admin` or
   `trellis.auth::device.review`
-- instance grant policies are deployment policy, not user-owned grants;
-  user-facing callers still see only explicit user capabilities in
-  insufficient-capability responses
-- portal profiles are also deployment policy, not user-owned grants; they imply
-  approval only while both the portal profile and routed portal record remain
-  enabled
+- grant overrides are deployment metadata, not user-owned grants; user-facing
+  callers still see only explicit user capabilities in insufficient-capability
+  responses
+- portal routes, defaults, and selections are deployment-owned routing metadata
+  only and do not imply approval, capabilities, or availability
 
 Canonical RPC inventory:
 
-- `rpc.v1.Auth.CreatePortal`
-- `rpc.v1.Auth.ListPortals`
-- `rpc.v1.Auth.DisablePortal`
-- `rpc.v1.Auth.ListPortalProfiles`
-- `rpc.v1.Auth.SetPortalProfile`
-- `rpc.v1.Auth.DisablePortalProfile`
-- `rpc.v1.Auth.GetLoginPortalDefault`
-- `rpc.v1.Auth.ListInstanceGrantPolicies`
-- `rpc.v1.Auth.UpsertInstanceGrantPolicy`
-- `rpc.v1.Auth.DisableInstanceGrantPolicy`
-- `rpc.v1.Auth.SetLoginPortalDefault`
-- `rpc.v1.Auth.ListLoginPortalSelections`
-- `rpc.v1.Auth.SetLoginPortalSelection`
-- `rpc.v1.Auth.ClearLoginPortalSelection`
-- `rpc.v1.Auth.GetDevicePortalDefault`
-- `rpc.v1.Auth.SetDevicePortalDefault`
-- `rpc.v1.Auth.ListDevicePortalSelections`
-- `rpc.v1.Auth.SetDevicePortalSelection`
-- `rpc.v1.Auth.ClearDevicePortalSelection`
-- `rpc.v1.Auth.CreateServiceDeployment`
-- `rpc.v1.Auth.ListServiceDeployments`
-- `rpc.v1.Auth.ApplyServiceDeploymentContract`
-- `rpc.v1.Auth.UnapplyServiceDeploymentContract`
-- `rpc.v1.Auth.DisableServiceDeployment`
-- `rpc.v1.Auth.EnableServiceDeployment`
-- `rpc.v1.Auth.RemoveServiceDeployment`
-- `rpc.v1.Auth.ProvisionServiceInstance`
-- `rpc.v1.Auth.ListServiceInstances`
-- `rpc.v1.Auth.DisableServiceInstance`
-- `rpc.v1.Auth.EnableServiceInstance`
-- `rpc.v1.Auth.RemoveServiceInstance`
-- `rpc.v1.Auth.CreateDeviceDeployment`
-- `rpc.v1.Auth.ListDeviceDeployments`
-- `rpc.v1.Auth.ApplyDeviceDeploymentContract`
-- `rpc.v1.Auth.UnapplyDeviceDeploymentContract`
-- `rpc.v1.Auth.DisableDeviceDeployment`
-- `rpc.v1.Auth.EnableDeviceDeployment`
-- `rpc.v1.Auth.RemoveDeviceDeployment`
-- `rpc.v1.Auth.ProvisionDeviceInstance`
-- `rpc.v1.Auth.ListDeviceInstances`
-- `rpc.v1.Auth.DisableDeviceInstance`
-- `rpc.v1.Auth.EnableDeviceInstance`
-- `rpc.v1.Auth.RemoveDeviceInstance`
-- `rpc.v1.Auth.ListDeviceActivations`
-- `rpc.v1.Auth.RevokeDeviceActivation`
-- `rpc.v1.Auth.ListDeviceActivationReviews`
-- `rpc.v1.Auth.DecideDeviceActivationReview`
+- `rpc.v1.Auth.Deployments.Create`
+- `rpc.v1.Auth.Deployments.List`
+- `rpc.v1.Auth.Deployments.Disable`
+- `rpc.v1.Auth.Deployments.Enable`
+- `rpc.v1.Auth.Deployments.Remove`
+- `rpc.v1.Auth.Envelopes.List`
+- `rpc.v1.Auth.Envelopes.Get`
+- `rpc.v1.Auth.Envelopes.Expand`
+- `rpc.v1.Auth.Envelopes.Shrink`
+- `rpc.v1.Auth.EnvelopeExpansions.Approve`
+- `rpc.v1.Auth.EnvelopeExpansions.Reject`
+- `rpc.v1.Auth.Envelopes.Changes.Preview`
+- `rpc.v1.Auth.ServiceInstances.Provision`
+- `rpc.v1.Auth.ServiceInstances.List`
+- `rpc.v1.Auth.ServiceInstances.Disable`
+- `rpc.v1.Auth.ServiceInstances.Enable`
+- `rpc.v1.Auth.ServiceInstances.Remove`
+- `rpc.v1.Auth.Identities.List`
+- `rpc.v1.Auth.Identities.Grants.List`
+- `rpc.v1.Auth.IdentityEnvelopes.Revoke`
+- `rpc.v1.Auth.Devices.Provision`
+- `rpc.v1.Auth.Devices.List`
+- `rpc.v1.Auth.Devices.Disable`
+- `rpc.v1.Auth.Devices.Enable`
+- `rpc.v1.Auth.Devices.Remove`
+- `rpc.v1.Auth.Devices.ConnectInfo.Get`
+- `rpc.v1.Auth.DeviceUserAuthorities.List`
+- `rpc.v1.Auth.DeviceUserAuthorities.Revoke`
+- `rpc.v1.Auth.DeviceUserAuthorities.Reviews.List`
+- `rpc.v1.Auth.DeviceUserAuthorities.Reviews.Decide`
+- `rpc.v1.Auth.Sessions.List`
+- `rpc.v1.Auth.Sessions.Logout`
+- `rpc.v1.Auth.Sessions.Me`
+- `rpc.v1.Auth.Sessions.Revoke`
+- `rpc.v1.Auth.Users.List`
+- `rpc.v1.Auth.Users.Update`
+- `rpc.v1.Auth.Capabilities.List`
 
 Canonical operation inventory:
 
-- `operations.v1.Auth.ActivateDevice`
+- `operations.v1.Auth.DeviceUserAuthorities.Resolve`
 
 Canonical event inventory:
 
-- `events.v1.Auth.DeviceActivationRequested`
-- `events.v1.Auth.DeviceActivationApproved`
-- `events.v1.Auth.DeviceActivationReviewRequested`
-- `events.v1.Auth.DeviceActivated`
+- `events.v1.Auth.DeviceUserAuthorities.Requested`
+- `events.v1.Auth.DeviceUserAuthorities.Approved`
+- `events.v1.Auth.DeviceUserAuthorities.ReviewRequested`
+- `events.v1.Auth.DeviceUserAuthorities.Resolved`
 
 ## Admin RPCs
 
@@ -1167,13 +1112,19 @@ Admin RPCs require the `admin` capability unless explicitly documented
 otherwise. Device review decision RPCs are the current exception and also allow
 `trellis.auth::device.review`.
 
-### rpc.Auth.ListSessions
+Admin list RPCs are bounded production queries. They require `limit`, may accept
+`offset` and documented filters, and MUST NOT expose an unbounded "list all"
+mode.
+
+### rpc.Auth.Sessions.List
 
 Request:
 
 ```ts
 {
   user?: string;
+  offset?: number;
+  limit: number;
 }
 ```
 
@@ -1190,12 +1141,15 @@ Response:
 }
 ```
 
-### rpc.Auth.ListUsers
+### rpc.Auth.Users.List
 
 Request:
 
 ```ts
-{}
+{
+  offset?: number;
+  limit: number;
+}
 ```
 
 Response:
@@ -1213,12 +1167,15 @@ Response:
 }
 ```
 
-### rpc.Auth.ListCapabilities
+### rpc.Auth.Capabilities.List
 
 Request:
 
 ```ts
-{}
+{
+  offset?: number;
+  limit: number;
+}
 ```
 
 Response:
@@ -1240,9 +1197,10 @@ Response:
 
 Rules:
 
-- `Auth.ListCapabilities` returns capabilities known to the current auth
+- `Auth.Capabilities.List` returns capabilities known to the current auth
   runtime: Trellis platform capabilities plus capability metadata projected from
-  the in-memory active contract catalog.
+  the fail-closed active catalog projection. Durable deployment envelope and
+  contract-evidence rows remain the authority.
 - The response is an assignment catalog for admin UX; it is not a grant source
   by itself.
 - Capability keys are canonical global keys such as
@@ -1250,7 +1208,7 @@ Rules:
   top-level capability metadata, while platform keys are explicitly defined by
   Trellis.
 
-### rpc.Auth.UpdateUser
+### rpc.Auth.Users.Update
 
 Request:
 
@@ -1277,175 +1235,9 @@ Rules:
   with the exact canonical keys supplied by the admin caller.
 - Unknown or uncataloged existing capability strings may remain on a user
   record, but new Trellis-owned assignments SHOULD use keys returned by
-  `Auth.ListCapabilities`.
+  `Auth.Capabilities.List`.
 
-### rpc.Auth.ListInstanceGrantPolicies
-
-Request:
-
-```ts
-{}
-```
-
-Response:
-
-```ts
-{
-  policies: InstanceGrantPolicy[];
-}
-```
-
-### rpc.Auth.UpsertInstanceGrantPolicy
-
-Request:
-
-```ts
-{
-  contractId: string;
-  allowedOrigins?: string[];
-  impliedCapabilities: string[];
-}
-```
-
-Response:
-
-```ts
-{
-  policy: InstanceGrantPolicy;
-}
-```
-
-Rules:
-
-- `contractId` targets a contract lineage, not one exact digest
-- `allowedOrigins`, when present, further restrict the policy to matching
-  browser-app origins and are independent of the deployment `redirectTo`
-  allowlist
-- matching enabled policies imply app approval and implied capabilities
-  dynamically; they do not copy those capabilities onto the user projection
-- policy updates SHOULD revoke affected delegated user sessions so reconnect
-  re-evaluates current policy
-
-### rpc.Auth.DisableInstanceGrantPolicy
-
-Request:
-
-```ts
-{
-  contractId: string;
-}
-```
-
-Response:
-
-```ts
-{
-  policy: InstanceGrantPolicy;
-}
-```
-
-### rpc.Auth.ListPortalProfiles
-
-Request:
-
-```ts
-{}
-```
-
-Response:
-
-```ts
-{
-  profiles: Array<{
-    portalId: string;
-    entryUrl: string;
-    contractId: string;
-    allowedOrigins?: string[];
-    impliedCapabilities: string[];
-    disabled: boolean;
-    createdAt: string;
-    updatedAt: string;
-  }>;
-}
-```
-
-### rpc.Auth.SetPortalProfile
-
-Request:
-
-```ts
-{
-  portalId: string;
-  entryUrl: string;
-  contractId: string;
-  allowedOrigins?: string[];
-}
-```
-
-Response:
-
-```ts
-{
-  profile: {
-    portalId: string;
-    entryUrl: string;
-    contractId: string;
-    allowedOrigins?: string[];
-    impliedCapabilities: string[];
-    disabled: boolean;
-    createdAt: string;
-    updatedAt: string;
-  };
-}
-```
-
-Rules:
-
-- `portalId` targets one routed custom portal entry point
-- `contractId` targets a browser app contract lineage and MUST resolve to an
-  installed browser app contract
-- `allowedOrigins`, when present, further restrict matching browser-app origins;
-  omitting them allows any origin that otherwise matches the contract lineage
-- auth derives `impliedCapabilities` from the active installed contracts in that
-  lineage rather than trusting caller-provided capability lists
-- saving a portal profile also upserts the corresponding routed portal record so
-  operators can register portal routing and portal trust in one admin action
-- policy updates SHOULD revoke affected delegated user sessions so reconnect
-  re-evaluates current policy
-
-### rpc.Auth.DisablePortalProfile
-
-Request:
-
-```ts
-{
-  portalId: string;
-}
-```
-
-Response:
-
-```ts
-{
-  profile: {
-    portalId: string;
-    entryUrl: string;
-    contractId: string;
-    allowedOrigins?: string[];
-    impliedCapabilities: string[];
-    disabled: boolean;
-    createdAt: string;
-    updatedAt: string;
-  };
-}
-```
-
-Rules:
-
-- disabling a portal profile removes the portal-owned implied approval path but
-  does not by itself disable the routed portal record
-
-### rpc.Auth.RevokeSession
+### rpc.Auth.Sessions.Revoke
 
 Request:
 
@@ -1463,71 +1255,21 @@ Response:
 }
 ```
 
-### rpc.Auth.ListConnections
-
-Request:
-
-```ts
-{
-  user?: string;
-  sessionKey?: string;
-}
-```
-
-Response:
-
-```ts
-{
-  connections: Array<{
-    key: string;
-    serverId: string;
-    clientId: number;
-    connectedAt: string;
-  }>;
-}
-```
-
-Malformed internal connection-presence entries are skipped as runtime storage
-noise rather than surfaced as caller-visible connection records.
-
-### rpc.Auth.KickConnection
-
-Request:
-
-```ts
-{
-  userNkey: string;
-}
-```
-
-`userNkey` is the final connection-identity token embedded in the `key` returned
-by `rpc.Auth.ListConnections`.
-
-Response:
-
-```ts
-{
-  success: boolean;
-}
-```
-
 ## Emitted Events
 
 Trellis publishes these events as part of `trellis.auth@v1`:
 
-- `events.v1.Auth.Connect`
-- `events.v1.Auth.Disconnect`
-- `events.v1.Auth.SessionRevoked`
-- `events.v1.Auth.ConnectionKicked`
-- `events.v1.Auth.DeviceActivationRequested`
-- `events.v1.Auth.DeviceActivationReviewRequested`
-- `events.v1.Auth.DeviceActivationApproved`
-- `events.v1.Auth.DeviceActivationRejected`
-- `events.v1.Auth.DeviceActivated`
-- `events.v1.Auth.DeviceActivationRevoked`
+- `events.v1.Auth.Connections.Opened`
+- `events.v1.Auth.Connections.Closed`
+- `events.v1.Auth.Sessions.Revoked`
+- `events.v1.Auth.Connections.Kicked`
+- `events.v1.Auth.DeviceUserAuthorities.Requested`
+- `events.v1.Auth.DeviceUserAuthorities.ReviewRequested`
+- `events.v1.Auth.DeviceUserAuthorities.Approved`
+- `events.v1.Auth.DeviceUserAuthorities.Resolved`
 
-Services may subscribe only when their installed contract explicitly declares
-them in `uses`.
+Services may subscribe only when the presented contract evidence fits the
+service deployment envelope and declares the events in `uses`.
 
 ## Non-Goals
 

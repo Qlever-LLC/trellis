@@ -14,12 +14,10 @@ import {
 } from "#trellis-generated-sdk/health";
 
 import {
-  getContracts,
-  getServicePublishSubjects,
-  getServiceSubscribeSubjects,
-  getUserPublishSubjects,
-  getUserSubscribeSubjects,
-  setContracts,
+  getServicePublishSubjectsForContracts,
+  getServiceSubscribeSubjectsForContracts,
+  getUserPublishSubjectsForContracts,
+  getUserSubscribeSubjectsForContracts,
 } from "./permissions.ts";
 
 const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
@@ -62,13 +60,13 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
       description: "Provide Trellis auth APIs.",
       kind: "service",
       schemas: {
-        AuthConnectEvent: { type: "object" },
+        AuthConnectionsOpenedEvent: { type: "object" },
       },
       events: {
-        "Auth.Connect": {
+        "Auth.Connections.Opened": {
           version: "v1",
-          subject: "events.v1.Auth.Connect",
-          event: { schema: "AuthConnectEvent" },
+          subject: "events.v1.Auth.Connections.Opened",
+          event: { schema: "AuthConnectionsOpenedEvent" },
           capabilities: {
             publish: ["service:events:auth"],
             subscribe: ["service:events:auth"],
@@ -98,7 +96,7 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
         },
         auth: {
           contract: "trellis.auth@v1",
-          events: { subscribe: ["Auth.Connect"] },
+          events: { subscribe: ["Auth.Connections.Opened"] },
         },
         billing: {
           contract: "billing@v1",
@@ -208,6 +206,60 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
   },
 ];
 
+let currentContracts = TEST_CONTRACTS;
+
+function setContracts(contracts: typeof TEST_CONTRACTS): void {
+  currentContracts = contracts;
+}
+
+function getContracts(): typeof TEST_CONTRACTS {
+  return currentContracts;
+}
+
+function getUserPublishSubjects(
+  capabilities: string[],
+  caller: Parameters<typeof getUserPublishSubjectsForContracts>[1],
+): string[] {
+  return getUserPublishSubjectsForContracts(
+    capabilities,
+    caller,
+    currentContracts,
+  );
+}
+
+function getUserSubscribeSubjects(
+  capabilities: string[],
+  caller: Parameters<typeof getUserSubscribeSubjectsForContracts>[1],
+): string[] {
+  return getUserSubscribeSubjectsForContracts(
+    capabilities,
+    caller,
+    currentContracts,
+  );
+}
+
+function getServicePublishSubjects(
+  capabilities: string[],
+  service: Parameters<typeof getServicePublishSubjectsForContracts>[1],
+): string[] {
+  return getServicePublishSubjectsForContracts(
+    capabilities,
+    service,
+    currentContracts,
+  );
+}
+
+function getServiceSubscribeSubjects(
+  capabilities: string[],
+  service: Parameters<typeof getServiceSubscribeSubjectsForContracts>[1],
+): string[] {
+  return getServiceSubscribeSubjectsForContracts(
+    capabilities,
+    service,
+    currentContracts,
+  );
+}
+
 function withContracts(contracts: typeof TEST_CONTRACTS, fn: () => void) {
   const original = getContracts();
   try {
@@ -234,6 +286,69 @@ Deno.test("user permissions do not include RPC subscribe", () => {
     assertEquals(subSubjects.includes("rpc.*"), false);
     assertEquals(subSubjects.includes("_INBOX.>"), false);
   });
+});
+
+Deno.test("user permissions can include known caller app outside active catalog", () => {
+  const original = getContracts();
+  const authContract: TrellisContractV1 = {
+    format: "trellis.contract.v1",
+    id: "trellis.auth@v1",
+    displayName: "Auth",
+    description: "Auth API",
+    kind: "service",
+    schemas: { Empty: { type: "object" } },
+    rpc: {
+      "Auth.Sessions.Me": {
+        version: "v1",
+        subject: "rpc.v1.Auth.Sessions.Me",
+        input: { schema: "Empty" },
+        output: { schema: "Empty" },
+      },
+    },
+  };
+  const consoleContract: TrellisContractV1 = {
+    format: "trellis.contract.v1",
+    id: "trellis.console@v1",
+    displayName: "Console",
+    description: "Console app",
+    kind: "app",
+    uses: {
+      auth: {
+        contract: "trellis.auth@v1",
+        rpc: { call: ["Auth.Sessions.Me"] },
+      },
+    },
+  };
+
+  try {
+    setContracts([{ digest: "auth-digest", contract: authContract }]);
+
+    assertEquals(
+      getUserPublishSubjects([], { contractDigest: "console-digest" })
+        .includes("rpc.v1.Auth.Sessions.Me"),
+      false,
+    );
+
+    const explicitContracts = [
+      ...getContracts(),
+      { digest: "console-digest", contract: consoleContract },
+    ];
+    const publishSubjects = getUserPublishSubjectsForContracts(
+      [],
+      { contractDigest: "console-digest" },
+      explicitContracts,
+    );
+    const subscribeSubjects = getUserSubscribeSubjectsForContracts(
+      [],
+      { contractDigest: "console-digest" },
+      explicitContracts,
+    );
+
+    assertEquals(publishSubjects.includes("rpc.v1.Auth.Sessions.Me"), true);
+    assertEquals(subscribeSubjects.includes("rpc.v1.Auth.Sessions.Me"), false);
+  } finally {
+    setContracts(original);
+  }
 });
 
 Deno.test("user permissions include event capabilities without raw subjects", () => {
@@ -687,7 +802,10 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
       subscribeSubjects.includes("operations.v1.Partner.Sync.control"),
       true,
     );
-    assertEquals(subscribeSubjects.includes("events.v1.Auth.Connect"), true);
+    assertEquals(
+      subscribeSubjects.includes("events.v1.Auth.Connections.Opened"),
+      true,
+    );
     assertEquals(
       subscribeSubjects.includes("events.v1.Partner.Changed.*.*"),
       true,
@@ -973,6 +1091,9 @@ Deno.test("service deployment named trellis does not implement Trellis-owned con
 
     assertEquals(publishSubjects.includes("rpc.v1.Trellis.Catalog"), true);
     assertEquals(subscribeSubjects.includes("rpc.v1.Trellis.Catalog"), false);
-    assertEquals(subscribeSubjects.includes("events.v1.Auth.Connect"), true);
+    assertEquals(
+      subscribeSubjects.includes("events.v1.Auth.Connections.Opened"),
+      true,
+    );
   });
 });

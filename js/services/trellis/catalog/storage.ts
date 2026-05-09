@@ -1,7 +1,11 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import Value from "typebox/value";
 
 import type { TrellisStorageDb } from "../storage/db.ts";
+import {
+  type BoundedListQuery,
+  boundedListQuery,
+} from "../storage/list_query.ts";
 import { contracts } from "../storage/schema.ts";
 import { type ContractRecord, ContractRecordSchema } from "./schemas.ts";
 
@@ -72,6 +76,24 @@ export class SqlContractStorageRepository {
     return row === undefined ? undefined : decodeContractRow(row);
   }
 
+  /** Returns contract records for the requested digests ordered by digest. */
+  async getMany(digests: Iterable<string>): Promise<ContractRecord[]> {
+    const requested = [...new Set(digests)];
+    if (requested.length === 0) return [];
+    const rows = await this.#db.select().from(contracts).where(
+      inArray(contracts.digest, requested),
+    ).orderBy(contracts.digest);
+    return rows.map((row) => decodeContractRow(row));
+  }
+
+  /** Returns contract records for a contract id ordered by digest. */
+  async listByContractId(contractId: string): Promise<ContractRecord[]> {
+    const rows = await this.#db.select().from(contracts).where(
+      eq(contracts.contractId, contractId),
+    ).orderBy(contracts.digest);
+    return rows.map((row) => decodeContractRow(row));
+  }
+
   /** Inserts or replaces the contract record keyed by its digest. */
   async put(record: ContractRecord): Promise<void> {
     const row = encodeContractRecord(record);
@@ -90,11 +112,12 @@ export class SqlContractStorageRepository {
     });
   }
 
-  /** Returns all stored contract records ordered by digest. */
-  async list(): Promise<ContractRecord[]> {
+  /** Returns a bounded page of stored contract records ordered by digest. */
+  async listPage(query: BoundedListQuery): Promise<ContractRecord[]> {
+    const { offset, limit } = boundedListQuery(query);
     const rows = await this.#db.select().from(contracts).orderBy(
       contracts.digest,
-    );
+    ).limit(limit).offset(offset);
     return rows.map((row) => decodeContractRow(row));
   }
 

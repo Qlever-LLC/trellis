@@ -1,11 +1,6 @@
 import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
-import type {
-  InstalledContractDetailSchema,
-  InstalledContractSchema,
-} from "@qlever-llc/trellis/auth";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { isErr, Result } from "@qlever-llc/result";
-import type { Static } from "typebox";
 import { Value } from "typebox/value";
 import type { TrellisCatalog } from "../../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
 import { TrellisCatalogSchema } from "../../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
@@ -15,10 +10,15 @@ import type {
   TrellisSurfaceStatusResponse,
 } from "../../../packages/trellis/models/trellis/rpc/TrellisSurfaceStatus.ts";
 import { TrellisSurfaceStatusRequestSchema } from "../../../packages/trellis/models/trellis/rpc/TrellisSurfaceStatus.ts";
+import type { EnvelopeSurfaceAction } from "../auth/schemas.ts";
 import { hasRequiredCapabilities } from "./permissions.ts";
-import { ContractStore } from "./store.ts";
+import type { ContractsModule } from "./runtime.ts";
 import type { SqlContractStorageRepository } from "./storage.ts";
 import type {
+  SqlDeploymentContractEvidenceRepository,
+  SqlDeploymentEnvelopeRepository,
+  SqlDeviceDeploymentRepository,
+  SqlDeviceInstanceRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
 } from "../auth/storage.ts";
@@ -92,12 +92,20 @@ type SurfaceStatusContext = {
 
 type DigestRequest = { digest: string };
 type BindingsRequest = { contractId?: string; digest?: string };
-type ListInstalledContractsRequest = {};
 type ActiveEntry = { digest: string; contract: TrellisContractV1 };
 type SurfaceCapabilities = {
   requiredCapabilities: string[];
-  surfaceDigests: string[];
+  digestCapabilities: Array<{ digest: string; requiredCapabilities: string[] }>;
 };
+type DigestCapabilities = SurfaceCapabilities["digestCapabilities"][number];
+type DeploymentEnvelopeStorage = Pick<
+  SqlDeploymentEnvelopeRepository,
+  "listEnabledByContractId" | "listEnabledBySurface"
+>;
+type DeploymentContractEvidenceStorage = Pick<
+  SqlDeploymentContractEvidenceRepository,
+  "listByDeploymentsAndContractId"
+>;
 
 function sortedUnique(values: Iterable<string>): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
@@ -123,13 +131,13 @@ function validateSurfaceStatusAction(
   }
 
   if (req.kind === "feed") {
-    if (req.action === undefined || req.action === "subscribe") {
+    if (req.action === undefined || req.action === "read") {
       return Result.ok(undefined);
     }
     return Result.err(
       validationError(
         "/action",
-        "feed surfaces only allow action 'subscribe'",
+        "feed surfaces only allow action 'read'",
       ),
     );
   }
@@ -146,15 +154,19 @@ function requiredSurfaceCapabilities(
   entries: ActiveEntry[],
   req: TrellisSurfaceStatusRequest,
 ): Result<SurfaceCapabilities | undefined, ValidationError> {
-  const requiredCapabilities: string[] = [];
-  const surfaceDigests: string[] = [];
+  const digestCapabilities: Array<{
+    digest: string;
+    requiredCapabilities: string[];
+  }> = [];
 
   for (const { digest, contract } of entries) {
     if (req.kind === "rpc") {
       const surface = contract.rpc?.[req.surface];
       if (surface) {
-        surfaceDigests.push(digest);
-        requiredCapabilities.push(...(surface.capabilities?.call ?? []));
+        digestCapabilities.push({
+          digest,
+          requiredCapabilities: sortedUnique(surface.capabilities?.call ?? []),
+        });
       }
       continue;
     }
@@ -162,8 +174,10 @@ function requiredSurfaceCapabilities(
     if (req.kind === "operation") {
       const surface = contract.operations?.[req.surface];
       if (surface) {
-        surfaceDigests.push(digest);
-        requiredCapabilities.push(...(surface.capabilities?.call ?? []));
+        digestCapabilities.push({
+          digest,
+          requiredCapabilities: sortedUnique(surface.capabilities?.call ?? []),
+        });
       }
       continue;
     }
@@ -171,27 +185,65 @@ function requiredSurfaceCapabilities(
     if (req.kind === "feed") {
       const surface = contract.feeds?.[req.surface];
       if (surface) {
-        surfaceDigests.push(digest);
-        requiredCapabilities.push(...(surface.capabilities?.subscribe ?? []));
+        digestCapabilities.push({
+          digest,
+          requiredCapabilities: sortedUnique(
+            surface.capabilities?.subscribe ?? [],
+          ),
+        });
       }
       continue;
     }
 
     const surface = contract.events?.[req.surface];
     if (!surface) continue;
-    surfaceDigests.push(digest);
-    requiredCapabilities.push(
-      ...(req.action === "publish"
-        ? surface.capabilities?.publish ?? []
-        : surface.capabilities?.subscribe ?? []),
-    );
+    digestCapabilities.push({
+      digest,
+      requiredCapabilities: sortedUnique(
+        req.action === "publish"
+          ? surface.capabilities?.publish ?? []
+          : surface.capabilities?.subscribe ?? [],
+      ),
+    });
   }
 
-  if (surfaceDigests.length === 0) return Result.ok(undefined);
+  if (digestCapabilities.length === 0) return Result.ok(undefined);
   return Result.ok({
-    requiredCapabilities: sortedUnique(requiredCapabilities),
-    surfaceDigests: sortedUnique(surfaceDigests),
+    requiredCapabilities: sortedUnique(
+      digestCapabilities.flatMap((entry) => entry.requiredCapabilities),
+    ),
+    digestCapabilities,
   });
+}
+
+function defaultSurfaceAction(
+  req: TrellisSurfaceStatusRequest,
+): EnvelopeSurfaceAction {
+  if (req.kind === "event") return req.action ?? "subscribe";
+  if (req.kind === "feed") return "read";
+  return "call";
+}
+
+function evidenceDigestsByDeployment(
+  evidence: Array<
+    { deploymentId: string; contractId: string; contractDigest: string }
+  >,
+): Map<string, Map<string, Set<string>>> {
+  const byDeployment = new Map<string, Map<string, Set<string>>>();
+  for (const record of evidence) {
+    let byContract = byDeployment.get(record.deploymentId);
+    if (!byContract) {
+      byContract = new Map();
+      byDeployment.set(record.deploymentId, byContract);
+    }
+    let digests = byContract.get(record.contractId);
+    if (!digests) {
+      digests = new Set();
+      byContract.set(record.contractId, digests);
+    }
+    digests.add(record.contractDigest);
+  }
+  return byDeployment;
 }
 
 async function hasLiveConnection(
@@ -210,15 +262,46 @@ async function hasLiveConnection(
 }
 
 export function createTrellisCatalogHandler(
-  contractStore: ContractStore,
+  contractsModule: Pick<ContractsModule, "getActiveEntries">,
+  deploymentEnvelopeStorage: DeploymentEnvelopeStorage,
+  deploymentContractEvidenceStorage: DeploymentContractEvidenceStorage,
   logger: CatalogLogger = noopLogger,
 ) {
-  return async () => {
+  return async (): Promise<
+    Result<{ catalog: TrellisCatalog }, UnexpectedError>
+  > => {
     logger.trace({ rpc: "Trellis.Catalog" }, "RPC request");
     try {
+      const entries = await contractsModule.getActiveEntries();
+      const availableEntries: ActiveEntry[] = [];
+      for (const entry of entries) {
+        const envelopes = await deploymentEnvelopeStorage
+          .listEnabledByContractId(entry.contract.id);
+        const deploymentIds = envelopes.map((envelope) =>
+          envelope.deploymentId
+        );
+        const evidence = await deploymentContractEvidenceStorage
+          .listByDeploymentsAndContractId(deploymentIds, entry.contract.id);
+        if (
+          evidence.some((record) => record.contractDigest === entry.digest)
+        ) {
+          availableEntries.push(entry);
+        }
+      }
+      const contracts = availableEntries
+        .map(({ digest, contract }) => ({
+          id: contract.id,
+          digest,
+          displayName: contract.displayName,
+          description: contract.description,
+        }))
+        .sort((left, right) =>
+          left.id.localeCompare(right.id) ||
+          left.digest.localeCompare(right.digest)
+        );
       const catalog = Value.Parse(
         TrellisCatalogSchema,
-        contractStore.getActiveCatalog(),
+        { format: "trellis.catalog.v1", contracts },
       ) as TrellisCatalog;
       return Result.ok({ catalog });
     } catch (error) {
@@ -228,7 +311,7 @@ export function createTrellisCatalogHandler(
 }
 
 export function createTrellisContractGetHandler(
-  contractStore: ContractStore,
+  contractsModule: Pick<ContractsModule, "getKnownContract">,
   logger: CatalogLogger = noopLogger,
 ) {
   return async (
@@ -238,7 +321,7 @@ export function createTrellisContractGetHandler(
       { rpc: "Trellis.Contract.Get", digest: req.digest },
       "RPC request",
     );
-    const contract = contractStore.getContract(req.digest);
+    const contract = await contractsModule.getKnownContract(req.digest);
     if (!contract) {
       return Result.err(
         new ValidationError({
@@ -316,9 +399,19 @@ export function createTrellisBindingsGetHandler(opts: {
 
 /** Creates the advisory runtime surface availability discovery RPC handler. */
 export function createTrellisSurfaceStatusHandler(opts: {
-  contractStore: ContractStore;
-  serviceInstanceStorage: Pick<SqlServiceInstanceRepository, "list">;
+  contracts: Pick<ContractsModule, "getKnownEntriesByContractId">;
+  serviceInstanceStorage: Pick<
+    SqlServiceInstanceRepository,
+    "listByDeploymentAndDigest"
+  >;
   serviceDeploymentStorage: Pick<SqlServiceDeploymentRepository, "get">;
+  deviceInstanceStorage: Pick<
+    SqlDeviceInstanceRepository,
+    "listByDeploymentsAndStates"
+  >;
+  deviceDeploymentStorage: Pick<SqlDeviceDeploymentRepository, "get">;
+  deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
+  deploymentContractEvidenceStorage: DeploymentContractEvidenceStorage;
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   logger?: CatalogLogger;
 }) {
@@ -349,8 +442,8 @@ export function createTrellisSurfaceStatusHandler(opts: {
     const actionResult = validateSurfaceStatusAction(req);
     if (actionResult.isErr()) return actionResult;
 
-    const entries = opts.contractStore.getActiveEntries().filter((entry) =>
-      entry.contract.id === req.contractId
+    const entries = await opts.contracts.getKnownEntriesByContractId(
+      req.contractId,
     );
     if (entries.length === 0) {
       return Result.ok({
@@ -374,27 +467,89 @@ export function createTrellisSurfaceStatusHandler(opts: {
       });
     }
     const { requiredCapabilities } = surfaceCapabilities;
+    const action = defaultSurfaceAction(req);
+    const envelopes = await opts.deploymentEnvelopeStorage.listEnabledBySurface(
+      {
+        contractId: req.contractId,
+        kind: req.kind,
+        name: req.surface,
+        action,
+      },
+    );
+    const deploymentIds = envelopes.map((envelope) => envelope.deploymentId);
+    const evidenceByDeployment = evidenceDigestsByDeployment(
+      await opts.deploymentContractEvidenceStorage
+        .listByDeploymentsAndContractId(deploymentIds, req.contractId),
+    );
+    const availableEnvelopes = envelopes.filter((envelope) =>
+      (evidenceByDeployment.get(envelope.deploymentId)?.get(req.contractId)
+        ?.size ?? 0) > 0
+    );
+    const availableDigests = new Set(
+      availableEnvelopes.flatMap((envelope) => {
+        const digests = evidenceByDeployment.get(envelope.deploymentId)?.get(
+          req.contractId,
+        );
+        return digests ? [...digests] : [];
+      }),
+    );
+    const authorizedDigests = new Set<string>();
+    const candidateCapabilities: DigestCapabilities[] = surfaceCapabilities
+      .digestCapabilities.filter((entry: DigestCapabilities) =>
+        availableDigests.has(entry.digest)
+      );
+    if (candidateCapabilities.length === 0) {
+      return Result.ok({
+        status: { state: "unavailable", reason: "envelope_unavailable" },
+      });
+    }
 
-    if (!hasRequiredCapabilities(caller.capabilities, requiredCapabilities)) {
+    for (const candidate of candidateCapabilities) {
+      if (
+        hasRequiredCapabilities(
+          caller.capabilities,
+          candidate.requiredCapabilities,
+        )
+      ) {
+        authorizedDigests.add(candidate.digest);
+      }
+    }
+    if (authorizedDigests.size === 0) {
       const callerCapabilities = new Set(caller.capabilities);
       return Result.ok({
         status: {
           state: "unauthorized",
-          missingCapabilities: requiredCapabilities.filter((capability) =>
-            !callerCapabilities.has(capability)
+          missingCapabilities: sortedUnique(
+            candidateCapabilities.flatMap((candidate: DigestCapabilities) =>
+              candidate.requiredCapabilities.filter((capability: string) =>
+                !callerCapabilities.has(capability)
+              )
+            ),
           ),
         },
       });
     }
 
-    const activeDigests = new Set(surfaceCapabilities.surfaceDigests);
-    const instances = await opts.serviceInstanceStorage.list();
+    const availableDeploymentIds = new Set(
+      availableEnvelopes
+        .filter((envelope) => {
+          const digests = evidenceByDeployment.get(envelope.deploymentId)?.get(
+            req.contractId,
+          );
+          return digests !== undefined &&
+            [...digests].some((digest) => authorizedDigests.has(digest));
+        })
+        .map((envelope) => envelope.deploymentId),
+    );
+    const instances = await opts.serviceInstanceStorage
+      .listByDeploymentAndDigest(availableDeploymentIds, authorizedDigests);
     let sawDisabledImplementer = false;
 
     for (const instance of instances) {
       if (
         !instance.currentContractDigest ||
-        !activeDigests.has(instance.currentContractDigest)
+        !authorizedDigests.has(instance.currentContractDigest) ||
+        !availableDeploymentIds.has(instance.deploymentId)
       ) {
         continue;
       }
@@ -408,100 +563,56 @@ export function createTrellisSurfaceStatusHandler(opts: {
       }
 
       if (await hasLiveConnection(opts.connectionsKV, instance.instanceKey)) {
-        return Result.ok({ status: { state: "available" } });
+        return Result.ok({
+          status: {
+            state: "available",
+            liveImplementer: true,
+            runtime: "live",
+          },
+        });
       }
+    }
+
+    const deviceInstances = await opts.deviceInstanceStorage
+      .listByDeploymentsAndStates(availableDeploymentIds, [
+        "registered",
+        "activated",
+      ]);
+    for (const instance of deviceInstances) {
+      if (!availableDeploymentIds.has(instance.deploymentId)) continue;
+      const digests = evidenceByDeployment.get(instance.deploymentId)?.get(
+        req.contractId,
+      );
+      if (
+        digests === undefined ||
+        ![...digests].some((digest) => authorizedDigests.has(digest))
+      ) continue;
+
+      const deployment = await opts.deviceDeploymentStorage.get(
+        instance.deploymentId,
+      );
+      if (
+        instance.state === "disabled" || instance.state === "revoked" ||
+        !deployment || deployment.disabled
+      ) {
+        sawDisabledImplementer = true;
+        continue;
+      }
+
+      return Result.ok({
+        status: {
+          state: "available",
+          liveImplementer: true,
+          runtime: "live",
+        },
+      });
     }
 
     return Result.ok({
       status: {
-        state: "unavailable",
-        reason: sawDisabledImplementer ? "disabled" : "no_live_implementer",
-      },
-    });
-  };
-}
-
-type InstalledContract = Static<typeof InstalledContractSchema>;
-type InstalledContractDetail = Static<typeof InstalledContractDetailSchema>;
-
-export function createAuthListInstalledContractsHandler(
-  contractStorage: SqlContractStorageRepository,
-  logger: CatalogLogger = noopLogger,
-) {
-  return async (
-    _req: ListInstalledContractsRequest,
-  ): Promise<Result<{ contracts: InstalledContract[] }, UnexpectedError>> => {
-    logger.trace({ rpc: "Auth.ListInstalledContracts" }, "RPC request");
-    try {
-      const contracts = (await contractStorage.list()).map((entry) => ({
-        digest: entry.digest,
-        id: entry.id,
-        displayName: entry.displayName,
-        description: entry.description,
-        installedAt: entry.installedAt.toISOString(),
-        analysisSummary: entry
-          .analysisSummary as InstalledContract["analysisSummary"],
-      } satisfies InstalledContract));
-
-      contracts.sort((left, right) =>
-        String(right.installedAt).localeCompare(String(left.installedAt))
-      );
-      return Result.ok({ contracts });
-    } catch (error) {
-      return Result.err(new UnexpectedError({ cause: error }));
-    }
-  };
-}
-
-export function createAuthGetInstalledContractHandler(
-  contractStorage: SqlContractStorageRepository,
-  logger: CatalogLogger = noopLogger,
-) {
-  return async (
-    req: DigestRequest,
-  ): Promise<
-    Result<{ contract: InstalledContractDetail }, ValidationError>
-  > => {
-    logger.trace(
-      { rpc: "Auth.GetInstalledContract", digest: req.digest },
-      "RPC request",
-    );
-    const entry = await contractStorage.get(req.digest);
-    if (!entry) {
-      return Result.err(
-        new ValidationError({
-          errors: [{ path: "/digest", message: "contract not found" }],
-        }),
-      );
-    }
-
-    const contractUnknown: unknown = JSON.parse(entry.contract);
-    if (
-      !contractUnknown || typeof contractUnknown !== "object" ||
-      Array.isArray(contractUnknown)
-    ) {
-      return Result.err(
-        new ValidationError({
-          errors: [{
-            path: "/contract",
-            message: "stored contract is not an object",
-          }],
-        }),
-      );
-    }
-
-    return Result.ok({
-      contract: {
-        digest: entry.digest,
-        id: entry.id,
-        displayName: entry.displayName,
-        description: entry.description,
-        installedAt: entry.installedAt.toISOString(),
-        analysisSummary: entry
-          .analysisSummary as InstalledContractDetail["analysisSummary"],
-        analysis: entry.analysis as InstalledContractDetail["analysis"],
-        resources: entry.resources as InstalledContractDetail["resources"],
-        contract: contractUnknown as InstalledContractDetail["contract"],
+        state: "available",
+        liveImplementer: false,
+        runtime: sawDisabledImplementer ? "disabled" : "no_live_implementer",
       },
     });
   };

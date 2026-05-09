@@ -4,13 +4,13 @@ This workspace contains one consolidated Field Ops demo:
 
 - `demos/js/service`: an installable Field Ops service.
 - `demos/js/device`: an activated field-device TUI.
-- `demos/app`: a separate shared browser Field Inspection Desk with its own
-  Deno config.
+- `demos/app`: a separate shared browser Field Inspection Desk with its own Deno
+  config.
 - `demos/js/shared`: sample data and helpers used by the demo participants.
 
 Use `demos/README.md` as the cross-language entrypoint. This file documents the
-TypeScript service and device path, which is the complete end-to-end runtime path
-today.
+TypeScript service and device path, which is the complete end-to-end runtime
+path today.
 
 The demo is product-oriented instead of split by Trellis primitive. The browser
 app is the Field Inspection Desk demo client: a branded coordinator desk for
@@ -59,38 +59,42 @@ When evolving the demo service during a rollout, keep duplicate RPC, operation,
 event, and job payload schemas wire-compatible. The demo schemas intentionally
 use normal open TypeBox objects, so adding optional fields is the safe additive
 path. Adding required fields, closing objects with
-`additionalProperties: false`, or changing field types requires retiring the old
-digest first or moving to a new contract lineage.
+`additionalProperties: false`, or changing field types requires shrinking the
+old deployment envelope only after old runtimes are gone, or moving to a new
+contract lineage.
 
 ## Create And Start The Service
 
-Create one service deployment from `demos/js/service/contract.ts`, apply the
-contract so required resources are provisioned before the deployment record is
-updated, then provision one service instance and start the service with the
-provisioned instance seed. After apply succeeds on the enabled deployment, the
-applied digest is active for catalog/auth; the service instance is only needed
-for this demo service process to connect and serve traffic.
+Create one service deployment, expand its envelope with
+`demos/js/service/contract.ts`, then provision one service instance and start
+the service with the provisioned instance seed. After the envelope includes the
+service contract boundary, the service instance can connect and serve traffic.
 
 ```sh
 trellis deploy create svc/demo.field-ops
-trellis deploy apply svc/demo.field-ops --source demos/js/service/contract.ts
 trellis --format json deploy provision svc/demo.field-ops
 deno task -c demos/js/deno.json service http://localhost:3000 <instance-seed>
 ```
+
+Use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add
+the service contract boundary before starting the runtime.
 
 Use the `instanceSeed` field from the provision JSON as `<instance-seed>`.
 
 ## Create And Start The Device
 
-Create one device deployment from `demos/js/device/contract.ts`, provision one
-device instance, then start the TUI with the provisioned root secret.
+Create one device deployment, expand its envelope with
+`demos/js/device/contract.ts`, provision one device instance, then start the TUI
+with the provisioned root secret.
 
 ```sh
 trellis deploy create dev/demo.field-device
-trellis deploy apply dev/demo.field-device --source demos/js/device/contract.ts
 trellis --format json deploy provision dev/demo.field-device
 deno task -c demos/js/deno.json device http://localhost:3000 <root-secret>
 ```
+
+Use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add
+the device contract boundary before starting the runtime.
 
 Use the `rootSecret` field from the provision JSON as `<root-secret>`.
 
@@ -100,8 +104,8 @@ root secret should reconnect without another approval step.
 
 ## Start The Browser App
 
-Start the Svelte Field Inspection Desk from its own Deno config after prepare has
-generated the app SDK. The app defaults to `http://localhost:3000` for its
+Start the Svelte Field Inspection Desk from its own Deno config after prepare
+has generated the app SDK. The app defaults to `http://localhost:3000` for its
 Trellis server and can be pointed at another server with `PUBLIC_TRELLIS_URL`.
 It keeps local Trellis package and generated SDK aliases explicitly in
 `demos/app/svelte.config.js`; `vite.config.js` should not duplicate those local
@@ -112,9 +116,10 @@ deno task -c demos/app/deno.json dev
 ```
 
 If you change the app contract's requested RPC, operation, event, or state
-surface, the next browser sign-in may require approval for the new digest. If
-you only rename the demo app or adjust its description, existing approval
-remains valid because that metadata is not part of the contract identity digest.
+surface, the next browser sign-in may require approval when the requested
+boundary exceeds the existing identity envelope. If you only rename the demo app
+or adjust its description, existing approval remains valid because that metadata
+is not part of the runtime contract evidence.
 
 For ad hoc runs against a non-default Trellis URL, set the env var from the
 shell:
@@ -132,10 +137,10 @@ Trellis" and route callouts.
 
 - `Dashboard`: today's field board with queue, status, evidence, and live feed
   context.
-- `Assignments`: inspection queue backed by `Assignments.List` and `Sites.Get`
-  RPC requests.
-- `Sites`: site status board backed by `Sites.List` and `Sites.Get` RPC requests
-  plus the `Sites.Refresh` operation.
+- `Assignments`: inspection queue backed by bounded `Assignments.List` pages and
+  `Sites.Get` RPC requests.
+- `Sites`: site status board backed by bounded `Sites.List` pages and
+  `Sites.Get` RPC requests plus the `Sites.Refresh` operation.
 - `Reports`: report run workflow with `Reports.Generate` operation progress,
   completion, and cancel.
 - `Evidence`: evidence locker with `Evidence.Upload` send transfer and
@@ -143,11 +148,12 @@ Trellis" and route callouts.
 - `Activity`: live feed using event subscriptions.
 - `Workspace`: operator notes backed by app/device state.
 
-The device TUI exposes the same concepts as menu actions: list assignments, view
-the selected site, refresh a site, generate a report, upload evidence, watch
-activity events briefly, and save or list draft state. The guided inspection
-wizard groups those actions into a task-oriented flow so device runs can exercise
-the same Trellis surfaces without stepping through each primitive manually.
+The device TUI exposes the same concepts as menu actions: page through
+assignments, view the selected site, refresh a site, generate a report, upload
+evidence, watch activity events briefly, and save or page through draft state.
+The guided inspection wizard groups those actions into a task-oriented flow so
+device runs can exercise the same Trellis surfaces without stepping through each
+primitive manually.
 
 The service declares explicit empty `read` lists for operations that callers
 watch and explicit empty `cancel` rights for `Reports.Generate`. This mirrors

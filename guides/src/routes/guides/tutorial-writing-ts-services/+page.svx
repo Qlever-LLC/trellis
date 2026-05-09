@@ -35,7 +35,7 @@ npm install @qlever-llc/trellis @sinclair/typebox
 
 ## 2. Your first contract
 
-In Trellis, every service is defined by a **contract**. The contract is the authoritative description of what your service does — what databases it needs, what RPCs it handles, what events it emits or consumes, and who is allowed to call it. Trellis reads the contract during service deployment apply/install/upgrade to provision resources and enforce access control automatically.
+In Trellis, every service is defined by a **contract**. The contract is the authoritative description of what your service does — what databases it needs, what RPCs it handles, what events it emits or consumes, and who is allowed to call it. Trellis uses the contract boundary in the deployment envelope to provision resources and enforce access control automatically.
 
 Let's start with the smallest possible contract. Create `contracts/orders_service.ts`:
 
@@ -93,17 +93,18 @@ console.log("Connected to Trellis!");
 
 > **Node.js users:** Import from `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
 
-`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, validates that your contract digest is installed and still allowed for the service instance, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved. Catalog activation comes from the enabled service deployment's applied digests, so the contract can be active before this instance connects. If the contract has not been installed yet, it will throw with a clear message telling you exactly what to do.
+`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, verifies that the presented contract evidence fits the enabled deployment envelope, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved. Catalog activation comes from the enabled service deployment envelope, so the contract can be active before this instance connects. If the deployment envelope does not cover the contract boundary yet, it will throw with a clear message telling you exactly what to do.
 
-Before we can run this, we need to create a deployment, apply the contract, and provision a service instance.
+Before we can run this, we need to create a deployment, provision a service instance, and add the contract boundary to the deployment envelope.
 
 Every Trellis service authenticates with a unique instance key. `trellis deploy provision` prints the private seed for that instance; treat it like a private key and never commit it to source control.
 
 ```sh
 trellis deploy create svc/orders-service
-trellis deploy apply svc/orders-service --source ./contracts/orders_service.ts
 trellis deploy provision svc/orders-service
 ```
+
+Before starting the service, use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add the service contract boundary to the deployment envelope.
 
 Now you can run your service:
 
@@ -119,7 +120,7 @@ You should see `Connected to Trellis!`. Our service doesn't do anything yet, but
 
 ## 4. Adding a database (KV store)
 
-Connecting is a good start, but let's actually store some orders. In Trellis, you don't provision databases or juggle connection strings in service code. You ask for a Key-Value bucket in your contract and Trellis provisions it during deployment apply/install/upgrade.
+Connecting is a good start, but let's actually store some orders. In Trellis, you don't provision databases or juggle connection strings in service code. You ask for a Key-Value bucket in your contract and Trellis provisions it when the deployment envelope expands to include that resource boundary.
 
 First, let's define what an `Order` looks like. Create `schemas.ts`:
 
@@ -173,11 +174,7 @@ const ordersKV = kvResult.take();
 
 > The `isErr` / `.take()` pattern shows up throughout Trellis. Rather than throwing exceptions, Trellis returns `Result<T, E>` values. Check `isErr(result)` first; only call `result.take()` once you know it succeeded.
 
-Because we changed the contract, apply it again so Trellis provisions the required new bucket before updating the deployment record:
-
-```sh
-trellis deploy apply svc/orders-service --source ./contracts/orders_service.ts
-```
+Because we changed the contract, expand the deployment envelope through the Console Envelopes page or `Auth.Envelopes.Expand` so Trellis provisions the required new bucket before the new boundary becomes available.
 
 ---
 
@@ -255,11 +252,7 @@ await service.trellis.mount("Orders.Create", async (req) => {
 
 Handlers return `Result.ok(value)` on success or `Result.err(error)` for declared errors. Input validation has already happened by the time your handler is called — if the caller sends a malformed request, Trellis rejects it before reaching your code.
 
-Upgrade the contract, then restart the service:
-
-```sh
-trellis deploy apply svc/orders-service --source ./contracts/orders_service.ts
-```
+Expand the deployment envelope to include the new RPC boundary, then restart the service.
 
 ---
 
@@ -351,20 +344,20 @@ import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 uses: {
   required: {
     auth: auth.use({
-      events: { subscribe: ["Auth.Connect"] },
+      events: { subscribe: ["Auth.Connections.Opened"] },
     }),
   },
 },
 ```
 
-`auth.use(...)` explicitly declares the auth surface this service needs. In this example, the service subscribes to `Auth.Connect` events from the auth service.
+`auth.use(...)` explicitly declares the auth surface this service needs. In this example, the service subscribes to `Auth.Connections.Opened` events from the auth service.
 
 Now subscribe to the event in `main.ts`:
 
 ```ts
 import { ok } from "@qlever-llc/trellis";
 
-await service.trellis.event("Auth.Connect", {}, async (event) => {
+await service.trellis.event("Auth.Connections.Opened", {}, async (event) => {
   const e = event as { id: string; origin: string };
   console.info("user connected", { id: e.id, origin: e.origin });
   return ok(undefined);

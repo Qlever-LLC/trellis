@@ -2,8 +2,8 @@ import { assertEquals } from "@std/assert";
 import { AsyncResult } from "@qlever-llc/result";
 
 import type {
-  AuthActivateDeviceOutput,
-  AuthActivateDeviceProgress,
+  AuthResolveDeviceUserAuthoritiesOutput,
+  AuthResolveDeviceUserAuthoritiesProgress,
 } from "@qlever-llc/trellis/auth";
 import type { OperationEvent } from "@qlever-llc/trellis";
 import {
@@ -50,12 +50,12 @@ function createAuthStub(overrides: {
 }
 
 function createOperationRef(
-  output: AuthActivateDeviceOutput,
+  output: AuthResolveDeviceUserAuthoritiesOutput,
 ): DeviceActivationOperationRef {
   const terminal = {
     id: "op_123",
     service: "trellis",
-    operation: "Auth.ActivateDevice",
+    operation: "Auth.DeviceUserAuthorities.Resolve",
     revision: 2,
     state: "completed" as const,
     createdAt: "2026-04-21T12:00:00Z",
@@ -95,15 +95,15 @@ function createOperationRef(
 }
 
 function createPendingReviewOperationRef(args: {
-  progress: AuthActivateDeviceProgress;
-  output: AuthActivateDeviceOutput;
+  progress: AuthResolveDeviceUserAuthoritiesProgress;
+  output: AuthResolveDeviceUserAuthoritiesOutput;
   onProgress(): void;
   waitForCompletion: Promise<void>;
 }): DeviceActivationOperationRef {
   const running = {
     id: "op_123",
     service: "trellis",
-    operation: "Auth.ActivateDevice",
+    operation: "Auth.DeviceUserAuthorities.Resolve",
     revision: 2,
     state: "running" as const,
     createdAt: "2026-04-21T12:00:00Z",
@@ -113,7 +113,7 @@ function createPendingReviewOperationRef(args: {
   const terminal = {
     id: "op_123",
     service: "trellis",
-    operation: "Auth.ActivateDevice",
+    operation: "Auth.DeviceUserAuthorities.Resolve",
     revision: 3,
     state: "completed" as const,
     createdAt: "2026-04-21T12:00:00Z",
@@ -128,7 +128,10 @@ function createPendingReviewOperationRef(args: {
     },
     watch() {
       return AsyncResult.ok((async function* (): AsyncIterable<
-        OperationEvent<AuthActivateDeviceProgress, AuthActivateDeviceOutput>
+        OperationEvent<
+          AuthResolveDeviceUserAuthoritiesProgress,
+          AuthResolveDeviceUserAuthoritiesOutput
+        >
       > {
         yield {
           type: "accepted" as const,

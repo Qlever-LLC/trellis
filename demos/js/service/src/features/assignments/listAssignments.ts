@@ -5,6 +5,8 @@ import contract from "../../../contract.ts";
 type Args = RpcArgs<typeof contract, "Assignments.List">;
 type Result = RpcResult<typeof contract, "Assignments.List">;
 
-export function listAssignments(_: Args): Result {
-  return ok({ assignments: ASSIGNED_INSPECTIONS });
+export function listAssignments({ input }: Args): Result {
+  return ok({
+    assignments: ASSIGNED_INSPECTIONS.slice(input.offset, input.offset + input.limit),
+  });
 }

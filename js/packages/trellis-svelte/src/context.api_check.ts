@@ -88,15 +88,15 @@ async function typecheckContextApi(): Promise<void> {
   const generatedTrellis: GeneratedClient = generatedApp.getTrellis();
   const generatedConnectionStatus: TrellisConnectionStatus =
     generatedTrellis.connection.status;
-  const generatedMe = await generatedTrellis.request("Auth.Me", {}).orThrow();
+  const generatedMe = await generatedTrellis.request("Auth.Sessions.Me", {}).orThrow();
 
-  const me = await trellis.request("Auth.Me", {}).orThrow();
+  const me = await trellis.request("Auth.Sessions.Me", {}).orThrow();
   const participantKind: "app" | "agent" | "device" | "service" =
     me.participantKind;
   const deviceId: string | undefined = me.device?.deviceId;
 
   const preferences = await trellis.state.preferences.get().orThrow();
-  if (preferences.found) {
+  if (!("migrationRequired" in preferences) && preferences.found) {
     const theme: string = preferences.entry.value.theme;
     // @ts-expect-error declared state values must preserve schema-derived fields
     const missingField: number = preferences.entry.value.missingField;
@@ -108,11 +108,11 @@ async function typecheckContextApi(): Promise<void> {
   const invalidStateList = trellis.state.preferences.list;
 
   type ClientMethod = Parameters<typeof trellis.request>[0];
-  const authMeMethod: ClientMethod = "Auth.Me";
+  const authMeMethod: ClientMethod = "Auth.Sessions.Me";
   // @ts-expect-error contract-anchored typing should reject undeclared RPC methods
   const invalidMethod: ClientMethod = "Auth.NotDeclared";
   // @ts-expect-error contract-anchored typing should reject invalid RPC inputs
-  const invalidInput = trellis.request("Auth.GetInstalledContract", {});
+  const invalidInput = trellis.request("Auth.Envelopes.Get", {});
   // @ts-expect-error contract-anchored typing should reject undeclared RPC methods
   const invalidRpc = trellis.api.rpc.notDeclared;
 

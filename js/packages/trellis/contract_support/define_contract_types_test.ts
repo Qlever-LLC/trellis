@@ -58,19 +58,19 @@ const auth = defineServiceContract(
       schemas: ["StringValue"],
     },
     rpc: {
-      "Auth.Me": {
+      "Auth.Sessions.Me": {
         version: "v1",
         input: schemaRef<typeof authSchemas, "Empty">("Empty"),
         output: schemaRef<typeof authSchemas, "StringValue">("StringValue"),
       },
-      "Auth.Logout": {
+      "Auth.Sessions.Logout": {
         version: "v1",
         input: schemaRef<typeof authSchemas, "Empty">("Empty"),
         output: schemaRef<typeof authSchemas, "Empty">("Empty"),
       },
     },
     events: {
-      "Auth.Connect": {
+      "Auth.Connections.Opened": {
         version: "v1",
         event: schemaRef<typeof authSchemas, "StringValue">("StringValue"),
       },
@@ -99,8 +99,8 @@ const activity = defineServiceContract(
     description: "Expose activity RPCs and subscribe to auth events for tests.",
     uses: {
       auth: auth.use({
-        rpc: { call: ["Auth.Me"] },
-        events: { subscribe: ["Auth.Connect"] },
+        rpc: { call: ["Auth.Sessions.Me"] },
+        events: { subscribe: ["Auth.Connections.Opened"] },
         feeds: { subscribe: ["Auth.ConnectFeed"] },
       }),
     },
@@ -121,11 +121,11 @@ const activity = defineServiceContract(
 );
 
 activity.API.owned.rpc["Activity.List"].subject;
-activity.API.used.rpc["Auth.Me"].subject;
-activity.API.used.events["Auth.Connect"].subject;
+activity.API.used.rpc["Auth.Sessions.Me"].subject;
+activity.API.used.events["Auth.Connections.Opened"].subject;
 activity.API.used.feeds["Auth.ConnectFeed"].subject;
 activity.API.trellis.rpc["Activity.List"].subject;
-activity.API.trellis.rpc["Auth.Me"].subject;
+activity.API.trellis.rpc["Auth.Sessions.Me"].subject;
 activity.API.trellis.feeds["Auth.ConnectFeed"].subject;
 auth.CONTRACT.feeds?.["Auth.ConnectFeed"]?.subject;
 auth.CONTRACT.feeds?.["Auth.ConnectFeed"]?.capabilities?.subscribe?.[0];
@@ -183,8 +183,8 @@ preferencesApp.CONTRACT.state?.preferences.kind;
 preferencesApp.CONTRACT.state?.preferences.schema.schema;
 preferencesApp.CONTRACT.state?.drafts.kind;
 preferencesApp.CONTRACT.state?.drafts.schema.schema;
-preferencesApp.API.used.rpc["Auth.Me"].subject;
-preferencesApp.API.used.rpc["Auth.Logout"].subject;
+preferencesApp.API.used.rpc["Auth.Sessions.Me"].subject;
+preferencesApp.API.used.rpc["Auth.Sessions.Logout"].subject;
 preferencesApp.API.used.rpc["State.Get"].subject;
 preferencesApp.API.used.rpc["State.Put"].subject;
 preferencesApp.API.used.rpc["State.Delete"].subject;
@@ -484,24 +484,24 @@ const appContract = defineAppContract(() => ({
   displayName: "Builder App",
   description: "Exercise the app helper.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Me"] } }),
+    auth: auth.use({ rpc: { call: ["Auth.Sessions.Me"] } }),
   },
 }));
 
-appContract.API.used.rpc["Auth.Me"].subject;
-appContract.API.used.rpc["Auth.Logout"].subject;
+appContract.API.used.rpc["Auth.Sessions.Me"].subject;
+appContract.API.used.rpc["Auth.Sessions.Logout"].subject;
 
 const deviceContract = defineDeviceContract(() => ({
   id: "trellis.builder-device@v1",
   displayName: "Builder Device",
   description: "Exercise the device helper.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Logout"] } }),
+    auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout"] } }),
   },
 }));
 
-deviceContract.API.used.rpc["Auth.Logout"].subject;
-deviceContract.API.used.rpc["Auth.Me"].subject;
+deviceContract.API.used.rpc["Auth.Sessions.Logout"].subject;
+deviceContract.API.used.rpc["Auth.Sessions.Me"].subject;
 
 if (false) {
   const invalidRpcSchemas = {

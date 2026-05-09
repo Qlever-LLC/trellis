@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
-  import type { AuthKickConnectionInput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthConnectionsKickInput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { onMount } from "svelte";
@@ -28,7 +28,7 @@
     loading = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.ListConnections", {}).take();
+      const response = await trellis.request("Auth.Connections.List", {}).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       connections = response.connections ?? [];
       const requestedUserNkey = page.url.searchParams.get("userNkey");
@@ -46,7 +46,7 @@
     pending = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.KickConnection", { userNkey: selectedConnection.userNkey } satisfies AuthKickConnectionInput).take();
+      const response = await trellis.request("Auth.Connections.Kick", { userNkey: selectedConnection.userNkey } satisfies AuthConnectionsKickInput).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Disconnected ${summary.title}.`, "Kicked");
       await load();

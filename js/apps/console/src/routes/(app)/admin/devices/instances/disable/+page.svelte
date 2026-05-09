@@ -1,8 +1,8 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthDisableDeviceInstanceInput,
-    AuthListDeviceInstancesOutput,
+    AuthDevicesDisableInput,
+    AuthDevicesListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -15,7 +15,7 @@
   import { getNotifications } from "$lib/notifications.svelte";
   import { getTrellis } from "$lib/trellis";
 
-  type Instance = AuthListDeviceInstancesOutput["instances"][number];
+  type Instance = AuthDevicesListOutput["instances"][number];
 
   const trellis = getTrellis();
   const notifications = getNotifications();
@@ -33,7 +33,7 @@
     loading = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.ListDeviceInstances", {}).take();
+      const response = await trellis.request("Auth.Devices.List", { limit: 500, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       const loadedInstances = response.instances ?? [];
       const loadedDisableableInstances = loadedInstances.filter((instance) => instance.state !== "disabled");
@@ -57,8 +57,8 @@
     error = null;
     try {
       const response = await trellis.request(
-        "Auth.DisableDeviceInstance",
-        { instanceId: selectedInstance.instanceId } satisfies AuthDisableDeviceInstanceInput,
+        "Auth.Devices.Disable",
+        { instanceId: selectedInstance.instanceId } satisfies AuthDevicesDisableInput,
       ).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Device instance ${selectedInstance.instanceId} disabled.`, "Disabled");

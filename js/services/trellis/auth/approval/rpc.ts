@@ -3,22 +3,21 @@ import { Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
 import type { AuthLogger } from "../runtime_deps.ts";
-import type { ContractApprovalRecord } from "../schemas.ts";
-import type { SqlContractApprovalRepository } from "../storage.ts";
+import type { IdentityEnvelopeRecord } from "../schemas.ts";
+import type {
+  BoundedListQuery,
+  SqlIdentityEnvelopeRepository,
+} from "../storage.ts";
 import {
   type ApprovalKVLike,
   type ApprovalSessionStore,
-  createAuthListUserGrantsHandler,
-  createAuthRevokeUserGrantHandler,
+  createAuthIdentitiesGrantsListHandler,
   formatOriginId,
   requireUserCaller,
   revokeGrantSessions,
 } from "./user_grants.ts";
 
-export {
-  createAuthListUserGrantsHandler,
-  createAuthRevokeUserGrantHandler,
-} from "./user_grants.ts";
+export { createAuthIdentitiesGrantsListHandler } from "./user_grants.ts";
 
 type RpcUser = {
   type: string;
@@ -28,8 +27,8 @@ type RpcUser = {
   capabilities?: string[];
 };
 
-type ListApprovalsRequest = { user?: string; digest?: string };
-type RevokeApprovalRequest = { contractDigest: string; user?: string };
+type ListApprovalsRequest = BoundedListQuery & { user?: string };
+type RevokeApprovalRequest = { identityEnvelopeId: string; user?: string };
 
 function parseOriginId(value: string): { origin: string; id: string } | null {
   const idx = value.indexOf(".");
@@ -68,9 +67,9 @@ async function resolveTargetUser(
   };
 }
 
-/** Creates the Auth.ListApprovals RPC handler backed by SQL approval storage. */
-export function createAuthListApprovalsHandler(deps: {
-  contractApprovalStorage: SqlContractApprovalRepository;
+/** Creates the Auth.Identities.List RPC handler backed by SQL approval storage. */
+export function createAuthIdentitiesListHandler(deps: {
+  contractApprovalStorage: SqlIdentityEnvelopeRepository;
   logger: Pick<AuthLogger, "trace">;
 }) {
   return async (
@@ -93,9 +92,8 @@ export function createAuthListApprovalsHandler(deps: {
     const user = requireUserCaller(caller);
     deps.logger.trace(
       {
-        rpc: "Auth.ListApprovals",
+        rpc: "Auth.Identities.List",
         user: req.user,
-        digest: req.digest,
         caller: formatOriginId(user.origin, user.id),
       },
       "RPC request",
@@ -109,54 +107,60 @@ export function createAuthListApprovalsHandler(deps: {
         answeredAt: string;
         updatedAt: string;
         participantKind: "app" | "agent";
-        approval: {
+        identityEnvelopeId: string;
+        identityAnchor: IdentityEnvelopeRecord["identityAnchor"];
+        contractEvidence: {
           contractDigest: string;
           contractId: string;
-          displayName: string;
-          description: string;
-          capabilities: ContractApprovalRecord["approval"]["capabilities"];
         };
+        displayName: string;
+        description: string;
+        capabilities:
+          IdentityEnvelopeRecord["approvalEvidence"]["capabilities"];
       }>;
 
       const target = req.user ? await resolveTargetUser(req.user, user) : null;
       const storedApprovals = await listApprovalsForRequest({
         contractApprovalStorage: deps.contractApprovalStorage,
         targetTrellisId: target?.trellisId,
-        digest: req.digest,
+        query: req,
       });
 
-      for (const approval of storedApprovals) {
+      for (const envelope of storedApprovals) {
         if (
           !target && callerTrellisId &&
-          approval.userTrellisId !== callerTrellisId
+          envelope.userTrellisId !== callerTrellisId
         ) {
           continue;
         }
-        if (req.digest && approval.approval.contractDigest !== req.digest) {
-          continue;
-        }
 
-        const contractApproval = approval.approval as
-          & ContractApprovalRecord["approval"]
+        const approvalEvidence = envelope.approvalEvidence as
+          & IdentityEnvelopeRecord["approvalEvidence"]
           & {
             participantKind: "app" | "agent";
           };
         approvals.push({
-          user: formatOriginId(approval.origin, approval.id),
-          answer: approval.answer,
-          answeredAt: approval.answeredAt.toISOString(),
-          updatedAt: approval.updatedAt.toISOString(),
-          approval: approval.approval,
-          participantKind: contractApproval.participantKind,
+          user: formatOriginId(envelope.origin, envelope.id),
+          answer: envelope.answer,
+          answeredAt: envelope.answeredAt.toISOString(),
+          updatedAt: envelope.updatedAt.toISOString(),
+          identityEnvelopeId: envelope.identityEnvelopeId,
+          identityAnchor: envelope.identityAnchor,
+          contractEvidence: {
+            contractDigest: approvalEvidence.contractDigest,
+            contractId: approvalEvidence.contractId,
+          },
+          displayName: approvalEvidence.displayName,
+          description: approvalEvidence.description,
+          capabilities: approvalEvidence.capabilities,
+          participantKind: approvalEvidence.participantKind,
         });
       }
 
       approvals.sort((left, right) => {
         const byUser = left.user.localeCompare(right.user);
         if (byUser !== 0) return byUser;
-        return left.approval.displayName.localeCompare(
-          right.approval.displayName,
-        );
+        return left.displayName.localeCompare(right.displayName);
       });
 
       return Result.ok({ approvals });
@@ -170,30 +174,23 @@ export function createAuthListApprovalsHandler(deps: {
 }
 
 async function listApprovalsForRequest(args: {
-  contractApprovalStorage: SqlContractApprovalRepository;
+  contractApprovalStorage: SqlIdentityEnvelopeRepository;
   targetTrellisId?: string;
-  digest?: string;
-}): Promise<ContractApprovalRecord[]> {
-  if (args.targetTrellisId && args.digest) {
-    const approval = await args.contractApprovalStorage.get(
-      args.targetTrellisId,
-      args.digest,
-    );
-    return approval === undefined ? [] : [approval];
-  }
+  query: BoundedListQuery;
+}): Promise<IdentityEnvelopeRecord[]> {
   if (args.targetTrellisId) {
-    return await args.contractApprovalStorage.listByUser(args.targetTrellisId);
+    return await args.contractApprovalStorage.listPageByUser(
+      args.targetTrellisId,
+      args.query,
+    );
   }
-  if (args.digest) {
-    return await args.contractApprovalStorage.listByDigest(args.digest);
-  }
-  return await args.contractApprovalStorage.list();
+  return await args.contractApprovalStorage.listPage(args.query);
 }
 
-/** Creates the Auth.RevokeApproval RPC handler backed by SQL approval storage. */
-export function createAuthRevokeApprovalHandler(opts: {
+/** Creates the Auth.IdentityEnvelopes.Revoke RPC handler backed by SQL approval storage. */
+export function createAuthIdentityEnvelopesRevokeHandler(opts: {
   connectionsKV: ApprovalKVLike;
-  contractApprovalStorage: SqlContractApprovalRepository;
+  contractApprovalStorage: SqlIdentityEnvelopeRepository;
   kick: (serverId: string, clientId: number) => Promise<void>;
   logger: Pick<AuthLogger, "trace" | "warn">;
   publishSessionRevoked: (event: {
@@ -223,13 +220,14 @@ export function createAuthRevokeApprovalHandler(opts: {
   ) => {
     const user = requireUserCaller(caller);
     opts.logger.trace({
-      rpc: "Auth.RevokeApproval",
+      rpc: "Auth.IdentityEnvelopes.Revoke",
       user: req.user,
-      contractDigest: req.contractDigest,
+      identityEnvelopeId: req.identityEnvelopeId,
     }, "RPC request");
 
     if (
-      typeof req.contractDigest !== "string" || req.contractDigest.length === 0
+      typeof req.identityEnvelopeId !== "string" ||
+      req.identityEnvelopeId.length === 0
     ) {
       return Result.err(new AuthError({ reason: "invalid_request" }));
     }
@@ -237,20 +235,21 @@ export function createAuthRevokeApprovalHandler(opts: {
     try {
       const target = await resolveTargetUser(req.user, user);
       const existing = await opts.contractApprovalStorage.get(
-        target.trellisId,
-        req.contractDigest,
+        req.identityEnvelopeId,
       );
       if (existing === undefined) {
         return Result.ok({ success: false });
       }
+      if (existing.userTrellisId !== target.trellisId) {
+        return Result.err(
+          new AuthError({ reason: "insufficient_permissions" }),
+        );
+      }
 
-      await opts.contractApprovalStorage.delete(
-        target.trellisId,
-        req.contractDigest,
-      );
+      await opts.contractApprovalStorage.delete(req.identityEnvelopeId);
       await revokeGrantSessions({
         userTrellisId: target.trellisId,
-        contractDigest: req.contractDigest,
+        identityEnvelopeId: req.identityEnvelopeId,
         sessionStorage: opts.sessionStorage,
         connectionsKV: opts.connectionsKV,
         kick: opts.kick,
@@ -265,31 +264,4 @@ export function createAuthRevokeApprovalHandler(opts: {
       throw error;
     }
   };
-}
-
-/** Creates the Auth.RevokeUserGrant RPC handler with KV session revocation. */
-export function createAuthRevokeUserGrantRpcHandler(deps: {
-  connectionsKV: ApprovalKVLike;
-  contractApprovalStorage: SqlContractApprovalRepository;
-  kick: (serverId: string, clientId: number) => Promise<void>;
-  logger: Pick<AuthLogger, "warn">;
-  publishSessionRevoked: (event: {
-    origin: string;
-    id: string;
-    sessionKey: string;
-    revokedBy: string;
-  }) => Promise<void>;
-  sessionStorage: ApprovalSessionStore;
-}) {
-  return createAuthRevokeUserGrantHandler({
-    connectionsKV: deps.connectionsKV,
-    contractApprovalStorage: deps.contractApprovalStorage,
-    kick: deps.kick,
-    sessionStorage: deps.sessionStorage,
-    publishSessionRevoked: async (event) => {
-      await deps.publishSessionRevoked(event).catch((error) => {
-        deps.logger.warn({ error }, "Failed to publish Auth.SessionRevoked");
-      });
-    },
-  });
 }

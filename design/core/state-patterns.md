@@ -224,18 +224,17 @@ Map-store entry shape:
 `list(...)` applies only to map stores.
 
 - results are lexicographic by key
-- pagination uses `offset` and `limit`
-- the current runtime default `limit` is `100`
+- pagination uses optional `offset` and required `limit`
+- public map-store listing has no unbounded mode; callers must choose a bounded
+  page size
 - `prefix(path)` composes path prefixes on the client and keeps the same typed
   map-store API
 
 Implementation note: v1 backs map listing with NATS KV wildcard/prefix filtering
-to select entries within a store namespace. NATS KV does not document
-server-side `limit`/`offset` pagination, so Trellis currently scans all matching
-keys in that namespace, sorts them lexicographically, then applies `offset` and
-`limit` in the service. This is accepted for v1. Secondary indexes or other
-large-map listing strategies are deferred unless large matching-key listings
-become a requirement.
+to select entries within a store namespace, then applies the requested bounded
+page. Production storage implementations MUST preserve the public `limit` bound
+and avoid exposing an unbounded key listing, even when the backing store has
+different native pagination semantics.
 
 Example:
 

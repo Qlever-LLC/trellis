@@ -1,24 +1,20 @@
 import { createKick } from "../callout/kick.ts";
 import { createServiceLookup } from "../admin/service_lookup.ts";
-import { createEffectiveGrantPolicyLoader } from "../grants/store.ts";
 import {
-  createAuthKickConnectionHandler,
-  createAuthListConnectionsHandler,
-  createAuthListSessionsHandler,
-  createAuthLogoutHandler,
-  createAuthMeHandler,
-  createAuthValidateRequestHandler,
+  createAuthConnectionsKickHandler,
+  createAuthConnectionsListHandler,
+  createAuthSessionsListHandler,
+  createAuthSessionsLogoutHandler,
+  createAuthSessionsMeHandler,
+  createAuthRequestsValidateHandler,
 } from "../session/rpc.ts";
-import { createAuthRevokeSessionHandler } from "../session/revoke.ts";
+import { createAuthSessionsRevokeHandler } from "../session/revoke.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type {
-  SqlContractApprovalRepository,
+  SqlIdentityEnvelopeRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
-  SqlInstanceGrantPolicyRepository,
-  SqlPortalProfileRepository,
-  SqlPortalRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -26,7 +22,7 @@ import type {
 } from "../storage.ts";
 import type { RpcRegistrar } from "./types.ts";
 
-type RevokeSessionHandler = ReturnType<typeof createAuthRevokeSessionHandler>;
+type RevokeSessionHandler = ReturnType<typeof createAuthSessionsRevokeHandler>;
 type RevokeSessionEnvelope = Parameters<RevokeSessionHandler> extends [
   infer Input,
   infer Context,
@@ -37,23 +33,19 @@ export async function registerSessionRpcs(deps: {
   trellis: RpcRegistrar & AuthRuntimeDeps["trellis"];
   sessionStorage: SqlSessionRepository;
   userStorage: SqlUserProjectionRepository;
-  contractApprovalStorage: SqlContractApprovalRepository;
+  contractApprovalStorage: SqlIdentityEnvelopeRepository;
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
   deviceInstanceStorage: SqlDeviceInstanceRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
   serviceInstanceStorage: SqlServiceInstanceRepository;
-  instanceGrantPolicyStorage: SqlInstanceGrantPolicyRepository;
-  portalProfileStorage: SqlPortalProfileRepository;
-  portalStorage: SqlPortalRepository;
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   natsAuth: AuthRuntimeDeps["natsAuth"];
   logger: AuthRuntimeDeps["logger"];
 }): Promise<void> {
   const kick = createKick({ logger: deps.logger, natsAuth: deps.natsAuth });
   const serviceLookup = createServiceLookup(deps);
-  const loadInstanceGrantPolicies = createEffectiveGrantPolicyLoader(deps);
-  const revokeSessionHandler = createAuthRevokeSessionHandler({
+  const revokeSessionHandler = createAuthSessionsRevokeHandler({
     sessionStorage: deps.sessionStorage,
     connectionsKV: deps.connectionsKV,
     contractApprovalStorage: deps.contractApprovalStorage,
@@ -61,19 +53,19 @@ export async function registerSessionRpcs(deps: {
     serviceInstanceStorage: deps.serviceInstanceStorage,
     kick,
     publishSessionRevoked: async (event) => {
-      (await deps.trellis.publish("Auth.SessionRevoked", event)).inspectErr(
+      (await deps.trellis.publish("Auth.Sessions.Revoked", event)).inspectErr(
         (error: unknown) =>
           deps.logger.warn(
             { error },
-            "Failed to publish Auth.SessionRevoked",
+            "Failed to publish Auth.Sessions.Revoked",
           ),
       );
     },
   });
 
   await deps.trellis.mount(
-    "Auth.Me",
-    createAuthMeHandler({
+    "Auth.Sessions.Me",
+    createAuthSessionsMeHandler({
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       userStorage: deps.userStorage,
@@ -85,23 +77,21 @@ export async function registerSessionRpcs(deps: {
     }),
   );
   await deps.trellis.mount(
-    "Auth.ValidateRequest",
-    createAuthValidateRequestHandler({
+    "Auth.Requests.Validate",
+    createAuthRequestsValidateHandler({
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       userStorage: deps.userStorage,
-      contractApprovalStorage: deps.contractApprovalStorage,
       deviceActivationStorage: deps.deviceActivationStorage,
       deviceDeploymentStorage: deps.deviceDeploymentStorage,
       deviceInstanceStorage: deps.deviceInstanceStorage,
       loadServiceInstance: serviceLookup.loadServiceInstanceByKey,
       loadServiceDeployment: serviceLookup.loadServiceDeployment,
-      loadInstanceGrantPolicies,
     }),
   );
   await deps.trellis.mount(
-    "Auth.Logout",
-    createAuthLogoutHandler({
+    "Auth.Sessions.Logout",
+    createAuthSessionsLogoutHandler({
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
@@ -109,28 +99,28 @@ export async function registerSessionRpcs(deps: {
     }),
   );
   await deps.trellis.mount(
-    "Auth.ListSessions",
-    createAuthListSessionsHandler({
+    "Auth.Sessions.List",
+    createAuthSessionsListHandler({
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
     }),
   );
   await deps.trellis.mount(
-    "Auth.RevokeSession",
+    "Auth.Sessions.Revoke",
     ({ input, context }: RevokeSessionEnvelope) =>
       revokeSessionHandler(input, context),
   );
   await deps.trellis.mount(
-    "Auth.ListConnections",
-    createAuthListConnectionsHandler({
+    "Auth.Connections.List",
+    createAuthConnectionsListHandler({
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
     }),
   );
   await deps.trellis.mount(
-    "Auth.KickConnection",
-    createAuthKickConnectionHandler({
+    "Auth.Connections.Kick",
+    createAuthConnectionsKickHandler({
       logger: deps.logger,
       kick,
       connectionsKV: deps.connectionsKV,

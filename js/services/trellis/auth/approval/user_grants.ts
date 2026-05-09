@@ -2,11 +2,12 @@ import { type AsyncResult, type BaseError, Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
 import type {
-  ContractApprovalRecord,
+  IdentityEnvelopeRecord,
   UserParticipantKind,
 } from "../schemas.ts";
 import type {
-  SqlContractApprovalRepository,
+  BoundedListQuery,
+  SqlIdentityEnvelopeRepository,
   SqlSessionRepository,
 } from "../storage.ts";
 import { parseConnectionKey } from "../session/connections.ts";
@@ -60,28 +61,32 @@ export function requireUserCaller(caller: {
   };
 }
 
-function toUserGrant(approval: ContractApprovalRecord) {
-  const contractApproval = approval.approval as
-    & ContractApprovalRecord["approval"]
+function toUserGrant(envelope: IdentityEnvelopeRecord) {
+  const approvalEvidence = envelope.approvalEvidence as
+    & IdentityEnvelopeRecord["approvalEvidence"]
     & {
       participantKind: "app" | "agent";
     };
   return {
-    contractDigest: contractApproval.contractDigest,
-    contractId: contractApproval.contractId,
-    displayName: contractApproval.displayName,
-    description: contractApproval.description,
-    participantKind: contractApproval.participantKind,
-    capabilities: Object.keys(contractApproval.capabilities),
-    grantedAt: approval.answeredAt.toISOString(),
-    updatedAt: approval.updatedAt.toISOString(),
+    identityEnvelopeId: envelope.identityEnvelopeId,
+    identityAnchor: envelope.identityAnchor,
+    contractEvidence: {
+      contractDigest: approvalEvidence.contractDigest,
+      contractId: approvalEvidence.contractId,
+    },
+    displayName: approvalEvidence.displayName,
+    description: approvalEvidence.description,
+    participantKind: approvalEvidence.participantKind,
+    capabilities: Object.keys(approvalEvidence.capabilities),
+    grantedAt: envelope.answeredAt.toISOString(),
+    updatedAt: envelope.updatedAt.toISOString(),
   };
 }
 
 /** Revokes active sessions and connections for a user contract grant. */
 export async function revokeGrantSessions(args: {
   userTrellisId: string;
-  contractDigest: string;
+  identityEnvelopeId: string;
   participantKind?: UserParticipantKind;
   sessionStorage: ApprovalSessionStore;
   connectionsKV: ApprovalKVLike;
@@ -102,7 +107,8 @@ export async function revokeGrantSessions(args: {
   for (const entry of entries) {
     const session = entry.session;
     if (
-      session.type !== "user" || session.contractDigest !== args.contractDigest
+      session.type !== "user" ||
+      session.identityEnvelopeId !== args.identityEnvelopeId
     ) continue;
     if (
       args.participantKind && session.participantKind !== args.participantKind
@@ -133,14 +139,16 @@ export async function revokeGrantSessions(args: {
   }
 }
 
-/** Creates the Auth.ListUserGrants RPC handler backed by SQL approval storage. */
-export function createAuthListUserGrantsHandler(deps: {
-  contractApprovalStorage: SqlContractApprovalRepository;
+/** Creates the Auth.Identities.Grants.List RPC handler backed by SQL approval storage. */
+export function createAuthIdentitiesGrantsListHandler(deps: {
+  contractApprovalStorage: SqlIdentityEnvelopeRepository;
 }) {
   return async (
     {
+      input,
       context: { caller },
     }: {
+      input: BoundedListQuery;
       context: {
         caller: {
           type: string;
@@ -152,11 +160,11 @@ export function createAuthListUserGrantsHandler(deps: {
     },
   ) => {
     const user = requireUserCaller(caller);
-    const grants = (await deps.contractApprovalStorage.listByUser(
+    const grants = (await deps.contractApprovalStorage.listApprovedPageByUser(
       user.trellisId,
+      input,
     ))
-      .filter((approval) => approval.answer === "approved")
-      .map((approval) => toUserGrant(approval));
+      .map((envelope) => toUserGrant(envelope));
 
     grants.sort((left, right) =>
       left.displayName.localeCompare(right.displayName)
@@ -165,9 +173,9 @@ export function createAuthListUserGrantsHandler(deps: {
   };
 }
 
-/** Creates an Auth.RevokeUserGrant handler using SQL grants and KV sessions. */
-export function createAuthRevokeUserGrantHandler(deps: {
-  contractApprovalStorage: SqlContractApprovalRepository;
+/** Creates an Auth.IdentityEnvelopes.Revoke handler using SQL grants and KV sessions. */
+export function createUserGrantRevokeHandler(deps: {
+  contractApprovalStorage: SqlIdentityEnvelopeRepository;
   sessionStorage: ApprovalSessionStore;
   connectionsKV: ApprovalKVLike;
   kick: (serverId: string, clientId: number) => Promise<void>;
@@ -185,7 +193,7 @@ export function createAuthRevokeUserGrantHandler(deps: {
       input: req,
       context: { caller },
     }: {
-      input: { contractDigest: string };
+      input: { identityEnvelopeId: string };
       context: {
         caller: {
           type: string;
@@ -198,24 +206,24 @@ export function createAuthRevokeUserGrantHandler(deps: {
   ) => {
     const user = requireUserCaller(caller);
     if (
-      typeof req.contractDigest !== "string" || req.contractDigest.length === 0
+      typeof req.identityEnvelopeId !== "string" ||
+      req.identityEnvelopeId.length === 0
     ) {
       return Result.err(new AuthError({ reason: "invalid_request" }));
     }
 
     const existing = await deps.contractApprovalStorage.get(
-      user.trellisId,
-      req.contractDigest,
+      req.identityEnvelopeId,
     );
     if (existing === undefined) return Result.ok({ success: false });
+    if (existing.userTrellisId !== user.trellisId) {
+      return Result.err(new AuthError({ reason: "insufficient_permissions" }));
+    }
 
-    await deps.contractApprovalStorage.delete(
-      user.trellisId,
-      req.contractDigest,
-    );
+    await deps.contractApprovalStorage.delete(req.identityEnvelopeId);
     await revokeGrantSessions({
       userTrellisId: user.trellisId,
-      contractDigest: req.contractDigest,
+      identityEnvelopeId: req.identityEnvelopeId,
       sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
       kick: deps.kick,

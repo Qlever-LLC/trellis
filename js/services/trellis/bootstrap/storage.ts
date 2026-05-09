@@ -1,17 +1,17 @@
 import { SqlContractStorageRepository } from "../catalog/storage.ts";
 import {
-  SqlContractApprovalRepository,
+  SqlIdentityEnvelopeRepository,
+  SqlDeploymentContractEvidenceRepository,
+  SqlDeploymentEnvelopeRepository,
+  SqlDeploymentGrantOverrideRepository,
+  SqlDeploymentPortalRouteRepository,
+  SqlDeploymentResourceBindingRepository,
   SqlDeviceActivationRepository,
   SqlDeviceActivationReviewRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
-  SqlDevicePortalSelectionRepository,
   SqlDeviceProvisioningSecretRepository,
-  SqlInstanceGrantPolicyRepository,
-  SqlLoginPortalSelectionRepository,
-  SqlPortalDefaultRepository,
-  SqlPortalProfileRepository,
-  SqlPortalRepository,
+  SqlEnvelopeExpansionRequestRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -31,20 +31,24 @@ export async function createStorage(config: Config) {
   return {
     storage,
     contractStorage: new SqlContractStorageRepository(storage.db),
+    deploymentEnvelopeStorage: new SqlDeploymentEnvelopeRepository(storage.db),
+    deploymentResourceBindingStorage:
+      new SqlDeploymentResourceBindingRepository(
+        storage.db,
+      ),
+    deploymentContractEvidenceStorage:
+      new SqlDeploymentContractEvidenceRepository(storage.db),
+    deploymentPortalRouteStorage: new SqlDeploymentPortalRouteRepository(
+      storage.db,
+    ),
+    deploymentGrantOverrideStorage: new SqlDeploymentGrantOverrideRepository(
+      storage.db,
+    ),
+    envelopeExpansionRequestStorage: new SqlEnvelopeExpansionRequestRepository(
+      storage.db,
+    ),
     userStorage: new SqlUserProjectionRepository(storage.db),
-    contractApprovalStorage: new SqlContractApprovalRepository(storage.db),
-    portalStorage: new SqlPortalRepository(storage.db),
-    portalProfileStorage: new SqlPortalProfileRepository(storage.db),
-    portalDefaultStorage: new SqlPortalDefaultRepository(storage.db),
-    loginPortalSelectionStorage: new SqlLoginPortalSelectionRepository(
-      storage.db,
-    ),
-    devicePortalSelectionStorage: new SqlDevicePortalSelectionRepository(
-      storage.db,
-    ),
-    instanceGrantPolicyStorage: new SqlInstanceGrantPolicyRepository(
-      storage.db,
-    ),
+    contractApprovalStorage: new SqlIdentityEnvelopeRepository(storage.db),
     serviceDeploymentStorage: new SqlServiceDeploymentRepository(storage.db),
     serviceInstanceStorage: new SqlServiceInstanceRepository(storage.db),
     deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),

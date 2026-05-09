@@ -1,6 +1,8 @@
 <script lang="ts">
   import { page } from "$app/state";
+  import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
+  import { clearSessionKey } from "@qlever-llc/trellis/auth/browser";
   import type { Snippet } from "svelte";
   import DemoClientLogo from "$lib/components/DemoClientLogo.svelte";
   import LiveEventStream from "$lib/components/LiveEventStream.svelte";
@@ -23,6 +25,18 @@
     { path: "/inspection", label: "Inspections", eyebrow: "Wizard workflow" },
     { path: "/reports", label: "Reports", eyebrow: "Completed closeouts" },
   ] as const;
+  let loggingOut = $state(false);
+
+  async function logout(): Promise<void> {
+    loggingOut = true;
+    try {
+      await clearSessionKey();
+      await connection.close();
+      await goto(resolve("/"));
+    } finally {
+      loggingOut = false;
+    }
+  }
 
 </script>
 
@@ -79,9 +93,20 @@
         </ul>
       </nav>
 
-      <div class="mt-auto capability-note">
-        <strong>Trellis-backed:</strong>
-        demo client
+      <div class="mt-auto flex flex-col gap-3">
+        {#if isConnected}
+          <button
+            class="btn btn-outline btn-sm w-full justify-start"
+            disabled={loggingOut}
+            onclick={() => void logout()}
+          >
+            {loggingOut ? "Signing out" : "Log out"}
+          </button>
+        {/if}
+        <div class="capability-note">
+          <strong>Trellis-backed:</strong>
+          demo client
+        </div>
       </div>
     </div>
   </aside>

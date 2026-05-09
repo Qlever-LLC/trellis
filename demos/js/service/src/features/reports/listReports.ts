@@ -6,6 +6,7 @@ type Args = RpcArgs<typeof contract, "Reports.List">;
 type Result = RpcResult<typeof contract, "Reports.List">;
 
 /** Lists completed closeout reports generated during this demo service run. */
-export function listReports(_: Args): Result {
-  return ok({ reports: listReportRecords() });
+export function listReports({ input }: Args): Result {
+  const reports = listReportRecords();
+  return ok({ reports: reports.slice(input.offset, input.offset + input.limit) });
 }

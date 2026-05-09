@@ -1,18 +1,24 @@
 import { assert, assertEquals } from "@std/assert";
 import { AsyncResult, isErr, UnexpectedError } from "@qlever-llc/result";
-import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
+import {
+  base64urlEncode,
+  createAuth,
+  sha256,
+  trellisIdFromOriginId,
+  utf8,
+} from "@qlever-llc/trellis/auth";
 import Value from "typebox/value";
 
-import { AuthMeResponseSchema } from "@qlever-llc/trellis/auth";
+import { AuthSessionsMeResponseSchema } from "@qlever-llc/trellis/auth";
 import {
-  createAuthListConnectionsHandler,
-  createAuthListSessionsHandler,
-  createAuthMeHandler,
-  createAuthValidateRequestHandler,
+  createAuthConnectionsListHandler,
+  createAuthRequestsValidateHandler,
+  createAuthSessionsListHandler,
+  createAuthSessionsMeHandler,
 } from "./rpc.ts";
 import { connectionKey } from "./connections.ts";
-import { createAuthRevokeSessionHandler } from "./revoke.ts";
-import type { ContractApprovalRecord, Session } from "../schemas.ts";
+import { createAuthSessionsRevokeHandler } from "./revoke.ts";
+import type { IdentityEnvelopeRecord, Session } from "../schemas.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
 import {
   initializeTrellisStorageSchema,
@@ -20,7 +26,7 @@ import {
 } from "../../storage/db.ts";
 import type { TrellisStorage } from "../../storage/db.ts";
 import {
-  SqlContractApprovalRepository,
+  SqlIdentityEnvelopeRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
 
@@ -164,38 +170,32 @@ class InMemoryUserStorage {
 }
 
 class InMemoryApprovalStorage {
-  #store = new Map<string, ContractApprovalRecord>();
+  #store = new Map<string, IdentityEnvelopeRecord>();
 
-  seed(record: ContractApprovalRecord): void {
-    this.#store.set(
-      `${record.userTrellisId}.${record.approval.contractDigest}`,
-      record,
-    );
+  seed(record: IdentityEnvelopeRecord): void {
+    this.#store.set(record.identityEnvelopeId, record);
   }
 
   async get(
-    userTrellisId: string,
-    contractDigest: string,
-  ): Promise<ContractApprovalRecord | undefined> {
-    return this.#store.get(`${userTrellisId}.${contractDigest}`);
+    identityEnvelopeId: string,
+  ): Promise<IdentityEnvelopeRecord | undefined> {
+    return this.#store.get(identityEnvelopeId);
   }
 
-  async delete(userTrellisId: string, contractDigest: string): Promise<void> {
-    this.#store.delete(`${userTrellisId}.${contractDigest}`);
+  async delete(identityEnvelopeId: string): Promise<void> {
+    this.#store.delete(identityEnvelopeId);
   }
 }
 
 const emptyApprovalStorage = {
-  get: (_userTrellisId: string, _contractDigest: string) =>
-    Promise.resolve(undefined),
-  delete: (_userTrellisId: string, _contractDigest: string) =>
-    Promise.resolve(),
+  get: (_identityEnvelopeId: string) => Promise.resolve(undefined),
+  delete: (_identityEnvelopeId: string) => Promise.resolve(),
 };
 
 async function withSqlAuthRepositories(
   test: (repos: {
     users: SqlUserProjectionRepository;
-    approvals: SqlContractApprovalRepository;
+    approvals: SqlIdentityEnvelopeRepository;
   }, storage: TrellisStorage) => Promise<void>,
 ): Promise<void> {
   const dbPath = await Deno.makeTempFile({
@@ -209,7 +209,7 @@ async function withSqlAuthRepositories(
     await initializeTrellisStorageSchema(storage);
     await test({
       users: new SqlUserProjectionRepository(storage.db),
-      approvals: new SqlContractApprovalRepository(storage.db),
+      approvals: new SqlIdentityEnvelopeRepository(storage.db),
     }, storage);
   } finally {
     storage.client.close();
@@ -224,7 +224,7 @@ function baseSessionFields() {
   };
 }
 
-Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
+Deno.test("Auth.Sessions.Me returns user, device, and service envelopes", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const userStorage = new InMemoryUserStorage();
   const deviceActivationsKV = new InMemoryKV<{
@@ -238,9 +238,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   }>();
   const deviceDeploymentsKV = new InMemoryKV<{
     deploymentId: string;
-    preActivationPolicy?: "reject" | "device-owned";
     disabled: boolean;
-    appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   }>();
   const deviceInstancesKV = new InMemoryKV<{
     instanceId: string;
@@ -249,7 +247,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
     state: "registered" | "activated" | "revoked" | "disabled";
   }>();
 
-  const handler = createAuthMeHandler({
+  const handler = createAuthSessionsMeHandler({
     logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
     userStorage,
@@ -302,7 +300,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   });
   const userValue = userResult.take();
   if (isErr(userValue)) throw userValue.error;
-  assert(Value.Check(AuthMeResponseSchema, userValue));
+  assert(Value.Check(AuthSessionsMeResponseSchema, userValue));
   assertEquals(userValue, {
     participantKind: "app",
     user: {
@@ -352,7 +350,6 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
   deviceDeploymentsKV.seed("reader.default", {
     deploymentId: "reader.default",
     disabled: false,
-    appliedContracts: [],
   });
 
   const deviceResult = await handler({
@@ -419,7 +416,7 @@ Deno.test("Auth.Me returns user, device, and service envelopes", async () => {
 
 Deno.test("session RPC handlers log through the injected logger", async () => {
   const logs: CapturedLog[] = [];
-  const handler = createAuthListSessionsHandler({
+  const handler = createAuthSessionsListHandler({
     logger: createTestLogger(logs),
     sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
   });
@@ -430,14 +427,14 @@ Deno.test("session RPC handlers log through the injected logger", async () => {
 
   assertEquals(logs, [{
     level: "trace",
-    fields: { rpc: "Auth.ListSessions", user: "github.123" },
+    fields: { rpc: "Auth.Sessions.List", user: "github.123" },
     message: "RPC request",
   }]);
 });
 
-Deno.test("Auth.Me validates services with the durable instance deployment", async () => {
+Deno.test("Auth.Sessions.Me validates services with the durable instance deployment", async () => {
   const sessionKV = new InMemoryKV<Session>();
-  const handler = createAuthMeHandler({
+  const handler = createAuthSessionsMeHandler({
     logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
     userStorage: new InMemoryUserStorage(),
@@ -456,9 +453,6 @@ Deno.test("Auth.Me validates services with the durable instance deployment", asy
       new InMemoryKV<{
         deploymentId: string;
         disabled: boolean;
-        appliedContracts: Array<
-          { contractId: string; allowedDigests: string[] }
-        >;
       }>(),
     ),
     loadServiceInstance: async (sessionKey: string) =>
@@ -497,8 +491,8 @@ Deno.test("Auth.Me validates services with the durable instance deployment", asy
   assertEquals(value.service?.active, true);
 });
 
-Deno.test("Auth.Me rejects deleted user sessions despite caller context", async () => {
-  const handler = createAuthMeHandler({
+Deno.test("Auth.Sessions.Me rejects deleted user sessions despite caller context", async () => {
+  const handler = createAuthSessionsMeHandler({
     logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
     userStorage: new InMemoryUserStorage(),
@@ -538,7 +532,7 @@ Deno.test("Auth.Me rejects deleted user sessions despite caller context", async 
   assertEquals(value.error.reason, "session_not_found");
 });
 
-Deno.test("Auth.Me reflects SQL user active and capability changes", async () => {
+Deno.test("Auth.Sessions.Me reflects SQL user active and capability changes", async () => {
   await withSqlAuthRepositories(async ({ users }) => {
     const sessionKV = new InMemoryKV<Session>();
     const deviceActivationsKV = new InMemoryKV<{
@@ -553,9 +547,8 @@ Deno.test("Auth.Me reflects SQL user active and capability changes", async () =>
     const deviceDeploymentsKV = new InMemoryKV<{
       deploymentId: string;
       disabled: boolean;
-      appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
     }>();
-    const handler = createAuthMeHandler({
+    const handler = createAuthSessionsMeHandler({
       logger: createTestLogger(),
       sessionStorage: sessionStorageFromKV(sessionKV),
       userStorage: users,
@@ -618,7 +611,7 @@ Deno.test("Auth.Me reflects SQL user active and capability changes", async () =>
   });
 });
 
-Deno.test("Auth.Me rejects user sessions when the durable projection is missing", async () => {
+Deno.test("Auth.Sessions.Me rejects user sessions when the durable projection is missing", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const userTrellisId = await trellisIdFromOriginId("github", "123");
   sessionKV.seed("sk_user", {
@@ -639,7 +632,7 @@ Deno.test("Auth.Me rejects user sessions when the durable projection is missing"
     ...baseSessionFields(),
   });
 
-  const handler = createAuthMeHandler({
+  const handler = createAuthSessionsMeHandler({
     logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
     userStorage: new InMemoryUserStorage(),
@@ -658,9 +651,6 @@ Deno.test("Auth.Me rejects user sessions when the durable projection is missing"
       new InMemoryKV<{
         deploymentId: string;
         disabled: boolean;
-        appliedContracts: Array<
-          { contractId: string; allowedDigests: string[] }
-        >;
       }>(),
     ),
   });
@@ -685,7 +675,7 @@ Deno.test("Auth.Me rejects user sessions when the durable projection is missing"
   assertEquals(value.error.reason, "user_not_found");
 });
 
-Deno.test("Auth.Me rejects missing device sessions despite caller context", async () => {
+Deno.test("Auth.Sessions.Me rejects missing device sessions despite caller context", async () => {
   const userStorage = new InMemoryUserStorage();
   const deviceActivationsKV = new InMemoryKV<{
     instanceId: string;
@@ -699,10 +689,9 @@ Deno.test("Auth.Me rejects missing device sessions despite caller context", asyn
   const deviceDeploymentsKV = new InMemoryKV<{
     deploymentId: string;
     disabled: boolean;
-    appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   }>();
 
-  const handler = createAuthMeHandler({
+  const handler = createAuthSessionsMeHandler({
     logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
     userStorage,
@@ -731,7 +720,6 @@ Deno.test("Auth.Me rejects missing device sessions despite caller context", asyn
   deviceDeploymentsKV.seed("reader.default", {
     deploymentId: "reader.default",
     disabled: false,
-    appliedContracts: [],
   });
 
   const result = await handler({
@@ -752,7 +740,7 @@ Deno.test("Auth.Me rejects missing device sessions despite caller context", asyn
   assertEquals(value.error.reason, "session_not_found");
 });
 
-Deno.test("Auth.Me rejects stale device activation deployment", async () => {
+Deno.test("Auth.Sessions.Me rejects stale device activation deployment", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const userStorage = new InMemoryUserStorage();
   const deviceActivationsKV = new InMemoryKV<{
@@ -774,7 +762,7 @@ Deno.test("Auth.Me rejects stale device activation deployment", async () => {
     disabled: boolean;
   }>();
 
-  const handler = createAuthMeHandler({
+  const handler = createAuthSessionsMeHandler({
     logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
     userStorage,
@@ -825,7 +813,7 @@ Deno.test("Auth.Me rejects stale device activation deployment", async () => {
   assertEquals(value.error.reason, "device_activation_revoked");
 });
 
-Deno.test("Auth.Me rejects stale device activation identity key", async () => {
+Deno.test("Auth.Sessions.Me rejects stale device activation identity key", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const userStorage = new InMemoryUserStorage();
   const deviceActivationsKV = new InMemoryKV<{
@@ -847,7 +835,7 @@ Deno.test("Auth.Me rejects stale device activation identity key", async () => {
     disabled: boolean;
   }>();
 
-  const handler = createAuthMeHandler({
+  const handler = createAuthSessionsMeHandler({
     logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
     userStorage,
@@ -898,25 +886,23 @@ Deno.test("Auth.Me rejects stale device activation identity key", async () => {
   assertEquals(value.error.reason, "device_activation_revoked");
 });
 
-Deno.test("Auth.ValidateRequest returns invalid_signature for malformed payload hash", async () => {
-  const handler = createAuthValidateRequestHandler({
+Deno.test("Auth.Requests.Validate returns invalid_signature for malformed payload hash", async () => {
+  const handler = createAuthRequestsValidateHandler({
     logger: createTestLogger(),
     sessionStorage: { getOneBySessionKey: () => Promise.resolve(undefined) },
     userStorage: new InMemoryUserStorage(),
-    contractApprovalStorage: emptyApprovalStorage,
     deviceActivationStorage: { get: () => Promise.resolve(undefined) },
     deviceDeploymentStorage: { get: () => Promise.resolve(undefined) },
     deviceInstanceStorage: { get: () => Promise.resolve(undefined) },
     loadServiceInstance: () => Promise.resolve(null),
     loadServiceDeployment: () => Promise.resolve(null),
-    loadInstanceGrantPolicies: () => Promise.resolve([]),
   });
 
   const result = await handler({
     input: {
       sessionKey: "A".repeat(43),
       proof: "not-a-proof",
-      subject: "rpc.v1.Auth.Me",
+      subject: "rpc.v1.Auth.Sessions.Me",
       payloadHash: "!!!!",
     },
   });
@@ -925,7 +911,72 @@ Deno.test("Auth.ValidateRequest returns invalid_signature for malformed payload 
   assertEquals(result.error.reason, "invalid_signature");
 });
 
-Deno.test("Auth.ListSessions returns explicit participant metadata for app, agent, device, and service sessions", async () => {
+Deno.test("Auth.Requests.Validate uses current service instance permissions", async () => {
+  const auth = await createAuth({
+    sessionKeySeed: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  });
+  const payloadHash = await sha256(utf8("{}"));
+  const subject = "rpc.v1.Worker.Run";
+  const sessionKV = new InMemoryKV<Session>();
+  sessionKV.seed(auth.sessionKey, {
+    type: "service",
+    trellisId: "service-trellis-id",
+    origin: "service",
+    id: auth.sessionKey,
+    email: "worker@trellis.internal",
+    name: "Worker",
+    instanceId: "instance-1",
+    deploymentId: "worker.default",
+    instanceKey: auth.sessionKey,
+    currentContractId: "worker.old@v1",
+    currentContractDigest: "digest-old",
+    createdAt: baseSessionFields().createdAt,
+    lastAuth: baseSessionFields().lastAuth,
+  });
+  const handler = createAuthRequestsValidateHandler({
+    logger: createTestLogger(),
+    sessionStorage: sessionStorageFromKV(sessionKV),
+    userStorage: new InMemoryUserStorage(),
+    deviceActivationStorage: { get: () => Promise.resolve(undefined) },
+    deviceDeploymentStorage: { get: () => Promise.resolve(undefined) },
+    deviceInstanceStorage: { get: () => Promise.resolve(undefined) },
+    loadServiceInstance: () =>
+      Promise.resolve({
+        instanceId: "instance-1",
+        deploymentId: "worker.default",
+        instanceKey: auth.sessionKey,
+        disabled: false,
+        currentContractId: "worker.current@v1",
+        currentContractDigest: "digest-current",
+        capabilities: ["service", "worker.run"],
+      }),
+    loadServiceDeployment: () =>
+      Promise.resolve({ deploymentId: "worker.default", disabled: false }),
+  });
+
+  const result = await handler({
+    input: {
+      sessionKey: auth.sessionKey,
+      proof: await auth.createProof(subject, payloadHash),
+      subject,
+      payloadHash: base64urlEncode(payloadHash),
+      capabilities: ["worker.run"],
+    },
+  });
+
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+  assertEquals(value.allowed, true);
+  assertEquals(value.caller, {
+    type: "service",
+    id: auth.sessionKey,
+    name: "Worker",
+    active: true,
+    capabilities: ["service", "worker.run"],
+  });
+});
+
+Deno.test("Auth.Sessions.List returns explicit participant metadata for app, agent, device, and service sessions", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const userTrellisId = await trellisIdFromOriginId("github", "123");
 
@@ -1001,7 +1052,7 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
     ...baseSessionFields(),
   });
 
-  const handler = createAuthListSessionsHandler({
+  const handler = createAuthSessionsListHandler({
     logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
   });
@@ -1062,7 +1113,7 @@ Deno.test("Auth.ListSessions returns explicit participant metadata for app, agen
   );
 });
 
-Deno.test("Auth.ListConnections returns explicit participant metadata for user sessions", async () => {
+Deno.test("Auth.Connections.List returns explicit participant metadata for user sessions", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const connectionsKV = new InMemoryKV<
     { serverId: string; clientId: number; connectedAt: Date }
@@ -1096,7 +1147,7 @@ Deno.test("Auth.ListConnections returns explicit participant metadata for user s
     connectedAt: new Date("2026-04-10T00:00:00.000Z"),
   });
 
-  const handler = createAuthListConnectionsHandler({
+  const handler = createAuthConnectionsListHandler({
     logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
@@ -1129,7 +1180,7 @@ Deno.test("Auth.ListConnections returns explicit participant metadata for user s
   ]);
 });
 
-Deno.test("Auth.ListConnections skips malformed connection entries", async () => {
+Deno.test("Auth.Connections.List skips malformed connection entries", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const connectionsKV = new InMemoryKV<
     | { serverId: string; clientId: number; connectedAt: Date }
@@ -1164,7 +1215,7 @@ Deno.test("Auth.ListConnections skips malformed connection entries", async () =>
     connectedAt: new Date("2026-04-11T00:00:00.000Z"),
   });
 
-  const handler = createAuthListConnectionsHandler({
+  const handler = createAuthConnectionsListHandler({
     logger: createTestLogger(),
     sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
@@ -1180,7 +1231,7 @@ Deno.test("Auth.ListConnections skips malformed connection entries", async () =>
   assertEquals(value.connections[0]?.clientId, 8);
 });
 
-Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling agent sessions", async () => {
+Deno.test("Auth.Sessions.Revoke cascades agent revocation to the grant and sibling agent sessions", async () => {
   const userTrellisId = await trellisIdFromOriginId("github", "123");
   const contractApprovalStorage = new InMemoryApprovalStorage();
   const sessionKV = new InMemoryKV<Session>();
@@ -1193,19 +1244,30 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
   > = [];
 
   contractApprovalStorage.seed({
+    identityEnvelopeId: "env-agent",
     userTrellisId,
     origin: "github",
     id: "123",
+    identityAnchor: {
+      kind: "cli",
+      contractId: "trellis.agent@v1",
+      sessionPublicKey: "session-agent",
+    },
     answer: "approved",
     answeredAt: new Date("2026-04-10T00:00:00.000Z"),
     updatedAt: new Date("2026-04-11T00:00:00.000Z"),
-    approval: {
+    approvalEvidence: {
       contractDigest: "digest-agent",
       contractId: "trellis.agent@v1",
       displayName: "Trellis Agent",
       description: "Local delegated tooling",
       participantKind: "agent",
-      capabilities: ["jobs.read"],
+      capabilities: {
+        "jobs.read": {
+          displayName: "Read jobs",
+          description: "Read job status.",
+        },
+      },
     },
     publishSubjects: [],
     subscribeSubjects: [],
@@ -1219,6 +1281,7 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
     email: "ada@example.com",
     name: "Ada",
     participantKind: "agent",
+    identityEnvelopeId: "env-agent",
     contractDigest: "digest-agent",
     contractId: "trellis.agent@v1",
     contractDisplayName: "Trellis Agent",
@@ -1236,6 +1299,7 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
     email: "ada@example.com",
     name: "Ada",
     participantKind: "agent",
+    identityEnvelopeId: "env-agent",
     contractDigest: "digest-agent",
     contractId: "trellis.agent@v1",
     contractDisplayName: "Trellis Agent",
@@ -1285,7 +1349,7 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
     connectedAt: new Date("2026-04-11T00:00:00.000Z"),
   });
 
-  const handler = createAuthRevokeSessionHandler({
+  const handler = createAuthSessionsRevokeHandler({
     sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
     contractApprovalStorage,
@@ -1331,7 +1395,7 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
     },
   ]);
   assertEquals(
-    await contractApprovalStorage.get(userTrellisId, "digest-agent"),
+    await contractApprovalStorage.get("env-agent"),
     undefined,
   );
   assertEquals(
@@ -1372,7 +1436,7 @@ Deno.test("Auth.RevokeSession cascades agent revocation to the grant and sibling
   );
 });
 
-Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling user sessions", async () => {
+Deno.test("Auth.Sessions.Revoke cascades app revocation to the grant and sibling user sessions", async () => {
   const userTrellisId = await trellisIdFromOriginId("github", "123");
   const contractApprovalStorage = new InMemoryApprovalStorage();
   const sessionKV = new InMemoryKV<Session>();
@@ -1401,19 +1465,30 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
   > = [];
 
   contractApprovalStorage.seed({
+    identityEnvelopeId: "env-app",
     userTrellisId,
     origin: "github",
     id: "123",
+    identityAnchor: {
+      kind: "web",
+      contractId: "trellis.console@v1",
+      origin: "https://console.example",
+    },
     answer: "approved",
     answeredAt: new Date("2026-04-10T00:00:00.000Z"),
     updatedAt: new Date("2026-04-11T00:00:00.000Z"),
-    approval: {
+    approvalEvidence: {
       contractDigest: "digest-app",
       contractId: "trellis.console@v1",
       displayName: "Console",
       description: "Admin app",
       participantKind: "app",
-      capabilities: ["admin"],
+      capabilities: {
+        admin: {
+          displayName: "Admin",
+          description: "Administer Trellis.",
+        },
+      },
     },
     publishSubjects: [],
     subscribeSubjects: [],
@@ -1427,6 +1502,7 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
     email: "ada@example.com",
     name: "Ada",
     participantKind: "app",
+    identityEnvelopeId: "env-app",
     contractDigest: "digest-app",
     contractId: "trellis.console@v1",
     contractDisplayName: "Console",
@@ -1444,6 +1520,7 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
     email: "ada@example.com",
     name: "Ada",
     participantKind: "app",
+    identityEnvelopeId: "env-app",
     contractDigest: "digest-app",
     contractId: "trellis.console@v1",
     contractDisplayName: "Console",
@@ -1487,7 +1564,7 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
     connectedAt: new Date("2026-04-11T00:00:00.000Z"),
   });
 
-  const handler = createAuthRevokeSessionHandler({
+  const handler = createAuthSessionsRevokeHandler({
     sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
     contractApprovalStorage,
@@ -1533,7 +1610,7 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
     },
   ]);
   assertEquals(
-    await contractApprovalStorage.get(userTrellisId, "digest-app"),
+    await contractApprovalStorage.get("env-app"),
     undefined,
   );
   assertEquals(
@@ -1550,23 +1627,34 @@ Deno.test("Auth.RevokeSession cascades app revocation to the grant and sibling u
   );
 });
 
-Deno.test("Auth.RevokeSession deletes app approvals from SQL", async () => {
+Deno.test("Auth.Sessions.Revoke deletes app approvals from SQL", async () => {
   await withSqlAuthRepositories(async ({ approvals }) => {
     const userTrellisId = await trellisIdFromOriginId("github", "123");
     await approvals.put({
+      identityEnvelopeId: "env-app",
       userTrellisId,
       origin: "github",
       id: "123",
+      identityAnchor: {
+        kind: "web",
+        contractId: "trellis.console@v1",
+        origin: "https://console.example",
+      },
       answer: "approved",
       answeredAt: new Date("2026-04-10T00:00:00.000Z"),
       updatedAt: new Date("2026-04-11T00:00:00.000Z"),
-      approval: {
+      approvalEvidence: {
         contractDigest: "digest-app",
         contractId: "trellis.console@v1",
         displayName: "Console",
         description: "Admin app",
         participantKind: "app",
-        capabilities: ["admin"],
+        capabilities: {
+          admin: {
+            displayName: "Admin",
+            description: "Administer Trellis.",
+          },
+        },
       },
       publishSubjects: [],
       subscribeSubjects: [],
@@ -1584,6 +1672,7 @@ Deno.test("Auth.RevokeSession deletes app approvals from SQL", async () => {
       email: "ada@example.com",
       name: "Ada",
       participantKind: "app",
+      identityEnvelopeId: "env-app",
       contractDigest: "digest-app",
       contractId: "trellis.console@v1",
       contractDisplayName: "Console",
@@ -1594,7 +1683,7 @@ Deno.test("Auth.RevokeSession deletes app approvals from SQL", async () => {
       ...baseSessionFields(),
     });
 
-    const handler = createAuthRevokeSessionHandler({
+    const handler = createAuthSessionsRevokeHandler({
       sessionStorage: sessionStorageFromKV(sessionKV),
       connectionsKV,
       contractApprovalStorage: approvals,
@@ -1616,11 +1705,11 @@ Deno.test("Auth.RevokeSession deletes app approvals from SQL", async () => {
     const value = result.take();
     if (isErr(value)) throw value.error;
     assertEquals(value, { success: true });
-    assertEquals(await approvals.get(userTrellisId, "digest-app"), undefined);
+    assertEquals(await approvals.get("env-app"), undefined);
   });
 });
 
-Deno.test("Auth.RevokeSession revokes device activation so the device cannot reconnect", async () => {
+Deno.test("Auth.Sessions.Revoke revokes device activation so the device cannot reconnect", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const connectionsKV = new InMemoryKV<
     { serverId: string; clientId: number; connectedAt: Date }
@@ -1675,7 +1764,7 @@ Deno.test("Auth.RevokeSession revokes device activation so the device cannot rec
     connectedAt: new Date("2026-04-11T00:00:00.000Z"),
   });
 
-  const handler = createAuthRevokeSessionHandler({
+  const handler = createAuthSessionsRevokeHandler({
     sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
     contractApprovalStorage: emptyApprovalStorage,
@@ -1714,7 +1803,7 @@ Deno.test("Auth.RevokeSession revokes device activation so the device cannot rec
   assertEquals(isErr(await sessionKV.get("sk_device").take()), true);
 });
 
-Deno.test("Auth.RevokeSession disables the service instance so it cannot reconnect", async () => {
+Deno.test("Auth.Sessions.Revoke disables the service instance so it cannot reconnect", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const connectionsKV = new InMemoryKV<
     { serverId: string; clientId: number; connectedAt: Date }
@@ -1768,7 +1857,7 @@ Deno.test("Auth.RevokeSession disables the service instance so it cannot reconne
     connectedAt: new Date("2026-04-11T00:00:00.000Z"),
   });
 
-  const handler = createAuthRevokeSessionHandler({
+  const handler = createAuthSessionsRevokeHandler({
     sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
     contractApprovalStorage: emptyApprovalStorage,

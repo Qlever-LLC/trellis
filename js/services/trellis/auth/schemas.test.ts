@@ -4,22 +4,22 @@ import Value from "typebox/value";
 import {
   AppIdentitySchema,
   AuthBrowserFlowSchema,
-  AuthValidateRequestRequestSchema,
+  AuthRequestsValidateRequestSchema,
   BindResponseSchema,
-  ContractApprovalRecordSchema,
+  DeploymentContractEvidenceSchema,
+  DeploymentEnvelopeSchema,
+  DeploymentGrantOverrideSchema,
+  DeploymentPortalRouteSchema,
+  DeploymentResourceBindingSchema,
   DeviceActivationRecordSchema,
   DeviceActivationReviewRecordSchema,
   DeviceDeploymentSchema,
-  DevicePortalDefaultSchema,
-  DevicePortalSelectionSchema,
   DeviceSchema,
-  InstanceGrantPolicySchema,
-  LoginPortalDefaultSchema,
-  LoginPortalSelectionSchema,
+  EnvelopeBoundarySchema,
+  EnvelopeExpansionRequestSchema,
+  IdentityEnvelopeRecordSchema,
   OAuthStateSchema,
   PendingAuthSchema,
-  PortalProfileSchema,
-  PortalSchema,
   SessionKeySchema,
   SessionSchema,
   SignatureSchema,
@@ -58,10 +58,10 @@ Deno.test("SessionSchema validates session entries", () => {
         contractId: "trellis.console@v1",
         origin: "https://app.example.com",
       },
-      approvalSource: "admin_policy",
+      approvalSource: "deployment_grant",
       delegatedCapabilities: ["admin"],
       delegatedPublishSubjects: ["rpc.v1.Auth.ListServices"],
-      delegatedSubscribeSubjects: ["events.v1.Auth.Connect"],
+      delegatedSubscribeSubjects: ["events.v1.Auth.Connections.Opened"],
       createdAt: new Date().toISOString(),
       lastAuth: new Date().toISOString(),
     }),
@@ -135,45 +135,9 @@ Deno.test("Portal and browser-flow schemas validate", () => {
   }));
 });
 
-Deno.test("portal and device state schemas validate", () => {
-  assert(Value.Check(PortalSchema, {
-    portalId: "main",
-    entryUrl: "https://portal.example.com/auth",
-    disabled: false,
-  }));
-  assert(Value.Check(PortalProfileSchema, {
-    portalId: "main",
-    entryUrl: "https://portal.example.com/auth",
-    contractId: "trellis.portal@v1",
-    allowedOrigins: ["https://portal.example.com"],
-    impliedCapabilities: ["auth.login"],
-    disabled: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }));
-  assert(Value.Check(LoginPortalDefaultSchema, {
-    portalId: null,
-  }));
-  assert(Value.Check(LoginPortalSelectionSchema, {
-    contractId: "trellis.console@v1",
-    portalId: "main",
-  }));
-  assert(Value.Check(DevicePortalDefaultSchema, {
-    portalId: "main",
-  }));
-  assert(Value.Check(DevicePortalSelectionSchema, {
-    deploymentId: "reader.default",
-    portalId: null,
-  }));
+Deno.test("device state schemas validate", () => {
   assert(Value.Check(DeviceDeploymentSchema, {
     deploymentId: "reader.default",
-    firstConnectPolicy: "reject",
-    preActivationPolicy: "reject",
-    appliedContracts: [{
-      contractId: "acme.reader@v1",
-      compatibilityPolicy: "exact",
-      allowedDigests: ["digest-a"],
-    }],
     reviewMode: "none",
     disabled: false,
   }));
@@ -219,14 +183,93 @@ Deno.test("portal and device state schemas validate", () => {
     requestedAt: new Date().toISOString(),
     decidedAt: null,
   }));
-  assert(Value.Check(InstanceGrantPolicySchema, {
-    contractId: "trellis.console@v1",
-    allowedOrigins: ["https://app.example.com"],
-    impliedCapabilities: ["admin"],
+});
+
+Deno.test("envelope authority storage schemas validate modeled rows", () => {
+  const boundary = {
+    contracts: [{ contractId: "svc.graph@v1", required: true }],
+    surfaces: [{
+      contractId: "svc.graph@v1",
+      kind: "rpc",
+      name: "Graph.Query",
+      action: "call",
+      required: true,
+    }],
+    capabilities: ["graph.query"],
+    resources: [{ kind: "kv", alias: "cache", required: false }],
+  };
+
+  assert(Value.Check(EnvelopeBoundarySchema, boundary));
+  assert(Value.Check(DeploymentEnvelopeSchema, {
+    deploymentId: "svc.graph.default",
+    kind: "service",
     disabled: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    source: { kind: "admin_policy" },
+    boundary,
+  }));
+  assert(Value.Check(DeploymentPortalRouteSchema, {
+    deploymentId: "svc.graph.default",
+    portalId: null,
+    entryUrl: "https://portal.example.com/start",
+    disabled: false,
+    updatedAt: new Date().toISOString(),
+  }));
+  assert(Value.Check(DeploymentGrantOverrideSchema, {
+    deploymentId: "svc.graph.default",
+    identityKind: "web",
+    contractId: "app.graph@v1",
+    origin: "https://app.example.com",
+    sessionPublicKey: null,
+    devicePublicKey: null,
+    capability: "graph.query",
+  }));
+  assert(Value.Check(DeploymentResourceBindingSchema, {
+    deploymentId: "svc.graph.default",
+    kind: "kv",
+    alias: "cache",
+    binding: { bucket: "graph-cache" },
+    limits: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }));
+  assert(Value.Check(DeploymentContractEvidenceSchema, {
+    deploymentId: "svc.graph.default",
+    contractId: "svc.graph@v1",
+    contractDigest: "sha256-graph",
+    contract: { id: "svc.graph@v1" },
+    firstSeenAt: new Date().toISOString(),
+    lastSeenAt: new Date().toISOString(),
+  }));
+  assert(Value.Check(EnvelopeExpansionRequestSchema, {
+    requestId: "req_123",
+    deploymentId: "svc.graph.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "svc_123" },
+    contractId: "svc.graph@v1",
+    contractDigest: "sha256-graph",
+    contract: { id: "svc.graph@v1" },
+    state: "pending",
+    createdAt: new Date().toISOString(),
+    decidedAt: null,
+    decidedBy: null,
+    decisionReason: null,
+    delta: boundary,
+  }));
+  assertFalse(Value.Check(EnvelopeExpansionRequestSchema, {
+    requestId: "req_123",
+    deploymentId: "svc.graph.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "svc_123" },
+    contractId: "svc.graph@v1",
+    contractDigest: "sha256-graph",
+    contract: { id: "svc.graph@v1" },
+    state: "accepted",
+    createdAt: new Date().toISOString(),
+    decidedAt: null,
+    decidedBy: null,
+    decisionReason: null,
+    delta: boundary,
   }));
 });
 
@@ -307,28 +350,34 @@ Deno.test("BindResponseSchema validates bound responses with explicit transports
   );
 });
 
-Deno.test("AuthValidateRequestRequestSchema validates ADR auth request", () => {
+Deno.test("AuthRequestsValidateRequestSchema validates ADR auth request", () => {
   assert(
-    Value.Check(AuthValidateRequestRequestSchema, {
+    Value.Check(AuthRequestsValidateRequestSchema, {
       sessionKey,
       proof: sig,
-      subject: "rpc.v1.Auth.Me",
+      subject: "rpc.v1.Auth.Sessions.Me",
       payloadHash: "a".repeat(43),
       capabilities: ["users:read"],
     }),
   );
 });
 
-Deno.test("ContractApprovalRecordSchema validates stored app approvals", () => {
+Deno.test("IdentityEnvelopeRecordSchema validates stored app envelopes", () => {
   assert(
-    Value.Check(ContractApprovalRecordSchema, {
+    Value.Check(IdentityEnvelopeRecordSchema, {
+      identityEnvelopeId: "env-console",
       userTrellisId: "abc",
       origin: "github",
       id: "12345",
+      identityAnchor: {
+        kind: "web",
+        contractId: "trellis.console@v1",
+        origin: "https://console.example",
+      },
       answer: "approved",
       answeredAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      approval: {
+      approvalEvidence: {
         contractDigest: "digest",
         contractId: "trellis.console@v1",
         displayName: "Trellis Console",

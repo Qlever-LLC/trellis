@@ -217,7 +217,7 @@ const natsConnect: NatsConnectFn = async (opts) => {
 function startPermissiveAuthResponder(
   nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"],
 ): void {
-  const sub = nc.subscribe("rpc.v1.Auth.ValidateRequest");
+  const sub = nc.subscribe("rpc.v1.Auth.Requests.Validate");
   void (async () => {
     for await (const msg of sub) {
       const input = msg.json() as { sessionKey: string };

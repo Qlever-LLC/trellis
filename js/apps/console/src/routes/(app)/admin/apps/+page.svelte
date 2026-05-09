@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AuthListApprovalsOutput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthIdentitiesListOutput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
@@ -16,14 +16,14 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let filterUser = $state("");
-  let approvals = $state<AuthListApprovalsOutput["approvals"]>([]);
+  let approvals = $state<AuthIdentitiesListOutput["approvals"]>([]);
 
   async function load() {
     loading = true;
     error = null;
 
     const user = filterUser.trim();
-    const res = await trellis.request("Auth.ListApprovals", { user }).take();
+    const res = await trellis.request("Auth.Identities.List", { user, limit: 500, offset: 0 }).take();
     loading = false;
     if (isErr(res)) {
       error = errorMessage(res);
@@ -117,16 +117,16 @@
             </tr>
           </thead>
           <tbody>
-            {#each approvals as entry (`${entry.user}:${entry.approval.contractDigest}:${entry.answeredAt}`)}
+            {#each approvals as entry (entry.identityEnvelopeId)}
               <tr>
                 <td class="font-medium">{entry.user ?? "—"}</td>
                 <td>
-                  {entry.approval.displayName ??
-                    entry.approval.contractId ??
+                  {entry.displayName ??
+                    entry.contractEvidence.contractId ??
                     "—"}
                 </td>
                 <td class="trellis-identifier text-base-content/60">
-                  {entry.approval.contractDigest?.slice(0, 12)}…
+                  {entry.contractEvidence.contractDigest.slice(0, 12)}…
                 </td>
                 <td class="text-base-content/60">
                   {formatDate(entry.answeredAt)}
@@ -139,7 +139,7 @@
                         <a
                           class="text-error"
                           href={resolve(
-                            `/admin/apps/revoke?contractDigest=${encodeURIComponent(entry.approval.contractDigest)}&user=${encodeURIComponent(entry.user)}`,
+                            `/admin/apps/revoke?grant=${encodeURIComponent(entry.identityEnvelopeId)}&user=${encodeURIComponent(entry.user)}`,
                           )}>Revoke</a
                         >
                       </li>

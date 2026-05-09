@@ -92,8 +92,8 @@ const contract = defineAppContract(() => ({
 export default contract;
 ```
 
-The implicit app auth surface includes `Auth.Me` and `Auth.Logout`, which most
-browser apps need. `Auth.Me` returns a `{ user, device, service }` envelope, with
+The implicit app auth surface includes `Auth.Sessions.Me` and `Auth.Sessions.Logout`, which most
+browser apps need. `Auth.Sessions.Me` returns a `{ user, device, service }` envelope, with
 the device branch carrying the device identity and the activating user when
 applicable.
 
@@ -261,7 +261,7 @@ Call RPCs directly from a page at `src/routes/(app)/dashboard/+page.svelte`:
   let displayName = $state("loading");
 
   async function loadMe() {
-    const me = await trellis.request("Auth.Me", {}).orThrow();
+    const me = await trellis.request("Auth.Sessions.Me", {}).orThrow();
     displayName = me.user?.name ?? me.user?.email ?? me.user?.id ?? "signed in";
   }
 

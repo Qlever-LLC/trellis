@@ -11,13 +11,50 @@ use crate::output;
 use miette::{miette, IntoDiagnostic};
 use rusqlite::{params, Connection};
 use serde_json::json;
+use trellis_local_bootstrap::{
+    generate_local_nats_bootstrap, ContainerRuntime, LocalBootstrapError, LocalNatsBootstrapOptions,
+};
 use ulid::Ulid;
 
 pub(super) async fn run(command: BootstrapCommand) -> miette::Result<()> {
     match command.command {
         BootstrapSubcommand::Nats(args) => nats_bootstrap_command(&args).await,
+        BootstrapSubcommand::LocalNats(args) => local_nats_bootstrap_command(&args),
         BootstrapSubcommand::Admin(args) => bootstrap_admin_command(&args).await,
     }
+}
+
+fn local_nats_bootstrap_command(args: &LocalNatsBootstrapArgs) -> miette::Result<()> {
+    let mut options = LocalNatsBootstrapOptions::new(args.out.clone());
+    options.force = args.force;
+    options.container_runtime = match args.container_runtime {
+        LocalNatsContainerRuntimeArg::Auto => ContainerRuntime::Auto,
+        LocalNatsContainerRuntimeArg::Podman => ContainerRuntime::Podman,
+        LocalNatsContainerRuntimeArg::Docker => ContainerRuntime::Docker,
+    };
+    options.nats_box_image = args.nats_box_image.clone();
+    options.operator_name = args.operator_name.clone();
+    options.system_account = args.system_account.clone();
+    options.auth_account = args.auth_account.clone();
+    options.trellis_account = args.trellis_account.clone();
+    options.server_name = args.server_name.clone();
+
+    let manifest = generate_local_nats_bootstrap(&options).map_err(local_bootstrap_report)?;
+    output::print_success("generated local NATS bootstrap files");
+    output::print_info(&format!("out={}", args.out.display()));
+    output::print_info(&format!(
+        "authAccount={}",
+        manifest.accounts.auth.public_key
+    ));
+    output::print_info(&format!(
+        "trellisAccount={}",
+        manifest.accounts.trellis.public_key
+    ));
+    Ok(())
+}
+
+fn local_bootstrap_report(error: LocalBootstrapError) -> miette::Report {
+    miette!(error.to_string())
 }
 
 async fn nats_bootstrap_command(args: &NatsBootstrapArgs) -> miette::Result<()> {

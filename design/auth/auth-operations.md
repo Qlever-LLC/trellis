@@ -67,11 +67,9 @@ Additional `trellis` service config:
 | deviceActivationFlows  | 30 min            |
 | deviceActivations      | None              |
 | deviceInstances        | None              |
-| deviceProfiles         | None              |
-| portals                | None              |
-| portalLoginSelections  | None              |
-| portalDeviceSelections | None              |
-| portalDefaults         | None              |
+| identityEnvelopes      | None              |
+| deploymentEnvelopes    | None              |
+| deploymentPortalRoutes | None              |
 | services               | None              |
 | connections            | 2h                |
 
@@ -88,10 +86,8 @@ Cluster-wide required state:
 - device activation record store
 - device instance store
 - device deployment store
-- portal store
-- login portal selection store
-- device portal selection store
-- default portal setting store
+- identity envelope tables
+- deployment envelope tables, including portal-route metadata
 - connection store
 
 Production requirements:

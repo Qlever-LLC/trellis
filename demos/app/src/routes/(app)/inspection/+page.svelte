@@ -52,6 +52,7 @@
 
   type InspectionRoute = "/inspection" | `/inspection?${string}`;
   type EvidenceRoute = "/evidence" | `/evidence?${string}`;
+  const listPage = { limit: 50, offset: 0 };
 
   let loadingAssignments = $state(true);
   let loadingSites = $state(true);
@@ -128,8 +129,8 @@
 
     try {
       const [assignmentResponse, siteResponse] = await Promise.all([
-        trellis.request("Assignments.List", {}).orThrow(),
-        trellis.request("Sites.List", {}).orThrow(),
+        trellis.request("Assignments.List", listPage).orThrow(),
+        trellis.request("Sites.List", listPage).orThrow(),
       ]);
       if (!mounted || requestId !== loadRequestId) return;
 

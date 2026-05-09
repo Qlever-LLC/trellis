@@ -1,13 +1,9 @@
-export type ActiveDeploymentContractRecord = {
-  appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
-};
-
-export type ActiveServiceDeploymentRecord = ActiveDeploymentContractRecord & {
+export type ActiveServiceDeploymentRecord = {
   deploymentId: string;
   disabled?: boolean;
 };
 
-export type ActiveDeviceDeploymentRecord = ActiveDeploymentContractRecord & {
+export type ActiveDeviceDeploymentRecord = {
   deploymentId: string;
   disabled?: boolean;
 };
@@ -16,28 +12,57 @@ export type ActiveDeviceInstanceRecord = {
   deploymentId: string;
 };
 
+export type ActiveDeploymentEnvelopeRecord = {
+  deploymentId: string;
+  disabled?: boolean;
+  boundary: {
+    contracts: Array<{ contractId: string }>;
+    surfaces: Array<{ contractId: string }>;
+  };
+};
+
+export type ActiveDeploymentContractEvidenceRecord = {
+  deploymentId: string;
+  contractId: string;
+  contractDigest: string;
+};
+
 export type ActiveCatalogRecordSet = {
   builtinDigests: Iterable<string>;
   builtinContractIds?: Iterable<string>;
-  serviceDeployments: Iterable<ActiveServiceDeploymentRecord>;
-  deviceDeployments: Iterable<ActiveDeviceDeploymentRecord>;
-  deviceInstances?: Iterable<ActiveDeviceInstanceRecord>;
+  deploymentEnvelopes: Iterable<ActiveDeploymentEnvelopeRecord>;
+  deploymentContractEvidence: Iterable<ActiveDeploymentContractEvidenceRecord>;
 };
 
-/** Adds all allowed deployment contract digests to the active set. */
-export function addDeploymentAllowedDigests<
-  T extends ActiveDeploymentContractRecord,
+/** Adds all deployment evidence digests for active deployments to the active set. */
+export function addDeploymentEvidenceDigests<
+  T extends ActiveDeploymentEnvelopeRecord,
 >(
   active: Set<string>,
-  records: Iterable<T>,
+  deployments: Iterable<T>,
+  evidence: Iterable<ActiveDeploymentContractEvidenceRecord>,
   isActive: (record: T) => boolean,
-  opts?: { skipContractIds?: ReadonlySet<string> },
+  ignoredContractIds: Set<string> = new Set(),
 ): void {
-  for (const record of records) {
-    if (!isActive(record)) continue;
-    for (const applied of record.appliedContracts) {
-      if (opts?.skipContractIds?.has(applied.contractId)) continue;
-      for (const digest of applied.allowedDigests) active.add(digest);
+  const activeContractsByDeployment = new Map<string, Set<string>>();
+  for (const deployment of deployments) {
+    if (!isActive(deployment)) continue;
+    activeContractsByDeployment.set(
+      deployment.deploymentId,
+      new Set([
+        ...deployment.boundary.contracts.map((contract) => contract.contractId),
+        ...deployment.boundary.surfaces.map((surface) => surface.contractId),
+      ]),
+    );
+  }
+  for (const record of evidence) {
+    if (ignoredContractIds.has(record.contractId)) continue;
+    if (
+      activeContractsByDeployment.get(record.deploymentId)?.has(
+        record.contractId,
+      )
+    ) {
+      active.add(record.contractDigest);
     }
   }
 }
@@ -62,19 +87,12 @@ export function collectActiveContractDigests(
   for (const digest of records.builtinDigests) active.add(digest);
   const builtinContractIds = new Set(records.builtinContractIds ?? []);
 
-  addDeploymentAllowedDigests(
+  addDeploymentEvidenceDigests(
     active,
-    records.serviceDeployments,
+    records.deploymentEnvelopes,
+    records.deploymentContractEvidence,
     (deployment) => !deployment.disabled,
-    { skipContractIds: builtinContractIds },
-  );
-
-  addDeploymentAllowedDigests(
-    active,
-    records.deviceDeployments,
-    (deployment) =>
-      !deployment.disabled && deployment.appliedContracts.length > 0,
-    { skipContractIds: builtinContractIds },
+    builtinContractIds,
   );
 
   return active;

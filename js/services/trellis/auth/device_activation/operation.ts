@@ -1,6 +1,7 @@
 import { AuthError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
 
+import type { ContractsModule } from "../../catalog/runtime.ts";
 import { type AuthLogger, type AuthRuntimeDeps } from "../runtime_deps.ts";
 import { randomToken } from "../crypto.ts";
 import {
@@ -11,6 +12,7 @@ import type { Config } from "../../config.ts";
 import { buildClientTransports } from "../transports.ts";
 import { isDeviceProofIatFresh } from "./shared.ts";
 import { resolveDeviceConnectInfo } from "../bootstrap/device.ts";
+import type { SqlDeploymentEnvelopeRepository } from "../storage.ts";
 
 type Caller = {
   type: string;
@@ -47,7 +49,6 @@ type DeviceInstance = {
 
 type DeviceDeployment = {
   deploymentId: string;
-  appliedContracts: Array<{ contractId: string; allowedDigests: string[] }>;
   reviewMode?: "none" | "required";
   disabled: boolean;
 };
@@ -91,6 +92,13 @@ type ReviewWaitTiming = {
 
 type DeviceActivationOperationDeps = {
   browserFlowsKV: Pick<AuthRuntimeDeps["browserFlowsKV"], "get">;
+  contracts: Pick<
+    ContractsModule,
+    | "getActiveContractsById"
+    | "getActiveEntries"
+    | "getContract"
+    | "validateContract"
+  >;
   deviceActivationReviewStorage: {
     getByFlowId(
       flowId: string,
@@ -104,6 +112,7 @@ type DeviceActivationOperationDeps = {
   deviceDeploymentStorage: {
     get(deploymentId: string): Promise<DeviceDeployment | undefined>;
   };
+  deploymentEnvelopeStorage: Pick<SqlDeploymentEnvelopeRepository, "get">;
   deviceInstanceStorage: {
     get(instanceId: string): Promise<DeviceInstance | undefined>;
     put(record: DeviceInstance): Promise<void>;
@@ -240,18 +249,18 @@ async function activateInstance(args: {
     activatedAt,
     revokedAt: null,
   });
-  (await args.deps.trellis.publish("Auth.DeviceActivated", {
+  (await args.deps.trellis.publish("Auth.DeviceUserAuthorities.Resolved", {
     instanceId: args.instance.instanceId,
     publicIdentityKey: args.instance.publicIdentityKey,
     deploymentId: args.deployment.deploymentId,
-    activatedAt,
-    activatedBy: args.activatedBy,
+    resolvedAt: activatedAt,
+    resolvedBy: args.activatedBy,
     flowId: args.flow.flowId,
     ...(args.reviewId ? { reviewId: args.reviewId } : {}),
   })).inspectErr((error: unknown) =>
     args.deps.logger.warn(
       { error, instanceId: args.instance.instanceId },
-      "Failed to publish Auth.DeviceActivated",
+      "Failed to publish Auth.DeviceUserAuthorities.Resolved",
     )
   );
   const confirmationCode = await confirmationCodeFor(
@@ -376,7 +385,7 @@ function remainingFlowLifetimeMs(
   return Math.max(0, new Date(isoString(flow.expiresAt)).getTime() - nowMs);
 }
 
-async function publishDeviceActivationRequested(args: {
+async function publishDeviceUserAuthoritiesRequested(args: {
   deps: DeviceActivationOperationDeps;
   flow: DeviceActivationFlow;
   instance: DeviceInstance;
@@ -384,7 +393,7 @@ async function publishDeviceActivationRequested(args: {
   requestedBy: DeviceActivationActor;
   requestedAt: string;
 }): Promise<void> {
-  (await args.deps.trellis.publish("Auth.DeviceActivationRequested", {
+  (await args.deps.trellis.publish("Auth.DeviceUserAuthorities.Requested", {
     flowId: args.flow.flowId,
     instanceId: args.instance.instanceId,
     publicIdentityKey: args.instance.publicIdentityKey,
@@ -394,12 +403,12 @@ async function publishDeviceActivationRequested(args: {
   })).inspectErr((error: unknown) =>
     args.deps.logger.warn(
       { error, flowId: args.flow.flowId },
-      "Failed to publish Auth.DeviceActivationRequested",
+      "Failed to publish Auth.DeviceUserAuthorities.Requested",
     )
   );
 }
 
-export function createActivateDeviceHandler(
+export function createResolveDeviceUserAuthoritiesHandler(
   deps: DeviceActivationOperationDeps,
 ) {
   return async (
@@ -422,7 +431,7 @@ export function createActivateDeviceHandler(
   ) => {
     const { deviceActivationReviewStorage, logger, trellis } = deps;
     logger.trace(
-      { operation: "Auth.ActivateDevice", flowId: input.flowId },
+      { operation: "Auth.DeviceUserAuthorities.Resolve", flowId: input.flowId },
       "Operation request",
     );
     if (caller.type !== "user" || !caller.origin || !caller.id) {
@@ -490,7 +499,7 @@ export function createActivateDeviceHandler(
     const requestedAt = new Date(reviewWaitTiming(deps).now()).toISOString();
 
     if (deployment.reviewMode === "required") {
-      await publishDeviceActivationRequested({
+      await publishDeviceUserAuthoritiesRequested({
         deps,
         flow,
         instance,
@@ -514,7 +523,7 @@ export function createActivateDeviceHandler(
         decidedAt: null,
       };
       await deviceActivationReviewStorage.put(review);
-      await trellis.publish("Auth.DeviceActivationReviewRequested", {
+      await trellis.publish("Auth.DeviceUserAuthorities.ReviewRequested", {
         reviewId: review.reviewId,
         flowId: flow.flowId,
         instanceId: instance.instanceId,
@@ -527,7 +536,7 @@ export function createActivateDeviceHandler(
       return op.defer();
     }
 
-    await publishDeviceActivationRequested({
+    await publishDeviceUserAuthoritiesRequested({
       deps,
       flow,
       instance,
@@ -566,7 +575,7 @@ export function createGetDeviceConnectInfoHandler(
   }) => {
     const { logger, sentinelCreds } = deps;
     logger.trace({
-      rpc: "Auth.GetDeviceConnectInfo",
+      rpc: "Auth.Devices.ConnectInfo.Get",
       publicIdentityKey: req.publicIdentityKey,
     }, "RPC request");
 
@@ -586,6 +595,7 @@ export function createGetDeviceConnectInfoHandler(
     }
 
     const result = await resolveDeviceConnectInfo({
+      contracts: deps.contracts,
       transports: buildClientTransports(deps.config),
       sentinel: sentinelCreds,
       loadDeviceInstance: async (instanceId) =>
@@ -594,6 +604,7 @@ export function createGetDeviceConnectInfoHandler(
         await deps.deviceActivationStorage.get(instanceId) ?? null,
       loadDeviceDeployment: async (deploymentId) =>
         await deps.deviceDeploymentStorage.get(deploymentId) ?? null,
+      deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
     }, req);
 
     if (result.status === "activation_required") {

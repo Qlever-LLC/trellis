@@ -28,140 +28,61 @@ fn agent_contract_manifest_validates_and_declares_expected_auth_and_core_surface
         .and_then(|rpc| rpc.call.as_ref())
         .expect("auth rpc call list");
 
-    assert!(calls.iter().any(|value| value == "Auth.Me"));
-    assert!(calls.iter().any(|value| value == "Auth.ListApprovals"));
-    assert!(calls.iter().any(|value| value == "Auth.RevokeApproval"));
+    assert!(calls.iter().any(|value| value == "Auth.Sessions.Me"));
+    assert!(calls.iter().any(|value| value == "Auth.Identities.List"));
     assert!(calls
         .iter()
-        .any(|value| value == "Auth.CreateServiceDeployment"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ApplyServiceDeploymentContract"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.UnapplyServiceDeploymentContract"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ListServiceDeployments"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.DisableServiceDeployment"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.EnableServiceDeployment"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.RemoveServiceDeployment"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ProvisionServiceInstance"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ListServiceInstances"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.DisableServiceInstance"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.EnableServiceInstance"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.RemoveServiceInstance"));
-    assert!(calls.iter().any(|value| value == "Auth.CreatePortal"));
-    assert!(calls.iter().any(|value| value == "Auth.ListPortals"));
-    assert!(calls.iter().any(|value| value == "Auth.DisablePortal"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.GetLoginPortalDefault"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ListInstanceGrantPolicies"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.UpsertInstanceGrantPolicy"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.DisableInstanceGrantPolicy"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.SetLoginPortalDefault"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ListLoginPortalSelections"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.SetLoginPortalSelection"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ClearLoginPortalSelection"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.GetDevicePortalDefault"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.SetDevicePortalDefault"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ListDevicePortalSelections"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.SetDevicePortalSelection"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ClearDevicePortalSelection"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.CreateDeviceDeployment"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ApplyDeviceDeploymentContract"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.UnapplyDeviceDeploymentContract"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ListDeviceDeployments"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.DisableDeviceDeployment"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.EnableDeviceDeployment"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.RemoveDeviceDeployment"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ProvisionDeviceInstance"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ListDeviceInstances"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.DisableDeviceInstance"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.EnableDeviceInstance"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.RemoveDeviceInstance"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ListDeviceActivations"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.RevokeDeviceActivation"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.ListDeviceActivationReviews"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.DecideDeviceActivationReview"));
-    assert!(!calls.iter().any(|value| value == "Auth.InstallService"));
+        .any(|value| value == "Auth.IdentityEnvelopes.Revoke"));
+    assert!(calls.iter().any(|value| value == "Auth.Deployments.Create"));
+    assert!(!calls.iter().any(|value| value == "Auth.Envelopes.List"));
+    assert!(!calls.iter().any(|value| value == "Auth.Envelopes.Get"));
+    assert!(!calls.iter().any(|value| value == "Auth.Envelopes.Expand"));
     assert!(!calls
         .iter()
-        .any(|value| value == "Auth.UpgradeServiceContract"));
-    assert!(!calls.iter().any(|value| value == "Auth.RemoveService"));
+        .any(|value| value == "Auth.Envelopes.Changes.Preview"));
+    assert!(!calls
+        .iter()
+        .any(|value| value == "Auth.EnvelopeExpansions.Approve"));
+    assert!(!calls.iter().any(|value| value == "Auth.Envelopes.Shrink"));
+    assert!(calls.iter().any(|value| value == "Auth.Deployments.List"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.Deployments.Disable"));
+    assert!(calls.iter().any(|value| value == "Auth.Deployments.Enable"));
+    assert!(calls.iter().any(|value| value == "Auth.Deployments.Remove"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ServiceInstances.Provision"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ServiceInstances.List"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ServiceInstances.Disable"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ServiceInstances.Enable"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.ServiceInstances.Remove"));
+    assert!(calls.iter().any(|value| value == "Auth.Devices.Provision"));
+    assert!(calls.iter().any(|value| value == "Auth.Devices.List"));
+    assert!(calls.iter().any(|value| value == "Auth.Devices.Disable"));
+    assert!(calls.iter().any(|value| value == "Auth.Devices.Enable"));
+    assert!(calls.iter().any(|value| value == "Auth.Devices.Remove"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.DeviceUserAuthorities.List"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.DeviceUserAuthorities.Revoke"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.DeviceUserAuthorities.Reviews.List"));
+    assert!(calls
+        .iter()
+        .any(|value| value == "Auth.DeviceUserAuthorities.Reviews.Decide"));
+    assert!(!calls.iter().any(|value| value == "Auth.Users.Update"));
 
     let core = loaded
         .manifest
@@ -178,4 +99,13 @@ fn agent_contract_manifest_validates_and_declares_expected_auth_and_core_surface
 
     assert!(calls.iter().any(|value| value == "Trellis.Catalog"));
     assert!(calls.iter().any(|value| value == "Trellis.Contract.Get"));
+}
+
+#[test]
+fn agent_contract_digest_matches_js_projection() {
+    assert_eq!(
+        trellis_auth::contract_digest(trellis_cli::agent_contract::agent_contract_json())
+            .expect("agent contract digest"),
+        "bQKziOoOmzLq77RUIrPtznMFlut-9qvktkowjNJpJYs"
+    );
 }

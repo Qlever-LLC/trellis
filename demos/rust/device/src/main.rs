@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -22,6 +21,8 @@ use trellis_sdk_demo_service::types::{
 
 const DEMO_TIMESTAMP: &str = "2026-04-30T16:00:00.000Z";
 const DEFAULT_DEVICE_STORE: &str = ".trellis-demo-device.json";
+const LIST_LIMIT: i64 = 50;
+const LIST_OFFSET: i64 = 0;
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -321,7 +322,10 @@ async fn list_sites(client: Option<&TrellisClient>) -> anyhow::Result<()> {
     let sites = if let Some(client) = client {
         trellis_participant_demo_device::Client::new(client)
             .field_ops()
-            .sites_list(&SitesListRequest(BTreeMap::new()))
+            .sites_list(&SitesListRequest {
+                limit: LIST_LIMIT,
+                offset: LIST_OFFSET,
+            })
             .await?
             .sites
     } else {
@@ -387,7 +391,10 @@ async fn list_assignments(client: Option<&TrellisClient>) -> anyhow::Result<()> 
     if let Some(client) = client {
         let response = trellis_participant_demo_device::Client::new(client)
             .field_ops()
-            .assignments_list(&AssignmentsListRequest(BTreeMap::new()))
+            .assignments_list(&AssignmentsListRequest {
+                limit: LIST_LIMIT,
+                offset: LIST_OFFSET,
+            })
             .await?;
         for assignment in response.assignments {
             println!(
@@ -408,7 +415,11 @@ async fn list_evidence(client: Option<&TrellisClient>) -> anyhow::Result<()> {
     if let Some(client) = client {
         let response = trellis_participant_demo_device::Client::new(client)
             .field_ops()
-            .evidence_list(&EvidenceListRequest { prefix: None })
+            .evidence_list(&EvidenceListRequest {
+                limit: LIST_LIMIT,
+                offset: LIST_OFFSET,
+                prefix: None,
+            })
             .await?;
         for evidence in response.evidence {
             println!("{} - {} bytes", evidence.key, evidence.size);

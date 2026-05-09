@@ -176,6 +176,9 @@ type ServiceBootstrapFailure = {
   serverNow?: number;
 };
 
+const DEFAULT_BOOTSTRAP_PENDING_RETRY_MS = 5_000;
+const MAX_BOOTSTRAP_PENDING_RETRY_MS = 60_000;
+
 type RpcMethodName<TA extends TrellisAPI> = keyof TA["rpc"] & string;
 type RpcMethodInput<TA extends TrellisAPI, M extends RpcMethodName<TA>> =
   InferSchemaType<TA["rpc"][M]["input"]>;
@@ -262,7 +265,7 @@ function bootstrapContractStateError(args: {
   const base =
     `Service '${args.serviceName}' could not bootstrap contract '${args.contractId}' (${args.contractDigest}) during ${args.step}. ` +
     "This usually means Trellis has stale or incomplete state for this service session. " +
-    "Re-run the service deployment apply or instance provisioning flow so Trellis records the allowed digest, permissions, and resource bindings for this instance key.";
+    "Expand the service deployment envelope or re-run instance provisioning so Trellis records contract evidence, permissions, and resource bindings for this instance key.";
   const cause = args.cause
     ? ` Underlying error: ${getErrorCauseMessage(args.cause)}`
     : "";
@@ -274,6 +277,27 @@ function runtimeImport<TModule>(specifier: string): Promise<TModule> {
     specifier: string,
   ) => Promise<TModule>;
   return load(specifier);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function bootstrapRetryDelayMs(response: Response): number {
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter === null) return DEFAULT_BOOTSTRAP_PENDING_RETRY_MS;
+
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1_000, MAX_BOOTSTRAP_PENDING_RETRY_MS);
+  }
+
+  const retryAt = Date.parse(retryAfter);
+  if (Number.isNaN(retryAt)) return DEFAULT_BOOTSTRAP_PENDING_RETRY_MS;
+  return Math.min(
+    Math.max(0, retryAt - Date.now()),
+    MAX_BOOTSTRAP_PENDING_RETRY_MS,
+  );
 }
 
 async function loadDefaultServiceRuntimeDeps(): Promise<
@@ -375,47 +399,42 @@ async function fetchServiceBootstrapInfo(args: {
   contract?: TrellisContractV1;
   auth: SessionAuth;
 }): Promise<ServiceBootstrapResponse> {
-  let settled = await fetchServiceBootstrapInfoOnce({
-    ...args,
-    contract: undefined,
-  });
-  if (
-    !settled.response.ok &&
-    settled.payload !== undefined &&
-    Value.Check(ServiceBootstrapFailureSchema, settled.payload)
-  ) {
-    const failure = settled.payload as ServiceBootstrapFailure;
-    if (
-      failure.reason === "iat_out_of_range" &&
-      typeof failure.serverNow === "number"
-    ) {
-      args.auth.setServerClockOffsetMs(
-        estimateMidpointClockOffsetMs({
-          requestStartedAtMs: settled.requestStartedAtMs,
-          responseReceivedAtMs: settled.responseReceivedAtMs,
-          serverNowSeconds: failure.serverNow,
-        }),
-      );
-      settled = await fetchServiceBootstrapInfoOnce({
-        ...args,
-        contract: undefined,
-      });
-    } else if (
-      failure.reason === "manifest_required" && args.contract !== undefined
-    ) {
-      settled = await fetchServiceBootstrapInfoOnce({
-        ...args,
-        contract: args.contract,
-      });
-    }
-  }
+  let includeContract = false;
+  while (true) {
+    const settled = await fetchServiceBootstrapInfoOnce({
+      ...args,
+      contract: includeContract ? args.contract : undefined,
+    });
 
-  if (!settled.response.ok) {
     if (
       settled.payload !== undefined &&
       Value.Check(ServiceBootstrapFailureSchema, settled.payload)
     ) {
       const failure = settled.payload as ServiceBootstrapFailure;
+      if (
+        failure.reason === "iat_out_of_range" &&
+        typeof failure.serverNow === "number"
+      ) {
+        args.auth.setServerClockOffsetMs(
+          estimateMidpointClockOffsetMs({
+            requestStartedAtMs: settled.requestStartedAtMs,
+            responseReceivedAtMs: settled.responseReceivedAtMs,
+            serverNowSeconds: failure.serverNow,
+          }),
+        );
+        continue;
+      }
+      if (
+        failure.reason === "manifest_required" && args.contract !== undefined
+      ) {
+        includeContract = true;
+        continue;
+      }
+      if (failure.reason === "envelope_expansion_required") {
+        await delay(bootstrapRetryDelayMs(settled.response));
+        includeContract = true;
+        continue;
+      }
       throw new TransportError({
         code: "trellis.bootstrap.failed",
         message: `Service bootstrap failed: ${
@@ -432,52 +451,55 @@ async function fetchServiceBootstrapInfo(args: {
         },
       });
     }
-    const detail = settled.responseText.trim();
-    throw new TransportError({
-      code: "trellis.bootstrap.failed",
-      message: detail.length > 0
-        ? `Service bootstrap failed with HTTP ${settled.response.status}: ${detail}`
-        : `Service bootstrap failed with HTTP ${settled.response.status}`,
-      hint:
-        "Retry the connection. If it keeps failing, check Trellis bootstrap availability.",
-      context: {
-        trellisUrl: args.trellisUrl,
-        contractId: args.contractId,
-        contractDigest: args.contractDigest,
-        status: settled.response.status,
-      },
-    });
+
+    if (!settled.response.ok) {
+      const detail = settled.responseText.trim();
+      throw new TransportError({
+        code: "trellis.bootstrap.failed",
+        message: detail.length > 0
+          ? `Service bootstrap failed with HTTP ${settled.response.status}: ${detail}`
+          : `Service bootstrap failed with HTTP ${settled.response.status}`,
+        hint:
+          "Retry the connection. If it keeps failing, check Trellis bootstrap availability.",
+        context: {
+          trellisUrl: args.trellisUrl,
+          contractId: args.contractId,
+          contractDigest: args.contractDigest,
+          status: settled.response.status,
+        },
+      });
+    }
+
+    if (settled.payload === undefined) {
+      throw new TransportError({
+        code: "trellis.bootstrap.invalid_response",
+        message: `Service bootstrap returned invalid JSON: ${
+          settled.responseText.trim() || "<empty body>"
+        }`,
+        hint:
+          "Retry the connection. If it keeps happening, check the Trellis deployment.",
+        context: {
+          trellisUrl: args.trellisUrl,
+          contractId: args.contractId,
+          contractDigest: args.contractDigest,
+        },
+      });
+    }
+
+    const ready = Value.Parse(
+      ServiceBootstrapReadySchema,
+      settled.payload,
+    ) as ServiceBootstrapResponse;
+    args.auth.setServerClockOffsetMs(
+      estimateMidpointClockOffsetMs({
+        requestStartedAtMs: settled.requestStartedAtMs,
+        responseReceivedAtMs: settled.responseReceivedAtMs,
+        serverNowSeconds: ready.serverNow,
+      }),
+    );
+
+    return ready;
   }
-
-  if (settled.payload === undefined) {
-    throw new TransportError({
-      code: "trellis.bootstrap.invalid_response",
-      message: `Service bootstrap returned invalid JSON: ${
-        settled.responseText.trim() || "<empty body>"
-      }`,
-      hint:
-        "Retry the connection. If it keeps happening, check the Trellis deployment.",
-      context: {
-        trellisUrl: args.trellisUrl,
-        contractId: args.contractId,
-        contractDigest: args.contractDigest,
-      },
-    });
-  }
-
-  const ready = Value.Parse(
-    ServiceBootstrapReadySchema,
-    settled.payload,
-  ) as ServiceBootstrapResponse;
-  args.auth.setServerClockOffsetMs(
-    estimateMidpointClockOffsetMs({
-      requestStartedAtMs: settled.requestStartedAtMs,
-      responseReceivedAtMs: settled.responseReceivedAtMs,
-      serverNowSeconds: ready.serverNow,
-    }),
-  );
-
-  return ready;
 }
 
 export class StoreHandle {

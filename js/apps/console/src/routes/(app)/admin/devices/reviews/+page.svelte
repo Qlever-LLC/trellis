@@ -1,10 +1,10 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthListDeviceActivationReviewsInput,
-    AuthListDeviceActivationReviewsOutput,
-    AuthListDeviceInstancesOutput,
-    AuthListDeviceDeploymentsOutput,
+    AuthDeviceUserAuthoritiesReviewsListInput,
+    AuthDeviceUserAuthoritiesReviewsListOutput,
+    AuthDevicesListOutput,
+    AuthDeploymentsListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
@@ -18,12 +18,12 @@
   import { errorMessage, formatDate } from "../../../../../lib/format";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type Review = AuthListDeviceActivationReviewsOutput["reviews"][number];
-  type DeviceInstance = AuthListDeviceInstancesOutput["instances"][number] & {
+  type Review = AuthDeviceUserAuthoritiesReviewsListOutput["reviews"][number];
+  type DeviceInstance = AuthDevicesListOutput["instances"][number] & {
     metadata?: Record<string, string>;
   };
-  type Deployment = AuthListDeviceDeploymentsOutput["deployments"][number];
-  type ReviewState = NonNullable<AuthListDeviceActivationReviewsInput["state"]> | "all";
+  type Deployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "device" }>;
+  type ReviewState = NonNullable<AuthDeviceUserAuthoritiesReviewsListInput["state"]> | "all";
 
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
 
@@ -54,11 +54,13 @@
     { label: "Rejected", value: rejectedCount, detail: "Denied activations" },
   ]);
 
-  function reviewQuery(): AuthListDeviceActivationReviewsInput {
+  function reviewQuery(): AuthDeviceUserAuthoritiesReviewsListInput {
     return {
       instanceId: instanceFilter.trim() || undefined,
       deploymentId: deploymentFilter || undefined,
       state: stateFilter === "all" ? undefined : stateFilter,
+      limit: 500,
+      offset: 0,
     };
   }
 
@@ -67,9 +69,9 @@
     error = null;
     try {
       const [reviewsResponse, instancesResponse, deploymentsResponse] = await Promise.all([
-        trellis.request("Auth.ListDeviceActivationReviews", reviewQuery()).take(),
-        trellis.request("Auth.ListDeviceInstances", {}).take(),
-        trellis.request("Auth.ListDeviceDeployments", {}).take(),
+        trellis.request("Auth.DeviceUserAuthorities.Reviews.List", reviewQuery()).take(),
+        trellis.request("Auth.Devices.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.Deployments.List", { kind: "device", limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(reviewsResponse)) { error = errorMessage(reviewsResponse); return; }
       if (isErr(instancesResponse)) { error = errorMessage(instancesResponse); return; }
@@ -77,7 +79,7 @@
 
       reviews = reviewsResponse.reviews ?? [];
       deviceInstances = instancesResponse.instances ?? [];
-      deployments = deploymentsResponse.deployments ?? [];
+      deployments = (deploymentsResponse.deployments ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
       if (selectedReviewId && !reviews.some((review) => review.reviewId === selectedReviewId)) {
         selectedReviewId = null;
       }

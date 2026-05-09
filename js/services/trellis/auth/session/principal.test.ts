@@ -2,11 +2,6 @@ import { assertEquals } from "@std/assert";
 import { AsyncResult, err, ok, UnexpectedError } from "@qlever-llc/result";
 
 import { resolveSessionPrincipal } from "./principal.ts";
-import {
-  initializeTrellisStorageSchema,
-  openTrellisStorageDb,
-} from "../../storage/db.ts";
-import { SqlContractApprovalRepository } from "../storage.ts";
 
 function kvFromMap<T>(values: Record<string, T>) {
   return {
@@ -107,7 +102,7 @@ Deno.test("resolveSessionPrincipal accepts activated device sessions", async () 
   }
 });
 
-Deno.test("resolveSessionPrincipal accepts registered device-owned sessions when policy allows", async () => {
+Deno.test("resolveSessionPrincipal accepts registered device runtime sessions with delegated permissions", async () => {
   const result = await resolveSessionPrincipal(
     {
       type: "device",
@@ -139,7 +134,6 @@ Deno.test("resolveSessionPrincipal accepts registered device-owned sessions when
         "drive.default": {
           deploymentId: "drive.default",
           disabled: false,
-          preActivationPolicy: "device-owned" as const,
         },
       }),
       loadUserProjection: loadProjectionFromMap({}),
@@ -153,7 +147,7 @@ Deno.test("resolveSessionPrincipal accepts registered device-owned sessions when
   }
 });
 
-Deno.test("resolveSessionPrincipal rejects registered device-owned sessions by default", async () => {
+Deno.test("resolveSessionPrincipal accepts registered device runtime sessions without legacy policy", async () => {
   const result = await resolveSessionPrincipal(
     {
       type: "device",
@@ -185,16 +179,15 @@ Deno.test("resolveSessionPrincipal rejects registered device-owned sessions by d
         "drive.default": {
           deploymentId: "drive.default",
           disabled: false,
-          preActivationPolicy: "reject" as const,
         },
       }),
       loadUserProjection: loadProjectionFromMap({}),
     },
   );
 
-  assertEquals(result.ok, false);
-  if (!result.ok) {
-    assertEquals(result.error.reason, "unknown_device");
+  assertEquals(result.ok, true);
+  if (result.ok) {
+    assertEquals(result.value.capabilities, ["device.sync"]);
   }
 });
 
@@ -407,94 +400,6 @@ Deno.test("resolveSessionPrincipal rejects device sessions when the public ident
   }
 });
 
-Deno.test("resolveSessionPrincipal looks up SQL approvals for dotted user ids", async () => {
-  const dbPath = await Deno.makeTempFile({
-    dir: "/tmp",
-    prefix: "trellis-principal-",
-    suffix: ".sqlite",
-  });
-  const storage = await openTrellisStorageDb(dbPath);
-
-  try {
-    await initializeTrellisStorageSchema(storage);
-    const approvals = new SqlContractApprovalRepository(storage.db);
-    const userTrellisId = "github.user.with.dots";
-    await approvals.put({
-      userTrellisId,
-      origin: "github",
-      id: "user.with.dots",
-      answer: "approved",
-      answeredAt: new Date("2026-04-10T00:00:00.000Z"),
-      updatedAt: new Date("2026-04-11T00:00:00.000Z"),
-      approval: {
-        contractDigest: "digest-agent",
-        contractId: "trellis.agent@v1",
-        displayName: "Trellis Agent",
-        description: "Local delegated tooling",
-        participantKind: "agent",
-        capabilities: {
-          "jobs.read": {
-            displayName: "Read Jobs",
-            description: "Read job state",
-          },
-        },
-      },
-      publishSubjects: [],
-      subscribeSubjects: [],
-    });
-
-    const result = await resolveSessionPrincipal(
-      {
-        type: "user",
-        trellisId: userTrellisId,
-        origin: "github",
-        id: "user.with.dots",
-        email: "ada@example.com",
-        name: "Ada",
-        participantKind: "agent",
-        contractDigest: "digest-agent",
-        contractId: "trellis.agent@v1",
-        contractDisplayName: "Trellis Agent",
-        contractDescription: "Local delegated tooling",
-        delegatedCapabilities: ["jobs.read"],
-        delegatedPublishSubjects: [],
-        delegatedSubscribeSubjects: [],
-        createdAt: new Date(),
-        lastAuth: new Date(),
-      },
-      "sk_agent",
-      {
-        loadUserProjection: loadProjectionFromMap({
-          [userTrellisId]: {
-            origin: "github",
-            id: "user.with.dots",
-            name: "Ada",
-            email: "ada@example.com",
-            active: true,
-            capabilities: ["jobs.read"],
-          },
-        }),
-        loadStoredApproval: async (key) => {
-          const separator = key.lastIndexOf(".");
-          if (separator <= 0 || separator >= key.length - 1) return null;
-          return await approvals.get(
-            key.slice(0, separator),
-            key.slice(separator + 1),
-          ) ?? null;
-        },
-      },
-    );
-
-    assertEquals(result.ok, true);
-    if (result.ok) {
-      assertEquals(result.value.capabilities, ["jobs.read"]);
-    }
-  } finally {
-    storage.client.close();
-    await Deno.remove(dbPath).catch(() => undefined);
-  }
-});
-
 Deno.test("resolveSessionPrincipal rejects device sessions when the activation deployment changes", async () => {
   const result = await resolveSessionPrincipal(
     {
@@ -656,6 +561,7 @@ Deno.test("resolveSessionPrincipal rejects inactive user projections", async () 
       email: "user@example.com",
       name: "User",
       participantKind: "app",
+      identityEnvelopeId: "env-console",
       contractDigest: "digest-a",
       contractId: "trellis.console@v1",
       contractDisplayName: "Console",
@@ -687,7 +593,7 @@ Deno.test("resolveSessionPrincipal rejects inactive user projections", async () 
   }
 });
 
-Deno.test("resolveSessionPrincipal accepts user sessions with matching instance grant policy", async () => {
+Deno.test("resolveSessionPrincipal rejects user sessions without explicit capabilities", async () => {
   const result = await resolveSessionPrincipal(
     {
       type: "user",
@@ -697,6 +603,7 @@ Deno.test("resolveSessionPrincipal accepts user sessions with matching instance 
       email: "user@example.com",
       name: "User",
       participantKind: "app",
+      identityEnvelopeId: "env-console",
       contractDigest: "digest-a",
       contractId: "trellis.console@v1",
       contractDisplayName: "Console",
@@ -708,7 +615,6 @@ Deno.test("resolveSessionPrincipal accepts user sessions with matching instance 
         contractId: "trellis.console@v1",
         origin: "https://app.example.com",
       },
-      approvalSource: "admin_policy",
       createdAt: new Date(),
       lastAuth: new Date(),
     },
@@ -724,20 +630,103 @@ Deno.test("resolveSessionPrincipal accepts user sessions with matching instance 
           capabilities: [],
         },
       }),
-      loadInstanceGrantPolicies: async () => [{
-        contractId: "trellis.console@v1",
-        impliedCapabilities: ["audit"],
-        allowedOrigins: ["https://app.example.com"],
-        disabled: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        source: { kind: "admin_policy" },
-      }],
+    },
+  );
+
+  assertEquals(result.ok, false);
+  if (!result.ok) {
+    assertEquals(result.error.reason, "insufficient_permissions");
+  }
+});
+
+Deno.test("resolveSessionPrincipal accepts service-like capability strings on user sessions", async () => {
+  const result = await resolveSessionPrincipal(
+    {
+      type: "user",
+      trellisId: "tid",
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+      participantKind: "app",
+      identityEnvelopeId: "env-console",
+      contractDigest: "digest-a",
+      contractId: "trellis.console@v1",
+      contractDisplayName: "Console",
+      contractDescription: "Admin app",
+      delegatedCapabilities: ["service:inspect"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+      createdAt: new Date(),
+      lastAuth: new Date(),
+    },
+    "A".repeat(43),
+    {
+      loadUserProjection: loadProjectionFromMap({
+        tid: {
+          origin: "github",
+          id: "123",
+          name: "User",
+          email: "user@example.com",
+          active: true,
+          capabilities: ["service:inspect"],
+        },
+      }),
     },
   );
 
   assertEquals(result.ok, true);
   if (result.ok) {
-    assertEquals(result.value.capabilities, ["audit"]);
+    assertEquals(result.value.capabilities, ["service:inspect"]);
+  }
+});
+
+Deno.test("resolveSessionPrincipal uses current service instance contract metadata", async () => {
+  const result = await resolveSessionPrincipal(
+    {
+      type: "service",
+      trellisId: "service-trellis-id",
+      origin: "service",
+      id: "service-key",
+      email: "svc@example.com",
+      name: "Worker service",
+      instanceId: "instance-old",
+      deploymentId: "worker.default",
+      instanceKey: "service-key",
+      currentContractId: "worker.old@v1",
+      currentContractDigest: "digest-old",
+      createdAt: new Date(),
+      lastAuth: new Date(),
+    },
+    "service-key",
+    {
+      loadServiceInstance: async () => ({
+        instanceId: "instance-current",
+        deploymentId: "worker.default",
+        instanceKey: "service-key",
+        disabled: false,
+        currentContractId: "worker.current@v1",
+        currentContractDigest: "digest-current",
+        capabilities: ["service", "worker.run"],
+      }),
+      loadServiceDeployment: async () => ({
+        deploymentId: "worker.default",
+        disabled: false,
+      }),
+      loadUserProjection: loadProjectionFromMap({}),
+    },
+  );
+
+  assertEquals(result.ok, true);
+  if (result.ok) {
+    assertEquals(result.value.capabilities, ["service", "worker.run"]);
+    assertEquals(
+      result.value.serviceState?.currentContractId,
+      "worker.current@v1",
+    );
+    assertEquals(
+      result.value.serviceState?.currentContractDigest,
+      "digest-current",
+    );
   }
 });

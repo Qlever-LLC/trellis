@@ -7,6 +7,7 @@ import contract from "../contract.ts";
 import { renderCompactQr } from "../../shared/compact_qr.ts";
 
 const EVENT_WATCH_MS = 15_000;
+const LIST_PAGE = { limit: 50, offset: 0 };
 
 async function main(): Promise<void> {
   const [trellisUrl, rootSecret] = Deno.args;
@@ -38,7 +39,7 @@ async function main(): Promise<void> {
 
   try {
     console.log(chalk.green.bold("== Connected Field Device"));
-    const me = await device.request("Auth.Me", {}).orThrow();
+    const me = await device.request("Auth.Sessions.Me", {}).orThrow();
     console.dir(me, { depth: null });
 
     while (true) {
@@ -116,7 +117,7 @@ async function runGuidedInspectionWizard(device: Device): Promise<void> {
   console.log(chalk.green.bold("== Guided Inspection Wizard"));
   console.info("Step 1: choose an assigned inspection.");
   const assignments =
-    (await device.request("Assignments.List", {}).orThrow()).assignments;
+    (await device.request("Assignments.List", LIST_PAGE).orThrow()).assignments;
   if (assignments.length === 0) {
     console.info("No assignments are available for the guided workflow.");
     return;
@@ -183,7 +184,7 @@ function safeFileName(fileName: string): string {
 
 async function listAssignments(device: Device): Promise<void> {
   console.log(chalk.green.bold("== Assigned Inspections"));
-  const result = await device.request("Assignments.List", {}).orThrow();
+  const result = await device.request("Assignments.List", LIST_PAGE).orThrow();
 
   if (result.assignments.length === 0) {
     console.info("No assigned inspections.");
@@ -358,8 +359,10 @@ async function uploadEvidenceFile(device: Device, filePath: string): Promise<voi
 
 async function listAndDownloadEvidence(device: Device): Promise<void> {
   console.log(chalk.green.bold("== Evidence Files"));
-  const result = await device.request("Evidence.List", { prefix: "evidence/" })
-    .orThrow();
+  const result = await device.request("Evidence.List", {
+    ...LIST_PAGE,
+    prefix: "evidence/",
+  }).orThrow();
   if (result.evidence.length === 0) {
     console.info("No evidence files found.");
     return;
@@ -441,7 +444,7 @@ async function watchActivity(device: Device): Promise<void> {
 async function saveAndListDraftState(device: Device): Promise<void> {
   console.log(chalk.green.bold("== Draft State"));
   const assignments =
-    (await device.request("Assignments.List", {}).orThrow()).assignments;
+    (await device.request("Assignments.List", LIST_PAGE).orThrow()).assignments;
   const selected = assignments[0];
   if (!selected) {
     console.info("No assignments available for sample state.");

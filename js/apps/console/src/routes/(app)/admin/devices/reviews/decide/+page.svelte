@@ -1,10 +1,10 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthDecideDeviceActivationReviewInput,
-    AuthListDeviceActivationReviewsInput,
-    AuthListDeviceActivationReviewsOutput,
-    AuthListDeviceInstancesOutput,
+    AuthDeviceUserAuthoritiesReviewsDecideInput,
+    AuthDeviceUserAuthoritiesReviewsListInput,
+    AuthDeviceUserAuthoritiesReviewsListOutput,
+    AuthDevicesListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -18,8 +18,8 @@
   import { getNotifications } from "$lib/notifications.svelte";
   import { getTrellis } from "$lib/trellis";
 
-  type Review = AuthListDeviceActivationReviewsOutput["reviews"][number];
-  type DeviceInstance = AuthListDeviceInstancesOutput["instances"][number] & { metadata?: Record<string, string> };
+  type Review = AuthDeviceUserAuthoritiesReviewsListOutput["reviews"][number];
+  type DeviceInstance = AuthDevicesListOutput["instances"][number] & { metadata?: Record<string, string> };
 
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
   const trellis = getTrellis();
@@ -58,8 +58,8 @@
     error = null;
     try {
       const [reviewsResponse, instancesResponse] = await Promise.all([
-        trellis.request("Auth.ListDeviceActivationReviews", { state: "pending" }).take(),
-        trellis.request("Auth.ListDeviceInstances", {}).take(),
+        trellis.request("Auth.DeviceUserAuthorities.Reviews.List", { state: "pending", limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.Devices.List", { limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(reviewsResponse)) { error = errorMessage(reviewsResponse); return; }
       if (isErr(instancesResponse)) { error = errorMessage(instancesResponse); return; }
@@ -86,12 +86,12 @@
     error = null;
     try {
       const response = await trellis.request(
-        "Auth.DecideDeviceActivationReview",
+        "Auth.DeviceUserAuthorities.Reviews.Decide",
         {
           reviewId: selectedReview.reviewId,
           decision,
           ...(decision === "reject" && reason.trim() ? { reason: reason.trim() } : {}),
-        } satisfies AuthDecideDeviceActivationReviewInput,
+        } satisfies AuthDeviceUserAuthoritiesReviewsDecideInput,
       ).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Review ${selectedReview.reviewId} ${decision === "approve" ? "approved" : "rejected"}.`, decision === "approve" ? "Approved" : "Rejected");

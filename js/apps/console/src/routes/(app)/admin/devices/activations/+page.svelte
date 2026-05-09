@@ -1,10 +1,10 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type {
-    AuthListDeviceActivationsInput,
-    AuthListDeviceActivationsOutput,
-    AuthListDeviceInstancesOutput,
-    AuthListDeviceDeploymentsOutput,
+    AuthDeviceUserAuthoritiesListInput,
+    AuthDeviceUserAuthoritiesListOutput,
+    AuthDevicesListOutput,
+    AuthDeploymentsListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
@@ -16,12 +16,12 @@
   import { errorMessage, formatDate } from "../../../../../lib/format";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type Activation = AuthListDeviceActivationsOutput["activations"][number];
-  type DeviceInstance = AuthListDeviceInstancesOutput["instances"][number] & {
+  type Activation = AuthDeviceUserAuthoritiesListOutput["activations"][number];
+  type DeviceInstance = AuthDevicesListOutput["instances"][number] & {
     metadata?: Record<string, string>;
   };
-  type Deployment = AuthListDeviceDeploymentsOutput["deployments"][number];
-  type ActivationState = NonNullable<AuthListDeviceActivationsInput["state"]> | "all";
+  type Deployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "device" }>;
+  type ActivationState = NonNullable<AuthDeviceUserAuthoritiesListInput["state"]> | "all";
 
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
 
@@ -41,11 +41,13 @@
 
   let deviceInstancesById = $derived.by(() => new Map(deviceInstances.map((instance) => [instance.instanceId, instance])));
 
-  function activationQuery(): AuthListDeviceActivationsInput {
+  function activationQuery(): AuthDeviceUserAuthoritiesListInput {
     return {
       instanceId: instanceFilter.trim() || undefined,
       deploymentId: deploymentFilter || undefined,
       state: stateFilter === "all" ? undefined : stateFilter,
+      limit: 500,
+      offset: 0,
     };
   }
 
@@ -54,9 +56,9 @@
     error = null;
     try {
       const [activationsResponse, instancesResponse, deploymentsResponse] = await Promise.all([
-        trellis.request("Auth.ListDeviceActivations", activationQuery()).take(),
-        trellis.request("Auth.ListDeviceInstances", {}).take(),
-        trellis.request("Auth.ListDeviceDeployments", {}).take(),
+        trellis.request("Auth.DeviceUserAuthorities.List", activationQuery()).take(),
+        trellis.request("Auth.Devices.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.Deployments.List", { kind: "device", limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(activationsResponse)) { error = errorMessage(activationsResponse); return; }
       if (isErr(instancesResponse)) { error = errorMessage(instancesResponse); return; }
@@ -64,7 +66,7 @@
 
       activations = activationsResponse.activations ?? [];
       deviceInstances = instancesResponse.instances ?? [];
-      deployments = deploymentsResponse.deployments ?? [];
+      deployments = (deploymentsResponse.deployments ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
     } catch (e) {
       error = errorMessage(e);
     } finally {

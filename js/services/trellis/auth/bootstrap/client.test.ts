@@ -8,7 +8,7 @@ import {
   utf8,
 } from "@qlever-llc/trellis/auth";
 
-import { ContractStore } from "../../catalog/store.ts";
+import { createTestContracts } from "../../catalog/test_contracts.ts";
 import type { SentinelCreds, Session } from "../schemas.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
 import { createClientBootstrapHandler } from "./client.ts";
@@ -64,10 +64,10 @@ function sessionStorageFromKV(sessionKV: InMemoryKV<Session>) {
   };
 }
 
-async function createTestContractStore() {
-  const store = new ContractStore();
-  const validated = await store.validate(testClientContract());
-  store.activate(validated.digest, validated.contract);
+async function createValidatedClientContract() {
+  const store = createTestContracts();
+  const validated = await store.validateContract(testClientContract());
+  store.activateTestContract(validated);
   return { store, validated };
 }
 
@@ -118,15 +118,15 @@ async function createVerifiedApp(args?: {
   userProjection?: UserProjectionEntry;
 }) {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
-  const store = new ContractStore();
-  const validated = await store.validate(
+  const store = createTestContracts();
+  const validated = await store.validateContract(
     args?.contract ?? testClientContract(),
   );
-  const contractStore = new ContractStore();
+  const contracts = createTestContracts();
   if (args?.activateContract !== false) {
-    contractStore.activate(validated.digest, validated.contract);
+    contracts.activateTestContract(validated);
   } else {
-    contractStore.add(validated.digest, validated.contract);
+    contracts.addKnownTestContract(validated);
   }
 
   const sessionKV = new InMemoryKV<Session>();
@@ -167,7 +167,7 @@ async function createVerifiedApp(args?: {
   app.post(
     "/bootstrap/client",
     createClientBootstrapHandler({
-      contractStore,
+      contracts,
       transports: {
         native: { natsServers: ["nats://127.0.0.1:4222"] },
         websocket: { natsServers: ["ws://localhost:8080"] },
@@ -176,25 +176,6 @@ async function createVerifiedApp(args?: {
       sessionStorage: sessionStorageFromKV(sessionKV),
       loadUserProjection: async (trellisId) =>
         usersKV.getValue(trellisId) ?? null,
-      loadStoredApproval: async () => ({
-        userTrellisId: "user-1",
-        origin: "github",
-        id: "123",
-        answer: "approved",
-        answeredAt: new Date("2026-01-01T00:00:00.000Z"),
-        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
-        approval: {
-          contractDigest: validated.digest,
-          contractId: validated.contract.id,
-          displayName: validated.contract.displayName,
-          description: validated.contract.description,
-          participantKind: "app",
-          capabilities: ["read:deployment"],
-        },
-        publishSubjects: ["events.deployment.updated"],
-        subscribeSubjects: ["events.deployment.*"],
-      }),
-      loadInstanceGrantPolicies: async () => [],
       verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
         sessionKey === auth.sessionKey &&
         sig === await signClientBootstrapProof(TEST_SEED, iat),
@@ -261,18 +242,18 @@ Deno.test("POST /bootstrap/client returns runtime bootstrap info for bound brows
 
 Deno.test("POST /bootstrap/client accepts the exact session digest when multiple digests share a contract id", async () => {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
-  const contractStore = new ContractStore();
-  const first = await contractStore.validate(
+  const contracts = createTestContracts();
+  const first = await contracts.validateContract(
     testClientContract("First revision"),
   );
-  const second = await contractStore.validate(
+  const second = await contracts.validateContract(
     testClientContract("Second revision"),
   );
   const [otherContract, sessionContract] = [first, second].sort((left, right) =>
     left.digest.localeCompare(right.digest)
   );
-  contractStore.activate(otherContract.digest, otherContract.contract);
-  contractStore.activate(sessionContract.digest, sessionContract.contract);
+  contracts.activateTestContract(otherContract);
+  contracts.activateTestContract(sessionContract);
 
   const sessionKV = new InMemoryKV<Session>();
   const usersKV = new InMemoryKV<UserProjectionEntry>();
@@ -307,7 +288,7 @@ Deno.test("POST /bootstrap/client accepts the exact session digest when multiple
   app.post(
     "/bootstrap/client",
     createClientBootstrapHandler({
-      contractStore,
+      contracts,
       transports: {
         native: { natsServers: ["nats://127.0.0.1:4222"] },
         websocket: { natsServers: ["ws://localhost:8080"] },
@@ -316,25 +297,6 @@ Deno.test("POST /bootstrap/client accepts the exact session digest when multiple
       sessionStorage: sessionStorageFromKV(sessionKV),
       loadUserProjection: async (trellisId) =>
         usersKV.getValue(trellisId) ?? null,
-      loadStoredApproval: async () => ({
-        userTrellisId: "user-1",
-        origin: "github",
-        id: "123",
-        answer: "approved",
-        answeredAt: new Date("2026-01-01T00:00:00.000Z"),
-        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
-        approval: {
-          contractDigest: sessionContract.digest,
-          contractId: sessionContract.contract.id,
-          displayName: sessionContract.contract.displayName,
-          description: sessionContract.contract.description,
-          participantKind: "app",
-          capabilities: ["read:deployment"],
-        },
-        publishSubjects: ["events.deployment.updated"],
-        subscribeSubjects: ["events.deployment.*"],
-      }),
-      loadInstanceGrantPolicies: async () => [],
       verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
         sessionKey === auth.sessionKey &&
         sig === await signClientBootstrapProof(TEST_SEED, iat),
@@ -360,15 +322,14 @@ Deno.test("POST /bootstrap/client accepts the exact session digest when multiple
 
 Deno.test("POST /bootstrap/client returns auth_required when no bound user session exists", async () => {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
-  const { validated } = await createTestContractStore();
-  const contractStore = new ContractStore();
-  contractStore.activate(validated.digest, validated.contract);
+  const { validated } = await createValidatedClientContract();
+  const contracts = createTestContracts([validated]);
 
   const app = new Hono();
   app.post(
     "/bootstrap/client",
     createClientBootstrapHandler({
-      contractStore,
+      contracts,
       transports: {
         native: { natsServers: ["nats://127.0.0.1:4222"] },
         websocket: { natsServers: ["ws://localhost:8080"] },
@@ -376,8 +337,6 @@ Deno.test("POST /bootstrap/client returns auth_required when no bound user sessi
       sentinel: { jwt: "jwt", seed: "seed" },
       sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
       loadUserProjection: async () => null,
-      loadStoredApproval: async () => null,
-      loadInstanceGrantPolicies: async () => [],
       verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
         sessionKey === auth.sessionKey &&
         sig === await signClientBootstrapProof(TEST_SEED, iat),

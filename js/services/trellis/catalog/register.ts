@@ -1,5 +1,9 @@
 import type { ContractsModule } from "./runtime.ts";
 import type {
+  SqlDeploymentContractEvidenceRepository,
+  SqlDeploymentEnvelopeRepository,
+  SqlDeviceDeploymentRepository,
+  SqlDeviceInstanceRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
 } from "../auth/storage.ts";
@@ -26,6 +30,10 @@ type CatalogRegistrationDeps = {
   contracts: ContractsModule;
   serviceInstanceStorage: SqlServiceInstanceRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
+  deviceInstanceStorage: SqlDeviceInstanceRepository;
+  deviceDeploymentStorage: SqlDeviceDeploymentRepository;
+  deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+  deploymentContractEvidenceStorage: SqlDeploymentContractEvidenceRepository;
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   logger: { trace: (fields: Record<string, unknown>, message: string) => void };
 };
@@ -55,9 +63,13 @@ export async function registerCatalog(
     logger: deps.logger,
   });
   const trellisSurfaceStatusHandler = createTrellisSurfaceStatusHandler({
-    contractStore: deps.contracts.contractStore,
+    contracts: deps.contracts,
     serviceInstanceStorage: deps.serviceInstanceStorage,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
+    deviceInstanceStorage: deps.deviceInstanceStorage,
+    deviceDeploymentStorage: deps.deviceDeploymentStorage,
+    deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+    deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
     connectionsKV: deps.connectionsKV,
     logger: deps.logger,
   });
@@ -66,13 +78,18 @@ export async function registerCatalog(
 
   await deps.trellis.mount(
     "Trellis.Catalog",
-    createTrellisCatalogHandler(deps.contracts.contractStore, deps.logger),
+    createTrellisCatalogHandler(
+      deps.contracts,
+      deps.deploymentEnvelopeStorage,
+      deps.deploymentContractEvidenceStorage,
+      deps.logger,
+    ),
   );
   await deps.trellis.mount(
     "Trellis.Contract.Get",
     ({ input }: { input: ContractGetInput }) =>
       createTrellisContractGetHandler(
-        deps.contracts.contractStore,
+        deps.contracts,
         deps.logger,
       )(
         input,

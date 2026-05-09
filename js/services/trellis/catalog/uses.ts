@@ -13,7 +13,6 @@ import {
   mergeCompatibleSchemaRefs,
   mergeCompatibleSchemas,
 } from "./schema_compatibility.ts";
-import type { ContractStore } from "./store.ts";
 export { templateToWildcard } from "./subject_templates.ts";
 import { templateToWildcard } from "./subject_templates.ts";
 
@@ -823,15 +822,21 @@ export function resolveContractUses(
   return resolved;
 }
 
-export function resolveContractUsesFromStore(
-  contractStore: ContractStore,
+export function resolveContractUsesFromEntries(
+  activeEntries: readonly ContractEntry[],
   contract: TrellisContractV1,
   options?: {
     ignoreInactiveContracts?: boolean;
   },
 ): ResolvedContractUses {
+  const entriesById = new Map<string, TrellisContractV1[]>();
+  for (const entry of activeEntries) {
+    const entries = entriesById.get(entry.contract.id) ?? [];
+    entries.push(entry.contract);
+    entriesById.set(entry.contract.id, entries);
+  }
   return resolveContractUses(contract, (alias, use, resolveOptions) => {
-    const targets = contractStore.getActiveContractsById(use.contract);
+    const targets = entriesById.get(use.contract) ?? [];
     const target = mergeCompatibleContractSurfaces(targets);
     if (!target) {
       if (!resolveOptions.required || options?.ignoreInactiveContracts) {
@@ -849,13 +854,19 @@ export function resolveContractUsesFromStore(
   });
 }
 
-export function resolveContractUsesFromKnownStore(
-  contractStore: ContractStore,
+export function resolveContractUsesFromKnownEntries(
+  knownEntries: readonly ContractEntry[],
   contract: TrellisContractV1,
 ): ResolvedContractUses {
+  const entriesById = new Map<string, TrellisContractV1[]>();
+  for (const entry of knownEntries) {
+    const entries = entriesById.get(entry.contract.id) ?? [];
+    entries.push(entry.contract);
+    entriesById.set(entry.contract.id, entries);
+  }
   return resolveContractUses(contract, (alias, use, resolveOptions) => {
     const target = mergeCompatibleContractSurfaces(
-      contractStore.getKnownContractsById(use.contract),
+      entriesById.get(use.contract) ?? [],
     );
     if (!target) {
       if (!resolveOptions.required) {

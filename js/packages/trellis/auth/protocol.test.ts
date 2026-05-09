@@ -1,98 +1,63 @@
 import { assert, assertEquals, assertFalse } from "@std/assert";
 import Value from "typebox/value";
 
+import * as AuthProtocol from "./mod.ts";
+
 import {
-  AuthListUserGrantsResponseSchema as GeneratedAuthListUserGrantsResponseSchema,
-  AuthListUserGrantsSchema as GeneratedAuthListUserGrantsSchema,
+  AuthIdentitiesGrantsListResponseSchema
+    as GeneratedAuthIdentitiesGrantsListResponseSchema,
+  AuthIdentitiesGrantsListSchema as GeneratedAuthIdentitiesGrantsListSchema,
 } from "../models/auth/rpc/ListUserGrants.ts";
 import {
-  AuthRevokeUserGrantResponseSchema
-    as GeneratedAuthRevokeUserGrantResponseSchema,
-  AuthRevokeUserGrantSchema as GeneratedAuthRevokeUserGrantSchema,
+  AuthIdentityEnvelopesRevokeResponseSchema
+    as GeneratedAuthIdentityEnvelopesRevokeResponseSchema,
+  AuthIdentityEnvelopesRevokeSchema
+    as GeneratedAuthIdentityEnvelopesRevokeSchema,
 } from "../models/auth/rpc/RevokeUserGrant.ts";
 import {
-  AuthActivateDeviceProgressSchema,
-  AuthActivateDeviceResponseSchema,
-  AuthActivateDeviceSchema,
-  AuthClearDevicePortalSelectionResponseSchema,
-  AuthClearDevicePortalSelectionSchema,
-  AuthClearLoginPortalSelectionResponseSchema,
-  AuthClearLoginPortalSelectionSchema,
-  AuthCreateDeviceDeploymentResponseSchema,
-  AuthCreateDeviceDeploymentSchema,
-  AuthCreatePortalResponseSchema,
-  AuthCreatePortalSchema,
-  AuthCreateServiceDeploymentSchema,
-  AuthDecideDeviceActivationReviewResponseSchema,
-  AuthDecideDeviceActivationReviewSchema,
-  AuthDeviceActivatedEventSchema,
-  AuthDeviceActivationApprovedEventSchema,
-  AuthDeviceActivationRequestedEventSchema,
-  AuthDeviceActivationReviewRequestedEventSchema,
-  AuthDisableDeviceDeploymentResponseSchema,
-  AuthDisableDeviceDeploymentSchema,
-  AuthDisableDeviceInstanceResponseSchema,
-  AuthDisableDeviceInstanceSchema,
-  AuthDisableInstanceGrantPolicyResponseSchema,
-  AuthDisableInstanceGrantPolicySchema,
-  AuthDisablePortalProfileResponseSchema,
-  AuthDisablePortalProfileSchema,
-  AuthDisablePortalResponseSchema,
-  AuthDisablePortalSchema,
-  AuthGetDeviceConnectInfoResponseSchema,
-  AuthGetDeviceConnectInfoSchema,
-  AuthGetDevicePortalDefaultResponseSchema,
-  AuthGetDevicePortalDefaultSchema,
-  AuthGetLoginPortalDefaultResponseSchema,
-  AuthGetLoginPortalDefaultSchema,
-  AuthListDeviceActivationReviewsResponseSchema,
-  AuthListDeviceActivationReviewsSchema,
-  AuthListDeviceActivationsResponseSchema,
-  AuthListDeviceActivationsSchema,
-  AuthListDeviceDeploymentsResponseSchema,
-  AuthListDeviceDeploymentsSchema,
-  AuthListDeviceInstancesResponseSchema,
-  AuthListDeviceInstancesSchema,
-  AuthListDevicePortalSelectionsResponseSchema,
-  AuthListDevicePortalSelectionsSchema,
-  AuthListInstanceGrantPoliciesResponseSchema,
-  AuthListInstanceGrantPoliciesSchema,
-  AuthListLoginPortalSelectionsResponseSchema,
-  AuthListLoginPortalSelectionsSchema,
-  AuthListPortalProfilesResponseSchema,
-  AuthListPortalProfilesSchema,
-  AuthListPortalsResponseSchema,
-  AuthListPortalsSchema,
-  AuthListUserGrantsResponseSchema,
-  AuthListUserGrantsSchema,
-  AuthMeResponseSchema,
-  AuthProvisionDeviceInstanceResponseSchema,
-  AuthProvisionDeviceInstanceSchema,
-  AuthRevokeDeviceActivationResponseSchema,
-  AuthRevokeDeviceActivationSchema,
-  AuthRevokeUserGrantResponseSchema,
-  AuthRevokeUserGrantSchema,
-  AuthSetDevicePortalDefaultResponseSchema,
-  AuthSetDevicePortalDefaultSchema,
-  AuthSetDevicePortalSelectionResponseSchema,
-  AuthSetDevicePortalSelectionSchema,
-  AuthSetLoginPortalDefaultResponseSchema,
-  AuthSetLoginPortalDefaultSchema,
-  AuthSetLoginPortalSelectionResponseSchema,
-  AuthSetLoginPortalSelectionSchema,
-  AuthSetPortalProfileResponseSchema,
-  AuthSetPortalProfileSchema,
-  AuthUpsertInstanceGrantPolicyResponseSchema,
-  AuthUpsertInstanceGrantPolicySchema,
-  AuthValidateRequestResponseSchema,
+  AuthDeploymentsCreateResponseSchema,
+  AuthDeploymentsCreateSchema,
+  AuthDeploymentsDisableResponseSchema,
+  AuthDeploymentsDisableSchema,
+  AuthDeploymentsListResponseSchema,
+  AuthDeploymentsListSchema,
+  AuthDevicesConnectInfoGetResponseSchema,
+  AuthDevicesConnectInfoGetSchema,
+  AuthDevicesDisableResponseSchema,
+  AuthDevicesDisableSchema,
+  AuthDevicesListResponseSchema,
+  AuthDevicesListSchema,
+  AuthDevicesProvisionResponseSchema,
+  AuthDevicesProvisionSchema,
+  AuthDeviceUserAuthoritiesApprovedEventSchema,
+  AuthDeviceUserAuthoritiesListResponseSchema,
+  AuthDeviceUserAuthoritiesListSchema,
+  AuthDeviceUserAuthoritiesRequestedEventSchema,
+  AuthDeviceUserAuthoritiesResolvedEventSchema,
+  AuthDeviceUserAuthoritiesReviewRequestedEventSchema,
+  AuthDeviceUserAuthoritiesReviewsDecideResponseSchema,
+  AuthDeviceUserAuthoritiesReviewsDecideSchema,
+  AuthDeviceUserAuthoritiesReviewsListResponseSchema,
+  AuthDeviceUserAuthoritiesReviewsListSchema,
+  AuthDeviceUserAuthoritiesRevokeResponseSchema,
+  AuthDeviceUserAuthoritiesRevokeSchema,
+  AuthEnvelopeExpansionsListResponseSchema,
+  AuthEnvelopeExpansionsListSchema,
+  AuthIdentitiesGrantsListResponseSchema,
+  AuthIdentitiesGrantsListSchema,
+  AuthIdentityEnvelopesRevokeResponseSchema,
+  AuthIdentityEnvelopesRevokeSchema,
+  AuthRequestsValidateResponseSchema,
+  AuthResolveDeviceUserAuthoritiesProgressSchema,
+  AuthResolveDeviceUserAuthoritiesResponseSchema,
+  AuthResolveDeviceUserAuthoritiesSchema,
+  AuthSessionsMeResponseSchema,
   ContractApprovalSchema,
   DeviceConnectInfoSchema,
   DeviceDeploymentSchema,
   DeviceSchema,
-  InstanceGrantPolicySchema,
   NatsAuthTokenV1Schema,
   PortalFlowStateSchema,
-  PortalProfileSchema,
   ServiceDeploymentSchema,
 } from "./mod.ts";
 
@@ -155,110 +120,82 @@ Deno.test("auth schemas keep contractDigest consistently typed", () => {
   }));
 });
 
-Deno.test("deployment schemas split service resource bindings from device contracts", () => {
+Deno.test("deployment schemas validate clean deployment shapes", () => {
   const serviceDeployment = {
     deploymentId: "billing.default",
     namespaces: ["billing"],
-    firstConnectPolicy: "reject",
     disabled: false,
-    appliedContracts: [{
-      contractId: "billing@v1",
-      compatibilityPolicy: "exact",
-      allowedDigests: ["digest-a"],
-      resourceBindingsByDigest: {
-        "digest-a": {
-          kv: { cache: { bucket: "billing-cache", history: 1, ttlMs: 0 } },
-        },
-      },
-    }],
   };
   const deviceDeployment = {
     deploymentId: "reader.default",
     reviewMode: "none",
-    firstConnectPolicy: "reject",
-    preActivationPolicy: "reject",
     disabled: false,
-    appliedContracts: [{
-      contractId: "reader@v1",
-      compatibilityPolicy: "exact",
-      allowedDigests: ["digest-a"],
-      resourceBindingsByDigest: {
-        "digest-a": {
-          kv: { cache: { bucket: "reader-cache", history: 1, ttlMs: 0 } },
-        },
-      },
-    }],
   };
 
   assert(Value.Check(ServiceDeploymentSchema, serviceDeployment));
-  assertFalse(Value.Check(DeviceDeploymentSchema, deviceDeployment));
+  assert(Value.Check(DeviceDeploymentSchema, deviceDeployment));
 });
 
-Deno.test("deployment schemas default explicit strict deployment policies", () => {
-  assertEquals(
-    Value.Decode(ServiceDeploymentSchema, {
-      deploymentId: "billing.default",
-      namespaces: ["billing"],
-      disabled: false,
-      appliedContracts: [{
-        contractId: "billing@v1",
-        allowedDigests: ["digest-a"],
-      }],
-    }),
-    {
-      deploymentId: "billing.default",
-      namespaces: ["billing"],
-      firstConnectPolicy: "reject",
-      disabled: false,
-      appliedContracts: [{
-        contractId: "billing@v1",
-        compatibilityPolicy: "exact",
-        allowedDigests: ["digest-a"],
-      }],
-    },
-  );
-  assertEquals(
-    Value.Decode(DeviceDeploymentSchema, {
-      deploymentId: "reader.default",
-      disabled: false,
-      appliedContracts: [{
-        contractId: "reader@v1",
-        allowedDigests: ["digest-a"],
-      }],
-    }),
-    {
-      deploymentId: "reader.default",
-      firstConnectPolicy: "reject",
-      preActivationPolicy: "reject",
-      disabled: false,
-      appliedContracts: [{
-        contractId: "reader@v1",
-        compatibilityPolicy: "exact",
-        allowedDigests: ["digest-a"],
-      }],
-    },
-  );
+Deno.test("auth protocol no longer exposes legacy deployment policy schemas", () => {
+  assertFalse(Object.hasOwn(
+    AuthProtocol,
+    "AuthApplyServiceDeploymentContractSchema",
+  ));
+  assertFalse(Object.hasOwn(
+    AuthProtocol,
+    "AuthApplyServiceDeploymentContractResponseSchema",
+  ));
+  assertFalse(Object.hasOwn(
+    AuthProtocol,
+    "AuthUnapplyServiceDeploymentContractSchema",
+  ));
+  assertFalse(Object.hasOwn(
+    AuthProtocol,
+    "AuthUnapplyServiceDeploymentContractResponseSchema",
+  ));
+  assertFalse(Object.hasOwn(
+    AuthProtocol,
+    "AuthApplyDeviceDeploymentContractSchema",
+  ));
+  assertFalse(Object.hasOwn(
+    AuthProtocol,
+    "AuthApplyDeviceDeploymentContractResponseSchema",
+  ));
+  assertFalse(Object.hasOwn(
+    AuthProtocol,
+    "AuthUnapplyDeviceDeploymentContractSchema",
+  ));
+  assertFalse(Object.hasOwn(
+    AuthProtocol,
+    "AuthUnapplyDeviceDeploymentContractResponseSchema",
+  ));
+  assertFalse(Object.hasOwn(AuthProtocol, "AuthListInstalledContractsSchema"));
+  assertFalse(Object.hasOwn(
+    AuthProtocol,
+    "AuthListInstalledContractsResponseSchema",
+  ));
+  assertFalse(Object.hasOwn(AuthProtocol, "AuthGetInstalledContractSchema"));
+  assertFalse(Object.hasOwn(
+    AuthProtocol,
+    "AuthGetInstalledContractResponseSchema",
+  ));
+  assertFalse(Object.hasOwn(AuthProtocol, "InstalledContractSchema"));
+  assertFalse(Object.hasOwn(AuthProtocol, "InstalledContractDetailSchema"));
 });
 
-Deno.test("deployment policy schemas validate explicit policy values", () => {
-  assert(Value.Check(AuthCreateDeviceDeploymentSchema, {
-    deploymentId: "reader.default",
-    firstConnectPolicy: "quarantine",
-    preActivationPolicy: "device-owned",
-  }));
-  assert(Value.Check(AuthCreateServiceDeploymentSchema, {
-    deploymentId: "billing.default",
-    namespaces: ["billing"],
-    firstConnectPolicy: "auto-accept-compatible",
-  }));
-  assertFalse(Value.Check(AuthCreateDeviceDeploymentSchema, {
-    deploymentId: "reader.default",
-    firstConnectPolicy: "allow",
-  }));
-  assertFalse(Value.Check(AuthCreateDeviceDeploymentSchema, {
-    deploymentId: "reader.default",
-    preActivationPolicy: "allow",
-  }));
+Deno.test("deployment schemas no longer expose legacy policy fields", () => {
+  const serviceDeploymentSchema = JSON.stringify(ServiceDeploymentSchema);
+  const deviceDeploymentSchema = JSON.stringify(DeviceDeploymentSchema);
+
+  assertFalse(serviceDeploymentSchema.includes('"firstConnectPolicy"'));
+  assertFalse(serviceDeploymentSchema.includes('"compatibilityPolicy"'));
+  assertFalse(serviceDeploymentSchema.includes('"appliedContracts"'));
+  assertFalse(serviceDeploymentSchema.includes('"allowedDigests"'));
+  assertFalse(deviceDeploymentSchema.includes('"firstConnectPolicy"'));
+  assertFalse(deviceDeploymentSchema.includes('"preActivationPolicy"'));
+  assertFalse(deviceDeploymentSchema.includes('"compatibilityPolicy"'));
+  assertFalse(deviceDeploymentSchema.includes('"appliedContracts"'));
+  assertFalse(deviceDeploymentSchema.includes('"allowedDigests"'));
 });
 
 Deno.test("PortalFlowStateSchema accepts returnLocation for restartable portal states", () => {
@@ -295,8 +232,8 @@ Deno.test("PortalFlowStateSchema accepts returnLocation for restartable portal s
   }));
 });
 
-Deno.test("AuthValidateRequestResponseSchema validates device caller variants", () => {
-  assert(Value.Check(AuthValidateRequestResponseSchema, {
+Deno.test("AuthRequestsValidateResponseSchema validates device caller variants", () => {
+  assert(Value.Check(AuthRequestsValidateResponseSchema, {
     allowed: true,
     inboxPrefix: "_INBOX.session",
     caller: {
@@ -311,7 +248,7 @@ Deno.test("AuthValidateRequestResponseSchema validates device caller variants", 
       capabilities: ["admin"],
     },
   }));
-  assert(Value.Check(AuthValidateRequestResponseSchema, {
+  assert(Value.Check(AuthRequestsValidateResponseSchema, {
     allowed: true,
     inboxPrefix: "_INBOX.session",
     caller: {
@@ -322,7 +259,7 @@ Deno.test("AuthValidateRequestResponseSchema validates device caller variants", 
       capabilities: ["service"],
     },
   }));
-  assert(Value.Check(AuthValidateRequestResponseSchema, {
+  assert(Value.Check(AuthRequestsValidateResponseSchema, {
     allowed: true,
     inboxPrefix: "_INBOX.session",
     caller: {
@@ -335,7 +272,7 @@ Deno.test("AuthValidateRequestResponseSchema validates device caller variants", 
       capabilities: ["device.sync"],
     },
   }));
-  assertFalse(Value.Check(AuthValidateRequestResponseSchema, {
+  assertFalse(Value.Check(AuthRequestsValidateResponseSchema, {
     allowed: true,
     inboxPrefix: "_INBOX.session",
     caller: {
@@ -350,229 +287,67 @@ Deno.test("AuthValidateRequestResponseSchema validates device caller variants", 
   }));
 });
 
-Deno.test("portal, portal selection, and device admin schemas validate", () => {
-  assert(Value.Check(AuthListPortalsSchema, {}));
-  assert(Value.Check(AuthCreatePortalSchema, {
-    portalId: "portal-1",
-    entryUrl: "https://portal.example.com/auth",
+Deno.test("deployment and device admin schemas validate", () => {
+  assert(Value.Check(AuthDeploymentsCreateSchema, {
+    kind: "service",
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
   }));
-  assert(Value.Check(AuthCreatePortalResponseSchema, {
-    portal: {
-      portalId: "portal-1",
-      entryUrl: "https://portal.example.com/auth",
+  assert(Value.Check(AuthDeploymentsCreateResponseSchema, {
+    deployment: {
+      kind: "service",
+      deploymentId: "billing.default",
+      namespaces: ["billing"],
       disabled: false,
     },
   }));
-  assert(Value.Check(AuthListPortalsResponseSchema, { portals: [] }));
-  assert(Value.Check(AuthDisablePortalSchema, { portalId: "portal-1" }));
-  assert(Value.Check(AuthDisablePortalResponseSchema, { success: true }));
-  assert(Value.Check(AuthListPortalProfilesSchema, {}));
-  assert(
-    Value.Check(AuthListPortalProfilesResponseSchema, { profiles: [] }),
-  );
-  assert(Value.Check(AuthSetPortalProfileSchema, {
-    portalId: "portal-1",
-    entryUrl: "https://portal.example.com/auth",
-    contractId: "trellis.portal@v1",
-    allowedOrigins: ["https://portal.example.com"],
-  }));
-  assert(Value.Check(PortalProfileSchema, {
-    portalId: "portal-1",
-    entryUrl: "https://portal.example.com/auth",
-    contractId: "trellis.portal@v1",
-    allowedOrigins: ["https://portal.example.com"],
-    impliedCapabilities: ["auth.login"],
-    disabled: false,
-    createdAt: now,
-    updatedAt: now,
-  }));
-  assert(Value.Check(AuthSetPortalProfileResponseSchema, {
-    profile: {
-      portalId: "portal-1",
-      entryUrl: "https://portal.example.com/auth",
-      contractId: "trellis.portal@v1",
-      impliedCapabilities: ["auth.login"],
-      disabled: false,
-      createdAt: now,
-      updatedAt: now,
-    },
-  }));
-  assert(Value.Check(AuthDisablePortalProfileSchema, { portalId: "portal-1" }));
-  assert(Value.Check(AuthDisablePortalProfileResponseSchema, {
-    profile: {
-      portalId: "portal-1",
-      entryUrl: "https://portal.example.com/auth",
-      contractId: "trellis.portal@v1",
-      impliedCapabilities: ["auth.login"],
-      disabled: true,
-      createdAt: now,
-      updatedAt: now,
-    },
-  }));
-
-  assert(Value.Check(AuthGetLoginPortalDefaultSchema, {}));
-  assert(Value.Check(AuthGetLoginPortalDefaultResponseSchema, {
-    defaultPortal: { portalId: null },
-  }));
-  assert(Value.Check(AuthListInstanceGrantPoliciesSchema, {}));
-  assert(Value.Check(AuthListInstanceGrantPoliciesResponseSchema, {
-    policies: [],
-  }));
-  assert(Value.Check(AuthUpsertInstanceGrantPolicySchema, {
-    contractId: "trellis.console@v1",
-    allowedOrigins: ["https://app.example.com"],
-    impliedCapabilities: ["admin"],
-  }));
-  assert(Value.Check(InstanceGrantPolicySchema, {
-    contractId: "trellis.console@v1",
-    allowedOrigins: ["https://app.example.com"],
-    impliedCapabilities: ["admin"],
-    disabled: false,
-    createdAt: now,
-    updatedAt: now,
-    source: { kind: "admin_policy" },
-  }));
-  assert(Value.Check(InstanceGrantPolicySchema, {
-    contractId: "trellis.portal@v1",
-    allowedOrigins: ["https://portal.example.com"],
-    impliedCapabilities: ["auth.login"],
-    disabled: false,
-    createdAt: now,
-    updatedAt: now,
-    source: {
-      kind: "portal_profile",
-      portalId: "portal-1",
-      entryUrl: "https://portal.example.com/auth",
-    },
-  }));
-  assert(Value.Check(AuthUpsertInstanceGrantPolicyResponseSchema, {
-    policy: {
-      contractId: "trellis.console@v1",
-      impliedCapabilities: [],
-      disabled: false,
-      createdAt: now,
-      updatedAt: now,
-      source: { kind: "admin_policy" },
-    },
-  }));
-  assert(Value.Check(AuthDisableInstanceGrantPolicySchema, {
-    contractId: "trellis.console@v1",
-  }));
-  assert(Value.Check(AuthDisableInstanceGrantPolicyResponseSchema, {
-    policy: {
-      contractId: "trellis.console@v1",
-      impliedCapabilities: [],
-      disabled: true,
-      createdAt: now,
-      updatedAt: now,
-      source: { kind: "admin_policy" },
-    },
-  }));
-  assert(
-    Value.Check(AuthSetLoginPortalDefaultSchema, { portalId: "portal-1" }),
-  );
-  assert(Value.Check(AuthSetLoginPortalDefaultResponseSchema, {
-    defaultPortal: { portalId: "portal-1" },
-  }));
-  assert(Value.Check(AuthListLoginPortalSelectionsSchema, {}));
-  assert(
-    Value.Check(AuthListLoginPortalSelectionsResponseSchema, {
-      selections: [],
-    }),
-  );
-  assert(Value.Check(AuthSetLoginPortalSelectionSchema, {
-    contractId: "trellis.console@v1",
-    portalId: "portal-1",
-  }));
-  assert(Value.Check(AuthSetLoginPortalSelectionResponseSchema, {
-    selection: {
-      contractId: "trellis.console@v1",
-      portalId: "portal-1",
-    },
-  }));
-  assert(
-    Value.Check(AuthClearLoginPortalSelectionSchema, {
-      contractId: "trellis.console@v1",
-    }),
-  );
-  assert(
-    Value.Check(AuthClearLoginPortalSelectionResponseSchema, { success: true }),
-  );
-
-  assert(Value.Check(AuthGetDevicePortalDefaultSchema, {}));
-  assert(Value.Check(AuthGetDevicePortalDefaultResponseSchema, {
-    defaultPortal: { portalId: null },
-  }));
-  assert(
-    Value.Check(AuthSetDevicePortalDefaultSchema, { portalId: "portal-1" }),
-  );
-  assert(Value.Check(AuthSetDevicePortalDefaultResponseSchema, {
-    defaultPortal: { portalId: "portal-1" },
-  }));
-  assert(Value.Check(AuthListDevicePortalSelectionsSchema, {}));
-  assert(
-    Value.Check(AuthListDevicePortalSelectionsResponseSchema, {
-      selections: [],
-    }),
-  );
-  assert(Value.Check(AuthSetDevicePortalSelectionSchema, {
-    deploymentId: "reader.default",
-    portalId: null,
-  }));
-  assert(Value.Check(AuthSetDevicePortalSelectionResponseSchema, {
-    selection: {
-      deploymentId: "reader.default",
-      portalId: null,
-    },
-  }));
-  assert(
-    Value.Check(AuthClearDevicePortalSelectionSchema, {
-      deploymentId: "reader.default",
-    }),
-  );
-  assert(
-    Value.Check(AuthClearDevicePortalSelectionResponseSchema, {
-      success: true,
-    }),
-  );
-
-  assert(Value.Check(AuthCreateDeviceDeploymentSchema, {
+  assert(Value.Check(AuthDeploymentsCreateSchema, {
+    kind: "device",
     deploymentId: "reader.default",
     reviewMode: "none",
   }));
-  assert(Value.Check(AuthCreateDeviceDeploymentResponseSchema, {
+  assert(Value.Check(AuthDeploymentsCreateResponseSchema, {
     deployment: {
+      kind: "device",
       deploymentId: "reader.default",
       reviewMode: "none",
-      firstConnectPolicy: "reject",
-      preActivationPolicy: "reject",
       disabled: false,
-      appliedContracts: [],
     },
   }));
-  assert(Value.Check(AuthListDeviceDeploymentsSchema, {}));
+  assert(Value.Check(AuthDeploymentsListSchema, { limit: 10 }));
   assert(
-    Value.Check(AuthListDeviceDeploymentsResponseSchema, { deployments: [] }),
+    Value.Check(AuthDeploymentsListSchema, { kind: "service", limit: 10 }),
   );
   assert(
-    Value.Check(AuthDisableDeviceDeploymentSchema, {
+    Value.Check(AuthDeploymentsListResponseSchema, { deployments: [] }),
+  );
+  assert(Value.Check(AuthEnvelopeExpansionsListSchema, { limit: 10 }));
+  assert(Value.Check(AuthEnvelopeExpansionsListSchema, {
+    deploymentId: "billing.default",
+    limit: 10,
+    state: "pending",
+  }));
+  assert(Value.Check(AuthEnvelopeExpansionsListResponseSchema, {
+    requests: [],
+  }));
+  assert(
+    Value.Check(AuthDeploymentsDisableSchema, {
+      kind: "device",
       deploymentId: "reader.default",
     }),
   );
   assert(
-    Value.Check(AuthDisableDeviceDeploymentResponseSchema, {
+    Value.Check(AuthDeploymentsDisableResponseSchema, {
       deployment: {
+        kind: "device",
         deploymentId: "reader.default",
         reviewMode: "none",
-        firstConnectPolicy: "reject",
-        preActivationPolicy: "reject",
         disabled: true,
-        appliedContracts: [],
       },
     }),
   );
 
-  assert(Value.Check(AuthProvisionDeviceInstanceSchema, {
+  assert(Value.Check(AuthDevicesProvisionSchema, {
     deploymentId: "reader.default",
     publicIdentityKey: "A".repeat(43),
     activationKey: "B".repeat(43),
@@ -583,7 +358,7 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
       assetTag: "asset-42",
     },
   }));
-  assert(Value.Check(AuthProvisionDeviceInstanceResponseSchema, {
+  assert(Value.Check(AuthDevicesProvisionResponseSchema, {
     instance: {
       instanceId: "dev_1",
       publicIdentityKey: "A".repeat(43),
@@ -600,11 +375,11 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
       revokedAt: null,
     },
   }));
-  assert(Value.Check(AuthListDeviceInstancesSchema, {}));
-  assert(Value.Check(AuthListDeviceInstancesResponseSchema, { instances: [] }));
-  assert(Value.Check(AuthDisableDeviceInstanceSchema, { instanceId: "dev_1" }));
+  assert(Value.Check(AuthDevicesListSchema, { limit: 10 }));
+  assert(Value.Check(AuthDevicesListResponseSchema, { instances: [] }));
+  assert(Value.Check(AuthDevicesDisableSchema, { instanceId: "dev_1" }));
   assert(
-    Value.Check(AuthDisableDeviceInstanceResponseSchema, {
+    Value.Check(AuthDevicesDisableResponseSchema, {
       instance: {
         instanceId: "dev_1",
         publicIdentityKey: "A".repeat(43),
@@ -618,8 +393,8 @@ Deno.test("portal, portal selection, and device admin schemas validate", () => {
   );
 });
 
-Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", () => {
-  assert(Value.Check(AuthMeResponseSchema, {
+Deno.test("AuthSessionsMeResponseSchema validates user, device, and service envelopes", () => {
+  assert(Value.Check(AuthSessionsMeResponseSchema, {
     participantKind: "agent",
     user: {
       id: "123",
@@ -632,7 +407,7 @@ Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", 
     device: null,
     service: null,
   }));
-  assert(Value.Check(AuthMeResponseSchema, {
+  assert(Value.Check(AuthSessionsMeResponseSchema, {
     participantKind: "device",
     user: null,
     device: {
@@ -646,7 +421,7 @@ Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", 
     },
     service: null,
   }));
-  assert(Value.Check(AuthMeResponseSchema, {
+  assert(Value.Check(AuthSessionsMeResponseSchema, {
     participantKind: "service",
     user: null,
     device: null,
@@ -658,7 +433,7 @@ Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", 
       capabilities: ["service"],
     },
   }));
-  assert(Value.Check(AuthMeResponseSchema, {
+  assert(Value.Check(AuthSessionsMeResponseSchema, {
     participantKind: "app",
     user: {
       id: "123",
@@ -676,13 +451,23 @@ Deno.test("AuthMeResponseSchema validates user, device, and service envelopes", 
 });
 
 Deno.test("user grant schemas validate self-service grant rows", () => {
-  assert(Value.Check(AuthListUserGrantsSchema, {}));
-  assert(Value.Check(GeneratedAuthListUserGrantsSchema, {}));
-  assert(Value.Check(AuthListUserGrantsResponseSchema, {
+  assert(Value.Check(AuthIdentitiesGrantsListSchema, { limit: 10 }));
+  assert(Value.Check(GeneratedAuthIdentitiesGrantsListSchema, { limit: 10 }));
+  assertFalse(Value.Check(AuthIdentitiesGrantsListSchema, {}));
+  assertFalse(Value.Check(GeneratedAuthIdentitiesGrantsListSchema, {}));
+  assert(Value.Check(AuthIdentitiesGrantsListResponseSchema, {
     grants: [
       {
-        contractDigest: "digest_123",
-        contractId: "trellis.agent@v1",
+        identityEnvelopeId: "env_123",
+        identityAnchor: {
+          kind: "cli",
+          contractId: "trellis.agent@v1",
+          sessionPublicKey: "session-agent",
+        },
+        contractEvidence: {
+          contractDigest: "digest_123",
+          contractId: "trellis.agent@v1",
+        },
         displayName: "Trellis Agent",
         description: "Local delegated tooling",
         participantKind: "agent",
@@ -692,11 +477,19 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
       },
     ],
   }));
-  assert(Value.Check(GeneratedAuthListUserGrantsResponseSchema, {
+  assert(Value.Check(GeneratedAuthIdentitiesGrantsListResponseSchema, {
     grants: [
       {
-        contractDigest: "digest_123",
-        contractId: "trellis.agent@v1",
+        identityEnvelopeId: "env_123",
+        identityAnchor: {
+          kind: "cli",
+          contractId: "trellis.agent@v1",
+          sessionPublicKey: "session-agent",
+        },
+        contractEvidence: {
+          contractDigest: "digest_123",
+          contractId: "trellis.agent@v1",
+        },
         displayName: "Trellis Agent",
         description: "Local delegated tooling",
         participantKind: "agent",
@@ -706,23 +499,34 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
       },
     ],
   }));
-  assert(Value.Check(AuthRevokeUserGrantSchema, {
+  assert(Value.Check(AuthIdentityEnvelopesRevokeSchema, {
+    identityEnvelopeId: "env_123",
+  }));
+  assert(Value.Check(GeneratedAuthIdentityEnvelopesRevokeSchema, {
+    identityEnvelopeId: "env_123",
+  }));
+  assertFalse(Value.Check(AuthIdentityEnvelopesRevokeSchema, {
     contractDigest: "digest_123",
   }));
-  assert(Value.Check(GeneratedAuthRevokeUserGrantSchema, {
-    contractDigest: "digest_123",
-  }));
-  assert(Value.Check(AuthRevokeUserGrantResponseSchema, {
+  assert(Value.Check(AuthIdentityEnvelopesRevokeResponseSchema, {
     success: true,
   }));
-  assert(Value.Check(GeneratedAuthRevokeUserGrantResponseSchema, {
+  assert(Value.Check(GeneratedAuthIdentityEnvelopesRevokeResponseSchema, {
     success: true,
   }));
 
-  assertFalse(Value.Check(GeneratedAuthListUserGrantsResponseSchema, {
+  assertFalse(Value.Check(GeneratedAuthIdentitiesGrantsListResponseSchema, {
     grants: [{
-      contractDigest: "digest with spaces",
-      contractId: "trellis.agent@v1",
+      identityEnvelopeId: "env_123",
+      identityAnchor: {
+        kind: "cli",
+        contractId: "trellis.agent@v1",
+        sessionPublicKey: "session-agent",
+      },
+      contractEvidence: {
+        contractDigest: "digest with spaces",
+        contractId: "trellis.agent@v1",
+      },
       displayName: "Trellis Agent",
       description: "Local delegated tooling",
       participantKind: "agent",
@@ -731,10 +535,18 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
       updatedAt: now,
     }],
   }));
-  assertFalse(Value.Check(GeneratedAuthListUserGrantsResponseSchema, {
+  assertFalse(Value.Check(GeneratedAuthIdentitiesGrantsListResponseSchema, {
     grants: [{
-      contractDigest: "digest_123",
-      contractId: "",
+      identityEnvelopeId: "env_123",
+      identityAnchor: {
+        kind: "cli",
+        contractId: "trellis.agent@v1",
+        sessionPublicKey: "session-agent",
+      },
+      contractEvidence: {
+        contractDigest: "digest_123",
+        contractId: "",
+      },
       displayName: "Trellis Agent",
       description: "Local delegated tooling",
       participantKind: "agent",
@@ -743,7 +555,7 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
       updatedAt: now,
     }],
   }));
-  assertFalse(Value.Check(GeneratedAuthListUserGrantsResponseSchema, {
+  assertFalse(Value.Check(GeneratedAuthIdentitiesGrantsListResponseSchema, {
     grants: [{
       contractDigest: "digest_123",
       contractId: "trellis.agent@v1",
@@ -755,8 +567,17 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
       updatedAt: now,
     }],
   }));
-  assertFalse(Value.Check(GeneratedAuthRevokeUserGrantSchema, {
+  assertFalse(Value.Check(GeneratedAuthIdentityEnvelopesRevokeSchema, {
     contractDigest: "digest with spaces",
+  }));
+});
+
+Deno.test("identity envelope revoke schema rejects contractDigest authority", () => {
+  assertFalse(Value.Check(AuthIdentityEnvelopesRevokeSchema, {
+    contractDigest: "digest_123",
+  }));
+  assertFalse(Value.Check(GeneratedAuthIdentityEnvelopesRevokeSchema, {
+    contractDigest: "digest_123",
   }));
 });
 
@@ -802,40 +623,42 @@ Deno.test("device activation and connect-info schemas validate", () => {
     },
     auth: {
       mode: "device_identity",
-      authority: "device_owned",
+      authority: "admin_reviewed",
       iatSkewSeconds: 30,
       tokenVersion: 2,
     },
     rollout: "canary",
   }));
 
-  assert(Value.Check(AuthActivateDeviceSchema, { flowId: "flow_1" }));
-  assert(Value.Check(AuthActivateDeviceProgressSchema, {
+  assert(Value.Check(AuthResolveDeviceUserAuthoritiesSchema, {
+    flowId: "flow_1",
+  }));
+  assert(Value.Check(AuthResolveDeviceUserAuthoritiesProgressSchema, {
     status: "pending_review",
     reviewId: "dar_1",
     instanceId: "dev_1",
     deploymentId: "reader.default",
     requestedAt: now,
   }));
-  assert(Value.Check(AuthActivateDeviceResponseSchema, {
+  assert(Value.Check(AuthResolveDeviceUserAuthoritiesResponseSchema, {
     status: "activated",
     instanceId: "dev_1",
     deploymentId: "reader.default",
     activatedAt: now,
     confirmationCode: "ABCD1234",
   }));
-  assertFalse(Value.Check(AuthActivateDeviceResponseSchema, {
+  assertFalse(Value.Check(AuthResolveDeviceUserAuthoritiesResponseSchema, {
     status: "pending_review",
     reviewId: "dar_1",
     instanceId: "dev_1",
     deploymentId: "reader.default",
     requestedAt: now,
   }));
-  assert(Value.Check(AuthActivateDeviceResponseSchema, {
+  assert(Value.Check(AuthResolveDeviceUserAuthoritiesResponseSchema, {
     status: "rejected",
     reason: "policy_denied",
   }));
-  assert(Value.Check(AuthDeviceActivationReviewRequestedEventSchema, {
+  assert(Value.Check(AuthDeviceUserAuthoritiesReviewRequestedEventSchema, {
     reviewId: "dar_1",
     flowId: "flow_1",
     instanceId: "dev_1",
@@ -847,7 +670,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
       id: "123",
     },
   }));
-  assert(Value.Check(AuthDeviceActivationRequestedEventSchema, {
+  assert(Value.Check(AuthDeviceUserAuthoritiesRequestedEventSchema, {
     flowId: "flow_1",
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
@@ -858,7 +681,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
       id: "123",
     },
   }));
-  assert(Value.Check(AuthDeviceActivationApprovedEventSchema, {
+  assert(Value.Check(AuthDeviceUserAuthoritiesApprovedEventSchema, {
     reviewId: "dar_1",
     flowId: "flow_1",
     instanceId: "dev_1",
@@ -874,32 +697,32 @@ Deno.test("device activation and connect-info schemas validate", () => {
       id: "admin",
     },
   }));
-  assert(Value.Check(AuthDeviceActivatedEventSchema, {
+  assert(Value.Check(AuthDeviceUserAuthoritiesResolvedEventSchema, {
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
     deploymentId: "sherpa",
-    activatedAt: now,
-    activatedBy: {
+    resolvedAt: now,
+    resolvedBy: {
       origin: "github",
       id: "123",
     },
     flowId: "flow_1",
     reviewId: "dar_1",
   }));
-  assert(Value.Check(AuthGetDeviceConnectInfoSchema, {
+  assert(Value.Check(AuthDevicesConnectInfoGetSchema, {
     publicIdentityKey: "A".repeat(43),
     contractDigest: "digest-a",
     iat: 123,
     sig: "proof",
   }));
-  assertFalse(Value.Check(AuthGetDeviceConnectInfoSchema, {
+  assertFalse(Value.Check(AuthDevicesConnectInfoGetSchema, {
     publicIdentityKey: "A".repeat(43),
     contractDigest: "digest-a",
     iat: 123,
     sig: "proof",
     rollout: "canary",
   }));
-  assert(Value.Check(AuthGetDeviceConnectInfoResponseSchema, {
+  assert(Value.Check(AuthDevicesConnectInfoGetResponseSchema, {
     status: "ready",
     connectInfo: {
       instanceId: "dev_1",
@@ -923,32 +746,38 @@ Deno.test("device activation and connect-info schemas validate", () => {
     },
     requestId: "req_123",
   }));
-  assert(Value.Check(AuthListDeviceActivationsSchema, {
+  assert(Value.Check(AuthDeviceUserAuthoritiesListSchema, {
     instanceId: "dev_1",
+    limit: 10,
     state: "activated",
   }));
   assert(
-    Value.Check(AuthListDeviceActivationsResponseSchema, { activations: [] }),
+    Value.Check(AuthDeviceUserAuthoritiesListResponseSchema, {
+      activations: [],
+    }),
   );
   assert(
-    Value.Check(AuthRevokeDeviceActivationSchema, { instanceId: "dev_1" }),
+    Value.Check(AuthDeviceUserAuthoritiesRevokeSchema, { instanceId: "dev_1" }),
   );
   assert(
-    Value.Check(AuthRevokeDeviceActivationResponseSchema, { success: true }),
+    Value.Check(AuthDeviceUserAuthoritiesRevokeResponseSchema, {
+      success: true,
+    }),
   );
-  assert(Value.Check(AuthListDeviceActivationReviewsSchema, {
+  assert(Value.Check(AuthDeviceUserAuthoritiesReviewsListSchema, {
     deploymentId: "reader.default",
+    limit: 10,
     state: "pending",
   }));
-  assert(Value.Check(AuthListDeviceActivationReviewsResponseSchema, {
+  assert(Value.Check(AuthDeviceUserAuthoritiesReviewsListResponseSchema, {
     reviews: [],
   }));
-  assert(Value.Check(AuthDecideDeviceActivationReviewSchema, {
+  assert(Value.Check(AuthDeviceUserAuthoritiesReviewsDecideSchema, {
     reviewId: "dar_1",
     decision: "approve",
     reason: "approved_by_policy",
   }));
-  assert(Value.Check(AuthDecideDeviceActivationReviewResponseSchema, {
+  assert(Value.Check(AuthDeviceUserAuthoritiesReviewsDecideResponseSchema, {
     review: {
       reviewId: "dar_1",
       instanceId: "dev_1",

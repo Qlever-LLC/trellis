@@ -4,16 +4,12 @@ use std::io::{self, Write};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use miette::IntoDiagnostic;
-use serde_json::{json, Value};
+use serde_json::json;
 use trellis_auth as authlib;
 use trellis_client::SessionAuth;
 
-use crate::app::{
-    connect_authenticated_cli_client, contract_review_rows, generate_session_keypair,
-    json_value_label, prompt_for_confirmation,
-};
+use crate::app::{connect_authenticated_cli_client, generate_session_keypair, json_value_label};
 use crate::cli::*;
-use crate::contract_input::resolve_contract_input;
 use crate::output;
 
 const DEVICE_NAME_METADATA_KEY: &str = "name";
@@ -25,8 +21,6 @@ pub(super) async fn run(format: OutputFormat, command: DeployCommand) -> miette:
         DeploySubcommand::List(args) => list_command(format, &args).await,
         DeploySubcommand::Show(args) => show_command(format, &args.reference).await,
         DeploySubcommand::Create(args) => create_command(format, &args).await,
-        DeploySubcommand::Apply(args) => apply_command(format, &args).await,
-        DeploySubcommand::Unapply(args) => unapply_command(format, &args).await,
         DeploySubcommand::Disable(args) => toggle_command(format, &args.reference, false).await,
         DeploySubcommand::Enable(args) => toggle_command(format, &args.reference, true).await,
         DeploySubcommand::Remove(args) => remove_command(format, &args).await,
@@ -69,19 +63,18 @@ async fn list_command(format: OutputFormat, args: &DeployListArgs) -> miette::Re
                     vec![
                         format!("svc/{}", deployment.deployment_id),
                         deployment.disabled.to_string(),
-                        deployment.applied_contracts.len().to_string(),
                         deployment.namespaces.join(", "),
                     ]
                 })
                 .collect::<Vec<_>>();
             println!(
                 "{}",
-                output::table(&["ref", "disabled", "contracts", "namespaces"], rows)
+                output::table(&["ref", "disabled", "namespaces"], rows)
             );
         }
         DeployKindArg::Dev => {
             let mut deployments = auth_client
-                .list_device_deployments(args.contract.as_deref(), args.disabled)
+                .list_device_deployments(args.disabled)
                 .await
                 .into_diagnostic()?;
             if output::is_json(format) {
@@ -95,7 +88,6 @@ async fn list_command(format: OutputFormat, args: &DeployListArgs) -> miette::Re
                     vec![
                         format!("dev/{}", deployment.deployment_id),
                         deployment.disabled.to_string(),
-                        deployment.applied_contracts.len().to_string(),
                         deployment
                             .review_mode
                             .as_ref()
@@ -104,10 +96,7 @@ async fn list_command(format: OutputFormat, args: &DeployListArgs) -> miette::Re
                     ]
                 })
                 .collect::<Vec<_>>();
-            println!(
-                "{}",
-                output::table(&["ref", "disabled", "contracts", "review"], rows)
-            );
+            println!("{}", output::table(&["ref", "disabled", "review"], rows));
         }
     }
     Ok(())
@@ -129,7 +118,7 @@ async fn show_command(format: OutputFormat, reference: &DeployRef) -> miette::Re
         }
         DeployKind::Device => {
             let deployment = auth_client
-                .list_device_deployments(None, false)
+                .list_device_deployments(false)
                 .await
                 .into_diagnostic()?
                 .into_iter()
@@ -147,10 +136,7 @@ async fn create_command(format: OutputFormat, args: &DeployCreateArgs) -> miette
     match args.reference.kind {
         DeployKind::Service => {
             let deployment = auth_client
-                .create_service_deployment(&authlib::AuthCreateServiceDeploymentRequest {
-                    deployment_id: args.reference.id.clone(),
-                    namespaces: args.namespaces.clone(),
-                })
+                .create_service_deployment(&args.reference.id, args.namespaces.clone())
                 .await
                 .into_diagnostic()?;
             print_deployment_result(format, "service deployment created", &deployment)?;
@@ -159,130 +145,11 @@ async fn create_command(format: OutputFormat, args: &DeployCreateArgs) -> miette
             let deployment = auth_client
                 .create_device_deployment(
                     &args.reference.id,
-                    Some(args.review_mode.as_wire_value()),
-                    None,
+                    args.review_mode.as_optional_wire_value(),
                 )
                 .await
                 .into_diagnostic()?;
             print_deployment_result(format, "device deployment created", &deployment)?;
-        }
-    }
-    Ok(())
-}
-
-async fn apply_command(format: OutputFormat, args: &DeployApplyArgs) -> miette::Result<()> {
-    let resolved = resolve_contract_input(
-        args.contract.manifest.as_deref(),
-        args.contract.source.as_deref(),
-        args.contract.image.as_deref(),
-        &args.contract.source_export,
-        &args.contract.image_contract_path,
-    )?;
-    let loaded = &resolved.loaded;
-    let contract = loaded
-        .value
-        .as_object()
-        .cloned()
-        .map(|contract| contract.into_iter().collect::<BTreeMap<String, Value>>())
-        .ok_or_else(|| miette::miette!("contract payload must be a JSON object"))?;
-    miette::ensure!(
-        !output::is_json(format) || args.force,
-        "use -f with --format json to skip the interactive apply review"
-    );
-    if !output::is_json(format) {
-        output::print_info("Apply review");
-        let mut rows = contract_review_rows(loaded);
-        rows.push(vec!["deployment".to_string(), ref_label(&args.reference)]);
-        println!("{}", output::table(&["field", "value"], rows));
-        if !args.force
-            && !prompt_for_confirmation(&format!(
-                "Proceed with applying digest {} to {}?",
-                loaded.digest,
-                ref_label(&args.reference)
-            ))?
-        {
-            return Err(miette::miette!("deployment apply cancelled"));
-        }
-    }
-
-    let (_state, connected) = connect_authenticated_cli_client(format).await?;
-    let auth_client = authlib::AuthClient::new(&connected);
-    match args.reference.kind {
-        DeployKind::Service => {
-            let response = auth_client
-                .apply_service_deployment_contract(
-                    &authlib::AuthApplyServiceDeploymentContractRequest {
-                        deployment_id: args.reference.id.clone(),
-                        contract,
-                        expected_digest: loaded.digest.clone(),
-                        replace_existing: args.replace.then_some(true),
-                    },
-                )
-                .await
-                .into_diagnostic()?;
-            if output::is_json(format) {
-                output::print_json(&response)?;
-            } else {
-                output::print_success("service contract applied");
-                println!("deployment={}", ref_label(&args.reference));
-                println!("contract={}", response.contract.id);
-                println!("digest={}", response.contract.digest);
-            }
-        }
-        DeployKind::Device => {
-            let response = auth_client
-                .apply_device_deployment_contract(
-                    &authlib::AuthApplyDeviceDeploymentContractRequest {
-                        deployment_id: args.reference.id.clone(),
-                        contract,
-                        expected_digest: loaded.digest.clone(),
-                        replace_existing: args.replace.then_some(true),
-                    },
-                )
-                .await
-                .into_diagnostic()?;
-            if output::is_json(format) {
-                output::print_json(&response)?;
-            } else {
-                output::print_success("device contract applied");
-                println!("deployment={}", ref_label(&args.reference));
-                println!("contract={}", response.contract.id);
-                println!("digest={}", response.contract.digest);
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn unapply_command(format: OutputFormat, args: &DeployUnapplyArgs) -> miette::Result<()> {
-    let (_state, connected) = connect_authenticated_cli_client(format).await?;
-    let auth_client = authlib::AuthClient::new(&connected);
-    match args.reference.kind {
-        DeployKind::Service => {
-            let response = auth_client
-                .unapply_service_deployment_contract(
-                    &authlib::AuthUnapplyServiceDeploymentContractRequest {
-                        deployment_id: args.reference.id.clone(),
-                        contract_id: args.contract_id.clone(),
-                        digests: (!args.digests.is_empty()).then_some(args.digests.clone()),
-                    },
-                )
-                .await
-                .into_diagnostic()?;
-            output::print_json(&response)?;
-        }
-        DeployKind::Device => {
-            let response = auth_client
-                .unapply_device_deployment_contract(
-                    &authlib::AuthUnapplyDeviceDeploymentContractRequest {
-                        deployment_id: args.reference.id.clone(),
-                        contract_id: args.contract_id.clone(),
-                        digests: (!args.digests.is_empty()).then_some(args.digests.clone()),
-                    },
-                )
-                .await
-                .into_diagnostic()?;
-            output::print_json(&response)?;
         }
     }
     Ok(())
@@ -334,7 +201,6 @@ async fn remove_command(format: OutputFormat, args: &DeployRemoveArgs) -> miette
                     &args.reference.id,
                     authlib::RemoveServiceDeploymentOptions {
                         cascade: args.cascade.then_some(true),
-                        purge_resources: args.should_purge_resources().then_some(true),
                         purge_unused_contracts: args
                             .should_purge_unused_contracts()
                             .then_some(true),
@@ -416,7 +282,7 @@ async fn provision_command(format: OutputFormat, args: &DeployProvisionArgs) -> 
                     (seed, key, true)
                 };
             let instance = auth_client
-                .provision_service_instance(&authlib::AuthProvisionServiceInstanceRequest {
+                .provision_service_instance(&authlib::AuthServiceInstancesProvisionRequest {
                     deployment_id: args.reference.id.clone(),
                     instance_key,
                 })

@@ -31,10 +31,12 @@ const SessionRowBaseSchema = {
   lastAuth: Type.String(),
 };
 
-export const AuthListSessionsSchema = Type.Object({
+export const AuthSessionsListSchema = Type.Object({
   user: Type.Optional(Type.String()),
+  offset: Type.Optional(Type.Integer({ minimum: 0 })),
+  limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
-export type AuthListSessionsInput = Static<typeof AuthListSessionsSchema>;
+export type AuthSessionsListInput = Static<typeof AuthSessionsListSchema>;
 
 export const AuthSessionRowSchema = Type.Union([
   Type.Object({
@@ -66,9 +68,9 @@ export const AuthSessionRowSchema = Type.Union([
 ]);
 export type AuthSessionRow = Static<typeof AuthSessionRowSchema>;
 
-export const AuthListSessionsResponseSchema = Type.Object({
+export const AuthSessionsListResponseSchema = Type.Object({
   sessions: Type.Array(AuthSessionRowSchema),
 });
-export type AuthListSessionsResponse = Static<
-  typeof AuthListSessionsResponseSchema
+export type AuthSessionsListResponse = Static<
+  typeof AuthSessionsListResponseSchema
 >;

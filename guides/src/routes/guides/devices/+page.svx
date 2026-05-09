@@ -9,13 +9,15 @@ Before starting, review [Trellis Concepts](/guides/concepts) and [Tutorial: Writ
 
 ## How devices work
 
-Devices follow a provision-and-activate lifecycle:
+Devices follow a provision, lifecycle, envelope, and authority model:
 
 1. A Trellis admin provisions a device secret. Trellis stores the public identity key and activation key, and the root secret is transferred to the device for storage.
 2. When a device starts up, the root secret is used to generate an activation URL or QR code.
 3. A Trellis user follows that link to a Trellis portal, completes any product-specific activation flow, and may trigger a privileged review step.
-4. Trellis returns connect info to the device once deployment policy allows the presented digest.
+4. Trellis returns connect info only when the device is registered, its lifecycle state allows runtime access, and the presented contract evidence fits the deployment envelope.
 5. The device connects as its own principal using its derived device identity.
+
+Activation adds user-delegated authority. Admin review can grant setup authority for registered devices that need runtime access before user delegation, but neither path bypasses registration, lifecycle, or envelope-fit checks.
 
 The device root secret and derived identity seed never go over the wire and are not known by Trellis, which limits the risk of a stolen identity.
 
@@ -65,29 +67,32 @@ import { myDevice } from "./contracts/my_device.ts";
 
 const rootSecret = await Deno.readTextFile("./secrets/root.secret");
 
-const activation = await checkDeviceActivation({
+const authority = await checkDeviceActivation({
   trellisUrl: "http://localhost:3000",
   contract: myDevice,
   rootSecret,
 });
 
-if (activation.status === "not_ready") {
-  throw new Error(`Device is not ready: ${activation.reason}`);
+if (authority.status === "not_ready") {
+  throw new Error(`Device user authority is not ready: ${authority.reason}`);
 }
 
-if (activation.status === "activation_required") {
-  console.log(`Open this URL to activate the device: ${activation.activationUrl}`);
+if (authority.status !== "activated") {
+  console.log(`Open this URL to resolve user authority: ${authority.activationUrl}`);
 
   const confirmationCode = prompt(
-    "Enter a confirmation code for offline activation, or press Cancel to wait for online approval.",
+    "Enter a confirmation code for offline approval, or press Cancel to wait for online approval.",
   );
 
   if (confirmationCode && confirmationCode.trim().length > 0) {
-    await activation.acceptConfirmationCode(confirmationCode);
+    await authority.acceptConfirmationCode(confirmationCode);
   } else {
-    await activation.waitForOnlineApproval();
+    await authority.waitForOnlineApproval();
   }
 }
+
+// Activation resolves user-delegated authority. Runtime access still requires
+// current registration, lifecycle, and deployment-envelope checks during connect.
 
 const trellis = await TrellisDevice.connect({
   trellisUrl: "http://localhost:3000",
@@ -103,7 +108,7 @@ That activation-status check covers the normal device startup cases:
 1. already activated: connect immediately after fetching fresh connect info
 2. first online activation: return an activation URL and wait for approval
 3. first offline activation: accept a confirmation code from local user input
-4. pre-activation device-owned access: connect before activation only when the device deployment explicitly allows it
+4. admin-reviewed setup access: connect before activation only when registration, lifecycle state, and the device deployment envelope allow the presented contract evidence
 
 For Deno devices, the activation helper hides local activation-state persistence
 internally so the same activation attempt can survive restart without the
@@ -111,29 +116,28 @@ application managing pending activation details directly.
 
 ## 4. Create the device deployment
 
-Once the code shape is clear, create the server-side device deployment and apply the device contract to it.
+Once the code shape is clear, create the server-side device deployment and expand its envelope with the device contract.
 
 ```sh
 trellis deploy create dev/my-device.standard --review-mode none
-trellis deploy apply dev/my-device.standard --source ./contracts/my_device.ts
 ```
 
 Notes:
 
 - the `dev/<id>` reference names the admin-chosen deployment for this device line or rollout policy
-- `trellis deploy apply` accepts a contract source path, manifest, or image and stores the resolved digest in the deployment's allowed digest set
+- use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add the contract boundary to the deployment envelope
 - `--review-mode required` enables the device-review gate instead of immediate activation
-- device deployments default to `preActivationPolicy: "reject"`; only deployments explicitly configured as `"device-owned"` allow registered devices to connect before activation
+- registered devices connect only when the presented contract evidence fits the enabled device deployment envelope
 
 If the device deployment uses `--review-mode required`, portal completion does not activate the device immediately. Instead, a service or user with `trellis.auth::device.review` capabilities or an admin must first approve the activation.
 
-Pre-activation device-owned access is for devices that need deployment-owned
-runtime authority before a user delegates authority through activation. In that
-mode, `checkDeviceActivation(...)` can receive ready connect info for a
-registered device, and the returned connect info carries
-`auth.authority: "device_owned"`. After activation, the same device connects
+Admin-reviewed setup access is for devices that need deployment-owned runtime
+authority before a user delegates authority through activation. In that mode,
+`checkDeviceActivation(...)` can receive ready connect info for a registered
+device, and the returned connect info carries
+`auth.authority: "admin_reviewed"`. After activation, the same device connects
 with `auth.authority: "user_delegated"`. Trellis keeps those authorities
-separate and does not create or mutate activation records for device-owned
+separate and does not create or mutate activation records for admin-reviewed
 runtime sessions.
 
 An admin can approve a pending activation review using the CLI:
@@ -146,9 +150,10 @@ trellis deploy review list
 trellis deploy review approve dar_123456789
 ```
 
-After approval or rejection, Trellis completes the original `Auth.ActivateDevice`
-operation that the portal started. Devices and portals should continue watching or
-waiting on that operation rather than polling a separate review-status RPC.
+After approval or rejection, Trellis completes the original
+`Auth.DeviceUserAuthorities.Resolve` operation that the portal started. Devices
+and portals should continue watching or waiting on that operation rather than
+polling a separate review-status RPC.
 Internally, the activation handler records `pending_review` progress and returns
 `op.defer()` so the handler can settle while the durable operation remains open
 for the later review decision. The review job resumes the operation with the
@@ -185,21 +190,22 @@ trellis deploy instances dev --show-metadata
 
 The default table shows `name`, `serial`, and `model` when present. `--show-metadata` adds a column for the remaining opaque metadata.
 
-## 6. Roll out a new contract digest
+## 6. Roll out a new contract boundary
 
-```sh
-trellis deploy apply dev/my-device.standard --source ./contracts/my_device.ts
-```
+Use the Console Envelopes page or `Auth.Envelopes.Expand` to add the new device
+contract boundary to the deployment envelope before rolling out runtimes that
+present it.
 
-When a deployment needs to allow multiple digests for one contract lineage during rollout, Trellis stores those rollout allow-list entries in `allowedDigests` behind the device deployment. A presented digest must be known for that lineage and allowed by the deployment; Trellis rejects unknown or retired digests instead of silently choosing another allowed digest. The allow-list is deployment rollout state, not a claim that every listed digest is currently projected as active catalog status.
-
-The same exact-digest rule applies to services: a service process reconnecting to NATS must present the digest currently persisted on its service instance, and that digest must still be allowed by the parent deployment. This keeps mixed device and service rollouts explicit and prevents stale binaries from inheriting permissions for a newer digest.
+Trellis stores contract evidence for audit and repeat bootstrap, but authority is
+the modeled deployment envelope. A presented device or service contract must fit
+the enabled parent deployment envelope; Trellis rejects unknown or unavailable
+boundaries instead of accepting a digest from a deployment allow-list.
 
 Same-lineage device rollouts must keep duplicate RPC, operation, event, and job surfaces schema-compatible. Optional additive fields are safe only for open object payloads; required-field changes, closed object additions, and unsupported non-identical schema constructs are rejected before Trellis projects the active catalog.
 
-Use `trellis deploy apply` to allow a new digest and `trellis deploy unapply` to retire old digests only after deployed device runtimes no longer present that digest. Trellis does not track this through per-instance current contract fields.
-
-If the device contract has not been installed yet, use the same contract source path with `trellis deploy apply`; Trellis will store the digest in the catalog as part of application.
+Shrink the deployment envelope only after deployed device runtimes no longer need
+the old boundary. Envelope shrink previews affected sessions and requests before
+committing the change.
 
 ## 7. Revoke an activated device
 

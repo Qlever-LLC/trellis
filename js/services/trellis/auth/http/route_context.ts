@@ -3,32 +3,34 @@ import { isErr } from "@qlever-llc/result";
 import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
 
 import type { Config } from "../../config.ts";
-import type { ContractStore } from "../../catalog/store.ts";
+import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
 import { randomToken } from "../crypto.ts";
 import type { Provider } from "../providers/index.ts";
 import { createProviders } from "../providers/registry.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
-import {
-  type InstanceGrantPolicy,
-  type PendingAuth,
-  type Session,
-  type SessionApprovalSource,
+import type {
+  IdentityEnvelopeRecord,
+  PendingAuth,
+  Session,
+  SessionApprovalSource,
 } from "../schemas.ts";
 import { ensureBoundUserSession } from "../session/bind.ts";
 import { upsertUserProjectionInSql } from "../session/projection.ts";
 import type {
-  SqlContractApprovalRepository,
+  SqlDeploymentContractEvidenceRepository,
+  SqlDeploymentEnvelopeRepository,
+  SqlDeploymentGrantOverrideRepository,
+  SqlDeploymentPortalRouteRepository,
+  SqlDeploymentResourceBindingRepository,
   SqlDeviceActivationRepository,
   SqlDeviceActivationReviewRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
-  SqlDevicePortalSelectionRepository,
   SqlDeviceProvisioningSecretRepository,
-  SqlLoginPortalSelectionRepository,
-  SqlPortalDefaultRepository,
-  SqlPortalRepository,
+  SqlEnvelopeExpansionRequestRepository,
+  SqlIdentityEnvelopeRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlUserProjectionRepository,
@@ -44,9 +46,9 @@ import {
   buildAppIdentity,
   getApprovalResolution,
   getApprovalResolutionBlocker,
-  parseContractApprovalKey,
+  identityAnchorForApp,
+  identityEnvelopeIdForAnchor,
   type PendingAuthEntry,
-  resolveLoginPortal,
 } from "./support.ts";
 
 export type HttpRouteRuntimeDeps = Pick<
@@ -64,11 +66,8 @@ export type HttpRouteRuntimeDeps = Pick<
 export type AuthHttpRouteOptions = {
   contractStorage: SqlContractStorageRepository;
   userStorage: SqlUserProjectionRepository;
-  contractApprovalStorage: SqlContractApprovalRepository;
-  portalStorage: SqlPortalRepository;
-  portalDefaultStorage: SqlPortalDefaultRepository;
-  loginPortalSelectionStorage: SqlLoginPortalSelectionRepository;
-  devicePortalSelectionStorage: SqlDevicePortalSelectionRepository;
+  contractApprovalStorage: SqlIdentityEnvelopeRepository;
+  deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
   serviceInstanceStorage: SqlServiceInstanceRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
@@ -76,12 +75,22 @@ export type AuthHttpRouteOptions = {
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceActivationReviewStorage: SqlDeviceActivationReviewRepository;
   deviceProvisioningSecretStorage: SqlDeviceProvisioningSecretRepository;
+  deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+  deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
+  deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
+  deploymentContractEvidenceStorage: SqlDeploymentContractEvidenceRepository;
+  envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
   config: Config;
   kick: (serverId: string, clientId: number) => Promise<void>;
-  loadEffectiveGrantPolicies: (
-    contractId: string,
-  ) => Promise<InstanceGrantPolicy[]>;
-  contractStore: ContractStore;
+  contracts: Pick<
+    ContractsModule,
+    | "getActiveEntries"
+    | "getActiveContractsById"
+    | "getContract"
+    | "getKnownContract"
+    | "getKnownContractsById"
+    | "validateContract"
+  >;
   providers?: Record<string, Provider>;
   runtimeDeps: HttpRouteRuntimeDeps;
 };
@@ -112,6 +121,15 @@ export type BrowserFlowRecord = {
 
 type ApprovalResolution = Awaited<ReturnType<typeof getApprovalResolution>>;
 
+function isIdentityEnvelopeRecord(
+  value: unknown,
+): value is IdentityEnvelopeRecord {
+  return !!value && typeof value === "object" &&
+    "identityEnvelopeId" in value &&
+    typeof value.identityEnvelopeId === "string" &&
+    "userTrellisId" in value && typeof value.userTrellisId === "string";
+}
+
 export type AuthHttpRouteContext = ReturnType<
   typeof createAuthHttpRouteContext
 >;
@@ -128,27 +146,33 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     sessionStorage,
   } = opts.runtimeDeps;
   const providers = opts.providers ?? createProviders(config);
+  const contractApprovalStorage: {
+    listByUser?: (trellisId: string) => Promise<IdentityEnvelopeRecord[]>;
+    list?: () => Promise<unknown[]>;
+  } = opts.contractApprovalStorage;
   const approvalResolutionDeps = {
-    loadStoredApproval: async (key: string) => {
-      const approvalKey = parseContractApprovalKey(key);
-      if (!approvalKey) return null;
-      return await opts.contractApprovalStorage.get(
-        approvalKey.userTrellisId,
-        approvalKey.contractDigest,
-      ) ?? null;
-    },
     loadUserProjection: async (trellisId: string) => {
       return await opts.userStorage.get(trellisId) ?? null;
     },
-    loadInstanceGrantPolicies: async (contractId: string) => {
-      return await opts.loadEffectiveGrantPolicies(contractId);
+    loadDeploymentEnvelopes: async () =>
+      await opts.deploymentEnvelopeStorage.listEnabled(),
+    loadDeploymentGrantOverrides: async (deploymentId: string) =>
+      await opts.deploymentGrantOverrideStorage.listByDeployment(deploymentId),
+    loadIdentityEnvelopesByUser: async (trellisId: string) => {
+      if (contractApprovalStorage.listByUser) {
+        return await contractApprovalStorage.listByUser(trellisId);
+      }
+      const envelopes = await contractApprovalStorage.list?.() ?? [];
+      return envelopes.filter(isIdentityEnvelopeRecord).filter((envelope) =>
+        envelope.userTrellisId === trellisId
+      );
     },
   };
 
   async function requireApprovalResolution(pending: PendingAuth) {
     try {
       return await getApprovalResolution(
-        opts.contractStore,
+        opts.contracts,
         pending,
         approvalResolutionDeps,
       );
@@ -197,14 +221,14 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     contract: Record<string, unknown>,
   ): Promise<string | null> {
     const contractId = typeof contract.id === "string" ? contract.id : null;
-    const resolved = resolveLoginPortal({
-      contractId: contractId ?? "",
-      portals: await opts.portalStorage.list(),
-      defaultPortalId: (await opts.portalDefaultStorage.getLogin())?.portalId,
-      selections: await opts.loginPortalSelectionStorage.list(),
-    });
-    if (resolved.kind === "custom") {
-      return resolved.portal.entryUrl;
+    if (contractId) {
+      const envelopes = await opts.deploymentEnvelopeStorage
+        .listEnabledByContractId(contractId);
+      const route = await opts.deploymentPortalRouteStorage
+        .getFirstEnabledForDeployments(
+          envelopes.map((envelope) => envelope.deploymentId),
+        );
+      if (route?.entryUrl) return route.entryUrl;
     }
 
     return builtinPortalEntryUrl("/_trellis/portal/users/login");
@@ -229,9 +253,13 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
       ...(session.image ? { image: session.image } : {}),
       contractId: session.contractId,
       ...(session.app ? { app: session.app } : {}),
+      sessionPublicKey: sessionKey,
       delegatedCapabilities: session.delegatedCapabilities,
       delegatedPublishSubjects: session.delegatedPublishSubjects,
       delegatedSubscribeSubjects: session.delegatedSubscribeSubjects,
+      ...(session.identityEnvelope
+        ? { identityEnvelope: session.identityEnvelope }
+        : {}),
       ...(session.approvalSource
         ? { approvalSource: session.approvalSource }
         : {}),
@@ -245,7 +273,7 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     consumePending?: () => Promise<boolean>;
   }): Promise<AuthStartBoundResponse> {
     const now = new Date();
-    const validatedContract = await opts.contractStore.validate(
+    const validatedContract = await opts.contracts.validateContract(
       args.resolution.plan.contract,
     );
     const existingContract = await opts.contractStorage.get(
@@ -261,10 +289,6 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
         contract: validatedContract.canonical,
       });
     }
-    opts.contractStore.add(
-      validatedContract.digest,
-      validatedContract.contract,
-    );
     const trellisId = args.resolution.trellisId;
     await upsertUserProjectionInSql(opts.userStorage, {
       origin: args.pendingValue.user.origin,
@@ -282,17 +306,27 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
       }
     }
 
+    let storedApproval = args.resolution.storedApproval;
     if (
       args.approvalSource === "stored_approval" &&
-      !args.resolution.storedApproval
+      !storedApproval
     ) {
       const updatedResolution = applyApprovalDecision({
         resolution: args.resolution,
         approved: true,
         answeredAt: now,
       });
-      await opts.contractApprovalStorage.put(updatedResolution.storedApproval);
+      storedApproval = updatedResolution.storedApproval;
+      await opts.contractApprovalStorage.put(storedApproval);
     }
+
+    const app = args.resolution.app ?? {
+      contractId: args.resolution.plan.contract.id,
+    };
+    const identityAnchor = storedApproval?.identityAnchor ??
+      identityAnchorForApp(app, args.pendingValue.sessionKey);
+    const identityEnvelopeId = storedApproval?.identityEnvelopeId ??
+      identityEnvelopeIdForAnchor(trellisId, identityAnchor);
 
     const sessionEnsured = await ensureBoundUserSession({
       sessionStorage,
@@ -313,6 +347,7 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
             participantKind: "app" | "agent";
           }
       ).participantKind,
+      identityEnvelopeId,
       contractDigest: args.resolution.plan.digest,
       contractId: args.resolution.plan.contract.id,
       contractDisplayName: args.resolution.plan.contract.displayName,
@@ -320,8 +355,11 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
       ...(args.resolution.app ? { app: args.resolution.app } : {}),
       ...(args.approvalSource
         ? { approvalSource: args.approvalSource }
-        : args.resolution.effectiveApproval.kind !== "none"
-        ? { approvalSource: args.resolution.effectiveApproval.kind }
+        : args.resolution.effectiveApproval.kind === "stored_approval"
+        ? { approvalSource: "stored_approval" as const }
+        : {}),
+      ...(args.resolution.requestedBoundary
+        ? { identityEnvelope: args.resolution.requestedBoundary }
         : {}),
       delegatedCapabilities: approvalCapabilityKeys(
         args.resolution.plan.approval,

@@ -46,6 +46,7 @@
   let mounted = false;
   let assignmentRequestId = 0;
   let operationRunId = 0;
+  const listPage = { limit: 50, offset: 0 };
 
   let queryInspectionId = $derived(page.url.searchParams.get("inspectionId"));
   let selectedAssignment = $derived(assignments.find((assignment) => assignment.inspectionId === selectedInspectionId));
@@ -80,7 +81,7 @@
     error = null;
 
     try {
-      const response = await trellis.request("Assignments.List", {}).orThrow();
+      const response = await trellis.request("Assignments.List", listPage).orThrow();
       if (!mounted || requestId !== assignmentRequestId) return;
       assignments = response.assignments;
       selectedInspectionId = response.assignments.some((assignment) => assignment.inspectionId === preferredInspectionId)

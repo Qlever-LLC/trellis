@@ -1,98 +1,11 @@
 import { AuthError } from "@qlever-llc/trellis";
 import { Result } from "@qlever-llc/result";
-import { ContractResourceBindingsSchema } from "@qlever-llc/trellis/contracts";
-import type { Static } from "typebox";
 import { sha256Base64urlSync } from "../../../../packages/trellis/contract_support/canonical.ts";
-
-type AppliedResourceBindings = Static<typeof ContractResourceBindingsSchema>;
-
-export type FirstConnectPolicy =
-  | "reject"
-  | "quarantine"
-  | "auto-accept-compatible";
-
-export type CompatibilityPolicy =
-  | "exact"
-  | "compatible-additive"
-  | "manual";
-
-export type DevicePreActivationPolicy = "reject" | "device-owned";
-
-export type Portal = {
-  portalId: string;
-  entryUrl: string;
-  disabled: boolean;
-};
-
-export type PortalProfile = {
-  portalId: string;
-  entryUrl: string;
-  contractId: string;
-  allowedOrigins?: string[];
-  impliedCapabilities: string[];
-  disabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type InstanceGrantPolicyActor = {
-  origin: string;
-  id: string;
-};
-
-export type InstanceGrantPolicy = {
-  contractId: string;
-  allowedOrigins?: string[];
-  impliedCapabilities: string[];
-  disabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-  source:
-    | {
-      kind: "admin_policy";
-      createdBy?: InstanceGrantPolicyActor;
-      updatedBy?: InstanceGrantPolicyActor;
-    }
-    | {
-      kind: "portal_profile";
-      portalId: string;
-      entryUrl: string;
-    };
-};
-
-export type PortalDefault = {
-  portalId: string | null;
-};
-
-export type LoginPortalSelection = {
-  contractId: string;
-  portalId: string | null;
-};
-
-export type DevicePortalSelection = {
-  deploymentId: string;
-  portalId: string | null;
-};
-
-export type ServiceAppliedDeploymentContract = {
-  contractId: string;
-  compatibilityPolicy?: CompatibilityPolicy;
-  allowedDigests: string[];
-  resourceBindingsByDigest?: Record<string, AppliedResourceBindings>;
-};
-
-export type DeviceAppliedDeploymentContract = {
-  contractId: string;
-  compatibilityPolicy?: CompatibilityPolicy;
-  allowedDigests: string[];
-};
 
 export type ServiceDeployment = {
   deploymentId: string;
   namespaces: string[];
-  firstConnectPolicy?: FirstConnectPolicy;
   disabled: boolean;
-  appliedContracts: ServiceAppliedDeploymentContract[];
 };
 
 export type ServiceInstance = {
@@ -107,20 +20,10 @@ export type ServiceInstance = {
   createdAt: string;
 };
 
-export type InstalledServiceDeploymentContract = {
-  id: string;
-  digest: string;
-  usedNamespaces: string[];
-  resourceBindings?: AppliedResourceBindings;
-};
-
 export type DeviceDeployment = {
   deploymentId: string;
   reviewMode?: "none" | "required";
-  firstConnectPolicy?: FirstConnectPolicy;
-  preActivationPolicy?: DevicePreActivationPolicy;
   disabled: boolean;
-  appliedContracts: DeviceAppliedDeploymentContract[];
 };
 
 export type DeviceProvisioningSecret = {
@@ -153,49 +56,14 @@ export type DeviceInstance = {
   revokedAt: string | null;
 };
 
-export type CreatePortalRequest = {
-  portalId: string;
-  entryUrl: string;
-};
-
-export type SetPortalProfileRequest = {
-  portalId: string;
-  entryUrl: string;
-  contractId: string;
-  allowedOrigins?: string[];
-};
-
-export type PortalDefaultRequest = {
-  portalId: string | null;
-};
-
-export type LoginPortalSelectionRequest = {
-  contractId: string;
-  portalId: string | null;
-};
-
-export type UpsertInstanceGrantPolicyRequest = {
-  contractId: string;
-  allowedOrigins?: string[];
-  impliedCapabilities: string[];
-};
-
-export type DevicePortalSelectionRequest = {
-  deploymentId: string;
-  portalId: string | null;
-};
-
 export type CreateDeviceDeploymentRequest = {
   deploymentId: string;
   reviewMode?: "none" | "required";
-  firstConnectPolicy?: FirstConnectPolicy | string;
-  preActivationPolicy?: DevicePreActivationPolicy | string;
 };
 
 export type CreateServiceDeploymentRequest = {
   deploymentId: string;
   namespaces: string[];
-  firstConnectPolicy?: FirstConnectPolicy | string;
 };
 
 export type DeviceActivationActor = {
@@ -229,172 +97,12 @@ function invalidRequest(context?: Record<string, unknown>) {
   return Result.err(new AuthError({ reason: "invalid_request", context }));
 }
 
-export function isFirstConnectPolicy(
-  value: unknown,
-): value is FirstConnectPolicy {
-  return value === "reject" || value === "quarantine" ||
-    value === "auto-accept-compatible";
-}
-
-export function isCompatibilityPolicy(
-  value: unknown,
-): value is CompatibilityPolicy {
-  return value === "exact" || value === "compatible-additive" ||
-    value === "manual";
-}
-
-export function isDevicePreActivationPolicy(
-  value: unknown,
-): value is DevicePreActivationPolicy {
-  return value === "reject" || value === "device-owned";
-}
-
-function isAllowedWebProtocol(url: URL): boolean {
-  return url.protocol === "https:" || url.protocol === "http:";
-}
-
-function parseUrl(value: string | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return isAllowedWebProtocol(url) ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
 export function deviceInstanceId(instanceKey: string): string {
   return `dev_${sha256Base64urlSync(instanceKey).slice(0, 22)}`;
 }
 
 export function serviceInstanceId(instanceKey: string): string {
   return `svc_${sha256Base64urlSync(instanceKey).slice(0, 22)}`;
-}
-
-export function normalizeAppliedContracts(
-  values: ServiceAppliedDeploymentContract[],
-): ServiceAppliedDeploymentContract[] {
-  const byId = new Map<
-    string,
-    {
-      digests: Set<string>;
-      resourceBindingsByDigest: Map<string, AppliedResourceBindings>;
-      compatibilityPolicy: CompatibilityPolicy;
-    }
-  >();
-  for (const value of values) {
-    if (!value.contractId) continue;
-    const entry = byId.get(value.contractId) ?? {
-      digests: new Set<string>(),
-      resourceBindingsByDigest: new Map<string, AppliedResourceBindings>(),
-      compatibilityPolicy: "exact" as CompatibilityPolicy,
-    };
-    entry.compatibilityPolicy = value.compatibilityPolicy ?? "exact";
-    const allowedDigests = normalizeStringList(value.allowedDigests ?? []);
-    for (const digest of allowedDigests) {
-      entry.digests.add(digest);
-    }
-    const allowedDigestSet = new Set(allowedDigests);
-    for (
-      const [digest, bindings] of Object.entries(
-        value.resourceBindingsByDigest ?? {},
-      )
-    ) {
-      if (allowedDigestSet.has(digest)) {
-        entry.resourceBindingsByDigest.set(digest, bindings);
-      }
-    }
-    byId.set(value.contractId, entry);
-  }
-  return [...byId.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([contractId, entry]) => {
-      const applied: ServiceAppliedDeploymentContract = {
-        contractId,
-        compatibilityPolicy: entry.compatibilityPolicy,
-        allowedDigests: [...entry.digests].sort((left, right) =>
-          left.localeCompare(right)
-        ),
-      };
-      const resourceBindingsByDigest = [...entry.resourceBindingsByDigest
-        .entries()]
-        .filter(([digest]) => applied.allowedDigests.includes(digest))
-        .sort(([left], [right]) => left.localeCompare(right));
-      if (resourceBindingsByDigest.length > 0) {
-        applied.resourceBindingsByDigest = Object.fromEntries(
-          resourceBindingsByDigest,
-        );
-      }
-      return applied;
-    });
-}
-
-export function normalizeDeviceAppliedContracts(
-  values: DeviceAppliedDeploymentContract[],
-): DeviceAppliedDeploymentContract[] {
-  const byId = new Map<
-    string,
-    { digests: Set<string>; compatibilityPolicy: CompatibilityPolicy }
-  >();
-  for (const value of values) {
-    if (!value.contractId) continue;
-    const entry = byId.get(value.contractId) ?? {
-      digests: new Set<string>(),
-      compatibilityPolicy: "exact" as CompatibilityPolicy,
-    };
-    entry.compatibilityPolicy = value.compatibilityPolicy ?? "exact";
-    for (const digest of normalizeStringList(value.allowedDigests ?? [])) {
-      entry.digests.add(digest);
-    }
-    byId.set(value.contractId, entry);
-  }
-  return [...byId.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([contractId, entry]) => ({
-      contractId,
-      compatibilityPolicy: entry.compatibilityPolicy,
-      allowedDigests: [...entry.digests].sort((left, right) =>
-        left.localeCompare(right)
-      ),
-    }));
-}
-
-/** Builds the persisted service deployment state after applying a contract. */
-export function applyInstalledServiceDeploymentContract(
-  deployment: ServiceDeployment,
-  installed: InstalledServiceDeploymentContract,
-  options?: {
-    compatibilityPolicy?: CompatibilityPolicy;
-    replaceExisting?: boolean;
-  },
-): ServiceDeployment {
-  const existingContracts = options?.replaceExisting
-    ? deployment.appliedContracts.filter((applied) =>
-      applied.contractId !== installed.id
-    )
-    : deployment.appliedContracts;
-  return {
-    ...deployment,
-    namespaces: [
-      ...new Set([...deployment.namespaces, ...installed.usedNamespaces]),
-    ]
-      .sort((left, right) => left.localeCompare(right)),
-    appliedContracts: normalizeAppliedContracts([
-      ...existingContracts,
-      {
-        contractId: installed.id,
-        compatibilityPolicy: options?.compatibilityPolicy ?? "exact",
-        allowedDigests: [installed.digest],
-        ...(installed.resourceBindings !== undefined
-          ? {
-            resourceBindingsByDigest: {
-              [installed.digest]: installed.resourceBindings,
-            },
-          }
-          : {}),
-      },
-    ]),
-  };
 }
 
 export function normalizeStringList(values: string[]): string[] {
@@ -408,172 +116,17 @@ export function normalizeStringList(values: string[]): string[] {
   return digests;
 }
 
-function parseOrigin(value: string | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return isAllowedWebProtocol(url) ? url.origin : null;
-  } catch {
-    return null;
-  }
-}
-
-export function validateInstanceGrantPolicyRequest(
-  req: UpsertInstanceGrantPolicyRequest,
-) {
-  if (!req.contractId) {
-    return invalidRequest({ contractId: req.contractId });
-  }
-  const impliedCapabilities = normalizeStringList(
-    req.impliedCapabilities ?? [],
-  );
-  const allowedOrigins = req.allowedOrigins === undefined ? undefined : (() => {
-    const normalized = [] as string[];
-    for (const value of req.allowedOrigins) {
-      const origin = parseOrigin(value);
-      if (!origin) return null;
-      normalized.push(origin);
-    }
-    const uniqueOrigins = normalizeStringList(normalized);
-    return uniqueOrigins.length > 0 ? uniqueOrigins : undefined;
-  })();
-  if (allowedOrigins === null) {
-    return invalidRequest({ allowedOrigins: req.allowedOrigins });
-  }
-
-  return Result.ok({
-    policy: {
-      contractId: req.contractId,
-      ...(allowedOrigins ? { allowedOrigins } : {}),
-      impliedCapabilities,
-    },
-  });
-}
-
-export function validatePortalRequest(req: CreatePortalRequest) {
-  const entryUrl = parseUrl(req.entryUrl);
-  if (!req.portalId || !entryUrl) {
-    return invalidRequest({ portalId: req.portalId, entryUrl: req.entryUrl });
-  }
-  const portal: Portal = {
-    portalId: req.portalId,
-    entryUrl,
-    disabled: false,
-  };
-  return Result.ok({
-    portal,
-  });
-}
-
-export function validatePortalProfileRequest(req: SetPortalProfileRequest) {
-  const entryUrl = parseUrl(req.entryUrl);
-  if (!req.portalId || !entryUrl || !req.contractId) {
-    return invalidRequest({
-      portalId: req.portalId,
-      entryUrl: req.entryUrl,
-      contractId: req.contractId,
-    });
-  }
-  const allowedOrigins = req.allowedOrigins === undefined ? undefined : (() => {
-    const normalized = [] as string[];
-    for (const value of req.allowedOrigins) {
-      const origin = parseOrigin(value);
-      if (!origin) return null;
-      normalized.push(origin);
-    }
-    const uniqueOrigins = normalizeStringList(normalized);
-    return uniqueOrigins.length > 0 ? uniqueOrigins : undefined;
-  })();
-  if (allowedOrigins === null) {
-    return invalidRequest({ allowedOrigins: req.allowedOrigins });
-  }
-
-  const profile: Pick<
-    PortalProfile,
-    "portalId" | "entryUrl" | "contractId" | "allowedOrigins"
-  > = {
-    portalId: req.portalId,
-    entryUrl,
-    contractId: req.contractId,
-    allowedOrigins,
-  };
-
-  return Result.ok({ profile });
-}
-
-export function validatePortalDefaultRequest(req: PortalDefaultRequest) {
-  if (req.portalId !== null && (!req.portalId || req.portalId.length === 0)) {
-    return invalidRequest({ portalId: req.portalId });
-  }
-  return Result.ok({
-    defaultPortal: {
-      portalId: req.portalId,
-    } as PortalDefault,
-  });
-}
-
-export function validateLoginPortalSelectionRequest(
-  req: LoginPortalSelectionRequest,
-) {
-  if (
-    !req.contractId ||
-    (req.portalId !== null && (!req.portalId || req.portalId.length === 0))
-  ) {
-    return invalidRequest({
-      contractId: req.contractId,
-      portalId: req.portalId,
-    });
-  }
-  return Result.ok({
-    selection: {
-      contractId: req.contractId,
-      portalId: req.portalId,
-    } as LoginPortalSelection,
-  });
-}
-
-export function validateDevicePortalSelectionRequest(
-  req: DevicePortalSelectionRequest,
-) {
-  if (
-    !req.deploymentId ||
-    (req.portalId !== null && (!req.portalId || req.portalId.length === 0))
-  ) {
-    return invalidRequest({
-      deploymentId: req.deploymentId,
-      portalId: req.portalId,
-    });
-  }
-  return Result.ok({
-    selection: {
-      deploymentId: req.deploymentId,
-      portalId: req.portalId,
-    } as DevicePortalSelection,
-  });
-}
-
 export function validateDeviceDeploymentRequest(
   req: CreateDeviceDeploymentRequest,
 ) {
   if (!req.deploymentId) {
     return invalidRequest({ deploymentId: req.deploymentId });
   }
-  const firstConnectPolicy = req.firstConnectPolicy ?? "reject";
-  if (!isFirstConnectPolicy(firstConnectPolicy)) {
-    return invalidRequest({ firstConnectPolicy: req.firstConnectPolicy });
-  }
-  const preActivationPolicy = req.preActivationPolicy ?? "reject";
-  if (!isDevicePreActivationPolicy(preActivationPolicy)) {
-    return invalidRequest({ preActivationPolicy: req.preActivationPolicy });
-  }
   return Result.ok({
     deployment: {
       deploymentId: req.deploymentId,
       reviewMode: req.reviewMode,
-      firstConnectPolicy,
-      preActivationPolicy,
       disabled: false,
-      appliedContracts: [],
     } as DeviceDeployment,
   });
 }
@@ -584,17 +137,11 @@ export function validateServiceDeploymentRequest(
   if (!req.deploymentId) {
     return invalidRequest({ deploymentId: req.deploymentId });
   }
-  const firstConnectPolicy = req.firstConnectPolicy ?? "reject";
-  if (!isFirstConnectPolicy(firstConnectPolicy)) {
-    return invalidRequest({ firstConnectPolicy: req.firstConnectPolicy });
-  }
   return Result.ok({
     deployment: {
       deploymentId: req.deploymentId,
       namespaces: normalizeStringList(req.namespaces ?? []),
-      firstConnectPolicy,
       disabled: false,
-      appliedContracts: [],
     } as ServiceDeployment,
   });
 }

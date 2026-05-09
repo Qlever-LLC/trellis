@@ -70,7 +70,7 @@ const billing = defineServiceContract(
     displayName: "Billing Attach Test",
     description: "Exercise operations attach() over NATS.",
     uses: {
-      auth: auth.use({ rpc: { call: ["Auth.ValidateRequest"] } }),
+      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
     },
     operations: {
       "Billing.Refund": {
@@ -100,7 +100,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 function startPermissiveAuthResponder(
   nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"],
 ): void {
-  const sub = nc.subscribe("rpc.v1.Auth.ValidateRequest");
+  const sub = nc.subscribe("rpc.v1.Auth.Requests.Validate");
   void (async () => {
     for await (const msg of sub) {
       const input = msg.json() as { sessionKey: string };

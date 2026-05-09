@@ -7,8 +7,8 @@
   ],
   "workspace": ["./service", "./device"],
   "tasks": {
-    "prepare": "cargo run --manifest-path ../../rust/tools/generate/Cargo.toml --bin trellis-generate -- prepare .",
-    "prepare:watch": "cargo run --manifest-path ../../rust/tools/generate/Cargo.toml --bin trellis-generate -- prepare --watch .",
+    "prepare": "deno run -A @qlever-llc/trellis/generate prepare .",
+    "prepare:watch": "deno run -A @qlever-llc/trellis/generate prepare --watch .",
     "check": "deno task prepare && deno task check:service && deno task check:device",
     "check:service": "deno task -c service/deno.json check:prepared",
     "check:device": "deno task -c device/deno.json check:prepared",

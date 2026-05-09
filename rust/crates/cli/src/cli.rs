@@ -6,13 +6,11 @@ use clap_complete::Shell;
 mod auth;
 mod bootstrap;
 mod deploy;
-mod portals;
 mod self_cmd;
 
 pub use auth::*;
 pub use bootstrap::*;
 pub use deploy::*;
-pub use portals::*;
 pub use self_cmd::*;
 
 #[derive(Debug, Parser)]
@@ -49,8 +47,6 @@ pub enum TopLevelCommand {
     Bootstrap(BootstrapCommand),
     /// Generate an Ed25519 seed and public session key offline.
     Keygen(KeygenArgs),
-    /// Manage custom login and device portals.
-    Portal(PortalCommand),
     /// Manage service and device deployments.
     #[command(alias = "deployment", aliases = ["deployments", "dep", "d"])]
     Deploy(DeployCommand),

@@ -424,8 +424,8 @@ declaration wins.
 
 Some Trellis-owned surfaces are derived from the participant kind or local
 contract features. App, agent, and device contracts receive baseline auth RPCs
-such as `Auth.Me` and `Auth.Logout` without authoring boilerplate; service
-runtimes may also receive baseline auth surfaces such as `Auth.ValidateRequest`
+such as `Auth.Sessions.Me` and `Auth.Sessions.Logout` without authoring boilerplate; service
+runtimes may also receive baseline auth surfaces such as `Auth.Requests.Validate`
 without each service authoring a `uses` entry. Contracts that need non-baseline
 auth surfaces still declare them with `auth.use(...)`.
 
@@ -729,7 +729,7 @@ Expected type behavior:
   `uses`
 - non-baseline auth RPCs remain type errors unless the service contract
   explicitly declares them in `uses`; baseline auth RPCs such as
-  `Auth.ValidateRequest` may be generated or granted automatically by the
+  `Auth.Requests.Validate` may be generated or granted automatically by the
   service runtime
 - `service.trellis.mount("Trellis.Catalog", ...)` is a type error because that
   RPC is used, not owned

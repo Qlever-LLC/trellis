@@ -9,7 +9,10 @@ export const SiteSummary = Type.Object({
   lastReportAt: Type.String({ minLength: 1 }),
 });
 
-export const SitesListRequest = Type.Object({});
+export const SitesListRequest = Type.Object({
+  limit: Type.Integer({ minimum: 0, maximum: 500 }),
+  offset: Type.Integer({ minimum: 0 }),
+});
 export const SitesListResponse = Type.Object({
   sites: Type.Array(SiteSummary),
 });

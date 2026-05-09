@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use futures_util::future::{ready, BoxFuture, FutureExt};
 use serde_json::json;
-use trellis_auth::{AuthValidateRequestRequest, AuthValidateRequestResponse};
+use trellis_auth::{AuthRequestsValidateRequest, AuthRequestsValidateResponse};
 use trellis_auth_adapters::request_validator::{
     make_validate_request, payload_hash_base64url, AuthRequestValidatorAdapter,
     AuthRequestValidatorClientPort,
@@ -26,6 +26,7 @@ fn make_validate_request_maps_subject_session_proof_and_hash() {
         subject: "rpc.v1.Ignored".to_string(),
         session_key: Some("svc_session".to_string()),
         proof: Some("proof_b64url".to_string()),
+        reply_to: None,
     };
 
     let request = make_validate_request("rpc.v1.Ping", b"{\"a\":1}\n", &context)
@@ -42,15 +43,15 @@ fn make_validate_request_maps_subject_session_proof_and_hash() {
 }
 
 struct FakeAuthValidateClient {
-    result: Mutex<Option<Result<AuthValidateRequestResponse, TrellisClientError>>>,
-    seen_requests: Arc<Mutex<Vec<AuthValidateRequestRequest>>>,
+    result: Mutex<Option<Result<AuthRequestsValidateResponse, TrellisClientError>>>,
+    seen_requests: Arc<Mutex<Vec<AuthRequestsValidateRequest>>>,
 }
 
 impl AuthRequestValidatorClientPort for FakeAuthValidateClient {
     fn auth_validate_request<'a>(
         &'a self,
-        input: &'a AuthValidateRequestRequest,
-    ) -> BoxFuture<'a, Result<AuthValidateRequestResponse, TrellisClientError>> {
+        input: &'a AuthRequestsValidateRequest,
+    ) -> BoxFuture<'a, Result<AuthRequestsValidateResponse, TrellisClientError>> {
         self.seen_requests
             .lock()
             .expect("lock seen requests")
@@ -65,8 +66,8 @@ impl AuthRequestValidatorClientPort for FakeAuthValidateClient {
     }
 }
 
-fn allowed_response(allowed: bool) -> AuthValidateRequestResponse {
-    AuthValidateRequestResponse {
+fn allowed_response(allowed: bool) -> AuthRequestsValidateResponse {
+    AuthRequestsValidateResponse {
         allowed,
         caller: json!({
             "type": "service",
@@ -90,6 +91,7 @@ async fn adapter_validate_calls_auth_and_returns_allowed() {
         subject: "rpc.v1.Ignored".to_string(),
         session_key: Some("svc_session".to_string()),
         proof: Some("proof_b64url".to_string()),
+        reply_to: None,
     };
 
     let allowed = adapter
@@ -116,6 +118,7 @@ async fn adapter_validate_maps_client_error_to_server_error() {
         subject: "rpc.v1.Ignored".to_string(),
         session_key: Some("svc_session".to_string()),
         proof: Some("proof_b64url".to_string()),
+        reply_to: None,
     };
 
     let result = adapter
@@ -124,6 +127,6 @@ async fn adapter_validate_maps_client_error_to_server_error() {
 
     assert!(matches!(
         result,
-        Err(ServerError::Nats(message)) if message.contains("Auth.ValidateRequest")
+        Err(ServerError::Nats(message)) if message.contains("Auth.Requests.Validate")
     ));
 }

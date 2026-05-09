@@ -67,11 +67,11 @@ export type StateSessionResolver = {
   ): Promise<Result<Session | null, AuthError | UnexpectedError>>;
 };
 
-type ContractStoreLike = {
+type ContractLookup = {
   getContract: (
     digest: string,
     opts?: { includeInactive?: boolean },
-  ) => StateContractLike | undefined;
+  ) => Promise<StateContractLike | undefined>;
 };
 
 type Caller = {
@@ -84,7 +84,7 @@ type Caller = {
 type RpcDeps = {
   sessionResolver: StateSessionResolver;
   state: StateStore;
-  contractStore: ContractStoreLike;
+  contracts: ContractLookup;
 };
 
 type StateRpcError = AuthError | UnexpectedError | ValidationError;
@@ -232,7 +232,7 @@ async function resolveCallerStore(
     return Result.err(new AuthError({ reason: "insufficient_permissions" }));
   }
 
-  const contract = deps.contractStore.getContract(session.contractDigest, {
+  const contract = await deps.contracts.getContract(session.contractDigest, {
     includeInactive: true,
   });
   const definitionResult = requireStoreDefinition(contract, store);
@@ -265,7 +265,7 @@ async function resolveAdminStore(
   req: StateAdminGetInput | StateAdminListInput | StateAdminDeleteInput,
   deps: RpcDeps,
 ): Promise<Result<ResolvedStateStore, ValidationError>> {
-  const contract = deps.contractStore.getContract(req.contractDigest, {
+  const contract = await deps.contracts.getContract(req.contractDigest, {
     includeInactive: true,
   });
   if (contract && contract.id !== req.contractId) {

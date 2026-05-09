@@ -65,7 +65,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
     )
     .use_ref(
         "auth",
-        use_contract("trellis.auth@v1").with_rpc_call(["Auth.Logout", "Auth.Me"]),
+        use_contract("trellis.auth@v1").with_rpc_call(["Auth.Sessions.Logout", "Auth.Sessions.Me"]),
     )
     .use_ref(
         "state",

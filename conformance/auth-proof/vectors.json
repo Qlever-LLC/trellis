@@ -45,12 +45,12 @@
       "runtimeToken": "{\"contractDigest\":\"digest-local\",\"iat\":1735689660,\"sessionKey\":\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\",\"sig\":\"UZEWSICO4A7IhhTm0Leai1ARxWjil19m7eAYESK-QGpstUtxXq2ltAD3wJqIXdP-gKvOvmsCExyahuOTXOvcDQ\",\"v\":1}"
     },
     "rpcProof": {
-      "subject": "rpc.v1.Auth.ValidateRequest",
+      "subject": "rpc.v1.Auth.Requests.Validate",
       "payload": "{\"path\":\"/auth/me\",\"method\":\"POST\",\"body\":{\"ok\":true}}",
       "payloadHashBase64url": "5xzohNwAIkLMEjRw_3uLh7adB_2BOUPD1sObIMk0x1Y",
-      "proofInputHex": "0000002b41364548765f504f454c3464634e3059353076416d57666b316a436270513166486479475a424a564d62670000001b7270632e76312e417574682e56616c69646174655265717565737400000020e71ce884dc002242cc123470ff7b8b87b69d07fd813943c3d6c39b20c934c756",
-      "proofDigestBase64url": "i9ZldDHt3oof1YlBz0BqwtgAY-5eQbN0XagOXOCd_5c",
-      "proof": "bnlBxoLyBK9KBoiG_kj347QSdGxkQ9CtsA23Mey3vjj_SNLd9VRpxviX8IvW_-U5dfzOyEWQvOrHz0QXiwyMCw"
+      "proofInputHex": "0000002b41364548765f504f454c3464634e3059353076416d57666b316a436270513166486479475a424a564d62670000001d7270632e76312e417574682e52657175657374732e56616c696461746500000020e71ce884dc002242cc123470ff7b8b87b69d07fd813943c3d6c39b20c934c756",
+      "proofDigestBase64url": "s_aX59XqQbt4w2FXBBLVDAACSTcRWmQ8MHo2xw841G4",
+      "proof": "0VQQKStlp_h2w9Uu1jKpF-I-exBiLI3MWs8qcUg2VBRQqaITM6bNQzgOUJksLzMhjVOAaIBaKtZ54x6Z5b-BBA"
     }
   }
 ]

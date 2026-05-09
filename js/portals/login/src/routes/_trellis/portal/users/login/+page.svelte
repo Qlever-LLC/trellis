@@ -69,6 +69,10 @@
     return userDisplayName(user).trim().charAt(0).toUpperCase() || "?";
   }
 
+  function providerInitial(displayName: string): string {
+    return displayName.trim().charAt(0).toUpperCase() || "?";
+  }
+
   function userImage(user: UserDisplay): string | null {
     return typeof user.image === "string" && user.image.length > 0
       ? user.image
@@ -131,6 +135,14 @@
       }
       window.location.assign(nextLocation);
     }
+  }
+
+  function redirectingDelay(): Promise<void> {
+    return new Promise((resolve) => globalThis.setTimeout(resolve, 1800));
+  }
+
+  function loadingMessageDelay(): Promise<void> {
+    return new Promise((resolve) => globalThis.setTimeout(resolve, 700));
   }
 
   async function loadFlow(): Promise<void> {
@@ -275,28 +287,48 @@
       </div>
 
       {#if flow.loading}
-        <div class="flex items-center gap-4 py-3">
-          <span class="loading loading-ring loading-lg"></span>
-          <div>
-            <p class="text-sm font-medium text-base-content">Loading request</p>
-            <p class="portal-copy text-xs">Resolving provider and approval state.</p>
+        {#await loadingMessageDelay() then}
+          <div class="flex items-center gap-4 py-3">
+            <span class="loading loading-ring loading-lg"></span>
+            <div>
+              <p class="text-sm font-medium text-base-content">Loading request</p>
+              <p class="portal-copy text-xs">Resolving provider and approval state.</p>
+            </div>
           </div>
-        </div>
+        {/await}
       {:else if flow.state?.status === "choose_provider"}
         <div>
-          <h1 class="text-xl font-semibold tracking-[-0.025em] text-base-content">Choose a sign-in method</h1>
-          <p class="mt-2 inline-flex rounded-full border border-base-300 bg-base-200/55 px-3 py-1 text-xs font-medium text-base-content/65">
-            {flow.state.app.displayName}
-          </p>
+          <h1 class="text-center text-xl font-semibold tracking-[-0.025em] text-base-content">Choose a sign-in method</h1>
         </div>
         <div class="flex flex-col gap-2.5">
           {#each flow.state.providers as provider (provider.id)}
             <a
-              class="btn btn-outline btn-block justify-between"
+              class="portal-provider-link group flex w-full items-center gap-3 rounded-field px-4 py-3 text-left"
               data-sveltekit-reload
               href={flow.providerUrl(provider.id)}
             >
-              <span>Sign in with {provider.displayName}</span>
+              <span
+                class="flex size-9 shrink-0 items-center justify-center rounded-full border border-base-300 bg-base-200 text-sm font-semibold text-base-content/70"
+                aria-hidden="true"
+              >
+                {providerInitial(provider.displayName)}
+              </span>
+              <span class="min-w-0 flex-1 truncate text-sm font-semibold text-base-content">
+                Continue with {provider.displayName}
+              </span>
+              <svg
+                class="size-4 shrink-0 text-base-content/35 transition-transform group-hover:translate-x-0.5"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  fill-rule="evenodd"
+                  d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z"
+                  clip-rule="evenodd"
+                />
+              </svg>
             </a>
           {/each}
         </div>
@@ -341,7 +373,7 @@
         <div class="portal-action-row -mx-7 -mb-7 flex flex-col gap-2.5 rounded-b-box px-7 py-5 sm:-mx-8 sm:-mb-8 sm:px-8">
           <button
             class="btn btn-primary btn-block"
-            disabled={flow.loading}
+            disabled={flow.loading || denying}
             onclick={() => void approve()}
           >
             {#if flow.loading}
@@ -431,10 +463,12 @@
             </p>
           </div>
         {:else}
-          <div class="flex items-center gap-3 text-sm text-base-content/60">
-            <span class="loading loading-ring loading-sm"></span>
-            <span>Redirecting...</span>
-          </div>
+          {#await redirectingDelay() then}
+            <div class="flex items-center gap-3 text-sm text-base-content/60">
+              <span class="loading loading-ring loading-sm"></span>
+              <span>Redirecting...</span>
+            </div>
+          {/await}
         {/if}
       {/if}
 

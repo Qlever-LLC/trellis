@@ -1,15 +1,15 @@
 import Type, { type Static } from "typebox";
 
-export const AuthKickConnectionSchema = Type.Object(
+export const AuthConnectionsKickSchema = Type.Object(
   {
     userNkey: Type.String(),
   },
 );
-export type AuthKickConnectionInput = Static<typeof AuthKickConnectionSchema>;
+export type AuthConnectionsKickInput = Static<typeof AuthConnectionsKickSchema>;
 
-export const AuthKickConnectionResponseSchema = Type.Object(
+export const AuthConnectionsKickResponseSchema = Type.Object(
   { success: Type.Boolean() },
 );
-export type AuthKickConnectionResponse = Static<
-  typeof AuthKickConnectionResponseSchema
+export type AuthConnectionsKickResponse = Static<
+  typeof AuthConnectionsKickResponseSchema
 >;

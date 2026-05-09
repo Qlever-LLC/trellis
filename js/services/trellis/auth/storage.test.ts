@@ -8,26 +8,20 @@ import {
 } from "../storage/db.ts";
 import type { TrellisStorage } from "../storage/db.ts";
 import {
-  contractApprovals,
   deviceActivationReviews,
   deviceActivations,
   deviceDeployments,
   deviceInstances,
-  devicePortalSelections,
   deviceProvisioningSecrets,
-  instanceGrantPolicies,
-  loginPortalSelections,
-  portalDefaults,
-  portalProfiles,
-  portals,
+  identityEnvelopes,
   serviceDeployments,
   serviceInstances,
   sessions,
   users as usersTable,
 } from "../storage/schema.ts";
 import type {
-  ContractApprovalRecord,
   DeviceSession,
+  IdentityEnvelopeRecord,
   ServiceSession,
   Session,
   UserProjectionEntry,
@@ -37,44 +31,24 @@ import {
   DeviceActivationRecordSchema,
   DeviceActivationReviewRecordSchema,
   DeviceDeploymentSchema,
-  DevicePortalDefaultSchema,
-  DevicePortalSelectionSchema,
   DeviceProvisioningSecretSchema,
   DeviceSchema,
-  InstanceGrantPolicySchema,
-  LoginPortalDefaultSchema,
-  LoginPortalSelectionSchema,
-  PortalProfileSchema,
-  PortalSchema,
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
 } from "./schemas.ts";
 import {
-  SqlContractApprovalRepository,
   SqlDeviceActivationRepository,
   SqlDeviceActivationReviewRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
-  SqlDevicePortalSelectionRepository,
   SqlDeviceProvisioningSecretRepository,
-  SqlInstanceGrantPolicyRepository,
-  SqlLoginPortalSelectionRepository,
-  SqlPortalDefaultRepository,
-  SqlPortalProfileRepository,
-  SqlPortalRepository,
+  SqlIdentityEnvelopeRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "./storage.ts";
 
-type Portal = StaticDecode<typeof PortalSchema>;
-type PortalProfile = StaticDecode<typeof PortalProfileSchema>;
-type LoginPortalDefault = StaticDecode<typeof LoginPortalDefaultSchema>;
-type DevicePortalDefault = StaticDecode<typeof DevicePortalDefaultSchema>;
-type LoginPortalSelection = StaticDecode<typeof LoginPortalSelectionSchema>;
-type DevicePortalSelection = StaticDecode<typeof DevicePortalSelectionSchema>;
-type InstanceGrantPolicy = StaticDecode<typeof InstanceGrantPolicySchema>;
 type ServiceDeployment = StaticDecode<typeof ServiceDeploymentSchema>;
 type ServiceInstance = StaticDecode<typeof ServiceInstanceSchema>;
 type DeviceDeployment = StaticDecode<typeof DeviceDeploymentSchema>;
@@ -91,13 +65,7 @@ async function withRepositories(
   test: (
     repos: {
       users: SqlUserProjectionRepository;
-      approvals: SqlContractApprovalRepository;
-      portals: SqlPortalRepository;
-      portalProfiles: SqlPortalProfileRepository;
-      portalDefaults: SqlPortalDefaultRepository;
-      loginSelections: SqlLoginPortalSelectionRepository;
-      deviceSelections: SqlDevicePortalSelectionRepository;
-      policies: SqlInstanceGrantPolicyRepository;
+      approvals: SqlIdentityEnvelopeRepository;
       serviceDeployments: SqlServiceDeploymentRepository;
       serviceInstances: SqlServiceInstanceRepository;
       deviceDeployments: SqlDeviceDeploymentRepository;
@@ -121,13 +89,7 @@ async function withRepositories(
     await initializeTrellisStorageSchema(storage);
     await test({
       users: new SqlUserProjectionRepository(storage.db),
-      approvals: new SqlContractApprovalRepository(storage.db),
-      portals: new SqlPortalRepository(storage.db),
-      portalProfiles: new SqlPortalProfileRepository(storage.db),
-      portalDefaults: new SqlPortalDefaultRepository(storage.db),
-      loginSelections: new SqlLoginPortalSelectionRepository(storage.db),
-      deviceSelections: new SqlDevicePortalSelectionRepository(storage.db),
-      policies: new SqlInstanceGrantPolicyRepository(storage.db),
+      approvals: new SqlIdentityEnvelopeRepository(storage.db),
       serviceDeployments: new SqlServiceDeploymentRepository(storage.db),
       serviceInstances: new SqlServiceInstanceRepository(storage.db),
       deviceDeployments: new SqlDeviceDeploymentRepository(storage.db),
@@ -147,63 +109,13 @@ async function withRepositories(
   }
 }
 
-function makePortal(overrides: Partial<Portal> = {}): Portal {
-  return {
-    portalId: "portal-a",
-    entryUrl: "https://portal.example.com/login",
-    disabled: false,
-    ...overrides,
-  };
-}
-
-function makePortalProfile(
-  overrides: Partial<PortalProfile> = {},
-): PortalProfile {
-  return {
-    portalId: "portal-a",
-    entryUrl: "https://portal.example.com/login",
-    contractId: "app@v1",
-    allowedOrigins: ["https://app.example.com"],
-    impliedCapabilities: ["items.read"],
-    disabled: false,
-    createdAt: "2026-04-26T00:00:00.000Z",
-    updatedAt: "2026-04-26T00:00:01.000Z",
-    ...overrides,
-  };
-}
-
-function makePolicy(
-  overrides: Partial<InstanceGrantPolicy> = {},
-): InstanceGrantPolicy {
-  return {
-    contractId: "app@v1",
-    allowedOrigins: ["https://app.example.com"],
-    impliedCapabilities: ["items.read"],
-    disabled: false,
-    createdAt: "2026-04-26T00:00:00.000Z",
-    updatedAt: "2026-04-26T00:00:01.000Z",
-    source: {
-      kind: "admin_policy",
-      createdBy: { origin: "github", id: "admin" },
-      updatedBy: { origin: "github", id: "admin" },
-    },
-    ...overrides,
-  };
-}
-
 function makeServiceDeployment(
   overrides: Partial<ServiceDeployment> = {},
 ): ServiceDeployment {
   return {
     deploymentId: "svc-deployment-a",
     namespaces: ["graph", "search"],
-    firstConnectPolicy: "reject",
     disabled: false,
-    appliedContracts: [{
-      contractId: "svc.graph@v1",
-      compatibilityPolicy: "exact",
-      allowedDigests: ["sha256-service-a"],
-    }],
     ...overrides,
   };
 }
@@ -235,14 +147,7 @@ function makeDeviceDeployment(
   return {
     deploymentId: "dev-deployment-a",
     reviewMode: "required",
-    firstConnectPolicy: "reject",
-    preActivationPolicy: "reject",
     disabled: false,
-    appliedContracts: [{
-      contractId: "device.reader@v1",
-      compatibilityPolicy: "exact",
-      allowedDigests: ["sha256-device-a"],
-    }],
     ...overrides,
   };
 }
@@ -322,16 +227,22 @@ function makeUser(
 }
 
 function makeApproval(
-  overrides: Partial<ContractApprovalRecord> = {},
-): ContractApprovalRecord {
+  overrides: Partial<IdentityEnvelopeRecord> = {},
+): IdentityEnvelopeRecord {
   return {
+    identityEnvelopeId: "env-app-a",
     userTrellisId: "github.user-1",
     origin: "github",
     id: "user-1",
+    identityAnchor: {
+      kind: "web",
+      contractId: "app@v1",
+      origin: "https://app.example",
+    },
     answer: "approved",
     answeredAt: new Date("2026-04-26T00:00:00.000Z"),
     updatedAt: new Date("2026-04-26T00:00:01.000Z"),
-    approval: {
+    approvalEvidence: {
       contractDigest: "sha256-contract-a",
       contractId: "app@v1",
       displayName: "Test App",
@@ -359,6 +270,7 @@ function makeUserSession(overrides: Partial<UserSession> = {}): UserSession {
     email: "ada@example.com",
     name: "Ada Lovelace",
     participantKind: "app",
+    identityEnvelopeId: "env-user-app",
     contractDigest: "sha256-user-contract",
     contractId: "app@v1",
     contractDisplayName: "Test App",
@@ -443,24 +355,21 @@ Deno.test("user storage upserts, gets, and lists projections", async () => {
     await users.put("oidc.user-2", second);
 
     assertEquals(await users.get("github.user-1"), updated);
-    assertEquals(await users.list(), [updated, second]);
+    assertEquals(await users.listPage({ limit: 10 }), [updated, second]);
   });
 });
 
-Deno.test("approval storage upserts, gets, and preserves Date fields", async () => {
+Deno.test("identity envelope storage upserts, gets, and preserves Date fields", async () => {
   await withRepositories(async ({ approvals }, storage) => {
     const first = makeApproval();
     await approvals.put(first);
 
-    const stored = await approvals.get(
-      first.userTrellisId,
-      first.approval.contractDigest,
-    );
+    const stored = await approvals.get(first.identityEnvelopeId);
     assertEquals(stored, first);
     assertInstanceOf(stored?.answeredAt, Date);
     assertInstanceOf(stored?.updatedAt, Date);
 
-    const [row] = await storage.db.select().from(contractApprovals);
+    const [row] = await storage.db.select().from(identityEnvelopes);
     assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
     assertEquals(row.externalId, first.id);
 
@@ -474,28 +383,32 @@ Deno.test("approval storage upserts, gets, and preserves Date fields", async () 
     await approvals.put(updated);
 
     assertEquals(
-      await approvals.get(
-        updated.userTrellisId,
-        updated.approval.contractDigest,
-      ),
+      await approvals.get(updated.identityEnvelopeId),
       updated,
     );
   });
 });
 
-Deno.test("approval storage lists by user, all approvals, and digest", async () => {
+Deno.test("identity envelope storage lists by user and all envelopes", async () => {
   await withRepositories(async ({ approvals }) => {
     const first = makeApproval({
       userTrellisId: "github.user-1",
-      approval: {
-        ...makeApproval().approval,
+      identityEnvelopeId: "env-a",
+      approvalEvidence: {
+        ...makeApproval().approvalEvidence,
         contractDigest: "sha256-contract-a",
       },
     });
     const second = makeApproval({
       userTrellisId: "github.user-1",
-      approval: {
-        ...makeApproval().approval,
+      identityEnvelopeId: "env-b",
+      identityAnchor: {
+        kind: "cli",
+        contractId: "agent@v1",
+        sessionPublicKey: "session-agent",
+      },
+      approvalEvidence: {
+        ...makeApproval().approvalEvidence,
         contractDigest: "sha256-contract-b",
         contractId: "agent@v1",
         participantKind: "agent",
@@ -503,9 +416,10 @@ Deno.test("approval storage lists by user, all approvals, and digest", async () 
     });
     const third = makeApproval({
       userTrellisId: "github.user-2",
+      identityEnvelopeId: "env-c",
       id: "user-2",
-      approval: {
-        ...makeApproval().approval,
+      approvalEvidence: {
+        ...makeApproval().approvalEvidence,
         contractDigest: "sha256-contract-a",
       },
     });
@@ -515,30 +429,53 @@ Deno.test("approval storage lists by user, all approvals, and digest", async () 
     await approvals.put(first);
 
     assertEquals(await approvals.listByUser("github.user-1"), [first, second]);
-    assertEquals(await approvals.list(), [first, second, third]);
-    assertEquals(await approvals.listByDigest("sha256-contract-a"), [
+    assertEquals(
+      await approvals.listPageByUser("github.user-1", { limit: 1 }),
+      [
+        first,
+      ],
+    );
+    assertEquals(
+      await approvals.listApprovedPageByUser("github.user-1", { limit: 10 }),
+      [first, second],
+    );
+    assertEquals(await approvals.listPage({ limit: 10 }), [
       first,
+      second,
       third,
     ]);
+    assertEquals(await approvals.listApproved(), [first, second, third]);
+    assertEquals(
+      await approvals.listByApprovalEvidenceContractDigests([
+        "sha256-contract-a",
+      ]),
+      [first, third],
+    );
   });
 });
 
-Deno.test("approval storage deletes by user and digest", async () => {
+Deno.test("identity envelope storage deletes by envelope id", async () => {
   await withRepositories(async ({ approvals }) => {
     const first = makeApproval();
     const second = makeApproval({
-      approval: {
-        ...makeApproval().approval,
+      identityEnvelopeId: "env-b",
+      identityAnchor: {
+        kind: "cli",
+        contractId: "agent@v1",
+        sessionPublicKey: "session-agent",
+      },
+      approvalEvidence: {
+        ...makeApproval().approvalEvidence,
         contractDigest: "sha256-contract-b",
       },
     });
     await approvals.put(first);
     await approvals.put(second);
 
-    await approvals.delete(first.userTrellisId, first.approval.contractDigest);
+    await approvals.delete(first.identityEnvelopeId);
 
     assertEquals(
-      await approvals.get(first.userTrellisId, first.approval.contractDigest),
+      await approvals.get(first.identityEnvelopeId),
       undefined,
     );
     assertEquals(await approvals.listByUser(first.userTrellisId), [second]);
@@ -639,7 +576,47 @@ Deno.test("session storage supports one-by-key and list filters", async () => {
       await sessionRepo.listByContractDigest("sha256-device-contract"),
       [device],
     );
-    assertEquals(await sessionRepo.list(), [
+    assertEquals(
+      await sessionRepo.listEntriesForDeploymentEnvelopePreview(
+        "svc-deployment-a",
+      ),
+      [
+        {
+          sessionKey: "other-user-session-key",
+          trellisId: "github.user-2",
+          session: otherUser,
+        },
+        {
+          sessionKey: "service-session-key",
+          trellisId: "svc_1",
+          session: service,
+        },
+        {
+          sessionKey: "user-session-key",
+          trellisId: "github.user-1",
+          session: user,
+        },
+      ],
+    );
+    assertEquals(
+      await sessionRepo.listEntriesByContractDigests([
+        "sha256-device-contract",
+        "sha256-user-contract",
+      ]),
+      [
+        {
+          sessionKey: "device-session-key",
+          trellisId: "dev_1",
+          session: device,
+        },
+        {
+          sessionKey: "user-session-key",
+          trellisId: "github.user-1",
+          session: user,
+        },
+      ],
+    );
+    assertEquals(await sessionRepo.listPage({ limit: 10 }), [
       device,
       otherUser,
       service,
@@ -704,10 +681,10 @@ Deno.test("session storage deletes by session key", async () => {
       await sessionRepo.getOneBySessionKey("first-session-key"),
       undefined,
     );
-    assertEquals(await sessionRepo.list(), [second, service]);
+    assertEquals(await sessionRepo.listPage({ limit: 10 }), [second, service]);
 
     await sessionRepo.deleteByInstanceKey("svc-session-key");
-    assertEquals(await sessionRepo.list(), [second]);
+    assertEquals(await sessionRepo.listPage({ limit: 10 }), [second]);
   });
 });
 
@@ -729,191 +706,7 @@ Deno.test("session storage deletes device sessions by public identity key", asyn
 
     await sessionRepo.deleteByPublicIdentityKey("public-identity-key-a");
 
-    assertEquals(await sessionRepo.list(), [second, service]);
-  });
-});
-
-Deno.test("portal storage upserts, gets, and lists by portal id", async () => {
-  await withRepositories(async ({ portals: portalRepo }, storage) => {
-    const first = makePortal({ portalId: "portal-b" });
-    const second = makePortal({ portalId: "portal-a" });
-    await portalRepo.put(first);
-    await portalRepo.put(second);
-
-    const [row] = await storage.db.select().from(portals).where(
-      eq(portals.portalId, "portal-b"),
-    );
-    assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
-    assertEquals(row.portalId, first.portalId);
-
-    const updated = makePortal({ portalId: "portal-b", disabled: true });
-    await portalRepo.put(updated);
-
-    assertEquals(await portalRepo.get("portal-b"), updated);
-    assertEquals(await portalRepo.list(), [second, updated]);
-  });
-});
-
-Deno.test("portal profile storage upserts, deletes, and lists", async () => {
-  await withRepositories(async ({ portalProfiles: deployments }, storage) => {
-    const first = makePortalProfile({ portalId: "portal-b" });
-    const second = makePortalProfile({
-      portalId: "portal-a",
-      contractId: "agent@v1",
-      allowedOrigins: undefined,
-      impliedCapabilities: [],
-    });
-    await deployments.put(first);
-    await deployments.put(second);
-
-    const [row] = await storage.db.select().from(portalProfiles).where(
-      eq(portalProfiles.portalId, "portal-b"),
-    );
-    assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
-    assertEquals(row.portalId, first.portalId);
-
-    const updated = makePortalProfile({
-      portalId: "portal-b",
-      allowedOrigins: undefined,
-      impliedCapabilities: ["items.read", "items.write"],
-      updatedAt: "2026-04-26T00:00:02.000Z",
-    });
-    await deployments.put(updated);
-
-    assertEquals(await deployments.get("portal-b"), updated);
-    assertEquals(await deployments.list(), [second, updated]);
-    await deployments.delete("portal-a");
-    assertEquals(await deployments.get("portal-a"), undefined);
-  });
-});
-
-Deno.test("portal default storage upserts login and device defaults", async () => {
-  await withRepositories(async ({ portalDefaults: defaults }, storage) => {
-    const first: LoginPortalDefault = { portalId: null };
-    const device: DevicePortalDefault = { portalId: "device-portal" };
-    await defaults.putLogin(first);
-    await defaults.putDevice(device);
-
-    const rows = await storage.db.select().from(portalDefaults).orderBy(
-      portalDefaults.defaultKey,
-    );
-    assertEquals(rows.length, 2);
-    assertMatch(rows[0].id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
-    assertEquals(rows[0].defaultKey, "device.default");
-    assertEquals(rows[0].portalId, "device-portal");
-    assertMatch(rows[1].id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
-    assertEquals(rows[1].defaultKey, "login.default");
-    assertEquals(rows[1].portalId, null);
-    assertEquals(await defaults.getLogin(), first);
-    assertEquals(await defaults.getDevice(), device);
-
-    const updated: LoginPortalDefault = { portalId: "portal-a" };
-    const updatedDevice: DevicePortalDefault = { portalId: null };
-    await defaults.putLogin(updated);
-    await defaults.putDevice(updatedDevice);
-    assertEquals(await defaults.getLogin(), updated);
-    assertEquals(await defaults.getDevice(), updatedDevice);
-  });
-});
-
-Deno.test("login portal selection storage upserts, deletes, and lists by contract id", async () => {
-  await withRepositories(async ({ loginSelections }, storage) => {
-    const first: LoginPortalSelection = {
-      contractId: "zeta@v1",
-      portalId: "portal-z",
-    };
-    const second: LoginPortalSelection = {
-      contractId: "alpha@v1",
-      portalId: null,
-    };
-    await loginSelections.put(first);
-    await loginSelections.put(second);
-
-    const [row] = await storage.db.select().from(loginPortalSelections).where(
-      eq(loginPortalSelections.contractId, "zeta@v1"),
-    );
-    assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
-    assertEquals(row.contractId, first.contractId);
-
-    const updated: LoginPortalSelection = {
-      contractId: "zeta@v1",
-      portalId: "portal-a",
-    };
-    await loginSelections.put(updated);
-
-    assertEquals(await loginSelections.get("zeta@v1"), updated);
-    assertEquals(await loginSelections.list(), [second, updated]);
-    await loginSelections.delete("alpha@v1");
-    assertEquals(await loginSelections.get("alpha@v1"), undefined);
-  });
-});
-
-Deno.test("device portal selection storage upserts, deletes, and lists by deployment id", async () => {
-  await withRepositories(async ({ deviceSelections }, storage) => {
-    const first: DevicePortalSelection = {
-      deploymentId: "deployment-z",
-      portalId: "portal-z",
-    };
-    const second: DevicePortalSelection = {
-      deploymentId: "deployment-a",
-      portalId: null,
-    };
-    await deviceSelections.put(first);
-    await deviceSelections.put(second);
-
-    const [row] = await storage.db.select().from(devicePortalSelections).where(
-      eq(devicePortalSelections.deploymentId, "deployment-z"),
-    );
-    assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
-    assertEquals(row.deploymentId, first.deploymentId);
-
-    const updated: DevicePortalSelection = {
-      deploymentId: "deployment-z",
-      portalId: "portal-a",
-    };
-    await deviceSelections.put(updated);
-
-    assertEquals(await deviceSelections.get("deployment-z"), updated);
-    assertEquals(await deviceSelections.list(), [second, updated]);
-    await deviceSelections.delete("deployment-a");
-    assertEquals(await deviceSelections.get("deployment-a"), undefined);
-  });
-});
-
-Deno.test("instance grant policy storage upserts, deletes, and lists", async () => {
-  await withRepositories(async ({ policies }, storage) => {
-    const first = makePolicy({ contractId: "zeta@v1" });
-    const second = makePolicy({
-      contractId: "alpha@v1",
-      allowedOrigins: undefined,
-      impliedCapabilities: [],
-      source: {
-        kind: "portal_profile",
-        portalId: "portal-a",
-        entryUrl: "https://portal.example.com/login",
-      },
-    });
-    await policies.put(first);
-    await policies.put(second);
-
-    const [row] = await storage.db.select().from(instanceGrantPolicies).where(
-      eq(instanceGrantPolicies.contractId, "zeta@v1"),
-    );
-    assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
-    assertEquals(row.contractId, first.contractId);
-
-    const updated = makePolicy({
-      contractId: "zeta@v1",
-      allowedOrigins: undefined,
-      impliedCapabilities: ["items.write"],
-      updatedAt: "2026-04-26T00:00:02.000Z",
-    });
-    await policies.put(updated);
-
-    assertEquals(await policies.get("zeta@v1"), updated);
-    assertEquals(await policies.list(), [second, updated]);
-    await policies.delete("alpha@v1");
-    assertEquals(await policies.get("alpha@v1"), undefined);
+    assertEquals(await sessionRepo.listPage({ limit: 10 }), [second, service]);
   });
 });
 
@@ -924,7 +717,6 @@ Deno.test("service deployment storage upserts, deletes, and lists by deployment 
       const second = makeServiceDeployment({
         deploymentId: "svc-deployment-a",
         namespaces: [],
-        appliedContracts: [],
       });
       await deployments.put(first);
       await deployments.put(second);
@@ -934,27 +726,23 @@ Deno.test("service deployment storage upserts, deletes, and lists by deployment 
       );
       assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
       assertEquals(row.deploymentId, first.deploymentId);
-      assertEquals(row.firstConnectPolicy, "reject");
 
       const updated = makeServiceDeployment({
         deploymentId: "svc-deployment-b",
         disabled: true,
         namespaces: ["search"],
-        appliedContracts: [{
-          contractId: "svc.search@v1",
-          compatibilityPolicy: "compatible-additive",
-          allowedDigests: ["sha256-service-b", "sha256-service-c"],
-          resourceBindingsByDigest: {
-            "sha256-service-b": {
-              kv: { cache: { bucket: "search-cache", history: 1, ttlMs: 0 } },
-            },
-          },
-        }],
       });
       await deployments.put(updated);
 
       assertEquals(await deployments.get("svc-deployment-b"), updated);
-      assertEquals(await deployments.list(), [second, updated]);
+      assertEquals(await deployments.listPage({ limit: 10 }), [
+        second,
+        updated,
+      ]);
+      assertEquals(
+        await deployments.listByDeploymentIds(["svc-deployment-b", "missing"]),
+        [updated],
+      );
       await deployments.delete("svc-deployment-a");
       assertEquals(await deployments.get("svc-deployment-a"), undefined);
     },
@@ -999,7 +787,11 @@ Deno.test("service instance storage upserts, deletes, and looks up by instance k
     assertEquals(await instances.get("svc_instance_b"), updated);
     assertEquals(await instances.getByInstanceKey("session-key-c"), updated);
     assertEquals(await instances.getByInstanceKey("session-key-c"), updated);
-    assertEquals(await instances.list(), [second, updated]);
+    assertEquals(await instances.listPage({ limit: 10 }), [second, updated]);
+    assertEquals(
+      await instances.listByCurrentContractDigests(["sha256-service-c"]),
+      [updated],
+    );
     assertEquals(await instances.listByDeployment("svc-deployment-a"), [
       updated,
     ]);
@@ -1015,7 +807,6 @@ Deno.test("device deployment storage upserts, deletes, and lists by deployment i
       const second = makeDeviceDeployment({
         deploymentId: "dev-deployment-a",
         reviewMode: undefined,
-        appliedContracts: [],
       });
       await deployments.put(first);
       await deployments.put(second);
@@ -1025,60 +816,25 @@ Deno.test("device deployment storage upserts, deletes, and lists by deployment i
       );
       assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
       assertEquals(row.deploymentId, first.deploymentId);
-      assertEquals(row.firstConnectPolicy, "reject");
-      assertEquals(row.preActivationPolicy, "reject");
 
       const updated = makeDeviceDeployment({
         deploymentId: "dev-deployment-b",
         reviewMode: "none",
-        preActivationPolicy: "device-owned",
         disabled: true,
-        appliedContracts: [{
-          contractId: "device.writer@v1",
-          compatibilityPolicy: "manual",
-          allowedDigests: ["sha256-device-b", "sha256-device-c"],
-        }],
       });
       await deployments.put(updated);
 
       assertEquals(await deployments.get("dev-deployment-b"), updated);
-      assertEquals(await deployments.list(), [second, updated]);
+      assertEquals(await deployments.listPage({ limit: 10 }), [
+        second,
+        updated,
+      ]);
+      assertEquals(
+        await deployments.listByDeploymentIds(["dev-deployment-b", "missing"]),
+        [updated],
+      );
       await deployments.delete("dev-deployment-a");
       assertEquals(await deployments.get("dev-deployment-a"), undefined);
-    },
-  );
-});
-
-Deno.test("device deployment storage omits service-only resource bindings", async () => {
-  await withRepositories(
-    async ({ deviceDeployments: deployments }, storage) => {
-      await storage.db.insert(deviceDeployments).values({
-        deploymentId: "dev-deployment-resource-bound",
-        reviewMode: "none",
-        disabled: false,
-        appliedContracts: JSON.stringify([{
-          contractId: "device.reader@v1",
-          allowedDigests: ["sha256-device-a"],
-          resourceBindingsByDigest: {
-            "sha256-device-a": {
-              kv: { cache: { bucket: "reader-cache", history: 1, ttlMs: 0 } },
-            },
-          },
-        }]),
-      });
-
-      assertEquals(await deployments.get("dev-deployment-resource-bound"), {
-        deploymentId: "dev-deployment-resource-bound",
-        reviewMode: "none",
-        firstConnectPolicy: "reject",
-        preActivationPolicy: "reject",
-        disabled: false,
-        appliedContracts: [{
-          contractId: "device.reader@v1",
-          compatibilityPolicy: "exact",
-          allowedDigests: ["sha256-device-a"],
-        }],
-      });
     },
   );
 });
@@ -1110,7 +866,7 @@ Deno.test("device instance storage upserts, deletes, and lists", async () => {
     await instances.put(updated);
 
     assertEquals(await instances.get("dev_instance_b"), updated);
-    assertEquals(await instances.list(), [second, updated]);
+    assertEquals(await instances.listPage({ limit: 10 }), [second, updated]);
     assertEquals(await instances.listByDeployment("dev-deployment-a"), [
       updated,
     ]);
@@ -1173,7 +929,10 @@ Deno.test("device activation storage upserts, deletes, and lists", async () => {
       await activations.put(updated);
 
       assertEquals(await activations.get("dev_instance_b"), updated);
-      assertEquals(await activations.list(), [second, updated]);
+      assertEquals(await activations.listPage({ limit: 10 }), [
+        second,
+        updated,
+      ]);
       await activations.delete("dev_instance_a");
       assertEquals(await activations.get("dev_instance_a"), undefined);
     },
@@ -1210,7 +969,7 @@ Deno.test("device activation review storage upserts, deletes, and flow lookup", 
 
       assertEquals(await reviews.get("dar_b"), updated);
       assertEquals(await reviews.getByFlowId("flow_a"), updated);
-      assertEquals(await reviews.list(), [second, updated]);
+      assertEquals(await reviews.listPage({ limit: 10 }), [second, updated]);
       await reviews.delete("dar_a");
       assertEquals(await reviews.get("dar_a"), undefined);
     },

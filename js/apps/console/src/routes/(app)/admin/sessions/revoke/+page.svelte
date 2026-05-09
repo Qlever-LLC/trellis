@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
-  import type { AuthRevokeSessionInput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthSessionsRevokeInput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { onMount } from "svelte";
@@ -28,7 +28,7 @@
     loading = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.ListSessions", {}).take();
+      const response = await trellis.request("Auth.Sessions.List", { limit: 500, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       sessions = response.sessions ?? [];
       const requestedSessionKey = page.url.searchParams.get("sessionKey");
@@ -46,7 +46,7 @@
     pending = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.RevokeSession", { sessionKey: selectedSession.sessionKey } satisfies AuthRevokeSessionInput).take();
+      const response = await trellis.request("Auth.Sessions.Revoke", { sessionKey: selectedSession.sessionKey } satisfies AuthSessionsRevokeInput).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Session revoked for ${summary.title}.`, "Revoked");
       await load();

@@ -87,7 +87,7 @@ pub struct StartAgentLoginOpts<'a> {
 pub struct AdminLoginOutcome {
     /// Persistable admin session state for later CLI reuse.
     pub state: AdminSessionState,
-    /// Authenticated user returned by `Auth.Me` after bind succeeds.
+    /// Authenticated user returned by `Auth.Sessions.Me` after bind succeeds.
     pub user: AuthenticatedUser,
 }
 

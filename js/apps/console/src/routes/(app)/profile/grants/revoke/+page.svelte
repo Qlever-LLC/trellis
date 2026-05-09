@@ -12,8 +12,6 @@
   import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type RevokeUserGrantInput = { contractDigest: string };
-
   const trellis = getTrellis();
   const notifications = getNotifications();
 
@@ -21,19 +19,19 @@
   let error = $state<string | null>(null);
   let pending = $state(false);
   let grants = $state<UserGrantRecord[]>([]);
-  let selectedGrantDigest = $state("");
+  let selectedIdentityEnvelopeId = $state("");
 
-  const selectedGrant = $derived(grants.find((grant) => grant.contractDigest === selectedGrantDigest) ?? null);
+  const selectedGrant = $derived(grants.find((grant) => grant.identityEnvelopeId === selectedIdentityEnvelopeId) ?? null);
 
   async function load() {
     loading = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.ListUserGrants", {}).take();
+      const response = await trellis.request("Auth.Identities.Grants.List", { limit: 100, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       grants = response.grants ?? [];
       const requestedGrant = page.url.searchParams.get("grant");
-      selectedGrantDigest = requestedGrant && grants.some((grant) => grant.contractDigest === requestedGrant) ? requestedGrant : (grants[0]?.contractDigest ?? "");
+      selectedIdentityEnvelopeId = requestedGrant && grants.some((grant) => grant.identityEnvelopeId === requestedGrant) ? requestedGrant : (grants[0]?.identityEnvelopeId ?? "");
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -46,7 +44,7 @@
     pending = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.RevokeUserGrant", { contractDigest: selectedGrant.contractDigest } satisfies RevokeUserGrantInput).take();
+      const response = await trellis.request("Auth.IdentityEnvelopes.Revoke", { identityEnvelopeId: selectedGrant.identityEnvelopeId }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`${participantKindLabel(selectedGrant.participantKind)} grant revoked.`, "Revoked");
       await load();
@@ -82,10 +80,10 @@
       <div class="space-y-4">
         <label class="form-control gap-1">
           <span class="label-text text-xs">Grant</span>
-          <select class="select select-bordered select-sm" bind:value={selectedGrantDigest} required>
-            {#each grants as grant (grant.contractDigest)}
+          <select class="select select-bordered select-sm" bind:value={selectedIdentityEnvelopeId} required>
+            {#each grants as grant (grant.identityEnvelopeId)}
               {@const summary = describeUserGrant(grant)}
-              <option value={grant.contractDigest}>{summary.title} — {grant.contractId}</option>
+              <option value={grant.identityEnvelopeId}>{summary.title} — {grant.contractEvidence.contractId}</option>
             {/each}
           </select>
         </label>
@@ -95,7 +93,8 @@
           <div class="rounded-box border border-base-300 p-3 text-sm">
             <div class="font-medium">{summary.title}</div>
             <div class="text-base-content/60">{summary.details}</div>
-            <div class="trellis-identifier text-base-content/60">{selectedGrant.contractDigest}</div>
+            <div class="trellis-identifier text-base-content/60">{selectedGrant.identityEnvelopeId}</div>
+            <div class="trellis-identifier text-base-content/60">{selectedGrant.contractEvidence.contractDigest}</div>
             <div class="text-xs text-base-content/60">Granted {formatDate(selectedGrant.grantedAt)}</div>
           </div>
         {/if}
