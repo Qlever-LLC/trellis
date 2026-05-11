@@ -448,9 +448,20 @@ async function validateServiceRuntimeDigest(args: {
   const contractRecord = await args.contractStorage.get(
     presentedContractDigest,
   );
-  if (!contractRecord) return stageDeny("contract_changed");
-  if (contractRecord.id !== currentContractId) {
-    return stageDeny("contract_changed");
+  let contract: unknown;
+  if (contractRecord) {
+    if (contractRecord.id !== currentContractId) {
+      return stageDeny("contract_changed");
+    }
+    contract = JSON.parse(contractRecord.contract);
+  } else {
+    const knownContract = await args.contracts.getKnownContract(
+      presentedContractDigest,
+    );
+    if (!knownContract || knownContract.id !== currentContractId) {
+      return stageDeny("contract_changed");
+    }
+    contract = knownContract;
   }
   const envelope = await args.deploymentEnvelopeStorage.get(
     args.deployment.deploymentId,
@@ -459,7 +470,6 @@ async function validateServiceRuntimeDigest(args: {
     return stageDeny("service_envelope_miss");
   }
 
-  const contract = JSON.parse(contractRecord.contract);
   const analysis = await analyzeContractEnvelopeBoundary(
     args.contracts,
     contract,

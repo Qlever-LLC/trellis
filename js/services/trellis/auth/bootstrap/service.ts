@@ -466,7 +466,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       service.deploymentId,
       request.contractDigest,
     );
-    let rawContract: unknown = request.contract ?? existingEvidence?.contract ??
+    let rawContract: unknown = request.contract ??
       await deps.contracts.getContract(request.contractDigest, {
         includeInactive: true,
       });

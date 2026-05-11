@@ -111,6 +111,7 @@ async function createApp(args: {
   nowSeconds?: number;
   initialEvidence?: DeploymentContractEvidence[];
   initialBindings?: DeploymentResourceBinding[];
+  knownExpandedContract?: boolean;
   provisionResourceBindings?: (
     contract: TrellisContractV1,
   ) => Promise<ContractResourceBindings>;
@@ -123,10 +124,12 @@ async function createApp(args: {
     digest: contract.digest,
     contract: contract.contract,
   });
-  contracts.addKnownTestContract({
-    digest: expanded.digest,
-    contract: expanded.contract,
-  });
+  if (args.knownExpandedContract ?? true) {
+    contracts.addKnownTestContract({
+      digest: expanded.digest,
+      contract: expanded.contract,
+    });
+  }
 
   const envelope: DeploymentEnvelope = {
     deploymentId: "deployment_1",
@@ -237,6 +240,7 @@ async function createApp(args: {
       },
       storePresentedContract: async ({ contract, digest }) => {
         storedContracts.push({ digest, contractId: contract.id });
+        contracts.addKnownTestContract({ digest, contract });
       },
       verifyIdentityProof: async ({ sessionKey, iat, contractDigest, sig }) =>
         sessionKey === auth.sessionKey &&
@@ -386,8 +390,8 @@ Deno.test("POST /bootstrap/service reuses pending request for the same contract 
   assertEquals(setup.expansionRequests.length, 1);
 });
 
-Deno.test("POST /bootstrap/service reconnects after accepted expansion", async () => {
-  const setup = await createApp();
+Deno.test("POST /bootstrap/service reconnects after accepted expansion from global contract storage", async () => {
+  const setup = await createApp({ knownExpandedContract: false });
   const first = await setup.bootstrap({
     contractId: setup.expanded.contract.id,
     contractDigest: setup.expanded.digest,
@@ -406,6 +410,37 @@ Deno.test("POST /bootstrap/service reconnects after accepted expansion", async (
 
   assertEquals(second.status, 200);
   assertEquals((await second.json()).status, "ready");
+  assertEquals(setup.storedContracts, [{
+    digest: setup.expanded.digest,
+    contractId: setup.expanded.contract.id,
+  }]);
+});
+
+Deno.test("POST /bootstrap/service does not resolve omitted manifests from deployment evidence", async () => {
+  const expanded = await validatedContract(expandedContract());
+  const setup = await createApp({
+    knownExpandedContract: false,
+    initialEvidence: [{
+      deploymentId: "deployment_1",
+      contractId: expanded.contract.id,
+      contractDigest: expanded.digest,
+      contract: expanded.contract,
+      firstSeenAt: TEST_NOW,
+      lastSeenAt: TEST_NOW,
+    }],
+  });
+  setup.envelope.boundary = await contractBoundary(
+    setup.contracts,
+    setup.expanded.contract,
+  );
+
+  const response = await setup.bootstrap({
+    contractId: setup.expanded.contract.id,
+    contractDigest: setup.expanded.digest,
+  });
+
+  assertEquals(response.status, 409);
+  assertEquals((await response.json()).reason, "manifest_required");
 });
 
 Deno.test("POST /bootstrap/service returns stored resource bindings", async () => {

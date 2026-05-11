@@ -8,11 +8,13 @@ import type { NatsConnection } from "@nats-io/nats-core";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 import type { ContractsModule } from "../../catalog/runtime.ts";
+import { analyzeContract } from "../../catalog/analysis.ts";
 import {
   type ContractResourceBindings,
   provisionContractResourceBindings,
   type ResourceProvisioningOptions,
 } from "../../catalog/resources.ts";
+import type { ContractRecord } from "../../catalog/schemas.ts";
 import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
 import {
   computeEnvelopeDelta,
@@ -101,6 +103,10 @@ type DeploymentContractEvidenceStorage = {
   listByDeployment?(
     deploymentId: string,
   ): Promise<DeploymentContractEvidence[]>;
+};
+
+type ContractStorage = {
+  put(record: ContractRecord): Promise<void>;
 };
 
 type EnvelopeExpansionRequestStorage = {
@@ -235,6 +241,26 @@ function contractEvidenceRecord(
     contract: { ...input.contract },
     firstSeenAt: input.existing?.firstSeenAt ?? input.now,
     lastSeenAt: input.now,
+  };
+}
+
+function contractStorageRecord(input: {
+  digest: string;
+  contract: TrellisContractV1;
+  canonical: string;
+  installedAt: Date;
+}): ContractRecord {
+  const analyzed = analyzeContract(input.contract);
+  return {
+    digest: input.digest,
+    id: input.contract.id,
+    displayName: input.contract.displayName,
+    description: input.contract.description,
+    installedAt: input.installedAt,
+    contract: input.canonical,
+    resources: input.contract.resources,
+    analysisSummary: analyzed.summary,
+    analysis: analyzed.analysis,
   };
 }
 
@@ -489,17 +515,6 @@ export function createAuthEnvelopesGetHandler(deps: {
   };
 }
 
-async function boundaryForContractEvidence(input: {
-  contracts: EnvelopeContractDeps;
-  evidence: DeploymentContractEvidence;
-}): Promise<EnvelopeBoundary> {
-  const analysis = await analyzeContractEnvelopeBoundary(
-    input.contracts,
-    input.evidence.contract,
-  );
-  return mergeBoundaries(analysis.required, analysis.contributedAvailability);
-}
-
 async function boundaryForKnownDigest(input: {
   contracts: EnvelopeContractDeps;
   digest: string;
@@ -574,13 +589,16 @@ async function previewEnvelopeChange(input: {
     .listByDeployment?.(input.current.deploymentId) ?? [];
   const boundaryByDigest = new Map<string, EnvelopeBoundary>();
   for (const record of evidence) {
-    boundaryByDigest.set(
-      record.contractDigest,
-      await boundaryForContractEvidence({
-        contracts: input.contracts,
-        evidence: record,
-      }),
-    );
+    const boundary = await boundaryForKnownDigest({
+      contracts: input.contracts,
+      digest: record.contractDigest,
+    });
+    if (!boundary) {
+      throw new Error(
+        `Unknown deployment contract digest '${record.contractDigest}'`,
+      );
+    }
+    boundaryByDigest.set(record.contractDigest, boundary);
   }
 
   const impactedSessions: ShrinkImpactSession[] = [];
@@ -632,7 +650,9 @@ async function previewEnvelopeChange(input: {
         digest: contract.contractDigest,
       });
     if (!boundary) {
-      continue;
+      throw new Error(
+        `Unknown session contract digest '${contract.contractDigest}'`,
+      );
     }
     const missing = computeEnvelopeDelta(sessionEnvelope, boundary);
     if (isEmptyBoundary(missing)) continue;
@@ -667,9 +687,12 @@ async function previewEnvelopeChange(input: {
       contracts: input.contracts,
       digest: envelope.approvalEvidence.contractDigest,
     });
-    const missing = boundary
-      ? computeEnvelopeDelta(effectiveAvailability, boundary)
-      : EMPTY_BOUNDARY;
+    if (!boundary) {
+      throw new Error(
+        `Unknown identity envelope contract digest '${envelope.approvalEvidence.contractDigest}'`,
+      );
+    }
+    const missing = computeEnvelopeDelta(effectiveAvailability, boundary);
     if (isEmptyBoundary(missing)) continue;
     impactedIdentityEnvelopes.push({
       identityEnvelopeId: envelope.identityEnvelopeId,
@@ -723,6 +746,7 @@ async function revokeSession(input: {
 /** Creates the manual deployment envelope expansion RPC handler. */
 export function createAuthEnvelopesExpandHandler(deps: {
   contracts: EnvelopeContractDeps;
+  contractStorage: ContractStorage;
   deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
   deploymentResourceBindingStorage: DeploymentResourceBindingStorage;
   deploymentContractEvidenceStorage: DeploymentContractEvidenceStorage;
@@ -854,6 +878,13 @@ export function createAuthEnvelopesExpandHandler(deps: {
         existing: existingEvidence,
       });
 
+      await deps.contractStorage.put(contractStorageRecord({
+        digest: analysis.contract.digest,
+        contract: validated.contract,
+        canonical: validated.canonical,
+        installedAt: new Date(now),
+      }));
+
       if (options.persist ?? true) {
         if (deps.deploymentEnvelopeStorage.putExpansion) {
           await deps.deploymentEnvelopeStorage.putExpansion({
@@ -888,6 +919,7 @@ export function createAuthEnvelopesExpandHandler(deps: {
 /** Creates the pending envelope expansion request approval RPC handler. */
 export function createAuthEnvelopesApproveRequestHandler(deps: {
   contracts: EnvelopeContractDeps;
+  contractStorage: ContractStorage;
   deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
   deploymentResourceBindingStorage: DeploymentResourceBindingStorage;
   deploymentContractEvidenceStorage: DeploymentContractEvidenceStorage;

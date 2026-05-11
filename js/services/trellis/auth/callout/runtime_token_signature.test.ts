@@ -148,14 +148,23 @@ async function serviceDigestCheck(args: {
   currentContractDigest?: string;
   currentContractId?: string;
   envelope?: DeploymentEnvelope | null;
+  contractStorageMiss?: boolean;
+  moduleContractKnown?: boolean;
+  deploymentEvidenceExists?: boolean;
 }) {
   const contracts = createTestContracts();
   const validated = await contracts.validateContract(SERVICE_CONTRACT);
+  if (args.moduleContractKnown) {
+    contracts.addKnownTestContract({
+      digest: validated.digest,
+      contract: SERVICE_CONTRACT,
+    });
+  }
   const currentContractDigest = args.currentContractDigest ?? validated.digest;
   const presentedContractDigest = "presentedContractDigest" in args
     ? args.presentedContractDigest
     : currentContractDigest;
-  return await __testing__.validateServiceRuntimeDigest({
+  const digestCheckInput = {
     presentedContractDigest,
     service: {
       currentContractId: args.currentContractId ?? "trellis.worker@v1",
@@ -166,8 +175,22 @@ async function serviceDigestCheck(args: {
     },
     contractStorage: {
       get: async (digest: string) =>
-        digest === validated.digest
+        !args.contractStorageMiss && digest === validated.digest
           ? makeContractRecord({ digest, contract: SERVICE_CONTRACT })
+          : undefined,
+    },
+    deploymentContractEvidenceStorage: {
+      get: async (deploymentId: string, digest: string) =>
+        args.deploymentEvidenceExists && deploymentId === "worker.default" &&
+          digest === validated.digest
+          ? {
+            deploymentId,
+            contractId: SERVICE_CONTRACT.id,
+            contractDigest: digest,
+            contract: SERVICE_CONTRACT,
+            firstSeenAt: "2026-01-01T00:00:00.000Z",
+            lastSeenAt: "2026-01-01T00:00:00.000Z",
+          }
           : undefined,
     },
     contracts,
@@ -177,7 +200,8 @@ async function serviceDigestCheck(args: {
           ? FITTING_SERVICE_ENVELOPE
           : args.envelope ?? undefined,
     },
-  });
+  };
+  return await __testing__.validateServiceRuntimeDigest(digestCheckInput);
 }
 
 for (const principal of ["user", "service"] as const) {
@@ -229,6 +253,24 @@ Deno.test("auth callout accepts service reconnect when current digest fits the d
   const result = await serviceDigestCheck({});
 
   assertEquals(result, { ok: true, value: undefined });
+});
+
+Deno.test("auth callout accepts service reconnect using known contract module fallback", async () => {
+  const result = await serviceDigestCheck({
+    contractStorageMiss: true,
+    moduleContractKnown: true,
+  });
+
+  assertEquals(result, { ok: true, value: undefined });
+});
+
+Deno.test("auth callout rejects service reconnect when global storage misses even if evidence exists", async () => {
+  const result = await serviceDigestCheck({
+    contractStorageMiss: true,
+    deploymentEvidenceExists: true,
+  });
+
+  assertEquals(result, { ok: false, denial: "contract_changed" });
 });
 
 Deno.test("auth callout rejects service reconnect when deployment envelope is missing, disabled, or does not fit", async () => {

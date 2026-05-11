@@ -630,12 +630,12 @@ Deno.test("contracts runtime refresh fails closed for invalid deployment evidenc
     await assertRejects(
       () => module.refreshActiveContracts(),
       Error,
-      "Failed to load active contract 'missing-digest'",
+      "Unknown active contract digest 'missing-digest'",
     );
     await assertRejects(
       () => module.getActiveCatalog(),
       Error,
-      "Failed to load active contract 'missing-digest'",
+      "Unknown active contract digest 'missing-digest'",
     );
   } finally {
     storage.client.close();
@@ -1336,7 +1336,7 @@ Deno.test("contracts runtime activates service deployment envelope evidence with
   }
 });
 
-Deno.test("contracts runtime hydrates active contracts from deployment evidence rows", async () => {
+Deno.test("contracts runtime fails closed for evidence-only active contract manifests", async () => {
   await withContractsModule(
     async (
       module,
@@ -1366,14 +1366,17 @@ Deno.test("contracts runtime hydrates active contracts from deployment evidence 
         lastSeenAt: TEST_NOW,
       });
 
-      await module.refreshActiveContracts();
+      await assertRejects(
+        () => module.refreshActiveContracts(),
+        Error,
+        `Unknown active contract digest '${validated.digest}'`,
+      );
 
       assertEquals(await contractStorage.listPage({ limit: 10 }), []);
-      assertEquals(
-        (await module.getActiveCatalog()).contracts.map((entry) =>
-          entry.digest
-        ),
-        [validated.digest],
+      await assertRejects(
+        () => module.getActiveCatalog(),
+        Error,
+        `Unknown active contract digest '${validated.digest}'`,
       );
     },
   );

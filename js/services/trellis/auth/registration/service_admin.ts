@@ -99,6 +99,7 @@ export async function registerServiceAdminRpcs(deps: {
     "Auth.Envelopes.Expand",
     createAuthEnvelopesExpandHandler({
       contracts: deps.contracts,
+      contractStorage: deps.contractStorage,
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
       deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
       deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
@@ -113,6 +114,7 @@ export async function registerServiceAdminRpcs(deps: {
     "Auth.EnvelopeExpansions.Approve",
     createAuthEnvelopesApproveRequestHandler({
       contracts: deps.contracts,
+      contractStorage: deps.contractStorage,
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
       deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
       deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,

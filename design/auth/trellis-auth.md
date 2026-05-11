@@ -45,6 +45,7 @@ Durable SQL-backed records:
 - service deployments and service instances
 - device deployments, device instances, provisioning secrets, activations, and
   review records
+- global normalized contract manifests keyed by digest
 - contract evidence records and resource bindings
 - sessions bound to a principal, session key, contract context, and `lastAuth`
 
@@ -98,7 +99,9 @@ Terms:
   and capability decisions, but cannot create availability that the deployment
   envelope lacks
 - **contract evidence**: the manifest digest, version, and derived analysis used
-  to prove what boundary a participant presented; it is evidence, not authority
+  to prove what boundary a participant presented; it tracks approved
+  digests/surfaces and may retain redundant contract JSON only as
+  historical/review evidence, not as a manifest lookup fallback
 
 The core decision is:
 
@@ -456,6 +459,10 @@ Rules:
 - active-catalog refresh, portal routing, surface status, shrink preview, and
   unused installed-contract cleanup are derived through targeted durable-store
   queries rather than broad scans of local manifests or in-memory catalogs.
+- auth callout, bootstrap, and catalog flows resolve full manifests from
+  built-in Trellis contracts or the global contract store; deployment evidence
+  records are used to discover approved digests and surfaces, not to hydrate
+  manifests.
 - user approval planning collects required capability keys from declared RPC,
   operation, and event capability lists and attaches the owning contract's
   capability metadata when available

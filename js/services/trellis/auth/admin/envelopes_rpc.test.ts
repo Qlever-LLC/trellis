@@ -15,6 +15,7 @@ import type {
 
 import { createTestContracts } from "../../catalog/test_contracts.ts";
 import type { ContractResourceBindings } from "../../catalog/resources.ts";
+import type { ContractRecord } from "../../catalog/schemas.ts";
 import type {
   DeploymentContractEvidence,
   DeploymentEnvelope,
@@ -263,6 +264,22 @@ class InMemoryDeploymentContractEvidenceStorage {
         left.contractId.localeCompare(right.contractId) ||
         left.contractDigest.localeCompare(right.contractDigest)
       );
+  }
+}
+
+class InMemoryContractStorage {
+  #records = new Map<string, ContractRecord>();
+  putCount = 0;
+
+  async put(record: ContractRecord): Promise<void> {
+    await Promise.resolve();
+    this.putCount += 1;
+    this.#records.set(record.digest, record);
+  }
+
+  async get(digest: string): Promise<ContractRecord | undefined> {
+    await Promise.resolve();
+    return this.#records.get(digest);
   }
 }
 
@@ -548,6 +565,7 @@ function makeDeps(options: {
   envelopes.seed(options.envelope ?? makeEnvelope());
   const resources = new InMemoryDeploymentResourceBindingStorage();
   const evidence = new InMemoryDeploymentContractEvidenceStorage();
+  const contractStorage = new InMemoryContractStorage();
   const contracts = options.contracts ?? createTestContracts([{
     digest: "platform-digest",
     contract: dependencyContract(),
@@ -556,8 +574,10 @@ function makeDeps(options: {
     envelopes,
     resources,
     evidence,
+    contractStorage,
     handler: createAuthEnvelopesExpandHandler({
       contracts,
+      contractStorage,
       deploymentEnvelopeStorage: envelopes,
       deploymentResourceBindingStorage: resources,
       deploymentContractEvidenceStorage: evidence,
@@ -593,7 +613,7 @@ Deno.test("Auth.Envelopes.List returns admin-visible envelope authority rows", a
   });
 
   const result = await handler({
-    input: { disabled: false },
+    input: { disabled: false, limit: 100 },
     context: adminContext,
   });
   const value = result.take() as AuthEnvelopesListResponse;
@@ -742,7 +762,7 @@ Deno.test("Auth.EnvelopeExpansions.List returns filtered expansion requests", as
   });
 
   const result = await handler({
-    input: { deploymentId: "billing.default", state: "pending" },
+    input: { deploymentId: "billing.default", state: "pending", limit: 100 },
     context: adminContext,
   });
 
@@ -756,7 +776,7 @@ Deno.test("Auth.EnvelopeExpansions.List returns filtered expansion requests", as
 
 Deno.test("Auth.Envelopes.Expand expands modeled rows and stores evidence", async () => {
   const contract = serviceContract();
-  const { handler, envelopes, evidence } = makeDeps();
+  const { handler, envelopes, evidence, contractStorage } = makeDeps();
 
   const result = await handler({
     input: {
@@ -771,6 +791,12 @@ Deno.test("Auth.Envelopes.Expand expands modeled rows and stores evidence", asyn
   const value = result.take() as AuthEnvelopesExpandResponse;
   assertEquals(envelopes.putCount, 1);
   assertEquals(evidence.putCount, 1);
+  assertEquals(contractStorage.putCount, 1);
+  const storedContract = await contractStorage.get(
+    digestContractManifest(contract),
+  );
+  assertEquals(storedContract?.id, contract.id);
+  assertEquals(JSON.parse(storedContract?.contract ?? "null"), contract);
   assertEquals(value.envelope.boundary.contracts, [
     { contractId: "acme.billing@v1", required: true },
     { contractId: "acme.platform@v1", required: true },
@@ -787,7 +813,7 @@ Deno.test("Auth.Envelopes.Expand expands modeled rows and stores evidence", asyn
 
 Deno.test("Auth.EnvelopeExpansions.Approve expands envelope from pending request", async () => {
   const contract = serviceContract();
-  const { envelopes, resources, evidence } = makeDeps();
+  const { envelopes, resources, evidence, contractStorage } = makeDeps();
   const requests = new InMemoryEnvelopeExpansionRequestStorage();
   envelopes.onApproveExpansion = async (record) => {
     const updated = await requests.updateState({
@@ -821,6 +847,7 @@ Deno.test("Auth.EnvelopeExpansions.Approve expands envelope from pending request
       digest: "platform-digest",
       contract: dependencyContract(),
     }]),
+    contractStorage,
     deploymentEnvelopeStorage: envelopes,
     deploymentResourceBindingStorage: resources,
     deploymentContractEvidenceStorage: evidence,
@@ -842,12 +869,20 @@ Deno.test("Auth.EnvelopeExpansions.Approve expands envelope from pending request
   assertEquals(value.request.decisionReason, "demo approval");
   assertEquals(envelopes.putCount, 1);
   assertEquals(evidence.putCount, 1);
+  assertEquals(contractStorage.putCount, 1);
+  assertEquals(
+    JSON.parse(
+      (await contractStorage.get(digestContractManifest(contract)))?.contract ??
+        "null",
+    ),
+    contract,
+  );
   assertEquals((await requests.get("request-1"))?.state, "approved");
 });
 
 Deno.test("Auth.EnvelopeExpansions.Approve rejects terminal requests", async () => {
   const contract = serviceContract();
-  const { envelopes, resources, evidence } = makeDeps();
+  const { envelopes, resources, evidence, contractStorage } = makeDeps();
   const requests = new InMemoryEnvelopeExpansionRequestStorage();
   requests.seed({
     requestId: "request-approved",
@@ -869,6 +904,7 @@ Deno.test("Auth.EnvelopeExpansions.Approve rejects terminal requests", async () 
       digest: "platform-digest",
       contract: dependencyContract(),
     }]),
+    contractStorage,
     deploymentEnvelopeStorage: envelopes,
     deploymentResourceBindingStorage: resources,
     deploymentContractEvidenceStorage: evidence,
@@ -1290,7 +1326,7 @@ Deno.test("Auth.Envelopes.Changes.Preview reports shrink impact without mutating
   }]);
 });
 
-Deno.test("Auth.Envelopes.Changes.Preview skips sessions with unknown contract boundaries", async () => {
+Deno.test("Auth.Envelopes.Changes.Preview fails closed for unknown session contract boundaries", async () => {
   const envelopes = new InMemoryDeploymentEnvelopeStorage();
   envelopes.seed(makeEnvelope(expandedBoundary()));
   const sessions = new InMemorySessionStorage();
@@ -1314,12 +1350,7 @@ Deno.test("Auth.Envelopes.Changes.Preview skips sessions with unknown contract b
     context: adminContext,
   });
 
-  if (result.isErr()) throw result.error;
-  const value = result.take() as AuthEnvelopesChangesPreviewResponse;
-  assertEquals(
-    value.impact.impactedSessions.map((session) => session.sessionKey),
-    [],
-  );
+  assert(result.isErr());
 });
 
 Deno.test("Auth.Envelopes.Changes.Preview uses known digest fallback boundaries", async () => {
@@ -1420,12 +1451,16 @@ Deno.test("Auth.Envelopes.Shrink requires confirmation, revokes impacted session
     updatedAt: "2026-05-07T00:00:00.000Z",
   });
   const evidence = new InMemoryDeploymentContractEvidenceStorage();
-  evidence.seed(makeEvidence());
+  const contract = serviceContract();
+  evidence.seed(makeEvidence(contract));
   const sessions = new InMemorySessionStorage();
   sessions.seed("session-key-1", makeServiceSession());
   const kicked: Array<{ serverId: string; clientId: number }> = [];
   const handler = createAuthEnvelopesShrinkHandler({
     contracts: createTestContracts([{
+      digest: digestContractManifest(contract),
+      contract,
+    }, {
       digest: "platform-digest",
       contract: dependencyContract(),
     }]),

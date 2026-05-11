@@ -286,6 +286,8 @@ Manifest normalization is separate from digest projection:
 - manifest normalization produces the canonical supported manifest shape used
   for validation, persistence, code generation, and runtime install; it
   preserves human-facing fields such as `displayName` and `description`
+- the global `contracts` store is the authoritative content-addressed store for
+  full normalized manifests keyed by digest
 - digest projection starts from the normalized manifest and keeps only fields
   that define runtime identity, authority, resources, dependencies, or wire
   shape
@@ -990,8 +992,10 @@ contracts by digest.
 
 A deployment exposes its active contract projection as `trellis.catalog.v1`.
 Durable deployment envelope, contract-evidence, and resource-binding rows are
-the authority; in-memory contract/catalog objects are validation,
-projection, and cache state only.
+the authority for the active digest set and approved surfaces. The global
+`contracts` store is the authority for full normalized manifests by digest.
+In-memory contract/catalog objects are validation, projection, and cache state
+only.
 
 Shape:
 
@@ -1021,10 +1025,13 @@ Catalog rules:
 - active catalog refresh is fail-closed: failure to query the bounded set of
   deployment contract-evidence rows or hydrate required active contract state
   MUST fail startup or refresh rather than publishing a partial active catalog
+- catalog hydration resolves full manifests from built-in Trellis contracts or
+  the global `contracts` store; deployment evidence MUST NOT be used as a
+  manifest lookup fallback
 - catalog refresh, surface-status checks, shrink previews, and unused
-  installed-contract cleanup MUST use targeted durable-store queries keyed by the
-  relevant deployment, digest, route, or install records rather than scanning
-  nearby local manifests or broad in-memory catalogs
+  installed-contract cleanup MUST use targeted durable-store queries keyed by
+  the relevant deployment, digest, route, or install records rather than
+  scanning nearby local manifests or broad in-memory catalogs
 - refresh MUST validate every proposed active digest before replacing the
   in-memory catalog; unknown digests or divergent duplicate active surfaces keep
   the previous catalog unavailable rather than falling back to built-in
@@ -1088,7 +1095,8 @@ Semantics:
 #### `Trellis.Contract.Get`
 
 - input: contract `digest`
-- returns the active contract manifest for that digest
+- returns the active contract manifest for that digest, resolved from built-in
+  Trellis contracts or the global `contracts` store
 - capability: `trellis.contract.read`
 - for v1, callers only retrieve active contracts through this RPC
 
@@ -1146,7 +1154,10 @@ The `trellis` runtime service MUST:
 
 - validate manifests against `trellis.contract.v1`
 - compute canonical digests
-- store reviewed contract evidence by digest
+- upsert full normalized manifests into the global `contracts` store by digest
+- store reviewed deployment evidence by digest; any redundant contract JSON in
+  evidence records is historical/review evidence only, not a manifest lookup
+  fallback
 - maintain durable deployment envelope/evidence rows for the deployment and
   publish an in-memory active catalog only as a fail-closed projection
 - reject active subject collisions across operations, RPCs, and events using the

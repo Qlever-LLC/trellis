@@ -63,10 +63,6 @@ type DeviceInstanceRecord = Awaited<
 type DeploymentEnvelopeRecord = Awaited<
   ReturnType<SqlDeploymentEnvelopeRepository["listPage"]>
 >[number];
-type DeploymentContractEvidenceRecord = Awaited<
-  ReturnType<SqlDeploymentContractEvidenceRepository["listPage"]>
->[number];
-
 type ActiveCatalogValidationOptions = {
   proposedDigests?: Iterable<string>;
   extraActiveDigests?: Iterable<string>;
@@ -235,30 +231,12 @@ function getRequiredServiceCapabilities(
   return [...capabilities].sort((left, right) => left.localeCompare(right));
 }
 
-function collectDeploymentEvidenceContractRecords(
-  evidence: DeploymentContractEvidenceRecord[],
-): Map<string, InstalledContractRecord> {
-  const byDigest = new Map<string, InstalledContractRecord>();
-  for (const entry of evidence) {
-    if (byDigest.has(entry.contractDigest)) continue;
-    byDigest.set(entry.contractDigest, {
-      digest: entry.contractDigest,
-      id: entry.contractId,
-      contract: JSON.stringify(entry.contract),
-    });
-  }
-  return byDigest;
-}
-
 export function createContractsModule(opts: {
   builtinContracts: Array<{ digest: string; contract: TrellisContractV1 }>;
   contractStorage: SqlContractStorageRepository;
   deploymentContractEvidenceStorage?: Pick<
     SqlDeploymentContractEvidenceRepository,
-    | "listByDigest"
-    | "listByDigests"
-    | "listByContractId"
-    | "listByDeployments"
+    "listByDeployments"
   >;
   deploymentEnvelopeStorage: Pick<
     SqlDeploymentEnvelopeRepository,
@@ -301,23 +279,11 @@ export function createContractsModule(opts: {
       });
     }
 
-    const evidence = (await opts.deploymentContractEvidenceStorage
-      ?.listByDigest(digest) ?? [])[0];
-    if (!evidence) return undefined;
-    return await hydrateStoredContract({
-      logger,
-      record: {
-        digest: evidence.contractDigest,
-        id: evidence.contractId,
-        contract: JSON.stringify(evidence.contract),
-      },
-      message: "Failed to hydrate deployment contract evidence",
-    });
+    return undefined;
   }
 
   async function loadEntriesForDigests(args: {
     digests: Iterable<string>;
-    deploymentContractEvidence?: DeploymentContractEvidenceRecord[];
     message: string;
   }): Promise<ContractEntry[]> {
     const requested = new Set(args.digests);
@@ -346,24 +312,8 @@ export function createContractsModule(opts: {
     const missingAfterStored = [...requested].filter((digest) =>
       !entriesByDigest.has(digest)
     );
-    const evidenceContracts = collectDeploymentEvidenceContractRecords(
-      args.deploymentContractEvidence?.filter((entry) =>
-        missingAfterStored.includes(entry.contractDigest)
-      ) ??
-        await opts.deploymentContractEvidenceStorage?.listByDigests(
-          missingAfterStored,
-        ) ?? [],
-    );
     for (const digest of missingAfterStored) {
-      const evidence = evidenceContracts.get(digest);
-      if (!evidence) {
-        throw new Error(`Unknown active contract digest '${digest}'`);
-      }
-      const entry = await loadStoredContractOrThrow({
-        record: evidence,
-        message: args.message,
-      });
-      entriesByDigest.set(entry.digest, entry.contract);
+      throw new Error(`Unknown active contract digest '${digest}'`);
     }
 
     return validateActiveDigestEntries(entriesByDigest, requested);
@@ -390,22 +340,6 @@ export function createContractsModule(opts: {
           contract: record.contract,
         },
         message: "Failed to hydrate persisted contract",
-      });
-      if (entry) entries.set(entry.digest, entry.contract);
-    }
-    for (
-      const evidence of await opts.deploymentContractEvidenceStorage
-        ?.listByContractId(contractId) ?? []
-    ) {
-      if (entries.has(evidence.contractDigest)) continue;
-      const entry = await hydrateStoredContract({
-        logger,
-        record: {
-          digest: evidence.contractDigest,
-          id: evidence.contractId,
-          contract: JSON.stringify(evidence.contract),
-        },
-        message: "Failed to hydrate deployment contract evidence",
       });
       if (entry) entries.set(entry.digest, entry.contract);
     }
