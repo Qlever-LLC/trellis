@@ -196,10 +196,11 @@ Use the Console Envelopes page or `Auth.Envelopes.Expand` to add the new device
 contract boundary to the deployment envelope before rolling out runtimes that
 present it.
 
-Trellis stores contract evidence for audit and repeat bootstrap, but authority is
-the modeled deployment envelope. A presented device or service contract must fit
-the enabled parent deployment envelope; Trellis rejects unknown or unavailable
-boundaries instead of accepting a digest from a deployment allow-list.
+Trellis stores deployment evidence for audit, but full manifest lookup comes
+from built-in contracts or the global contract store. Authority is the modeled
+deployment envelope. A presented device or service contract must fit the enabled
+parent deployment envelope; Trellis rejects unknown or unavailable boundaries
+instead of accepting a digest from a deployment allow-list.
 
 Same-lineage device rollouts must keep duplicate RPC, operation, event, and job surfaces schema-compatible. Optional additive fields are safe only for open object payloads; required-field changes, closed object additions, and unsupported non-identical schema constructs are rejected before Trellis projects the active catalog.
 

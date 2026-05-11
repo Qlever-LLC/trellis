@@ -548,11 +548,11 @@ service deployment envelope.
 
 Trellis looks for the contract at the labeled path first and falls back to `/trellis/contract.json` when no label is present.
 
-Runtime bootstrap presents the service contract digest first. If Trellis does not
-know that digest yet, bootstrap returns `manifest_required`; the service runtime
-retries with the full manifest, Trellis verifies the digest, and NATS runtime
-runtime auth permits only the surfaces and resources covered by the deployment
-envelope.
+Runtime bootstrap presents the service contract digest first. If Trellis cannot
+resolve that digest from built-in contracts or the global contract store,
+bootstrap returns `manifest_required`; the service runtime retries with the full
+manifest, Trellis verifies and stores it globally, and NATS runtime auth permits
+only the surfaces and resources covered by the deployment envelope.
 
 Then run the service:
 

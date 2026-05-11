@@ -603,10 +603,12 @@ Rules:
 
 Trellis stores identity-envelope grants when a durable approval decision exists.
 The presented contract digest is stored as contract evidence for audit and
-repeat resolution, not as the authority key. The normal portal denial path does
-not create or update a stored denial record; it is returned to the originating
-app as an `authError=approval_denied` browser callback so a later sign-in
-attempt can present the permission prompt again.
+repeat boundary checks, not as the authority key or a manifest lookup fallback.
+Full manifests are resolved from built-in Trellis contracts or the global
+`contracts` store. The normal portal denial path does not create or update a
+stored denial record; it is returned to the originating app as an
+`authError=approval_denied` browser callback so a later sign-in attempt can
+present the permission prompt again.
 
 ### Grant Override Object
 

@@ -216,8 +216,8 @@ Operational command behavior:
 - service instances are concrete service principals under one deployment,
   including provisioning, inspection, and reversible lifecycle changes
 - deployment create flows are intentionally metadata-light; human-facing
-  contract names continue to come from contract evidence rather than from a
-  separate deployment-local `displayName` or `description`
+  contract names continue to come from reviewed contract metadata rather than
+  from a separate deployment-local `displayName` or `description`
 - deployments may rely on the built-in Trellis portal with no portal setup, or
   register one or more custom portals, choose separate login and device default
   custom portals, assign portals to specific browser contracts or device

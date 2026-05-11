@@ -245,8 +245,9 @@ Behavior:
 - service bootstrap is a validation and binding-resolution step, not a resource
   provisioning step; it validates the exact presented digest against the service
   instance and parent deployment, then persists instance runtime state without
-  activating catalog/auth surfaces; enabled service deployment evidence is
-  already active once envelope expansion succeeds
+  activating catalog/auth surfaces; enabled deployment evidence selects the
+  active digest set once envelope expansion succeeds, while full manifests are
+  hydrated from built-in Trellis contracts or the global `contracts` store
 - schema-backed KV handles such as `service.kv.<alias>` resolve during bootstrap
   as direct typed stores, while store handles such as `service.store.<alias>`
   are opened explicitly before use
