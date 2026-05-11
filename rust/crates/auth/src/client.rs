@@ -682,8 +682,39 @@ impl<'a> AuthClient<'a> {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use trellis_sdk_auth::types::AuthSessionsMeResponse;
 
-    use super::{DeviceDeploymentCreateRequest, DeviceDeploymentRecord};
+    use super::{AuthenticatedUser, DeviceDeploymentCreateRequest, DeviceDeploymentRecord};
+
+    #[test]
+    fn sessions_me_response_user_value_deserializes_account_first_shape() {
+        let response: AuthSessionsMeResponse = serde_json::from_value(json!({
+            "participantKind": "agent",
+            "user": {
+                "userId": "usr_123",
+                "active": true,
+                "name": "Ada",
+                "email": "ada@example.com",
+                "identity": {
+                    "identityId": "idn_github_123",
+                    "provider": "github",
+                    "subject": "123"
+                },
+                "capabilities": ["admin"]
+            },
+            "device": null,
+            "service": null
+        }))
+        .expect("deserialize generated response");
+
+        assert_eq!(response.participant_kind.as_str(), Some("agent"));
+        let user: AuthenticatedUser =
+            serde_json::from_value(response.user).expect("deserialize authenticated user");
+        assert_eq!(user.user_id, "usr_123");
+        assert_eq!(user.identity.identity_id, "idn_github_123");
+        assert_eq!(user.identity.provider, "github");
+        assert_eq!(user.identity.subject, "123");
+    }
 
     #[test]
     fn device_deployment_requests_omit_absent_review_mode() {

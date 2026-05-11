@@ -358,8 +358,8 @@ Now subscribe to the event in `main.ts`:
 import { ok } from "@qlever-llc/trellis";
 
 await service.trellis.event("Auth.Connections.Opened", {}, async (event) => {
-  const e = event as { id: string; origin: string };
-  console.info("user connected", { id: e.id, origin: e.origin });
+  const e = event as { sessionKey: string };
+  console.info("connection opened", { sessionKey: e.sessionKey });
   return ok(undefined);
 });
 ```

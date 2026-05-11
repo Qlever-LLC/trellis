@@ -195,7 +195,7 @@ service
     .auth()
     .events()
     .subscribe(|event| async move {
-        tracing::info!(origin = %event.origin, id = %event.id, "user connected");
+        tracing::info!(session_key = %event.session_key, "connection opened");
         Ok(())
     })
     .await?;

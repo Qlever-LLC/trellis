@@ -301,8 +301,10 @@ Rules:
 - approval scopes are derived from declared contract APIs; there is no separate
   scope DSL
 - stored grants, sessions, users, services, and devices continue to store
-  effective capability keys as string arrays; the richer approval capability
-  object is for approval review and stored approval records
+  concrete capability keys as string arrays; user accounts also carry dynamic
+  `capabilityGroups`, while direct `capabilities` remain explicit per-user
+  grants. The richer approval capability object is for approval review and
+  stored approval records
 - Trellis stores durable `approved` decisions; user denial in the portal is a
   one-time browser-flow outcome that redirects the caller back with
   `authError=approval_denied` and does not create a durable denial record

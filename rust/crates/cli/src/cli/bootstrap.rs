@@ -90,20 +90,20 @@ pub struct NatsBootstrapArgs {
 }
 
 #[derive(Debug, Args)]
-/// Seed an initial admin identity in Trellis service storage.
+/// Seed an initial admin account and linked identity in Trellis service storage.
 pub struct BootstrapAdminArgs {
     #[arg(long)]
-    /// Identity origin namespace for the first admin account.
-    pub origin: String,
+    /// Identity provider namespace for the first admin account.
+    pub provider: String,
 
     #[arg(long)]
-    /// Identity identifier within the chosen origin.
-    pub id: String,
+    /// Identity subject within the chosen provider.
+    pub subject: String,
 
     #[arg(
         long,
         value_delimiter = ',',
-        help = "Capabilities to seed (defaults to admin, trellis.catalog.read, trellis.contract.read)"
+        help = "Capabilities to seed (defaults to admin, trellis.core::trellis.catalog.read, trellis.core::trellis.contract.read)"
     )]
     pub capabilities: Vec<String>,
 

@@ -416,7 +416,7 @@ Response:
     displayName: string;
     description: string;
     capabilities: Record<string, ContractApprovalCapability>;
-    participantKind: "app" | "agent" | "device-user";
+    participantKind: "app" | "agent";
   }>;
 }
 ```
@@ -463,6 +463,7 @@ capabilities beyond successful authenticated user context:
 
 - `rpc.Auth.Sessions.Me`
 - `rpc.Auth.Sessions.Logout`
+- `rpc.Auth.AccountFlows.CreateIdentityLink`
 
 ### rpc.Auth.Sessions.Logout
 
@@ -506,14 +507,20 @@ Response:
 
 ```ts
 {
-  participantKind: "user" | "service" | "device";
+  participantKind: "app" | "agent" | "service" | "device";
   user: {
-    id: string;
-    origin: string;
+    userId: string;
+    active: boolean;
     email: string;
     name: string;
+    image?: string;
     capabilities: string[];
-    active: boolean;
+    identity: {
+      identityId: string;
+      provider: string;
+      subject: string;
+    };
+    lastLogin?: string;
   } | null;
   device: {
     type: "device";
@@ -562,9 +569,13 @@ Response:
 type CallerView =
   | {
     type: "user";
-    trellisId: string;
-    id: string;
-    origin: string;
+    participantKind: "app" | "agent";
+    userId: string;
+    identity: {
+      identityId: string;
+      provider: string;
+      subject: string;
+    };
     email: string;
     name: string;
     image?: string;
@@ -1092,8 +1103,20 @@ Canonical RPC inventory:
 - `rpc.v1.Auth.Sessions.Me`
 - `rpc.v1.Auth.Sessions.Revoke`
 - `rpc.v1.Auth.Users.List`
+- `rpc.v1.Auth.Users.Get`
+- `rpc.v1.Auth.Users.Create`
 - `rpc.v1.Auth.Users.Update`
+- `rpc.v1.Auth.UserIdentities.List`
+- `rpc.v1.Auth.UserIdentities.Unlink`
+- `rpc.v1.Auth.AccountFlows.CreateInvite`
+- `rpc.v1.Auth.AccountFlows.CreateIdentityLink`
+- `rpc.v1.Auth.AccountFlows.CreatePasswordSetup`
+- `rpc.v1.Auth.AccountFlows.CreatePasswordReset`
 - `rpc.v1.Auth.Capabilities.List`
+- `rpc.v1.Auth.CapabilityGroups.List`
+- `rpc.v1.Auth.CapabilityGroups.Get`
+- `rpc.v1.Auth.CapabilityGroups.Put`
+- `rpc.v1.Auth.CapabilityGroups.Delete`
 
 Canonical operation inventory:
 
@@ -1157,15 +1180,31 @@ Response:
 ```ts
 {
   users: Array<{
-    origin: string;
-    id: string;
+    userId: string;
     name?: string;
     email?: string;
     active: boolean;
     capabilities: string[];
+    capabilityGroups: string[];
+    identities: Array<{
+      identityId: string;
+      provider: string;
+      subject: string;
+      displayName: string | null;
+      email: string | null;
+      emailVerified: boolean;
+      linkedAt: string;
+      lastLoginAt: string | null;
+    }>;
   }>;
 }
 ```
+
+`Auth.Users.Create` uses the same account fields except `userId` and
+`identities`: callers may supply `name`, `email`, `active`, direct
+`capabilities`, and `capabilityGroups`; Trellis always generates the canonical
+`userId`. Local-user setup flows use a separate `username` profile hint for the
+local login identity, not as the account id.
 
 ### rpc.Auth.Capabilities.List
 
@@ -1214,10 +1253,12 @@ Request:
 
 ```ts
 {
-  origin: string;
-  id: string;
+  userId: string;
   active?: boolean;
   capabilities?: string[];
+  capabilityGroups?: string[];
+  name?: string;
+  email?: string;
 }
 ```
 
@@ -1233,9 +1274,45 @@ Rules:
 
 - `capabilities`, when present, replaces the user's explicit capability grants
   with the exact canonical keys supplied by the admin caller.
+- `capabilityGroups`, when present, replaces the user's assigned dynamic group
+  keys. Groups are resolved at authorization time; direct capabilities are kept
+  as explicit per-user grants.
 - Unknown or uncataloged existing capability strings may remain on a user
   record, but new Trellis-owned assignments SHOULD use keys returned by
   `Auth.Capabilities.List`.
+
+### rpc.Auth.AccountFlows.CreateIdentityLink
+
+Request:
+
+```ts
+{}
+```
+
+Response:
+
+```ts
+{
+  flowId: string;
+  url: string;
+  expiresAt: string;
+}
+```
+
+Rules:
+
+- this is a self-service authenticated-user RPC with no capability requirement
+- the flow always targets the caller's own `userId`
+- callers cannot pass another account id or provider filters
+- admins may view and unlink user identities through management surfaces, but do
+  not generate identity-link URLs for other users
+
+### rpc.Auth.CapabilityGroups.*
+
+Capability groups are admin-managed dynamic authorization inputs. Assigning a
+group stores the group key on the user account; it does not copy the group's
+current capabilities into the user's direct grants. The built-in `admin` group is
+read-only in management surfaces, but can be assigned to users.
 
 ### rpc.Auth.Sessions.Revoke
 

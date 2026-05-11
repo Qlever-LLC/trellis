@@ -18,7 +18,6 @@ use clap_complete::generate;
 use ed25519_dalek::SigningKey;
 use miette::IntoDiagnostic;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use tracing_subscriber::EnvFilter;
 use trellis_auth as authlib;
 use trellis_client::{TrellisClient, TrellisClientError};
@@ -110,11 +109,6 @@ fn init_tracing(verbose: u8) -> miette::Result<()> {
 
 pub(crate) fn base64url_encode(bytes: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(bytes)
-}
-
-pub(crate) fn trellis_id_from_origin_id(origin: &str, id: &str) -> String {
-    let digest = Sha256::digest(format!("{origin}:{id}").as_bytes());
-    base64url_encode(&digest)[..22].to_string()
 }
 
 pub(crate) async fn connect_authenticated_cli_client(

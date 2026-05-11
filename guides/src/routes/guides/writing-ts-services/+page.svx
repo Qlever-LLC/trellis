@@ -397,7 +397,7 @@ Subscribe to events from other contracts that you declared in `uses`:
 
 ```ts
 await service.trellis.event("Auth.Connections.Opened", {}, async (event) => {
-  console.info("user connected", { origin: event.origin, id: event.id });
+  console.info("connection opened", { sessionKey: event.sessionKey });
   return Result.ok(undefined);
 });
 ```

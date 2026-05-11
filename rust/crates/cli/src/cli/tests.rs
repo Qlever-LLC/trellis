@@ -117,6 +117,45 @@ fn parses_bootstrap_local_nats_overrides() {
 }
 
 #[test]
+fn parses_bootstrap_admin_account_identity() {
+    let cli = Cli::parse_from([
+        "trellis",
+        "bootstrap",
+        "admin",
+        "--provider",
+        "github",
+        "--subject",
+        "ada",
+        "--capabilities",
+        "admin,trellis.core::trellis.catalog.read",
+        "--db-path",
+        "/tmp/trellis.sqlite",
+    ]);
+
+    match cli.command {
+        TopLevelCommand::Bootstrap(command) => match command.command {
+            BootstrapSubcommand::Admin(args) => {
+                assert_eq!(args.provider, "github");
+                assert_eq!(args.subject, "ada");
+                assert_eq!(
+                    args.capabilities,
+                    vec![
+                        "admin".to_string(),
+                        "trellis.core::trellis.catalog.read".to_string()
+                    ]
+                );
+                assert_eq!(
+                    args.db_path,
+                    std::path::PathBuf::from("/tmp/trellis.sqlite")
+                );
+            }
+            other => panic!("unexpected bootstrap command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
 fn rejects_legacy_auth_login_auth_url_flag() {
     let error = Cli::try_parse_from([
         "trellis",

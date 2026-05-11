@@ -219,17 +219,7 @@ The built-in portal is authored in `js/portals/login` and is served by Trellis i
 
 ## 11. Create the first admin
 
-Before logging into the console, bootstrap the GitHub account that will become the first administrator:
-
-```sh
-trellis bootstrap admin \
-  --servers 127.0.0.1 \
-  --creds ~/trellis/nkeys/creds/Trellis/AUTH/trellis.creds \
-  --origin github \
-  --id github:YOUR_GITHUB_USER_ID
-```
-
-This seeds the user projection with the default console access set: `admin`, `trellis.catalog.read`, and `trellis.contract.read`.
+Before logging into the console, open the admin bootstrap URL printed by the auth service. The bootstrap flow creates the first Trellis account with a generated `userId`, links the sign-in identity you choose, and assigns the built-in `admin` group/capability set.
 
 ## 12. Log in with the CLI
 
