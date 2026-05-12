@@ -31,6 +31,12 @@ pub trait EventDescriptor {
 
     /// Concrete NATS subject for the event.
     const SUBJECT: &'static str;
+
+    /// Capability requirements declared for publishers.
+    const PUBLISH_CAPABILITIES: &'static [&'static str];
+
+    /// Capability requirements declared for subscribers.
+    const SUBSCRIBE_CAPABILITIES: &'static [&'static str];
 }
 
 /// Metadata required to subscribe to one typed Trellis feed.

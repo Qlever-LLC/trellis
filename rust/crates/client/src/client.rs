@@ -1,4 +1,5 @@
 use async_nats::header::HeaderMap;
+use async_nats::jetstream::{self, consumer};
 use async_nats::ConnectOptions;
 use bytes::Bytes;
 use futures_util::stream::{self, BoxStream};
@@ -21,6 +22,7 @@ use crate::{EventDescriptor, FeedDescriptor, RpcDescriptor, SessionAuth, Trellis
 
 const HEALTH_HEARTBEAT_SUBJECT: &str = "events.v1.Health.Heartbeat";
 const HEALTH_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
+const DEFAULT_EVENT_STREAM: &str = "trellis";
 static HEALTH_HEARTBEAT_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 static FEED_INBOX_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -899,14 +901,23 @@ impl TrellisClient {
         D: EventDescriptor,
     {
         let payload = Bytes::from(serde_json::to_vec(event)?);
-        self.nats
-            .publish(D::SUBJECT.to_string(), payload)
+        let jetstream = jetstream::new(self.nats.clone());
+        let ack = timeout(
+            std::time::Duration::from_millis(self.timeout_ms),
+            jetstream.publish(D::SUBJECT.to_string(), payload),
+        )
+        .await
+        .map_err(|_| TrellisClientError::Timeout)?
+        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+
+        timeout(std::time::Duration::from_millis(self.timeout_ms), ack)
             .await
+            .map_err(|_| TrellisClientError::Timeout)?
             .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
         Ok(())
     }
 
-    /// Subscribe to one descriptor-backed event subject and decode event payloads.
+    /// Subscribe to one descriptor-backed event subject from the default JetStream event stream.
     pub async fn subscribe<D>(
         &self,
     ) -> Result<BoxStream<'static, Result<D::Event, TrellisClientError>>, TrellisClientError>
@@ -914,20 +925,42 @@ impl TrellisClient {
         D: EventDescriptor,
         D::Event: Send + 'static,
     {
-        let subscriber = timeout(
+        let jetstream = jetstream::new(self.nats.clone());
+        let event_stream = timeout(
             std::time::Duration::from_millis(self.timeout_ms),
-            self.nats.subscribe(D::SUBJECT.to_string()),
+            jetstream.get_stream_no_info(DEFAULT_EVENT_STREAM),
         )
         .await
         .map_err(|_| TrellisClientError::Timeout)?
         .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
 
-        let stream = stream::try_unfold(subscriber, |mut subscriber| async move {
-            match subscriber.next().await {
-                Some(message) => {
+        let consumer = timeout(
+            std::time::Duration::from_millis(self.timeout_ms),
+            event_stream.create_consumer(event_consumer_config::<D>(&self.auth.session_key)),
+        )
+        .await
+        .map_err(|_| TrellisClientError::Timeout)?
+        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+
+        let messages = timeout(
+            std::time::Duration::from_millis(self.timeout_ms),
+            consumer.messages(),
+        )
+        .await
+        .map_err(|_| TrellisClientError::Timeout)?
+        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+
+        let stream = stream::try_unfold(messages, |mut messages| async move {
+            match messages.next().await {
+                Some(Ok(message)) => {
                     let event: D::Event = serde_json::from_slice(&message.payload)?;
-                    Ok(Some((event, subscriber)))
+                    message
+                        .ack()
+                        .await
+                        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+                    Ok(Some((event, messages)))
                 }
+                Some(Err(error)) => Err(TrellisClientError::NatsRequest(error.to_string())),
                 None => Ok(None),
             }
         });
@@ -1169,6 +1202,33 @@ fn is_terminal_event(event: &Value) -> bool {
     )
 }
 
+fn event_consumer_config<D>(session_key: &str) -> consumer::pull::Config
+where
+    D: EventDescriptor,
+{
+    consumer::pull::Config {
+        durable_name: Some(event_consumer_name::<D>(session_key)),
+        deliver_policy: consumer::DeliverPolicy::All,
+        ack_policy: consumer::AckPolicy::Explicit,
+        filter_subject: D::SUBJECT.to_string(),
+        ..Default::default()
+    }
+}
+
+fn event_consumer_name<D>(session_key: &str) -> String
+where
+    D: EventDescriptor,
+{
+    let mut name = format!(
+        "trellis_rust_{}",
+        session_key.chars().take(16).collect::<String>()
+    );
+    for ch in D::KEY.chars() {
+        name.push(if ch.is_ascii_alphanumeric() { ch } else { '_' });
+    }
+    name
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1199,6 +1259,22 @@ mod tests {
         refund_id: String,
     }
 
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    struct PaymentCaptured {
+        payment_id: String,
+    }
+
+    struct PaymentCapturedEvent;
+
+    impl EventDescriptor for PaymentCapturedEvent {
+        type Event = PaymentCaptured;
+
+        const KEY: &'static str = "Payment.Captured";
+        const SUBJECT: &'static str = "events.v1.Payment.Captured";
+        const PUBLISH_CAPABILITIES: &'static [&'static str] = &["payments.write"];
+        const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &["payments.read"];
+    }
+
     struct RefundFeed;
 
     impl FeedDescriptor for RefundFeed {
@@ -1208,6 +1284,19 @@ mod tests {
         const KEY: &'static str = "Refund.Live";
         const SUBJECT: &'static str = "feeds.v1.Refund.Live";
         const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &["refunds.read"];
+    }
+
+    #[test]
+    fn event_consumer_config_uses_durable_filtered_consumer() {
+        let config = event_consumer_config::<PaymentCapturedEvent>("session_key_1234567890");
+
+        assert_eq!(config.filter_subject, PaymentCapturedEvent::SUBJECT);
+        assert_eq!(config.deliver_policy, consumer::DeliverPolicy::All);
+        assert_eq!(config.ack_policy, consumer::AckPolicy::Explicit);
+        assert_eq!(
+            config.durable_name.as_deref(),
+            Some("trellis_rust_session_key_1234Payment_Captured")
+        );
     }
 
     fn ready_device_connect_info(contract_digest: &str) -> DeviceConnectInfo {

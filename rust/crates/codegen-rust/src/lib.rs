@@ -1460,6 +1460,18 @@ fn render_events_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
 
     for (key, event) in &loaded.manifest.events {
         let base = key_to_pascal(key);
+        let publish = event
+            .capabilities
+            .as_ref()
+            .and_then(|caps| caps.publish.as_ref())
+            .cloned()
+            .unwrap_or_default();
+        let subscribe = event
+            .capabilities
+            .as_ref()
+            .and_then(|caps| caps.subscribe.as_ref())
+            .cloned()
+            .unwrap_or_default();
         lines.push(format!("/// Descriptor for `{key}`."));
         lines.push(format!("pub struct {base}EventDescriptor;"));
         lines.push(String::new());
@@ -1472,6 +1484,14 @@ fn render_events_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         lines.push(format!(
             "    const SUBJECT: &'static str = {};",
             string_literal(&event.subject)
+        ));
+        lines.push(format!(
+            "    const PUBLISH_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&publish)
+        ));
+        lines.push(format!(
+            "    const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&subscribe)
         ));
         lines.push("}".to_string());
         lines.push(String::new());
@@ -2382,7 +2402,7 @@ mod tests {
                     "Trellis.Audit": {"version":"v1","subject":"operations.v1.Trellis.Audit","input":{"schema":"ProcessInput"},"progress":{"schema":"ProcessProgress"},"output":{"schema":"ProcessOutput"}}
                 },
                 "events": {
-                    "Auth.Changed": {"version":"v1","subject":"events.v1.Auth.Changed","event":{"schema":"AuthChangedEvent"}}
+                    "Auth.Changed": {"version":"v1","subject":"events.v1.Auth.Changed","event":{"schema":"AuthChangedEvent"},"capabilities":{"publish":["auth.event.publish"],"subscribe":["auth.event.subscribe"]}}
                 },
                 "feeds": {
                     "Activity.Feed": {"version":"v1","subject":"feeds.v1.Activity.Feed","input":{"schema":"ActivityFeedInput"},"event":{"schema":"ActivityFeedEvent"},"capabilities":{"subscribe":["activity.feed.subscribe"]}}
@@ -2706,6 +2726,11 @@ mod tests {
             operations_rs.contains("impl ServerOperationDescriptor for TrellisProcessOperation")
         );
         assert!(events_rs.contains("pub struct AuthChangedEventDescriptor;"));
+        assert!(events_rs.contains(
+            "const PUBLISH_CAPABILITIES: &'static [&'static str] = &[\"auth.event.publish\"];"
+        ));
+        assert!(events_rs.contains("const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &["));
+        assert!(events_rs.contains("\"auth.event.subscribe\""));
         assert!(feeds_rs.contains("pub struct ActivityFeedFeedDescriptor;"));
         assert!(feeds_rs.contains("impl FeedDescriptor for ActivityFeedFeedDescriptor"));
         assert!(feeds_rs.contains("impl ServerFeedDescriptor for ActivityFeedFeedDescriptor"));
