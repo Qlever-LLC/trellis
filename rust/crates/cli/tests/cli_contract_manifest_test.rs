@@ -28,15 +28,28 @@ fn agent_contract_manifest_validates_and_declares_expected_auth_and_core_surface
         .and_then(|rpc| rpc.call.as_ref())
         .expect("auth rpc call list");
 
-    assert!(calls.iter().any(|value| value == "Auth.Sessions.Me"));
-    assert!(calls.iter().any(|value| value == "Auth.Identities.List"));
-    assert!(calls
-        .iter()
-        .any(|value| value == "Auth.IdentityEnvelopes.Revoke"));
-    assert!(calls.iter().any(|value| value == "Auth.Deployments.Create"));
+    for expected in [
+        "Auth.Sessions.Me",
+        "Auth.Sessions.List",
+        "Auth.Identities.List",
+        "Auth.IdentityEnvelopes.Revoke",
+        "Auth.Deployments.Create",
+        "Auth.Users.List",
+        "Auth.Users.Get",
+        "Auth.Users.Create",
+        "Auth.Users.Update",
+        "Auth.Capabilities.List",
+        "Auth.CapabilityGroups.List",
+        "Auth.AccountFlows.CreatePasswordSetup",
+        "Auth.Envelopes.Expand",
+    ] {
+        assert!(
+            calls.iter().any(|value| value == expected),
+            "agent contract should declare {expected}"
+        );
+    }
     assert!(!calls.iter().any(|value| value == "Auth.Envelopes.List"));
     assert!(!calls.iter().any(|value| value == "Auth.Envelopes.Get"));
-    assert!(!calls.iter().any(|value| value == "Auth.Envelopes.Expand"));
     assert!(!calls
         .iter()
         .any(|value| value == "Auth.Envelopes.Changes.Preview"));
@@ -82,7 +95,6 @@ fn agent_contract_manifest_validates_and_declares_expected_auth_and_core_surface
     assert!(calls
         .iter()
         .any(|value| value == "Auth.DeviceUserAuthorities.Reviews.Decide"));
-    assert!(!calls.iter().any(|value| value == "Auth.Users.Update"));
 
     let core = loaded
         .manifest
@@ -106,6 +118,6 @@ fn agent_contract_digest_matches_js_projection() {
     assert_eq!(
         trellis_auth::contract_digest(trellis_cli::agent_contract::agent_contract_json())
             .expect("agent contract digest"),
-        "bQKziOoOmzLq77RUIrPtznMFlut-9qvktkowjNJpJYs"
+        "gq_RKTRRLUEvAmTdJ4NjvkHa6XTWXRtEHN_EyBYTg80"
     );
 }

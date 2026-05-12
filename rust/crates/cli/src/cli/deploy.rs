@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
@@ -73,112 +71,133 @@ impl DeviceReviewState {
 }
 
 #[derive(Debug, Args)]
-/// Manage service and device deployments.
-pub struct DeployCommand {
+/// Manage service deployments.
+pub struct SvcCommand {
     #[command(subcommand)]
-    pub command: DeploySubcommand,
+    pub command: SvcSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-/// Deployment-centric operator workflows.
-pub enum DeploySubcommand {
-    /// List deployments by kind.
-    List(DeployListArgs),
-    /// Show one deployment by ref.
-    Show(DeployRefArgs),
-    /// Create one deployment.
-    Create(DeployCreateArgs),
-    /// Disable one deployment.
-    Disable(DeployRefArgs),
-    /// Enable one deployment.
-    Enable(DeployRefArgs),
-    /// Remove one deployment.
-    Remove(DeployRemoveArgs),
-    /// List instances for a deployment kind or ref.
-    Instances(DeployInstancesArgs),
-    /// Provision one service or device instance.
-    Provision(DeployProvisionArgs),
-    /// List or revoke device activations.
-    Activation(DeployActivationCommand),
-    /// List, approve, or reject device activation reviews.
-    Review(DeployReviewCommand),
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
-/// Deployment kind filter.
-pub enum DeployKindArg {
-    Svc,
-    Dev,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-/// Parsed deployment resource reference.
-pub enum DeployKind {
-    Service,
-    Device,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-/// Service or device deployment reference such as `svc/api` or `dev/scanner`.
-pub struct DeployRef {
-    pub kind: DeployKind,
-    pub id: String,
-}
-
-impl FromStr for DeployRef {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let Some((kind, id)) = value.split_once('/') else {
-            return Err("expected deployment ref in the form svc/<id> or dev/<id>".to_string());
-        };
-        if id.is_empty() {
-            return Err("deployment id must not be empty".to_string());
-        }
-        let kind = match kind {
-            "svc" | "service" => DeployKind::Service,
-            "dev" | "device" => DeployKind::Device,
-            _ => return Err("deployment kind must be svc, service, dev, or device".to_string()),
-        };
-        Ok(Self {
-            kind,
-            id: id.to_string(),
-        })
-    }
+/// Service deployment operations.
+pub enum SvcSubcommand {
+    /// List service deployments.
+    List(SvcListArgs),
+    /// Operate on one service deployment ID.
+    #[command(external_subcommand)]
+    Resource(Vec<String>),
 }
 
 #[derive(Debug, Args)]
-pub struct DeployListArgs {
-    #[arg(value_enum)]
-    pub kind: DeployKindArg,
-
+/// List service deployments.
+pub struct SvcListArgs {
     #[arg(long)]
     pub disabled: bool,
 }
 
 #[derive(Debug, Args)]
-pub struct DeployRefArgs {
-    #[arg(value_name = "REF")]
-    pub reference: DeployRef,
+/// Manage device deployments.
+pub struct DevCommand {
+    #[command(subcommand)]
+    pub command: DevSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+/// Device deployment operations.
+pub enum DevSubcommand {
+    /// List device deployments.
+    List(DevListArgs),
+    /// Operate on one device deployment ID.
+    #[command(external_subcommand)]
+    Resource(Vec<String>),
 }
 
 #[derive(Debug, Args)]
-pub struct DeployCreateArgs {
-    #[arg(value_name = "REF")]
-    pub reference: DeployRef,
+/// List device deployments.
+pub struct DevListArgs {
+    #[arg(long)]
+    pub disabled: bool,
+}
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+/// Parsed target-first service deployment command.
+pub struct SvcResourceCommand {
+    pub id: String,
+    pub action: SvcResourceAction,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
+/// Actions available for one service deployment.
+pub enum SvcResourceAction {
+    Show,
+    Create(SvcCreateArgs),
+    Apply(ApplyArgs),
+    Disable,
+    Enable,
+    Remove(RemoveArgs),
+    Instances(SvcInstancesArgs),
+    Provision(SvcProvisionArgs),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+/// Parsed target-first device deployment command.
+pub struct DevResourceCommand {
+    pub id: String,
+    pub action: DevResourceAction,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
+/// Actions available for one device deployment.
+pub enum DevResourceAction {
+    Show,
+    Create(DevCreateArgs),
+    Apply(ApplyArgs),
+    Disable,
+    Enable,
+    Remove(RemoveArgs),
+    Instances(DevInstancesArgs),
+    Provision(DevProvisionArgs),
+    #[command(subcommand)]
+    Activations(DevActivationsCommand),
+    #[command(subcommand)]
+    Reviews(DevReviewsCommand),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Create one service deployment.
+pub struct SvcCreateArgs {
     #[arg(long = "namespace", value_delimiter = ',')]
     pub namespaces: Vec<String>,
+}
 
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Create one device deployment.
+pub struct DevCreateArgs {
     #[arg(long = "review-mode", default_value = "none")]
     pub review_mode: DeviceReviewMode,
 }
 
-#[derive(Debug, Args)]
-pub struct DeployRemoveArgs {
-    #[arg(value_name = "REF")]
-    pub reference: DeployRef,
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+#[command(group(
+    clap::ArgGroup::new("contract_input")
+        .args(["source", "manifest", "image"])
+        .required(true)
+        .multiple(false)
+))]
+/// Apply service or device contract input.
+pub struct ApplyArgs {
+    #[arg(long)]
+    pub source: Option<String>,
 
+    #[arg(long)]
+    pub manifest: Option<String>,
+
+    #[arg(long)]
+    pub image: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Remove one service or device deployment.
+pub struct RemoveArgs {
     #[arg(short = 'f', long)]
     pub force: bool,
 
@@ -192,29 +211,23 @@ pub struct DeployRemoveArgs {
     pub purge_unused_contracts: bool,
 }
 
-impl DeployRemoveArgs {
-    /// Validate remove options that depend on the parsed deployment kind.
-    pub fn validate(&self) -> Result<(), String> {
-        if (self.purge || self.purge_unused_contracts) && !self.cascade {
-            return Err("purge flags require --cascade".to_string());
-        }
-        Ok(())
-    }
-
+impl RemoveArgs {
     /// Returns whether unused deployment contract records should be purged.
     pub fn should_purge_unused_contracts(&self) -> bool {
         self.purge || self.purge_unused_contracts
     }
 }
 
-#[derive(Debug, Args)]
-pub struct DeployInstancesArgs {
-    #[arg(value_name = "KIND_OR_REF")]
-    pub target: DeployInstancesTarget,
-
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// List service instances.
+pub struct SvcInstancesArgs {
     #[arg(long)]
     pub disabled: bool,
+}
 
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// List device instances.
+pub struct DevInstancesArgs {
     #[arg(long)]
     pub state: Option<DeviceInstanceState>,
 
@@ -222,32 +235,16 @@ pub struct DeployInstancesArgs {
     pub show_metadata: bool,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum DeployInstancesTarget {
-    Kind(DeployKind),
-    Ref(DeployRef),
-}
-
-impl FromStr for DeployInstancesTarget {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "svc" | "service" => Ok(Self::Kind(DeployKind::Service)),
-            "dev" | "device" => Ok(Self::Kind(DeployKind::Device)),
-            _ => DeployRef::from_str(value).map(Self::Ref),
-        }
-    }
-}
-
-#[derive(Debug, Args)]
-pub struct DeployProvisionArgs {
-    #[arg(value_name = "REF")]
-    pub reference: DeployRef,
-
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Provision one service instance.
+pub struct SvcProvisionArgs {
     #[arg(long = "instance-seed")]
     pub instance_seed: Option<String>,
+}
 
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Provision one device instance.
+pub struct DevProvisionArgs {
     #[arg(long)]
     pub name: Option<String>,
 
@@ -261,23 +258,16 @@ pub struct DeployProvisionArgs {
     pub metadata: Vec<String>,
 }
 
-#[derive(Debug, Args)]
-pub struct DeployActivationCommand {
-    #[command(subcommand)]
-    pub command: DeployActivationSubcommand,
+#[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
+/// Device activation operations for one device deployment.
+pub enum DevActivationsCommand {
+    List(DevActivationsListArgs),
+    Revoke(DevActivationRevokeArgs),
 }
 
-#[derive(Debug, Subcommand)]
-pub enum DeployActivationSubcommand {
-    List(DeployActivationListArgs),
-    Revoke(DeployActivationRevokeArgs),
-}
-
-#[derive(Debug, Args)]
-pub struct DeployActivationListArgs {
-    #[arg(long = "deployment")]
-    pub deployment: Option<String>,
-
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// List device activations.
+pub struct DevActivationsListArgs {
     #[arg(long = "instance")]
     pub instance: Option<String>,
 
@@ -285,30 +275,24 @@ pub struct DeployActivationListArgs {
     pub state: Option<DeviceActivationState>,
 }
 
-#[derive(Debug, Args)]
-pub struct DeployActivationRevokeArgs {
-    #[arg(value_name = "INSTANCE")]
-    pub instance: String,
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Revoke one device activation.
+pub struct DevActivationRevokeArgs {
+    #[arg(value_name = "INSTANCE_ID")]
+    pub instance_id: String,
 }
 
-#[derive(Debug, Args)]
-pub struct DeployReviewCommand {
-    #[command(subcommand)]
-    pub command: DeployReviewSubcommand,
+#[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
+/// Device activation review operations for one device deployment.
+pub enum DevReviewsCommand {
+    List(DevReviewsListArgs),
+    Approve(DevReviewDecisionArgs),
+    Reject(DevReviewDecisionArgs),
 }
 
-#[derive(Debug, Subcommand)]
-pub enum DeployReviewSubcommand {
-    List(DeployReviewListArgs),
-    Approve(DeployReviewDecisionArgs),
-    Reject(DeployReviewDecisionArgs),
-}
-
-#[derive(Debug, Args)]
-pub struct DeployReviewListArgs {
-    #[arg(long = "deployment")]
-    pub deployment: Option<String>,
-
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// List device activation reviews.
+pub struct DevReviewsListArgs {
     #[arg(long = "instance")]
     pub instance: Option<String>,
 
@@ -316,10 +300,11 @@ pub struct DeployReviewListArgs {
     pub state: Option<DeviceReviewState>,
 }
 
-#[derive(Debug, Args)]
-pub struct DeployReviewDecisionArgs {
-    #[arg(value_name = "REVIEW")]
-    pub review: String,
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Decide one device activation review.
+pub struct DevReviewDecisionArgs {
+    #[arg(value_name = "REVIEW_ID")]
+    pub review_id: String,
 
     #[arg(long)]
     pub reason: Option<String>,

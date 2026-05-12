@@ -17,6 +17,7 @@ use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use ed25519_dalek::SigningKey;
 use miette::IntoDiagnostic;
+use qrcode::{render::unicode, QrCode};
 use serde_json::Value;
 use tracing_subscriber::EnvFilter;
 use trellis_auth as authlib;
@@ -77,15 +78,24 @@ pub async fn run() -> miette::Result<()> {
     let format = cli.format;
 
     match cli.command {
+        TopLevelCommand::Login(args) => auth::login(format, &args).await?,
+        TopLevelCommand::Logout => auth::logout(format).await?,
+        TopLevelCommand::Whoami => auth::whoami(format).await?,
+        TopLevelCommand::Approvals(command) => auth::approvals(format, command).await?,
+        TopLevelCommand::Users(command) => auth::users(format, command).await?,
+        TopLevelCommand::Svc(command) => deploy::run_svc(format, command).await?,
+        TopLevelCommand::Dev(command) => deploy::run_dev(format, command).await?,
+        TopLevelCommand::Local(command) => bootstrap::local(format, command)?,
+        TopLevelCommand::Infra(command) => bootstrap::infra(format, command).await?,
+        TopLevelCommand::Init(command) => bootstrap::init(format, command).await?,
+        TopLevelCommand::Keys(command) => match command.command {
+            KeysSubcommand::New(args) => runtime::keygen_command(format, &args)?,
+        },
+        TopLevelCommand::Upgrade(command) => self_cmd::run_upgrade(format, command)?,
         TopLevelCommand::Completion { shell } => {
             let mut command = Cli::command();
             generate(shell, &mut command, "trellis", &mut io::stdout());
         }
-        TopLevelCommand::Auth(command) => auth::run(format, command).await?,
-        TopLevelCommand::Bootstrap(command) => bootstrap::run(command).await?,
-        TopLevelCommand::Keygen(args) => runtime::keygen_command(format, &args)?,
-        TopLevelCommand::Deploy(command) => deploy::run(format, command).await?,
-        TopLevelCommand::Self_(command) => self_cmd::run(format, command)?,
         TopLevelCommand::Version => runtime::version_command(format)?,
     }
 
@@ -475,13 +485,9 @@ async fn complete_admin_reauth(
         Ok(authlib::AdminReauthOutcome::Flow(challenge)) => {
             let login_url = challenge.login_url().to_string();
             if output::is_json(format) {
-                output::print_json_progress(&crate::app::auth::pending_agent_login_json(
-                    &login_url,
-                ))?;
+                output::print_json_progress(&pending_agent_login_json(&login_url))?;
             } else {
-                output::print_info(&crate::app::auth::render_agent_login_instructions(
-                    &login_url,
-                )?);
+                output::print_info(&render_agent_login_instructions(&login_url)?);
             }
             map_admin_session_result(challenge.complete(&state.trellis_url).await)?.state
         }
@@ -581,6 +587,21 @@ pub(crate) fn json_value_label(value: &Value) -> String {
         .as_str()
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| value.to_string())
+}
+
+fn render_agent_login_instructions(login_url: &str) -> miette::Result<String> {
+    let qr = QrCode::new(login_url.as_bytes()).into_diagnostic()?;
+    let qr = qr.render::<unicode::Dense1x2>().quiet_zone(false).build();
+    Ok(format!(
+        "Open this activation URL:\n{login_url}\n\nScan this QR code:\n{qr}"
+    ))
+}
+
+fn pending_agent_login_json(login_url: &str) -> Value {
+    serde_json::json!({
+        "status": "pending",
+        "loginUrl": login_url,
+    })
 }
 
 pub(crate) fn release_channel(prerelease: bool) -> ReleaseChannel {

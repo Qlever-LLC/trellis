@@ -37,24 +37,36 @@ pub enum OutputFormat {
 }
 
 #[derive(Debug, Subcommand)]
-/// Root command tree for Trellis development and auth administration tasks.
+/// Root command tree for Trellis operator, admin, and local development tasks.
 pub enum TopLevelCommand {
-    /// Generate shell completion scripts for Trellis.
-    Completion { shell: Shell },
-    /// Authenticate the Trellis CLI and manage approval records.
-    Auth(AuthCommand),
-    /// Run one-time bootstrap workflows for a fresh deployment.
-    Bootstrap(BootstrapCommand),
-    /// Generate an Ed25519 seed and public session key offline.
-    Keygen(KeygenArgs),
-    /// Manage service and device deployments.
-    #[command(alias = "deployment", aliases = ["deployments", "dep", "d"])]
-    Deploy(DeployCommand),
+    /// Start a detached portal login against a Trellis auth service.
+    Login(LoginArgs),
+    /// Revoke the current admin session and clear local session state.
+    Logout,
+    /// Show the currently logged-in Trellis admin session.
+    Whoami,
+    /// List or revoke stored approval decisions.
+    Approvals(ApprovalsCommand),
+    /// Manage Trellis users.
+    Users(UsersCommand),
+    /// Manage service deployments.
+    Svc(SvcCommand),
+    /// Manage device deployments.
+    Dev(DevCommand),
+    /// Generate local Trellis development files.
+    Local(LocalCommand),
+    /// Apply or check shared infrastructure.
+    Infra(InfraCommand),
+    /// Run one-time initialization workflows.
+    Init(InitCommand),
+    /// Generate or derive Trellis keys.
+    Keys(KeysCommand),
     /// Check for or install CLI updates.
-    #[command(name = "self")]
-    Self_(SelfCommand),
+    Upgrade(UpgradeCommand),
     /// Print the current CLI version.
     Version,
+    /// Generate shell completion scripts for Trellis.
+    Completion { shell: Shell },
 }
 
 #[derive(Debug, clap::Args)]

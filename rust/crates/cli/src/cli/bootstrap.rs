@@ -3,26 +3,24 @@ use std::path::PathBuf;
 use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Args)]
-/// Namespace for bootstrap commands.
-pub struct BootstrapCommand {
+/// Generate local Trellis development files.
+pub struct LocalCommand {
     #[command(subcommand)]
-    pub command: BootstrapSubcommand,
+    pub command: LocalSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-/// Bootstrap targets for a fresh deployment.
-pub enum BootstrapSubcommand {
-    Nats(NatsBootstrapArgs),
-    #[command(name = "local-nats")]
-    LocalNats(LocalNatsBootstrapArgs),
-    Admin(BootstrapAdminArgs),
+/// Local development bootstrap operations.
+pub enum LocalSubcommand {
+    /// Generate a complete local Trellis bundle with NATS and service config.
+    Init(LocalInitArgs),
 }
 
 #[derive(Debug, Args)]
-/// Generate local NATS operator, accounts, config, credentials, and auth callout material.
-pub struct LocalNatsBootstrapArgs {
+/// Generate a complete local Trellis bundle with NATS and service config.
+pub struct LocalInitArgs {
     #[arg(long)]
-    /// Output directory for generated local NATS bootstrap files.
+    /// Output directory for generated local Trellis bootstrap files.
     pub out: PathBuf,
 
     #[arg(long)]
@@ -56,6 +54,22 @@ pub struct LocalNatsBootstrapArgs {
     #[arg(long, default_value = "trellis-local")]
     /// Local NATS server name written to nats.conf.
     pub server_name: String,
+
+    #[arg(long, default_value_t = 3000)]
+    /// Trellis HTTP port written to trellis/config.jsonc.
+    pub trellis_port: u16,
+
+    #[arg(long, default_value = "nats://127.0.0.1:4222")]
+    /// Native NATS server URL for Trellis services.
+    pub nats_server_url: String,
+
+    #[arg(long, default_value = "ws://localhost:8080")]
+    /// Browser-facing NATS websocket URL for Trellis clients.
+    pub nats_websocket_url: String,
+
+    #[arg(long, default_value = "http://localhost:3000")]
+    /// Public Trellis HTTP origin for OAuth redirects.
+    pub public_origin: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -67,11 +81,24 @@ pub enum LocalNatsContainerRuntimeArg {
 }
 
 #[derive(Debug, Args)]
+/// Apply or check shared infrastructure.
+pub struct InfraCommand {
+    #[command(subcommand)]
+    pub command: InfraSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+/// Infrastructure bootstrap operations.
+pub enum InfraSubcommand {
+    /// Bootstrap the NATS stream and KV buckets required by Trellis services.
+    Apply(InfraApplyArgs),
+    /// Check shared infrastructure readiness.
+    Check(InfraCheckArgs),
+}
+
+#[derive(Debug, Args)]
 /// Bootstrap the NATS stream and KV buckets required by Trellis services.
-///
-/// This command is expected to stay aligned with the runtime KV bucket set so a
-/// fresh install can start without creating missing KV state on first request.
-pub struct NatsBootstrapArgs {
+pub struct InfraApplyArgs {
     #[arg(long)]
     /// Trellis service credentials file used to create the shared event stream.
     pub trellis_creds: PathBuf,
@@ -90,22 +117,41 @@ pub struct NatsBootstrapArgs {
 }
 
 #[derive(Debug, Args)]
+/// Check the NATS stream and KV buckets required by Trellis services.
+pub struct InfraCheckArgs {
+    #[arg(long)]
+    /// Trellis service credentials file used to inspect the shared event stream.
+    pub trellis_creds: PathBuf,
+
+    #[arg(long)]
+    /// Auth service credentials file used to inspect auth-owned KV buckets.
+    pub auth_creds: PathBuf,
+
+    #[arg(long)]
+    /// Direct server list used only for bootstrap-time transport setup.
+    pub servers: Option<String>,
+}
+
+#[derive(Debug, Args)]
+/// Run one-time initialization workflows.
+pub struct InitCommand {
+    #[command(subcommand)]
+    pub command: InitSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+/// Initialization operations.
+pub enum InitSubcommand {
+    /// Seed an initial admin account and linked identity.
+    Admin(InitAdminArgs),
+}
+
+#[derive(Debug, Args)]
 /// Seed an initial admin account and linked identity in Trellis service storage.
-pub struct BootstrapAdminArgs {
-    #[arg(long)]
-    /// Identity provider namespace for the first admin account.
-    pub provider: String,
-
-    #[arg(long)]
-    /// Identity subject within the chosen provider.
-    pub subject: String,
-
-    #[arg(
-        long,
-        value_delimiter = ',',
-        help = "Capabilities to seed (defaults to admin, trellis.core::trellis.catalog.read, trellis.core::trellis.contract.read)"
-    )]
-    pub capabilities: Vec<String>,
+pub struct InitAdminArgs {
+    #[arg(long, value_name = "PROVIDER:SUBJECT")]
+    /// Provider identity for the first admin account.
+    pub identity: String,
 
     #[arg(long, default_value = "/var/lib/trellis/trellis.sqlite")]
     /// Trellis service SQLite database path.

@@ -10,13 +10,22 @@ use trellis_client::{RpcDescriptor, TrellisClient, UserConnectOptions};
 use crate::protocol::LogoutResponse;
 use trellis_sdk_auth::{
     rpc::{
-        AuthDeploymentsCreateRpc, AuthDeploymentsDisableRpc, AuthDeploymentsEnableRpc,
-        AuthDeploymentsListRpc, AuthDeploymentsRemoveRpc, AuthIdentitiesListRpc,
-        AuthIdentityEnvelopesRevokeRpc, AuthSessionsMeRpc, Empty,
+        AuthAccountFlowsCreatePasswordSetupRpc, AuthCapabilitiesListRpc,
+        AuthCapabilityGroupsListRpc, AuthDeploymentsCreateRpc, AuthDeploymentsDisableRpc,
+        AuthDeploymentsEnableRpc, AuthDeploymentsListRpc, AuthDeploymentsRemoveRpc,
+        AuthIdentitiesListRpc, AuthIdentityEnvelopesRevokeRpc, AuthSessionsListRpc,
+        AuthSessionsMeRpc, AuthUsersCreateRpc, AuthUsersGetRpc, AuthUsersListRpc,
+        AuthUsersUpdateRpc, Empty,
     },
     types::{
+        AuthAccountFlowsCreatePasswordSetupRequest, AuthAccountFlowsCreatePasswordSetupResponse,
+        AuthCapabilitiesListRequest, AuthCapabilitiesListResponseCapabilitiesItem,
+        AuthCapabilityGroupsListRequest, AuthCapabilityGroupsListResponseGroupsItem,
         AuthDeploymentsCreateRequest, AuthDeploymentsDisableRequest, AuthDeploymentsEnableRequest,
-        AuthDeploymentsListRequest, AuthDeploymentsRemoveRequest, AuthSessionsMeRequest,
+        AuthDeploymentsListRequest, AuthDeploymentsRemoveRequest, AuthSessionsListRequest,
+        AuthSessionsMeRequest, AuthUsersCreateRequest, AuthUsersCreateResponseUser,
+        AuthUsersGetRequest, AuthUsersGetResponseUser, AuthUsersListRequest,
+        AuthUsersListResponseUsersItem, AuthUsersUpdateRequest,
     },
 };
 
@@ -172,6 +181,100 @@ impl<'a> AuthClient<'a> {
             .call_rpc::<AuthIdentityEnvelopesRevokeRpc>(&request)
             .await?
             .success)
+    }
+
+    /// List Trellis users.
+    pub async fn list_users(
+        &self,
+        limit: i64,
+        offset: Option<i64>,
+    ) -> Result<Vec<AuthUsersListResponseUsersItem>, TrellisAuthError> {
+        Ok(self
+            .call_rpc::<AuthUsersListRpc>(&AuthUsersListRequest { limit, offset })
+            .await?
+            .users)
+    }
+
+    /// Get one Trellis user by user ID.
+    pub async fn get_user(
+        &self,
+        user_id: &str,
+    ) -> Result<AuthUsersGetResponseUser, TrellisAuthError> {
+        Ok(self
+            .call_rpc::<AuthUsersGetRpc>(&AuthUsersGetRequest {
+                user_id: user_id.to_string(),
+            })
+            .await?
+            .user)
+    }
+
+    /// Create one Trellis user.
+    pub async fn create_user(
+        &self,
+        input: &AuthUsersCreateRequest,
+    ) -> Result<AuthUsersCreateResponseUser, TrellisAuthError> {
+        Ok(self.call_rpc::<AuthUsersCreateRpc>(input).await?.user)
+    }
+
+    /// Update one Trellis user.
+    pub async fn update_user(
+        &self,
+        input: &AuthUsersUpdateRequest,
+    ) -> Result<bool, TrellisAuthError> {
+        Ok(self.call_rpc::<AuthUsersUpdateRpc>(input).await?.success)
+    }
+
+    /// List auth sessions.
+    pub async fn list_sessions(
+        &self,
+        limit: i64,
+        offset: Option<i64>,
+        user: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>, TrellisAuthError> {
+        Ok(self
+            .call_rpc::<AuthSessionsListRpc>(&AuthSessionsListRequest {
+                limit,
+                offset,
+                user: user.map(ToOwned::to_owned),
+            })
+            .await?
+            .sessions)
+    }
+
+    /// List available auth capabilities.
+    pub async fn list_capabilities(
+        &self,
+        limit: i64,
+        offset: Option<i64>,
+    ) -> Result<Vec<AuthCapabilitiesListResponseCapabilitiesItem>, TrellisAuthError> {
+        Ok(self
+            .call_rpc::<AuthCapabilitiesListRpc>(&AuthCapabilitiesListRequest { limit, offset })
+            .await?
+            .capabilities)
+    }
+
+    /// List auth capability groups.
+    pub async fn list_capability_groups(
+        &self,
+        limit: i64,
+        offset: Option<i64>,
+    ) -> Result<Vec<AuthCapabilityGroupsListResponseGroupsItem>, TrellisAuthError> {
+        Ok(self
+            .call_rpc::<AuthCapabilityGroupsListRpc>(&AuthCapabilityGroupsListRequest {
+                limit,
+                offset,
+            })
+            .await?
+            .groups)
+    }
+
+    /// Create a local password setup flow for one Trellis user.
+    pub async fn create_password_setup_flow(
+        &self,
+        input: &AuthAccountFlowsCreatePasswordSetupRequest,
+    ) -> Result<AuthAccountFlowsCreatePasswordSetupResponse, TrellisAuthError> {
+        self.call_rpc::<AuthAccountFlowsCreatePasswordSetupRpc>(input)
+            .await
     }
 
     /// List device deployments.

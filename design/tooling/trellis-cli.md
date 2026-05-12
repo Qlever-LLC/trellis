@@ -128,39 +128,64 @@ inference is not enough for a repository.
 
 ### Operational commands
 
-The CLI keeps and cleans up the existing operational commands:
+The runtime/operator CLI uses a clean-break command model. Removed command
+families such as `auth`, `deploy`, `deployment`, `deployments`, `dep`, `d`,
+`bootstrap`, `self`, and `keygen` are not compatibility aliases. Public commands
+prefer operator-facing resources (`users`, `svc`, `dev`) over implementation
+namespaces.
 
 ```text
-trellis auth login <trellis-url>
-trellis auth logout
-trellis auth status
-trellis auth approval list [--user <origin.id>] [--digest <contractDigest>]
-trellis auth approval revoke <identityEnvelopeId> [--user <origin.id>]
-trellis deploy list <svc|dev> [--disabled]
-trellis deploy show <svc/id|dev/id>
-trellis deploy create <svc/id|dev/id> [--namespace <ns>...] [--review-mode <none|required>]
-trellis deploy disable <svc/id|dev/id>
-trellis deploy enable <svc/id|dev/id>
-trellis deploy remove <svc/id|dev/id> [-f] [--cascade] [--purge] [--purge-resources] [--purge-unused-contracts]
-trellis deploy instances <svc|dev|svc/id|dev/id> [--disabled] [--state <registered|activated|revoked|disabled>] [--show-metadata]
-trellis deploy provision <svc/id|dev/id> [--instance-seed <seed>] [--name <name>] [--serial-number <serial>] [--model-number <model>] [--metadata <key=value>...]
-trellis deploy activation list [--instance <id>] [--deployment <id>] [--state <activated|revoked>]
-trellis deploy activation revoke <instanceId>
-trellis deploy review list [--instance <id>] [--deployment <id>] [--state <pending|approved|rejected>]
-trellis deploy review approve <id> [--reason <code>]
-trellis deploy review reject <id> [--reason <code>]
-trellis bootstrap nats --trellis-creds <path> --auth-creds <path> [--servers <servers>] [--jetstream-replicas <n>]
-trellis bootstrap admin --origin <origin> --id <id> [--db-path <path>] [--capability <capability>...]
-trellis keygen ...
-trellis self check [--prerelease]
-trellis self update [--prerelease]
+trellis login <url>
+trellis logout
+trellis whoami
+
+trellis users list
+trellis users show <user-id>
+trellis users create [--name <name>] [--email <email>] [--username <username>] [--inactive] [--capability <key>...] [--group <key>...]
+trellis users edit <user-id> [--active|--inactive] [--name <name>] [--email <email>] [--add-capability <key>...] [--remove-capability <key>...] [--set-capability <key>...] [--clear-capabilities] [--add-group <key>...] [--remove-group <key>...] [--set-group <key>...] [--clear-groups]
+
+trellis approvals list [--user <user-id>] [--digest <contractDigest>]
+trellis approvals revoke <identity-envelope-id> [--user <user-id>]
+
+trellis svc list [--disabled]
+trellis svc <id> show
+trellis svc <id> create [--namespace <ns>...]
+trellis svc <id> apply (--source <path> | --manifest <path> | --image <ref>)
+trellis svc <id> disable
+trellis svc <id> enable
+trellis svc <id> remove [-f] [--cascade] [--purge] [--purge-unused-contracts]
+trellis svc <id> instances [--disabled]
+trellis svc <id> provision [--instance-seed <seed>]
+
+trellis dev list [--disabled]
+trellis dev <id> show
+trellis dev <id> create [--review-mode <none|required>]
+trellis dev <id> apply (--source <path> | --manifest <path> | --image <ref>)
+trellis dev <id> disable
+trellis dev <id> enable
+trellis dev <id> remove [-f] [--cascade] [--purge] [--purge-unused-contracts]
+trellis dev <id> instances [--state <registered|activated|revoked|disabled>] [--show-metadata]
+trellis dev <id> provision [--name <name>] [--serial-number <serial>] [--model-number <model>] [--metadata <key=value>...]
+trellis dev <id> activations list [--instance <id>] [--state <activated|revoked>]
+trellis dev <id> activations revoke <instance-id>
+trellis dev <id> reviews list [--instance <id>] [--state <pending|approved|rejected>]
+trellis dev <id> reviews approve <review-id> [--reason <code>]
+trellis dev <id> reviews reject <review-id> [--reason <code>]
+
+trellis local init --out <dir>
+trellis infra apply --trellis-creds <path> --auth-creds <path> [--servers <servers>] [--jetstream-replicas <n>]
+trellis infra check --trellis-creds <path> --auth-creds <path> [--servers <servers>]
+trellis init admin --identity <provider>:<subject> [--db-path <path>]
+trellis keys new [--seed <seed>] [--out <path>] [--pubout <path>]
+trellis upgrade check [--prerelease]
+trellis upgrade install [--prerelease]
 trellis version
 trellis completion <shell>
 ```
 
 Operational command behavior:
 
-- `trellis auth login <trellis-url>` is a normal contract-bearing client login,
+- `trellis login <url>` is a normal contract-bearing client login,
   not a bootstrap bypass; it enters the auth-owned browser flow and continues
   through the resolved portal before storing local session material for later
   admin RPC calls; runtime transport details are discovered from the bind flow
@@ -179,37 +204,51 @@ Operational command behavior:
   not by themselves prove the stored local session was revoked; the CLI
   preserves local session material unless auth returns an explicit
   `session_not_found`, `revoked`, or `rejected` signal
-- `trellis auth approval list` shows stored delegated approval decisions for app
+- `trellis whoami` shows the currently stored admin session, and
+  `trellis logout` revokes that session and clears local session state
+- `trellis users list`, `trellis users show`, `trellis users create`, and
+  `trellis users edit` manage Trellis users by Trellis `userId`; provider
+  identities are not the normal user-scoped administration key
+- `trellis users create` can seed direct capabilities and capability groups and
+  creates a password setup flow for the new user when account setup is required
+- `trellis users edit` supports explicit add/remove/set/clear semantics for
+  direct capabilities and capability groups so operators can make incremental or
+  replacement changes without ambiguous merge behavior
+- `trellis approvals list` shows stored delegated approval decisions for app
   and CLI contracts from the `trellis` service; each row includes an
   `identityEnvelopeId` and contract evidence, with optional filtering by exact
   contract digest and by user for admin callers; the command pages through the
   bounded `Auth.Identities.List` RPC rather than requesting an unbounded list
-- `trellis auth approval revoke` revokes the addressed identity envelope through
+- `trellis approvals revoke` revokes the addressed identity envelope through
   `Auth.IdentityEnvelopes.Revoke` and revokes matching active delegated sessions
   in the `trellis` service; contract digest remains list/filter evidence, not
   the revocation key
 - `trellis portal *` is no longer a public auth API surface. Built-in portals
   are implicit; custom portal routing is deployment-envelope metadata managed by
   operator tooling or Console surfaces that understand envelope state.
-- `trellis deploy *` manages deployment-owned service and device deployments;
-  service refs use `svc/<id>` and device refs use `dev/<id>`, with `deployment`,
-  `deployments`, `dep`, and `d` as aliases for the top-level command
-- deployment envelope expansion and shrink are Trellis Auth admin surfaces;
-  until the CLI exposes first-class envelope commands, operators use the Console
-  Envelopes page or generated `Auth.Envelopes.*` RPC clients to change service
-  and device deployment authority
-- `trellis deploy provision <dev/id>` is the ergonomic provisioning path for
+- `trellis svc` manages service deployments and `trellis dev` manages device
+  deployments. Both use resource-first command shape: the deployment ID appears
+  before the action for single-resource operations, for example
+  `trellis svc payments apply --manifest contract.json`.
+- `trellis svc <id> apply` and `trellis dev <id> apply` resolve contract input
+  from source, manifest, or OCI image and expand the deployment envelope through
+  `Auth.Envelopes.Expand`; envelope shrink remains outside the current CLI
+  surface and is handled by Console or generated RPC clients
+- `trellis dev <id> provision` is the ergonomic provisioning path for
   device development and deployment: it generates a root secret locally, derives
   the device keys, registers the instance with auth using activation-only secret
   material, optionally captures device metadata such as `name`, `serialNumber`,
   `modelNumber`, and deployment-specific opaque keys, and emits the provisioning
   bundle for the device or operator
-- `trellis deploy instances *` is the lower-level instance inspection surface;
+- `trellis svc <id> provision` provisions concrete service principals under one
+  service deployment, optionally from an operator-provided instance seed
+- `trellis svc <id> instances` and `trellis dev <id> instances` are the
+  lower-level instance inspection surfaces;
   the default device table promotes `name`, `serial`, and `model` columns when
   present, while `--show-metadata` reveals the remaining opaque metadata entries;
   instance and review list commands must pass an explicit page size to the
   underlying admin list RPC and may pass deployment/state filters
-- `trellis deploy review *` manages pending device review decisions and is
+- `trellis dev <id> reviews *` manages pending device review decisions and is
   intended for `trellis.auth::device.review` automation services or admins
 - service deployments own deployment envelopes, namespace allowance, and
   reversible deployment state
@@ -224,20 +263,34 @@ Operational command behavior:
   deployments, then create device deployments and provision device instances for
   activated-device flows; install automation may offer convenience wrappers, but
   the underlying actions remain explicit admin calls
-- `trellis bootstrap nats` creates the shared event stream and Trellis-owned KV
+- `trellis local init` is the ergonomic local development bootstrap. It
+  generates a runnable bundle containing local NATS operator/account/JWT
+  artifacts, Trellis/Auth service credentials, auth-callout signing and xkey
+  seeds, sentinel credentials, `trellis/config.jsonc`, a local session seed,
+  placeholder local OAuth secret material, a local SQLite data directory, and a
+  root manifest. The generated Trellis config uses relative file paths so the
+  bundle can be moved as a directory, and command flags allow overriding the
+  public Trellis origin plus native and websocket NATS URLs when containers map
+  ports dynamically.
+- `trellis infra apply` creates the shared event stream and Trellis-owned KV
   buckets needed before the runtime starts; these buckets are for OAuth state,
   pending auth, browser flows, active connection presence, and the public
   Trellis State API; `--jetstream-replicas` defaults to `1` for standalone
   installs and should match the target NATS topology, commonly `3` for
   production clusters
-- `trellis bootstrap admin` bootstraps the initial admin user in Trellis service
-  SQLite storage; by default it writes `/var/lib/trellis/trellis.sqlite` and
-  seeds `admin`, `trellis.catalog.read`, and `trellis.contract.read` so the
-  first console user can load discovery data
-- `trellis keygen` remains an explicit offline utility for operators who want to
-  separate key generation from install
+- `trellis infra check` reports whether the shared runtime infrastructure is
+  ready for Trellis services without creating or updating streams or buckets
+- `trellis init admin --identity <provider>:<subject>` bootstraps the initial
+  admin user and linked provider identity in Trellis service SQLite storage; by
+  default it writes `/var/lib/trellis/trellis.sqlite`; the seeded user receives
+  `capabilityGroups: ["admin"]` and no direct capabilities so first-admin
+  authority follows the same group model as later users
+- `trellis keys new` remains an explicit offline utility for operators who want
+  to separate key generation from install
+- `trellis upgrade check` and `trellis upgrade install` replace the previous
+  `self` command family
 - the runtime/operator CLI no longer exposes direct transport flags like
-  `--servers` or `--creds` outside explicit bootstrap-only flows
+  `--servers` or `--creds` outside explicit infrastructure bootstrap flows
 
 Normal authenticated CLI behavior is contract-governed in the same architectural
 sense as browser apps: the CLI presents a generated contract, approval is stored

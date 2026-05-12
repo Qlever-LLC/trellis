@@ -1,46 +1,34 @@
 use clap::{Args, Subcommand};
 
 #[derive(Debug, Args)]
-/// Manage Trellis CLI login state and approval records.
-pub struct AuthCommand {
-    #[command(subcommand)]
-    pub command: AuthSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-/// Authenticate the CLI or inspect stored app approvals.
-pub enum AuthSubcommand {
-    /// Start a detached portal login against a Trellis auth service.
-    Login(AuthLoginArgs),
-    /// Revoke the current admin session and clear local session state.
-    Logout,
-    /// Show the currently logged-in Trellis admin session.
-    Status,
-    /// List or revoke stored approval decisions.
-    Approval(AuthApprovalCommand),
+/// Start a detached portal login against an auth service.
+pub struct LoginArgs {
+    #[arg(value_name = "TRELLIS_URL")]
+    /// Base URL for the Trellis deployment.
+    pub trellis_url: String,
 }
 
 #[derive(Debug, Args)]
 /// Manage stored approval decisions for contract-bearing clients.
-pub struct AuthApprovalCommand {
+pub struct ApprovalsCommand {
     #[command(subcommand)]
-    pub command: AuthApprovalSubcommand,
+    pub command: ApprovalsSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
 /// Approval list and revoke operations.
-pub enum AuthApprovalSubcommand {
+pub enum ApprovalsSubcommand {
     /// Filter approval entries by user or contract digest.
-    List(AuthApprovalListArgs),
+    List(ApprovalsListArgs),
     /// Revoke one stored approval decision by identity envelope ID.
-    Revoke(AuthApprovalRevokeArgs),
+    Revoke(ApprovalsRevokeArgs),
 }
 
 #[derive(Debug, Args)]
 /// Filter approval entries by user or contract digest.
-pub struct AuthApprovalListArgs {
+pub struct ApprovalsListArgs {
     #[arg(long)]
-    /// Restrict results to approvals stored for one `origin.id` user.
+    /// Restrict results to approvals stored for one Trellis user ID.
     pub user: Option<String>,
 
     #[arg(long, value_name = "CONTRACT_DIGEST")]
@@ -50,20 +38,109 @@ pub struct AuthApprovalListArgs {
 
 #[derive(Debug, Args)]
 /// Revoke a stored approval decision by identity envelope ID.
-pub struct AuthApprovalRevokeArgs {
+pub struct ApprovalsRevokeArgs {
     #[arg(value_name = "IDENTITY_ENVELOPE_ID")]
     /// The identity envelope ID whose stored approval should be removed.
     pub identity_envelope_id: String,
 
     #[arg(long)]
-    /// Limit revocation to one `origin.id` user.
+    /// Limit revocation to one Trellis user ID.
     pub user: Option<String>,
 }
 
 #[derive(Debug, Args)]
-/// Start a detached portal login against an auth service.
-pub struct AuthLoginArgs {
-    #[arg(value_name = "TRELLIS_URL")]
-    /// Base URL for the Trellis deployment.
-    pub trellis_url: String,
+/// Manage Trellis users.
+pub struct UsersCommand {
+    #[command(subcommand)]
+    pub command: UsersSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+/// User administration operations.
+pub enum UsersSubcommand {
+    /// List users.
+    List,
+    /// Show one user by Trellis user ID.
+    Show(UserRefArgs),
+    /// Create one Trellis user.
+    Create(UserCreateArgs),
+    /// Edit one Trellis user.
+    Edit(UserEditArgs),
+}
+
+#[derive(Debug, Args)]
+/// Reference one user by Trellis user ID.
+pub struct UserRefArgs {
+    #[arg(value_name = "USER_ID")]
+    pub user_id: String,
+}
+
+#[derive(Debug, Args)]
+/// Create one Trellis user.
+pub struct UserCreateArgs {
+    #[arg(long)]
+    pub name: Option<String>,
+
+    #[arg(long)]
+    pub email: Option<String>,
+
+    #[arg(long)]
+    pub username: Option<String>,
+
+    #[arg(long)]
+    pub inactive: bool,
+
+    #[arg(long = "capability")]
+    pub capabilities: Vec<String>,
+
+    #[arg(long = "group")]
+    pub groups: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(group(
+    clap::ArgGroup::new("active_state")
+        .args(["active", "inactive"])
+        .multiple(false)
+))]
+/// Edit one Trellis user.
+pub struct UserEditArgs {
+    #[arg(value_name = "USER_ID")]
+    pub user_id: String,
+
+    #[arg(long)]
+    pub active: bool,
+
+    #[arg(long)]
+    pub inactive: bool,
+
+    #[arg(long)]
+    pub name: Option<String>,
+
+    #[arg(long)]
+    pub email: Option<String>,
+
+    #[arg(long = "add-capability")]
+    pub add_capabilities: Vec<String>,
+
+    #[arg(long = "remove-capability")]
+    pub remove_capabilities: Vec<String>,
+
+    #[arg(long = "set-capability")]
+    pub set_capabilities: Vec<String>,
+
+    #[arg(long = "clear-capabilities")]
+    pub clear_capabilities: bool,
+
+    #[arg(long = "add-group")]
+    pub add_groups: Vec<String>,
+
+    #[arg(long = "remove-group")]
+    pub remove_groups: Vec<String>,
+
+    #[arg(long = "set-group")]
+    pub set_groups: Vec<String>,
+
+    #[arg(long = "clear-groups")]
+    pub clear_groups: bool,
 }
