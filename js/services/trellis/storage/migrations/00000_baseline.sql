@@ -14,16 +14,80 @@ CREATE TABLE `contracts` (
 CREATE UNIQUE INDEX `contracts_digest_unique` ON `contracts` (`digest`);--> statement-breakpoint
 CREATE TABLE `users` (
 	`id` text PRIMARY KEY NOT NULL,
-	`trellis_id` text NOT NULL,
-	`origin` text NOT NULL,
-	`external_id` text NOT NULL,
+	`user_id` text NOT NULL,
 	`name` text,
 	`email` text,
 	`active` integer NOT NULL,
-	`capabilities` text NOT NULL
+	`capabilities` text NOT NULL,
+	`capability_groups` text NOT NULL,
+	`created_at` text NOT NULL,
+	`updated_at` text NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `users_trellis_id_unique` ON `users` (`trellis_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `users_user_id_unique` ON `users` (`user_id`);--> statement-breakpoint
+CREATE INDEX `users_active_idx` ON `users` (`active`);--> statement-breakpoint
+CREATE TABLE `capability_groups` (
+	`id` text PRIMARY KEY NOT NULL,
+	`group_key` text NOT NULL,
+	`display_name` text NOT NULL,
+	`description` text NOT NULL,
+	`capabilities` text NOT NULL,
+	`included_groups` text NOT NULL,
+	`created_at` text NOT NULL,
+	`updated_at` text NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `capability_groups_group_key_unique` ON `capability_groups` (`group_key`);--> statement-breakpoint
+CREATE INDEX `capability_groups_group_key_idx` ON `capability_groups` (`group_key`);--> statement-breakpoint
+CREATE TABLE `user_identities` (
+	`id` text PRIMARY KEY NOT NULL,
+	`identity_id` text NOT NULL,
+	`user_id` text NOT NULL,
+	`provider` text NOT NULL,
+	`subject` text NOT NULL,
+	`display_name` text,
+	`email` text,
+	`email_verified` integer NOT NULL,
+	`linked_at` text NOT NULL,
+	`last_login_at` text,
+	CONSTRAINT `user_identities_provider_subject_unique` UNIQUE(`provider`,`subject`)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `user_identities_identity_id_unique` ON `user_identities` (`identity_id`);--> statement-breakpoint
+CREATE INDEX `user_identities_user_id_idx` ON `user_identities` (`user_id`);--> statement-breakpoint
+CREATE TABLE `local_credentials` (
+	`id` text PRIMARY KEY NOT NULL,
+	`identity_id` text NOT NULL,
+	`password_hash` text NOT NULL,
+	`password_algorithm` text NOT NULL,
+	`password_params` text NOT NULL,
+	`password_set_at` text NOT NULL,
+	`must_change_password` integer NOT NULL,
+	`failed_login_count` integer NOT NULL,
+	`locked_until` text,
+	`updated_at` text NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `local_credentials_identity_id_unique` ON `local_credentials` (`identity_id`);--> statement-breakpoint
+CREATE TABLE `account_flows` (
+	`id` text PRIMARY KEY NOT NULL,
+	`flow_id_hash` text NOT NULL,
+	`kind` text NOT NULL,
+	`target_user_id` text,
+	`created_by_user_id` text,
+	`allowed_providers` text,
+	`capabilities` text,
+	`profile_hint` text,
+	`created_at` text NOT NULL,
+	`expires_at` text NOT NULL,
+	`consumed_at` text
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `account_flows_flow_id_hash_unique` ON `account_flows` (`flow_id_hash`);--> statement-breakpoint
+CREATE INDEX `account_flows_kind_idx` ON `account_flows` (`kind`);--> statement-breakpoint
+CREATE INDEX `account_flows_target_user_id_idx` ON `account_flows` (`target_user_id`);--> statement-breakpoint
+CREATE INDEX `account_flows_expires_at_idx` ON `account_flows` (`expires_at`);--> statement-breakpoint
+CREATE INDEX `account_flows_consumed_expires_idx` ON `account_flows` (`consumed_at`,`expires_at`);--> statement-breakpoint
 CREATE TABLE `identity_envelopes` (
 	`id` text PRIMARY KEY NOT NULL,
 	`identity_envelope_id` text NOT NULL,

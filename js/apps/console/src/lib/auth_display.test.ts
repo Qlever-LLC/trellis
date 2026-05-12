@@ -15,10 +15,13 @@ Deno.test("describeSessionPrincipal renders explicit user app and agent metadata
       participantKind: "app",
       principal: {
         type: "user",
-        trellisId: "user_123",
-        origin: "github",
-        id: "123",
+        userId: "usr_123",
         name: "Ada Lovelace",
+        identity: {
+          identityId: "idn_github_123",
+          provider: "github",
+          subject: "123",
+        },
       },
       contractId: "trellis.console@v1",
       contractDisplayName: "Trellis Console",
@@ -26,8 +29,9 @@ Deno.test("describeSessionPrincipal renders explicit user app and agent metadata
       lastAuth: "2026-04-10T01:00:00.000Z",
     }),
     {
-      title: "Ada Lovelace",
-      details: "github.123 • Trellis Console (trellis.console@v1)",
+      title: "usr_123",
+      details:
+        "Ada Lovelace • github:123 • idn_github_123 • Trellis Console (trellis.console@v1)",
     },
   );
 
@@ -38,10 +42,13 @@ Deno.test("describeSessionPrincipal renders explicit user app and agent metadata
       participantKind: "agent",
       principal: {
         type: "user",
-        trellisId: "user_123",
-        origin: "github",
-        id: "123",
+        userId: "usr_123",
         name: "",
+        identity: {
+          identityId: "idn_github_123",
+          provider: "github",
+          subject: "123",
+        },
       },
       contractId: "trellis.agent@v1",
       contractDisplayName: "Trellis Agent",
@@ -49,8 +56,8 @@ Deno.test("describeSessionPrincipal renders explicit user app and agent metadata
       lastAuth: "2026-04-10T01:00:00.000Z",
     }),
     {
-      title: "github.123",
-      details: "Trellis Agent (trellis.agent@v1)",
+      title: "usr_123",
+      details: "github:123 • idn_github_123 • Trellis Agent (trellis.agent@v1)",
     },
   );
 });

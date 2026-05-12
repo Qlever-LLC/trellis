@@ -505,12 +505,12 @@ function refreshServiceSessionFromInstance(args: {
 export function startDisconnectCleanup(deps: {
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   logger: AuthRuntimeDeps["logger"];
-  natsAuth: AuthRuntimeDeps["natsAuth"];
+  natsSystem: AuthRuntimeDeps["natsSystem"];
   sessionStorage: AuthRuntimeDeps["sessionStorage"];
   trellis: AuthRuntimeDeps["trellis"];
 }): BackgroundTaskHandle {
-  const { connectionsKV, logger, natsAuth, sessionStorage, trellis } = deps;
-  const disconnectSub = natsAuth.subscribe("$SYS.ACCOUNT.*.DISCONNECT");
+  const { connectionsKV, logger, natsSystem, sessionStorage, trellis } = deps;
+  const disconnectSub = natsSystem.subscribe("$SYS.ACCOUNT.*.DISCONNECT");
   let stopping = false;
   const task = (async () => {
     try {
@@ -557,8 +557,12 @@ export function startDisconnectCleanup(deps: {
             if (sessionValue.type !== "device") {
               (
                 await trellis.publish("Auth.Connections.Closed", {
-                  origin: sessionValue.origin,
-                  id: sessionValue.id,
+                  origin: sessionValue.type === "user"
+                    ? sessionValue.identity.provider
+                    : sessionValue.origin,
+                  id: sessionValue.type === "user"
+                    ? sessionValue.identity.subject
+                    : sessionValue.id,
                   sessionKey: parsedKey.sessionKey,
                   userNkey,
                 })
@@ -598,6 +602,7 @@ export function startDisconnectCleanup(deps: {
 export function startAuthCallout(
   opts: {
     contractStorage: SqlContractStorageRepository;
+    capabilityGroupStorage?: AuthRuntimeDeps["capabilityGroupStorage"];
     userStorage: SqlUserProjectionRepository;
     contractApprovalStorage: SqlIdentityEnvelopeRepository;
     deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
@@ -885,6 +890,7 @@ export function startAuthCallout(
         loadUserProjection: async (trellisId) => {
           return await opts.userStorage.get(trellisId) ?? null;
         },
+        capabilityGroupStorage: opts.capabilityGroupStorage,
       });
       if (!resolvedReconnect.ok) {
         return stageDeny(resolvedReconnect.reason);
@@ -923,6 +929,7 @@ export function startAuthCallout(
       loadUserProjection: async (trellisId) => {
         return await opts.userStorage.get(trellisId) ?? null;
       },
+      capabilityGroupStorage: opts.capabilityGroupStorage,
       deviceActivationStorage,
       deviceInstanceStorage,
       deviceDeploymentStorage,
@@ -1160,6 +1167,8 @@ export function startAuthCallout(
       const clientId = decoded.natsReq.client_info?.id;
       const sessionScope = session.type === "device"
         ? session.instanceId
+        : session.type === "user"
+        ? session.userId
         : session.trellisId;
       if (serverId && typeof clientId === "number") {
         (
@@ -1179,8 +1188,10 @@ export function startAuthCallout(
       if (session.type !== "device") {
         (
           await trellis.publish("Auth.Connections.Opened", {
-            origin: session.origin,
-            id: session.id,
+            origin: session.type === "user"
+              ? session.identity.provider
+              : session.origin,
+            id: session.type === "user" ? session.identity.subject : session.id,
             sessionKey,
             userNkey: decoded.userNkey,
           })

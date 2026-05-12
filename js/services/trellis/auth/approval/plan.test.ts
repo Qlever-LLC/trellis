@@ -129,6 +129,13 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     },
   });
   assertEquals(plan.publishSubjects, [
+    "$JS.ACK.>",
+    "$JS.API.CONSUMER.CREATE.trellis",
+    "$JS.API.CONSUMER.CREATE.trellis.>",
+    "$JS.API.CONSUMER.DURABLE.CREATE.trellis.>",
+    "$JS.API.CONSUMER.INFO.trellis.>",
+    "$JS.API.CONSUMER.MSG.NEXT.trellis.>",
+    "$JS.API.INFO",
     "feeds.v1.example.Activity.Live",
     "operations.v1.example.Evidence.Upload",
     "operations.v1.example.Evidence.Upload.control",

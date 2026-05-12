@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertFalse, assertThrows } from "@std/assert";
 import Value from "typebox/value";
+import { resolveCapabilities } from "./capability_groups.ts";
 
 import {
   AppIdentitySchema,
@@ -18,6 +19,7 @@ import {
   EnvelopeBoundarySchema,
   EnvelopeExpansionRequestSchema,
   IdentityEnvelopeRecordSchema,
+  LocalCredentialSchema,
   OAuthStateSchema,
   PendingAuthSchema,
   SessionKeySchema,
@@ -27,6 +29,50 @@ import {
 
 const sessionKey = "A".repeat(43);
 const sig = "B".repeat(86);
+
+Deno.test("capability resolver expands admin without service", async () => {
+  const resolved = await resolveCapabilities({
+    capabilities: ["admin"],
+    capabilityGroups: [],
+  });
+  assert(resolved.includes("admin"));
+  assert(resolved.includes("trellis.auth::device.review"));
+  assert(resolved.includes("trellis.auth::events.auth"));
+  assert(resolved.includes("trellis.jobs::jobs.admin.read"));
+  assert(resolved.includes("trellis.jobs::jobs.admin.mutate"));
+  assert(resolved.includes("trellis.jobs::jobs.admin.stream"));
+  assert(resolved.includes("trellis.core::trellis.catalog.read"));
+  assert(resolved.includes("trellis.core::trellis.contract.read"));
+  assertFalse(resolved.includes("service"));
+});
+
+Deno.test("capability resolver handles nested custom groups and cycles", async () => {
+  const groups = new Map([
+    ["outer", {
+      groupKey: "outer",
+      displayName: "Outer",
+      description: "Outer group.",
+      capabilities: ["outer.read"],
+      includedGroups: ["inner"],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }],
+    ["inner", {
+      groupKey: "inner",
+      displayName: "Inner",
+      description: "Inner group.",
+      capabilities: ["inner.read"],
+      includedGroups: ["outer"],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }],
+  ]);
+  const resolved = await resolveCapabilities(
+    { capabilities: ["direct.read"], capabilityGroups: ["outer"] },
+    { get: (groupKey) => Promise.resolve(groups.get(groupKey)) },
+  );
+  assertEquals(resolved, ["direct.read", "inner.read", "outer.read"]);
+});
 
 Deno.test("SessionKeySchema enforces base64url length for Ed25519 public keys", () => {
   assert(Value.Check(SessionKeySchema, sessionKey));
@@ -44,9 +90,12 @@ Deno.test("SessionSchema validates session entries", () => {
   assert(
     Value.Check(SessionSchema, {
       type: "user",
-      trellisId: "abc",
-      origin: "github",
-      id: "12345",
+      userId: "usr_12345",
+      identity: {
+        identityId: "idn_github_12345",
+        provider: "github",
+        subject: "12345",
+      },
       email: "github:12345",
       name: "Test User",
       participantKind: "app",
@@ -132,6 +181,42 @@ Deno.test("Portal and browser-flow schemas validate", () => {
     },
     createdAt: new Date().toISOString(),
     expiresAt: new Date().toISOString(),
+  }));
+});
+
+Deno.test("LocalCredentialSchema validates durable login attempt state", () => {
+  assert(Value.Check(LocalCredentialSchema, {
+    identityId: "idn_local_alice",
+    passwordHash: "hash",
+    passwordAlgorithm: "pbkdf2-sha256",
+    passwordParams: { v: 1 },
+    passwordSetAt: "2026-05-09T00:00:00.000Z",
+    mustChangePassword: false,
+    failedLoginCount: 0,
+    lockedUntil: null,
+    updatedAt: "2026-05-09T00:00:00.000Z",
+  }));
+  assert(Value.Check(LocalCredentialSchema, {
+    identityId: "idn_local_alice",
+    passwordHash: "hash",
+    passwordAlgorithm: "pbkdf2-sha256",
+    passwordParams: { v: 1 },
+    passwordSetAt: "2026-05-09T00:00:00.000Z",
+    mustChangePassword: false,
+    failedLoginCount: 5,
+    lockedUntil: "2026-05-09T00:15:00.000Z",
+    updatedAt: "2026-05-09T00:00:00.000Z",
+  }));
+  assertFalse(Value.Check(LocalCredentialSchema, {
+    identityId: "idn_local_alice",
+    passwordHash: "hash",
+    passwordAlgorithm: "pbkdf2-sha256",
+    passwordParams: { v: 1 },
+    passwordSetAt: "2026-05-09T00:00:00.000Z",
+    mustChangePassword: false,
+    failedLoginCount: 1.5,
+    lockedUntil: null,
+    updatedAt: "2026-05-09T00:00:00.000Z",
   }));
 });
 
@@ -275,6 +360,7 @@ Deno.test("envelope authority storage schemas validate modeled rows", () => {
 
 Deno.test("OAuthStateSchema validates browser flow linkage", () => {
   assert(Value.Check(OAuthStateSchema, {
+    kind: "browser_login",
     provider: "github",
     redirectTo: "https://app.example.com/dashboard",
     codeVerifier: "code-verifier",
@@ -288,10 +374,29 @@ Deno.test("OAuthStateSchema validates browser flow linkage", () => {
     flowId: "flow_123",
     createdAt: new Date().toISOString(),
   }));
+  assert(Value.Check(OAuthStateSchema, {
+    kind: "account_flow",
+    provider: "github",
+    flowId: "flow_456",
+    codeVerifier: "code-verifier",
+    createdAt: new Date().toISOString(),
+  }));
+  assertFalse(Value.Check(OAuthStateSchema, {
+    provider: "github",
+    flowId: "flow_456",
+    codeVerifier: "code-verifier",
+    createdAt: new Date().toISOString(),
+  }));
 });
 
 Deno.test("PendingAuthSchema validates explicit app identity", () => {
   assert(Value.Check(PendingAuthSchema, {
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
     user: {
       origin: "github",
       id: "123",

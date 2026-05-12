@@ -1,5 +1,6 @@
 import type { Hono } from "@hono/hono";
 
+import { ensureAdminBootstrapFlow } from "../auth/account_flows/bootstrap.ts";
 import { registerAuth } from "../auth/register.ts";
 import { registerCatalog } from "../catalog/register.ts";
 import { createContractsModule } from "../catalog/runtime.ts";
@@ -31,13 +32,18 @@ export async function registerControlPlane(deps: {
     deploymentPortalRouteStorage,
     envelopeExpansionRequestStorage,
     deploymentResourceBindingStorage,
+    accountFlowStorage,
+    accountStorage,
+    capabilityGroupStorage,
     deviceActivationReviewStorage,
     deviceActivationStorage,
     deviceDeploymentStorage,
     deviceInstanceStorage,
     deviceProvisioningSecretStorage,
     logger,
+    localCredentialStorage,
     natsAuth,
+    natsSystem,
     natsTrellis,
     oauthStateKV,
     pendingAuthKV,
@@ -47,6 +53,7 @@ export async function registerControlPlane(deps: {
     sessionStorage,
     stateKV,
     trellis,
+    userIdentityStorage,
     userStorage,
   } = runtime;
 
@@ -95,6 +102,11 @@ export async function registerControlPlane(deps: {
     deploymentPortalRouteStorage,
     deploymentGrantOverrideStorage,
     envelopeExpansionRequestStorage,
+    accountFlowStorage,
+    accountStorage,
+    capabilityGroupStorage,
+    userIdentityStorage,
+    localCredentialStorage,
     userStorage,
     contractApprovalStorage,
     deviceDeploymentStorage,
@@ -109,14 +121,24 @@ export async function registerControlPlane(deps: {
     connectionsKV,
     logger,
     natsAuth,
+    natsSystem,
     natsTrellis,
     oauthStateKV,
     pendingAuthKV,
     sentinelCreds,
   });
 
+  await ensureAdminBootstrapFlow({
+    accountStorage,
+    capabilityGroupStorage,
+    accountFlowStorage,
+    portalBaseUrl: config.web.publicOrigin ?? config.oauth.redirectBase,
+    logger,
+  });
+
   return startControlPlaneBackgroundTasks({
     contractStorage,
+    capabilityGroupStorage,
     userStorage,
     contractApprovalStorage,
     deploymentEnvelopeStorage,
@@ -128,6 +150,7 @@ export async function registerControlPlane(deps: {
     connectionsKV,
     logger,
     natsAuth,
+    natsSystem,
     sessionStorage,
     trellis,
     contracts,

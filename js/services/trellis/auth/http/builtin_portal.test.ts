@@ -1,6 +1,10 @@
 import { assertEquals } from "@std/assert";
+import type { Hono } from "@hono/hono";
 
-import { serveBuiltinPortalPath } from "./builtin_portal.ts";
+import {
+  registerBuiltinPortalStaticRoutes,
+  serveBuiltinPortalPath,
+} from "./builtin_portal.ts";
 
 Deno.test("serveBuiltinPortalPath serves portal asset files and SPA fallback", async () => {
   const root = await Deno.makeTempDir();
@@ -57,6 +61,43 @@ Deno.test("serveBuiltinPortalPath rejects traversal and unrelated paths", async 
     );
     assertEquals(await serveBuiltinPortalPath(root, "/auth/login"), null);
   } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("registerBuiltinPortalStaticRoutes uses TRELLIS_BUILTIN_PORTAL_DIR when no explicit build dir is passed", async () => {
+  const root = await Deno.makeTempDir();
+  const previous = Deno.env.get("TRELLIS_BUILTIN_PORTAL_DIR");
+  try {
+    await Deno.writeTextFile(`${root}/200.html`, "<html>override</html>");
+    Deno.env.set("TRELLIS_BUILTIN_PORTAL_DIR", root);
+
+    type PortalHandler = (context: {
+      req: { path: string };
+      body: (body: BodyInit | null, init?: ResponseInit) => Response;
+    }) => Promise<Response>;
+    const handlers = new Map<string, PortalHandler>();
+    const app = {
+      get: ((path: string, handler: PortalHandler) => {
+        handlers.set(path, handler);
+        return app;
+      }) as Pick<Hono, "get">["get"],
+    };
+    registerBuiltinPortalStaticRoutes(app);
+
+    const handler = handlers.get("/_trellis/portal");
+    const response = await handler?.({
+      req: { path: "/_trellis/portal" },
+      body: (body, init) => new Response(body, init),
+    });
+
+    assertEquals(await response?.text(), "<html>override</html>");
+  } finally {
+    if (previous === undefined) {
+      Deno.env.delete("TRELLIS_BUILTIN_PORTAL_DIR");
+    } else {
+      Deno.env.set("TRELLIS_BUILTIN_PORTAL_DIR", previous);
+    }
     await Deno.remove(root, { recursive: true });
   }
 });

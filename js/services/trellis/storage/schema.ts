@@ -28,14 +28,97 @@ export const users = sqliteTable(
   "users",
   {
     id: text("id").primaryKey().$defaultFn(() => ulid()),
-    trellisId: text("trellis_id").notNull().unique(),
-    origin: text("origin").notNull(),
-    externalId: text("external_id").notNull(),
+    userId: text("user_id").notNull().unique(),
     name: text("name"),
     email: text("email"),
     active: integer("active", { mode: "boolean" }).notNull(),
     capabilities: text("capabilities").notNull(),
+    capabilityGroups: text("capability_groups").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
   },
+  (table) => [index("users_active_idx").on(table.active)],
+);
+
+export const capabilityGroups = sqliteTable(
+  "capability_groups",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    groupKey: text("group_key").notNull().unique(),
+    displayName: text("display_name").notNull(),
+    description: text("description").notNull(),
+    capabilities: text("capabilities").notNull(),
+    includedGroups: text("included_groups").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [index("capability_groups_group_key_idx").on(table.groupKey)],
+);
+
+export const userIdentities = sqliteTable(
+  "user_identities",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    identityId: text("identity_id").notNull().unique(),
+    userId: text("user_id").notNull(),
+    provider: text("provider").notNull(),
+    subject: text("subject").notNull(),
+    displayName: text("display_name"),
+    email: text("email"),
+    emailVerified: integer("email_verified", { mode: "boolean" }).notNull(),
+    linkedAt: text("linked_at").notNull(),
+    lastLoginAt: text("last_login_at"),
+  },
+  (table) => [
+    unique("user_identities_provider_subject_unique").on(
+      table.provider,
+      table.subject,
+    ),
+    index("user_identities_user_id_idx").on(table.userId),
+  ],
+);
+
+export const localCredentials = sqliteTable(
+  "local_credentials",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    identityId: text("identity_id").notNull().unique(),
+    passwordHash: text("password_hash").notNull(),
+    passwordAlgorithm: text("password_algorithm").notNull(),
+    passwordParams: text("password_params").notNull(),
+    passwordSetAt: text("password_set_at").notNull(),
+    mustChangePassword: integer("must_change_password", { mode: "boolean" })
+      .notNull(),
+    failedLoginCount: integer("failed_login_count").notNull(),
+    lockedUntil: text("locked_until"),
+    updatedAt: text("updated_at").notNull(),
+  },
+);
+
+export const accountFlows = sqliteTable(
+  "account_flows",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    flowIdHash: text("flow_id_hash").notNull().unique(),
+    kind: text("kind").notNull(),
+    targetUserId: text("target_user_id"),
+    createdByUserId: text("created_by_user_id"),
+    allowedProviders: text("allowed_providers"),
+    capabilities: text("capabilities"),
+    profileHint: text("profile_hint"),
+    createdAt: text("created_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    consumedAt: text("consumed_at"),
+  },
+  (table) => [
+    index("account_flows_kind_idx").on(table.kind),
+    index("account_flows_target_user_id_idx").on(table.targetUserId),
+    index("account_flows_expires_at_idx").on(table.expiresAt),
+    index("account_flows_consumed_expires_idx").on(
+      table.consumedAt,
+      table.expiresAt,
+    ),
+  ],
 );
 
 export const identityEnvelopes = sqliteTable(
@@ -485,6 +568,9 @@ export const sessions = sqliteTable(
 export const schema = {
   contracts,
   users,
+  userIdentities,
+  localCredentials,
+  accountFlows,
   identityEnvelopes,
   serviceDeployments,
   serviceInstances,

@@ -104,6 +104,19 @@ export async function createRuntimeGlobals(config: Config) {
       },
     });
 
+    const natsSystem = await connect({
+      servers: config.nats.servers,
+      authenticator: credsAuthenticator(
+        Deno.readFileSync(config.nats.system.credsPath),
+      ),
+    });
+    cleanupSteps.push({
+      name: "natsSystem",
+      run: async () => {
+        if (!natsSystem.isClosed()) await natsSystem.close();
+      },
+    });
+
     const natsTrellis = await connect({
       servers: config.nats.servers,
       authenticator: credsAuthenticator(
@@ -252,6 +265,7 @@ export async function createRuntimeGlobals(config: Config) {
       sentinelCreds,
       logger,
       natsAuth,
+      natsSystem,
       natsTrellis,
       oauthStateKV,
       pendingAuthKV,

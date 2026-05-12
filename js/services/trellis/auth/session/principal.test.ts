@@ -555,9 +555,12 @@ Deno.test("resolveSessionPrincipal rejects inactive user projections", async () 
   const result = await resolveSessionPrincipal(
     {
       type: "user",
-      trellisId: "tid",
-      origin: "github",
-      id: "123",
+      userId: "tid",
+      identity: {
+        identityId: "idn-github-123",
+        provider: "github",
+        subject: "123",
+      },
       email: "user@example.com",
       name: "User",
       participantKind: "app",
@@ -582,6 +585,7 @@ Deno.test("resolveSessionPrincipal rejects inactive user projections", async () 
           email: "user@example.com",
           active: false,
           capabilities: ["admin"],
+          capabilityGroups: [],
         },
       }),
     },
@@ -597,9 +601,12 @@ Deno.test("resolveSessionPrincipal rejects user sessions without explicit capabi
   const result = await resolveSessionPrincipal(
     {
       type: "user",
-      trellisId: "tid",
-      origin: "github",
-      id: "123",
+      userId: "tid",
+      identity: {
+        identityId: "idn-github-123",
+        provider: "github",
+        subject: "123",
+      },
       email: "user@example.com",
       name: "User",
       participantKind: "app",
@@ -628,6 +635,7 @@ Deno.test("resolveSessionPrincipal rejects user sessions without explicit capabi
           email: "user@example.com",
           active: true,
           capabilities: [],
+          capabilityGroups: [],
         },
       }),
     },
@@ -639,13 +647,63 @@ Deno.test("resolveSessionPrincipal rejects user sessions without explicit capabi
   }
 });
 
+Deno.test("resolveSessionPrincipal accepts delegated capabilities from groups", async () => {
+  const result = await resolveSessionPrincipal(
+    {
+      type: "user",
+      userId: "tid",
+      identity: {
+        identityId: "idn-github-123",
+        provider: "github",
+        subject: "123",
+      },
+      email: "user@example.com",
+      name: "User",
+      participantKind: "app",
+      identityEnvelopeId: "env-console",
+      contractDigest: "digest-a",
+      contractId: "trellis.console@v1",
+      contractDisplayName: "Console",
+      contractDescription: "Admin app",
+      delegatedCapabilities: ["trellis.auth::device.review"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+      app: {
+        contractId: "trellis.console@v1",
+        origin: "https://app.example.com",
+      },
+      createdAt: new Date(),
+      lastAuth: new Date(),
+    },
+    "A".repeat(43),
+    {
+      loadUserProjection: loadProjectionFromMap({
+        tid: {
+          origin: "github",
+          id: "123",
+          name: "User",
+          email: "user@example.com",
+          active: true,
+          capabilities: [],
+          capabilityGroups: ["admin"],
+        },
+      }),
+    },
+  );
+
+  assertEquals(result.ok, true);
+});
+
 Deno.test("resolveSessionPrincipal accepts service-like capability strings on user sessions", async () => {
   const result = await resolveSessionPrincipal(
     {
       type: "user",
-      trellisId: "tid",
-      origin: "github",
-      id: "123",
+      userId: "tid",
+      identity: {
+        identityId: "idn-github-123",
+        provider: "github",
+        subject: "123",
+      },
       email: "user@example.com",
       name: "User",
       participantKind: "app",
@@ -670,6 +728,7 @@ Deno.test("resolveSessionPrincipal accepts service-like capability strings on us
           email: "user@example.com",
           active: true,
           capabilities: ["service:inspect"],
+          capabilityGroups: [],
         },
       }),
     },

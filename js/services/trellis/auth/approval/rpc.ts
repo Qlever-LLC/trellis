@@ -1,4 +1,3 @@
-import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import { Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
@@ -12,7 +11,6 @@ import {
   type ApprovalKVLike,
   type ApprovalSessionStore,
   createAuthIdentitiesGrantsListHandler,
-  formatOriginId,
   requireUserCaller,
   revokeGrantSessions,
 } from "./user_grants.ts";
@@ -21,20 +19,12 @@ export { createAuthIdentitiesGrantsListHandler } from "./user_grants.ts";
 
 type RpcUser = {
   type: string;
-  trellisId: string;
-  origin: string;
-  id: string;
+  userId: string;
   capabilities?: string[];
 };
 
 type ListApprovalsRequest = BoundedListQuery & { user?: string };
 type RevokeApprovalRequest = { identityEnvelopeId: string; user?: string };
-
-function parseOriginId(value: string): { origin: string; id: string } | null {
-  const idx = value.indexOf(".");
-  if (idx <= 0 || idx >= value.length - 1) return null;
-  return { origin: value.slice(0, idx), id: value.slice(idx + 1) };
-}
 
 function isAdmin(user: RpcUser): boolean {
   return user.capabilities?.includes("admin") ?? false;
@@ -44,26 +34,21 @@ async function resolveTargetUser(
   reqUser: string | undefined,
   caller: RpcUser,
 ): Promise<{
-  trellisId: string;
+  userId: string;
 }> {
   if (!reqUser) {
     return {
-      trellisId: caller.trellisId,
+      userId: caller.userId,
     };
   }
 
-  const parsed = parseOriginId(reqUser);
-  if (!parsed) {
-    throw new AuthError({ reason: "invalid_request" });
-  }
-
-  const self = parsed.origin === caller.origin && parsed.id === caller.id;
+  const self = reqUser === caller.userId;
   if (!self && !isAdmin(caller)) {
     throw new AuthError({ reason: "insufficient_permissions" });
   }
 
   return {
-    trellisId: await trellisIdFromOriginId(parsed.origin, parsed.id),
+    userId: reqUser,
   };
 }
 
@@ -81,9 +66,7 @@ export function createAuthIdentitiesListHandler(deps: {
       context: {
         caller: {
           type: string;
-          trellisId?: string;
-          origin?: string;
-          id?: string;
+          userId?: string;
           capabilities?: string[];
         };
       };
@@ -94,13 +77,13 @@ export function createAuthIdentitiesListHandler(deps: {
       {
         rpc: "Auth.Identities.List",
         user: req.user,
-        caller: formatOriginId(user.origin, user.id),
+        caller: user.userId,
       },
       "RPC request",
     );
 
     try {
-      const callerTrellisId = isAdmin(user) ? null : user.trellisId;
+      const callerUserId = isAdmin(user) ? null : user.userId;
       const approvals = [] as Array<{
         user: string;
         answer: "approved" | "denied";
@@ -122,14 +105,14 @@ export function createAuthIdentitiesListHandler(deps: {
       const target = req.user ? await resolveTargetUser(req.user, user) : null;
       const storedApprovals = await listApprovalsForRequest({
         contractApprovalStorage: deps.contractApprovalStorage,
-        targetTrellisId: target?.trellisId,
+        targetUserId: target?.userId,
         query: req,
       });
 
       for (const envelope of storedApprovals) {
         if (
-          !target && callerTrellisId &&
-          envelope.userTrellisId !== callerTrellisId
+          !target && callerUserId &&
+          envelope.userTrellisId !== callerUserId
         ) {
           continue;
         }
@@ -140,7 +123,7 @@ export function createAuthIdentitiesListHandler(deps: {
             participantKind: "app" | "agent";
           };
         approvals.push({
-          user: formatOriginId(envelope.origin, envelope.id),
+          user: envelope.userTrellisId,
           answer: envelope.answer,
           answeredAt: envelope.answeredAt.toISOString(),
           updatedAt: envelope.updatedAt.toISOString(),
@@ -175,12 +158,12 @@ export function createAuthIdentitiesListHandler(deps: {
 
 async function listApprovalsForRequest(args: {
   contractApprovalStorage: SqlIdentityEnvelopeRepository;
-  targetTrellisId?: string;
+  targetUserId?: string;
   query: BoundedListQuery;
 }): Promise<IdentityEnvelopeRecord[]> {
-  if (args.targetTrellisId) {
+  if (args.targetUserId) {
     return await args.contractApprovalStorage.listPageByUser(
-      args.targetTrellisId,
+      args.targetUserId,
       args.query,
     );
   }
@@ -210,9 +193,7 @@ export function createAuthIdentityEnvelopesRevokeHandler(opts: {
       context: {
         caller: {
           type: string;
-          trellisId?: string;
-          origin?: string;
-          id?: string;
+          userId?: string;
           capabilities?: string[];
         };
       };
@@ -240,7 +221,7 @@ export function createAuthIdentityEnvelopesRevokeHandler(opts: {
       if (existing === undefined) {
         return Result.ok({ success: false });
       }
-      if (existing.userTrellisId !== target.trellisId) {
+      if (existing.userTrellisId !== target.userId) {
         return Result.err(
           new AuthError({ reason: "insufficient_permissions" }),
         );
@@ -248,13 +229,13 @@ export function createAuthIdentityEnvelopesRevokeHandler(opts: {
 
       await opts.contractApprovalStorage.delete(req.identityEnvelopeId);
       await revokeGrantSessions({
-        userTrellisId: target.trellisId,
+        userTrellisId: target.userId,
         identityEnvelopeId: req.identityEnvelopeId,
         sessionStorage: opts.sessionStorage,
         connectionsKV: opts.connectionsKV,
         kick: opts.kick,
         publishSessionRevoked: opts.publishSessionRevoked,
-        revokedBy: formatOriginId(user.origin, user.id),
+        revokedBy: user.userId,
       });
       return Result.ok({ success: true });
     } catch (error) {

@@ -9,12 +9,16 @@
   import PortalBrand from "$lib/components/PortalBrand.svelte";
   import { createLoginPortalFlow } from "$lib/portal_login";
   import {
+    submitLocalLogin,
     shouldOfferPortalReturnLink,
     shouldStayOnPortalCompletionPage,
   } from "./page_state";
 
   const flow = createLoginPortalFlow(pageUrl);
   let denying = $state(false);
+  let localUsername = $state("");
+  let localPassword = $state("");
+  let localSubmitting = $state(false);
 
   interface CapabilityMetadata {
     displayName: string;
@@ -46,6 +50,15 @@
       .map(([key, capability]) => ({ key, capability }));
   }
 
+  function capabilityMetadata(
+    capabilities: unknown,
+    key: string,
+  ): CapabilityMetadata | null {
+    if (!isPlainObject(capabilities)) return null;
+    const value = capabilities[key];
+    return isCapabilityMetadata(value) ? value : null;
+  }
+
   type UserDisplay = {
     origin: string;
     id: string;
@@ -71,6 +84,10 @@
 
   function providerInitial(displayName: string): string {
     return displayName.trim().charAt(0).toUpperCase() || "?";
+  }
+
+  function isLocalProvider(providerId: string): boolean {
+    return providerId === "local";
   }
 
   function userImage(user: UserDisplay): string | null {
@@ -182,6 +199,36 @@
       flow.error = error instanceof Error ? error.message : String(error);
     } finally {
       if (!redirected) denying = false;
+    }
+  }
+
+  async function submitLocal(): Promise<void> {
+    const username = localUsername.trim();
+    if (!flow.flowId) {
+      flow.error =
+        "This sign-in request has expired. Return to the app and start sign-in again.";
+      return;
+    }
+    if (!username || !localPassword) {
+      flow.error = "Enter your username and password.";
+      return;
+    }
+
+    localSubmitting = true;
+    flow.error = null;
+
+    try {
+      await submitLocalLogin(trellisUrl, {
+        flowId: flow.flowId,
+        username,
+        password: localPassword,
+      });
+      localPassword = "";
+      await loadFlow();
+    } catch (error) {
+      flow.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      localSubmitting = false;
     }
   }
 
@@ -302,34 +349,86 @@
         </div>
         <div class="flex flex-col gap-2.5">
           {#each flow.state.providers as provider (provider.id)}
-            <a
-              class="portal-provider-link group flex w-full items-center gap-3 rounded-field px-4 py-3 text-left"
-              data-sveltekit-reload
-              href={flow.providerUrl(provider.id)}
-            >
-              <span
-                class="flex size-9 shrink-0 items-center justify-center rounded-full border border-base-300 bg-base-200 text-sm font-semibold text-base-content/70"
-                aria-hidden="true"
+            {#if isLocalProvider(provider.id)}
+              <form
+                class="portal-subtle-panel grid gap-3 rounded-box p-4"
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void submitLocal();
+                }}
               >
-                {providerInitial(provider.displayName)}
-              </span>
-              <span class="min-w-0 flex-1 truncate text-sm font-semibold text-base-content">
-                Continue with {provider.displayName}
-              </span>
-              <svg
-                class="size-4 shrink-0 text-base-content/35 transition-transform group-hover:translate-x-0.5"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                aria-hidden="true"
+                <p class="text-sm font-semibold text-base-content">
+                  {provider.displayName}
+                </p>
+                <label class="form-control w-full">
+                  <span class="label py-1">
+                    <span class="label-text">Username</span>
+                  </span>
+                  <input
+                    class="input input-bordered w-full"
+                    autocomplete="username"
+                    disabled={localSubmitting}
+                    required
+                    type="text"
+                    bind:value={localUsername}
+                  />
+                </label>
+                <label class="form-control w-full">
+                  <span class="label py-1">
+                    <span class="label-text">Password</span>
+                  </span>
+                  <input
+                    class="input input-bordered w-full"
+                    autocomplete="current-password"
+                    disabled={localSubmitting}
+                    required
+                    type="password"
+                    bind:value={localPassword}
+                  />
+                </label>
+                <button
+                  class="btn btn-primary btn-block"
+                  disabled={localSubmitting}
+                  type="submit"
+                >
+                  {#if localSubmitting}
+                    <span class="loading loading-spinner loading-sm"></span>
+                    Signing in...
+                  {:else}
+                    Sign in
+                  {/if}
+                </button>
+              </form>
+            {:else}
+              <a
+                class="portal-provider-link group flex w-full items-center gap-3 rounded-field px-4 py-3 text-left"
+                data-sveltekit-reload
+                href={flow.providerUrl(provider.id)}
               >
-                <path
-                  fill-rule="evenodd"
-                  d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z"
-                  clip-rule="evenodd"
-                />
-              </svg>
-            </a>
+                <span
+                  class="flex size-9 shrink-0 items-center justify-center rounded-full border border-base-300 bg-base-200 text-sm font-semibold text-base-content/70"
+                  aria-hidden="true"
+                >
+                  {providerInitial(provider.displayName)}
+                </span>
+                <span class="min-w-0 flex-1 truncate text-sm font-semibold text-base-content">
+                  Continue with {provider.displayName}
+                </span>
+                <svg
+                  class="size-4 shrink-0 text-base-content/35 transition-transform group-hover:translate-x-0.5"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    fill-rule="evenodd"
+                    d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </a>
+            {/if}
           {/each}
         </div>
       {:else if flow.state?.status === "approval_required"}
@@ -408,10 +507,21 @@
           <p class="portal-section-label">Missing capabilities</p>
           <ul class="overflow-hidden rounded-box border border-base-300">
             {#each flow.state.missingCapabilities as cap (cap)}
+              {@const metadata = capabilityMetadata(flow.state.approval.capabilities, cap)}
               <li class="portal-capability-row px-3.5 py-3">
                 <p class="text-sm font-semibold text-base-content">
-                  {technicalCapabilityLabel(cap)}
+                  {metadata?.displayName ?? technicalCapabilityLabel(cap)}
                 </p>
+                {#if metadata}
+                  <p class="portal-copy mt-0.5 text-sm leading-5">
+                    {metadata.description}
+                  </p>
+                  {#if metadata.consequence}
+                    <p class="mt-1 text-xs leading-5 text-base-content/55">
+                      {metadata.consequence}
+                    </p>
+                  {/if}
+                {/if}
               </li>
             {/each}
           </ul>

@@ -252,7 +252,7 @@ async function resolveCallerStore(
     ownerType: session.type,
     contractId: session.contractId,
     contractDigest: session.contractDigest,
-    ownerKey: session.type === "user" ? session.trellisId : session.instanceId,
+    ownerKey: session.type === "user" ? session.userId : session.instanceId,
     store,
     kind: definition.kind,
     schema,

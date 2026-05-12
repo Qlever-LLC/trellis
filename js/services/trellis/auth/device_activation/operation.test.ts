@@ -40,6 +40,7 @@ const config: Config = {
     jetstream: { replicas: 1 },
     trellis: { credsPath: "" },
     auth: { credsPath: "" },
+    system: { credsPath: "" },
     sentinelCredsPath: "",
     authCallout: {
       issuer: { nkey: "issuer", signing: "issuer-seed" },

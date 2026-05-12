@@ -239,9 +239,12 @@ Deno.test("AuthRequestsValidateResponseSchema validates device caller variants",
     caller: {
       type: "user",
       participantKind: "app",
-      trellisId: "tid_123",
-      id: "123",
-      origin: "github",
+      userId: "usr_123",
+      identity: {
+        identityId: "idn_123",
+        provider: "github",
+        subject: "123",
+      },
       active: true,
       name: "Ada",
       email: "ada@example.com",
@@ -397,8 +400,12 @@ Deno.test("AuthSessionsMeResponseSchema validates user, device, and service enve
   assert(Value.Check(AuthSessionsMeResponseSchema, {
     participantKind: "agent",
     user: {
-      id: "123",
-      origin: "github",
+      userId: "usr_123",
+      identity: {
+        identityId: "idn_123",
+        provider: "github",
+        subject: "123",
+      },
       active: true,
       name: "Ada",
       email: "ada@example.com",
@@ -436,8 +443,12 @@ Deno.test("AuthSessionsMeResponseSchema validates user, device, and service enve
   assert(Value.Check(AuthSessionsMeResponseSchema, {
     participantKind: "app",
     user: {
-      id: "123",
-      origin: "github",
+      userId: "usr_123",
+      identity: {
+        identityId: "idn_123",
+        provider: "github",
+        subject: "123",
+      },
       active: true,
       name: "Ada",
       email: "ada@example.com",

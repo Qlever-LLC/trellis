@@ -6,6 +6,7 @@
   "nats": {
     "servers": "nats://127.0.0.1:4222",
     "auth": { "credsPath": "/tmp/trellis-auth.creds" },
+    "system": { "credsPath": "/tmp/trellis-system.creds" },
     "trellis": { "credsPath": "/tmp/trellis-trellis.creds" },
     "sentinelCredsPath": "/tmp/trellis-sentinel.creds",
     "authCallout": {

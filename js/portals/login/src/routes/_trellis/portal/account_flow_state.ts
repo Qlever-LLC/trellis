@@ -1,0 +1,360 @@
+/** Provider entry returned by the account-flow state endpoint. */
+export type AccountFlowProvider = {
+  id: string;
+  displayName: string;
+};
+
+/** Portal-safe target account summary returned for target-bound flows. */
+export type AccountFlowTarget = {
+  userId: string;
+  name?: string;
+  email?: string;
+  active: boolean;
+};
+
+/** Supported account-flow kinds surfaced to the built-in portal pages. */
+export type AccountFlowKind =
+  | "admin_bootstrap"
+  | "account_invite"
+  | "identity_link"
+  | "local_password_setup"
+  | "local_password_reset";
+
+/** Active account-flow state returned by the backend. */
+export type ActiveAccountFlowState = {
+  status: "active";
+  flowId: string;
+  kind: AccountFlowKind | string;
+  targetUserId?: string;
+  allowedProviders: string[] | null;
+  profileHint: Record<string, unknown> | null;
+  expiresAt: string;
+  providers: AccountFlowProvider[];
+  target?: AccountFlowTarget;
+};
+
+/** Expired or missing account-flow state. */
+export type ExpiredAccountFlowState = {
+  status: "expired";
+  kind?: AccountFlowKind | string;
+  targetUserId?: string;
+};
+
+/** Already-consumed account-flow state. */
+export type ConsumedAccountFlowState = {
+  status: "consumed";
+  kind: AccountFlowKind | string;
+  targetUserId?: string;
+};
+
+/** Account-flow state variants rendered by the portal pages. */
+export type AccountFlowState =
+  | ActiveAccountFlowState
+  | ExpiredAccountFlowState
+  | ConsumedAccountFlowState;
+
+/** Local-password completion form values. */
+export type LocalPasswordInput = {
+  username: string;
+  password: string;
+  name: string;
+  email: string;
+};
+
+/** Successful local-password completion response. */
+export type LocalPasswordSuccess = {
+  status: "created";
+  userId: string;
+};
+
+/** OAuth/OIDC callback query state for a completed account flow. */
+export type AccountFlowOAuthCompletion = {
+  status: "completed";
+  flowId: string;
+  userId: string;
+};
+
+/** Minimal fetch-compatible function used by account-flow helpers. */
+export type FetchLike = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+
+export const ACCOUNT_FLOW_ERROR_MESSAGES: Record<string, string> = {
+  flow_not_found: "This account request was not found. Ask for a new link.",
+  flow_expired: "This account request has expired. Ask for a new link.",
+  flow_already_consumed: "This account request has already been used.",
+  flow_consume_conflict:
+    "This account request was completed elsewhere. Refresh before trying again.",
+  local_identity_exists:
+    "That username is already in use. Choose a different username.",
+  target_user_not_found:
+    "The target account for this request no longer exists.",
+  target_user_inactive:
+    "The target account is inactive. Contact an administrator for access.",
+  local_provider_not_allowed:
+    "Username and password setup is not allowed for this request.",
+  flow_missing_target_user:
+    "This account request is missing its target account.",
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseProvider(value: unknown): AccountFlowProvider | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== "string" || typeof value.displayName !== "string") {
+    return null;
+  }
+  return { id: value.id, displayName: value.displayName };
+}
+
+function parseTarget(value: unknown): AccountFlowTarget | undefined {
+  if (!isRecord(value)) return undefined;
+  if (typeof value.userId !== "string" || typeof value.active !== "boolean") {
+    return undefined;
+  }
+  return {
+    userId: value.userId,
+    ...(typeof value.name === "string" ? { name: value.name } : {}),
+    ...(typeof value.email === "string" ? { email: value.email } : {}),
+    active: value.active,
+  };
+}
+
+function parseProviders(value: unknown): AccountFlowProvider[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(parseProvider).filter((provider) => provider !== null);
+}
+
+function parseAllowedProviders(value: unknown): string[] | null {
+  if (value === null) return null;
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function parseJsonRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+async function parseJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function responseErrorBody(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  return typeof value.error === "string" ? value.error : null;
+}
+
+/** Extract the account flow id from a portal URL. */
+export function accountFlowIdFromUrl(url: URL): string | null {
+  const flowId = url.searchParams.get("flowId")?.trim();
+  return flowId && flowId.length > 0 ? flowId : null;
+}
+
+/** Build the backend URL that starts OAuth/OIDC login for an account flow. */
+export function accountFlowProviderLoginUrl(
+  trellisUrl: string,
+  flowId: string,
+  providerId: string,
+): string {
+  return new URL(
+    `/auth/account-flow/${encodeURIComponent(flowId)}/login/${
+      encodeURIComponent(providerId)
+    }`,
+    trellisUrl,
+  ).toString();
+}
+
+/** Parse account-flow OAuth/OIDC completion query parameters from a portal URL. */
+export function parseAccountFlowOAuthCompletion(
+  url: URL,
+): AccountFlowOAuthCompletion | null {
+  const flowId = accountFlowIdFromUrl(url);
+  const status = url.searchParams.get("status")?.trim();
+  const userId = url.searchParams.get("userId")?.trim();
+
+  if (flowId && status === "completed" && userId && userId.length > 0) {
+    return { status: "completed", flowId, userId };
+  }
+
+  return null;
+}
+
+/** Return a string profile hint value if it was included by the backend. */
+export function profileHintString(
+  profileHint: Record<string, unknown> | null | undefined,
+  key: string,
+): string {
+  if (!profileHint) return "";
+  const value = profileHint[key];
+  return typeof value === "string" ? value : "";
+}
+
+/** Prefer target profile values over profile hints for local account defaults. */
+export function defaultProfileValue(
+  state: ActiveAccountFlowState,
+  key: "username" | "name" | "email",
+): string {
+  const targetValue = key === "username" ? undefined : state.target?.[key];
+  if (targetValue) return targetValue;
+  return profileHintString(state.profileHint, key);
+}
+
+/** Whether the active flow offers built-in local username/password completion. */
+export function hasLocalProvider(state: ActiveAccountFlowState): boolean {
+  return state.providers.some((provider) => provider.id === "local");
+}
+
+/** Providers that require OAuth/OIDC account-flow completion. */
+export function unavailableProviders(
+  state: ActiveAccountFlowState,
+): AccountFlowProvider[] {
+  return state.providers.filter((provider) => provider.id !== "local");
+}
+
+/** Human-friendly label for known flow kinds. */
+export function flowKindLabel(kind: string): string {
+  switch (kind) {
+    case "account_invite":
+      return "account invitation";
+    case "identity_link":
+      return "account link";
+    case "local_password_setup":
+      return "password setup";
+    case "local_password_reset":
+      return "password reset";
+    case "admin_bootstrap":
+      return "admin bootstrap";
+    default:
+      return kind.replaceAll("_", " ");
+  }
+}
+
+/** Parse account-flow state from the backend's portal-safe JSON shape. */
+export function parseAccountFlowState(value: unknown): AccountFlowState {
+  const body = parseJsonRecord(value);
+  if (body.status === "expired") {
+    return {
+      status: "expired",
+      ...(typeof body.kind === "string" ? { kind: body.kind } : {}),
+      ...(typeof body.targetUserId === "string"
+        ? { targetUserId: body.targetUserId }
+        : {}),
+    };
+  }
+
+  if (body.status === "consumed" && typeof body.kind === "string") {
+    return {
+      status: "consumed",
+      kind: body.kind,
+      ...(typeof body.targetUserId === "string"
+        ? { targetUserId: body.targetUserId }
+        : {}),
+    };
+  }
+
+  if (
+    body.status === "active" &&
+    typeof body.flowId === "string" &&
+    typeof body.kind === "string" &&
+    typeof body.expiresAt === "string"
+  ) {
+    const target = parseTarget(body.target);
+    return {
+      status: "active",
+      flowId: body.flowId,
+      kind: body.kind,
+      ...(typeof body.targetUserId === "string"
+        ? { targetUserId: body.targetUserId }
+        : {}),
+      allowedProviders: parseAllowedProviders(body.allowedProviders),
+      profileHint: isRecord(body.profileHint) ? body.profileHint : null,
+      expiresAt: body.expiresAt,
+      providers: parseProviders(body.providers),
+      ...(target ? { target } : {}),
+    };
+  }
+
+  throw new Error("The account request returned an unexpected response.");
+}
+
+/** Convert backend account-flow errors into user-facing messages. */
+export function formatAccountFlowError(
+  status: number,
+  error: string | null,
+): string {
+  if (error && error in ACCOUNT_FLOW_ERROR_MESSAGES) {
+    return ACCOUNT_FLOW_ERROR_MESSAGES[error];
+  }
+  if (error) return `Account request failed (${status}): ${error}`;
+  return `Account request failed with status ${status}.`;
+}
+
+/** Load account-flow state from the Trellis auth endpoint. */
+export async function loadAccountFlowState(
+  trellisUrl: string,
+  flowId: string,
+  fetcher: FetchLike = fetch,
+): Promise<AccountFlowState> {
+  const response = await fetcher(
+    new URL(`/auth/account-flow/${encodeURIComponent(flowId)}`, trellisUrl),
+  );
+  const body = await parseJson(response);
+  if (!response.ok) {
+    throw new Error(
+      formatAccountFlowError(response.status, responseErrorBody(body)),
+    );
+  }
+  return parseAccountFlowState(body);
+}
+
+/** Complete an account flow through the local-password endpoint. */
+export async function completeAccountFlowLocalPassword(
+  trellisUrl: string,
+  flowId: string,
+  input: LocalPasswordInput,
+  fetcher: FetchLike = fetch,
+): Promise<LocalPasswordSuccess> {
+  const payload: Record<string, string> = {
+    username: input.username,
+    password: input.password,
+  };
+  const name = input.name.trim();
+  const email = input.email.trim();
+  if (name) payload.name = name;
+  if (email) payload.email = email;
+
+  const response = await fetcher(
+    new URL(
+      `/auth/account-flow/${encodeURIComponent(flowId)}/local-password`,
+      trellisUrl,
+    ),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  const body = await parseJson(response);
+
+  if (!response.ok) {
+    throw new Error(
+      formatAccountFlowError(response.status, responseErrorBody(body)),
+    );
+  }
+  if (
+    isRecord(body) && body.status === "created" &&
+    typeof body.userId === "string"
+  ) {
+    return { status: "created", userId: body.userId };
+  }
+  throw new Error(
+    "Account request completed but returned an unexpected response.",
+  );
+}

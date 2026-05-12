@@ -1,6 +1,7 @@
 import { SqlContractStorageRepository } from "../catalog/storage.ts";
 import {
-  SqlIdentityEnvelopeRepository,
+  SqlAccountFlowRepository,
+  SqlCapabilityGroupRepository,
   SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeploymentGrantOverrideRepository,
@@ -12,9 +13,13 @@ import {
   SqlDeviceInstanceRepository,
   SqlDeviceProvisioningSecretRepository,
   SqlEnvelopeExpansionRequestRepository,
+  SqlIdentityEnvelopeRepository,
+  SqlLocalCredentialRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
+  SqlUserAccountRepository,
+  SqlUserIdentityRepository,
   SqlUserProjectionRepository,
 } from "../auth/storage.ts";
 import {
@@ -48,6 +53,11 @@ export async function createStorage(config: Config) {
       storage.db,
     ),
     userStorage: new SqlUserProjectionRepository(storage.db),
+    accountStorage: new SqlUserAccountRepository(storage.db),
+    capabilityGroupStorage: new SqlCapabilityGroupRepository(storage.db),
+    userIdentityStorage: new SqlUserIdentityRepository(storage.db),
+    localCredentialStorage: new SqlLocalCredentialRepository(storage.db),
+    accountFlowStorage: new SqlAccountFlowRepository(storage.db),
     contractApprovalStorage: new SqlIdentityEnvelopeRepository(storage.db),
     serviceDeploymentStorage: new SqlServiceDeploymentRepository(storage.db),
     serviceInstanceStorage: new SqlServiceInstanceRepository(storage.db),

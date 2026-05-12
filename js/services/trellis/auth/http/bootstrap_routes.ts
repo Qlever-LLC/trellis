@@ -25,6 +25,7 @@ export function registerBootstrapRoutes(
       loadUserProjection: async (trellisId) => {
         return await opts.userStorage.get(trellisId) ?? null;
       },
+      capabilityGroupStorage: opts.capabilityGroupStorage,
       verifyIdentityProof: ({ sessionKey, iat, sig }) =>
         verifyDomainSig(sessionKey, "bootstrap-client", String(iat), sig),
     }),

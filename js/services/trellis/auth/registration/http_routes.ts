@@ -7,6 +7,8 @@ import { registerBuiltinPortalStaticRoutes } from "../http/builtin_portal.ts";
 import { registerHttpRoutes } from "../http/routes.ts";
 import { createKick } from "../callout/kick.ts";
 import type {
+  SqlAccountFlowRepository,
+  SqlCapabilityGroupRepository,
   SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeploymentGrantOverrideRepository,
@@ -19,8 +21,11 @@ import type {
   SqlDeviceProvisioningSecretRepository,
   SqlEnvelopeExpansionRequestRepository,
   SqlIdentityEnvelopeRepository,
+  SqlLocalCredentialRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
+  SqlUserAccountRepository,
+  SqlUserIdentityRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
 
@@ -41,6 +46,9 @@ export function registerAuthHttpRoutes(
         | "validateContract"
       >;
       contractStorage: SqlContractStorageRepository;
+      accountStorage: SqlUserAccountRepository;
+      userIdentityStorage: SqlUserIdentityRepository;
+      localCredentialStorage: SqlLocalCredentialRepository;
       userStorage: SqlUserProjectionRepository;
       contractApprovalStorage: SqlIdentityEnvelopeRepository;
       deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
@@ -55,6 +63,8 @@ export function registerAuthHttpRoutes(
       deploymentContractEvidenceStorage:
         SqlDeploymentContractEvidenceRepository;
       envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
+      accountFlowStorage: SqlAccountFlowRepository;
+      capabilityGroupStorage: SqlCapabilityGroupRepository;
       serviceDeploymentStorage: SqlServiceDeploymentRepository;
       serviceInstanceStorage: SqlServiceInstanceRepository;
     }
@@ -64,6 +74,7 @@ export function registerAuthHttpRoutes(
       | "connectionsKV"
       | "logger"
       | "natsAuth"
+      | "natsSystem"
       | "natsTrellis"
       | "oauthStateKV"
       | "pendingAuthKV"
@@ -74,6 +85,11 @@ export function registerAuthHttpRoutes(
   registerBuiltinPortalStaticRoutes(deps.app);
   registerHttpRoutes(deps.app, {
     contractStorage: deps.contractStorage,
+    accountFlowStorage: deps.accountFlowStorage,
+    accountStorage: deps.accountStorage,
+    capabilityGroupStorage: deps.capabilityGroupStorage,
+    userIdentityStorage: deps.userIdentityStorage,
+    localCredentialStorage: deps.localCredentialStorage,
     userStorage: deps.userStorage,
     contractApprovalStorage: deps.contractApprovalStorage,
     deploymentPortalRouteStorage: deps.deploymentPortalRouteStorage,

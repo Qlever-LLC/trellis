@@ -54,8 +54,8 @@ export async function buildPortalFlowState(args: {
       status: "insufficient_capabilities",
       flowId: args.flowId,
       user: {
-        origin: args.resolution.userOrigin,
-        id: args.resolution.userId,
+        origin: args.resolution.identityProvider,
+        id: args.resolution.identitySubject,
         ...(args.resolution.userName ? { name: args.resolution.userName } : {}),
       },
       approval: approvalView,
@@ -69,8 +69,8 @@ export async function buildPortalFlowState(args: {
     status: "approval_required",
     flowId: args.flowId,
     user: {
-      origin: args.resolution.userOrigin,
-      id: args.resolution.userId,
+      origin: args.resolution.identityProvider,
+      id: args.resolution.identitySubject,
       ...(args.resolution.userName ? { name: args.resolution.userName } : {}),
       ...(args.resolution.userEmail
         ? { email: args.resolution.userEmail }

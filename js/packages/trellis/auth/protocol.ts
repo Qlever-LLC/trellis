@@ -634,13 +634,17 @@ export const ContractAnalysisSchema = Type.Object({
 });
 
 export const AuthenticatedUserSchema = Type.Object({
-  id: Type.String(),
-  origin: Type.String(),
+  userId: Type.String({ minLength: 1 }),
   active: Type.Boolean(),
   name: Type.String(),
   email: Type.String(),
   image: Type.Optional(Type.String()),
   capabilities: Type.Array(Type.String()),
+  identity: Type.Object({
+    identityId: Type.String({ minLength: 1 }),
+    provider: Type.String({ minLength: 1 }),
+    subject: Type.String({ minLength: 1 }),
+  }, { additionalProperties: false }),
   lastLogin: Type.Optional(IsoDateStringSchema),
 });
 export type AuthenticatedUser = StaticDecode<typeof AuthenticatedUserSchema>;
@@ -707,9 +711,12 @@ export const CallerViewSchema = Type.Union([
   Type.Object({
     type: Type.Literal("user"),
     participantKind: UserParticipantKindSchema,
-    trellisId: Type.String(),
-    id: Type.String(),
-    origin: Type.String(),
+    userId: Type.String({ minLength: 1 }),
+    identity: Type.Object({
+      identityId: Type.String({ minLength: 1 }),
+      provider: Type.String({ minLength: 1 }),
+      subject: Type.String({ minLength: 1 }),
+    }, { additionalProperties: false }),
     active: Type.Boolean(),
     name: Type.String(),
     email: Type.String(),
@@ -1201,13 +1208,25 @@ export const AuthDeviceUserAuthoritiesReviewsDecideResponseSchema = Type.Object(
   },
 );
 
+export const UserIdentityViewSchema = Type.Object({
+  identityId: Type.String({ minLength: 1 }),
+  provider: Type.String({ minLength: 1 }),
+  subject: Type.String({ minLength: 1 }),
+  displayName: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  email: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  emailVerified: Type.Boolean(),
+  linkedAt: IsoDateStringSchema,
+  lastLoginAt: Type.Union([IsoDateStringSchema, Type.Null()]),
+}, { additionalProperties: false });
+
 export const UserViewSchema = Type.Object({
-  origin: Type.String(),
-  id: Type.String(),
+  userId: Type.String({ minLength: 1 }),
   name: Type.Optional(Type.String()),
   email: Type.Optional(Type.String()),
   active: Type.Boolean(),
   capabilities: Type.Array(Type.String()),
+  capabilityGroups: Type.Array(Type.String()),
+  identities: Type.Array(UserIdentityViewSchema),
 });
 
 export const AuthUsersListSchema = Type.Object({
@@ -1217,6 +1236,53 @@ export const AuthUsersListSchema = Type.Object({
 export const AuthUsersListResponseSchema = Type.Object({
   users: Type.Array(UserViewSchema),
 });
+
+export const AuthUsersGetSchema = Type.Object({
+  userId: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+export const AuthUsersGetResponseSchema = Type.Object({
+  user: UserViewSchema,
+}, { additionalProperties: false });
+
+export const AuthUsersCreateSchema = Type.Object({
+  name: Type.Optional(Type.String({ minLength: 1 })),
+  email: Type.Optional(Type.String({ minLength: 1 })),
+  active: Type.Optional(Type.Boolean()),
+  capabilities: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+  capabilityGroups: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+}, { additionalProperties: false });
+export const AuthUsersCreateResponseSchema = Type.Object({
+  user: UserViewSchema,
+}, { additionalProperties: false });
+
+const AccountFlowProfileHintSchema = Type.Record(Type.String(), Type.Unknown());
+
+export const AuthAccountFlowsCreateProviderFlowSchema = Type.Object({
+  userId: Type.String({ minLength: 1 }),
+  allowedProviders: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+  profileHint: Type.Optional(AccountFlowProfileHintSchema),
+  expiresInSeconds: Type.Optional(
+    Type.Integer({ minimum: 60, maximum: 2592000 }),
+  ),
+}, { additionalProperties: false });
+
+export const AuthAccountFlowsCreateIdentityLinkSchema = Type.Object({}, {
+  additionalProperties: false,
+});
+
+export const AuthAccountFlowsCreateLocalPasswordFlowSchema = Type.Object({
+  userId: Type.String({ minLength: 1 }),
+  profileHint: Type.Optional(AccountFlowProfileHintSchema),
+  expiresInSeconds: Type.Optional(
+    Type.Integer({ minimum: 60, maximum: 2592000 }),
+  ),
+}, { additionalProperties: false });
+
+export const AuthAccountFlowsCreateResponseSchema = Type.Object({
+  flowId: Type.String({ minLength: 1 }),
+  url: Type.String({ minLength: 1 }),
+  expiresAt: IsoDateStringSchema,
+}, { additionalProperties: false });
 
 export const CapabilityDefinitionSchema = Type.Object({
   key: Type.String({ minLength: 1 }),
@@ -1237,12 +1303,72 @@ export const AuthCapabilitiesListResponseSchema = Type.Object({
   capabilities: Type.Array(CapabilityDefinitionSchema),
 });
 
+export const CapabilityGroupSchema = Type.Object({
+  groupKey: Type.String({ minLength: 1 }),
+  displayName: Type.String({ minLength: 1 }),
+  description: Type.String({ minLength: 1 }),
+  capabilities: Type.Array(Type.String({ minLength: 1 })),
+  includedGroups: Type.Array(Type.String({ minLength: 1 })),
+  createdAt: IsoDateStringSchema,
+  updatedAt: IsoDateStringSchema,
+}, { additionalProperties: false });
+
+export const AuthCapabilityGroupsListSchema = Type.Object({
+  offset: Type.Optional(Type.Integer({ minimum: 0 })),
+  limit: Type.Integer({ minimum: 0, maximum: 500 }),
+}, { additionalProperties: false });
+export const AuthCapabilityGroupsListResponseSchema = Type.Object({
+  groups: Type.Array(CapabilityGroupSchema),
+}, { additionalProperties: false });
+
+export const AuthCapabilityGroupsGetSchema = Type.Object({
+  groupKey: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+export const AuthCapabilityGroupsGetResponseSchema = Type.Object({
+  group: CapabilityGroupSchema,
+}, { additionalProperties: false });
+
+export const AuthCapabilityGroupsPutSchema = Type.Object({
+  groupKey: Type.String({ minLength: 1 }),
+  displayName: Type.String({ minLength: 1 }),
+  description: Type.String({ minLength: 1 }),
+  capabilities: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+  includedGroups: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+}, { additionalProperties: false });
+export const AuthCapabilityGroupsPutResponseSchema = Type.Object({
+  group: CapabilityGroupSchema,
+}, { additionalProperties: false });
+
+export const AuthCapabilityGroupsDeleteSchema = Type.Object({
+  groupKey: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+export const AuthCapabilityGroupsDeleteResponseSchema = Type.Object({
+  success: Type.Boolean(),
+}, { additionalProperties: false });
+
 export const AuthUsersUpdateSchema = Type.Object({
-  origin: Type.String(),
-  id: Type.String(),
+  userId: Type.String({ minLength: 1 }),
   active: Type.Optional(Type.Boolean()),
   capabilities: Type.Optional(Type.Array(Type.String())),
+  capabilityGroups: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+  name: Type.Optional(Type.String()),
+  email: Type.Optional(Type.String()),
 });
 export const AuthUsersUpdateResponseSchema = Type.Object({
+  success: Type.Boolean(),
+});
+
+export const AuthUserIdentitiesListSchema = Type.Object({
+  userId: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+export const AuthUserIdentitiesListResponseSchema = Type.Object({
+  identities: Type.Array(UserIdentityViewSchema),
+});
+
+export const AuthUserIdentitiesUnlinkSchema = Type.Object({
+  userId: Type.String({ minLength: 1 }),
+  identityId: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+export const AuthUserIdentitiesUnlinkResponseSchema = Type.Object({
   success: Type.Boolean(),
 });

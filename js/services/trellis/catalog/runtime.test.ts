@@ -1231,9 +1231,12 @@ Deno.test("contracts runtime does not activate contracts from user sessions", as
     const now = new Date();
     await sessionStorage.put("user-session", {
       type: "user",
-      trellisId: "github.user-session",
-      origin: "github",
-      id: "user-session",
+      userId: "user-session",
+      identity: {
+        identityId: "github.user-session",
+        provider: "github",
+        subject: "user-session",
+      },
       email: "user@example.com",
       name: "User Session",
       createdAt: now,

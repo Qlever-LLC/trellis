@@ -176,14 +176,21 @@ Rules:
 
 ### 4) Identity binding differs by principal class
 
-| Principal Class   | Identity Source                        | Binding Mechanism                                                     |
-| ----------------- | -------------------------------------- | --------------------------------------------------------------------- |
-| Users             | External IdP                           | Portal-mediated browser auth flow binds user identity to session key  |
-| Installed devices | Trellis device registry                | Admin provisioning binds a public device key to a deployment envelope |
-| Activated devices | Preregistered device instance registry | Activation binds device public identity key to a device principal     |
+| Principal Class   | Identity Source                        | Binding Mechanism                                                           |
+| ----------------- | -------------------------------------- | --------------------------------------------------------------------------- |
+| Users             | External IdP, OIDC, or local identity  | Portal-mediated browser auth flow binds Trellis user account to session key |
+| Installed devices | Trellis device registry                | Admin provisioning binds a public device key to a deployment envelope       |
+| Activated devices | Preregistered device instance registry | Activation binds device public identity key to a device principal           |
 
 The identity source is pluggable. The core requirement is that Trellis can bind
 a stable identity to a session key before allowing authenticated access.
+
+For users, the stable Trellis principal is the Trellis user account, not the
+individual provider identity used during the current login. Account linking may
+attach many OIDC identities to one Trellis account. It may attach at most one
+local username/password identity, and an OIDC identity can link to a local
+identity only when the target Trellis account does not already have a local
+identity.
 
 For activated devices, the public identity key is the durable principal
 identity. That identity is not allowed online until the preregistered device
@@ -279,8 +286,12 @@ Rules:
   service deployment record
 - browser apps MAY attach opaque portal context to login initiation so custom
   portals can coordinate UX without introducing portal-specific app APIs
-- approval is recorded as an identity envelope decision for the presented
-  contract evidence and app identity
+- approval is recorded as an account-scoped identity envelope decision for the
+  presented contract evidence and app identity
+- durable approval reuse is keyed by Trellis user account plus app identity
+  anchor; the provider origin and provider subject/id captured at approval time
+  are audit evidence and do not prevent reuse by another linked local or OIDC
+  identity on the same account
 - approval payloads expose `approval.capabilities` as an object keyed by global
   capability key, with `displayName`, `description`, and optional `consequence`
   metadata from the owning contract
@@ -305,6 +316,10 @@ Rules:
   `capabilityGroups`, while direct `capabilities` remain explicit per-user
   grants. The richer approval capability object is for approval review and
   stored approval records
+- new admin bootstrap completions assign the built-in `admin` group on the user
+  account instead of materializing that group's capabilities as direct grants;
+  existing direct-admin accounts remain valid because authorization resolves
+  direct capabilities and assigned groups
 - Trellis stores durable `approved` decisions; user denial in the portal is a
   one-time browser-flow outcome that redirects the caller back with
   `authError=approval_denied` and does not create a durable denial record

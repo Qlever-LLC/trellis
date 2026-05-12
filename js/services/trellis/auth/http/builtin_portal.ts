@@ -7,6 +7,7 @@ const DEFAULT_BUILD_DIR = resolve(
   dirname(fromFileUrl(import.meta.url)),
   "../../../../portals/login/build",
 );
+const BUILD_DIR_ENV = "TRELLIS_BUILTIN_PORTAL_DIR";
 const PORTAL_PREFIX = "/_trellis/portal";
 const PORTAL_APP_PREFIX = "/_trellis/assets";
 
@@ -76,7 +77,8 @@ export function registerBuiltinPortalStaticRoutes(
   app: Pick<Hono, "get">,
   options: { buildDir?: string } = {},
 ): void {
-  const buildDir = options.buildDir ?? DEFAULT_BUILD_DIR;
+  const buildDir = options.buildDir ?? Deno.env.get(BUILD_DIR_ENV) ??
+    DEFAULT_BUILD_DIR;
   const handler = async (
     c: {
       req: { path: string };

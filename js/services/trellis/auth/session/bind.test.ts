@@ -126,9 +126,12 @@ Deno.test("ensureBoundUserSession creates a new session when none exists", async
     kick: async () => {},
     now,
     sessionKey: "sk",
-    trellisId: "tid",
-    origin: "github",
-    id: "123",
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
     email: "a@example.com",
     name: "Alice",
     ...userSessionFields(),
@@ -148,9 +151,12 @@ Deno.test("ensureBoundUserSession recovers when the session already exists for t
   const createdAt = new Date("2026-01-01T00:00:00.000Z");
   sessionKV.seed("sk", {
     type: "user",
-    trellisId: "tid",
-    origin: "github",
-    id: "123",
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
     email: "old@example.com",
     name: "Old",
     ...userSessionFields(),
@@ -158,16 +164,22 @@ Deno.test("ensureBoundUserSession recovers when the session already exists for t
     lastAuth: createdAt,
   });
 
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
   const now = new Date("2026-01-02T00:00:00.000Z");
   const res = await ensureBoundUserSession({
     sessionStorage: sessionStorageFromKV(sessionKV),
     connectionsKV,
-    kick: async () => {},
+    kick: async (serverId, clientId) => {
+      kicked.push({ serverId, clientId });
+    },
     now,
     sessionKey: "sk",
-    trellisId: "tid",
-    origin: "github",
-    id: "123",
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
     email: "new@example.com",
     name: "Alice",
     ...userSessionFields(),
@@ -189,6 +201,88 @@ Deno.test("ensureBoundUserSession recovers when the session already exists for t
     contractId: "trellis.console@v1",
     origin: "https://app.example.com",
   });
+  assertEquals(kicked, []);
+});
+
+Deno.test("ensureBoundUserSession kicks same-identity connections when runtime authority changes", async () => {
+  const sessionKV = new InMemoryKV<Session>();
+  const connectionsKV = new InMemoryKV<Connection>();
+
+  const createdAt = new Date("2026-01-01T00:00:00.000Z");
+  sessionKV.seed("sk", {
+    type: "user",
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
+    email: "old@example.com",
+    name: "Old",
+    ...userSessionFields(),
+    createdAt,
+    lastAuth: createdAt,
+  });
+  connectionsKV.seed("sk.other.nk1", {
+    serverId: "srv1",
+    clientId: 1,
+    connectedAt: new Date(),
+  });
+  connectionsKV.seed("sk.other.nk2", {
+    serverId: "srv2",
+    clientId: 2,
+    connectedAt: new Date(),
+  });
+  connectionsKV.seed("sk2.unrelated.nk3", {
+    serverId: "srv3",
+    clientId: 3,
+    connectedAt: new Date(),
+  });
+
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
+  const now = new Date("2026-01-02T00:00:00.000Z");
+  const res = await ensureBoundUserSession({
+    sessionStorage: sessionStorageFromKV(sessionKV),
+    connectionsKV,
+    kick: async (serverId, clientId) => {
+      kicked.push({ serverId, clientId });
+    },
+    now,
+    sessionKey: "sk",
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
+    email: "new@example.com",
+    name: "Alice",
+    ...userSessionFields(),
+    contractDigest: "digest-narrow",
+    delegatedCapabilities: ["read"],
+    delegatedPublishSubjects: [],
+    delegatedSubscribeSubjects: ["events.v1.Auth.Connections.Opened"],
+  });
+
+  const v = res.take();
+  if (isErr(v)) throw v.error;
+
+  assertEquals(v.createdAt.toISOString(), createdAt.toISOString());
+  assertEquals(kicked, [
+    { serverId: "srv1", clientId: 1 },
+    { serverId: "srv2", clientId: 2 },
+  ]);
+  assertEquals(connectionsKV.has("sk.other.nk1"), false);
+  assertEquals(connectionsKV.has("sk.other.nk2"), false);
+  assertEquals(connectionsKV.has("sk2.unrelated.nk3"), true);
+
+  const updated = sessionKV.getValue("sk");
+  if (!updated || updated.type !== "user") {
+    throw new Error("expected updated session");
+  }
+  assertEquals(updated.contractDigest, "digest-narrow");
+  assertEquals(updated.delegatedCapabilities, ["read"]);
+  assertEquals(updated.delegatedPublishSubjects, []);
 });
 
 Deno.test("ensureBoundUserSession kicks connections and replaces session when bound to a different identity", async () => {
@@ -197,9 +291,12 @@ Deno.test("ensureBoundUserSession kicks connections and replaces session when bo
 
   sessionKV.seed("sk", {
     type: "user",
-    trellisId: "other",
-    origin: "github",
-    id: "999",
+    userId: "usr_999",
+    identity: {
+      identityId: "idn_github_999",
+      provider: "github",
+      subject: "999",
+    },
     email: "x@example.com",
     name: "X",
     ...userSessionFields(),
@@ -233,9 +330,12 @@ Deno.test("ensureBoundUserSession kicks connections and replaces session when bo
     },
     now,
     sessionKey: "sk",
-    trellisId: "tid",
-    origin: "github",
-    id: "123",
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
     email: "a@example.com",
     name: "Alice",
     ...userSessionFields(),
@@ -260,9 +360,12 @@ Deno.test("ensureBoundUserSession replaces an existing session key with a mismat
 
   sessionKV.seed("sk", {
     type: "user",
-    trellisId: "tid",
-    origin: "github",
-    id: "999",
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_999",
+      provider: "github",
+      subject: "999",
+    },
     email: "x@example.com",
     name: "X",
     ...userSessionFields(),
@@ -276,9 +379,12 @@ Deno.test("ensureBoundUserSession replaces an existing session key with a mismat
     kick: async () => {},
     now: new Date("2026-01-02T00:00:00.000Z"),
     sessionKey: "sk",
-    trellisId: "tid",
-    origin: "github",
-    id: "123",
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
     email: "a@example.com",
     name: "Alice",
     ...userSessionFields(),
@@ -290,7 +396,7 @@ Deno.test("ensureBoundUserSession replaces an existing session key with a mismat
   if (!rebound || rebound.type !== "user") {
     throw new Error("expected rebound session");
   }
-  assertEquals(rebound.id, "123");
+  assertEquals(rebound.identity.subject, "123");
 });
 
 Deno.test("ensureBoundUserSession clears stale app identity when the rebound session omits it", async () => {
@@ -300,9 +406,12 @@ Deno.test("ensureBoundUserSession clears stale app identity when the rebound ses
   const createdAt = new Date("2026-01-01T00:00:00.000Z");
   sessionKV.seed("sk", {
     type: "user",
-    trellisId: "tid",
-    origin: "github",
-    id: "123",
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
     email: "old@example.com",
     name: "Old",
     ...userSessionFields(),
@@ -317,9 +426,12 @@ Deno.test("ensureBoundUserSession clears stale app identity when the rebound ses
     kick: async () => {},
     now,
     sessionKey: "sk",
-    trellisId: "tid",
-    origin: "github",
-    id: "123",
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
     email: "new@example.com",
     name: "Alice",
     participantKind: "app",
@@ -359,9 +471,12 @@ Deno.test("ensureBoundUserSession returns storage_error when listing existing se
     kick: async () => {},
     now: new Date("2026-01-02T00:00:00.000Z"),
     sessionKey: "sk",
-    trellisId: "tid",
-    origin: "github",
-    id: "123",
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
     email: "a@example.com",
     name: "Alice",
     ...userSessionFields(),

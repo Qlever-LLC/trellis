@@ -76,7 +76,8 @@ export const AppIdentitySchema = Type.Object({
 }, { additionalProperties: false });
 export type AppIdentity = StaticDecode<typeof AppIdentitySchema>;
 
-export const OAuthStateSchema = Type.Object({
+export const BrowserLoginOAuthStateSchema = Type.Object({
+  kind: Type.Literal("browser_login"),
   provider: Type.String(),
   redirectTo: Type.String(),
   codeVerifier: Type.String(),
@@ -84,9 +85,22 @@ export const OAuthStateSchema = Type.Object({
   app: Type.Optional(AppIdentitySchema),
   contract: Type.Object({}, { additionalProperties: true }),
   context: Type.Optional(Type.Object({}, { additionalProperties: true })),
-  flowId: Type.Optional(Type.String({ minLength: 1 })),
+  flowId: Type.String({ minLength: 1 }),
   createdAt: IsoDateSchema,
 }, { additionalProperties: false });
+
+export const AccountFlowOAuthStateSchema = Type.Object({
+  kind: Type.Literal("account_flow"),
+  provider: Type.String({ minLength: 1 }),
+  flowId: Type.String({ minLength: 1 }),
+  codeVerifier: Type.String({ minLength: 1 }),
+  createdAt: IsoDateSchema,
+}, { additionalProperties: false });
+
+export const OAuthStateSchema = Type.Union([
+  BrowserLoginOAuthStateSchema,
+  AccountFlowOAuthStateSchema,
+]);
 export type OAuthState = StaticDecode<typeof OAuthStateSchema>;
 
 export const OAuth2TokensSchema = Type.Object({
@@ -105,7 +119,97 @@ export const OAuthUserSchema = Type.Object({
 }, { additionalProperties: false });
 export type OAuthUser = StaticDecode<typeof OAuthUserSchema>;
 
+export const UserAccountSchema = Type.Object({
+  userId: Type.String({ minLength: 1 }),
+  name: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  email: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  active: Type.Boolean(),
+  capabilities: Type.Array(Type.String({ minLength: 1 })),
+  capabilityGroups: Type.Array(Type.String({ minLength: 1 })),
+  createdAt: DurableIsoDateStringSchema,
+  updatedAt: DurableIsoDateStringSchema,
+}, { additionalProperties: false });
+export type UserAccount = StaticDecode<typeof UserAccountSchema>;
+
+export const CapabilityGroupSchema = Type.Object({
+  groupKey: Type.String({ minLength: 1 }),
+  displayName: Type.String({ minLength: 1 }),
+  description: Type.String({ minLength: 1 }),
+  capabilities: Type.Array(Type.String({ minLength: 1 })),
+  includedGroups: Type.Array(Type.String({ minLength: 1 })),
+  createdAt: DurableIsoDateStringSchema,
+  updatedAt: DurableIsoDateStringSchema,
+}, { additionalProperties: false });
+export type CapabilityGroup = StaticDecode<typeof CapabilityGroupSchema>;
+
+export const UserIdentitySchema = Type.Object({
+  identityId: Type.String({ minLength: 1 }),
+  userId: Type.String({ minLength: 1 }),
+  provider: Type.String({ minLength: 1 }),
+  subject: Type.String({ minLength: 1 }),
+  displayName: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  email: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  emailVerified: Type.Boolean(),
+  linkedAt: DurableIsoDateStringSchema,
+  lastLoginAt: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
+}, { additionalProperties: false });
+export type UserIdentity = StaticDecode<typeof UserIdentitySchema>;
+
+export const LocalCredentialSchema = Type.Object({
+  identityId: Type.String({ minLength: 1 }),
+  passwordHash: Type.String({ minLength: 1 }),
+  passwordAlgorithm: Type.String({ minLength: 1 }),
+  passwordParams: Type.Record(Type.String(), Type.Unknown()),
+  passwordSetAt: DurableIsoDateStringSchema,
+  mustChangePassword: Type.Boolean(),
+  failedLoginCount: Type.Integer({ minimum: 0 }),
+  lockedUntil: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
+  updatedAt: DurableIsoDateStringSchema,
+}, { additionalProperties: false });
+export type LocalCredential = StaticDecode<typeof LocalCredentialSchema>;
+
+export const AccountFlowKindSchema = Type.Union([
+  Type.Literal("admin_bootstrap"),
+  Type.Literal("account_invite"),
+  Type.Literal("identity_link"),
+  Type.Literal("local_password_setup"),
+  Type.Literal("local_password_reset"),
+]);
+export type AccountFlowKind = StaticDecode<typeof AccountFlowKindSchema>;
+
+export const AccountFlowSchema = Type.Object({
+  flowIdHash: Type.String({ minLength: 1 }),
+  kind: AccountFlowKindSchema,
+  targetUserId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  createdByUserId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  allowedProviders: Type.Union([
+    Type.Array(Type.String({ minLength: 1 })),
+    Type.Null(),
+  ]),
+  capabilities: Type.Union([
+    Type.Array(Type.String({ minLength: 1 })),
+    Type.Null(),
+  ]),
+  profileHint: Type.Union([
+    Type.Record(Type.String(), Type.Unknown()),
+    Type.Null(),
+  ]),
+  createdAt: DurableIsoDateStringSchema,
+  expiresAt: DurableIsoDateStringSchema,
+  consumedAt: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
+}, { additionalProperties: false });
+export type AccountFlow = StaticDecode<typeof AccountFlowSchema>;
+
+export const SessionIdentitySchema = Type.Object({
+  identityId: Type.String({ minLength: 1 }),
+  provider: Type.String({ minLength: 1 }),
+  subject: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+export type SessionIdentity = StaticDecode<typeof SessionIdentitySchema>;
+
 export const PendingAuthSchema = Type.Object({
+  userId: Type.String({ minLength: 1 }),
+  identity: SessionIdentitySchema,
   user: OAuthUserSchema,
   sessionKey: SessionKeySchema,
   redirectTo: Type.String(),
@@ -465,23 +569,19 @@ export const UserProjectionSchema = Type.Object({
   email: Type.Optional(Type.String()),
   active: Type.Boolean(),
   capabilities: Type.Array(Type.String()),
+  capabilityGroups: Type.Array(Type.String()),
 }, { additionalProperties: false });
 export type UserProjectionEntry = StaticDecode<typeof UserProjectionSchema>;
 
-const SessionBaseFields = {
-  trellisId: Type.String(),
-  origin: Type.String(),
-  id: Type.String(),
+export const UserSessionSchema = Type.Object({
+  type: Type.Literal("user"),
+  userId: Type.String({ minLength: 1 }),
+  identity: SessionIdentitySchema,
   email: Type.String(),
   name: Type.String(),
   image: Type.Optional(Type.String()),
   createdAt: IsoDateSchema,
   lastAuth: IsoDateSchema,
-};
-
-export const UserSessionSchema = Type.Object({
-  type: Type.Literal("user"),
-  ...SessionBaseFields,
   participantKind: UserParticipantKindSchema,
   identityEnvelopeId: Type.Optional(Type.String({ minLength: 1 })),
   contractDigest: Type.String({ pattern: "^[A-Za-z0-9_-]+$" }),
@@ -499,7 +599,14 @@ export type UserSession = StaticDecode<typeof UserSessionSchema>;
 
 export const ServiceSessionSchema = Type.Object({
   type: Type.Literal("service"),
-  ...SessionBaseFields,
+  trellisId: Type.String(),
+  origin: Type.String(),
+  id: Type.String(),
+  email: Type.String(),
+  name: Type.String(),
+  image: Type.Optional(Type.String()),
+  createdAt: IsoDateSchema,
+  lastAuth: IsoDateSchema,
   instanceId: Type.String({ minLength: 1 }),
   deploymentId: Type.String({ minLength: 1 }),
   instanceKey: Type.String({ minLength: 1 }),
@@ -545,11 +652,15 @@ export type Connection = StaticDecode<typeof ConnectionSchema>;
 export const AuthSessionsLogoutRequestSchema = Type.Object({}, {
   additionalProperties: false,
 });
-export type AuthSessionsLogoutRequest = StaticDecode<typeof AuthSessionsLogoutRequestSchema>;
+export type AuthSessionsLogoutRequest = StaticDecode<
+  typeof AuthSessionsLogoutRequestSchema
+>;
 
 export const AuthSessionsLogoutResponseSchema = Type.Object({
   success: Type.Boolean(),
 }, { additionalProperties: false });
-export type AuthSessionsLogoutResponse = StaticDecode<typeof AuthSessionsLogoutResponseSchema>;
+export type AuthSessionsLogoutResponse = StaticDecode<
+  typeof AuthSessionsLogoutResponseSchema
+>;
 
 export { AuthRequestsValidateRequestSchema };

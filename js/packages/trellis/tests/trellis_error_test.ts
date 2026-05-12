@@ -35,6 +35,30 @@ Deno.test("Verify errors serialize and validate", async (t) => {
     assertEquals(Reflect.get(value, "reason"), "invalid_request");
   });
 
+  await t.step("AuthError supports identity_not_found", () => {
+    const error = new AuthError({ reason: "identity_not_found" });
+    const json = error.toJSON();
+
+    const result = RemoteError.parseJSON(json);
+    const value = result.take();
+    assert(!Result.isErr(value), "Expected successful parse");
+
+    assertEquals(value.type, "AuthError");
+    assertEquals(Reflect.get(value, "reason"), "identity_not_found");
+  });
+
+  await t.step("AuthError supports user_already_exists", () => {
+    const error = new AuthError({ reason: "user_already_exists" });
+    const json = error.toJSON();
+
+    const result = RemoteError.parseJSON(json);
+    const value = result.take();
+    assert(!Result.isErr(value), "Expected successful parse");
+
+    assertEquals(value.type, "AuthError");
+    assertEquals(Reflect.get(value, "reason"), "user_already_exists");
+  });
+
   await t.step("TransportError", () => {
     const error = new TransportError({
       code: "trellis.transport.unavailable",

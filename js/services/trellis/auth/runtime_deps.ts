@@ -3,13 +3,14 @@ import type { NatsConnection } from "@nats-io/transport-deno";
 import type { Msg } from "@nats-io/nats-core";
 import type { Connection, SentinelCreds } from "./schemas.ts";
 import type {
-  SqlIdentityEnvelopeRepository,
+  SqlCapabilityGroupRepository,
   SqlDeploymentPortalRouteRepository,
   SqlDeviceActivationRepository,
   SqlDeviceActivationReviewRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlDeviceProvisioningSecretRepository,
+  SqlIdentityEnvelopeRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -47,6 +48,13 @@ export type AuthRuntimeDeps = {
       opts?: { queue?: string },
     ): AsyncIterable<Msg> & { unsubscribe(): void };
   };
+  natsSystem: {
+    request(subject: string, payload?: string): Promise<unknown>;
+    subscribe(
+      subject: string,
+      opts?: { queue?: string },
+    ): AsyncIterable<Msg> & { unsubscribe(): void };
+  };
   natsTrellis: NatsConnection;
   oauthStateKV: RuntimeKV;
   pendingAuthKV: RuntimeKV;
@@ -58,6 +66,7 @@ export type AuthRuntimeDeps = {
     ): AsyncResult<unknown, BaseError>;
   };
   contractApprovalStorage: SqlIdentityEnvelopeRepository;
+  capabilityGroupStorage: SqlCapabilityGroupRepository;
   deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
   deviceActivationReviewStorage: SqlDeviceActivationReviewRepository;
   deviceActivationStorage: SqlDeviceActivationRepository;

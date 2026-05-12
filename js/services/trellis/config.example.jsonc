@@ -42,6 +42,9 @@
     "auth": {
       "credsPath": ".local/nats/auth-auth.creds"
     },
+    "system": {
+      "credsPath": ".local/nats/system.creds"
+    },
     "sentinelCredsPath": ".local/nats/sentinel.creds",
     "authCallout": {
       "issuer": {

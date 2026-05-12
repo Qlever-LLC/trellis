@@ -39,26 +39,18 @@ type ServiceInstanceStorage = Pick<SqlServiceInstanceRepository, "get" | "put">;
 
 type SessionCaller = {
   type: string;
-  trellisId?: string;
-  origin?: string;
-  id?: string;
+  userId?: string;
 };
 
 function requireUserCaller(caller: SessionCaller): {
-  trellisId: string;
-  origin: string;
-  id: string;
+  userId: string;
 } {
-  if (
-    caller.type !== "user" || !caller.trellisId || !caller.origin || !caller.id
-  ) {
+  if (caller.type !== "user" || !caller.userId) {
     throw new AuthError({ reason: "insufficient_permissions" });
   }
 
   return {
-    trellisId: caller.trellisId,
-    origin: caller.origin,
-    id: caller.id,
+    userId: caller.userId,
   };
 }
 
@@ -109,7 +101,7 @@ export function createAuthSessionsRevokeHandler(deps: {
     }
     if (!sessionToDelete) return Result.ok({ success: false });
 
-    const kickedBy = `${user.origin}.${user.id}`;
+    const kickedBy = user.userId;
     if (sessionToDelete.type === "user") {
       if (sessionToDelete.identityEnvelopeId) {
         const envelope = await deps.contractApprovalStorage.get(
@@ -125,7 +117,7 @@ export function createAuthSessionsRevokeHandler(deps: {
       }
 
       await revokeGrantSessions({
-        userTrellisId: sessionToDelete.trellisId,
+        userTrellisId: sessionToDelete.userId,
         identityEnvelopeId: sessionToDelete.identityEnvelopeId ?? "",
         participantKind: sessionToDelete.participantKind,
         sessionStorage: deps.sessionStorage,

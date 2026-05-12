@@ -39,6 +39,76 @@ function unwrapValue<V>(entry: { value: V } | V): V {
   return entry as V;
 }
 
+function sameStringSet(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((value) => rightSet.has(value));
+}
+
+function runtimeAuthorityChanged(
+  existing: UserSession,
+  next: UserSession,
+): boolean {
+  return existing.contractDigest !== next.contractDigest ||
+    existing.contractId !== next.contractId ||
+    existing.identityEnvelopeId !== next.identityEnvelopeId ||
+    existing.participantKind !== next.participantKind ||
+    !sameStringSet(
+      existing.delegatedCapabilities,
+      next.delegatedCapabilities,
+    ) ||
+    !sameStringSet(
+      existing.delegatedPublishSubjects,
+      next.delegatedPublishSubjects,
+    ) ||
+    !sameStringSet(
+      existing.delegatedSubscribeSubjects,
+      next.delegatedSubscribeSubjects,
+    );
+}
+
+async function kickAndDeleteConnections(args: {
+  connectionsKV: KVLike<Connection>;
+  kick: (serverId: string, clientId: number) => Promise<void>;
+  sessionKey: string;
+}): Promise<Result<void, EnsureBoundUserSessionError>> {
+  const prefix = connectionFilterForSession(args.sessionKey);
+  const connKeys = await args.connectionsKV.keys(prefix).take();
+  if (isErr(connKeys)) {
+    return Result.err(
+      new EnsureBoundUserSessionError("kv_error", {
+        context: { op: "connections_keys", prefix },
+      }),
+    );
+  }
+
+  for await (const key of connKeys) {
+    const entry = await args.connectionsKV.get(key).take();
+    if (isErr(entry)) {
+      return Result.err(
+        new EnsureBoundUserSessionError("storage_error", {
+          context: { op: "connection_get", key },
+        }),
+      );
+    }
+    const v = unwrapValue(entry as { value: Connection } | Connection);
+    await args.kick(v.serverId, v.clientId);
+    const deleteConnection = await args.connectionsKV.delete(key).take();
+    if (isErr(deleteConnection)) {
+      return Result.err(
+        new EnsureBoundUserSessionError("kv_error", {
+          context: { op: "connection_delete", key },
+        }),
+      );
+    }
+  }
+
+  return Result.ok(undefined);
+}
+
 export const EnsureBoundUserSessionErrorDataSchema = Type.Object({
   id: Type.String(),
   type: Type.Literal("EnsureBoundUserSessionError"),
@@ -80,7 +150,7 @@ export class EnsureBoundUserSessionError extends BaseError<
 
 /**
  * Ensures a single active session entry exists for a given `sessionKey`, bound to
- * the provided user identity (`trellisId`).
+ * the provided canonical user account and current sign-in identity.
  *
  * This implements the ADR's bind semantics:
  * - Only one active session per `sessionKey` prefix.
@@ -93,9 +163,8 @@ export async function ensureBoundUserSession(args: {
   kick: (serverId: string, clientId: number) => Promise<void>;
   now: Date;
   sessionKey: string;
-  trellisId: string;
-  origin: string;
-  id: string;
+  userId: string;
+  identity: UserSession["identity"];
   email: string;
   name: string;
   image?: string;
@@ -127,49 +196,18 @@ export async function ensureBoundUserSession(args: {
 
   const expectedIdentityMatches = (s: Session): s is UserSession =>
     s.type === "user" &&
-    s.trellisId === args.trellisId &&
-    s.origin === args.origin &&
-    s.id === args.id;
+    s.userId === args.userId &&
+    s.identity.identityId === args.identity.identityId &&
+    s.identity.provider === args.identity.provider &&
+    s.identity.subject === args.identity.subject;
 
   const needsReset = existingSession !== undefined &&
     !expectedIdentityMatches(existingSession);
 
   if (needsReset) {
     // Kick and delete any tracked connections for this sessionKey.
-    const connKeys = await args.connectionsKV.keys(
-      connectionFilterForSession(args.sessionKey),
-    )
-      .take();
-    if (isErr(connKeys)) {
-      return Result.err(
-        new EnsureBoundUserSessionError("kv_error", {
-          context: {
-            op: "connections_keys",
-            prefix: connectionFilterForSession(args.sessionKey),
-          },
-        }),
-      );
-    }
-    for await (const key of connKeys) {
-      const entry = await args.connectionsKV.get(key).take();
-      if (isErr(entry)) {
-        return Result.err(
-          new EnsureBoundUserSessionError("storage_error", {
-            context: { op: "connection_get", key },
-          }),
-        );
-      }
-      const v = unwrapValue(entry as { value: Connection } | Connection);
-      await args.kick(v.serverId, v.clientId);
-      const deleteConnection = await args.connectionsKV.delete(key).take();
-      if (isErr(deleteConnection)) {
-        return Result.err(
-          new EnsureBoundUserSessionError("kv_error", {
-            context: { op: "connection_delete", key },
-          }),
-        );
-      }
-    }
+    const resetConnections = await kickAndDeleteConnections(args);
+    if (isErr(resetConnections)) return Result.err(resetConnections.error);
 
     try {
       await args.sessionStorage.deleteBySessionKey(args.sessionKey);
@@ -188,9 +226,8 @@ export async function ensureBoundUserSession(args: {
 
   const session: UserSession = {
     type: "user",
-    trellisId: args.trellisId,
-    origin: args.origin,
-    id: args.id,
+    userId: args.userId,
+    identity: args.identity,
     email: args.email,
     name: args.name,
     ...(args.image ? { image: args.image } : {}),
@@ -252,6 +289,12 @@ export async function ensureBoundUserSession(args: {
     delegatedSubscribeSubjects: args.delegatedSubscribeSubjects,
     lastAuth: args.now,
   };
+
+  if (runtimeAuthorityChanged(existingSession, updated)) {
+    const resetConnections = await kickAndDeleteConnections(args);
+    if (isErr(resetConnections)) return Result.err(resetConnections.error);
+  }
+
   try {
     await args.sessionStorage.put(args.sessionKey, updated);
   } catch (error) {

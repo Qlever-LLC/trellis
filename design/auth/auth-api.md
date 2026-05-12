@@ -288,8 +288,11 @@ Rules:
 - public portal helpers may expose decisions as `"approved" | "denied"`, but the
   HTTP request body remains the canonical boolean shape below
 - `approved: true` persists the approved contract decision when no existing
-  identity envelope or grant override already covers the request, then returns
-  the normal redirect/bind continuation
+  account-scoped identity envelope or grant override already covers the request,
+  then returns the normal redirect/bind continuation
+- persisted approval reuse is scoped to the Trellis user account and app
+  identity anchor; the current provider origin/subject is retained as audit
+  evidence and is not the approval matching key
 - `approved: false` does not persist a denied contract decision; it consumes the
   pending browser flow and returns a redirect to the caller's `redirectTo` with
   `authError=approval_denied`
@@ -422,6 +425,11 @@ Response:
 ```
 
 Callers without `admin` see only their own identity-envelope grants.
+
+Identity-envelope grants are account-scoped: linked local and OIDC identities on
+the same Trellis user account see and reuse the same grants for the same app
+identity anchor. `contractDigest` and the provider identity that created the
+grant are evidence metadata, not reuse keys.
 
 List RPCs are bounded. `limit` is required, `offset` is optional and defaults to
 the first row, and implementations MUST apply any filters in the database query
@@ -1204,7 +1212,16 @@ Response:
 `identities`: callers may supply `name`, `email`, `active`, direct
 `capabilities`, and `capabilityGroups`; Trellis always generates the canonical
 `userId`. Local-user setup flows use a separate `username` profile hint for the
-local login identity, not as the account id.
+local login identity, not as the account id. Each Trellis account may have at
+most one local username/password identity; it may have many linked OIDC
+identities.
+
+Admin bootstrap creates the first Trellis account through the same durable user
+projection shape, but new bootstrap completions assign the built-in `admin`
+group by storing `capabilityGroups: ["admin"]`. They do not copy the admin
+group's current capabilities into the account's direct `capabilities` grant.
+Older accounts may still carry direct `"admin"` grants; authorization resolves
+both direct capabilities and assigned groups.
 
 ### rpc.Auth.Capabilities.List
 
@@ -1304,6 +1321,12 @@ Rules:
 - this is a self-service authenticated-user RPC with no capability requirement
 - the flow always targets the caller's own `userId`
 - callers cannot pass another account id or provider filters
+- the returned `url` is intended for clients such as the Console profile to open
+  the account-link flow directly; users should not need to copy a generated link
+  by hand
+- completing the flow may add another OIDC identity to the account
+- completing a local username/password link is allowed only when the target
+  account has no existing local identity
 - admins may view and unlink user identities through management surfaces, but do
   not generate identity-link URLs for other users
 
@@ -1311,8 +1334,12 @@ Rules:
 
 Capability groups are admin-managed dynamic authorization inputs. Assigning a
 group stores the group key on the user account; it does not copy the group's
-current capabilities into the user's direct grants. The built-in `admin` group is
-read-only in management surfaces, but can be assigned to users.
+current capabilities into the user's direct grants. The built-in `admin` group
+is read-only in management surfaces, but can be assigned to users.
+
+Admin UX SHOULD make the distinction visible: capabilities provided by selected
+groups should appear resolved for review but should not be editable as direct
+grants unless the group is removed from the user.
 
 ### rpc.Auth.Sessions.Revoke
 

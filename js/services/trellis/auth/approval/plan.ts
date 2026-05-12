@@ -10,7 +10,10 @@ import {
   sortUniqueStrings,
   templateToWildcard,
 } from "../../catalog/uses.ts";
-import { operationControlCapabilityRules } from "../../catalog/permissions.ts";
+import {
+  eventSubscriptionControlPublishSubjects,
+  operationControlCapabilityRules,
+} from "../../catalog/permissions.ts";
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { ContractApproval } from "../schemas.ts";
 
@@ -142,6 +145,9 @@ export async function planUserContractApproval(
 
   for (const event of uses.eventSubscribes) {
     subscribeSubjects.add(templateToWildcard(event.event.subject));
+    for (const subject of eventSubscriptionControlPublishSubjects()) {
+      publishSubjects.add(subject);
+    }
     for (const capability of event.event.capabilities?.subscribe ?? []) {
       addCapability(capability, event.contract);
     }

@@ -2,6 +2,7 @@
   import { isErr } from "@qlever-llc/result";
   import type {
     AuthCapabilitiesListOutput,
+    AuthCapabilityGroupsListOutput,
     AuthUsersListOutput,
     AuthUsersUpdateInput,
   } from "@qlever-llc/trellis/sdk/auth";
@@ -11,12 +12,14 @@
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
-  import { errorMessage } from "../../../../../lib/format";
+  import { errorMessage, formatDate } from "../../../../../lib/format";
   import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
   type UserView = AuthUsersListOutput["users"][number];
+  type IdentityView = UserView["identities"][number];
   type CapabilityView = AuthCapabilitiesListOutput["capabilities"][number];
+  type AssignableCapabilityGroup = AuthCapabilityGroupsListOutput["groups"][number];
   type CapabilityGroup = {
     key: string;
     title: string;
@@ -25,6 +28,7 @@
     contractId?: string;
     capabilities: CapabilityView[];
   };
+  type CapabilityProviderIndex = Record<string, string[]>;
 
   const trellis = getTrellis();
   const notifications = getNotifications();
@@ -33,15 +37,33 @@
   let error = $state<string | null>(null);
   let targetUser = $state<UserView | null>(null);
   let capabilities = $state<CapabilityView[]>([]);
+  let assignableCapabilityGroups = $state<AssignableCapabilityGroup[]>([]);
   let selectedCapabilities = $state<string[]>([]);
+  let selectedCapabilityGroups = $state<string[]>([]);
   let active = $state(true);
   let savePending = $state(false);
 
-  const requestedUserId = $derived(page.url.searchParams.get("user") ?? "");
-  const requestedOrigin = $derived(page.url.searchParams.get("origin") ?? "");
-  const hasTargetParams = $derived(requestedUserId.length > 0 && requestedOrigin.length > 0);
+  const requestedUserId = $derived(page.url.searchParams.get("userId") ?? "");
+  const hasTargetParams = $derived(requestedUserId.length > 0);
   const catalogedCapabilityKeys = $derived(new Set(capabilities.map((capability) => capability.key)));
   const uncatalogedSelectedCapabilities = $derived(selectedCapabilities.filter((key) => !catalogedCapabilityKeys.has(key)).sort());
+  const sortedAssignableCapabilityGroups = $derived(assignableCapabilityGroups.slice().sort((left, right) => {
+    if ((left.groupKey === "admin") !== (right.groupKey === "admin")) return left.groupKey === "admin" ? -1 : 1;
+    return left.groupKey.localeCompare(right.groupKey);
+  }));
+  const assignableCapabilityGroupByKey = $derived(new Map(assignableCapabilityGroups.map((group) => [group.groupKey, group])));
+  const groupProvidedCapabilityProviders = $derived.by(() => {
+    const providers: CapabilityProviderIndex = {};
+
+    for (const selectedGroupKey of selectedCapabilityGroups) {
+      collectGroupCapabilities(selectedGroupKey, assignableCapabilityGroupByKey, new Set(), (capabilityKey) => {
+        providers[capabilityKey] = uniqueCapabilities([...(providers[capabilityKey] ?? []), selectedGroupKey]).sort();
+      });
+    }
+
+    return providers;
+  });
+  const groupProvidedCapabilities = $derived(Object.keys(groupProvidedCapabilityProviders));
   const capabilityGroups = $derived.by(() => {
     const groups: CapabilityGroup[] = [];
 
@@ -93,13 +115,80 @@
     return Array.from(new Set(values));
   }
 
+  function collectGroupCapabilities(
+    groupKey: string,
+    groupsByKey: Map<string, AssignableCapabilityGroup>,
+    visitedGroupKeys: Set<string>,
+    visitCapability: (capabilityKey: string) => void,
+  ) {
+    if (visitedGroupKeys.has(groupKey)) return;
+    visitedGroupKeys.add(groupKey);
+
+    const group = groupsByKey.get(groupKey);
+    if (!group) return;
+
+    for (const capabilityKey of group.capabilities) visitCapability(capabilityKey);
+    for (const includedGroupKey of group.includedGroups) {
+      collectGroupCapabilities(includedGroupKey, groupsByKey, visitedGroupKeys, visitCapability);
+    }
+  }
+
+  function resolveGroupProvidedCapabilities(groupKeys: string[]): string[] {
+    const provided: string[] = [];
+    for (const groupKey of groupKeys) {
+      collectGroupCapabilities(groupKey, assignableCapabilityGroupByKey, new Set(), (capabilityKey) => {
+        if (!provided.includes(capabilityKey)) provided.push(capabilityKey);
+      });
+    }
+    return provided;
+  }
+
+  function pruneGroupProvidedDirectCapabilities(groupKeys: string[], capabilityKeys: string[]): string[] {
+    const provided = resolveGroupProvidedCapabilities(groupKeys);
+    return capabilityKeys.filter((capabilityKey) => !provided.includes(capabilityKey));
+  }
+
+  function groupProvidedCapabilityLabel(capabilityKey: string): string {
+    return (groupProvidedCapabilityProviders[capabilityKey] ?? []).join(", ");
+  }
+
+  function setCapabilityGroupSelected(groupKey: string, selected: boolean) {
+    const nextGroups = selected
+      ? uniqueCapabilities([...selectedCapabilityGroups, groupKey])
+      : selectedCapabilityGroups.filter((selectedGroupKey) => selectedGroupKey !== groupKey);
+    selectedCapabilityGroups = nextGroups;
+    selectedCapabilities = pruneGroupProvidedDirectCapabilities(nextGroups, selectedCapabilities);
+  }
+
+  function setDirectCapabilitySelected(capabilityKey: string, selected: boolean) {
+    if (groupProvidedCapabilities.includes(capabilityKey)) return;
+
+    selectedCapabilities = selected
+      ? uniqueCapabilities([...selectedCapabilities, capabilityKey])
+      : selectedCapabilities.filter((selectedCapabilityKey) => selectedCapabilityKey !== capabilityKey);
+  }
+
+  function handleCapabilityGroupChange(groupKey: string, event: Event) {
+    setCapabilityGroupSelected(groupKey, (event.currentTarget as HTMLInputElement).checked);
+  }
+
+  function handleDirectCapabilityChange(capabilityKey: string, event: Event) {
+    setDirectCapabilitySelected(capabilityKey, (event.currentTarget as HTMLInputElement).checked);
+  }
+
   function localCapabilityKey(key: string): string {
     return key.includes("::") ? key.split("::").slice(1).join("::") : key;
   }
 
+  function providerSubject(identity: IdentityView): string {
+    return `${identity.provider}:${identity.subject}`;
+  }
+
   function loadUserIntoForm(user: UserView | null) {
     if (!user) return;
-    selectedCapabilities = uniqueCapabilities(user.capabilities);
+    const loadedCapabilityGroups = uniqueCapabilities(user.capabilityGroups);
+    selectedCapabilityGroups = loadedCapabilityGroups;
+    selectedCapabilities = pruneGroupProvidedDirectCapabilities(loadedCapabilityGroups, uniqueCapabilities(user.capabilities));
     active = user.active;
   }
 
@@ -110,15 +199,18 @@
       targetUser = null;
       if (!hasTargetParams) return;
 
-      const [usersResponse, capabilitiesResponse] = await Promise.all([
+      const [usersResponse, capabilitiesResponse, groupsResponse] = await Promise.all([
         trellis.request("Auth.Users.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.Capabilities.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.CapabilityGroups.List", { limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(usersResponse)) { error = errorMessage(usersResponse); return; }
       if (isErr(capabilitiesResponse)) { error = errorMessage(capabilitiesResponse); return; }
+      if (isErr(groupsResponse)) { error = errorMessage(groupsResponse); return; }
       capabilities = (capabilitiesResponse.capabilities ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
+      assignableCapabilityGroups = groupsResponse.groups ?? [];
       const users = usersResponse.users ?? [];
-      const match = users.find((user) => user.id === requestedUserId && user.origin === requestedOrigin) ?? null;
+      const match = users.find((user) => user.userId === requestedUserId) ?? null;
       targetUser = match;
       loadUserIntoForm(match);
     } catch (e) {
@@ -134,13 +226,13 @@
     error = null;
     try {
       const response = await trellis.request("Auth.Users.Update", {
-        origin: targetUser.origin,
-        id: targetUser.id,
+        userId: targetUser.userId,
         active,
         capabilities: uniqueCapabilities(selectedCapabilities),
+        capabilityGroups: uniqueCapabilities(selectedCapabilityGroups),
       } satisfies AuthUsersUpdateInput).take();
       if (isErr(response)) { error = errorMessage(response); return; }
-      notifications.success(`Updated ${targetUser.name ?? targetUser.id}.`, "Updated");
+      notifications.success(`Updated ${targetUser.name ?? targetUser.userId}.`, "Updated");
       await load();
     } catch (e) {
       error = errorMessage(e);
@@ -187,9 +279,9 @@
         <p class="text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-base-content/45">Workflow</p>
         <div class="mt-1 flex min-w-0 flex-wrap items-end justify-between gap-3">
           <div class="min-w-0">
-            <h2 class="truncate text-base font-bold leading-tight">{targetUser.name ?? targetUser.id}</h2>
+            <h2 class="truncate text-base font-bold leading-tight">{targetUser.name ?? targetUser.userId}</h2>
             <p class="trellis-metadata mt-1">{targetUser.email ?? "No email"}</p>
-            <p class="trellis-identifier mt-1 break-all text-base-content/60">{targetUser.origin}:{targetUser.id}</p>
+            <p class="trellis-identifier mt-1 break-all text-base-content/60">{targetUser.userId}</p>
           </div>
           <a class="btn btn-ghost btn-sm" href={resolve("/admin/users")}>Cancel</a>
         </div>
@@ -202,6 +294,80 @@
         </span>
         <input class="toggle toggle-sm" type="checkbox" bind:checked={active} />
       </label>
+
+      <section class="px-5 py-3">
+        <div class="flex min-w-0 flex-wrap items-baseline justify-between gap-3">
+          <div>
+            <h3 class="trellis-field-label">Linked identities</h3>
+            <p class="trellis-field-help mt-1">Users add identities from Profile after proving control of an enabled provider.</p>
+          </div>
+          <span class="trellis-metadata text-xs">{targetUser.identities.length} linked</span>
+        </div>
+
+        <div class="mt-3 overflow-x-auto border-y border-base-300">
+          <table class="table table-sm trellis-table">
+            <thead>
+              <tr>
+                <th>Provider subject</th>
+                <th>Identity ID</th>
+                <th>Email / display</th>
+                <th>Activity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each targetUser.identities as identity (identity.identityId)}
+                <tr>
+                  <td class="align-top"><span class="trellis-identifier break-all">{providerSubject(identity)}</span></td>
+                  <td class="align-top"><span class="trellis-identifier break-all text-base-content/60">{identity.identityId}</span></td>
+                  <td class="align-top text-xs text-base-content/60">
+                    <div>{identity.email ?? "No email"}</div>
+                    <div>{identity.displayName ?? "No display name"}</div>
+                  </td>
+                  <td class="align-top text-xs text-base-content/60">
+                    <div>Last {identity.lastLoginAt ? formatDate(identity.lastLoginAt) : "—"}</div>
+                    <div>Linked {identity.linkedAt ? formatDate(identity.linkedAt) : "—"}</div>
+                  </td>
+                </tr>
+              {:else}
+                <tr><td colspan="4" class="trellis-metadata py-4 text-xs">No linked identities.</td></tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="px-5 py-3">
+        <div class="flex min-w-0 flex-wrap items-baseline justify-between gap-3">
+          <div>
+            <h3 class="trellis-field-label">Capability Groups</h3>
+            <p class="trellis-field-help mt-1">Group assignments are submitted separately from direct capabilities. Built-in groups are assignable.</p>
+          </div>
+          <span class="trellis-metadata text-xs">{selectedCapabilityGroups.length} selected</span>
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 xl:grid-cols-2">
+          {#each sortedAssignableCapabilityGroups as group (group.groupKey)}
+            <label class="grid cursor-pointer grid-cols-[auto_1fr] gap-2 border-y border-base-300/70 py-2 text-xs hover:bg-base-200/60">
+              <input
+                class="checkbox checkbox-sm mt-0.5"
+                type="checkbox"
+                checked={selectedCapabilityGroups.includes(group.groupKey)}
+                onchange={(event) => handleCapabilityGroupChange(group.groupKey, event)}
+              />
+              <span class="min-w-0 pr-2">
+                <span class="flex min-w-0 items-center gap-2">
+                  <span class="trellis-identifier truncate font-medium text-base-content">{group.groupKey}</span>
+                  {#if group.groupKey === "admin"}<span class="badge badge-neutral badge-xs shrink-0">built-in/read-only</span>{/if}
+                </span>
+                <span class="mt-0.5 block truncate text-base-content/60" title={group.displayName}>{group.displayName}</span>
+                <span class="trellis-field-help block">{group.capabilities.length} capabilities · {group.includedGroups.length} included groups</span>
+              </span>
+            </label>
+          {:else}
+            <div class="border-y border-base-300 py-4 trellis-metadata text-xs">No capability groups were returned.</div>
+          {/each}
+        </div>
+      </section>
 
       <section class="px-5 py-3">
         <div class="flex min-w-0 flex-wrap items-baseline justify-between gap-3">
@@ -231,10 +397,20 @@
                 </div>
                 <div class="divide-y divide-base-300/70">
                   {#each group.capabilities as capability (capability.key)}
+                    {@const providedByGroup = groupProvidedCapabilities.includes(capability.key)}
                     <label class="grid cursor-pointer grid-cols-[auto_1fr] gap-2 py-2 text-xs hover:bg-base-200/60">
-                      <input class="checkbox checkbox-sm mt-0.5" type="checkbox" bind:group={selectedCapabilities} value={capability.key} />
+                      <input
+                        class="checkbox checkbox-sm mt-0.5"
+                        type="checkbox"
+                        checked={selectedCapabilities.includes(capability.key) || providedByGroup}
+                        disabled={providedByGroup}
+                        onchange={(event) => handleDirectCapabilityChange(capability.key, event)}
+                      />
                       <span class="min-w-0 pr-2">
-                        <span class="block font-medium text-base-content">{capability.description}</span>
+                        <span class="flex min-w-0 items-center gap-2">
+                          <span class="block font-medium text-base-content">{capability.description}</span>
+                          {#if providedByGroup}<span class="badge badge-ghost badge-xs shrink-0" title={groupProvidedCapabilityLabel(capability.key)}>from group</span>{/if}
+                        </span>
                         <span class="trellis-identifier mt-0.5 block break-all text-base-content/50">{localCapabilityKey(capability.key)}</span>
                         {#if capability.consequence}
                           <span class="trellis-field-help block">Consequence: {capability.consequence}</span>
@@ -254,7 +430,12 @@
             <div class="divide-y divide-base-300/70">
               {#each uncatalogedSelectedCapabilities as capabilityKey (capabilityKey)}
                 <label class="grid cursor-pointer grid-cols-[auto_1fr] gap-2 py-2 text-xs hover:bg-base-200/60">
-                  <input class="checkbox checkbox-sm mt-0.5" type="checkbox" bind:group={selectedCapabilities} value={capabilityKey} />
+                  <input
+                    class="checkbox checkbox-sm mt-0.5"
+                    type="checkbox"
+                    checked={selectedCapabilities.includes(capabilityKey)}
+                    onchange={(event) => handleDirectCapabilityChange(capabilityKey, event)}
+                  />
                   <span class="min-w-0 pr-2">
                     <span class="block font-medium text-base-content">Existing assignment not returned by the capability catalog.</span>
                     <span class="trellis-identifier mt-0.5 block break-all text-base-content/50">{localCapabilityKey(capabilityKey)}</span>

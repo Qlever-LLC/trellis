@@ -28,9 +28,8 @@ export type ApprovalSessionStore = {
 
 type RpcUser = {
   type: string;
-  trellisId: string;
-  origin: string;
-  id: string;
+  userId: string;
+  identity?: { provider: string; subject: string };
   capabilities?: string[];
 };
 
@@ -42,21 +41,19 @@ export function formatOriginId(origin: string, id: string): string {
 /** Returns a normalized user caller or throws the approval RPC auth error. */
 export function requireUserCaller(caller: {
   type: string;
-  trellisId?: string;
-  origin?: string;
-  id?: string;
+  userId?: string;
+  identity?: { provider: string; subject: string };
   capabilities?: string[];
 }): RpcUser {
   if (
-    caller.type !== "user" || !caller.trellisId || !caller.origin || !caller.id
+    caller.type !== "user" || !caller.userId
   ) {
     throw new AuthError({ reason: "insufficient_permissions" });
   }
   return {
     type: "user",
-    trellisId: caller.trellisId,
-    origin: caller.origin,
-    id: caller.id,
+    userId: caller.userId,
+    identity: caller.identity,
     capabilities: caller.capabilities,
   };
 }
@@ -128,8 +125,8 @@ export async function revokeGrantSessions(args: {
       kick: args.kick,
       deleteSession: async () => {
         await args.publishSessionRevoked({
-          origin: session.origin,
-          id: session.id,
+          origin: session.identity.provider,
+          id: session.identity.subject,
           sessionKey,
           revokedBy: args.revokedBy,
         });
@@ -152,16 +149,15 @@ export function createAuthIdentitiesGrantsListHandler(deps: {
       context: {
         caller: {
           type: string;
-          trellisId?: string;
-          origin?: string;
-          id?: string;
+          userId?: string;
+          identity?: { provider: string; subject: string };
         };
       };
     },
   ) => {
     const user = requireUserCaller(caller);
     const grants = (await deps.contractApprovalStorage.listApprovedPageByUser(
-      user.trellisId,
+      user.userId,
       input,
     ))
       .map((envelope) => toUserGrant(envelope));
@@ -197,9 +193,8 @@ export function createUserGrantRevokeHandler(deps: {
       context: {
         caller: {
           type: string;
-          trellisId?: string;
-          origin?: string;
-          id?: string;
+          userId?: string;
+          identity?: { provider: string; subject: string };
         };
       };
     },
@@ -216,19 +211,19 @@ export function createUserGrantRevokeHandler(deps: {
       req.identityEnvelopeId,
     );
     if (existing === undefined) return Result.ok({ success: false });
-    if (existing.userTrellisId !== user.trellisId) {
+    if (existing.userTrellisId !== user.userId) {
       return Result.err(new AuthError({ reason: "insufficient_permissions" }));
     }
 
     await deps.contractApprovalStorage.delete(req.identityEnvelopeId);
     await revokeGrantSessions({
-      userTrellisId: user.trellisId,
+      userTrellisId: user.userId,
       identityEnvelopeId: req.identityEnvelopeId,
       sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
       kick: deps.kick,
       publishSessionRevoked: deps.publishSessionRevoked,
-      revokedBy: formatOriginId(user.origin, user.id),
+      revokedBy: user.userId,
     });
     return Result.ok({ success: true });
   };

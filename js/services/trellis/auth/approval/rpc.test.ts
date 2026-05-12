@@ -5,7 +5,6 @@ import {
   Result,
   UnexpectedError,
 } from "@qlever-llc/result";
-import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 
 import {
   initializeTrellisStorageSchema,
@@ -85,7 +84,7 @@ function sessionStorageFromKV(kv: InMemoryKV<Session>) {
     const iter = await kv.keys(filter).take();
     const result = [] as Array<{
       sessionKey: string;
-      trellisId: string;
+      principalId: string;
       session: Session;
     }>;
     if (isErr(iter)) return result;
@@ -93,16 +92,16 @@ function sessionStorageFromKV(kv: InMemoryKV<Session>) {
       const entry = await kv.get(key).take();
       if (isErr(entry)) continue;
       const session = entry.value;
-      const trellisId = session.type === "user" ? session.trellisId : "";
-      if (!key || !trellisId) continue;
-      result.push({ sessionKey: key, trellisId, session });
+      const principalId = session.type === "user" ? session.userId : "";
+      if (!key || !principalId) continue;
+      result.push({ sessionKey: key, principalId, session });
     }
     return result;
   }
 
   return {
-    listEntriesByUser: async (trellisId: string) =>
-      (await entries(">")).filter((entry) => entry.trellisId === trellisId),
+    listEntriesByUser: async (userId: string) =>
+      (await entries(">")).filter((entry) => entry.principalId === userId),
     deleteBySessionKey: async (sessionKey: string) => {
       await kv.delete(sessionKey).take();
     },
@@ -170,7 +169,7 @@ function makeApproval(
 
 Deno.test("Auth.Identities.Grants.List returns the caller's approved app and agent grants", async () => {
   await withApprovalRepository(async (contractApprovalStorage) => {
-    const userTrellisId = await trellisIdFromOriginId("github", "123");
+    const userTrellisId = "usr_123";
     await contractApprovalStorage.put(makeApproval(userTrellisId));
     await contractApprovalStorage.put(makeApproval(userTrellisId, {
       identityEnvelopeId: "env-denied",
@@ -203,9 +202,7 @@ Deno.test("Auth.Identities.Grants.List returns the caller's approved app and age
       context: {
         caller: {
           type: "user",
-          trellisId: userTrellisId,
-          origin: "github",
-          id: "123",
+          userId: userTrellisId,
         },
       },
     });
@@ -239,7 +236,7 @@ Deno.test("Auth.Identities.Grants.List returns the caller's approved app and age
 
 Deno.test("Auth.IdentityEnvelopes.Revoke deletes the caller grant and matching user sessions", async () => {
   await withApprovalRepository(async (contractApprovalStorage) => {
-    const userTrellisId = await trellisIdFromOriginId("github", "123");
+    const userTrellisId = "usr_123";
     const sessionKV = new InMemoryKV<Session>();
     const connectionsKV = new InMemoryKV<Connection>();
     const kicked: Array<{ serverId: string; clientId: number }> = [];
@@ -248,9 +245,12 @@ Deno.test("Auth.IdentityEnvelopes.Revoke deletes the caller grant and matching u
 
     sessionKV.seed("sk_123", {
       type: "user",
-      trellisId: userTrellisId,
-      origin: "github",
-      id: "123",
+      userId: userTrellisId,
+      identity: {
+        identityId: "idn_github_123",
+        provider: "github",
+        subject: "123",
+      },
       email: "ada@example.com",
       name: "Ada",
       participantKind: "agent",
@@ -285,9 +285,7 @@ Deno.test("Auth.IdentityEnvelopes.Revoke deletes the caller grant and matching u
       context: {
         caller: {
           type: "user",
-          trellisId: userTrellisId,
-          origin: "github",
-          id: "123",
+          userId: userTrellisId,
         },
       },
     });
@@ -310,7 +308,7 @@ Deno.test("Auth.IdentityEnvelopes.Revoke deletes the caller grant and matching u
 
 Deno.test("Auth.IdentityEnvelopes.Revoke deletes a self grant and matching user sessions", async () => {
   await withApprovalRepository(async (contractApprovalStorage) => {
-    const userTrellisId = await trellisIdFromOriginId("github", "123");
+    const userTrellisId = "usr_123";
     const sessionKV = new InMemoryKV<Session>();
     const connectionsKV = new InMemoryKV<Connection>();
     const kicked: Array<{ serverId: string; clientId: number }> = [];
@@ -324,9 +322,12 @@ Deno.test("Auth.IdentityEnvelopes.Revoke deletes a self grant and matching user 
     await contractApprovalStorage.put(makeApproval(userTrellisId));
     sessionKV.seed("sk_approval", {
       type: "user",
-      trellisId: userTrellisId,
-      origin: "github",
-      id: "123",
+      userId: userTrellisId,
+      identity: {
+        identityId: "idn_github_123",
+        provider: "github",
+        subject: "123",
+      },
       email: "ada@example.com",
       name: "Ada",
       participantKind: "agent",
@@ -368,9 +369,7 @@ Deno.test("Auth.IdentityEnvelopes.Revoke deletes a self grant and matching user 
       context: {
         caller: {
           type: "user",
-          trellisId: userTrellisId,
-          origin: "github",
-          id: "123",
+          userId: userTrellisId,
         },
       },
     });
@@ -383,7 +382,7 @@ Deno.test("Auth.IdentityEnvelopes.Revoke deletes a self grant and matching user 
       origin: "github",
       id: "123",
       sessionKey: "sk_approval",
-      revokedBy: "github.123",
+      revokedBy: "usr_123",
     }]);
     assertEquals(
       await contractApprovalStorage.get("env-agent"),

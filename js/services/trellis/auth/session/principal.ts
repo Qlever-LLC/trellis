@@ -1,5 +1,7 @@
 import type { Session } from "../schemas.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
+import type { CapabilityGroupLoader } from "../capability_groups.ts";
+import { resolveCapabilities } from "../capability_groups.ts";
 
 export type SessionPrincipal = {
   active: boolean;
@@ -84,9 +86,8 @@ export async function resolveSessionPrincipal(
         } | undefined
       >;
     };
-    loadUserProjection: (
-      trellisId: string,
-    ) => Promise<UserProjectionEntry | null>;
+    capabilityGroupStorage?: CapabilityGroupLoader;
+    loadUserProjection: (userId: string) => Promise<UserProjectionEntry | null>;
   },
 ): Promise<SessionPrincipalResult> {
   if (session.type === "service") {
@@ -264,13 +265,13 @@ export async function resolveSessionPrincipal(
     };
   }
 
-  const projection = await deps.loadUserProjection(session.trellisId);
+  const projection = await deps.loadUserProjection(session.userId);
   if (projection === null) {
     return {
       ok: false,
       error: {
         reason: "user_not_found",
-        context: { origin: session.origin, id: session.id },
+        context: { userId: session.userId },
       },
     };
   }
@@ -280,12 +281,15 @@ export async function resolveSessionPrincipal(
       ok: false,
       error: {
         reason: "user_inactive",
-        context: { origin: session.origin, id: session.id },
+        context: { userId: session.userId },
       },
     };
   }
 
-  const currentCapabilities = projection.capabilities ?? [];
+  const currentCapabilities = await resolveCapabilities(
+    projection,
+    deps.capabilityGroupStorage,
+  );
   if (
     !session.delegatedCapabilities.every((capability) =>
       currentCapabilities.includes(capability)

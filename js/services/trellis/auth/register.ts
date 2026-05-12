@@ -12,7 +12,8 @@ import type {
   AuthRuntime,
 } from "./registration/types.ts";
 import type {
-  SqlIdentityEnvelopeRepository,
+  SqlAccountFlowRepository,
+  SqlCapabilityGroupRepository,
   SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeploymentGrantOverrideRepository,
@@ -22,9 +23,13 @@ import type {
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlEnvelopeExpansionRequestRepository,
+  SqlIdentityEnvelopeRepository,
+  SqlLocalCredentialRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
+  SqlUserAccountRepository,
+  SqlUserIdentityRepository,
   SqlUserProjectionRepository,
 } from "./storage.ts";
 
@@ -41,6 +46,11 @@ type AuthRegistrationDeps =
     deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
     deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
     envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
+    accountFlowStorage: SqlAccountFlowRepository;
+    accountStorage: SqlUserAccountRepository;
+    capabilityGroupStorage: SqlCapabilityGroupRepository;
+    userIdentityStorage: SqlUserIdentityRepository;
+    localCredentialStorage: SqlLocalCredentialRepository;
     userStorage: SqlUserProjectionRepository;
     contractApprovalStorage: SqlIdentityEnvelopeRepository;
     deviceDeploymentStorage: SqlDeviceDeploymentRepository;
@@ -56,6 +66,7 @@ type AuthRegistrationDeps =
     | "connectionsKV"
     | "logger"
     | "natsAuth"
+    | "natsSystem"
     | "natsTrellis"
     | "oauthStateKV"
     | "pendingAuthKV"

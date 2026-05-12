@@ -3,18 +3,19 @@ import { createServiceLookup } from "../admin/service_lookup.ts";
 import {
   createAuthConnectionsKickHandler,
   createAuthConnectionsListHandler,
+  createAuthRequestsValidateHandler,
   createAuthSessionsListHandler,
   createAuthSessionsLogoutHandler,
   createAuthSessionsMeHandler,
-  createAuthRequestsValidateHandler,
 } from "../session/rpc.ts";
 import { createAuthSessionsRevokeHandler } from "../session/revoke.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type {
-  SqlIdentityEnvelopeRepository,
+  SqlCapabilityGroupRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
+  SqlIdentityEnvelopeRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -33,6 +34,7 @@ export async function registerSessionRpcs(deps: {
   trellis: RpcRegistrar & AuthRuntimeDeps["trellis"];
   sessionStorage: SqlSessionRepository;
   userStorage: SqlUserProjectionRepository;
+  capabilityGroupStorage: SqlCapabilityGroupRepository;
   contractApprovalStorage: SqlIdentityEnvelopeRepository;
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
@@ -41,9 +43,10 @@ export async function registerSessionRpcs(deps: {
   serviceInstanceStorage: SqlServiceInstanceRepository;
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   natsAuth: AuthRuntimeDeps["natsAuth"];
+  natsSystem: AuthRuntimeDeps["natsSystem"];
   logger: AuthRuntimeDeps["logger"];
 }): Promise<void> {
-  const kick = createKick({ logger: deps.logger, natsAuth: deps.natsAuth });
+  const kick = createKick({ logger: deps.logger, natsSystem: deps.natsSystem });
   const serviceLookup = createServiceLookup(deps);
   const revokeSessionHandler = createAuthSessionsRevokeHandler({
     sessionStorage: deps.sessionStorage,
@@ -69,6 +72,7 @@ export async function registerSessionRpcs(deps: {
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       userStorage: deps.userStorage,
+      capabilityGroupStorage: deps.capabilityGroupStorage,
       deviceActivationStorage: deps.deviceActivationStorage,
       deviceInstanceStorage: deps.deviceInstanceStorage,
       deviceDeploymentStorage: deps.deviceDeploymentStorage,
@@ -82,6 +86,7 @@ export async function registerSessionRpcs(deps: {
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       userStorage: deps.userStorage,
+      capabilityGroupStorage: deps.capabilityGroupStorage,
       deviceActivationStorage: deps.deviceActivationStorage,
       deviceDeploymentStorage: deps.deviceDeploymentStorage,
       deviceInstanceStorage: deps.deviceInstanceStorage,
@@ -95,7 +100,7 @@ export async function registerSessionRpcs(deps: {
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
-      natsAuth: deps.natsAuth,
+      natsSystem: deps.natsSystem,
     }),
   );
   await deps.trellis.mount(

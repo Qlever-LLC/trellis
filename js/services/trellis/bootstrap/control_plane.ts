@@ -15,6 +15,7 @@ import { CONTRACT as trellisStateContract } from "../contracts/trellis_state.ts"
 import type { ContractsModule } from "../catalog/runtime.ts";
 import type { SqlContractStorageRepository } from "../catalog/storage.ts";
 import type {
+  SqlCapabilityGroupRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
@@ -55,6 +56,7 @@ export function resolveBuiltinContracts(): BuiltinContract[] {
 
 export function startControlPlaneBackgroundTasks(opts: {
   contractStorage: SqlContractStorageRepository;
+  capabilityGroupStorage: SqlCapabilityGroupRepository;
   userStorage: SqlUserProjectionRepository;
   contractApprovalStorage: SqlIdentityEnvelopeRepository;
   deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
@@ -66,6 +68,7 @@ export function startControlPlaneBackgroundTasks(opts: {
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   logger: AuthRuntimeDeps["logger"];
   natsAuth: AuthRuntimeDeps["natsAuth"];
+  natsSystem: AuthRuntimeDeps["natsSystem"];
   sessionStorage: SqlSessionRepository;
   trellis: AuthRuntimeDeps["trellis"];
   contracts: Pick<
@@ -80,13 +83,14 @@ export function startControlPlaneBackgroundTasks(opts: {
   const disconnectCleanup = startDisconnectCleanup({
     connectionsKV: opts.connectionsKV,
     logger: opts.logger,
-    natsAuth: opts.natsAuth,
+    natsSystem: opts.natsSystem,
     sessionStorage: opts.sessionStorage,
     trellis: opts.trellis,
   });
   const authCallout = startAuthCallout({
     config: opts.config,
     contractStorage: opts.contractStorage,
+    capabilityGroupStorage: opts.capabilityGroupStorage,
     userStorage: opts.userStorage,
     contractApprovalStorage: opts.contractApprovalStorage,
     deploymentEnvelopeStorage: opts.deploymentEnvelopeStorage,

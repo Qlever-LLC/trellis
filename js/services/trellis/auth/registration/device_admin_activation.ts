@@ -69,6 +69,7 @@ export async function registerDeviceAdminAndActivation(
       | "deviceProvisioningSecretStorage"
       | "logger"
       | "natsAuth"
+      | "natsSystem"
       | "natsTrellis"
       | "sentinelCreds"
       | "sessionStorage"

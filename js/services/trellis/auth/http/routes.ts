@@ -4,6 +4,7 @@ import { rateLimiter } from "@hono-rate-limiter/hono-rate-limiter";
 
 import { registerDeviceActivationHttpRoutes } from "../device_activation/http.ts";
 import { resolveCorsOrigin } from "../redirect.ts";
+import { registerAccountFlowRoutes } from "./account_flow_routes.ts";
 import { registerBootstrapRoutes } from "./bootstrap_routes.ts";
 import { registerBrowserAuthRoutes } from "./browser_routes.ts";
 import { registerFlowRoutes } from "./flow_routes.ts";
@@ -74,6 +75,7 @@ export function registerHttpRoutes(
   }
 
   registerBootstrapRoutes(app, context);
+  registerAccountFlowRoutes(app, context);
   registerBrowserAuthRoutes(app, context);
   registerDeviceActivationHttpRoutes(app, {
     deploymentPortalRouteStorage: opts.deploymentPortalRouteStorage,

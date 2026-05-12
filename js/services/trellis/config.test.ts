@@ -61,6 +61,7 @@ Deno.test("auth config loads structured provider map from file", async () => {
       "nats": {
         "servers": "localhost",
         "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
         "trellis": { "credsPath": "/tmp/trellis.creds" },
         "sentinelCredsPath": "/tmp/sentinel.creds",
         "authCallout": {
@@ -163,6 +164,54 @@ Deno.test("config path uses TRELLIS_CONFIG or the default path", () => {
   assertEquals(resolveConfigPath({}), "/etc/trellis/config.jsonc");
 });
 
+Deno.test("auth config resolves NATS credential paths relative to config", async () => {
+  await withTempConfig(
+    `{
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "./auth.creds" },
+        "system": { "credsPath": "./system.creds" },
+        "trellis": { "credsPath": "./trellis.creds" },
+        "sentinelCredsPath": "./sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080"]
+      },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": {
+          "github": {
+            "type": "github",
+            "clientId": "github-client",
+            "clientSecretFile": "./github.secret"
+          }
+        }
+      }
+    }`,
+    async (configPath) => {
+      const cfg = await loadAuthConfigFromFile(configPath);
+      const dir = configPath.slice(0, configPath.lastIndexOf("/"));
+
+      assertEquals(cfg.nats.auth.credsPath, `${dir}/auth.creds`);
+      assertEquals(cfg.nats.system.credsPath, `${dir}/system.creds`);
+      assertEquals(cfg.nats.trellis.credsPath, `${dir}/trellis.creds`);
+      assertEquals(cfg.nats.sentinelCredsPath, `${dir}/sentinel.creds`);
+    },
+  );
+});
+
 Deno.test("auth config loads explicit JetStream replica count", async () => {
   await withTempConfig(
     `{
@@ -170,6 +219,7 @@ Deno.test("auth config loads explicit JetStream replica count", async () => {
         "servers": "localhost",
         "jetstream": { "replicas": 3 },
         "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
         "trellis": { "credsPath": "/tmp/trellis.creds" },
         "sentinelCredsPath": "/tmp/sentinel.creds",
         "authCallout": {
@@ -212,6 +262,7 @@ Deno.test("auth config parses direct JSONC text without env cache mutation", asy
       "nats": {
         "servers": "localhost",
         "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
         "trellis": { "credsPath": "/tmp/trellis.creds" },
         "sentinelCredsPath": "/tmp/sentinel.creds",
         "authCallout": {
@@ -268,6 +319,7 @@ Deno.test("auth config loads explicit storage database path", async () => {
       "nats": {
         "servers": "localhost",
         "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
         "trellis": { "credsPath": "/tmp/trellis.creds" },
         "sentinelCredsPath": "/tmp/sentinel.creds",
         "authCallout": {
@@ -311,6 +363,7 @@ Deno.test("auth config defaults device flow TTL to thirty minutes", async () => 
       "nats": {
         "servers": "localhost",
         "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
         "trellis": { "credsPath": "/tmp/trellis.creds" },
         "sentinelCredsPath": "/tmp/sentinel.creds",
         "authCallout": {
@@ -354,6 +407,7 @@ Deno.test("auth config defaults web origins to wildcard", async () => {
       "nats": {
         "servers": "localhost",
         "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
         "trellis": { "credsPath": "/tmp/trellis.creds" },
         "sentinelCredsPath": "/tmp/sentinel.creds",
         "authCallout": {
@@ -426,6 +480,7 @@ Deno.test("auth config loads explicit insecure origin allowlist", async () => {
       "nats": {
         "servers": "localhost",
         "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
         "trellis": { "credsPath": "/tmp/trellis.creds" },
         "sentinelCredsPath": "/tmp/sentinel.creds",
         "authCallout": {
@@ -474,6 +529,7 @@ Deno.test("auth config preserves explicit wildcard web origins", async () => {
       "nats": {
         "servers": "localhost",
         "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
         "trellis": { "credsPath": "/tmp/trellis.creds" },
         "sentinelCredsPath": "/tmp/sentinel.creds",
         "authCallout": {
@@ -517,6 +573,7 @@ Deno.test("auth config defaults provider chooser preference to false", async () 
       "nats": {
         "servers": "localhost",
         "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
         "trellis": { "credsPath": "/tmp/trellis.creds" },
         "sentinelCredsPath": "/tmp/sentinel.creds",
         "authCallout": {

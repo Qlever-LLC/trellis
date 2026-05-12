@@ -1,17 +1,11 @@
-import {
-  base64urlDecode,
-  trellisIdFromOriginId,
-  verifyProof,
-} from "@qlever-llc/trellis/auth";
+import { base64urlDecode, verifyProof } from "@qlever-llc/trellis/auth";
 import { AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "../../../../packages/trellis/errors/AuthError.ts";
-import type {
-  AuthConnectionsListInput,
-  AuthConnectionsListOutput,
-  AuthSessionsListInput,
-  AuthSessionsListOutput,
-} from "@qlever-llc/trellis/sdk/auth";
+import type { AuthConnectionRow } from "../../../../packages/trellis/models/auth/rpc/ListConnections.ts";
+import type { AuthSessionRow } from "../../../../packages/trellis/models/auth/rpc/ListSessions.ts";
 import type { Session } from "../schemas.ts";
+import type { CapabilityGroupLoader } from "../capability_groups.ts";
+import { resolveCapabilities } from "../capability_groups.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
 import {
   connectionFilterForSession,
@@ -30,13 +24,17 @@ import type { AuthLogger, AuthRuntimeDeps } from "../runtime_deps.ts";
 type SessionRpcLogger = Pick<AuthLogger, "trace" | "warn">;
 
 type AuthenticatedUser = {
-  id: string;
-  origin: string;
+  userId: string;
   active: boolean;
   name: string;
   email: string;
   image?: string;
   capabilities: string[];
+  identity: {
+    identityId: string;
+    provider: string;
+    subject: string;
+  };
   lastLogin?: string;
 };
 
@@ -66,6 +64,7 @@ type AuthSessionsMeResponse = {
 };
 
 type UserProjectionStorage = Pick<SqlUserProjectionRepository, "get">;
+type CapabilityGroupStorage = CapabilityGroupLoader;
 type DeviceActivationStorage = Pick<SqlDeviceActivationRepository, "get">;
 type DeviceDeploymentStorage = {
   get(deploymentId: string): Promise<
@@ -115,13 +114,12 @@ function deviceTypeFromDeploymentId(deploymentId: string): string {
 }
 
 type SessionUser = {
-  trellisId: string;
-  id: string;
-  origin: string;
+  userId: string;
   email: string;
   name: string;
   active: boolean;
   capabilities: string[];
+  identity: AuthenticatedUser["identity"];
   image?: string;
   lastLogin?: string;
 };
@@ -130,9 +128,8 @@ type SessionContext = {
   caller: {
     type: string;
     participantKind?: "app" | "agent";
-    trellisId?: string;
-    id?: string;
-    origin?: string;
+    userId?: string;
+    identity?: AuthenticatedUser["identity"];
     email?: string;
     name?: string;
     active?: boolean;
@@ -154,21 +151,39 @@ type ValidateRequestInput = {
   capabilities?: string[];
 };
 
-type UserRefFilter = AuthSessionsListInput;
-type SessionFilter = AuthConnectionsListInput;
+type UserRefFilter = { user?: string; offset?: number; limit?: number };
+type SessionFilter = {
+  user?: string;
+  sessionKey?: string;
+  offset?: number;
+  limit?: number;
+};
 type SessionKeyRequest = { sessionKey: string };
 type UserNkeyRequest = { userNkey: string };
-type SessionListRow = AuthSessionsListOutput["sessions"][number];
-type ConnectionRow = AuthConnectionsListOutput["connections"][number];
+type SessionListRow = AuthSessionRow;
+type ConnectionRow = AuthConnectionRow;
+
+function subjectMatches(pattern: string, subject: string): boolean {
+  const patternParts = pattern.split(".");
+  const subjectParts = subject.split(".");
+  for (let i = 0; i < patternParts.length; i++) {
+    const patternPart = patternParts[i];
+    if (patternPart === ">") return true;
+    if (patternPart === "*") continue;
+    if (patternPart !== subjectParts[i]) return false;
+  }
+  return patternParts.length === subjectParts.length;
+}
+
+function sessionCanPublishSubject(session: Session, subject: string): boolean {
+  if (session.type !== "user" && session.type !== "device") return true;
+  return session.delegatedPublishSubjects.some((pattern) =>
+    subjectMatches(pattern, subject)
+  );
+}
 
 function iso(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : value;
-}
-
-function parseOriginId(value: string): { origin: string; id: string } | null {
-  const idx = value.indexOf(".");
-  if (idx <= 0 || idx >= value.length - 1) return null;
-  return { origin: value.slice(0, idx), id: value.slice(idx + 1) };
 }
 
 function sessionActorKey(
@@ -178,6 +193,8 @@ function sessionActorKey(
 ): string {
   const actor = session.type === "device"
     ? `${session.instanceId}.${session.publicIdentityKey}`
+    : session.type === "user"
+    ? session.userId
     : `${session.origin}.${session.id}`;
   return userNkey
     ? `${actor}.${sessionKey}.${userNkey}`
@@ -192,9 +209,8 @@ function buildSessionRow(session: Session, sessionKey: string): SessionListRow {
       participantKind: session.participantKind,
       principal: {
         type: "user",
-        trellisId: session.trellisId,
-        origin: session.origin,
-        id: session.id,
+        userId: session.userId,
+        identity: session.identity,
         name: session.name,
       },
       contractId: session.contractId,
@@ -263,9 +279,8 @@ function buildConnectionRow(
       participantKind: session.participantKind,
       principal: {
         type: "user",
-        trellisId: session.trellisId,
-        origin: session.origin,
-        id: session.id,
+        userId: session.userId,
+        identity: session.identity,
         name: session.name,
       },
       contractId: session.contractId,
@@ -327,9 +342,8 @@ function unwrapConnectionEntry(entry: unknown): {
 function requireUserCaller(caller: SessionContext["caller"]): SessionUser {
   if (
     caller.type !== "user" ||
-    !caller.trellisId ||
-    !caller.id ||
-    !caller.origin ||
+    !caller.userId ||
+    !caller.identity ||
     !caller.email ||
     !caller.name ||
     caller.active === undefined
@@ -337,9 +351,8 @@ function requireUserCaller(caller: SessionContext["caller"]): SessionUser {
     throw new AuthError({ reason: "insufficient_permissions" });
   }
   return {
-    trellisId: caller.trellisId,
-    id: caller.id,
-    origin: caller.origin,
+    userId: caller.userId,
+    identity: caller.identity,
     email: caller.email,
     name: caller.name,
     active: caller.active,
@@ -383,9 +396,8 @@ function formatCaller(
   return {
     type: "user" as const,
     participantKind: session.participantKind,
-    trellisId: session.trellisId,
-    id: session.id,
-    origin: session.origin,
+    userId: session.userId,
+    identity: session.identity,
     active: principal.active,
     name: session.name,
     email: session.email,
@@ -410,23 +422,26 @@ async function loadSessionBySessionKey(
 
 async function loadAuthenticatedUser(args: {
   userStorage: UserProjectionStorage;
-  origin: string;
-  id: string;
+  capabilityGroupStorage?: CapabilityGroupStorage;
+  userId: string;
+  identity: AuthenticatedUser["identity"];
   fallback:
     & Pick<AuthenticatedUser, "name" | "email" | "capabilities">
     & Partial<Pick<AuthenticatedUser, "image" | "lastLogin" | "active">>;
 }): Promise<AuthenticatedUser | null> {
-  const trellisId = await trellisIdFromOriginId(args.origin, args.id);
-  const projection = await args.userStorage.get(trellisId);
+  const projection = await args.userStorage.get(args.userId);
   if (projection) {
     return {
-      id: projection.id,
-      origin: projection.origin,
+      userId: args.userId,
       active: projection.active,
       name: projection.name ?? args.fallback.name,
       email: projection.email ?? args.fallback.email,
+      identity: args.identity,
       ...(args.fallback.image ? { image: args.fallback.image } : {}),
-      capabilities: projection.capabilities ?? args.fallback.capabilities,
+      capabilities: await resolveCapabilities(
+        projection,
+        args.capabilityGroupStorage,
+      ),
       ...(args.fallback.lastLogin
         ? { lastLogin: args.fallback.lastLogin }
         : {}),
@@ -489,6 +504,7 @@ async function loadAuthenticatedService(args: {
 
 async function loadAuthenticatedDevice(args: {
   userStorage: UserProjectionStorage;
+  capabilityGroupStorage?: CapabilityGroupStorage;
   deviceActivationStorage: DeviceActivationStorage;
   deviceInstanceStorage?: DeviceInstanceStorage;
   deviceDeploymentStorage: DeviceDeploymentStorage;
@@ -598,8 +614,13 @@ async function loadAuthenticatedDevice(args: {
   const user = activation.activatedBy
     ? await loadAuthenticatedUser({
       userStorage: args.userStorage,
-      origin: activation.activatedBy.origin,
-      id: activation.activatedBy.id,
+      capabilityGroupStorage: args.capabilityGroupStorage,
+      userId: activation.activatedBy.id,
+      identity: {
+        identityId: activation.activatedBy.id,
+        provider: activation.activatedBy.origin,
+        subject: activation.activatedBy.id,
+      },
       fallback: {
         name: activation.activatedBy.id,
         email: `${activation.activatedBy.origin}:${activation.activatedBy.id}`,
@@ -627,6 +648,7 @@ export function createAuthSessionsMeHandler(deps: {
   logger: Pick<SessionRpcLogger, "trace">;
   sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
   userStorage: UserProjectionStorage;
+  capabilityGroupStorage?: CapabilityGroupStorage;
   deviceActivationStorage: DeviceActivationStorage;
   deviceInstanceStorage?: DeviceInstanceStorage;
   deviceDeploymentStorage: DeviceDeploymentStorage;
@@ -663,8 +685,9 @@ export function createAuthSessionsMeHandler(deps: {
       if (session.type === "user") {
         const user = await loadAuthenticatedUser({
           userStorage: deps.userStorage,
-          origin: session.origin,
-          id: session.id,
+          capabilityGroupStorage: deps.capabilityGroupStorage,
+          userId: session.userId,
+          identity: session.identity,
           fallback: {
             name: session.name,
             email: session.email,
@@ -678,7 +701,7 @@ export function createAuthSessionsMeHandler(deps: {
           return Result.err(
             new AuthError({
               reason: "user_not_found",
-              context: { origin: session.origin, id: session.id },
+              context: { userId: session.userId },
             }),
           );
         }
@@ -707,6 +730,7 @@ export function createAuthSessionsMeHandler(deps: {
 
       const { user, device } = await loadAuthenticatedDevice({
         userStorage: deps.userStorage,
+        capabilityGroupStorage: deps.capabilityGroupStorage,
         deviceActivationStorage: deps.deviceActivationStorage,
         deviceInstanceStorage: deps.deviceInstanceStorage,
         deviceDeploymentStorage: deps.deviceDeploymentStorage,
@@ -730,6 +754,7 @@ export function createAuthRequestsValidateHandler(deps: {
   logger: Pick<SessionRpcLogger, "trace">;
   sessionStorage: Pick<SessionStorage, "getOneBySessionKey">;
   userStorage: UserProjectionStorage;
+  capabilityGroupStorage?: CapabilityGroupStorage;
   deviceActivationStorage: DeviceActivationStorage;
   deviceDeploymentStorage: DeviceDeploymentStorage;
   deviceInstanceStorage: DeviceInstanceStorage;
@@ -788,6 +813,7 @@ export function createAuthRequestsValidateHandler(deps: {
       loadUserProjection: async (trellisId) => {
         return await deps.userStorage.get(trellisId) ?? null;
       },
+      capabilityGroupStorage: deps.capabilityGroupStorage,
       deviceActivationStorage: deps.deviceActivationStorage,
       deviceInstanceStorage: deps.deviceInstanceStorage,
       deviceDeploymentStorage: deps.deviceDeploymentStorage,
@@ -797,10 +823,11 @@ export function createAuthRequestsValidateHandler(deps: {
     }
 
     const required = req.capabilities ?? [];
-    const allowed = required.length === 0 ||
+    const subjectAllowed = sessionCanPublishSubject(session, req.subject);
+    const allowed = subjectAllowed && (required.length === 0 ||
       required.every((capability) =>
         principal.value.capabilities.includes(capability)
-      );
+      ));
 
     return Result.ok({
       allowed,
@@ -814,14 +841,14 @@ export function createAuthSessionsLogoutHandler(deps: {
   logger: Pick<SessionRpcLogger, "trace">;
   sessionStorage: Pick<SessionStorage, "deleteBySessionKey">;
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
-  natsAuth: Pick<AuthRuntimeDeps["natsAuth"], "request">;
+  natsSystem: Pick<AuthRuntimeDeps["natsSystem"], "request">;
 }) {
   return async (
     { context: { caller, sessionKey } }: { context: SessionContext },
   ) => {
     const user = requireUserCaller(caller);
     deps.logger.trace(
-      { rpc: "Auth.Sessions.Logout", sessionKey, userId: user.id },
+      { rpc: "Auth.Sessions.Logout", sessionKey, userId: user.userId },
       "RPC request",
     );
     await deps.sessionStorage.deleteBySessionKey(sessionKey);
@@ -833,13 +860,13 @@ export function createAuthSessionsLogoutHandler(deps: {
     if (!isErr(connKeys)) {
       for await (const key of connKeys) {
         const parsedKey = parseConnectionKey(key);
-        if (!parsedKey || parsedKey.scopeId !== user.trellisId) continue;
+        if (!parsedKey || parsedKey.scopeId !== user.userId) continue;
         const entry = await deps.connectionsKV.get(key).take();
         if (!isErr(entry)) {
           const connection = unwrapConnectionEntry(entry);
           if (!connection) continue;
           await AsyncResult.try(() =>
-            deps.natsAuth.request(
+            deps.natsSystem.request(
               `$SYS.REQ.SERVER.${connection.serverId}.KICK`,
               JSON.stringify({ cid: connection.clientId }),
             )
@@ -868,18 +895,14 @@ export function createAuthSessionsListHandler(deps: {
     const userFilter = typeof req.user === "string" ? req.user : undefined;
     let sessions: SessionListRow[];
     if (userFilter) {
-      const parsed = parseOriginId(userFilter);
-      if (!parsed) {
-        return Result.err(new AuthError({ reason: "invalid_request" }));
-      }
-      const trellisId = await trellisIdFromOriginId(parsed.origin, parsed.id);
-      sessions = (await deps.sessionStorage.listEntriesByUser(trellisId)).map(
+      sessions = (await deps.sessionStorage.listEntriesByUser(userFilter)).map(
         (entry) => buildSessionRow(entry.session, entry.sessionKey),
       );
     } else {
-      sessions = (await deps.sessionStorage.listEntries(req)).map((entry) =>
-        buildSessionRow(entry.session, entry.sessionKey)
-      );
+      sessions = (await deps.sessionStorage.listEntries({
+        offset: req.offset,
+        limit: req.limit ?? 500,
+      })).map((entry) => buildSessionRow(entry.session, entry.sessionKey));
     }
 
     sessions.sort((left, right) => left.key.localeCompare(right.key));
@@ -918,15 +941,11 @@ export function createAuthConnectionsListHandler(deps: {
       : undefined;
 
     let filter = ">";
-    let userTrellisId: string | undefined;
+    let userId: string | undefined;
     if (sessionKeyFilter) {
       filter = connectionFilterForSession(sessionKeyFilter);
     } else if (userFilter) {
-      const parsed = parseOriginId(userFilter);
-      if (!parsed) {
-        return Result.err(new AuthError({ reason: "invalid_request" }));
-      }
-      userTrellisId = await trellisIdFromOriginId(parsed.origin, parsed.id);
+      userId = userFilter;
       filter = ">";
     }
 
@@ -947,7 +966,7 @@ export function createAuthConnectionsListHandler(deps: {
       if (sessionKeyFilter && parsedKey.sessionKey !== sessionKeyFilter) {
         continue;
       }
-      if (userTrellisId && parsedKey.scopeId !== userTrellisId) continue;
+      if (userId && parsedKey.scopeId !== userId) continue;
 
       const session = await deps.sessionStorage.getOneBySessionKey(
         parsedKey.sessionKey,
@@ -991,7 +1010,7 @@ export function createAuthConnectionsKickHandler(opts: {
     opts.logger.trace({
       rpc: "Auth.Connections.Kick",
       userNkey: req.userNkey,
-      userId: user.id,
+      userId: user.userId,
     }, "RPC request");
     if (typeof req.userNkey !== "string" || req.userNkey.length === 0) {
       return Result.err(new AuthError({ reason: "invalid_request" }));
@@ -1002,7 +1021,7 @@ export function createAuthConnectionsKickHandler(opts: {
       return Result.ok({ success: false });
     }
 
-    const kickedBy = `${user.origin}.${user.id}`;
+    const kickedBy = user.userId;
     let kicked = false;
 
     for await (const key of iter) {
@@ -1025,8 +1044,10 @@ export function createAuthConnectionsKickHandler(opts: {
             continue;
           }
           (await opts.trellis.publish("Auth.Connections.Kicked", {
-            origin: session.origin,
-            id: session.id,
+            origin: session.type === "user"
+              ? session.identity.provider
+              : session.origin,
+            id: session.type === "user" ? session.identity.subject : session.id,
             userNkey: req.userNkey,
             kickedBy,
           })).inspectErr((error: unknown) =>

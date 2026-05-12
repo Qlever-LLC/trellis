@@ -1,51 +1,24 @@
+import type {
+  AuthConnectionsListOutput,
+  AuthSessionsListOutput,
+} from "@qlever-llc/trellis/sdk/auth";
+
 export type ParticipantKind = "app" | "agent" | "device" | "service";
 
 type UserPrincipal = {
   type: "user";
-  trellisId: string;
-  origin: string;
-  id: string;
-  name?: string;
-};
-
-type DevicePrincipal = {
-  type: "device";
-  deviceId: string;
-  deviceType: string;
-  runtimePublicKey: string;
-  deploymentId: string;
-};
-
-type ServicePrincipal = {
-  type: "service";
-  id: string;
+  userId: string;
   name: string;
-  instanceId: string;
-  deploymentId: string;
+  identity: {
+    identityId: string;
+    provider: string;
+    subject: string;
+  };
 };
 
-type SharedRecord = {
-  participantKind: ParticipantKind;
-  principal: UserPrincipal | DevicePrincipal | ServicePrincipal;
-  contractDisplayName?: string;
-  contractId?: string;
-};
+export type SessionRecord = AuthSessionsListOutput["sessions"][number];
 
-export type SessionRecord = SharedRecord & {
-  key: string;
-  sessionKey: string;
-  createdAt: string;
-  lastAuth: string;
-};
-
-export type ConnectionRecord = SharedRecord & {
-  key: string;
-  sessionKey: string;
-  userNkey: string;
-  serverId: string;
-  clientId: number;
-  connectedAt: string;
-};
+export type ConnectionRecord = AuthConnectionsListOutput["connections"][number];
 
 export type UserGrantRecord = {
   identityEnvelopeId: string;
@@ -63,8 +36,10 @@ export type UserGrantRecord = {
 
 type SessionLike = SessionRecord | ConnectionRecord;
 
-export function formatOriginId(origin: string, id: string): string {
-  return `${origin}.${id}`;
+export function formatIdentityProviderSubject(
+  identity: UserPrincipal["identity"],
+): string {
+  return `${identity.provider}:${identity.subject}`;
 }
 
 export function formatShortKey(
@@ -107,13 +82,16 @@ export function participantKindBadgeClass(kind: ParticipantKind): string {
   return exhaustive;
 }
 
-function contractLabel(
-  record: { contractDisplayName?: string; contractId?: string },
-): string | null {
-  if (record.contractDisplayName && record.contractId) {
-    return `${record.contractDisplayName} (${record.contractId})`;
+function contractLabel(record: SessionLike): string | null {
+  const displayName = "contractDisplayName" in record
+    ? record.contractDisplayName
+    : undefined;
+  const contractId = "contractId" in record ? record.contractId : undefined;
+
+  if (displayName && contractId) {
+    return `${displayName} (${contractId})`;
   }
-  return record.contractDisplayName ?? record.contractId ?? null;
+  return displayName ?? contractId ?? null;
 }
 
 function joinDetails(details: Array<string | null | undefined>): string {
@@ -129,11 +107,13 @@ export function describeSessionPrincipal(
   const principal = record.principal;
 
   if (principal.type === "user") {
-    const handle = formatOriginId(principal.origin, principal.id);
+    const identity = formatIdentityProviderSubject(principal.identity);
     return {
-      title: principal.name?.trim() || handle,
+      title: principal.userId,
       details: joinDetails([
-        principal.name?.trim() ? handle : null,
+        principal.name.trim() || null,
+        identity,
+        principal.identity.identityId,
         contract,
       ]),
     };

@@ -70,12 +70,34 @@ function consoleAppContract(): Record<string, unknown> {
   };
 }
 
+function coreCatalogAppContract(): Record<string, unknown> {
+  return {
+    format: "trellis.contract.v1",
+    id: "trellis.console@v1",
+    displayName: "Console",
+    description: "Admin app",
+    kind: "app",
+    schemas: { CatalogEvent: { type: "object" } },
+    events: {
+      "Catalog.Ready": {
+        version: "v1",
+        subject: "trellis.console.catalog.ready",
+        event: { schema: "CatalogEvent" },
+        capabilities: { publish: ["trellis.core::trellis.catalog.read"] },
+      },
+    },
+  };
+}
+
 function createSession(overrides: Partial<UserSession> = {}): UserSession {
   return {
     type: "user",
-    trellisId: "tid_123",
-    origin: "github",
-    id: "123",
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
     email: "user@example.com",
     name: "User",
     participantKind: "app",
@@ -128,6 +150,7 @@ Deno.test("resolveUserReconnectSession refreshes delegated envelope from the pre
       email: "user@example.com",
       active: true,
       capabilities: ["audit"],
+      capabilityGroups: [],
     }),
   });
 
@@ -160,6 +183,7 @@ Deno.test("resolveUserReconnectSession accepts a known app digest that is not ac
       email: "user@example.com",
       active: true,
       capabilities: ["audit"],
+      capabilityGroups: [],
     }),
   });
 
@@ -167,6 +191,35 @@ Deno.test("resolveUserReconnectSession accepts a known app digest that is not ac
   if (!result.ok) return;
   assertEquals(result.session.contractDigest, digest);
   assertEquals(await contracts.getContract(digest), undefined);
+});
+
+Deno.test("resolveUserReconnectSession resolves direct admin for generated core capabilities", async () => {
+  const contracts = createTestContracts();
+  const digest = await activateContract(contracts, coreCatalogAppContract());
+
+  const result = await resolveUserReconnectSession({
+    session: createSession(),
+    presentedContractDigest: digest,
+    contracts,
+    loadUserProjection: async () => ({
+      origin: "account",
+      id: "usr_123",
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: ["admin"],
+      capabilityGroups: [],
+    }),
+  });
+
+  assertEquals(result.ok, true);
+  if (!result.ok) return;
+  assertEquals(result.session.delegatedCapabilities, [
+    "trellis.core::trellis.catalog.read",
+  ]);
+  assertEquals(result.session.delegatedPublishSubjects, [
+    "trellis.console.catalog.ready",
+  ]);
 });
 
 Deno.test("resolveUserReconnectSession returns approval_required when current approval no longer applies", async () => {
@@ -185,6 +238,7 @@ Deno.test("resolveUserReconnectSession returns approval_required when current ap
       email: "user@example.com",
       active: true,
       capabilities: [],
+      capabilityGroups: [],
     }),
   });
 
@@ -213,6 +267,7 @@ Deno.test("resolveUserReconnectSession returns contract_changed for an inactive 
       email: "user@example.com",
       active: true,
       capabilities: ["admin"],
+      capabilityGroups: [],
     }),
   });
 
@@ -240,6 +295,7 @@ Deno.test("resolveUserReconnectSession returns user_inactive for inactive users"
       email: "user@example.com",
       active: false,
       capabilities: ["admin"],
+      capabilityGroups: [],
     }),
   });
 
@@ -282,6 +338,7 @@ Deno.test("resolveUserReconnectSession returns insufficient_permissions when app
       email: "user@example.com",
       active: true,
       capabilities: [],
+      capabilityGroups: [],
     }),
   });
 

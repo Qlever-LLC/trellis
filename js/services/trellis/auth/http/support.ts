@@ -1,12 +1,12 @@
-import {
-  approvalCapabilityKeys,
-  trellisIdFromOriginId,
-} from "@qlever-llc/trellis/auth";
+import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
 import type { AsyncResult, BaseError } from "@qlever-llc/result";
 
 import { planUserContractApproval } from "../approval/plan.ts";
 import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
 import { applyGrantOverrideCapabilities } from "../envelope_decision.ts";
+import type { CapabilityGroupLoader } from "../capability_groups.ts";
+import { resolveCapabilities } from "../capability_groups.ts";
+export { identityIdForProviderSubject } from "../identity.ts";
 import {
   type EffectiveApproval,
   effectiveApproval,
@@ -24,6 +24,8 @@ import type {
   IdentityEnvelopeRecord,
   OAuthState,
   PendingAuth,
+  UserAccount,
+  UserIdentity,
   UserProjectionEntry,
 } from "../schemas.ts";
 
@@ -44,11 +46,27 @@ export type PendingAuthEntry = {
   delete: (cas?: boolean) => AsyncResult<unknown, BaseError>;
 };
 
+export type LinkedActiveUserIdentityResolution =
+  | { ok: true; account: UserAccount; identity: UserIdentity }
+  | {
+    ok: false;
+    error: "identity_not_linked" | "account_not_found" | "user_inactive";
+  };
+
+export type LinkedActiveUserIdentityDeps = {
+  loadIdentityByProviderSubject: (
+    provider: string,
+    subject: string,
+  ) => Promise<UserIdentity | undefined>;
+  loadAccount: (userId: string) => Promise<UserAccount | undefined>;
+};
+
 export type ApprovalResolution = {
   plan: Awaited<ReturnType<typeof planUserContractApproval>>;
-  trellisId: string;
-  userOrigin: string;
   userId: string;
+  identityId: string;
+  identityProvider: string;
+  identitySubject: string;
   userEmail: string;
   userName: string;
   sessionPublicKey: string;
@@ -77,16 +95,15 @@ export function getApprovalResolutionBlocker(
 }
 
 export type ApprovalResolutionDeps = {
-  loadUserProjection: (
-    trellisId: string,
-  ) => Promise<UserProjectionEntry | null>;
+  loadUserProjection: (userId: string) => Promise<UserProjectionEntry | null>;
   loadDeploymentEnvelopes?: () => Promise<DeploymentEnvelope[]>;
   loadDeploymentGrantOverrides?: (
     deploymentId: string,
   ) => Promise<DeploymentGrantOverride[]>;
   loadIdentityEnvelopesByUser?: (
-    userTrellisId: string,
+    userId: string,
   ) => Promise<IdentityEnvelopeRecord[]>;
+  capabilityGroupStorage?: CapabilityGroupLoader;
 };
 
 export type WarnLogger = {
@@ -110,12 +127,30 @@ export function identityAnchorForApp(
 }
 
 export function identityEnvelopeIdForAnchor(
-  userTrellisId: string,
+  userId: string,
   anchor: IdentityAnchor,
 ): string {
   return encodeBase64Url(
-    new TextEncoder().encode(`${userTrellisId}:${JSON.stringify(anchor)}`),
+    new TextEncoder().encode(`${userId}:${JSON.stringify(anchor)}`),
   );
+}
+
+export async function resolveLinkedActiveUserIdentity(
+  args: {
+    provider: string;
+    subject: string;
+  },
+  deps: LinkedActiveUserIdentityDeps,
+): Promise<LinkedActiveUserIdentityResolution> {
+  const identity = await deps.loadIdentityByProviderSubject(
+    args.provider,
+    args.subject,
+  );
+  if (!identity) return { ok: false, error: "identity_not_linked" };
+  const account = await deps.loadAccount(identity.userId);
+  if (!account) return { ok: false, error: "account_not_found" };
+  if (!account.active) return { ok: false, error: "user_inactive" };
+  return { ok: true, account, identity };
 }
 
 export function applyApprovalDecision(args: {
@@ -132,12 +167,12 @@ export function applyApprovalDecision(args: {
   );
   const storedApproval: IdentityEnvelopeRecord = {
     identityEnvelopeId: identityEnvelopeIdForAnchor(
-      args.resolution.trellisId,
+      args.resolution.userId,
       identityAnchor,
     ),
-    userTrellisId: args.resolution.trellisId,
-    origin: args.resolution.userOrigin,
-    id: args.resolution.userId,
+    userTrellisId: args.resolution.userId,
+    origin: args.resolution.identityProvider,
+    id: args.resolution.identitySubject,
     identityAnchor,
     answer: args.approved ? "approved" : "denied",
     answeredAt: args.answeredAt,
@@ -335,13 +370,11 @@ export async function getApprovalResolution(
     contracts,
     pending.contract,
   )).required;
-  const trellisId = await trellisIdFromOriginId(
-    pending.user.origin,
-    pending.user.id,
-  );
+  const identityId = pending.identity.identityId;
+  const userId = pending.userId;
   const userEmail = pending.user.email ??
-    `${pending.user.origin}:${pending.user.id}`;
-  const userName = pending.user.name ?? pending.user.id;
+    `${pending.identity.provider}:${pending.identity.subject}`;
+  const userName = pending.user.name ?? pending.identity.subject;
   const app = pending.app ?? buildAppIdentity({
     contractId: plan.contract.id,
     redirectTo: pending.redirectTo,
@@ -366,23 +399,22 @@ export async function getApprovalResolution(
       ),
     )
   ).flat();
-  const existingProjection = await deps.loadUserProjection(trellisId);
+  const existingProjection = await deps.loadUserProjection(userId);
   const existingCapabilities = existingProjection?.capabilities ?? [];
+  const existingResolvedCapabilities = existingProjection
+    ? await resolveCapabilities(existingProjection, deps.capabilityGroupStorage)
+    : [];
+  const requestedIdentityAnchor = identityAnchorForApp(app, pending.sessionKey);
   const storedApproval =
-    (await deps.loadIdentityEnvelopesByUser?.(trellisId) ?? [])
+    (await deps.loadIdentityEnvelopesByUser?.(userId) ?? [])
       .find((approval) =>
-        approval.userTrellisId === trellisId &&
-        approval.origin === pending.user.origin &&
-        approval.id === pending.user.id &&
-        sameIdentityAnchor(
-          approval.identityAnchor,
-          identityAnchorForApp(app, pending.sessionKey),
-        )
+        approval.userTrellisId === userId &&
+        sameIdentityAnchor(approval.identityAnchor, requestedIdentityAnchor)
       ) ?? null;
   const matchedPolicies: [] = [];
   const resolvedCapabilities = [
     ...new Set([
-      ...existingCapabilities,
+      ...existingResolvedCapabilities,
       ...matchingGrantOverrideCapabilities({
         overrides: deploymentGrantOverrides,
         identity: requestedIdentity,
@@ -400,9 +432,10 @@ export async function getApprovalResolution(
 
   return {
     plan,
-    trellisId,
-    userOrigin: pending.user.origin,
-    userId: pending.user.id,
+    userId,
+    identityId,
+    identityProvider: pending.identity.provider,
+    identitySubject: pending.identity.subject,
     userEmail,
     userName,
     sessionPublicKey: pending.sessionKey,

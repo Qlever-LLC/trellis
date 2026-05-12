@@ -2776,8 +2776,9 @@ export class Trellis<
 
         span.setAttribute("auth.caller.type", caller.type);
         if (caller.type === "user") {
-          span.setAttribute("user.id", caller.id);
-          span.setAttribute("user.origin", caller.origin);
+          span.setAttribute("user.id", caller.userId);
+          span.setAttribute("user.identity.provider", caller.identity.provider);
+          span.setAttribute("user.identity.subject", caller.identity.subject);
         }
         if (caller.type === "service") {
           span.setAttribute("service.id", caller.id);

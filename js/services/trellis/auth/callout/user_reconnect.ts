@@ -1,6 +1,8 @@
 import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
 
 import type { ContractsModule } from "../../catalog/runtime.ts";
+import type { CapabilityGroupLoader } from "../capability_groups.ts";
+import { resolveCapabilities } from "../capability_groups.ts";
 import type { EnvelopeBoundary, UserSession } from "../schemas.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
@@ -35,8 +37,9 @@ export async function resolveUserReconnectSession(args: {
     | "validateContract"
   >;
   loadUserProjection: (
-    trellisId: string,
+    userId: string,
   ) => Promise<UserProjectionEntry | null>;
+  capabilityGroupStorage?: CapabilityGroupLoader;
 }): Promise<ResolveUserReconnectResult> {
   const knownContract = await args.contracts.getKnownContract(
     args.presentedContractDigest,
@@ -47,7 +50,7 @@ export async function resolveUserReconnectSession(args: {
     return { ok: false, reason: "contract_changed" };
   }
 
-  const projection = await args.loadUserProjection(args.session.trellisId);
+  const projection = await args.loadUserProjection(args.session.userId);
   if (!projection) {
     return { ok: false, reason: "user_not_found" };
   }
@@ -76,9 +79,13 @@ export async function resolveUserReconnectSession(args: {
   if (!envelopeFit.fits) {
     return { ok: false, reason: "approval_required" };
   }
+  const resolvedCapabilities = await resolveCapabilities(
+    projection,
+    args.capabilityGroupStorage,
+  );
   if (
     !approvalCapabilityKeys(plan.approval).every((capability) =>
-      (projection.capabilities ?? []).includes(capability)
+      resolvedCapabilities.includes(capability)
     )
   ) {
     return { ok: false, reason: "insufficient_permissions" };

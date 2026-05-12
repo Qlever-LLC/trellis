@@ -1,14 +1,16 @@
-import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
-import type { SqlUserProjectionRepository } from "../storage.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
+
+type UserProjectionStorage = {
+  get(trellisId: string): Promise<UserProjectionEntry | undefined>;
+  put(trellisId: string, record: UserProjectionEntry): Promise<void>;
+};
 
 /** Inserts or updates a user projection in SQL while preserving admin-managed fields. */
 export async function upsertUserProjectionInSql(
-  userStorage: SqlUserProjectionRepository,
+  userStorage: UserProjectionStorage,
   entry: UserProjectionEntry,
 ): Promise<void> {
-  const trellisId = await trellisIdFromOriginId(entry.origin, entry.id);
-  const existing = await userStorage.get(trellisId);
+  const existing = await userStorage.get(entry.id);
   const merged = existing === undefined ? entry : {
     origin: entry.origin,
     id: entry.id,
@@ -16,6 +18,7 @@ export async function upsertUserProjectionInSql(
     email: entry.email ?? existing.email,
     active: existing.active,
     capabilities: existing.capabilities,
+    capabilityGroups: existing.capabilityGroups,
   };
-  await userStorage.put(trellisId, merged);
+  await userStorage.put(entry.id, merged);
 }

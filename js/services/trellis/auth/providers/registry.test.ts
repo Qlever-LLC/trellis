@@ -35,6 +35,7 @@ function createConfig(): Config {
       jetstream: { replicas: 1 },
       trellis: { credsPath: "/tmp/trellis.creds" },
       auth: { credsPath: "/tmp/auth.creds" },
+      system: { credsPath: "/tmp/system.creds" },
       sentinelCredsPath: "/tmp/sentinel.creds",
       authCallout: {
         issuer: { nkey: "issuer", signing: "issuer-seed" },

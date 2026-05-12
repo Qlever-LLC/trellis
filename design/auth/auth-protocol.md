@@ -238,7 +238,8 @@ function buildProofInput(
   const subjectBytes = enc.encode(subject);
 
   const buf = new Uint8Array(
-    4 + sessionKeyBytes.length + 4 + subjectBytes.length + 4 + payloadHash.length,
+    4 + sessionKeyBytes.length + 4 + subjectBytes.length + 4 +
+      payloadHash.length,
   );
   const view = new DataView(buf.buffer);
 
@@ -455,9 +456,9 @@ Flow summary:
    projection, stores the resulting `authToken` server-side against the browser
    flow, and redirects back to the portal with the same `flowId`.
 4. `GET /auth/flow/:flowId` returns `PortalFlowState`.
-5. `POST /auth/flow/:flowId/approval` records durable approval when the user
-   approves, or ends the browser flow and redirects to the caller with
-   `authError=approval_denied` when the user denies.
+5. `POST /auth/flow/:flowId/approval` records account-scoped durable approval
+   when the user approves, or ends the browser flow and redirects to the caller
+   with `authError=approval_denied` when the user denies.
 6. `POST /auth/flow/:flowId/bind` completes the browser bind from
    `{ sessionKey, sig }`.
 
@@ -479,13 +480,13 @@ Bind proof rules:
 
 Runtime storage responsibilities:
 
-| Storage                    | Logical contents                                                                                                                       | TTL                                          |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Storage                    | Logical contents                                                                                                                                                           | TTL                                          |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | SQL                        | Users, sessions, identity-envelope grants, deployment grant overrides, service records, device records, deployment envelopes, portal-route metadata, and contract evidence | Durable, with session expiry from `lastAuth` |
-| `trellis_oauth_states` KV  | OAuth state mapping keyed by `hash(state)`                                                                                             | 5 min                                        |
-| `trellis_pending_auth` KV  | Pending authenticated bind keyed by `hash(authToken)`                                                                                  | 5 min                                        |
-| `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"`                                       | Browser-flow TTL                             |
-| `trellis_connections` KV   | Active connection presence keyed by session, principal, and NATS user key                                                              | Connection TTL                               |
+| `trellis_oauth_states` KV  | OAuth state mapping keyed by `hash(state)`                                                                                                                                 | 5 min                                        |
+| `trellis_pending_auth` KV  | Pending authenticated bind keyed by `hash(authToken)`                                                                                                                      | 5 min                                        |
+| `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"`                                                                           | Browser-flow TTL                             |
+| `trellis_connections` KV   | Active connection presence keyed by session, principal, and NATS user key                                                                                                  | Connection TTL                               |
 
 Ephemeral tokens (`state`, `authToken`) are stored by `hash(token)` rather than
 raw token value.
@@ -589,19 +590,31 @@ Rules:
 ```ts
 {
   userTrellisId: string;
+  // Provider origin/id captured when approval was granted. These fields are
+  // audit evidence, not the matching key for approval reuse.
   origin: string;
   id: string;
+  identityAnchor:
+    | { kind: "web"; contractId: string; origin: string }
+    | { kind: "cli"; contractId: string; sessionPublicKey: string }
+    | { kind: "native"; contractId: string; sessionPublicKey: string }
+    | { kind: "device-user"; contractId: string; devicePublicKey: string };
   answer: "approved" | "denied";
   answeredAt: Date;
   updatedAt: Date;
-  approval: {
-    identityEnvelopeDelta: EnvelopeDelta;
-    contractEvidence: ContractEvidence;
-  }
+  approvalEvidence: ContractEvidence;
+  publishSubjects: string[];
+  subscribeSubjects: string[];
 }
 ```
 
 Trellis stores identity-envelope grants when a durable approval decision exists.
+Durable approval records are keyed for reuse by Trellis `userTrellisId` plus the
+app identity anchor. The provider `origin`/`id` that was active when approval
+was granted remains audit evidence only; it is not used to decide whether a
+later linked local or OIDC identity on the same Trellis account may reuse the
+approval.
+
 The presented contract digest is stored as contract evidence for audit and
 repeat boundary checks, not as the authority key or a manifest lookup fallback.
 Full manifests are resolved from built-in Trellis contracts or the global
@@ -656,12 +669,20 @@ Rules:
 
 This account projection is Trellis-local and is updated by Trellis-managed
 flows. `userId` is generated by Trellis and is not derived from provider
-`origin`/`id` values. Local-user creation uses `username` only as the local login
-hint for a `local/<username>` identity.
+`origin`/`id` values. Local-user creation uses `username` only as the local
+login hint for a `local/<username>` identity.
+
+Account linking adds provider identities to the same Trellis user account.
+Multiple OIDC identities may be linked to one Trellis account. A Trellis account
+may have at most one local username/password identity; an OIDC identity may link
+to a local identity only when the target account does not already have a local
+identity.
 
 It stores explicit per-user capability grants plus assigned dynamic
-`capabilityGroups`. Deployment-wide implied app grants remain as separate grant
-override records.
+`capabilityGroups`. New admin-bootstrap accounts use this group assignment model
+for the built-in `admin` grant, storing the `admin` group key rather than
+copying the group's capabilities into direct grants. Deployment-wide implied app
+grants remain as separate grant override records.
 
 ### Active Connections
 

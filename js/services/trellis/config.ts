@@ -84,6 +84,9 @@ const rawSchema = z.object({
     auth: z.object({
       credsPath: z.string(),
     }),
+    system: z.object({
+      credsPath: z.string(),
+    }),
     sentinelCredsPath: z.string(),
     authCallout: z.object({
       issuer: z.object({
@@ -174,6 +177,7 @@ export type Config = {
     };
     trellis: { credsPath: string };
     auth: { credsPath: string };
+    system: { credsPath: string };
     sentinelCredsPath: string;
     authCallout: {
       issuer: { nkey: string; signing: string };
@@ -305,9 +309,16 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
     nats: {
       servers: raw.nats.servers,
       jetstream: raw.nats.jetstream,
-      trellis: raw.nats.trellis,
-      auth: raw.nats.auth,
-      sentinelCredsPath: raw.nats.sentinelCredsPath,
+      trellis: {
+        credsPath: resolvePath(configPath, raw.nats.trellis.credsPath),
+      },
+      auth: {
+        credsPath: resolvePath(configPath, raw.nats.auth.credsPath),
+      },
+      system: {
+        credsPath: resolvePath(configPath, raw.nats.system.credsPath),
+      },
+      sentinelCredsPath: resolvePath(configPath, raw.nats.sentinelCredsPath),
       authCallout: {
         issuer: {
           nkey: raw.nats.authCallout.issuer.nkey,

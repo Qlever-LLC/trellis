@@ -1,5 +1,4 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 
 import { ContractUseDependencyError } from "../../catalog/uses.ts";
 import { createTestContracts } from "../../catalog/test_contracts.ts";
@@ -14,8 +13,16 @@ import {
   getApprovalResolution,
   getApprovalResolutionBlocker,
   getCookie,
+  resolveLinkedActiveUserIdentity,
   shouldUseSecureOauthCookie,
 } from "./support.ts";
+
+const linkedUserId = "usr_linked_123";
+const linkedIdentity = {
+  identityId: "idn_github_123",
+  provider: "github",
+  subject: "123",
+};
 
 const { buildPortalFlowState } = await import("./portal_flow.ts");
 
@@ -224,9 +231,10 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
           publishSubjects: [],
           subscribeSubjects: [],
         },
-        trellisId: "trellis-123",
-        userOrigin: "github",
-        userId: "123",
+        userId: "trellis-123",
+        identityId: "idn_123",
+        identityProvider: "github",
+        identitySubject: "123",
         userEmail: "user@example.com",
         userName: "User",
         sessionPublicKey: "A".repeat(43),
@@ -284,9 +292,10 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
           publishSubjects: [],
           subscribeSubjects: [],
         },
-        trellisId: "trellis-123",
-        userOrigin: "github",
-        userId: "123",
+        userId: "trellis-123",
+        identityId: "idn_123",
+        identityProvider: "github",
+        identitySubject: "123",
         userEmail: "user@example.com",
         userName: "User",
         sessionPublicKey: "A".repeat(43),
@@ -349,9 +358,10 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
           publishSubjects: [],
           subscribeSubjects: [],
         },
-        trellisId: "trellis-123",
-        userOrigin: "github",
-        userId: "123",
+        userId: "trellis-123",
+        identityId: "idn_123",
+        identityProvider: "github",
+        identitySubject: "123",
         userEmail: "user@example.com",
         userName: "User",
         sessionPublicKey: "A".repeat(43),
@@ -414,9 +424,10 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
           publishSubjects: [],
           subscribeSubjects: [],
         },
-        trellisId: "trellis-123",
-        userOrigin: "github",
-        userId: "123",
+        userId: "trellis-123",
+        identityId: "idn_123",
+        identityProvider: "github",
+        identitySubject: "123",
         userEmail: "user@example.com",
         userName: "User",
         sessionPublicKey: "A".repeat(43),
@@ -487,9 +498,10 @@ Deno.test("buildPortalFlowState asks again after a stored denial", async () => {
         publishSubjects: [],
         subscribeSubjects: [],
       },
-      trellisId: "trellis-123",
-      userOrigin: "github",
-      userId: "123",
+      userId: "trellis-123",
+      identityId: "idn_123",
+      identityProvider: "github",
+      identitySubject: "123",
       userEmail: "user@example.com",
       userName: "User",
       sessionPublicKey: "A".repeat(43),
@@ -538,6 +550,8 @@ Deno.test("buildPortalFlowState asks again after a stored denial", async () => {
 Deno.test("getApprovalResolution uses injected loaders", async () => {
   const contracts = createTestContracts();
   const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
     user: {
       origin: "github",
       id: "123",
@@ -566,30 +580,33 @@ Deno.test("getApprovalResolution uses injected loaders", async () => {
     },
     createdAt: new Date(),
   };
-  const expectedTrellisId = await trellisIdFromOriginId("github", "123");
+  const expectedUserId = linkedUserId;
   const resolution = await getApprovalResolution(contracts, pending, {
-    loadUserProjection: async (trellisId) => {
-      assertEquals(trellisId, expectedTrellisId);
+    loadUserProjection: async (userId) => {
+      assertEquals(userId, expectedUserId);
       return {
-        origin: "github",
-        id: "123",
+        origin: "account",
+        id: linkedUserId,
         name: "User",
         email: "user@example.com",
         active: true,
         capabilities: [],
+        capabilityGroups: [],
       };
     },
   });
 
-  assertEquals(resolution.trellisId, expectedTrellisId);
+  assertEquals(resolution.userId, expectedUserId);
+  assertEquals(resolution.identityId, linkedIdentity.identityId);
   assertEquals(resolution.missingCapabilities, ["audit"]);
   assertEquals(resolution.existingProjection, {
-    origin: "github",
-    id: "123",
+    origin: "account",
+    id: linkedUserId,
     name: "User",
     email: "user@example.com",
     active: true,
     capabilities: [],
+    capabilityGroups: [],
   });
   assertEquals(resolution.storedApproval, null);
   assertEquals(resolution.app, {
@@ -598,9 +615,89 @@ Deno.test("getApprovalResolution uses injected loaders", async () => {
   });
 });
 
+Deno.test("resolveLinkedActiveUserIdentity returns a linked active account", async () => {
+  const now = new Date().toISOString();
+  const resolution = await resolveLinkedActiveUserIdentity({
+    provider: "github",
+    subject: "123",
+  }, {
+    loadIdentityByProviderSubject: async () => ({
+      ...linkedIdentity,
+      userId: linkedUserId,
+      displayName: "User",
+      email: "user@example.com",
+      emailVerified: true,
+      linkedAt: now,
+      lastLoginAt: null,
+    }),
+    loadAccount: async () => ({
+      userId: linkedUserId,
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: ["admin"],
+      capabilityGroups: [],
+      createdAt: now,
+      updatedAt: now,
+    }),
+  });
+
+  assertEquals(resolution.ok, true);
+  if (resolution.ok) {
+    assertEquals(resolution.account.userId, linkedUserId);
+    assertEquals(resolution.identity.identityId, linkedIdentity.identityId);
+  }
+});
+
+Deno.test("resolveLinkedActiveUserIdentity rejects unlinked identities", async () => {
+  const resolution = await resolveLinkedActiveUserIdentity({
+    provider: "github",
+    subject: "missing",
+  }, {
+    loadIdentityByProviderSubject: async () => undefined,
+    loadAccount: async () => {
+      throw new Error("account lookup should not run for unlinked identity");
+    },
+  });
+
+  assertEquals(resolution, { ok: false, error: "identity_not_linked" });
+});
+
+Deno.test("resolveLinkedActiveUserIdentity rejects inactive accounts", async () => {
+  const now = new Date().toISOString();
+  const resolution = await resolveLinkedActiveUserIdentity({
+    provider: "github",
+    subject: "123",
+  }, {
+    loadIdentityByProviderSubject: async () => ({
+      ...linkedIdentity,
+      userId: linkedUserId,
+      displayName: "User",
+      email: "user@example.com",
+      emailVerified: true,
+      linkedAt: now,
+      lastLoginAt: null,
+    }),
+    loadAccount: async () => ({
+      userId: linkedUserId,
+      name: "User",
+      email: "user@example.com",
+      active: false,
+      capabilities: ["admin"],
+      capabilityGroups: [],
+      createdAt: now,
+      updatedAt: now,
+    }),
+  });
+
+  assertEquals(resolution, { ok: false, error: "user_inactive" });
+});
+
 Deno.test("getApprovalResolution keeps user approval explicit despite stored denial", async () => {
   const contracts = createTestContracts();
   const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
     user: {
       origin: "github",
       id: "123",
@@ -638,6 +735,7 @@ Deno.test("getApprovalResolution keeps user approval explicit despite stored den
       email: "user@example.com",
       active: true,
       capabilities: [],
+      capabilityGroups: [],
     }),
   });
 
@@ -656,6 +754,8 @@ Deno.test("getApprovalResolution keeps user approval explicit despite stored den
 Deno.test("getApprovalResolution prefers persisted app identity over redirect-derived origin", async () => {
   const contracts = createTestContracts();
   const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
     user: {
       origin: "github",
       id: "123",
@@ -686,6 +786,7 @@ Deno.test("getApprovalResolution prefers persisted app identity over redirect-de
       email: "user@example.com",
       active: true,
       capabilities: [],
+      capabilityGroups: [],
     }),
   });
 
@@ -697,6 +798,8 @@ Deno.test("getApprovalResolution resolves system availability from enabled deplo
   const contracts = createTestContracts();
   const now = new Date().toISOString();
   const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
     user: {
       origin: "github",
       id: "123",
@@ -756,6 +859,8 @@ Deno.test("getApprovalResolution applies matching deployment grant overrides as 
   const contracts = createTestContracts();
   const now = new Date().toISOString();
   const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
     user: {
       origin: "github",
       id: "123",
@@ -792,6 +897,7 @@ Deno.test("getApprovalResolution applies matching deployment grant overrides as 
       email: "user@example.com",
       active: true,
       capabilities: [],
+      capabilityGroups: [],
     }),
     loadDeploymentEnvelopes: async () => [{
       deploymentId: "app.enabled",
@@ -831,6 +937,8 @@ Deno.test("getApprovalResolution does not treat deployment envelope capabilities
   const contracts = createTestContracts();
   const now = new Date().toISOString();
   const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
     user: {
       origin: "github",
       id: "123",
@@ -867,6 +975,7 @@ Deno.test("getApprovalResolution does not treat deployment envelope capabilities
       email: "user@example.com",
       active: true,
       capabilities: [],
+      capabilityGroups: [],
     }),
     loadDeploymentEnvelopes: async () => [{
       deploymentId: "system.enabled",
@@ -890,8 +999,10 @@ Deno.test("getApprovalResolution does not treat deployment envelope capabilities
 
 Deno.test("getApprovalResolution loads persisted identity envelope approvals", async () => {
   const contracts = createTestContracts();
-  const userTrellisId = await trellisIdFromOriginId("github", "123");
+  const userTrellisId = linkedUserId;
   const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
     user: {
       origin: "github",
       id: "123",
@@ -923,6 +1034,7 @@ Deno.test("getApprovalResolution loads persisted identity envelope approvals", a
       email: "user@example.com",
       active: true,
       capabilities: [],
+      capabilityGroups: [],
     }),
     loadIdentityEnvelopesByUser: async (trellisId) => {
       assertEquals(trellisId, userTrellisId);
@@ -937,9 +1049,69 @@ Deno.test("getApprovalResolution loads persisted identity envelope approvals", a
   });
 });
 
+Deno.test("getApprovalResolution reuses approval for another linked identity", async () => {
+  const contracts = createTestContracts();
+  const userTrellisId = linkedUserId;
+  const pending: PendingAuth = {
+    userId: userTrellisId,
+    identity: {
+      identityId: "idn_local_ada",
+      provider: "local",
+      subject: "ada",
+    },
+    user: {
+      origin: "local",
+      id: "ada",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "https://console.example/callback",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.console@v1",
+      displayName: "Console",
+      description: "Admin",
+      kind: "app",
+    },
+    createdAt: new Date(),
+  };
+  const storedApproval = storedAppApproval({
+    userTrellisId,
+    answer: "approved",
+    capabilities: [],
+  });
+
+  const resolution = await getApprovalResolution(contracts, pending, {
+    loadUserProjection: async () => ({
+      origin: "account",
+      id: userTrellisId,
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: [],
+      capabilityGroups: [],
+    }),
+    loadIdentityEnvelopesByUser: async (trellisId) => {
+      assertEquals(trellisId, userTrellisId);
+      return [storedApproval];
+    },
+  });
+
+  assertEquals(resolution.identityProvider, "local");
+  assertEquals(resolution.identitySubject, "ada");
+  assertEquals(resolution.storedApproval, storedApproval);
+  assertEquals(resolution.effectiveApproval, {
+    kind: "stored_approval",
+    answer: "approved",
+  });
+});
+
 Deno.test("getApprovalResolutionBlocker rejects inactive users from completing bind", async () => {
   const contracts = createTestContracts();
   const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
     user: {
       origin: "github",
       id: "123",
@@ -966,6 +1138,7 @@ Deno.test("getApprovalResolutionBlocker rejects inactive users from completing b
       email: "user@example.com",
       active: false,
       capabilities: ["admin"],
+      capabilityGroups: [],
     }),
   });
 
@@ -999,6 +1172,7 @@ Deno.test("shouldUseSecureOauthCookie logs through injected logger", () => {
         jetstream: { replicas: 1 },
         trellis: { credsPath: "/tmp/trellis.creds" },
         auth: { credsPath: "/tmp/auth.creds" },
+        system: { credsPath: "/tmp/system.creds" },
         sentinelCredsPath: "/tmp/sentinel.creds",
         authCallout: {
           issuer: { nkey: "issuer", signing: "signing" },
@@ -1055,6 +1229,7 @@ Deno.test("shouldUseSecureOauthCookie allows insecure cookies on plain-http loop
         jetstream: { replicas: 1 },
         trellis: { credsPath: "/tmp/trellis.creds" },
         auth: { credsPath: "/tmp/auth.creds" },
+        system: { credsPath: "/tmp/system.creds" },
         sentinelCredsPath: "/tmp/sentinel.creds",
         authCallout: {
           issuer: { nkey: "issuer", signing: "signing" },
@@ -1100,6 +1275,7 @@ Deno.test("shouldUseSecureOauthCookie keeps plain-http non-loopback OAuth cookie
         jetstream: { replicas: 1 },
         trellis: { credsPath: "/tmp/trellis.creds" },
         auth: { credsPath: "/tmp/auth.creds" },
+        system: { credsPath: "/tmp/system.creds" },
         sentinelCredsPath: "/tmp/sentinel.creds",
         authCallout: {
           issuer: { nkey: "issuer", signing: "signing" },
@@ -1145,6 +1321,7 @@ Deno.test("shouldUseSecureOauthCookie honors exact insecure cookie origin allowl
         jetstream: { replicas: 1 },
         trellis: { credsPath: "/tmp/trellis.creds" },
         auth: { credsPath: "/tmp/auth.creds" },
+        system: { credsPath: "/tmp/system.creds" },
         sentinelCredsPath: "/tmp/sentinel.creds",
         authCallout: {
           issuer: { nkey: "issuer", signing: "signing" },
@@ -1190,6 +1367,7 @@ Deno.test("shouldUseSecureOauthCookie keeps non-loopback plain-http cookies secu
         jetstream: { replicas: 1 },
         trellis: { credsPath: "/tmp/trellis.creds" },
         auth: { credsPath: "/tmp/auth.creds" },
+        system: { credsPath: "/tmp/system.creds" },
         sentinelCredsPath: "/tmp/sentinel.creds",
         authCallout: {
           issuer: { nkey: "issuer", signing: "signing" },
@@ -1235,6 +1413,7 @@ Deno.test("shouldUseSecureOauthCookie keeps https OAuth cookies secure", () => {
         jetstream: { replicas: 1 },
         trellis: { credsPath: "/tmp/trellis.creds" },
         auth: { credsPath: "/tmp/auth.creds" },
+        system: { credsPath: "/tmp/system.creds" },
         sentinelCredsPath: "/tmp/sentinel.creds",
         authCallout: {
           issuer: { nkey: "issuer", signing: "signing" },

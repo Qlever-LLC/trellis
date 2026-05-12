@@ -219,7 +219,11 @@ The built-in portal is authored in `js/portals/login` and is served by Trellis i
 
 ## 11. Create the first admin
 
-Before logging into the console, open the admin bootstrap URL printed by the auth service. The bootstrap flow creates the first Trellis account with a generated `userId`, links the sign-in identity you choose, and assigns the built-in `admin` group/capability set.
+Before logging into the console, open the admin bootstrap URL printed by the auth
+service. The bootstrap flow creates the first Trellis account with a generated
+`userId`, links the sign-in identity you choose, and assigns the built-in
+`admin` capability group. The group resolves to the Trellis admin capability set
+in the Console and at authorization time.
 
 ## 12. Log in with the CLI
 

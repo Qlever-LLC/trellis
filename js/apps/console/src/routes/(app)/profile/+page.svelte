@@ -6,12 +6,14 @@
   import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
   import {
     describeUserGrant,
+    formatIdentityProviderSubject,
     participantKindBadgeClass,
     participantKindLabel,
     type ParticipantKind,
     type UserGrantRecord,
   } from "../../../lib/auth_display.ts";
   import { errorMessage, formatDate } from "../../../lib/format";
+  import { getNotifications } from "../../../lib/notifications.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import InlineMetricsStrip from "$lib/components/InlineMetricsStrip.svelte";
@@ -22,13 +24,53 @@
 
   const trellis = getTrellis();
   const connection = getConnection();
+  const notifications = getNotifications();
 
   let loading = $state(true);
   let error = $state<string | null>(null);
   let user = $state<AuthSessionsMeOutput["user"] | null>(null);
   let participantKind = $state<ParticipantKind | null>(null);
   const connectionStatus = $derived(connection.status.phase);
+  const userIdentity = $derived(user ? formatIdentityProviderSubject(user.identity) : "—");
   let grants = $state<UserGrantRecord[]>([]);
+  let linkPending = $state(false);
+  let linkError = $state<string | null>(null);
+
+  function openPreparedTab(url: string, tab: Window | null): boolean {
+    const opened = tab && !tab.closed ? tab : window.open("", "_blank");
+    if (!opened) return false;
+    opened.opener = null;
+    opened.location.href = url;
+    opened.focus();
+    return true;
+  }
+
+  async function createIdentityLink() {
+    linkPending = true;
+    linkError = null;
+    const preparedTab = window.open("", "_blank");
+    try {
+      const response = await trellis.request("Auth.AccountFlows.CreateIdentityLink", {}).take();
+      if (isErr(response)) {
+        preparedTab?.close();
+        linkError = errorMessage(response);
+        notifications.error(linkError, "Account link failed");
+        return;
+      }
+      if (!openPreparedTab(response.url, preparedTab)) {
+        linkError = "Your browser blocked the account-link tab. Allow pop-ups for this site and try again.";
+        notifications.error(linkError, "Account link blocked");
+        return;
+      }
+      notifications.success("Opened account-link flow in a new tab.", "Account link ready");
+    } catch (e) {
+      preparedTab?.close();
+      linkError = errorMessage(e);
+      notifications.error(linkError, "Account link failed");
+    } finally {
+      linkPending = false;
+    }
+  }
 
   async function loadProfile() {
     loading = true;
@@ -92,7 +134,35 @@
     </div>
     </Panel>
 
-    <InlineMetricsStrip metrics={[{ label: "Origin", value: user.origin }, { label: "Signed in as", value: participantKind ? participantKindLabel(participantKind) : "—" }, { label: "Session", value: connectionStatus === "connected" ? "Connected" : connectionStatus === "reconnecting" ? "Reconnecting" : "Disconnected" }]} />
+    <InlineMetricsStrip metrics={[{ label: "Identity", value: userIdentity }, { label: "Signed in as", value: participantKind ? participantKindLabel(participantKind) : "—" }, { label: "Session", value: connectionStatus === "connected" ? "Connected" : connectionStatus === "reconnecting" ? "Reconnecting" : "Disconnected" }]} />
+
+    <Panel title="Account linking" eyebrow="Linked identity">
+      <div class="space-y-3">
+        <div class="grid grid-cols-1 gap-2 text-xs md:grid-cols-3">
+          <div class="min-w-0">
+            <div class="trellis-field-help">Provider subject</div>
+            <div class="trellis-identifier break-all text-base-content/70">{userIdentity}</div>
+          </div>
+          <div class="min-w-0">
+            <div class="trellis-field-help">Identity ID</div>
+            <div class="trellis-identifier break-all text-base-content/70">{user.identity.identityId}</div>
+          </div>
+          <div class="min-w-0">
+            <div class="trellis-field-help">User</div>
+            <div class="truncate text-base-content/70">{user.name}</div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 border-y border-base-300 py-3">
+          <p class="trellis-field-help">Attach another enabled sign-in provider to this account.</p>
+          <button class="btn btn-outline btn-sm" type="button" onclick={createIdentityLink} disabled={linkPending}>{linkPending ? "Opening..." : "Link another account"}</button>
+        </div>
+
+        {#if linkError}
+          <div class="alert alert-error text-sm" role="alert"><span>{linkError}</span></div>
+        {/if}
+      </div>
+    </Panel>
 
     {#if user.capabilities?.length}
       <Panel title="Capabilities" eyebrow="User grants">

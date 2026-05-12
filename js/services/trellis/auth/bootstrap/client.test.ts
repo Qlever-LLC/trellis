@@ -136,9 +136,12 @@ async function createVerifiedApp(args?: {
   sessionKV.seed(auth.sessionKey, {
     type: "user",
     participantKind: "app",
-    trellisId: "user-1",
-    origin: "github",
-    id: "123",
+    userId: "user-1",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
     email: "user@example.com",
     name: "Example User",
     contractDigest: validated.digest,
@@ -160,6 +163,7 @@ async function createVerifiedApp(args?: {
       email: "user@example.com",
       active: true,
       capabilities: ["read:deployment"],
+      capabilityGroups: [],
     },
   );
 
@@ -224,9 +228,12 @@ Deno.test("POST /bootstrap/client returns runtime bootstrap info for bound brows
       resources: contract.contract.resources,
     },
     user: {
-      trellisId: "user-1",
-      origin: "github",
-      id: "123",
+      userId: "user-1",
+      identity: {
+        identityId: "idn_github_123",
+        provider: "github",
+        subject: "123",
+      },
       email: "user@example.com",
       name: "Example User",
     },
@@ -260,9 +267,12 @@ Deno.test("POST /bootstrap/client accepts the exact session digest when multiple
   sessionKV.seed(auth.sessionKey, {
     type: "user",
     participantKind: "app",
-    trellisId: "user-1",
-    origin: "github",
-    id: "123",
+    userId: "user-1",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
     email: "user@example.com",
     name: "Example User",
     contractDigest: sessionContract.digest,
@@ -282,6 +292,7 @@ Deno.test("POST /bootstrap/client accepts the exact session digest when multiple
     email: "user@example.com",
     active: true,
     capabilities: ["read:deployment"],
+    capabilityGroups: [],
   });
 
   const app = new Hono();
@@ -370,6 +381,7 @@ Deno.test("POST /bootstrap/client returns not_ready when the bound user is inact
       email: "user@example.com",
       active: false,
       capabilities: ["read:deployment"],
+      capabilityGroups: [],
     },
   });
 

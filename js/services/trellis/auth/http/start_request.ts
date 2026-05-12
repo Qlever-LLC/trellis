@@ -5,6 +5,7 @@ import {
   type EnvelopeBoundary,
   type PendingAuth,
   type SessionApprovalSource,
+  type SessionIdentity,
 } from "../schemas.ts";
 import {
   computeEnvelopeDelta,
@@ -47,6 +48,8 @@ export type AuthStartFlowResponse = {
 export type AuthStartResponse = AuthStartBoundResponse | AuthStartFlowResponse;
 
 export type CurrentUserSession = {
+  userId: string;
+  identity: SessionIdentity;
   origin: string;
   id: string;
   email: string;
@@ -305,6 +308,8 @@ export function createAuthStartRequestHandler(deps: {
     let resolution: ApprovalResolution | null = null;
     if (existingSession) {
       const pendingValue: PendingAuth = {
+        userId: existingSession.userId,
+        identity: existingSession.identity,
         user: {
           origin: existingSession.origin,
           id: existingSession.id,

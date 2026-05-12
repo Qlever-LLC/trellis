@@ -41,6 +41,8 @@ type PermissionState = {
 
 const JETSTREAM_EVENT_CONTROL_SUBJECTS = [
   "$JS.API.INFO",
+  "$JS.API.CONSUMER.CREATE.trellis",
+  "$JS.API.CONSUMER.CREATE.trellis.>",
   "$JS.API.CONSUMER.DURABLE.CREATE.trellis.>",
   "$JS.API.CONSUMER.INFO.trellis.>",
   "$JS.API.CONSUMER.MSG.NEXT.trellis.>",
@@ -506,6 +508,36 @@ function hasDeclaredEventSubscriptions(
 }
 
 /**
+ * Return the JetStream control publish subjects required to create and consume
+ * durable event subscriptions on the Trellis event stream.
+ */
+export function eventSubscriptionControlPublishSubjects(): string[] {
+  return [...JETSTREAM_EVENT_CONTROL_SUBJECTS];
+}
+
+function hasCallerEventSubscriptions(
+  capabilities: string[],
+  caller: CallerContractDescriptor,
+  entries: ContractEntry[],
+  permissionState: PermissionState,
+): boolean {
+  return entries.some((entry) =>
+    resolvedUses(entry, permissionState).eventSubscribes.some((event) =>
+      envelopeHasSurface(caller.identityEnvelope, {
+        contractId: event.contractId,
+        kind: "event",
+        name: event.key,
+        action: "subscribe",
+      }) &&
+      hasRequiredCapabilities(
+        capabilities,
+        event.event.capabilities?.subscribe ?? [],
+      )
+    )
+  );
+}
+
+/**
  * Derive publish subjects for a user/app session against an explicit contract set.
  * This is used when the caller app contract is known but is not part of the
  * service/device active catalog used for runtime-owned subjects.
@@ -521,6 +553,14 @@ export function getUserPublishSubjectsForContracts(
 
   return dedupe([
     ...permittedRuleSubjects(rules, capabilities, caller.identityEnvelope),
+    ...(hasCallerEventSubscriptions(
+        capabilities,
+        caller,
+        entries,
+        permissionState,
+      )
+      ? JETSTREAM_EVENT_CONTROL_SUBJECTS
+      : []),
   ]);
 }
 

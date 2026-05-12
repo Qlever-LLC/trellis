@@ -51,7 +51,7 @@ export async function registerServiceAdminRpcs(deps: {
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
   serviceInstanceStorage: SqlServiceInstanceRepository;
-  natsAuth: {
+  natsSystem: {
     request(subject: string, payload?: string): Promise<unknown>;
   };
   natsTrellis: AuthRuntimeDeps["natsTrellis"];
@@ -68,7 +68,7 @@ export async function registerServiceAdminRpcs(deps: {
     | "validateActiveCatalogForRemoval"
   >;
 }): Promise<void> {
-  const kick = createKick({ logger: deps.logger, natsAuth: deps.natsAuth });
+  const kick = createKick({ logger: deps.logger, natsSystem: deps.natsSystem });
   const serviceAdminDeps = {
     logger: deps.logger,
     deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,

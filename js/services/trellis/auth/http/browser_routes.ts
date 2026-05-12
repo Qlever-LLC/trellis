@@ -5,14 +5,22 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import { planUserContractApproval } from "../approval/plan.ts";
+import {
+  completeAccountFlowOAuth,
+  type CompleteAccountFlowOAuthError,
+} from "../account_flows/oauth_completion.ts";
 import { hashKey, randomToken, verifyDomainSig } from "../crypto.ts";
-import { OAuth2CodeRequest, OAuth2CodeResponse } from "../oauth.ts";
+import {
+  isLocalCredentialLocked,
+  recordLocalCredentialLoginFailure,
+  resetLocalCredentialLoginFailures,
+} from "../local_credentials/login_attempts.ts";
+import { verifyLocalCredentialPassword } from "../local_credentials/passwords.ts";
 import {
   type PendingAuth,
   SessionKeySchema,
   SignatureSchema,
 } from "../schemas.ts";
-import { upsertUserProjectionInSql } from "../session/projection.ts";
 import { validateRedirectTo } from "../redirect.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import type { AuthHttpRouteContext } from "./route_context.ts";
@@ -41,6 +49,41 @@ const AuthStartRequestSchema = Type.Object({
   contract: Type.Optional(JsonObjectSchema),
   context: Type.Optional(JsonObjectSchema),
 });
+
+const LocalLoginRequestSchema = Type.Object({
+  flowId: Type.String({ minLength: 1 }),
+  username: Type.String({ minLength: 1 }),
+  password: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+
+function accountFlowOAuthErrorStatus(
+  error: CompleteAccountFlowOAuthError,
+): 400 | 403 | 404 | 409 | 410 {
+  switch (error) {
+    case "flow_not_found":
+    case "target_user_not_found":
+      return 404;
+    case "flow_expired":
+      return 410;
+    case "flow_already_consumed":
+    case "admin_already_exists":
+    case "identity_conflict":
+    case "flow_consume_conflict":
+      return 409;
+    case "flow_wrong_kind":
+    case "flow_missing_admin_capability":
+    case "flow_missing_target_user":
+    case "provider_not_allowed":
+    case "target_user_inactive":
+      return 403;
+  }
+}
+
+function invalidCredentialsResponse(c: {
+  json: (body: unknown, status?: number) => Response;
+}): Response {
+  return c.json({ error: "invalid_credentials" }, 403);
+}
 
 /** Registers browser login and OAuth callback HTTP endpoints. */
 export function registerBrowserAuthRoutes(
@@ -179,10 +222,17 @@ export function registerBrowserAuthRoutes(
     if (!flow) {
       throw new HTTPException(404, { message: "Expired browser flow" });
     }
+    if (flow.kind !== "login" || flow.expiresAt <= new Date()) {
+      throw new HTTPException(404, { message: "Expired browser flow" });
+    }
+    if (!flow.sessionKey) {
+      throw new HTTPException(400, { message: "Invalid browser flow state" });
+    }
 
-    const [redirectUrl, idpParams] = await OAuth2CodeRequest(provider);
+    const [redirectUrl, idpParams] = await context.oauthCodeRequest(provider);
     const stateHash = await hashKey(idpParams.state);
     const createResult = await oauthStateKV.create(stateHash, {
+      kind: "browser_login",
       provider: c.req.param("provider"),
       flowId,
       redirectTo: flow.redirectTo ?? "",
@@ -217,9 +267,109 @@ export function registerBrowserAuthRoutes(
     return c.redirect(redirectUrl);
   });
 
+  app.post("/auth/login/local", async (c) => {
+    const bodyResult = await AsyncResult.try(() => c.req.json());
+    if (bodyResult.isErr()) {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    const body = bodyResult.take();
+    if (!Value.Check(LocalLoginRequestSchema, body)) {
+      return c.json({ error: "Invalid local login request" }, 400);
+    }
+
+    const request = Value.Parse(LocalLoginRequestSchema, body);
+    const flow = await context.loadBrowserFlow(request.flowId);
+    if (!flow) {
+      throw new HTTPException(404, { message: "Expired browser flow" });
+    }
+    if (flow.kind !== "login" || flow.expiresAt <= new Date()) {
+      throw new HTTPException(404, { message: "Expired browser flow" });
+    }
+    if (!flow.sessionKey) {
+      throw new HTTPException(400, { message: "Invalid browser flow state" });
+    }
+
+    const identity = await opts.userIdentityStorage.getByProviderSubject(
+      "local",
+      request.username,
+    );
+    if (!identity) return invalidCredentialsResponse(c);
+
+    const account = await opts.accountStorage.get(identity.userId);
+    if (!account) return invalidCredentialsResponse(c);
+
+    const credential = await opts.localCredentialStorage.get(
+      identity.identityId,
+    );
+    if (!credential) return invalidCredentialsResponse(c);
+    const now = new Date();
+    if (isLocalCredentialLocked(credential, now)) {
+      return invalidCredentialsResponse(c);
+    }
+
+    const passwordValid = await verifyLocalCredentialPassword(
+      credential,
+      request.password,
+    );
+    if (!passwordValid) {
+      await opts.localCredentialStorage.put(
+        recordLocalCredentialLoginFailure(credential, now),
+      );
+      return invalidCredentialsResponse(c);
+    }
+    await opts.localCredentialStorage.put(
+      resetLocalCredentialLoginFailures(credential, now),
+    );
+    if (!account.active) return c.json({ error: "user_inactive" }, 403);
+
+    await opts.userIdentityStorage.put({
+      ...identity,
+      lastLoginAt: now.toISOString(),
+    });
+
+    const authToken = randomToken(32);
+    const authTokenHash = await hashKey(authToken);
+    const email = account.email ?? identity.email;
+    const name = account.name ?? identity.displayName;
+    const pending: PendingAuth = {
+      userId: account.userId,
+      identity: {
+        identityId: identity.identityId,
+        provider: identity.provider,
+        subject: identity.subject,
+      },
+      user: {
+        origin: "local",
+        id: identity.subject,
+        ...(email ? { email } : {}),
+        ...(name ? { name } : {}),
+      },
+      sessionKey: flow.sessionKey,
+      redirectTo: flow.redirectTo ?? "",
+      ...(flow.app ? { app: flow.app } : {}),
+      contract: flow.contract ?? {},
+      createdAt: now,
+    };
+
+    const pendingPut = await pendingAuthKV.create(authTokenHash, pending);
+    if (isErr(pendingPut)) {
+      logger.error({ error: pendingPut.error }, "Failed to store pending auth");
+      throw new HTTPException(500, { message: "Failed to store auth token" });
+    }
+
+    await context.saveBrowserFlow({
+      ...flow,
+      provider: "local",
+      authToken,
+    });
+
+    return c.json({ status: "authenticated", flowId: request.flowId });
+  });
+
   app.get("/auth/callback/:provider", async (c) => {
     logger.trace({}, "Handling auth provider redirect");
-    const provider = providers[c.req.param("provider")];
+    const providerId = c.req.param("provider");
+    const provider = providers[providerId];
     if (!provider) {
       throw new HTTPException(404, { message: "Unknown OAuth Provider" });
     }
@@ -241,7 +391,7 @@ export function registerBrowserAuthRoutes(
       throw new HTTPException(400, { message: "Invalid or expired state" });
     }
     const oauthEntry = oauthStateEntry as OAuthStateEntry;
-    if (oauthEntry.value.provider !== c.req.param("provider")) {
+    if (oauthEntry.value.provider !== providerId) {
       throw new HTTPException(400, { message: "OAuth provider mismatch" });
     }
 
@@ -257,7 +407,7 @@ export function registerBrowserAuthRoutes(
       secure: shouldUseSecureOauthCookie(config, { logger }),
     });
 
-    const { accessToken } = await OAuth2CodeResponse(
+    const { accessToken } = await context.oauthCodeResponse(
       provider,
       url,
       state,
@@ -265,25 +415,65 @@ export function registerBrowserAuthRoutes(
     );
 
     const user = await provider.getUserInfo(accessToken);
+    if (user.provider !== providerId) {
+      throw new HTTPException(400, { message: "OAuth provider mismatch" });
+    }
     logger.debug({ user: user.id }, "Authentication successful.");
 
-    await upsertUserProjectionInSql(opts.userStorage, {
-      origin: user.provider,
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      active: true,
-      capabilities: [],
+    if (oauthEntry.value.kind === "account_flow") {
+      const result = await completeAccountFlowOAuth({
+        flowId: oauthEntry.value.flowId,
+        provider: providerId,
+        user,
+        accountFlowStorage: opts.accountFlowStorage,
+        accountStorage: opts.accountStorage,
+        capabilityGroupStorage: opts.capabilityGroupStorage,
+        userIdentityStorage: opts.userIdentityStorage,
+      });
+      if (!result.ok) {
+        return c.json(
+          { error: result.error },
+          accountFlowOAuthErrorStatus(result.error),
+        );
+      }
+
+      const flow = await opts.accountFlowStorage.get(
+        await hashKey(oauthEntry.value.flowId),
+      );
+      const portalUrl = new URL(
+        context.resolveAccountFlowPortalEntryUrl(flow?.kind ?? "identity_link"),
+      );
+      portalUrl.searchParams.set("flowId", oauthEntry.value.flowId);
+      portalUrl.searchParams.set("status", "completed");
+      portalUrl.searchParams.set("userId", result.userId);
+      return c.redirect(portalUrl.toString());
+    }
+
+    const linkedUser = await context.resolveLinkedActiveUserIdentity({
+      provider: providerId,
+      subject: user.id,
+    });
+    await opts.userIdentityStorage.put({
+      ...linkedUser.identity,
+      displayName: user.name ?? linkedUser.identity.displayName,
+      email: user.email ?? linkedUser.identity.email,
+      lastLoginAt: new Date().toISOString(),
     });
 
     const authToken = randomToken(32);
     const authTokenHash = await hashKey(authToken);
     const pending: PendingAuth = {
+      userId: linkedUser.account.userId,
+      identity: {
+        identityId: linkedUser.identity.identityId,
+        provider: linkedUser.identity.provider,
+        subject: linkedUser.identity.subject,
+      },
       user: {
-        origin: user.provider,
+        origin: providerId,
         id: user.id,
-        email: user.email,
-        name: user.name,
+        email: linkedUser.account.email ?? user.email,
+        name: linkedUser.account.name ?? user.name,
         image: user.picture,
       },
       sessionKey: oauthEntry.value.sessionKey,

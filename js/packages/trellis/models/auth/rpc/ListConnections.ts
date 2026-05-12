@@ -2,10 +2,13 @@ import Type, { type Static } from "typebox";
 
 const UserPrincipalSchema = Type.Object({
   type: Type.Literal("user"),
-  trellisId: Type.String(),
-  origin: Type.String(),
-  id: Type.String(),
-  name: Type.Optional(Type.String()),
+  userId: Type.String(),
+  identity: Type.Object({
+    identityId: Type.String(),
+    provider: Type.String(),
+    subject: Type.String(),
+  }),
+  name: Type.String(),
 });
 
 const ServicePrincipalSchema = Type.Object({

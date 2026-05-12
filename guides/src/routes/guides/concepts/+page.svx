@@ -154,6 +154,9 @@ RPC, operation, event, or feed.
 Trellis uses external OAuth or OIDC providers for user login when needed, but
 those provider scopes are not Trellis's main authorization model. Inside
 Trellis, authorization is contract-driven and uses Trellis-owned capabilities.
+The Trellis user account is the durable user principal: linked local and OIDC
+login identities are sign-in methods for that account, not separate authorization
+containers.
 
 ### Principals
 
@@ -201,6 +204,17 @@ Provider scopes like `openid`, `profile`, and `email` stay in the external
 identity-provider layer. The approval screen inside Trellis is about the app's
 requested Trellis capabilities and contract-derived access, not about minting an
 OAuth access token for a Trellis API.
+
+App approvals are reusable across linked identities on the same Trellis account.
+If you approve an app while signed in with one linked OIDC identity, signing in
+later with another linked OIDC identity or the account's local identity can reuse
+that approval for the same app identity. Provider details are kept as audit
+evidence, but they are not the approval matching key.
+
+Users can start account linking from the Console profile. The profile action
+opens the account-link flow directly, so users should not need to copy a
+generated link. A Trellis account can have many OIDC login identities but only
+one local username/password identity.
 
 Deployments can also configure **grant overrides** for browser apps. A grant override is keyed by contract lineage and may optionally restrict matching browser origins. When an override matches, Trellis can pre-authorize envelope and capability decisions without copying those capabilities onto the user record. This is how a Trellis admin can remove first-login approval screens for trusted product apps while still keeping the decision deployment-owned and revocable.
 

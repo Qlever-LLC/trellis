@@ -50,9 +50,10 @@ function resolutionFixture(): ApprovalResolution {
       contractId: "trellis.console@v1",
       origin: "https://console.example.com",
     },
-    trellisId: "tid_123",
-    userOrigin: "github",
-    userId: "123",
+    userId: "tid_123",
+    identityId: "idn_github_123",
+    identityProvider: "github",
+    identitySubject: "123",
     userEmail: "ada@example.com",
     userName: "Ada",
     sessionPublicKey: "session-key",
@@ -63,6 +64,7 @@ function resolutionFixture(): ApprovalResolution {
       email: "ada@example.com",
       active: true,
       capabilities: ["admin"],
+      capabilityGroups: [],
     },
     existingCapabilities: ["admin"],
     effectiveCapabilities: ["admin"],
@@ -70,6 +72,25 @@ function resolutionFixture(): ApprovalResolution {
     matchedPolicies: [],
     effectiveApproval: { kind: "none", answer: "none" },
     storedApproval: null,
+  };
+}
+
+function currentSessionFixture() {
+  return {
+    userId: "tid_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
+    origin: "github",
+    id: "123",
+    email: "ada@example.com",
+    name: "Ada",
+    contractId: "trellis.console@v1",
+    delegatedCapabilities: ["admin"],
+    delegatedPublishSubjects: ["rpc.v1.Auth.Sessions.Me"],
+    delegatedSubscribeSubjects: ["events.v1.Auth.Connections.Opened.>"],
   };
 }
 
@@ -81,6 +102,7 @@ Deno.test("approval resolver requires a persisted identity envelope", () => {
         contractId: "trellis.console@v1",
         origin: "https://console.example.com",
       },
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -117,6 +139,7 @@ Deno.test("approval resolver requires concrete subject and capability subsets", 
         contractId: "trellis.console@v1",
         origin: "https://console.example.com",
       },
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -161,6 +184,7 @@ Deno.test("approval resolver binds same web identity with new digest when existi
         contractId: "trellis.console@v1",
         origin: "https://console.example.com",
       },
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -193,6 +217,7 @@ Deno.test("approval resolver requests delta for same identity when new digest ex
         contractId: "trellis.console@v1",
         origin: "https://console.example.com",
       },
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -223,6 +248,7 @@ Deno.test("approval resolver requires approval when identity anchor changes", ()
         contractId: "trellis.console@v1",
         origin: "https://console.example.com",
       },
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -252,6 +278,7 @@ Deno.test("approval resolver requires exact cli/native identity anchor kind", ()
         contractId: "trellis.console@v1",
         sessionPublicKey: "session-key",
       },
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -283,6 +310,7 @@ Deno.test("approval resolver reports insufficient user capabilities", () => {
         contractId: "trellis.console@v1",
         origin: "https://console.example.com",
       },
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -324,6 +352,7 @@ Deno.test("approval resolver reports unavailable system surface", () => {
         contractId: "trellis.console@v1",
         origin: "https://console.example.com",
       },
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -365,6 +394,7 @@ Deno.test("approval resolver uses resolution system availability when no overrid
         contractId: "trellis.console@v1",
         origin: "https://console.example.com",
       },
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -401,6 +431,7 @@ Deno.test("approval resolver does not treat system capability gaps as availabili
         contractId: "trellis.console@v1",
         origin: "https://console.example.com",
       },
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -533,6 +564,7 @@ Deno.test("auth start auto-approves contract changes when current session envelo
   const handler = createAuthStartRequestHandler({
     verifyInitRequest: async () => true,
     loadCurrentUserSession: async () => ({
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -590,6 +622,7 @@ Deno.test("auth start falls back to normal auth flow when current session envelo
   const handler = createAuthStartRequestHandler({
     verifyInitRequest: async () => true,
     loadCurrentUserSession: async () => ({
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -637,6 +670,7 @@ Deno.test("auth start falls back to normal auth flow when app identity changes",
   const handler = createAuthStartRequestHandler({
     verifyInitRequest: async () => true,
     loadCurrentUserSession: async () => ({
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",
@@ -693,6 +727,7 @@ Deno.test("auth start does not treat stored digest approval as identity-envelope
   const handler = createAuthStartRequestHandler({
     verifyInitRequest: async () => true,
     loadCurrentUserSession: async () => ({
+      ...currentSessionFixture(),
       origin: "github",
       id: "123",
       email: "ada@example.com",

@@ -4,12 +4,8 @@ import {
   base64urlEncode,
   createAuth,
   sha256,
-  trellisIdFromOriginId,
   utf8,
 } from "@qlever-llc/trellis/auth";
-import Value from "typebox/value";
-
-import { AuthSessionsMeResponseSchema } from "@qlever-llc/trellis/auth";
 import {
   createAuthConnectionsListHandler,
   createAuthRequestsValidateHandler,
@@ -18,7 +14,11 @@ import {
 } from "./rpc.ts";
 import { connectionKey } from "./connections.ts";
 import { createAuthSessionsRevokeHandler } from "./revoke.ts";
-import type { IdentityEnvelopeRecord, Session } from "../schemas.ts";
+import type {
+  IdentityEnvelopeRecord,
+  Session,
+  UserSession,
+} from "../schemas.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
 import {
   initializeTrellisStorageSchema,
@@ -104,7 +104,7 @@ function sessionStorageFromKV(kv: InMemoryKV<Session>) {
     const iter = await kv.keys(filter).take();
     const result = [] as Array<{
       sessionKey: string;
-      trellisId: string;
+      principalId: string;
       session: Session;
     }>;
     if (isErr(iter)) return result;
@@ -113,10 +113,12 @@ function sessionStorageFromKV(kv: InMemoryKV<Session>) {
       if (isErr(entry)) continue;
       const sessionKey = key;
       const session = entry.value;
-      const trellisId = session.type === "device"
+      const principalId = session.type === "device"
         ? session.instanceId
+        : session.type === "user"
+        ? session.userId
         : session.trellisId;
-      result.push({ sessionKey, trellisId, session: entry.value });
+      result.push({ sessionKey, principalId, session: entry.value });
     }
     return result;
   }
@@ -126,8 +128,8 @@ function sessionStorageFromKV(kv: InMemoryKV<Session>) {
       return isErr(entry) ? undefined : entry.value;
     },
     listEntries: () => entries(">"),
-    listEntriesByUser: async (trellisId: string) =>
-      (await entries(">")).filter((entry) => entry.trellisId === trellisId),
+    listEntriesByUser: async (userId: string) =>
+      (await entries(">")).filter((entry) => entry.principalId === userId),
     deleteBySessionKey: async (sessionKey: string) => {
       await kv.delete(sessionKey).take();
     },
@@ -224,6 +226,48 @@ function baseSessionFields() {
   };
 }
 
+const TEST_USER_ID = "usr_github_123";
+const TEST_IDENTITY = {
+  identityId: "idn_github_123",
+  provider: "github",
+  subject: "123",
+};
+
+function testUserProjection(
+  overrides: Partial<UserProjectionEntry> = {},
+): UserProjectionEntry {
+  return {
+    origin: "account",
+    id: TEST_USER_ID,
+    name: "Ada",
+    email: "ada@example.com",
+    active: true,
+    capabilities: ["users.read"],
+    capabilityGroups: [],
+    ...overrides,
+  };
+}
+
+function testUserSession(overrides: Partial<UserSession> = {}): UserSession {
+  return {
+    type: "user",
+    userId: TEST_USER_ID,
+    identity: TEST_IDENTITY,
+    email: "ada@example.com",
+    name: "Ada",
+    participantKind: "app",
+    contractDigest: "digest-a",
+    contractId: "trellis.console@v1",
+    contractDisplayName: "Console",
+    contractDescription: "Admin app",
+    delegatedCapabilities: ["admin"],
+    delegatedPublishSubjects: [],
+    delegatedSubscribeSubjects: [],
+    ...baseSessionFields(),
+    ...overrides,
+  };
+}
+
 Deno.test("Auth.Sessions.Me returns user, device, and service envelopes", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const userStorage = new InMemoryUserStorage();
@@ -266,22 +310,14 @@ Deno.test("Auth.Sessions.Me returns user, device, and service envelopes", async 
       deploymentId === "billing.default" ? { disabled: false } : undefined,
   });
 
-  const userTrellisId = await trellisIdFromOriginId("github", "123");
-  userStorage.seed(userTrellisId, {
-    origin: "github",
-    id: "123",
-    name: "Ada",
-    email: "ada@example.com",
-    active: true,
-    capabilities: ["users.read"],
-  });
+  const userTrellisId = TEST_USER_ID;
+  userStorage.seed(userTrellisId, testUserProjection());
 
   const userSessionKey = "sk_user";
   sessionKV.seed(userSessionKey, {
     type: "user",
-    trellisId: userTrellisId,
-    origin: "github",
-    id: "123",
+    userId: userTrellisId,
+    identity: TEST_IDENTITY,
     email: "ada@example.com",
     name: "Ada",
     participantKind: "app",
@@ -300,15 +336,14 @@ Deno.test("Auth.Sessions.Me returns user, device, and service envelopes", async 
   });
   const userValue = userResult.take();
   if (isErr(userValue)) throw userValue.error;
-  assert(Value.Check(AuthSessionsMeResponseSchema, userValue));
   assertEquals(userValue, {
     participantKind: "app",
     user: {
-      id: "123",
-      origin: "github",
+      userId: TEST_USER_ID,
       active: true,
       name: "Ada",
       email: "ada@example.com",
+      identity: TEST_IDENTITY,
       capabilities: ["users.read"],
       lastLogin: "2026-04-10T00:00:00.000Z",
     },
@@ -336,7 +371,7 @@ Deno.test("Auth.Sessions.Me returns user, device, and service envelopes", async 
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
     deploymentId: "reader.default",
-    activatedBy: { origin: "github", id: "123" },
+    activatedBy: { origin: "account", id: TEST_USER_ID },
     state: "activated",
     activatedAt: "2026-04-10T00:00:00.000Z",
     revokedAt: null,
@@ -360,11 +395,15 @@ Deno.test("Auth.Sessions.Me returns user, device, and service envelopes", async 
   assertEquals(deviceValue, {
     participantKind: "device",
     user: {
-      id: "123",
-      origin: "github",
+      userId: TEST_USER_ID,
       active: true,
       name: "Ada",
       email: "ada@example.com",
+      identity: {
+        identityId: TEST_USER_ID,
+        provider: "account",
+        subject: TEST_USER_ID,
+      },
       capabilities: ["users.read"],
     },
     device: {
@@ -421,13 +460,13 @@ Deno.test("session RPC handlers log through the injected logger", async () => {
     sessionStorage: sessionStorageFromKV(new InMemoryKV<Session>()),
   });
 
-  const result = await handler({ input: { user: "github.123" } });
+  const result = await handler({ input: { user: TEST_USER_ID } });
   const value = result.take();
   if (isErr(value)) throw value.error;
 
   assertEquals(logs, [{
     level: "trace",
-    fields: { rpc: "Auth.Sessions.List", user: "github.123" },
+    fields: { rpc: "Auth.Sessions.List", user: TEST_USER_ID },
     message: "RPC request",
   }]);
 });
@@ -517,9 +556,8 @@ Deno.test("Auth.Sessions.Me rejects deleted user sessions despite caller context
       sessionKey: "missing",
       caller: {
         type: "user",
-        trellisId: "tid_123",
-        id: "123",
-        origin: "github",
+        userId: TEST_USER_ID,
+        identity: TEST_IDENTITY,
         active: true,
         name: "Ada",
         email: "ada@example.com",
@@ -558,33 +596,15 @@ Deno.test("Auth.Sessions.Me reflects SQL user active and capability changes", as
       deviceDeploymentStorage: getStorageFromKV(deviceDeploymentsKV),
     });
 
-    const userTrellisId = await trellisIdFromOriginId("github", "123");
-    sessionKV.seed("sk_user", {
-      type: "user",
-      trellisId: userTrellisId,
-      origin: "github",
-      id: "123",
-      email: "ada@example.com",
-      name: "Ada",
-      participantKind: "app",
-      contractDigest: "digest-a",
-      contractId: "trellis.console@v1",
-      contractDisplayName: "Console",
-      contractDescription: "Admin app",
-      delegatedCapabilities: ["fallback"],
-      delegatedPublishSubjects: [],
-      delegatedSubscribeSubjects: [],
-      ...baseSessionFields(),
-    });
+    const userTrellisId = TEST_USER_ID;
+    sessionKV.seed(
+      "sk_user",
+      testUserSession({
+        delegatedCapabilities: ["fallback"],
+      }),
+    );
 
-    await users.put(userTrellisId, {
-      origin: "github",
-      id: "123",
-      name: "Ada",
-      email: "ada@example.com",
-      active: true,
-      capabilities: ["users.read"],
-    });
+    await users.put(userTrellisId, testUserProjection());
     let result = await handler({
       context: { sessionKey: "sk_user", caller: { type: "unknown" } },
     });
@@ -593,14 +613,30 @@ Deno.test("Auth.Sessions.Me reflects SQL user active and capability changes", as
     assertEquals(value.user?.active, true);
     assertEquals(value.user?.capabilities, ["users.read"]);
 
-    await users.put(userTrellisId, {
-      origin: "github",
-      id: "123",
-      name: "Ada",
-      email: "ada@example.com",
-      active: false,
-      capabilities: ["users.write"],
+    await users.put(
+      userTrellisId,
+      testUserProjection({
+        capabilities: [],
+        capabilityGroups: ["admin"],
+      }),
+    );
+    result = await handler({
+      context: { sessionKey: "sk_user", caller: { type: "unknown" } },
     });
+    value = result.take();
+    if (isErr(value)) throw value.error;
+    assertEquals(
+      value.user?.capabilities.includes("trellis.auth::device.review"),
+      true,
+    );
+
+    await users.put(
+      userTrellisId,
+      testUserProjection({
+        active: false,
+        capabilities: ["users.write"],
+      }),
+    );
     result = await handler({
       context: { sessionKey: "sk_user", caller: { type: "unknown" } },
     });
@@ -613,24 +649,13 @@ Deno.test("Auth.Sessions.Me reflects SQL user active and capability changes", as
 
 Deno.test("Auth.Sessions.Me rejects user sessions when the durable projection is missing", async () => {
   const sessionKV = new InMemoryKV<Session>();
-  const userTrellisId = await trellisIdFromOriginId("github", "123");
-  sessionKV.seed("sk_user", {
-    type: "user",
-    trellisId: userTrellisId,
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    participantKind: "app",
-    contractDigest: "digest-a",
-    contractId: "trellis.console@v1",
-    contractDisplayName: "Console",
-    contractDescription: "Admin app",
-    delegatedCapabilities: ["fallback"],
-    delegatedPublishSubjects: [],
-    delegatedSubscribeSubjects: [],
-    ...baseSessionFields(),
-  });
+  const userTrellisId = TEST_USER_ID;
+  sessionKV.seed(
+    "sk_user",
+    testUserSession({
+      delegatedCapabilities: ["fallback"],
+    }),
+  );
 
   const handler = createAuthSessionsMeHandler({
     logger: createTestLogger(),
@@ -660,9 +685,8 @@ Deno.test("Auth.Sessions.Me rejects user sessions when the durable projection is
       sessionKey: "sk_user",
       caller: {
         type: "user",
-        trellisId: userTrellisId,
-        id: "123",
-        origin: "github",
+        userId: userTrellisId,
+        identity: TEST_IDENTITY,
         active: true,
         name: "Ada",
         email: "ada@example.com",
@@ -699,7 +723,7 @@ Deno.test("Auth.Sessions.Me rejects missing device sessions despite caller conte
     deviceDeploymentStorage: getStorageFromKV(deviceDeploymentsKV),
   });
 
-  const userTrellisId = await trellisIdFromOriginId("github", "123");
+  const userTrellisId = TEST_USER_ID;
   userStorage.seed(userTrellisId, {
     origin: "github",
     id: "123",
@@ -707,6 +731,7 @@ Deno.test("Auth.Sessions.Me rejects missing device sessions despite caller conte
     email: "ada@example.com",
     active: true,
     capabilities: ["users.read"],
+    capabilityGroups: [],
   });
   deviceActivationsKV.seed("dev_1", {
     instanceId: "dev_1",
@@ -911,6 +936,52 @@ Deno.test("Auth.Requests.Validate returns invalid_signature for malformed payloa
   assertEquals(result.error.reason, "invalid_signature");
 });
 
+Deno.test("Auth.Requests.Validate uses current delegated publish subjects", async () => {
+  const auth = await createAuth({
+    sessionKeySeed: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  });
+  const payloadHash = await sha256(utf8("{}"));
+  const sessionKV = new InMemoryKV<Session>();
+  const userStorage = new InMemoryUserStorage();
+  userStorage.seed(TEST_USER_ID, testUserProjection());
+  sessionKV.seed(
+    auth.sessionKey,
+    testUserSession({
+      delegatedCapabilities: ["users.read"],
+      delegatedPublishSubjects: ["rpc.v1.Allowed.*"],
+    }),
+  );
+  const handler = createAuthRequestsValidateHandler({
+    logger: createTestLogger(),
+    sessionStorage: sessionStorageFromKV(sessionKV),
+    userStorage,
+    deviceActivationStorage: { get: () => Promise.resolve(undefined) },
+    deviceDeploymentStorage: { get: () => Promise.resolve(undefined) },
+    deviceInstanceStorage: { get: () => Promise.resolve(undefined) },
+    loadServiceInstance: () => Promise.resolve(null),
+    loadServiceDeployment: () => Promise.resolve(null),
+  });
+
+  async function validate(subject: string) {
+    return await handler({
+      input: {
+        sessionKey: auth.sessionKey,
+        proof: await auth.createProof(subject, payloadHash),
+        subject,
+        payloadHash: base64urlEncode(payloadHash),
+      },
+    });
+  }
+
+  const allowed = (await validate("rpc.v1.Allowed.Ping")).take();
+  if (isErr(allowed)) throw allowed.error;
+  assertEquals(allowed.allowed, true);
+
+  const denied = (await validate("rpc.v1.Removed.Ping")).take();
+  if (isErr(denied)) throw denied.error;
+  assertEquals(denied.allowed, false);
+});
+
 Deno.test("Auth.Requests.Validate uses current service instance permissions", async () => {
   const auth = await createAuth({
     sessionKeySeed: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -978,50 +1049,42 @@ Deno.test("Auth.Requests.Validate uses current service instance permissions", as
 
 Deno.test("Auth.Sessions.List returns explicit participant metadata for app, agent, device, and service sessions", async () => {
   const sessionKV = new InMemoryKV<Session>();
-  const userTrellisId = await trellisIdFromOriginId("github", "123");
+  const userTrellisId = TEST_USER_ID;
 
-  sessionKV.seed("sk_app", {
-    type: "user",
-    trellisId: userTrellisId,
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    participantKind: "app",
-    contractDigest: "digest-app",
-    contractId: "trellis.console@v1",
-    contractDisplayName: "Console",
-    contractDescription: "Admin app",
-    app: {
+  sessionKV.seed(
+    "sk_app",
+    testUserSession({
+      participantKind: "app",
+      contractDigest: "digest-app",
       contractId: "trellis.console@v1",
-      origin: "https://console.example.com",
-    },
-    delegatedCapabilities: ["admin"],
-    delegatedPublishSubjects: [],
-    delegatedSubscribeSubjects: [],
-    ...baseSessionFields(),
-  });
-  sessionKV.seed("sk_agent", {
-    type: "user",
-    trellisId: userTrellisId,
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    participantKind: "agent",
-    contractDigest: "digest-agent",
-    contractId: "trellis.agent@v1",
-    contractDisplayName: "Trellis Agent",
-    contractDescription: "Local delegated tooling",
-    app: {
+      contractDisplayName: "Console",
+      contractDescription: "Admin app",
+      app: {
+        contractId: "trellis.console@v1",
+        origin: "https://console.example.com",
+      },
+      delegatedCapabilities: ["admin"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+    }),
+  );
+  sessionKV.seed(
+    "sk_agent",
+    testUserSession({
+      participantKind: "agent",
+      contractDigest: "digest-agent",
       contractId: "trellis.agent@v1",
-      origin: "https://agent.example.com",
-    },
-    delegatedCapabilities: ["jobs.read"],
-    delegatedPublishSubjects: [],
-    delegatedSubscribeSubjects: [],
-    ...baseSessionFields(),
-  });
+      contractDisplayName: "Trellis Agent",
+      contractDescription: "Local delegated tooling",
+      app: {
+        contractId: "trellis.agent@v1",
+        origin: "https://agent.example.com",
+      },
+      delegatedCapabilities: ["jobs.read"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+    }),
+  );
   sessionKV.seed("sk_device", {
     type: "device",
     instanceId: "dev_1",
@@ -1077,21 +1140,20 @@ Deno.test("Auth.Sessions.List returns explicit participant metadata for app, age
   assertEquals(
     new Set(sessionsByKey.keys()),
     new Set([
-      "github.123.sk_app",
-      "github.123.sk_agent",
+      "usr_github_123.sk_app",
+      "usr_github_123.sk_agent",
       `dev_1.${"A".repeat(43)}.sk_device`,
       "service.billing.sk_service",
     ]),
   );
-  assertEquals(sessionsByKey.get("github.123.sk_app"), {
-    key: "github.123.sk_app",
+  assertEquals(sessionsByKey.get("usr_github_123.sk_app"), {
+    key: "usr_github_123.sk_app",
     sessionKey: "sk_app",
     participantKind: "app",
     principal: {
       type: "user",
-      trellisId: userTrellisId,
-      origin: "github",
-      id: "123",
+      userId: userTrellisId,
+      identity: TEST_IDENTITY,
       name: "Ada",
     },
     contractId: "trellis.console@v1",
@@ -1100,7 +1162,7 @@ Deno.test("Auth.Sessions.List returns explicit participant metadata for app, age
     lastAuth: "2026-04-10T00:00:00.000Z",
   });
   assertEquals(
-    sessionsByKey.get("github.123.sk_agent")?.participantKind,
+    sessionsByKey.get("usr_github_123.sk_agent")?.participantKind,
     "agent",
   );
   assertEquals(
@@ -1118,29 +1180,25 @@ Deno.test("Auth.Connections.List returns explicit participant metadata for user 
   const connectionsKV = new InMemoryKV<
     { serverId: string; clientId: number; connectedAt: Date }
   >();
-  const userTrellisId = await trellisIdFromOriginId("github", "123");
+  const userTrellisId = TEST_USER_ID;
 
-  sessionKV.seed("sk_agent", {
-    type: "user",
-    trellisId: userTrellisId,
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    participantKind: "agent",
-    contractDigest: "digest-agent",
-    contractId: "trellis.agent@v1",
-    contractDisplayName: "Trellis Agent",
-    contractDescription: "Local delegated tooling",
-    app: {
+  sessionKV.seed(
+    "sk_agent",
+    testUserSession({
+      participantKind: "agent",
+      contractDigest: "digest-agent",
       contractId: "trellis.agent@v1",
-      origin: "https://agent.example.com",
-    },
-    delegatedCapabilities: ["jobs.read"],
-    delegatedPublishSubjects: [],
-    delegatedSubscribeSubjects: [],
-    ...baseSessionFields(),
-  });
+      contractDisplayName: "Trellis Agent",
+      contractDescription: "Local delegated tooling",
+      app: {
+        contractId: "trellis.agent@v1",
+        origin: "https://agent.example.com",
+      },
+      delegatedCapabilities: ["jobs.read"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+    }),
+  );
   connectionsKV.seed(connectionKey("sk_agent", userTrellisId, "user_nkey"), {
     serverId: "n1",
     clientId: 7,
@@ -1160,15 +1218,14 @@ Deno.test("Auth.Connections.List returns explicit participant metadata for user 
 
   assertEquals(value.connections, [
     {
-      key: "github.123.sk_agent.user_nkey",
+      key: "usr_github_123.sk_agent.user_nkey",
       userNkey: "user_nkey",
       sessionKey: "sk_agent",
       participantKind: "agent",
       principal: {
         type: "user",
-        trellisId: userTrellisId,
-        origin: "github",
-        id: "123",
+        userId: userTrellisId,
+        identity: TEST_IDENTITY,
         name: "Ada",
       },
       contractId: "trellis.agent@v1",
@@ -1186,25 +1243,21 @@ Deno.test("Auth.Connections.List skips malformed connection entries", async () =
     | { serverId: string; clientId: number; connectedAt: Date }
     | { serverId: string; connectedAt: Date }
   >();
-  const userTrellisId = await trellisIdFromOriginId("github", "123");
+  const userTrellisId = TEST_USER_ID;
 
-  sessionKV.seed("sk_app", {
-    type: "user",
-    trellisId: userTrellisId,
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    participantKind: "app",
-    contractDigest: "digest-app",
-    contractId: "trellis.console@v1",
-    contractDisplayName: "Console",
-    contractDescription: "Admin app",
-    delegatedCapabilities: ["admin"],
-    delegatedPublishSubjects: [],
-    delegatedSubscribeSubjects: [],
-    ...baseSessionFields(),
-  });
+  sessionKV.seed(
+    "sk_app",
+    testUserSession({
+      participantKind: "app",
+      contractDigest: "digest-app",
+      contractId: "trellis.console@v1",
+      contractDisplayName: "Console",
+      contractDescription: "Admin app",
+      delegatedCapabilities: ["admin"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+    }),
+  );
   connectionsKV.seed(connectionKey("sk_app", userTrellisId, "user_nkey_1"), {
     serverId: "n1",
     connectedAt: new Date("2026-04-10T00:00:00.000Z"),
@@ -1232,7 +1285,7 @@ Deno.test("Auth.Connections.List skips malformed connection entries", async () =
 });
 
 Deno.test("Auth.Sessions.Revoke cascades agent revocation to the grant and sibling agent sessions", async () => {
-  const userTrellisId = await trellisIdFromOriginId("github", "123");
+  const userTrellisId = TEST_USER_ID;
   const contractApprovalStorage = new InMemoryApprovalStorage();
   const sessionKV = new InMemoryKV<Session>();
   const connectionsKV = new InMemoryKV<
@@ -1273,59 +1326,47 @@ Deno.test("Auth.Sessions.Revoke cascades agent revocation to the grant and sibli
     subscribeSubjects: [],
   });
 
-  sessionKV.seed("sk_agent_1", {
-    type: "user",
-    trellisId: userTrellisId,
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    participantKind: "agent",
-    identityEnvelopeId: "env-agent",
-    contractDigest: "digest-agent",
-    contractId: "trellis.agent@v1",
-    contractDisplayName: "Trellis Agent",
-    contractDescription: "Local delegated tooling",
-    delegatedCapabilities: ["jobs.read"],
-    delegatedPublishSubjects: [],
-    delegatedSubscribeSubjects: [],
-    ...baseSessionFields(),
-  });
-  sessionKV.seed("sk_agent_2", {
-    type: "user",
-    trellisId: userTrellisId,
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    participantKind: "agent",
-    identityEnvelopeId: "env-agent",
-    contractDigest: "digest-agent",
-    contractId: "trellis.agent@v1",
-    contractDisplayName: "Trellis Agent",
-    contractDescription: "Local delegated tooling",
-    delegatedCapabilities: ["jobs.read"],
-    delegatedPublishSubjects: [],
-    delegatedSubscribeSubjects: [],
-    ...baseSessionFields(),
-  });
-  sessionKV.seed("sk_app", {
-    type: "user",
-    trellisId: userTrellisId,
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    participantKind: "app",
-    contractDigest: "digest-app",
-    contractId: "trellis.console@v1",
-    contractDisplayName: "Console",
-    contractDescription: "Admin app",
-    delegatedCapabilities: ["admin"],
-    delegatedPublishSubjects: [],
-    delegatedSubscribeSubjects: [],
-    ...baseSessionFields(),
-  });
+  sessionKV.seed(
+    "sk_agent_1",
+    testUserSession({
+      participantKind: "agent",
+      identityEnvelopeId: "env-agent",
+      contractDigest: "digest-agent",
+      contractId: "trellis.agent@v1",
+      contractDisplayName: "Trellis Agent",
+      contractDescription: "Local delegated tooling",
+      delegatedCapabilities: ["jobs.read"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+    }),
+  );
+  sessionKV.seed(
+    "sk_agent_2",
+    testUserSession({
+      participantKind: "agent",
+      identityEnvelopeId: "env-agent",
+      contractDigest: "digest-agent",
+      contractId: "trellis.agent@v1",
+      contractDisplayName: "Trellis Agent",
+      contractDescription: "Local delegated tooling",
+      delegatedCapabilities: ["jobs.read"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+    }),
+  );
+  sessionKV.seed(
+    "sk_app",
+    testUserSession({
+      participantKind: "app",
+      contractDigest: "digest-app",
+      contractId: "trellis.console@v1",
+      contractDisplayName: "Console",
+      contractDescription: "Admin app",
+      delegatedCapabilities: ["admin"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+    }),
+  );
 
   connectionsKV.seed(
     connectionKey("sk_agent_1", userTrellisId, "user_nkey_1"),
@@ -1366,9 +1407,7 @@ Deno.test("Auth.Sessions.Revoke cascades agent revocation to the grant and sibli
     {
       caller: {
         type: "user",
-        trellisId: userTrellisId,
-        origin: "github",
-        id: "123",
+        userId: userTrellisId,
       },
     },
   );
@@ -1385,13 +1424,13 @@ Deno.test("Auth.Sessions.Revoke cascades agent revocation to the grant and sibli
       origin: "github",
       id: "123",
       sessionKey: "sk_agent_1",
-      revokedBy: "github.123",
+      revokedBy: "usr_github_123",
     },
     {
       origin: "github",
       id: "123",
       sessionKey: "sk_agent_2",
-      revokedBy: "github.123",
+      revokedBy: "usr_github_123",
     },
   ]);
   assertEquals(
@@ -1437,7 +1476,7 @@ Deno.test("Auth.Sessions.Revoke cascades agent revocation to the grant and sibli
 });
 
 Deno.test("Auth.Sessions.Revoke cascades app revocation to the grant and sibling user sessions", async () => {
-  const userTrellisId = await trellisIdFromOriginId("github", "123");
+  const userTrellisId = TEST_USER_ID;
   const contractApprovalStorage = new InMemoryApprovalStorage();
   const sessionKV = new InMemoryKV<Session>();
   const connectionsKV = new InMemoryKV<
@@ -1494,59 +1533,47 @@ Deno.test("Auth.Sessions.Revoke cascades app revocation to the grant and sibling
     subscribeSubjects: [],
   });
 
-  sessionKV.seed("sk_app_1", {
-    type: "user",
-    trellisId: userTrellisId,
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    participantKind: "app",
-    identityEnvelopeId: "env-app",
-    contractDigest: "digest-app",
-    contractId: "trellis.console@v1",
-    contractDisplayName: "Console",
-    contractDescription: "Admin app",
-    delegatedCapabilities: ["admin"],
-    delegatedPublishSubjects: [],
-    delegatedSubscribeSubjects: [],
-    ...baseSessionFields(),
-  });
-  sessionKV.seed("sk_app_2", {
-    type: "user",
-    trellisId: userTrellisId,
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    participantKind: "app",
-    identityEnvelopeId: "env-app",
-    contractDigest: "digest-app",
-    contractId: "trellis.console@v1",
-    contractDisplayName: "Console",
-    contractDescription: "Admin app",
-    delegatedCapabilities: ["admin"],
-    delegatedPublishSubjects: [],
-    delegatedSubscribeSubjects: [],
-    ...baseSessionFields(),
-  });
-  sessionKV.seed("sk_agent", {
-    type: "user",
-    trellisId: userTrellisId,
-    origin: "github",
-    id: "123",
-    email: "ada@example.com",
-    name: "Ada",
-    participantKind: "agent",
-    contractDigest: "digest-agent",
-    contractId: "trellis.agent@v1",
-    contractDisplayName: "Trellis Agent",
-    contractDescription: "Local delegated tooling",
-    delegatedCapabilities: ["jobs.read"],
-    delegatedPublishSubjects: [],
-    delegatedSubscribeSubjects: [],
-    ...baseSessionFields(),
-  });
+  sessionKV.seed(
+    "sk_app_1",
+    testUserSession({
+      participantKind: "app",
+      identityEnvelopeId: "env-app",
+      contractDigest: "digest-app",
+      contractId: "trellis.console@v1",
+      contractDisplayName: "Console",
+      contractDescription: "Admin app",
+      delegatedCapabilities: ["admin"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+    }),
+  );
+  sessionKV.seed(
+    "sk_app_2",
+    testUserSession({
+      participantKind: "app",
+      identityEnvelopeId: "env-app",
+      contractDigest: "digest-app",
+      contractId: "trellis.console@v1",
+      contractDisplayName: "Console",
+      contractDescription: "Admin app",
+      delegatedCapabilities: ["admin"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+    }),
+  );
+  sessionKV.seed(
+    "sk_agent",
+    testUserSession({
+      participantKind: "agent",
+      contractDigest: "digest-agent",
+      contractId: "trellis.agent@v1",
+      contractDisplayName: "Trellis Agent",
+      contractDescription: "Local delegated tooling",
+      delegatedCapabilities: ["jobs.read"],
+      delegatedPublishSubjects: [],
+      delegatedSubscribeSubjects: [],
+    }),
+  );
 
   connectionsKV.seed(connectionKey("sk_app_1", userTrellisId, "user_nkey_1"), {
     serverId: "n1",
@@ -1581,9 +1608,7 @@ Deno.test("Auth.Sessions.Revoke cascades app revocation to the grant and sibling
     {
       caller: {
         type: "user",
-        trellisId: userTrellisId,
-        origin: "github",
-        id: "123",
+        userId: userTrellisId,
       },
     },
   );
@@ -1600,13 +1625,13 @@ Deno.test("Auth.Sessions.Revoke cascades app revocation to the grant and sibling
       origin: "github",
       id: "123",
       sessionKey: "sk_app_1",
-      revokedBy: "github.123",
+      revokedBy: "usr_github_123",
     },
     {
       origin: "github",
       id: "123",
       sessionKey: "sk_app_2",
-      revokedBy: "github.123",
+      revokedBy: "usr_github_123",
     },
   ]);
   assertEquals(
@@ -1629,7 +1654,7 @@ Deno.test("Auth.Sessions.Revoke cascades app revocation to the grant and sibling
 
 Deno.test("Auth.Sessions.Revoke deletes app approvals from SQL", async () => {
   await withSqlAuthRepositories(async ({ approvals }) => {
-    const userTrellisId = await trellisIdFromOriginId("github", "123");
+    const userTrellisId = TEST_USER_ID;
     await approvals.put({
       identityEnvelopeId: "env-app",
       userTrellisId,
@@ -1664,24 +1689,20 @@ Deno.test("Auth.Sessions.Revoke deletes app approvals from SQL", async () => {
     const connectionsKV = new InMemoryKV<
       { serverId: string; clientId: number; connectedAt: Date }
     >();
-    sessionKV.seed("sk_app", {
-      type: "user",
-      trellisId: userTrellisId,
-      origin: "github",
-      id: "123",
-      email: "ada@example.com",
-      name: "Ada",
-      participantKind: "app",
-      identityEnvelopeId: "env-app",
-      contractDigest: "digest-app",
-      contractId: "trellis.console@v1",
-      contractDisplayName: "Console",
-      contractDescription: "Admin app",
-      delegatedCapabilities: ["admin"],
-      delegatedPublishSubjects: [],
-      delegatedSubscribeSubjects: [],
-      ...baseSessionFields(),
-    });
+    sessionKV.seed(
+      "sk_app",
+      testUserSession({
+        participantKind: "app",
+        identityEnvelopeId: "env-app",
+        contractDigest: "digest-app",
+        contractId: "trellis.console@v1",
+        contractDisplayName: "Console",
+        contractDescription: "Admin app",
+        delegatedCapabilities: ["admin"],
+        delegatedPublishSubjects: [],
+        delegatedSubscribeSubjects: [],
+      }),
+    );
 
     const handler = createAuthSessionsRevokeHandler({
       sessionStorage: sessionStorageFromKV(sessionKV),
@@ -1696,9 +1717,7 @@ Deno.test("Auth.Sessions.Revoke deletes app approvals from SQL", async () => {
       {
         caller: {
           type: "user",
-          trellisId: userTrellisId,
-          origin: "github",
-          id: "123",
+          userId: userTrellisId,
         },
       },
     );
@@ -1784,9 +1803,7 @@ Deno.test("Auth.Sessions.Revoke revokes device activation so the device cannot r
     {
       caller: {
         type: "user",
-        trellisId: "user-1",
-        origin: "github",
-        id: "123",
+        userId: "usr_123",
       },
     },
   );
@@ -1883,9 +1900,7 @@ Deno.test("Auth.Sessions.Revoke disables the service instance so it cannot recon
     {
       caller: {
         type: "user",
-        trellisId: "user-1",
-        origin: "github",
-        id: "123",
+        userId: "usr_123",
       },
     },
   );
@@ -1898,7 +1913,7 @@ Deno.test("Auth.Sessions.Revoke disables the service instance so it cannot recon
     origin: "service",
     id: "billing",
     sessionKey: "sk_service",
-    revokedBy: "github.123",
+    revokedBy: "usr_123",
   }]);
   const serviceEntry = await serviceInstancesKV.get("svc_1").take();
   if (isErr(serviceEntry)) throw serviceEntry.error;

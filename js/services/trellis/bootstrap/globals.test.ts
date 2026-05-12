@@ -47,6 +47,7 @@ export const natsAuth = {
   close: async () => {},
   isClosed: () => true,
 };
+export const natsSystem = natsAuth;
 export const natsTrellis = natsAuth;
 export const oauthStateKV = testKv();
 export const pendingAuthKV = testKv();

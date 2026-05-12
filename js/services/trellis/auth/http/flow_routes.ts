@@ -19,6 +19,11 @@ import {
   type PendingAuthEntry,
 } from "./support.ts";
 
+const localLoginProvider = {
+  id: "local",
+  displayName: "Username and password",
+};
+
 const FlowBindRequestSchema = Type.Object({
   sessionKey: SessionKeySchema,
   sig: SignatureSchema,
@@ -64,6 +69,18 @@ function buildAppMeta(args: {
   };
 }
 
+function buildProvidersList(
+  providers: AuthHttpRouteContext["providers"],
+) {
+  return [
+    localLoginProvider,
+    ...Object.entries(providers).map(([id, provider]) => ({
+      id,
+      displayName: provider.displayName,
+    })),
+  ];
+}
+
 /** Registers browser auth flow state, approval, and bind endpoints. */
 export function registerFlowRoutes(
   app: Hono,
@@ -79,10 +96,7 @@ export function registerFlowRoutes(
       return c.json({ status: "expired" });
     }
 
-    const providersList = Object.entries(providers).map(([id, provider]) => ({
-      id,
-      displayName: provider.displayName,
-    }));
+    const providersList = buildProvidersList(providers);
     const contract = flow.contract ?? {};
     let resolution = null;
     let redirectLocation = undefined;
@@ -151,10 +165,7 @@ export function registerFlowRoutes(
     const pendingRecord = pendingEntry as PendingAuthEntry;
     const pending = pendingRecord.value as PendingAuth;
     const resolution = await context.requireApprovalResolution(pending);
-    const providersList = Object.entries(providers).map(([id, provider]) => ({
-      id,
-      displayName: provider.displayName,
-    }));
+    const providersList = buildProvidersList(providers);
     const contract = flow.contract ?? {};
     const appMeta = buildAppMeta({
       contract,

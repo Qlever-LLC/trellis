@@ -1,5 +1,6 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
+  import type { AuthUsersListOutput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
@@ -11,20 +12,25 @@
 
   const trellis = getTrellis();
 
-  type UserView = {
-    origin: string;
-    id: string;
-    name?: string;
-    email?: string;
-    active: boolean;
-  };
+  type UserView = AuthUsersListOutput["users"][number];
+  type IdentityView = UserView["identities"][number];
 
   function identityLabel(user: UserView) {
-    return user.name ?? user.email ?? user.id;
+    return user.name ?? user.email ?? primaryIdentity(user)?.displayName ?? user.userId;
   }
 
-  function userKey(user: Pick<UserView, "origin" | "id">) {
-    return `${user.origin}:${user.id}`;
+  function userKey(user: Pick<UserView, "userId">) {
+    return user.userId;
+  }
+
+  function primaryIdentity(user: UserView): IdentityView | null {
+    return user.identities[0] ?? null;
+  }
+
+  function identitySummary(user: UserView): string {
+    const identity = primaryIdentity(user);
+    if (!identity) return "No linked identity";
+    return `${identity.provider}:${identity.subject}`;
   }
 
   let loading = $state(true);
@@ -55,7 +61,7 @@
       const lastAuthByUser: Record<string, string> = {};
       for (const session of sessionsResponse.sessions ?? []) {
         if (session.principal.type !== "user") continue;
-        const key = userKey(session.principal);
+        const key = session.principal.userId;
         if (!lastAuthByUser[key] || session.lastAuth > lastAuthByUser[key]) {
           lastAuthByUser[key] = session.lastAuth;
         }
@@ -71,6 +77,7 @@
 <section class="space-y-4">
   <PageToolbar title="Users" description="Manage user activation and capabilities.">
     {#snippet actions()}
+      <a class="btn btn-outline btn-sm" href={resolve("/admin/users/new")}>New user</a>
       <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
     {/snippet}
   </PageToolbar>
@@ -104,36 +111,46 @@
       <table class="table table-sm trellis-table users-table border-b border-base-300 bg-base-100/30">
         <thead>
           <tr>
-            <th class="w-[42%]">Identity</th>
-            <th class="hidden w-[28%] md:table-cell">Email</th>
+            <th class="w-[38%]">User</th>
+            <th class="hidden w-[24%] md:table-cell">Identity</th>
+            <th class="hidden w-28 lg:table-cell">Access</th>
             <th class="hidden w-36 sm:table-cell">Last auth</th>
             <th class="w-28">Status</th>
             <th class="w-24 text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
-          {#each users as user (`${user.origin}:${user.id}`)}
+          {#each users as user (user.userId)}
             <tr class={["users-row", !user.active && "users-row-inactive"]}>
               <td class="max-w-0 align-top">
                 <div class="flex min-w-0 items-start gap-3">
                   <span class={["mt-1.5 size-2 rounded-full", user.active ? "bg-success" : "bg-base-content/25"]} aria-hidden="true"></span>
                   <div class="min-w-0 space-y-1">
                     <div class="flex min-w-0 items-center gap-2">
-                      <span class="truncate font-medium" title={identityLabel(user)}>{identityLabel(user)}</span>
-                      <span class="badge badge-ghost badge-xs shrink-0">{user.origin}</span>
+                       <span class="truncate font-medium" title={identityLabel(user)}>{identityLabel(user)}</span>
+                       <span class="badge badge-ghost badge-xs shrink-0">{user.identities.length} id</span>
                     </div>
                     <div class="break-all trellis-identifier leading-snug text-base-content/60">
-                      {userKey(user)}
+                      {user.userId}
                     </div>
                   </div>
                 </div>
               </td>
               <td class="hidden max-w-0 align-top text-base-content/60 md:table-cell">
-                {#if user.email}
-                  <div class="truncate" title={user.email}>{user.email}</div>
+                {#if primaryIdentity(user)}
+                  <div class="truncate" title={identitySummary(user)}>{identitySummary(user)}</div>
+                  {#if primaryIdentity(user)?.email}
+                    <div class="truncate text-xs" title={primaryIdentity(user)?.email ?? ""}>{primaryIdentity(user)?.email}</div>
+                  {/if}
                 {:else}
                   <span>—</span>
                 {/if}
+              </td>
+              <td class="hidden align-top lg:table-cell">
+                <div class="flex flex-wrap gap-1">
+                  <span class="badge badge-ghost badge-xs">{user.capabilities.length} direct</span>
+                  <span class="badge badge-ghost badge-xs">{user.capabilityGroups.length} groups</span>
+                </div>
               </td>
               <td class="hidden w-36 align-top text-xs text-base-content/60 sm:table-cell">
                 {#if userLastAuth[userKey(user)]}
@@ -153,7 +170,7 @@
                 <details class="dropdown dropdown-end">
                   <summary class="btn btn-ghost btn-xs">Actions</summary>
                   <ul class="menu dropdown-content z-30 mt-2 w-44 rounded-box border border-base-300 bg-base-100 p-2">
-                    <li><a href={resolve(`/admin/users/edit?user=${encodeURIComponent(user.id)}&origin=${encodeURIComponent(user.origin)}`)}>Edit</a></li>
+                    <li><a href={resolve(`/admin/users/edit?userId=${encodeURIComponent(user.userId)}`)}>Edit</a></li>
                   </ul>
                 </details>
               </td>

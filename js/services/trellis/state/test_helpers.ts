@@ -201,11 +201,16 @@ export function makeUserSession(args: {
   origin?: string;
   id?: string;
 }): Session {
+  const provider = args.origin ?? "github";
+  const subject = args.id ?? "123";
   return {
     type: "user",
-    trellisId: args.trellisId,
-    origin: args.origin ?? "github",
-    id: args.id ?? "123",
+    userId: args.trellisId,
+    identity: {
+      identityId: `idn_${provider}_${subject}`,
+      provider,
+      subject,
+    },
     email: "user@example.com",
     name: "User",
     participantKind: "app",

@@ -960,7 +960,7 @@ Deno.test("service event subscriptions include JetStream control subjects", () =
     assertEquals(publishSubjects.includes("$JS.API.INFO"), true);
     assertEquals(
       publishSubjects.includes("$JS.API.CONSUMER.CREATE.trellis.>"),
-      false,
+      true,
     );
     assertEquals(
       publishSubjects.includes("$JS.API.CONSUMER.DURABLE.CREATE.trellis.>"),
@@ -975,6 +975,48 @@ Deno.test("service event subscriptions include JetStream control subjects", () =
       true,
     );
     assertEquals(publishSubjects.includes("$JS.ACK.>"), true);
+  });
+});
+
+Deno.test("user event subscriptions include JetStream control publish subjects", () => {
+  withContracts(TEST_CONTRACTS, () => {
+    const publishSubjects = getUserPublishSubjects(["partners:read"], {
+      contractDigest: "portal-digest",
+    });
+
+    assertEquals(publishSubjects.includes("$JS.API.INFO"), true);
+    assertEquals(
+      publishSubjects.includes("$JS.API.CONSUMER.CREATE.trellis.>"),
+      true,
+    );
+    assertEquals(
+      publishSubjects.includes("$JS.API.CONSUMER.DURABLE.CREATE.trellis.>"),
+      true,
+    );
+    assertEquals(
+      publishSubjects.includes("$JS.API.CONSUMER.INFO.trellis.>"),
+      true,
+    );
+    assertEquals(
+      publishSubjects.includes("$JS.API.CONSUMER.MSG.NEXT.trellis.>"),
+      true,
+    );
+    assertEquals(publishSubjects.includes("$JS.ACK.>"), true);
+  });
+});
+
+Deno.test("user event control publish subjects require subscribe capability", () => {
+  withContracts(TEST_CONTRACTS, () => {
+    const publishSubjects = getUserPublishSubjects(["partners:write"], {
+      contractDigest: "portal-digest",
+    });
+
+    assertEquals(
+      publishSubjects.includes("events.v1.Partner.Changed.*.*"),
+      true,
+    );
+    assertEquals(publishSubjects.includes("$JS.API.INFO"), false);
+    assertEquals(publishSubjects.includes("$JS.ACK.>"), false);
   });
 });
 

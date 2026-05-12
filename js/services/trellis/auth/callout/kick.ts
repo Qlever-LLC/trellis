@@ -4,15 +4,15 @@ import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 
 type KickDeps = {
   logger: Pick<AuthRuntimeDeps["logger"], "debug" | "warn">;
-  natsAuth: Pick<AuthRuntimeDeps["natsAuth"], "request">;
+  natsSystem: Pick<AuthRuntimeDeps["natsSystem"], "request">;
 };
 
-/** Creates a connection-kick helper from explicit NATS auth dependencies. */
+/** Creates a connection-kick helper from explicit NATS system dependencies. */
 export function createKick(deps: KickDeps) {
   return async (serverId: string, clientId: number): Promise<void> => {
     deps.logger.debug({ serverId, clientId }, "Kicking connection");
     const result = await AsyncResult.try(() =>
-      deps.natsAuth.request(
+      deps.natsSystem.request(
         `$SYS.REQ.SERVER.${serverId}.KICK`,
         JSON.stringify({ cid: clientId }),
       )

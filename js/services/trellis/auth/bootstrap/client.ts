@@ -6,6 +6,7 @@ import { Value } from "typebox/value";
 
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { ContractResourceBindings } from "../../../../packages/trellis/contract_support/protocol.ts";
+import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolveSessionPrincipal } from "../session/principal.ts";
 import type { SentinelCreds, Session, SessionKey } from "../schemas.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
@@ -51,9 +52,12 @@ const ClientTransportsSchema = Type.Object({
 type ClientTransports = StaticDecode<typeof ClientTransportsSchema>;
 
 type ClientBootstrapUserView = {
-  trellisId: string;
-  origin: string;
-  id: string;
+  userId: string;
+  identity: {
+    identityId: string;
+    provider: string;
+    subject: string;
+  };
   email: string;
   name: string;
   image?: string;
@@ -106,7 +110,8 @@ export type ClientBootstrapDeps = {
   transports: ClientTransports;
   sentinel: SentinelCreds;
   sessionStorage: SessionStore;
-  loadUserProjection(trellisId: string): Promise<UserProjectionEntry | null>;
+  loadUserProjection(userId: string): Promise<UserProjectionEntry | null>;
+  capabilityGroupStorage?: CapabilityGroupLoader;
   verifyIdentityProof(input: {
     sessionKey: SessionKey;
     iat: number;
@@ -155,6 +160,7 @@ export async function resolveClientBootstrap(
 
   const principal = await resolveSessionPrincipal(session, request.sessionKey, {
     loadUserProjection: deps.loadUserProjection,
+    capabilityGroupStorage: deps.capabilityGroupStorage,
   });
   if (!principal.ok) {
     switch (principal.error.reason) {
@@ -205,9 +211,8 @@ export async function resolveClientBootstrap(
     },
     contract: contractView,
     user: {
-      trellisId: session.trellisId,
-      origin: session.origin,
-      id: session.id,
+      userId: session.userId,
+      identity: session.identity,
       email: session.email,
       name: session.name,
       ...(session.image ? { image: session.image } : {}),

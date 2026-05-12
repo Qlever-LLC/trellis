@@ -11,8 +11,21 @@ import {
 import type { Config } from "../../config.ts";
 import { createTestContracts } from "../../catalog/test_contracts.ts";
 import { authHttpRateLimitKey } from "./routes.ts";
+import type { BrowserFlowRecord } from "./route_context.ts";
 import { buildAuthStartSignaturePayload } from "./start_request.ts";
-import type { Session } from "../schemas.ts";
+import { hashKey } from "../crypto.ts";
+import { identityIdForProviderSubject } from "../identity.ts";
+import { createLocalCredentialPassword } from "../local_credentials/passwords.ts";
+import type {
+  AccountFlow,
+  LocalCredential,
+  OAuthState,
+  PendingAuth,
+  Session,
+  UserAccount,
+  UserIdentity,
+} from "../schemas.ts";
+import type { Provider } from "../providers/index.ts";
 
 const config: Config = {
   logLevel: "info",
@@ -34,6 +47,7 @@ const config: Config = {
     jetstream: { replicas: 1 },
     trellis: { credsPath: "" },
     auth: { credsPath: "" },
+    system: { credsPath: "" },
     sentinelCredsPath: "",
     authCallout: {
       issuer: { nkey: "issuer", signing: "issuer-seed" },
@@ -49,6 +63,34 @@ const config: Config = {
     providers: {},
   },
 };
+
+function testProvider(name: string, displayName: string): Provider {
+  return {
+    name,
+    displayName,
+    issuer: `https://${name}.example`,
+    authorizationEndpoint: `https://${name}.example/authorize`,
+    tokenEndpoint: `https://${name}.example/token`,
+    scope: "openid profile email",
+    supportsDiscovery: true,
+    supportsPKCE: true,
+    clientId: `${name}-client`,
+    clientSecret: `${name}-secret`,
+    redirectBase: "http://localhost:3000/auth/oauth/callback",
+    getRedirectUri() {
+      return `${this.redirectBase}/${this.name}`;
+    },
+    getUserInfo() {
+      return Promise.resolve({
+        provider: name,
+        id: "user",
+        name: "Test User",
+        email: "user@example.com",
+        emailVerified: true,
+      });
+    },
+  };
+}
 
 Deno.test("auth HTTP rate-limit key ignores spoofable forwarding headers", () => {
   assertEquals(
@@ -67,7 +109,13 @@ Deno.test("auth HTTP rate-limit key ignores spoofable forwarding headers", () =>
   );
 });
 
-async function registerTestRoutes(): Promise<Hono> {
+async function registerTestRoutes(
+  flowOverride: Partial<BrowserFlowRecord> = {},
+  storageOverride: Record<string, unknown> = {},
+  providersOverride: Record<string, Provider> = {},
+  routeOverride: Record<string, unknown> = {},
+  runtimeDepsOverride: Record<string, unknown> = {},
+): Promise<Hono> {
   const { registerHttpRoutes } = await import("./routes.ts");
   const app = new Hono();
   const kv = {
@@ -86,19 +134,29 @@ async function registerTestRoutes(): Promise<Hono> {
   };
   const storage = {
     get: () => Promise.resolve(undefined),
+    getByProviderSubject: () => Promise.resolve(undefined),
     getLogin: () => Promise.resolve(undefined),
     getDevice: () => Promise.resolve(undefined),
     getByInstanceKey: () => Promise.resolve(undefined),
+    has: () => Promise.resolve(false),
     put: () => Promise.resolve(undefined),
+    consume: () => Promise.resolve(false),
     delete: () => Promise.resolve(undefined),
     list: () => Promise.resolve([]),
+    listPage: () => Promise.resolve([]),
+    listByUser: () => Promise.resolve([]),
     listByDeployment: () => Promise.resolve([]),
     listEnabledByContractId: () => Promise.resolve([]),
     getFirstEnabledForDeployments: () => Promise.resolve(undefined),
+    ...storageOverride,
   };
 
   registerHttpRoutes(app, {
     contractStorage: storage,
+    accountFlowStorage: storage,
+    accountStorage: storage,
+    userIdentityStorage: storage,
+    localCredentialStorage: storage,
     userStorage: storage,
     contractApprovalStorage: storage,
     deploymentPortalRouteStorage: storage,
@@ -118,7 +176,8 @@ async function registerTestRoutes(): Promise<Hono> {
     kick: async () => {},
     loadEffectiveGrantPolicies: () => Promise.resolve([]),
     contracts: createTestContracts(),
-    providers: {},
+    providers: providersOverride,
+    ...routeOverride,
     runtimeDeps: {
       browserFlowsKV: {
         ...kv,
@@ -127,9 +186,11 @@ async function registerTestRoutes(): Promise<Hono> {
             value: {
               flowId: "missing",
               kind: "login",
+              sessionKey: "session-local",
               authToken: "token",
               createdAt: new Date(),
-              expiresAt: new Date(),
+              expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+              ...flowOverride,
             },
           }),
       },
@@ -140,9 +201,164 @@ async function registerTestRoutes(): Promise<Hono> {
       pendingAuthKV: kv,
       sentinelCreds: { jwt: "jwt", seed: "seed" },
       sessionStorage: storage,
+      ...runtimeDepsOverride,
     },
   } as never);
   return app;
+}
+
+async function registerLocalLoginTestRoutes(options: {
+  credential: LocalCredential;
+  accountActive?: boolean;
+}): Promise<{
+  app: Hono;
+  getCredential: () => LocalCredential;
+  getPendingAuth: () => PendingAuth | undefined;
+}> {
+  const { registerHttpRoutes } = await import("./routes.ts");
+  const app = new Hono();
+  const flow: BrowserFlowRecord = {
+    flowId: "flow-local",
+    kind: "login",
+    sessionKey: "session-local",
+    redirectTo: "http://localhost:5173/app",
+    contract: { id: "client.example@v1" },
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    expiresAt: new Date("2099-01-01T00:05:00.000Z"),
+  };
+  let credential = options.credential;
+  let pendingAuth: PendingAuth | undefined;
+  const identity = {
+    identityId: credential.identityId,
+    userId: "usr_local",
+    provider: "local",
+    subject: "alex",
+    displayName: "Alex Local",
+    email: "alex@example.com",
+    emailVerified: true,
+    linkedAt: "2026-01-01T00:00:00.000Z",
+    lastLoginAt: null,
+  };
+  const kv = {
+    get: () => AsyncResult.ok({ value: {} }),
+    put: () => AsyncResult.ok(undefined),
+    create: () => AsyncResult.ok(undefined),
+    delete: () => AsyncResult.ok(undefined),
+    keys: () => AsyncResult.ok((async function* () {})()),
+  };
+  const logger = {
+    trace: () => {},
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  };
+  const emptyStorage = {
+    get: () => Promise.resolve(undefined),
+    getLogin: () => Promise.resolve(undefined),
+    getDevice: () => Promise.resolve(undefined),
+    getByInstanceKey: () => Promise.resolve(undefined),
+    has: () => Promise.resolve(false),
+    put: () => Promise.resolve(undefined),
+    consume: () => Promise.resolve(false),
+    delete: () => Promise.resolve(undefined),
+    list: () => Promise.resolve([]),
+    listPage: () => Promise.resolve([]),
+    listByUser: () => Promise.resolve([]),
+    listEnabled: () => Promise.resolve([]),
+    listByDeployment: () => Promise.resolve([]),
+    listEnabledByContractId: () => Promise.resolve([]),
+    getFirstEnabledForDeployments: () => Promise.resolve(undefined),
+  };
+
+  registerHttpRoutes(app, {
+    contractStorage: emptyStorage,
+    accountFlowStorage: emptyStorage,
+    accountStorage: {
+      ...emptyStorage,
+      get: () =>
+        Promise.resolve({
+          userId: "usr_local",
+          name: "Alex Account",
+          email: "account@example.com",
+          active: options.accountActive ?? true,
+          capabilities: [],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        }),
+    },
+    userIdentityStorage: {
+      ...emptyStorage,
+      getByProviderSubject: (provider: string, subject: string) =>
+        Promise.resolve(
+          provider === "local" && subject === "alex" ? identity : undefined,
+        ),
+    },
+    localCredentialStorage: {
+      ...emptyStorage,
+      get: () => Promise.resolve(credential),
+      put: (record: LocalCredential) => {
+        credential = record;
+        return Promise.resolve(undefined);
+      },
+    },
+    userStorage: emptyStorage,
+    contractApprovalStorage: emptyStorage,
+    deploymentPortalRouteStorage: emptyStorage,
+    serviceDeploymentStorage: emptyStorage,
+    serviceInstanceStorage: emptyStorage,
+    deviceDeploymentStorage: emptyStorage,
+    deviceInstanceStorage: emptyStorage,
+    deviceActivationStorage: emptyStorage,
+    deviceActivationReviewStorage: emptyStorage,
+    deviceProvisioningSecretStorage: emptyStorage,
+    deploymentEnvelopeStorage: emptyStorage,
+    deploymentGrantOverrideStorage: emptyStorage,
+    deploymentResourceBindingStorage: emptyStorage,
+    deploymentContractEvidenceStorage: emptyStorage,
+    envelopeExpansionRequestStorage: emptyStorage,
+    config,
+    kick: async () => {},
+    contracts: createTestContracts(),
+    providers: {},
+    runtimeDeps: {
+      browserFlowsKV: {
+        ...kv,
+        get: () => AsyncResult.ok({ value: flow }),
+      },
+      connectionsKV: kv,
+      logger,
+      natsTrellis: {},
+      oauthStateKV: kv,
+      pendingAuthKV: {
+        ...kv,
+        create: (_key: string, value: PendingAuth) => {
+          pendingAuth = value;
+          return AsyncResult.ok(undefined);
+        },
+      },
+      sentinelCreds: { jwt: "jwt", seed: "seed" },
+      sessionStorage: emptyStorage,
+    },
+  } as never);
+
+  return {
+    app,
+    getCredential: () => credential,
+    getPendingAuth: () => pendingAuth,
+  };
+}
+
+function localLoginRequest(password: string): RequestInit {
+  return {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      flowId: "flow-local",
+      username: "alex",
+      password,
+    }),
+  };
 }
 
 Deno.test({
@@ -158,6 +374,615 @@ Deno.test({
 
     assertEquals(response.status, 400);
     assertEquals(await response.json(), { error: "Invalid JSON body" });
+  },
+});
+
+Deno.test({
+  name: "auth HTTP routes register account-flow local-password endpoint",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes();
+    const response = await app.request(
+      "http://trellis/auth/account-flow/missing/local-password",
+      {
+        method: "POST",
+        body: JSON.stringify({ username: "ada", password: "password" }),
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    assertEquals(response.status, 404);
+    assertEquals(await response.json(), { error: "flow_not_found" });
+  },
+});
+
+Deno.test({
+  name: "auth HTTP account-flow state returns expired for missing flow",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes();
+
+    const response = await app.request(
+      "http://trellis/auth/account-flow/missing",
+    );
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), { status: "expired" });
+  },
+});
+
+Deno.test({
+  name: "auth HTTP account-flow state returns consumed flow summary",
+  sanitizeResources: false,
+  fn: async () => {
+    const flowId = "consumed-flow";
+    const flow: AccountFlow = {
+      flowIdHash: await hashKey(flowId),
+      kind: "identity_link",
+      targetUserId: "usr_target",
+      createdByUserId: "usr_admin",
+      allowedProviders: null,
+      capabilities: ["admin"],
+      profileHint: { name: "Ada" },
+      createdAt: "2026-05-09T00:00:00.000Z",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      consumedAt: "2026-05-09T00:01:00.000Z",
+    };
+    const app = await registerTestRoutes({}, {
+      get: (id: string) =>
+        Promise.resolve(id === flow.flowIdHash ? flow : undefined),
+    });
+
+    const response = await app.request(
+      `http://trellis/auth/account-flow/${flowId}`,
+    );
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), {
+      status: "consumed",
+      kind: "identity_link",
+      targetUserId: "usr_target",
+    });
+  },
+});
+
+Deno.test({
+  name: "auth HTTP account-flow state returns expired flow summary",
+  sanitizeResources: false,
+  fn: async () => {
+    const flowId = "expired-flow";
+    const flow: AccountFlow = {
+      flowIdHash: await hashKey(flowId),
+      kind: "local_password_reset",
+      targetUserId: "usr_target",
+      createdByUserId: "usr_admin",
+      allowedProviders: ["local"],
+      capabilities: null,
+      profileHint: null,
+      createdAt: "2026-05-09T00:00:00.000Z",
+      expiresAt: "2000-01-01T00:00:00.000Z",
+      consumedAt: null,
+    };
+    const app = await registerTestRoutes({}, {
+      get: (id: string) =>
+        Promise.resolve(id === flow.flowIdHash ? flow : undefined),
+    });
+
+    const response = await app.request(
+      `http://trellis/auth/account-flow/${flowId}`,
+    );
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), {
+      status: "expired",
+      kind: "local_password_reset",
+      targetUserId: "usr_target",
+    });
+  },
+});
+
+Deno.test({
+  name: "auth HTTP account-flow state returns active portal-safe state",
+  sanitizeResources: false,
+  fn: async () => {
+    const flowId = "invite-flow";
+    const target: UserAccount = {
+      userId: "usr_target",
+      name: "Ada Account",
+      email: "ada@example.com",
+      active: true,
+      capabilities: ["admin"],
+      capabilityGroups: [],
+      createdAt: "2026-05-09T00:00:00.000Z",
+      updatedAt: "2026-05-09T00:00:00.000Z",
+    };
+    const flow: AccountFlow = {
+      flowIdHash: await hashKey(flowId),
+      kind: "account_invite",
+      targetUserId: target.userId,
+      createdByUserId: "usr_admin",
+      allowedProviders: ["local", "github"],
+      capabilities: ["admin"],
+      profileHint: { name: "Ada" },
+      createdAt: "2026-05-09T00:00:00.000Z",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      consumedAt: null,
+    };
+    const app = await registerTestRoutes({}, {
+      get: (id: string) =>
+        Promise.resolve(
+          id === flow.flowIdHash
+            ? flow
+            : id === target.userId
+            ? target
+            : undefined,
+        ),
+    }, {
+      github: testProvider("github", "GitHub"),
+      google: testProvider("google", "Google"),
+    });
+
+    const response = await app.request(
+      `http://trellis/auth/account-flow/${flowId}`,
+    );
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), {
+      status: "active",
+      flowId,
+      kind: "account_invite",
+      targetUserId: target.userId,
+      allowedProviders: ["local", "github"],
+      profileHint: { name: "Ada" },
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      providers: [
+        { id: "local", displayName: "Username and password" },
+        { id: "github", displayName: "GitHub" },
+      ],
+      target: {
+        userId: target.userId,
+        name: "Ada Account",
+        email: "ada@example.com",
+        active: true,
+      },
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP identity-link state hides local provider when target already has local identity",
+  sanitizeResources: false,
+  fn: async () => {
+    const flowId = "identity-link-flow";
+    const target: UserAccount = {
+      userId: "usr_target",
+      name: "Ada Account",
+      email: "ada@example.com",
+      active: true,
+      capabilities: [],
+      capabilityGroups: [],
+      createdAt: "2026-05-09T00:00:00.000Z",
+      updatedAt: "2026-05-09T00:00:00.000Z",
+    };
+    const localIdentity: UserIdentity = {
+      identityId: identityIdForProviderSubject("local", "ada"),
+      userId: target.userId,
+      provider: "local",
+      subject: "ada",
+      displayName: "Ada",
+      email: "ada@example.com",
+      emailVerified: false,
+      linkedAt: "2026-05-09T00:00:00.000Z",
+      lastLoginAt: null,
+    };
+    const flow: AccountFlow = {
+      flowIdHash: await hashKey(flowId),
+      kind: "identity_link",
+      targetUserId: target.userId,
+      createdByUserId: target.userId,
+      allowedProviders: null,
+      capabilities: null,
+      profileHint: null,
+      createdAt: "2026-05-09T00:00:00.000Z",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      consumedAt: null,
+    };
+    const app = await registerTestRoutes({}, {
+      get: (id: string) =>
+        Promise.resolve(
+          id === flow.flowIdHash
+            ? flow
+            : id === target.userId
+            ? target
+            : undefined,
+        ),
+      listByUser: (userId: string) =>
+        Promise.resolve(userId === target.userId ? [localIdentity] : []),
+    }, {
+      github: testProvider("github", "GitHub"),
+    });
+
+    const response = await app.request(
+      `http://trellis/auth/account-flow/${flowId}`,
+    );
+
+    assertEquals(response.status, 200);
+    const body = await response.json();
+    assertEquals(body.providers, [{ id: "github", displayName: "GitHub" }]);
+  },
+});
+
+Deno.test({
+  name: "auth HTTP admin-bootstrap account-flow state allows all providers",
+  sanitizeResources: false,
+  fn: async () => {
+    const flowId = "bootstrap-flow";
+    const flow: AccountFlow = {
+      flowIdHash: await hashKey(flowId),
+      kind: "admin_bootstrap",
+      targetUserId: null,
+      createdByUserId: null,
+      allowedProviders: null,
+      capabilities: ["admin"],
+      profileHint: null,
+      createdAt: "2026-05-09T00:00:00.000Z",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      consumedAt: null,
+    };
+    const app = await registerTestRoutes({}, {
+      get: (id: string) =>
+        Promise.resolve(id === flow.flowIdHash ? flow : undefined),
+    }, {
+      github: testProvider("github", "GitHub"),
+    });
+
+    const response = await app.request(
+      `http://trellis/auth/account-flow/${flowId}`,
+    );
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), {
+      status: "active",
+      flowId,
+      kind: "admin_bootstrap",
+      allowedProviders: null,
+      profileHint: null,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      providers: [
+        { id: "local", displayName: "Username and password" },
+        { id: "github", displayName: "GitHub" },
+      ],
+    });
+  },
+});
+
+Deno.test({
+  name: "auth HTTP account-flow OAuth start stores typed account-flow state",
+  sanitizeResources: false,
+  fn: async () => {
+    const flowId = "invite-oauth-flow";
+    const flow: AccountFlow = {
+      flowIdHash: await hashKey(flowId),
+      kind: "account_invite",
+      targetUserId: "usr_target",
+      createdByUserId: "usr_admin",
+      allowedProviders: ["github"],
+      capabilities: null,
+      profileHint: null,
+      createdAt: "2026-05-09T00:00:00.000Z",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      consumedAt: null,
+    };
+    let savedState: OAuthState | undefined;
+    const app = await registerTestRoutes({}, {
+      get: (id: string) =>
+        Promise.resolve(id === flow.flowIdHash ? flow : undefined),
+    }, {
+      github: testProvider("github", "GitHub"),
+    }, {
+      oauthCodeRequest: () =>
+        Promise.resolve([
+          "https://github.example/authorize?state=state-123",
+          { state: "state-123", codeVerifier: "verifier-123" },
+        ]),
+    }, {
+      oauthStateKV: {
+        create: (_key: string, value: OAuthState) => {
+          savedState = value;
+          return AsyncResult.ok(undefined);
+        },
+      },
+    });
+
+    const response = await app.request(
+      `http://trellis/auth/account-flow/${flowId}/login/github`,
+    );
+
+    assertEquals(response.status, 302);
+    assertEquals(
+      response.headers.get("location"),
+      "https://github.example/authorize?state=state-123",
+    );
+    assertStringIncludes(
+      response.headers.get("set-cookie") ?? "",
+      "trellis_oauth=state-123",
+    );
+    assertEquals(savedState?.kind, "account_flow");
+    assertEquals(savedState?.provider, "github");
+    assertEquals(savedState?.flowId, flowId);
+    assertEquals(savedState?.codeVerifier, "verifier-123");
+    assertEquals(savedState?.createdAt instanceof Date, true);
+  },
+});
+
+Deno.test({
+  name: "auth HTTP OAuth login start validates browser flow state",
+  sanitizeResources: false,
+  fn: async () => {
+    const provider = { github: testProvider("github", "GitHub") };
+
+    for (
+      const flowOverride of [
+        { kind: "device_activation" as const },
+        { expiresAt: new Date("2020-01-01T00:00:00.000Z") },
+      ]
+    ) {
+      const app = await registerTestRoutes(flowOverride, {}, provider);
+      const response = await app.request(
+        "http://trellis/auth/login/github?flowId=flow-oauth",
+      );
+
+      assertEquals(response.status, 404);
+      assertStringIncludes(await response.text(), "Expired browser flow");
+    }
+
+    const app = await registerTestRoutes(
+      { sessionKey: undefined },
+      {},
+      provider,
+    );
+    const response = await app.request(
+      "http://trellis/auth/login/github?flowId=flow-oauth",
+    );
+
+    assertEquals(response.status, 400);
+    assertStringIncludes(await response.text(), "Invalid browser flow state");
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP account-flow OAuth callback links provider to target account",
+  sanitizeResources: false,
+  fn: async () => {
+    const flowId = "link-oauth-flow";
+    const target: UserAccount = {
+      userId: "usr_target",
+      name: "Target User",
+      email: "target@example.com",
+      active: true,
+      capabilities: [],
+      capabilityGroups: [],
+      createdAt: "2026-05-09T00:00:00.000Z",
+      updatedAt: "2026-05-09T00:00:00.000Z",
+    };
+    const flow: AccountFlow = {
+      flowIdHash: await hashKey(flowId),
+      kind: "identity_link",
+      targetUserId: target.userId,
+      createdByUserId: "usr_admin",
+      allowedProviders: ["github"],
+      capabilities: null,
+      profileHint: null,
+      createdAt: "2026-05-09T00:00:00.000Z",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      consumedAt: null,
+    };
+    let linkedIdentity: UserIdentity | undefined;
+    const oauthState: OAuthState = {
+      kind: "account_flow",
+      provider: "github",
+      flowId,
+      codeVerifier: "verifier-123",
+      createdAt: new Date("2026-05-09T00:00:00.000Z"),
+    };
+    const app = await registerTestRoutes({}, {
+      get: (id: string) =>
+        Promise.resolve(
+          id === flow.flowIdHash
+            ? flow
+            : id === target.userId
+            ? target
+            : undefined,
+        ),
+      consume: (flowIdHash: string, consumedAt: string) => {
+        if (flowIdHash !== flow.flowIdHash || flow.consumedAt !== null) {
+          return Promise.resolve(false);
+        }
+        flow.consumedAt = consumedAt;
+        return Promise.resolve(true);
+      },
+      getByProviderSubject: () => Promise.resolve(undefined),
+      put: (record: UserIdentity) => {
+        linkedIdentity = record;
+        return Promise.resolve(undefined);
+      },
+    }, {
+      github: testProvider("github", "GitHub"),
+    }, {
+      oauthCodeResponse: () => Promise.resolve({ accessToken: "access-token" }),
+    }, {
+      oauthStateKV: {
+        get: () =>
+          AsyncResult.ok({
+            value: oauthState,
+            delete: () => AsyncResult.ok(undefined),
+          }),
+      },
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/callback/github?state=state-123&code=code-123",
+      { headers: { cookie: "trellis_oauth=state-123" } },
+    );
+
+    assertEquals(response.status, 302);
+    assertStringIncludes(
+      response.headers.get("location") ?? "",
+      "/_trellis/portal/account/link?flowId=link-oauth-flow&status=completed&userId=usr_target",
+    );
+    assertEquals(flow.consumedAt !== null, true);
+    assertEquals(linkedIdentity?.userId, target.userId);
+    assertEquals(linkedIdentity?.provider, "github");
+    assertEquals(linkedIdentity?.subject, "user");
+    assertEquals(linkedIdentity?.lastLoginAt, flow.consumedAt);
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP account-flow local-password endpoint completes target account flow",
+  sanitizeResources: false,
+  fn: async () => {
+    const flowId = "invite-flow";
+    const target: UserAccount = {
+      userId: "usr_target",
+      name: null,
+      email: null,
+      active: true,
+      capabilities: ["admin"],
+      capabilityGroups: [],
+      createdAt: "2026-05-09T00:00:00.000Z",
+      updatedAt: "2026-05-09T00:00:00.000Z",
+    };
+    const flow: AccountFlow = {
+      flowIdHash: await hashKey(flowId),
+      kind: "account_invite",
+      targetUserId: target.userId,
+      createdByUserId: "usr_admin",
+      allowedProviders: ["local"],
+      capabilities: null,
+      profileHint: null,
+      createdAt: "2026-05-09T00:00:00.000Z",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      consumedAt: null,
+    };
+    const identities: UserIdentity[] = [];
+    const credentials: LocalCredential[] = [];
+    const app = await registerTestRoutes({}, {
+      get: (id: string) =>
+        Promise.resolve(id === flow.flowIdHash ? flow : target),
+      consume: (flowIdHash: string, consumedAt: string) => {
+        if (flowIdHash !== flow.flowIdHash || flow.consumedAt !== null) {
+          return Promise.resolve(false);
+        }
+        flow.consumedAt = consumedAt;
+        return Promise.resolve(true);
+      },
+      getByProviderSubject: () => Promise.resolve(undefined),
+      put: (record: UserIdentity | LocalCredential) => {
+        if ("provider" in record) identities.push(record);
+        else credentials.push(record);
+        return Promise.resolve(undefined);
+      },
+    });
+
+    const response = await app.request(
+      `http://trellis/auth/account-flow/${flowId}/local-password`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          username: "ada",
+          password: "password",
+          name: "Ada Local",
+          email: "ada@example.com",
+        }),
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), {
+      status: "created",
+      userId: target.userId,
+    });
+    assertEquals(flow.consumedAt !== null, true);
+    if (flow.consumedAt === null) throw new Error("expected consumed flow");
+    assertEquals(identities, [{
+      identityId: identityIdForProviderSubject("local", "ada"),
+      userId: target.userId,
+      provider: "local",
+      subject: "ada",
+      displayName: "Ada Local",
+      email: "ada@example.com",
+      emailVerified: false,
+      linkedAt: flow.consumedAt,
+      lastLoginAt: null,
+    }]);
+    assertEquals(credentials.length, 1);
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP account-flow local-password endpoint maps inactive target errors",
+  sanitizeResources: false,
+  fn: async () => {
+    const flowId = "setup-flow";
+    const target: UserAccount = {
+      userId: "usr_target",
+      name: null,
+      email: null,
+      active: false,
+      capabilities: [],
+      capabilityGroups: [],
+      createdAt: "2026-05-09T00:00:00.000Z",
+      updatedAt: "2026-05-09T00:00:00.000Z",
+    };
+    const flow: AccountFlow = {
+      flowIdHash: await hashKey(flowId),
+      kind: "local_password_setup",
+      targetUserId: target.userId,
+      createdByUserId: "usr_admin",
+      allowedProviders: ["local"],
+      capabilities: null,
+      profileHint: null,
+      createdAt: "2026-05-09T00:00:00.000Z",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      consumedAt: null,
+    };
+    const app = await registerTestRoutes({}, {
+      get: (id: string) =>
+        Promise.resolve(id === flow.flowIdHash ? flow : target),
+    });
+
+    const response = await app.request(
+      `http://trellis/auth/account-flow/${flowId}/local-password`,
+      {
+        method: "POST",
+        body: JSON.stringify({ username: "ada", password: "password" }),
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    assertEquals(response.status, 403);
+    assertEquals(await response.json(), { error: "target_user_inactive" });
+  },
+});
+
+Deno.test({
+  name: "auth HTTP flow state offers local login without OAuth providers",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({ authToken: undefined });
+
+    const response = await app.request("http://trellis/auth/flow/missing");
+
+    assertEquals(response.status, 200);
+    assertEquals((await response.json()).providers, [
+      { id: "local", displayName: "Username and password" },
+    ]);
   },
 });
 
@@ -245,6 +1070,499 @@ Deno.test({
 });
 
 Deno.test({
+  name: "auth HTTP local login creates pending auth for linked active identity",
+  sanitizeResources: false,
+  fn: async () => {
+    const { registerHttpRoutes } = await import("./routes.ts");
+    const app = new Hono();
+    const flow: BrowserFlowRecord = {
+      flowId: "flow-local",
+      kind: "login" as const,
+      sessionKey: "session-local",
+      redirectTo: "http://localhost:5173/app",
+      app: { contractId: "client.example@v1", origin: "http://localhost:5173" },
+      contract: {
+        id: "client.example@v1",
+        displayName: "Example Client",
+        description: "Example browser client",
+      },
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      expiresAt: new Date("2099-01-01T00:05:00.000Z"),
+    };
+    let savedFlow = flow;
+    let pendingAuth: PendingAuth | undefined;
+    const identity = {
+      identityId: "idn_local",
+      userId: "usr_local",
+      provider: "local",
+      subject: "alex",
+      displayName: "Alex Local",
+      email: "alex@example.com",
+      emailVerified: true,
+      linkedAt: "2026-01-01T00:00:00.000Z",
+      lastLoginAt: null,
+    };
+    const credential = await createLocalCredentialPassword({
+      identityId: identity.identityId,
+      password: "correct horse battery staple",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const kv = {
+      get: () => AsyncResult.ok({ value: {} }),
+      put: () => AsyncResult.ok(undefined),
+      create: () => AsyncResult.ok(undefined),
+      delete: () => AsyncResult.ok(undefined),
+      keys: () => AsyncResult.ok((async function* () {})()),
+    };
+    const logger = {
+      trace: () => {},
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+    };
+    const emptyStorage = {
+      get: () => Promise.resolve(undefined),
+      getLogin: () => Promise.resolve(undefined),
+      getDevice: () => Promise.resolve(undefined),
+      getByInstanceKey: () => Promise.resolve(undefined),
+      has: () => Promise.resolve(false),
+      put: () => Promise.resolve(undefined),
+      consume: () => Promise.resolve(false),
+      delete: () => Promise.resolve(undefined),
+      list: () => Promise.resolve([]),
+      listPage: () => Promise.resolve([]),
+      listByUser: () => Promise.resolve([]),
+      listEnabled: () => Promise.resolve([]),
+      listByDeployment: () => Promise.resolve([]),
+      listEnabledByContractId: () => Promise.resolve([]),
+      getFirstEnabledForDeployments: () => Promise.resolve(undefined),
+    };
+
+    registerHttpRoutes(app, {
+      contractStorage: emptyStorage,
+      accountFlowStorage: emptyStorage,
+      accountStorage: {
+        ...emptyStorage,
+        get: () =>
+          Promise.resolve({
+            userId: "usr_local",
+            name: "Alex Account",
+            email: "account@example.com",
+            active: true,
+            capabilities: [],
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          }),
+      },
+      userIdentityStorage: {
+        ...emptyStorage,
+        getByProviderSubject: (provider: string, subject: string) =>
+          Promise.resolve(
+            provider === "local" && subject === "alex" ? identity : undefined,
+          ),
+        put: (record: typeof identity) => {
+          Object.assign(identity, record);
+          return Promise.resolve(undefined);
+        },
+      },
+      localCredentialStorage: {
+        ...emptyStorage,
+        get: () => Promise.resolve(credential),
+      },
+      userStorage: emptyStorage,
+      contractApprovalStorage: emptyStorage,
+      deploymentPortalRouteStorage: emptyStorage,
+      serviceDeploymentStorage: emptyStorage,
+      serviceInstanceStorage: emptyStorage,
+      deviceDeploymentStorage: emptyStorage,
+      deviceInstanceStorage: emptyStorage,
+      deviceActivationStorage: emptyStorage,
+      deviceActivationReviewStorage: emptyStorage,
+      deviceProvisioningSecretStorage: emptyStorage,
+      deploymentEnvelopeStorage: emptyStorage,
+      deploymentGrantOverrideStorage: emptyStorage,
+      deploymentResourceBindingStorage: emptyStorage,
+      deploymentContractEvidenceStorage: emptyStorage,
+      envelopeExpansionRequestStorage: emptyStorage,
+      config,
+      kick: async () => {},
+      contracts: createTestContracts(),
+      providers: {},
+      runtimeDeps: {
+        browserFlowsKV: {
+          ...kv,
+          get: () => AsyncResult.ok({ value: savedFlow }),
+          put: (_flowId: string, value: typeof flow) => {
+            savedFlow = value;
+            return AsyncResult.ok(undefined);
+          },
+        },
+        connectionsKV: kv,
+        logger,
+        natsTrellis: {},
+        oauthStateKV: kv,
+        pendingAuthKV: {
+          ...kv,
+          create: (_key: string, value: PendingAuth) => {
+            pendingAuth = value;
+            return AsyncResult.ok(undefined);
+          },
+        },
+        sentinelCreds: { jwt: "jwt", seed: "seed" },
+        sessionStorage: emptyStorage,
+      },
+    } as never);
+
+    const wrongPasswordResponse = await app.request(
+      "http://trellis/auth/login/local",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          flowId: "flow-local",
+          username: "alex",
+          password: "wrong",
+        }),
+      },
+    );
+
+    assertEquals(wrongPasswordResponse.status, 403);
+    assertEquals(await wrongPasswordResponse.json(), {
+      error: "invalid_credentials",
+    });
+    assertEquals(pendingAuth, undefined);
+
+    const response = await app.request("http://trellis/auth/login/local", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        flowId: "flow-local",
+        username: "alex",
+        password: "correct horse battery staple",
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), {
+      status: "authenticated",
+      flowId: "flow-local",
+    });
+    assertEquals(savedFlow.provider, "local");
+    assertEquals(typeof savedFlow.authToken, "string");
+    assertEquals(pendingAuth?.userId, "usr_local");
+    assertEquals(pendingAuth?.identity, {
+      identityId: "idn_local",
+      provider: "local",
+      subject: "alex",
+    });
+    assertEquals(pendingAuth?.user.email, "account@example.com");
+    assertEquals(identity.lastLoginAt === null, false);
+  },
+});
+
+Deno.test({
+  name: "auth HTTP local login rejects missing identities uniformly",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes();
+
+    for (const username of ["missing", "alex"]) {
+      const response = await app.request("http://trellis/auth/login/local", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          flowId: "flow-local",
+          username,
+          password: "wrong",
+        }),
+      });
+
+      assertEquals(response.status, 403);
+      assertEquals(await response.json(), { error: "invalid_credentials" });
+    }
+  },
+});
+
+Deno.test({
+  name: "auth HTTP local login increments failures and locks at threshold",
+  sanitizeResources: false,
+  fn: async () => {
+    const fixture = await registerLocalLoginTestRoutes({
+      credential: await createLocalCredentialPassword({
+        identityId: "idn_local",
+        password: "correct horse battery staple",
+        now: new Date("2026-01-01T00:00:00.000Z"),
+      }),
+    });
+
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const response = await fixture.app.request(
+        "http://trellis/auth/login/local",
+        localLoginRequest("wrong"),
+      );
+
+      assertEquals(response.status, 403);
+      assertEquals(await response.json(), { error: "invalid_credentials" });
+      assertEquals(fixture.getCredential().failedLoginCount, attempt);
+    }
+
+    const locked = fixture.getCredential();
+    assertEquals(typeof locked.lockedUntil, "string");
+    assertEquals(fixture.getPendingAuth(), undefined);
+  },
+});
+
+Deno.test({
+  name: "auth HTTP local login rejects locked credentials without mutation",
+  sanitizeResources: false,
+  fn: async () => {
+    const credential = await createLocalCredentialPassword({
+      identityId: "idn_local",
+      password: "correct horse battery staple",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const lockedCredential: LocalCredential = {
+      ...credential,
+      passwordParams: {
+        ...credential.passwordParams,
+        iterations: 2_000_001,
+      },
+      failedLoginCount: 5,
+      lockedUntil: "2099-01-01T00:15:00.000Z",
+      updatedAt: "2026-01-01T00:00:01.000Z",
+    };
+    const fixture = await registerLocalLoginTestRoutes({
+      credential: lockedCredential,
+    });
+
+    const response = await fixture.app.request(
+      "http://trellis/auth/login/local",
+      localLoginRequest("correct horse battery staple"),
+    );
+
+    assertEquals(response.status, 403);
+    assertEquals(await response.json(), { error: "invalid_credentials" });
+    assertEquals(fixture.getCredential(), lockedCredential);
+    assertEquals(fixture.getPendingAuth(), undefined);
+  },
+});
+
+Deno.test({
+  name: "auth HTTP local login resets failure state after valid password",
+  sanitizeResources: false,
+  fn: async () => {
+    const credential = await createLocalCredentialPassword({
+      identityId: "idn_local",
+      password: "correct horse battery staple",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const fixture = await registerLocalLoginTestRoutes({
+      credential: {
+        ...credential,
+        failedLoginCount: 4,
+        lockedUntil: "2026-01-01T00:15:00.000Z",
+      },
+    });
+
+    const response = await fixture.app.request(
+      "http://trellis/auth/login/local",
+      localLoginRequest("correct horse battery staple"),
+    );
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), {
+      status: "authenticated",
+      flowId: "flow-local",
+    });
+    assertEquals(fixture.getCredential().failedLoginCount, 0);
+    assertEquals(fixture.getCredential().lockedUntil, null);
+    assertEquals(fixture.getPendingAuth()?.userId, "usr_local");
+  },
+});
+
+Deno.test({
+  name: "auth HTTP local login rejects expired browser flows",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({
+      expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+    });
+
+    const response = await app.request("http://trellis/auth/login/local", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        flowId: "flow-local",
+        username: "alex",
+        password: "wrong",
+      }),
+    });
+
+    assertEquals(response.status, 404);
+    assertStringIncludes(await response.text(), "Expired browser flow");
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP local login only reveals inactive accounts after valid password",
+  sanitizeResources: false,
+  fn: async () => {
+    const { registerHttpRoutes } = await import("./routes.ts");
+    const app = new Hono();
+    const flow: BrowserFlowRecord = {
+      flowId: "flow-local",
+      kind: "login",
+      sessionKey: "session-local",
+      redirectTo: "http://localhost:5173/app",
+      contract: { id: "client.example@v1" },
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      expiresAt: new Date("2099-01-01T00:05:00.000Z"),
+    };
+    const identity = {
+      identityId: "idn_local",
+      userId: "usr_local",
+      provider: "local",
+      subject: "alex",
+      displayName: "Alex Local",
+      email: "alex@example.com",
+      emailVerified: true,
+      linkedAt: "2026-01-01T00:00:00.000Z",
+      lastLoginAt: null,
+    };
+    const credential = await createLocalCredentialPassword({
+      identityId: identity.identityId,
+      password: "correct horse battery staple",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const kv = {
+      get: () => AsyncResult.ok({ value: {} }),
+      put: () => AsyncResult.ok(undefined),
+      create: () => AsyncResult.ok(undefined),
+      delete: () => AsyncResult.ok(undefined),
+      keys: () => AsyncResult.ok((async function* () {})()),
+    };
+    const logger = {
+      trace: () => {},
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+    };
+    const emptyStorage = {
+      get: () => Promise.resolve(undefined),
+      getLogin: () => Promise.resolve(undefined),
+      getDevice: () => Promise.resolve(undefined),
+      getByInstanceKey: () => Promise.resolve(undefined),
+      has: () => Promise.resolve(false),
+      put: () => Promise.resolve(undefined),
+      consume: () => Promise.resolve(false),
+      delete: () => Promise.resolve(undefined),
+      list: () => Promise.resolve([]),
+      listPage: () => Promise.resolve([]),
+      listByUser: () => Promise.resolve([]),
+      listEnabled: () => Promise.resolve([]),
+      listByDeployment: () => Promise.resolve([]),
+      listEnabledByContractId: () => Promise.resolve([]),
+      getFirstEnabledForDeployments: () => Promise.resolve(undefined),
+    };
+
+    registerHttpRoutes(app, {
+      contractStorage: emptyStorage,
+      accountFlowStorage: emptyStorage,
+      accountStorage: {
+        ...emptyStorage,
+        get: () =>
+          Promise.resolve({
+            userId: "usr_local",
+            name: "Alex Account",
+            email: "account@example.com",
+            active: false,
+            capabilities: [],
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          }),
+      },
+      userIdentityStorage: {
+        ...emptyStorage,
+        getByProviderSubject: () => Promise.resolve(identity),
+      },
+      localCredentialStorage: {
+        ...emptyStorage,
+        get: () => Promise.resolve(credential),
+      },
+      userStorage: emptyStorage,
+      contractApprovalStorage: emptyStorage,
+      deploymentPortalRouteStorage: emptyStorage,
+      serviceDeploymentStorage: emptyStorage,
+      serviceInstanceStorage: emptyStorage,
+      deviceDeploymentStorage: emptyStorage,
+      deviceInstanceStorage: emptyStorage,
+      deviceActivationStorage: emptyStorage,
+      deviceActivationReviewStorage: emptyStorage,
+      deviceProvisioningSecretStorage: emptyStorage,
+      deploymentEnvelopeStorage: emptyStorage,
+      deploymentGrantOverrideStorage: emptyStorage,
+      deploymentResourceBindingStorage: emptyStorage,
+      deploymentContractEvidenceStorage: emptyStorage,
+      envelopeExpansionRequestStorage: emptyStorage,
+      config,
+      kick: async () => {},
+      contracts: createTestContracts(),
+      providers: {},
+      runtimeDeps: {
+        browserFlowsKV: {
+          ...kv,
+          get: () => AsyncResult.ok({ value: flow }),
+        },
+        connectionsKV: kv,
+        logger,
+        natsTrellis: {},
+        oauthStateKV: kv,
+        pendingAuthKV: kv,
+        sentinelCreds: { jwt: "jwt", seed: "seed" },
+        sessionStorage: emptyStorage,
+      },
+    } as never);
+
+    const wrongPasswordResponse = await app.request(
+      "http://trellis/auth/login/local",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          flowId: "flow-local",
+          username: "alex",
+          password: "wrong",
+        }),
+      },
+    );
+    assertEquals(wrongPasswordResponse.status, 403);
+    assertEquals(await wrongPasswordResponse.json(), {
+      error: "invalid_credentials",
+    });
+
+    const validPasswordResponse = await app.request(
+      "http://trellis/auth/login/local",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          flowId: "flow-local",
+          username: "alex",
+          password: "correct horse battery staple",
+        }),
+      },
+    );
+    assertEquals(validPasswordResponse.status, 403);
+    assertEquals(await validPasswordResponse.json(), {
+      error: "user_inactive",
+    });
+  },
+});
+
+Deno.test({
   name: "auth HTTP approval route rejects non-boolean approval shape",
   sanitizeResources: false,
   fn: async () => {
@@ -296,9 +1614,12 @@ Deno.test({
     sessions.set(auth.sessionKey, {
       type: "user",
       participantKind: "app",
-      trellisId: "tid_123",
-      origin: "github",
-      id: "123",
+      userId: "usr_123",
+      identity: {
+        identityId: "idn_123",
+        provider: "github",
+        subject: "123",
+      },
       email: "user@example.com",
       name: "User",
       identityEnvelopeId: "env-client",
@@ -334,9 +1655,13 @@ Deno.test({
       getLogin: () => Promise.resolve(undefined),
       getDevice: () => Promise.resolve(undefined),
       getByInstanceKey: () => Promise.resolve(undefined),
+      has: () => Promise.resolve(false),
       put: () => Promise.resolve(undefined),
+      consume: () => Promise.resolve(false),
       delete: () => Promise.resolve(undefined),
       list: () => Promise.resolve([]),
+      listPage: () => Promise.resolve([]),
+      listByUser: () => Promise.resolve([]),
       listEnabled: () => Promise.resolve([]),
       listByDeployment: () => Promise.resolve([]),
       listEnabledByContractId: () => Promise.resolve([]),
@@ -353,6 +1678,10 @@ Deno.test({
           return Promise.resolve(undefined);
         },
       },
+      accountFlowStorage: emptyStorage,
+      accountStorage: emptyStorage,
+      userIdentityStorage: emptyStorage,
+      localCredentialStorage: emptyStorage,
       userStorage: {
         ...emptyStorage,
         get: () =>
