@@ -84,6 +84,10 @@ pub fn generate_ts_sdk(opts: &GenerateTsSdkOpts) -> Result<(), CodegenTsError> {
         &opts.out_dir.join("schemas.ts"),
         &render_schemas_ts(opts, &loaded),
     )?;
+    write_generated_file(
+        &opts.out_dir.join("owned_api.ts"),
+        &render_owned_api_ts(opts, &loaded),
+    )?;
     write_generated_file(&opts.out_dir.join("api.ts"), &render_api_ts(opts, &loaded))?;
     write_generated_file(
         &opts.out_dir.join("client.ts"),
@@ -703,7 +707,7 @@ fn render_schemas_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Strin
     )
 }
 
-fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
+fn render_owned_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let source_reference =
         manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
     let trellis_contracts_import = trellis_contracts_import(opts);
@@ -713,7 +717,6 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         .map(|export| (export.key.as_str(), export.const_name.as_str()))
         .collect::<BTreeMap<_, _>>();
     let mut api_schema_imports = BTreeSet::new();
-    let uses = client_uses(opts, loaded);
     for rpc in loaded.manifest.rpc.values() {
         api_schema_imports.insert(rpc.input.schema.as_str());
         api_schema_imports.insert(rpc.output.schema.as_str());
@@ -774,17 +777,6 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
                     .map(|export| export.const_name.as_str())
                     .collect::<Vec<_>>()
                     .join(", ")
-            ),
-        );
-    }
-
-    for use_dep in &uses {
-        lines.insert(
-            4,
-            format!(
-                "import * as {} from {};",
-                api_dependency_namespace(&use_dep.namespace),
-                js_string(&api_use_import_specifier(use_dep))
             ),
         );
     }
@@ -1083,22 +1075,65 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     lines.push("  },".to_string());
     lines.push("} satisfies TrellisAPI;".to_string());
     lines.push(String::new());
+
+    format!(
+        "{}
+",
+        lines.join(
+            "
+"
+        )
+    )
+}
+
+fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
+    let source_reference =
+        manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
+    let uses = client_uses(opts, loaded);
+    let mut lines = vec![
+        format!("// Generated from {}", escape_js_string(&source_reference)),
+        "import { OWNED_API } from \"./owned_api.ts\";".to_string(),
+    ];
+
+    for use_dep in &uses {
+        lines.push(format!(
+            "import {{ OWNED_API as {} }} from {};",
+            api_dependency_namespace(&use_dep.namespace),
+            js_string(&owned_api_use_import_specifier(use_dep))
+        ));
+    }
+
+    lines.push(String::new());
+    lines.push("export { OWNED_API };".to_string());
+    lines.push(String::new());
+    lines.extend(render_used_api_type_ts(&uses));
+    lines.push(String::new());
     lines.extend(render_used_api_ts(&uses));
+    lines.push(String::new());
+    lines.push("export type OwnedApi = typeof OWNED_API;".to_string());
+    lines.push("export type Api = {".to_string());
+    lines.push("  rpc: OwnedApi[\"rpc\"] & UsedApi[\"rpc\"];".to_string());
+    lines.push("  operations: OwnedApi[\"operations\"] & UsedApi[\"operations\"];".to_string());
+    lines.push("  events: OwnedApi[\"events\"] & UsedApi[\"events\"];".to_string());
+    lines.push("  feeds: OwnedApi[\"feeds\"] & UsedApi[\"feeds\"];".to_string());
+    lines.push("  subjects: OwnedApi[\"subjects\"] & UsedApi[\"subjects\"];".to_string());
+    lines.push("};".to_string());
     lines.push(String::new());
     lines.push("export const API = {".to_string());
     lines.push("  owned: OWNED_API,".to_string());
     lines.push("  used: USED_API,".to_string());
-    lines.push("  trellis: {".to_string());
-    lines.push("    rpc: { ...OWNED_API.rpc, ...USED_API.rpc },".to_string());
-    lines.push("    operations: { ...OWNED_API.operations, ...USED_API.operations },".to_string());
-    lines.push("    events: { ...OWNED_API.events, ...USED_API.events },".to_string());
-    lines.push("    feeds: { ...OWNED_API.feeds, ...USED_API.feeds },".to_string());
-    lines.push("    subjects: { ...OWNED_API.subjects, ...USED_API.subjects },".to_string());
+    lines.push("  get trellis() {".to_string());
+    lines.push("    return {".to_string());
+    lines.push("      rpc: { ...OWNED_API.rpc, ...USED_API.rpc },".to_string());
+    lines
+        .push("      operations: { ...OWNED_API.operations, ...USED_API.operations },".to_string());
+    lines.push("      events: { ...OWNED_API.events, ...USED_API.events },".to_string());
+    lines.push("      feeds: { ...OWNED_API.feeds, ...USED_API.feeds },".to_string());
+    lines.push("      subjects: { ...OWNED_API.subjects, ...USED_API.subjects },".to_string());
+    lines.push("    };".to_string());
     lines.push("  },".to_string());
     lines.push("} as const;".to_string());
     lines.push(String::new());
-    lines.push("export type OwnedApi = typeof API.owned;".to_string());
-    lines.push("export type Api = typeof API.trellis;".to_string());
     lines.push("export type ApiViews = typeof API;".to_string());
     lines.push(String::new());
 
@@ -1126,8 +1161,8 @@ fn api_uses_types_as_value(loaded: &LoadedManifest) -> bool {
     })
 }
 
-fn render_used_api_ts(uses: &[ClientUseDependency]) -> Vec<String> {
-    let mut lines = vec!["export const USED_API = {".to_string()];
+fn render_used_api_type_ts(uses: &[ClientUseDependency]) -> Vec<String> {
+    let mut lines = vec!["export type UsedApi = {".to_string()];
     for (field, selectors) in [
         ("rpc", UsedApiSelectors::RpcCall),
         ("operations", UsedApiSelectors::OperationCall),
@@ -1140,7 +1175,34 @@ fn render_used_api_ts(uses: &[ClientUseDependency]) -> Vec<String> {
             let namespace = api_dependency_namespace(&use_dep.namespace);
             for key in selected_used_api_keys(use_dep, selectors) {
                 lines.push(format!(
-                    "    {}: {}.API.owned.{field}[{}],",
+                    "    readonly {}: typeof {}.{field}[{}];",
+                    js_string(key),
+                    namespace,
+                    js_string(key)
+                ));
+            }
+        }
+        lines.push("  };".to_string());
+    }
+    lines.push("};".to_string());
+    lines
+}
+
+fn render_used_api_ts(uses: &[ClientUseDependency]) -> Vec<String> {
+    let mut lines = vec!["export const USED_API: UsedApi = {".to_string()];
+    for (field, selectors) in [
+        ("rpc", UsedApiSelectors::RpcCall),
+        ("operations", UsedApiSelectors::OperationCall),
+        ("events", UsedApiSelectors::Events),
+        ("feeds", UsedApiSelectors::Feeds),
+        ("subjects", UsedApiSelectors::Empty),
+    ] {
+        lines.push(format!("  {field}: {{"));
+        for use_dep in uses {
+            let namespace = api_dependency_namespace(&use_dep.namespace);
+            for key in selected_used_api_keys(use_dep, selectors) {
+                lines.push(format!(
+                    "    get {}() {{ return {}.{field}[{}]; }},",
                     js_string(key),
                     namespace,
                     js_string(key)
@@ -1149,7 +1211,7 @@ fn render_used_api_ts(uses: &[ClientUseDependency]) -> Vec<String> {
         }
         lines.push("  },".to_string());
     }
-    lines.push("} as const satisfies TrellisAPI;".to_string());
+    lines.push("};".to_string());
     lines
 }
 
@@ -1328,11 +1390,11 @@ fn client_use_import_specifiers(contract_id: &str) -> ClientUseImportSpecifiers 
     }
 }
 
-fn api_use_import_specifier(use_dep: &ClientUseDependency) -> String {
-    use_dep
-        .api_import_specifier
-        .clone()
-        .unwrap_or_else(|| use_dep.type_import_specifier.clone())
+fn owned_api_use_import_specifier(use_dep: &ClientUseDependency) -> String {
+    use_dep.api_import_specifier.as_ref().map_or_else(
+        || use_dep.type_import_specifier.clone(),
+        |specifier| specifier.replace("/api.ts", "/owned_api.ts"),
+    )
 }
 
 fn api_dependency_namespace(client_namespace: &str) -> String {
@@ -1349,7 +1411,6 @@ fn builtin_trellis_sdk_import(contract_id: &str) -> Option<&'static str> {
         "trellis.health@v1" => Some("@qlever-llc/trellis/sdk/health"),
         "trellis.state@v1" => Some("@qlever-llc/trellis/sdk/state"),
         "trellis.core@v1" => Some("@qlever-llc/trellis/sdk/core"),
-        "trellis.activity@v1" => Some("@qlever-llc/trellis/sdk/activity"),
         _ => None,
     }
 }
@@ -2620,14 +2681,14 @@ mod tests {
             repo_root: Some(repo_root.clone()),
         };
 
-        let api = render_api_ts(&opts, &loaded);
+        let owned_api = render_owned_api_ts(&opts, &loaded);
         let contract = render_contract_ts(&opts, &loaded);
         let types = render_types_ts(&opts, &loaded);
 
-        assert!(api.contains("@qlever-llc/trellis/contracts"));
+        assert!(owned_api.contains("@qlever-llc/trellis/contracts"));
         assert!(contract.contains("@qlever-llc/trellis"));
         assert!(types.contains("@qlever-llc/trellis"));
-        assert!(!api.contains("js/packages/trellis"));
+        assert!(!owned_api.contains("js/packages/trellis"));
         assert!(!contract.contains("js/packages/trellis"));
         assert!(!types.contains("js/packages/trellis"));
 
@@ -2669,34 +2730,37 @@ mod tests {
         let (opts, loaded, root) =
             sample_opts_and_loaded("@qlever-llc/trellis-sdk-auth", "trellis.auth@v1");
         let api = render_api_ts(&opts, &loaded);
+        let owned_api = render_owned_api_ts(&opts, &loaded);
 
-        assert!(api.contains("import type { TrellisAPI } from \"@qlever-llc/trellis/contracts\";"));
-        assert!(api.contains("import { schema } from \"@qlever-llc/trellis/contracts\";"));
-        assert!(api.contains("import type * as Types from \"./types.ts\";"));
-        assert!(api.contains("export const OWNED_API = {"));
+        assert!(owned_api
+            .contains("import type { TrellisAPI } from \"@qlever-llc/trellis/contracts\";"));
+        assert!(owned_api.contains("import { schema } from \"@qlever-llc/trellis/contracts\";"));
+        assert!(owned_api.contains("import type * as Types from \"./types.ts\";"));
+        assert!(owned_api.contains("export const OWNED_API = {"));
+        assert!(api.contains("import { OWNED_API } from \"./owned_api.ts\";"));
         assert!(api.contains("export const API = {"));
         assert!(api.contains("owned: OWNED_API"));
-        assert!(api.contains("export const USED_API = {"));
+        assert!(api.contains("export const USED_API: UsedApi = {"));
         assert!(api.contains("used: USED_API"));
         assert!(api.contains("rpc: { ...OWNED_API.rpc, ...USED_API.rpc }"));
         assert!(api.contains("subjects: { ...OWNED_API.subjects, ...USED_API.subjects }"));
-        assert!(api.contains("operations: {"));
-        assert!(api.contains("\"Example.Process\": {"));
-        assert!(api.contains("callerCapabilities: [\"service\"]"));
-        assert!(api.contains("readCapabilities: [\"service\"]"));
-        assert!(api.contains("cancelCapabilities: [\"service\"]"));
-        assert!(api.contains("controlCapabilities: [\"service\"]"));
-        assert!(api.contains("signals: {"));
-        assert!(api.contains("\"continue\": {"));
-        assert!(api.contains("input: schema<Types.ExampleProcessContinueSignal>"));
-        assert!(api.contains("cancel: true"));
-        assert!(api.contains("feeds: {"));
-        assert!(api.contains("\"Example.Live\": {"));
-        assert!(api.contains("input: schema<Types.ExampleLiveInput>"));
-        assert!(api.contains("event: schema<Types.ExampleLiveEvent>"));
-        assert!(api.contains("subscribeCapabilities: [\"service\"]"));
+        assert!(owned_api.contains("operations: {"));
+        assert!(owned_api.contains("\"Example.Process\": {"));
+        assert!(owned_api.contains("callerCapabilities: [\"service\"]"));
+        assert!(owned_api.contains("readCapabilities: [\"service\"]"));
+        assert!(owned_api.contains("cancelCapabilities: [\"service\"]"));
+        assert!(owned_api.contains("controlCapabilities: [\"service\"]"));
+        assert!(owned_api.contains("signals: {"));
+        assert!(owned_api.contains("\"continue\": {"));
+        assert!(owned_api.contains("input: schema<Types.ExampleProcessContinueSignal>"));
+        assert!(owned_api.contains("cancel: true"));
+        assert!(owned_api.contains("feeds: {"));
+        assert!(owned_api.contains("\"Example.Live\": {"));
+        assert!(owned_api.contains("input: schema<Types.ExampleLiveInput>"));
+        assert!(owned_api.contains("event: schema<Types.ExampleLiveEvent>"));
+        assert!(owned_api.contains("subscribeCapabilities: [\"service\"]"));
         assert!(api.contains("feeds: { ...OWNED_API.feeds, ...USED_API.feeds }"));
-        assert!(api.contains("export type Api = typeof API.trellis;"));
+        assert!(api.contains("export type Api = {"));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -2970,18 +3034,21 @@ mod tests {
         assert!(!client.contains("publish(event: string, data: Record<string, unknown>)"));
         assert!(!client.contains("event(event: string, subjectData: Record<string, unknown>"));
         assert!(!client.contains("StateFacade<"));
-        assert!(api.contains("import * as JobsApi from \"@qlever-llc/trellis/sdk/jobs\";"));
-        assert!(api.contains("export const USED_API = {"));
-        assert!(api.contains("\"Jobs.Get\": JobsApi.API.owned.rpc[\"Jobs.Get\"]"));
-        assert!(api.contains("\"Jobs.Run\": JobsApi.API.owned.operations[\"Jobs.Run\"]"));
-        assert!(api.contains("\"Jobs.Updated\": JobsApi.API.owned.events[\"Jobs.Updated\"]"));
-        assert!(api.contains("\"Jobs.Live\": JobsApi.API.owned.feeds[\"Jobs.Live\"]"));
-        assert!(api.contains("trellis: {"));
+        assert!(
+            api.contains("import { OWNED_API as JobsApi } from \"@qlever-llc/trellis/sdk/jobs\";")
+        );
+        assert!(api.contains("export const USED_API: UsedApi = {"));
+        assert!(api.contains("\"Jobs.Get\": typeof JobsApi.rpc[\"Jobs.Get\"]"));
+        assert!(api.contains("\"Jobs.Get\"() { return JobsApi.rpc[\"Jobs.Get\"]"));
+        assert!(api.contains("\"Jobs.Run\"() { return JobsApi.operations[\"Jobs.Run\"]"));
+        assert!(api.contains("\"Jobs.Updated\"() { return JobsApi.events[\"Jobs.Updated\"]"));
+        assert!(api.contains("\"Jobs.Live\"() { return JobsApi.feeds[\"Jobs.Live\"]"));
+        assert!(api.contains("get trellis()"));
 
         let jobs_loaded = load_manifest(&jobs_manifest_path).unwrap();
-        let jobs_api = render_api_ts(&opts, &jobs_loaded);
-        assert!(jobs_api.contains("transfer: {\n        direction: \"receive\",\n      },"));
-        assert!(jobs_api.contains("transfer: {\n        direction: \"send\",\n        store: \"files\",\n        key: \"/upload\","));
+        let jobs_owned_api = render_owned_api_ts(&opts, &jobs_loaded);
+        assert!(jobs_owned_api.contains("transfer: {\n        direction: \"receive\",\n      },"));
+        assert!(jobs_owned_api.contains("transfer: {\n        direction: \"send\",\n        store: \"files\",\n        key: \"/upload\","));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -3107,11 +3174,15 @@ mod tests {
         assert!(client.contains(
             "fn: EventCallback<KvDemoSdk.KvUpdatedEvent>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>;"
         ));
-        assert!(api.contains("import * as KvDemoApi from \"../demo-kv-service/api.ts\";"));
+        assert!(api.contains(
+            "import { OWNED_API as KvDemoApi } from \"../demo-kv-service/owned_api.ts\";"
+        ));
+        assert!(!api.contains("../demo-kv-service/api.ts"));
         assert!(!api.contains("../demo-kv-service/mod.ts"));
-        assert!(api.contains("\"Kv.Get\": KvDemoApi.API.owned.rpc[\"Kv.Get\"]"));
-        assert!(api.contains("\"Kv.Run\": KvDemoApi.API.owned.operations[\"Kv.Run\"]"));
-        assert!(api.contains("\"Kv.Updated\": KvDemoApi.API.owned.events[\"Kv.Updated\"]"));
+        assert!(api.contains("\"Kv.Get\": typeof KvDemoApi.rpc[\"Kv.Get\"]"));
+        assert!(api.contains("\"Kv.Get\"() { return KvDemoApi.rpc[\"Kv.Get\"]"));
+        assert!(api.contains("\"Kv.Run\"() { return KvDemoApi.operations[\"Kv.Run\"]"));
+        assert!(api.contains("\"Kv.Updated\"() { return KvDemoApi.events[\"Kv.Updated\"]"));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -3436,12 +3507,13 @@ mod tests {
     #[test]
     fn generated_readme_uses_contract_first_example() {
         let (opts, loaded, root) =
-            sample_opts_and_loaded("@qlever-llc/trellis-sdk-activity", "trellis.activity@v1");
+            sample_opts_and_loaded("@qlever-llc/trellis-sdk-audit", "acme.audit@v1");
         let readme = render_readme(&opts, &loaded);
 
         assert!(readme.contains("import { defineContract } from \"@qlever-llc/trellis\";"));
-        assert!(readme
-            .contains("import { sdk as dependency } from \"@qlever-llc/trellis/sdk/activity\";"));
+        assert!(
+            readme.contains("import { sdk as dependency } from \"@qlever-llc/trellis/sdk/audit\";")
+        );
         assert!(readme.contains("displayName: \"Example App\""));
         assert!(readme.contains("description: \"User-facing app for the example deployment.\""));
         assert!(readme.contains("kind: \"app\""));
@@ -3523,7 +3595,7 @@ mod tests {
 
         let types = render_types_ts(&opts, &loaded);
         let schemas = render_schemas_ts(&opts, &loaded);
-        let api = render_api_ts(&opts, &loaded);
+        let owned_api = render_owned_api_ts(&opts, &loaded);
 
         assert!(types.contains(
             "import { TrellisError, type SerializableErrorData } from \"@qlever-llc/trellis\";"
@@ -3539,11 +3611,13 @@ mod tests {
         assert!(schemas.contains("export const EmptySchema = "));
         assert!(schemas.contains("export const NotFoundErrorDataSchema = "));
         assert!(!schemas.contains("SCHEMAS"));
-        assert!(api.contains("runtimeErrors: ["));
-        assert!(api.contains("import * as Types from \"./types.ts\";"));
-        assert!(api.contains("type: \"NotFoundError\""));
-        assert!(api.contains("schema: schema<Types.NotFoundErrorData>(NotFoundErrorDataSchema)"));
-        assert!(api.contains("fromSerializable: Types.NotFoundError.fromSerializable"));
+        assert!(owned_api.contains("runtimeErrors: ["));
+        assert!(owned_api.contains("import * as Types from \"./types.ts\";"));
+        assert!(owned_api.contains("type: \"NotFoundError\""));
+        assert!(
+            owned_api.contains("schema: schema<Types.NotFoundErrorData>(NotFoundErrorDataSchema)")
+        );
+        assert!(owned_api.contains("fromSerializable: Types.NotFoundError.fromSerializable"));
 
         fs::remove_dir_all(root).unwrap();
     }

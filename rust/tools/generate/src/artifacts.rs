@@ -250,6 +250,33 @@ export type Api = typeof API;
 export type ApiViews = typeof API;
 "#,
     )?;
+    write_if_changed(
+        &out.join("owned_api.ts"),
+        r#"type PermissiveApiRecord = Record<string, unknown>;
+
+function permissiveApiRecord(): PermissiveApiRecord {
+  return new Proxy({}, {
+    get: () => ({}),
+    has: () => true,
+    getOwnPropertyDescriptor: (_target, property) => typeof property === "string"
+      ? { configurable: true, enumerable: true, value: {} }
+      : undefined,
+  }) as PermissiveApiRecord;
+}
+
+export const OWNED_API = {
+  rpc: permissiveApiRecord(),
+  operations: permissiveApiRecord(),
+  events: permissiveApiRecord(),
+  feeds: permissiveApiRecord(),
+  subjects: {},
+  state: {},
+  jobs: {},
+  kv: {},
+  store: {},
+} as const;
+"#,
+    )?;
     write_if_changed(&out.join("types.ts"), &format!("export const CONTRACT_ID = {} as const;\nexport const CONTRACT_DIGEST = \"shell\" as const;\n", js_string(contract_id)))?;
     write_if_changed(&out.join("schemas.ts"), "")?;
     write_if_changed(&out.join("client.ts"), "export type Client = never;\n")?;
@@ -515,6 +542,7 @@ fn ts_key_outputs_exist(ts_out: Option<&Path>) -> bool {
     };
     ts_out.join("mod.ts").exists()
         && ts_out.join("api.ts").exists()
+        && ts_out.join("owned_api.ts").exists()
         && ts_out.join("contract.ts").exists()
         && ts_out.join("client.ts").exists()
 }
@@ -583,7 +611,6 @@ pub fn ts_package_name_from_id(contract_id: &str, prefix: &str) -> String {
         .replace('.', "-");
 
     match stem.as_str() {
-        "trellis-activity" => "@qlever-llc/trellis/sdk/activity".to_string(),
         "trellis-auth" => "@qlever-llc/trellis/sdk/auth".to_string(),
         "trellis-core" => "@qlever-llc/trellis/sdk/core".to_string(),
         "trellis-health" => "@qlever-llc/trellis/sdk/health".to_string(),
@@ -693,12 +720,16 @@ mod tests {
 
         let contract = fs::read_to_string(ts_out.join("contract.ts")).expect("read contract shell");
         let api = fs::read_to_string(ts_out.join("api.ts")).expect("read api shell");
+        let owned_api =
+            fs::read_to_string(ts_out.join("owned_api.ts")).expect("read owned api shell");
         assert!(contract.contains("export const sdk"));
         assert!(contract.contains("ContractDependencyUse"));
         assert!(contract.contains("permissiveApiRecord"));
         assert!(contract.contains("getOwnPropertyDescriptor"));
         assert!(api.contains("permissiveApiRecord"));
         assert!(api.contains("getOwnPropertyDescriptor"));
+        assert!(owned_api.contains("export const OWNED_API"));
+        assert!(owned_api.contains("permissiveApiRecord"));
         assert!(!contract.contains("assertSelectedKeysExist"));
         assert!(!metadata.exists());
     }

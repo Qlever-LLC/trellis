@@ -265,7 +265,7 @@ pub fn execute_auto_plan(
 
     let generator_fingerprint = current_generator_fingerprint();
     let mut summary = AutoExecutionSummary::default();
-    write_auto_plan_shells(plan, prefix)?;
+    write_auto_plan_shells(plan, prefix, &generator_fingerprint)?;
     for entry in plan {
         let resolved = contract_input::resolve_contract_input(
             None,
@@ -362,12 +362,16 @@ pub fn execute_auto_plan(
     Ok(summary)
 }
 
-fn write_auto_plan_shells(plan: &[AutoPlanEntry], prefix: &str) -> miette::Result<()> {
+fn write_auto_plan_shells(
+    plan: &[AutoPlanEntry],
+    prefix: &str,
+    generator_fingerprint: &str,
+) -> miette::Result<()> {
     for entry in plan {
         if !matches!(entry.action, AutoAction::Generate) {
             continue;
         }
-        if shell_outputs_are_not_needed(entry) {
+        if shell_outputs_are_not_needed(entry, generator_fingerprint) {
             continue;
         }
         let package_name = ts_package_name_from_id(&entry.contract_id, prefix);
@@ -387,13 +391,29 @@ fn write_auto_plan_shells(plan: &[AutoPlanEntry], prefix: &str) -> miette::Resul
     Ok(())
 }
 
-fn shell_outputs_are_not_needed(entry: &AutoPlanEntry) -> bool {
+fn shell_outputs_are_not_needed(entry: &AutoPlanEntry, generator_fingerprint: &str) -> bool {
     let Some(out_manifest) = &entry.out_manifest else {
         return false;
     };
-    generated_artifacts_metadata_path(out_manifest).exists()
+    generated_artifacts_metadata_matches_generator(out_manifest, generator_fingerprint)
         && ts_shell_key_outputs_exist(entry.ts_out.as_deref())
         && rust_shell_key_outputs_exist(entry.rust_out.as_deref())
+}
+
+fn generated_artifacts_metadata_matches_generator(
+    out_manifest: &Path,
+    generator_fingerprint: &str,
+) -> bool {
+    let Ok(contents) = fs::read_to_string(generated_artifacts_metadata_path(out_manifest)) else {
+        return false;
+    };
+    let Ok(metadata) = serde_json::from_str::<Value>(&contents) else {
+        return false;
+    };
+    metadata
+        .get("generator_fingerprint")
+        .and_then(Value::as_str)
+        == Some(generator_fingerprint)
 }
 
 fn ts_shell_key_outputs_exist(ts_out: Option<&Path>) -> bool {
@@ -402,6 +422,7 @@ fn ts_shell_key_outputs_exist(ts_out: Option<&Path>) -> bool {
     };
     ts_out.join("mod.ts").exists()
         && ts_out.join("api.ts").exists()
+        && ts_out.join("owned_api.ts").exists()
         && ts_out.join("contract.ts").exists()
         && ts_out.join("client.ts").exists()
 }

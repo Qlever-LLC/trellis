@@ -257,8 +257,9 @@ export default contract;
         "request(method: \"Orders.Get\", input: OrdersSdk.OrdersGetInput, opts?: RequestOpts): AsyncResult<OrdersSdk.OrdersGetOutput, BaseError>;"
     ));
     let api = fs::read_to_string(temp.path().join("generated/js/sdks/dashboard/api.ts")).unwrap();
-    assert!(api.contains("export const USED_API = {"));
-    assert!(api.contains("\"Orders.Get\": OrdersApi.API.owned.rpc[\"Orders.Get\"]"));
+    assert!(api.contains("export const USED_API: UsedApi = {"));
+    assert!(api.contains("import { OWNED_API as OrdersApi } from \"../orders/owned_api.ts\";"));
+    assert!(api.contains("\"Orders.Get\"() { return OrdersApi.rpc[\"Orders.Get\"]"));
     assert!(!temp
         .path()
         .join("generated/rust/sdks/dashboard/Cargo.toml")
@@ -672,12 +673,13 @@ export default contract;
 
     let sdk = repo.join("generated/js/sdks/dashboard");
     let api = fs::read_to_string(sdk.join("api.ts")).unwrap();
+    let owned_api = fs::read_to_string(sdk.join("owned_api.ts")).unwrap();
     let contract = fs::read_to_string(sdk.join("contract.ts")).unwrap();
     let types = fs::read_to_string(sdk.join("types.ts")).unwrap();
     let deno = fs::read_to_string(sdk.join("deno.json")).unwrap();
-    let combined = format!("{api}\n{contract}\n{types}\n{deno}");
+    let combined = format!("{api}\n{owned_api}\n{contract}\n{types}\n{deno}");
 
-    assert!(api.contains("@qlever-llc/trellis/contracts"));
+    assert!(owned_api.contains("@qlever-llc/trellis/contracts"));
     assert!(contract.contains("@qlever-llc/trellis"));
     assert!(types.contains("@qlever-llc/trellis"));
     assert!(!sdk.join("scripts/build_npm.ts").exists());
