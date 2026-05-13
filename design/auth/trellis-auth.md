@@ -41,7 +41,8 @@ Durable SQL-backed records:
 - users and admin-managed user capabilities
 - identity envelopes, deployment envelopes, approval decisions, and deployment
   grant overrides
-- portal-route metadata embedded in deployment envelopes
+- auth-owned login portal route selectors and deployment-owned device portal
+  route metadata
 - service deployments and service instances
 - device deployments, device instances, provisioning secrets, activations, and
   review records
@@ -272,13 +273,19 @@ Rules:
   signing; the final browser bind proof is tied to the `flowId`
 - portals should use explicit Trellis URL config rather than assuming the portal
   shares an origin with the Trellis HTTP service
-- Trellis ships built-in login and generic device-activation portal routes,
-  commonly served by the Trellis HTTP server from static assets; deployments may
-  carry custom portal-route metadata to replace that behavior selectively
-- a portal is a browser web app selected by deployment-envelope routing
-  metadata; it is never a service-authenticated principal
+- Trellis ships a built-in login portal and a generic device-activation portal,
+  commonly served by the Trellis HTTP server from static assets; the built-in
+  login portal is a DB-projected, visible, non-deletable portal record
+- login portal settings and route selectors live in auth-owned projected
+  storage; instance config gates only instance-level capabilities such as
+  `auth.localIdentity.enabled`
+- a portal is a browser web app selected by auth-owned login routing or
+  deployment-owned device routing; it is never a service-authenticated principal
 - portal routes are routing config only and do not imply approval, capabilities,
   or service authority
+- login portal self-registration policy can enable local registration only when
+  local identity is enabled for the instance; federated registration
+  availability is derived from configured OAuth/OIDC providers
 - there is no special portal contract kind; custom portals remain first-class
   browser UX surfaces without portal-specific contract machinery
 - a portal MAY also act later as a normal user-authenticated browser app, but
@@ -360,15 +367,15 @@ Activated devices join that same runtime model after activation is complete.
 Before that point, device setup uses Trellis-owned browser auth/bootstrap flows
 with `kind: "device_activation"`, the `Auth.DeviceUserAuthorities.Resolve`
 operation, and pre-auth wait surfaces defined in
-[device-activation.md](./device-activation.md). Browser auth UX runs through
-portal routes from deployment-owned routing metadata; callers do not choose
-portals directly in the normal path, and there is no standalone portal/default/
-selection authority. Normal auth redirects only need to preserve `flowId`; they
-do not need to carry `trellisUrl` in the default per-instance portal model
-because the portal deployment already knows which Trellis instance it targets. A
-portal may later continue as a user-authenticated browser app for onboarding or
-activation work, but that remains user-delegated app authority rather than
-service authority.
+[device-activation.md](./device-activation.md). Browser login UX runs through
+auth-owned login portal selectors keyed by app contract id and origin, with a
+global default and the built-in login portal as fallback. Device activation UX
+continues to use deployment-owned portal routing. Normal auth redirects only
+need to preserve `flowId`; they do not need to carry `trellisUrl` in the default
+per-instance portal model because the portal deployment already knows which
+Trellis instance it targets. A portal may later continue as a user-authenticated
+browser app for onboarding or activation work, but that remains user-delegated
+app authority rather than service authority.
 
 Language runtimes expose this model through thin helper layers rather than
 separate protocols. Exact TypeScript declarations belong in the generated `/api`

@@ -185,11 +185,11 @@ trellis completion <shell>
 
 Operational command behavior:
 
-- `trellis login <url>` is a normal contract-bearing client login,
-  not a bootstrap bypass; it enters the auth-owned browser flow and continues
-  through the resolved portal before storing local session material for later
-  admin RPC calls; runtime transport details are discovered from the bind flow
-  and persisted internally rather than exposed as normal CLI flags
+- `trellis login <url>` is a normal contract-bearing client login, not a
+  bootstrap bypass; it enters the auth-owned browser flow and continues through
+  the resolved portal before storing local session material for later admin RPC
+  calls; runtime transport details are discovered from the bind flow and
+  persisted internally rather than exposed as normal CLI flags
 - normal authenticated CLI commands reconnect with freshly generated runtime
   auth proofs derived from the stored session key, current contract digest, and
   `iat`; the current contract digest is runtime contract evidence, not a hash of
@@ -214,8 +214,8 @@ Operational command behavior:
 - `trellis users edit` supports explicit add/remove/set/clear semantics for
   direct capabilities and capability groups so operators can make incremental or
   replacement changes without ambiguous merge behavior
-- `trellis approvals list` shows stored delegated approval decisions for app
-  and CLI contracts from the `trellis` service; each row includes an
+- `trellis approvals list` shows stored delegated approval decisions for app and
+  CLI contracts from the `trellis` service; each row includes an
   `identityEnvelopeId` and contract evidence, with optional filtering by exact
   contract digest and by user for admin callers; the command pages through the
   bounded `Auth.Identities.List` RPC rather than requesting an unbounded list
@@ -223,9 +223,10 @@ Operational command behavior:
   `Auth.IdentityEnvelopes.Revoke` and revokes matching active delegated sessions
   in the `trellis` service; contract digest remains list/filter evidence, not
   the revocation key
-- `trellis portal *` is no longer a public auth API surface. Built-in portals
-  are implicit; custom portal routing is deployment-envelope metadata managed by
-  operator tooling or Console surfaces that understand envelope state.
+- `trellis portals *` is the admin-oriented login portal surface. It reflects
+  the same `Auth.Portals.*` RPCs used by Console for listing visible portals,
+  updating the built-in default login portal policy, and managing login route
+  selectors. The built-in login portal is visible and non-deletable.
 - `trellis svc` manages service deployments and `trellis dev` manages device
   deployments. Both use resource-first command shape: the deployment ID appears
   before the action for single-resource operations, for example
@@ -234,20 +235,20 @@ Operational command behavior:
   from source, manifest, or OCI image and expand the deployment envelope through
   `Auth.Envelopes.Expand`; envelope shrink remains outside the current CLI
   surface and is handled by Console or generated RPC clients
-- `trellis dev <id> provision` is the ergonomic provisioning path for
-  device development and deployment: it generates a root secret locally, derives
-  the device keys, registers the instance with auth using activation-only secret
+- `trellis dev <id> provision` is the ergonomic provisioning path for device
+  development and deployment: it generates a root secret locally, derives the
+  device keys, registers the instance with auth using activation-only secret
   material, optionally captures device metadata such as `name`, `serialNumber`,
   `modelNumber`, and deployment-specific opaque keys, and emits the provisioning
   bundle for the device or operator
 - `trellis svc <id> provision` provisions concrete service principals under one
   service deployment, optionally from an operator-provided instance seed
 - `trellis svc <id> instances` and `trellis dev <id> instances` are the
-  lower-level instance inspection surfaces;
-  the default device table promotes `name`, `serial`, and `model` columns when
-  present, while `--show-metadata` reveals the remaining opaque metadata entries;
-  instance and review list commands must pass an explicit page size to the
-  underlying admin list RPC and may pass deployment/state filters
+  lower-level instance inspection surfaces; the default device table promotes
+  `name`, `serial`, and `model` columns when present, while `--show-metadata`
+  reveals the remaining opaque metadata entries; instance and review list
+  commands must pass an explicit page size to the underlying admin list RPC and
+  may pass deployment/state filters
 - `trellis dev <id> reviews *` manages pending device review decisions and is
   intended for `trellis.auth::device.review` automation services or admins
 - service deployments own deployment envelopes, namespace allowance, and
@@ -258,11 +259,10 @@ Operational command behavior:
   contract names continue to come from reviewed contract metadata rather than
   from a separate deployment-local `displayName` or `description`
 - deployments may rely on the built-in Trellis portal with no portal setup, or
-  register one or more custom portals, choose separate login and device default
-  custom portals, assign portals to specific browser contracts or device
-  deployments, then create device deployments and provision device instances for
-  activated-device flows; install automation may offer convenience wrappers, but
-  the underlying actions remain explicit admin calls
+  register one or more custom portals, choose login portal selectors for
+  specific browser contracts and origins, and configure device portal routing
+  through device deployment metadata; install automation may offer convenience
+  wrappers, but the underlying actions remain explicit admin calls
 - `trellis local init` is the ergonomic local development bootstrap. It
   generates a runnable bundle containing local NATS operator/account/JWT
   artifacts, Trellis/Auth service credentials, auth-callout signing and xkey

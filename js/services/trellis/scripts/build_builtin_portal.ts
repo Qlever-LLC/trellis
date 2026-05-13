@@ -1,16 +1,8 @@
 import { fromFileUrl } from "@std/path";
-import { loadConfig } from "../config.ts";
-
-function portalPublicTrellisUrl(): string | undefined {
-  const value = loadConfig().web.publicOrigin?.trim();
-  return value || undefined;
-}
 
 async function main(): Promise<void> {
-  const publicTrellisUrl = portalPublicTrellisUrl();
-
   if (Deno.args.includes("--print-public-trellis-url")) {
-    console.log(publicTrellisUrl ?? "");
+    console.log("");
     return;
   }
 
@@ -22,7 +14,7 @@ async function main(): Promise<void> {
     args: ["task", "build:static:prebuilt"],
     cwd: portalDir,
     env: {
-      PUBLIC_TRELLIS_URL: publicTrellisUrl ?? "",
+      PUBLIC_TRELLIS_URL: "",
     },
     stdout: "inherit",
     stderr: "inherit",

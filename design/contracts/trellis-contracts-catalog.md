@@ -736,7 +736,7 @@ Example:
     "kv": {
       "activity": {
         "purpose": "Store normalized activity entries",
-        "schema": { "schema": "ActivityEntry" },
+        "schema": { "schema": "AuditEntry" },
         "required": true,
         "history": 1,
         "ttlMs": 0,
@@ -1170,8 +1170,9 @@ The `trellis` runtime service MUST:
   `trellis` service principal
 - support deployment-owned device deployment records that resolve a device class
   to a deployment envelope plus contract evidence
-- support deployment-owned portal-route metadata for browser login and
-  device-activation routing, with built-in Trellis portal paths as the fallback
+- support auth-owned login portal route selectors for browser login and
+  deployment-owned portal-route metadata for device-activation routing, with
+  built-in Trellis portal paths as the fallback
 - remove the old submission/approval flow rather than preserving a compatibility
   path
 - ensure any stored user approval or consent decision references the identity
@@ -1191,9 +1192,10 @@ Envelope expansion validation MUST also:
   lineage
 - when activation or runtime auth is deployment-driven, validate that the
   presented contract evidence fits that deployment's envelope
-- portal routes are deployment-owned routing config for browser UX only; they
-  are not a contract kind, standalone portal authority, default/selection table,
-  or source of portal-specific install or auth behavior
+- login portal routes are auth-owned routing config for browser UX, while device
+  portal routes remain deployment-owned routing config; neither form is a
+  contract kind, standalone portal authority, or source of portal-specific
+  install or service-auth behavior
 - grant overrides are deployment-owned metadata layered on top of envelopes;
   they may pre-authorize envelope and capability decisions without changing
   deployment-envelope semantics or inventing availability

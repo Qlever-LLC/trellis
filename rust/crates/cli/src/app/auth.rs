@@ -67,6 +67,32 @@ pub(super) async fn users(format: OutputFormat, command: UsersCommand) -> miette
     }
 }
 
+pub(super) async fn portals(format: OutputFormat, command: PortalsCommand) -> miette::Result<()> {
+    portals_command(format, command).await
+}
+
+async fn portals_command(format: OutputFormat, command: PortalsCommand) -> miette::Result<()> {
+    let command_name = match command.command {
+        PortalsSubcommand::List => "portals list",
+        PortalsSubcommand::Login(login) => match login.command {
+            PortalsLoginSubcommand::Default => "portals login default",
+            PortalsLoginSubcommand::Selection => "portals login selection",
+        },
+    };
+    if output::is_json(format) {
+        output::print_json(&json!({
+            "status": "not_implemented",
+            "command": command_name,
+            "message": "Portal admin RPC client wiring is pending; use Console or call Auth.Portals.* RPCs directly."
+        }))?;
+    } else {
+        output::print_info(&format!(
+            "{command_name}: portal admin RPC client wiring is pending; use Console or call Auth.Portals.* RPCs directly."
+        ));
+    }
+    Ok(())
+}
+
 fn trimmed_optional(value: &Option<String>) -> Option<String> {
     value
         .as_deref()

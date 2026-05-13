@@ -103,6 +103,39 @@ fn parses_users_create_and_edit_options() {
 }
 
 #[test]
+fn parses_portal_admin_commands() {
+    let cli = Cli::parse_from(["trellis", "portals", "list"]);
+    match cli.command {
+        TopLevelCommand::Portals(command) => {
+            assert!(matches!(command.command, PortalsSubcommand::List));
+        }
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+
+    let cli = Cli::parse_from(["trellis", "portals", "login", "default"]);
+    match cli.command {
+        TopLevelCommand::Portals(command) => match command.command {
+            PortalsSubcommand::Login(login) => {
+                assert!(matches!(login.command, PortalsLoginSubcommand::Default));
+            }
+            other => panic!("unexpected portals command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+
+    let cli = Cli::parse_from(["trellis", "portals", "login", "selection"]);
+    match cli.command {
+        TopLevelCommand::Portals(command) => match command.command {
+            PortalsSubcommand::Login(login) => {
+                assert!(matches!(login.command, PortalsLoginSubcommand::Selection));
+            }
+            other => panic!("unexpected portals command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+}
+
+#[test]
 fn rejects_users_edit_conflicting_active_flags() {
     let error = Cli::try_parse_from([
         "trellis",

@@ -22,6 +22,7 @@ import type {
   SqlEnvelopeExpansionRequestRepository,
   SqlIdentityEnvelopeRepository,
   SqlLocalCredentialRepository,
+  SqlLoginPortalRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlUserAccountRepository,
@@ -64,6 +65,7 @@ export function registerAuthHttpRoutes(
         SqlDeploymentContractEvidenceRepository;
       envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
       accountFlowStorage: SqlAccountFlowRepository;
+      loginPortalStorage: SqlLoginPortalRepository;
       capabilityGroupStorage: SqlCapabilityGroupRepository;
       serviceDeploymentStorage: SqlServiceDeploymentRepository;
       serviceInstanceStorage: SqlServiceInstanceRepository;
@@ -86,6 +88,7 @@ export function registerAuthHttpRoutes(
   registerHttpRoutes(deps.app, {
     contractStorage: deps.contractStorage,
     accountFlowStorage: deps.accountFlowStorage,
+    loginPortalStorage: deps.loginPortalStorage,
     accountStorage: deps.accountStorage,
     capabilityGroupStorage: deps.capabilityGroupStorage,
     userIdentityStorage: deps.userIdentityStorage,

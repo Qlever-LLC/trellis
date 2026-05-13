@@ -55,6 +55,38 @@ pub struct UsersCommand {
     pub command: UsersSubcommand,
 }
 
+#[derive(Debug, Args)]
+/// Inspect and manage login portal admin surfaces.
+pub struct PortalsCommand {
+    #[command(subcommand)]
+    pub command: PortalsSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+/// Portal registry and login portal policy operations.
+pub enum PortalsSubcommand {
+    /// List visible login portals.
+    List,
+    /// Inspect login portal admin surfaces.
+    Login(PortalsLoginCommand),
+}
+
+#[derive(Debug, Args)]
+/// Inspect built-in login settings and selection routes.
+pub struct PortalsLoginCommand {
+    #[command(subcommand)]
+    pub command: PortalsLoginSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+/// Built-in login portal settings and route selection operations.
+pub enum PortalsLoginSubcommand {
+    /// Show built-in login registration defaults.
+    Default,
+    /// List login route selection rules.
+    Selection,
+}
+
 #[derive(Debug, Subcommand)]
 /// User administration operations.
 pub enum UsersSubcommand {

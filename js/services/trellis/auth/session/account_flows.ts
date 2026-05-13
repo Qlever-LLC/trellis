@@ -159,7 +159,7 @@ export function createAuthAccountFlowsCreateIdentityLinkHandler(args: {
   now?: Date;
 }) {
   return async ({ input, context: { caller } }: {
-    input: Record<string, never>;
+    input: object;
     context: {
       caller: { type: string; userId?: string; capabilities?: string[] };
     };

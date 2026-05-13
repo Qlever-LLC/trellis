@@ -63,6 +63,11 @@ const rawSchema = z.object({
   }).default({
     dbPath: DEFAULT_STORAGE_DB_PATH,
   }),
+  auth: z.object({
+    localIdentity: z.object({
+      enabled: z.boolean().default(true),
+    }).default({ enabled: true }),
+  }).default({ localIdentity: { enabled: true } }),
   ttlMs: ttlSchema.default({
     sessions: 24 * 60 * 60_000,
     oauth: 5 * 60_000,
@@ -161,6 +166,11 @@ export type Config = {
   };
   storage: {
     dbPath: string;
+  };
+  auth: {
+    localIdentity: {
+      enabled: boolean;
+    };
   };
   ttlMs: {
     sessions: number;
@@ -305,6 +315,7 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
     storage: {
       dbPath: resolvePath(configPath, raw.storage.dbPath),
     },
+    auth: raw.auth,
     ttlMs: raw.ttlMs,
     nats: {
       servers: raw.nats.servers,

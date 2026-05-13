@@ -47,6 +47,10 @@ import {
   AuthIdentitiesGrantsListSchema,
   AuthIdentityEnvelopesRevokeResponseSchema,
   AuthIdentityEnvelopesRevokeSchema,
+  AuthPortalsListResponseSchema,
+  AuthPortalsLoginRoutesListResponseSchema,
+  AuthPortalsLoginRoutesPutResponseSchema,
+  AuthPortalsLoginSettingsResponseSchema,
   AuthRequestsValidateResponseSchema,
   AuthResolveDeviceUserAuthoritiesProgressSchema,
   AuthResolveDeviceUserAuthoritiesResponseSchema,
@@ -92,6 +96,81 @@ Deno.test("PortalFlowStateSchema tolerates additive portal app fields", () => {
       description: "Admin app",
       kind: "app",
     },
+  }));
+});
+
+Deno.test("PortalFlowStateSchema validates portal registration availability", () => {
+  assert(Value.Check(PortalFlowStateSchema, {
+    status: "choose_provider",
+    flowId: "flow_1",
+    providers: [{ id: "local", displayName: "Username and password" }],
+    app: {
+      contractId: "trellis.console@v1",
+      contractDigest: "digest",
+      displayName: "Trellis Console",
+      description: "Admin app",
+    },
+    portal: {
+      portalId: "trellis.builtin.login",
+      displayName: "Trellis Login",
+      entryUrl: null,
+      builtIn: true,
+      disabled: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+    registration: {
+      localIdentity: { available: true },
+      federatedIdentity: {
+        available: false,
+        providers: [],
+      },
+    },
+  }));
+});
+
+Deno.test("admin portal RPC schemas expose projected portal fields", () => {
+  const portal = {
+    portalId: "trellis.builtin.login",
+    displayName: "Trellis Login",
+    entryUrl: null,
+    builtIn: true,
+    disabled: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const settings = {
+    portalId: "trellis.builtin.login",
+    localRegistrationEnabled: true,
+    federatedRegistrationEnabled: false,
+    selfRegisteredAccountActive: true,
+    updatedAt: now,
+  };
+  const route = {
+    routeId: "trellis.builtin.login:any-contract:any-origin",
+    portalId: "trellis.builtin.login",
+    contractId: null,
+    origin: null,
+    disabled: false,
+    updatedAt: now,
+  };
+
+  assert(Value.Check(AuthPortalsListResponseSchema, { portals: [portal] }));
+  assert(Value.Check(AuthPortalsLoginSettingsResponseSchema, {
+    portal,
+    settings,
+    defaultCapabilities: ["admin"],
+    defaultCapabilityGroups: ["operators"],
+  }));
+  assert(Value.Check(AuthPortalsLoginRoutesListResponseSchema, {
+    routes: [route],
+  }));
+  assert(Value.Check(AuthPortalsLoginRoutesPutResponseSchema, { route }));
+  assertFalse(Value.Check(AuthPortalsLoginSettingsResponseSchema, {
+    portal,
+    settings: { ...settings, jsonSettings: {} },
+    defaultCapabilities: [],
+    defaultCapabilityGroups: [],
   }));
 });
 

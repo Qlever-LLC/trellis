@@ -9,7 +9,11 @@
   import PortalBrand from "$lib/components/PortalBrand.svelte";
   import { createLoginPortalFlow } from "$lib/portal_login";
   import {
+    isFederatedRegistrationAvailable,
+    isFederatedRegistrationProvider,
+    isLocalRegistrationAvailable,
     submitLocalLogin,
+    submitLocalRegistration,
     shouldOfferPortalReturnLink,
     shouldStayOnPortalCompletionPage,
   } from "./page_state";
@@ -19,6 +23,15 @@
   let localUsername = $state("");
   let localPassword = $state("");
   let localSubmitting = $state(false);
+  let localMode = $state<"sign-in" | "create-account">("sign-in");
+  let registrationName = $state("");
+  let registrationEmail = $state("");
+  let registrationPassword = $state("");
+  let registrationSubmitting = $state(false);
+  let canCreateLocalAccount = $derived(isLocalRegistrationAvailable(flow.state));
+  let canCreateFederatedAccount = $derived(
+    isFederatedRegistrationAvailable(flow.state),
+  );
 
   interface CapabilityMetadata {
     displayName: string;
@@ -232,6 +245,39 @@
     }
   }
 
+  async function submitLocalCreateAccount(): Promise<void> {
+    const username = localUsername.trim();
+    const name = registrationName.trim();
+    const email = registrationEmail.trim();
+    if (!flow.flowId) {
+      flow.error =
+        "This sign-in request has expired. Return to the app and start sign-in again.";
+      return;
+    }
+    if (!username || !registrationPassword || !name || !email) {
+      flow.error = "Enter your username, password, name, and email.";
+      return;
+    }
+
+    registrationSubmitting = true;
+    flow.error = null;
+
+    try {
+      await submitLocalRegistration(trellisUrl, flow.flowId, {
+        username,
+        password: registrationPassword,
+        name,
+        email,
+      });
+      registrationPassword = "";
+      await loadFlow();
+    } catch (error) {
+      flow.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      registrationSubmitting = false;
+    }
+  }
+
   onMount(() => {
     if (!browser) return;
     void loadFlow();
@@ -347,58 +393,165 @@
         <div>
           <h1 class="text-center text-xl font-semibold tracking-[-0.025em] text-base-content">Choose a sign-in method</h1>
         </div>
+        {#if canCreateFederatedAccount}
+          <div class="portal-subtle-panel rounded-box p-3.5 text-sm leading-6 text-base-content/65">
+            Continuing with an identity provider can create an account when no
+            existing identity is linked.
+          </div>
+        {/if}
         <div class="flex flex-col gap-2.5">
           {#each flow.state.providers as provider (provider.id)}
             {#if isLocalProvider(provider.id)}
-              <form
-                class="portal-subtle-panel grid gap-3 rounded-box p-4"
-                onsubmit={(event) => {
-                  event.preventDefault();
-                  void submitLocal();
-                }}
-              >
-                <p class="text-sm font-semibold text-base-content">
-                  {provider.displayName}
-                </p>
-                <label class="form-control w-full">
-                  <span class="label py-1">
-                    <span class="label-text">Username</span>
-                  </span>
-                  <input
-                    class="input input-bordered w-full"
-                    autocomplete="username"
-                    disabled={localSubmitting}
-                    required
-                    type="text"
-                    bind:value={localUsername}
-                  />
-                </label>
-                <label class="form-control w-full">
-                  <span class="label py-1">
-                    <span class="label-text">Password</span>
-                  </span>
-                  <input
-                    class="input input-bordered w-full"
-                    autocomplete="current-password"
-                    disabled={localSubmitting}
-                    required
-                    type="password"
-                    bind:value={localPassword}
-                  />
-                </label>
-                <button
-                  class="btn btn-primary btn-block"
-                  disabled={localSubmitting}
-                  type="submit"
-                >
-                  {#if localSubmitting}
-                    <span class="loading loading-spinner loading-sm"></span>
-                    Signing in...
-                  {:else}
-                    Sign in
+              <div class="portal-subtle-panel grid gap-3 rounded-box p-4">
+                <div class="flex items-center justify-between gap-3">
+                  <p class="text-sm font-semibold text-base-content">
+                    {provider.displayName}
+                  </p>
+                  {#if canCreateLocalAccount}
+                    <div class="join">
+                      <button
+                        class={["btn join-item btn-xs", localMode === "sign-in" && "btn-active"]}
+                        type="button"
+                        onclick={() => (localMode = "sign-in")}
+                      >
+                        Sign in
+                      </button>
+                      <button
+                        class={["btn join-item btn-xs", localMode === "create-account" && "btn-active"]}
+                        type="button"
+                        onclick={() => (localMode = "create-account")}
+                      >
+                        Create account
+                      </button>
+                    </div>
                   {/if}
-                </button>
-              </form>
+                </div>
+
+                {#if localMode === "create-account" && canCreateLocalAccount}
+                  <form
+                    class="grid gap-3"
+                    onsubmit={(event) => {
+                      event.preventDefault();
+                      void submitLocalCreateAccount();
+                    }}
+                  >
+                    <p class="portal-copy text-sm leading-6">
+                      Create a local account to continue to {flow.state.app.displayName}.
+                    </p>
+                    <label class="form-control w-full">
+                      <span class="label py-1">
+                        <span class="label-text">Name</span>
+                      </span>
+                      <input
+                        class="input input-bordered w-full"
+                        autocomplete="name"
+                        disabled={registrationSubmitting}
+                        required
+                        type="text"
+                        bind:value={registrationName}
+                      />
+                    </label>
+                    <label class="form-control w-full">
+                      <span class="label py-1">
+                        <span class="label-text">Email</span>
+                      </span>
+                      <input
+                        class="input input-bordered w-full"
+                        autocomplete="email"
+                        disabled={registrationSubmitting}
+                        required
+                        type="email"
+                        bind:value={registrationEmail}
+                      />
+                    </label>
+                    <label class="form-control w-full">
+                      <span class="label py-1">
+                        <span class="label-text">Username</span>
+                      </span>
+                      <input
+                        class="input input-bordered w-full"
+                        autocomplete="username"
+                        disabled={registrationSubmitting}
+                        required
+                        type="text"
+                        bind:value={localUsername}
+                      />
+                    </label>
+                    <label class="form-control w-full">
+                      <span class="label py-1">
+                        <span class="label-text">Password</span>
+                      </span>
+                      <input
+                        class="input input-bordered w-full"
+                        autocomplete="new-password"
+                        disabled={registrationSubmitting}
+                        required
+                        type="password"
+                        bind:value={registrationPassword}
+                      />
+                    </label>
+                    <button
+                      class="btn btn-primary btn-block"
+                      disabled={registrationSubmitting}
+                      type="submit"
+                    >
+                      {#if registrationSubmitting}
+                        <span class="loading loading-spinner loading-sm"></span>
+                        Creating account...
+                      {:else}
+                        Create account
+                      {/if}
+                    </button>
+                  </form>
+                {:else}
+                  <form
+                    class="grid gap-3"
+                    onsubmit={(event) => {
+                      event.preventDefault();
+                      void submitLocal();
+                    }}
+                  >
+                    <label class="form-control w-full">
+                      <span class="label py-1">
+                        <span class="label-text">Username</span>
+                      </span>
+                      <input
+                        class="input input-bordered w-full"
+                        autocomplete="username"
+                        disabled={localSubmitting}
+                        required
+                        type="text"
+                        bind:value={localUsername}
+                      />
+                    </label>
+                    <label class="form-control w-full">
+                      <span class="label py-1">
+                        <span class="label-text">Password</span>
+                      </span>
+                      <input
+                        class="input input-bordered w-full"
+                        autocomplete="current-password"
+                        disabled={localSubmitting}
+                        required
+                        type="password"
+                        bind:value={localPassword}
+                      />
+                    </label>
+                    <button
+                      class="btn btn-primary btn-block"
+                      disabled={localSubmitting}
+                      type="submit"
+                    >
+                      {#if localSubmitting}
+                        <span class="loading loading-spinner loading-sm"></span>
+                        Signing in...
+                      {:else}
+                        Sign in
+                      {/if}
+                    </button>
+                  </form>
+                {/if}
+              </div>
             {:else}
               <a
                 class="portal-provider-link group flex w-full items-center gap-3 rounded-field px-4 py-3 text-left"
@@ -412,7 +565,11 @@
                   {providerInitial(provider.displayName)}
                 </span>
                 <span class="min-w-0 flex-1 truncate text-sm font-semibold text-base-content">
-                  Continue with {provider.displayName}
+                  {#if isFederatedRegistrationProvider(flow.state, provider.id)}
+                    Continue or create account with {provider.displayName}
+                  {:else}
+                    Continue with {provider.displayName}
+                  {/if}
                 </span>
                 <svg
                   class="size-4 shrink-0 text-base-content/35 transition-transform group-hover:translate-x-0.5"

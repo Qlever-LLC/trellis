@@ -5,6 +5,7 @@ import type { AuthRuntimeDeps } from "./runtime_deps.ts";
 import { registerApprovalAndUserRpcs } from "./registration/approval_users.ts";
 import { registerDeviceAdminAndActivation } from "./registration/device_admin_activation.ts";
 import { registerAuthHttpRoutes } from "./registration/http_routes.ts";
+import { registerPortalAdminRpcs } from "./registration/portals_admin.ts";
 import { registerServiceAdminRpcs } from "./registration/service_admin.ts";
 import { registerSessionRpcs } from "./registration/session.ts";
 import type {
@@ -25,6 +26,7 @@ import type {
   SqlEnvelopeExpansionRequestRepository,
   SqlIdentityEnvelopeRepository,
   SqlLocalCredentialRepository,
+  SqlLoginPortalRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -47,6 +49,7 @@ type AuthRegistrationDeps =
     deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
     envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
     accountFlowStorage: SqlAccountFlowRepository;
+    loginPortalStorage: SqlLoginPortalRepository;
     accountStorage: SqlUserAccountRepository;
     capabilityGroupStorage: SqlCapabilityGroupRepository;
     userIdentityStorage: SqlUserIdentityRepository;
@@ -92,6 +95,7 @@ export async function registerAuth(deps: AuthRegistrationDeps): Promise<void> {
     );
   };
   await registerServiceAdminRpcs(deps);
+  await registerPortalAdminRpcs(deps);
   await registerSessionRpcs(deps);
   await registerApprovalAndUserRpcs({ ...deps, publishSessionRevoked });
   await registerDeviceAdminAndActivation({ ...deps, publishSessionRevoked });

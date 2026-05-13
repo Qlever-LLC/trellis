@@ -1,10 +1,15 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 
 import {
+  isFederatedRegistrationAvailable,
+  isFederatedRegistrationProvider,
+  isLocalRegistrationAvailable,
   localLoginErrorMessage,
+  localRegistrationErrorMessage,
   shouldOfferPortalReturnLink,
   shouldStayOnPortalCompletionPage,
   submitLocalLogin,
+  submitLocalRegistration,
 } from "./page_state.ts";
 
 Deno.test("shouldStayOnPortalCompletionPage keeps same-page detached completion in portal", () => {
@@ -92,5 +97,126 @@ Deno.test("submitLocalLogin posts expected URL and payload", async () => {
   assertEquals(
     capturedInit?.body,
     JSON.stringify({ flowId: "flow-1", username: "ada", password: "secret" }),
+  );
+});
+
+Deno.test("registration gating requires explicit local availability", () => {
+  assertEquals(
+    isLocalRegistrationAvailable({
+      status: "choose_provider",
+      providers: [{ id: "local", displayName: "Local" }],
+      registration: { localIdentity: { available: true } },
+    }),
+    true,
+  );
+  assertEquals(
+    isLocalRegistrationAvailable({
+      status: "choose_provider",
+      providers: [{ id: "local", displayName: "Local" }],
+    }),
+    false,
+  );
+});
+
+Deno.test("federated registration gating does not infer from provider list", () => {
+  const state = {
+    status: "choose_provider",
+    providers: [{ id: "github", displayName: "GitHub" }],
+  };
+
+  assertEquals(isFederatedRegistrationAvailable(state), false);
+  assertEquals(isFederatedRegistrationProvider(state, "github"), false);
+  assertEquals(
+    isFederatedRegistrationAvailable({
+      ...state,
+      registration: { federatedIdentity: { available: true, providers: [] } },
+    }),
+    true,
+  );
+  assertEquals(
+    isFederatedRegistrationProvider({
+      ...state,
+      registration: {
+        federatedIdentity: {
+          available: true,
+          providers: [{ id: "github", displayName: "GitHub" }],
+        },
+      },
+    }, "github"),
+    true,
+  );
+});
+
+Deno.test("localRegistrationErrorMessage formats expected failures", () => {
+  assertEquals(
+    localRegistrationErrorMessage(409, "username_taken"),
+    "That username is already in use.",
+  );
+  assertEquals(
+    localRegistrationErrorMessage(403, "registration_unavailable"),
+    "Account creation is not available for this sign-in request.",
+  );
+  assertEquals(
+    localRegistrationErrorMessage(404, null),
+    "This sign-in request has expired. Return to the app and start sign-in again.",
+  );
+});
+
+Deno.test("submitLocalRegistration posts expected URL and payload", async () => {
+  let capturedUrl = "";
+  let capturedInit: RequestInit | undefined;
+
+  await submitLocalRegistration(
+    "https://auth.example.com/base",
+    "flow-1",
+    {
+      username: "ada",
+      password: "secret",
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+    },
+    (input, init) => {
+      capturedUrl = input.toString();
+      capturedInit = init;
+      return Promise.resolve(Response.json({ status: "authenticated" }));
+    },
+  );
+
+  assertEquals(
+    capturedUrl,
+    "https://auth.example.com/auth/flow/flow-1/register/local",
+  );
+  assertEquals(capturedInit?.method, "POST");
+  assertEquals(capturedInit?.headers, { "content-type": "application/json" });
+  assertEquals(
+    capturedInit?.body,
+    JSON.stringify({
+      username: "ada",
+      password: "secret",
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+    }),
+  );
+});
+
+Deno.test("submitLocalRegistration throws formatted response errors", async () => {
+  await assertRejects(
+    () =>
+      submitLocalRegistration(
+        "https://auth.example.com",
+        "flow-1",
+        {
+          username: "ada",
+          password: "secret",
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+        },
+        () =>
+          Promise.resolve(
+            Response.json({ error: "email_taken" }, { status: 409 }),
+          ),
+      ),
+    Error,
+    "That email is already in use.",
   );
 });

@@ -771,6 +771,107 @@ export const AuthIdentitiesGrantsListResponseSchema = Type.Object({
   grants: Type.Array(UserGrantViewSchema),
 });
 
+export const LoginPortalRecordSchema = Type.Object({
+  portalId: Type.String({ minLength: 1 }),
+  displayName: Type.String({ minLength: 1 }),
+  entryUrl: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  builtIn: Type.Boolean(),
+  disabled: Type.Boolean(),
+  createdAt: IsoDateStringSchema,
+  updatedAt: IsoDateStringSchema,
+}, { additionalProperties: false });
+export type LoginPortalRecord = StaticDecode<typeof LoginPortalRecordSchema>;
+
+export const LoginPortalSettingsSchema = Type.Object({
+  portalId: Type.String({ minLength: 1 }),
+  localRegistrationEnabled: Type.Boolean(),
+  federatedRegistrationEnabled: Type.Boolean(),
+  selfRegisteredAccountActive: Type.Boolean(),
+  updatedAt: IsoDateStringSchema,
+}, { additionalProperties: false });
+export type LoginPortalSettings = StaticDecode<
+  typeof LoginPortalSettingsSchema
+>;
+
+export const LoginPortalRouteSchema = Type.Object({
+  routeId: Type.String({ minLength: 1 }),
+  portalId: Type.String({ minLength: 1 }),
+  contractId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  origin: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  disabled: Type.Boolean(),
+  updatedAt: IsoDateStringSchema,
+}, { additionalProperties: false });
+export type LoginPortalRoute = StaticDecode<typeof LoginPortalRouteSchema>;
+
+export const AuthPortalsListSchema = Type.Object({}, {
+  additionalProperties: false,
+});
+export const AuthPortalsListResponseSchema = Type.Object({
+  portals: Type.Array(LoginPortalRecordSchema),
+}, { additionalProperties: false });
+
+export const AuthPortalsLoginSettingsGetSchema = Type.Object({
+  portalId: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+export const AuthPortalsLoginSettingsResponseSchema = Type.Object({
+  portal: LoginPortalRecordSchema,
+  settings: LoginPortalSettingsSchema,
+  defaultCapabilities: Type.Array(Type.String({ minLength: 1 })),
+  defaultCapabilityGroups: Type.Array(Type.String({ minLength: 1 })),
+}, { additionalProperties: false });
+export const AuthPortalsLoginSettingsUpdateSchema = Type.Object({
+  portalId: Type.String({ minLength: 1 }),
+  localRegistrationEnabled: Type.Boolean(),
+  federatedRegistrationEnabled: Type.Boolean(),
+  selfRegisteredAccountActive: Type.Boolean(),
+  defaultCapabilities: Type.Array(Type.String({ minLength: 1 })),
+  defaultCapabilityGroups: Type.Array(Type.String({ minLength: 1 })),
+}, { additionalProperties: false });
+
+export const AuthPortalsLoginRoutesListSchema = Type.Object({}, {
+  additionalProperties: false,
+});
+export const AuthPortalsLoginRoutesListResponseSchema = Type.Object({
+  routes: Type.Array(LoginPortalRouteSchema),
+}, { additionalProperties: false });
+export const AuthPortalsLoginRoutesPutSchema = Type.Object({
+  routeId: Type.Optional(Type.String({ minLength: 1 })),
+  portalId: Type.String({ minLength: 1 }),
+  contractId: Type.Optional(Type.Union([
+    Type.String({ minLength: 1 }),
+    Type.Null(),
+  ])),
+  origin: Type.Optional(
+    Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  ),
+  disabled: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+export const AuthPortalsLoginRoutesPutResponseSchema = Type.Object({
+  route: LoginPortalRouteSchema,
+}, { additionalProperties: false });
+export const AuthPortalsLoginRoutesRemoveSchema = Type.Object({
+  routeId: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+export const AuthPortalsLoginRoutesRemoveResponseSchema = Type.Object({
+  success: Type.Boolean(),
+}, { additionalProperties: false });
+
+export const FlowRegistrationAvailabilitySchema = Type.Object({
+  localIdentity: Type.Object({
+    available: Type.Boolean(),
+  }),
+  federatedIdentity: Type.Object({
+    available: Type.Boolean(),
+    providers: Type.Array(Type.Object({
+      id: Type.String({ minLength: 1 }),
+      displayName: Type.String({ minLength: 1 }),
+    })),
+  }),
+}, { additionalProperties: false });
+export type FlowRegistrationAvailability = StaticDecode<
+  typeof FlowRegistrationAvailabilitySchema
+>;
+
 export const PortalFlowStateSchema = Type.Union([
   Type.Object({
     status: Type.Literal("choose_provider"),
@@ -786,6 +887,8 @@ export const PortalFlowStateSchema = Type.Union([
       description: Type.String({ minLength: 1 }),
       context: Type.Optional(OpenObjectSchema),
     }),
+    portal: Type.Optional(LoginPortalRecordSchema),
+    registration: Type.Optional(FlowRegistrationAvailabilitySchema),
   }),
   Type.Object({
     status: Type.Literal("approval_required"),

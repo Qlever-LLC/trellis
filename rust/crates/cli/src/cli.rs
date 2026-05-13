@@ -49,6 +49,8 @@ pub enum TopLevelCommand {
     Approvals(ApprovalsCommand),
     /// Manage Trellis users.
     Users(UsersCommand),
+    /// Inspect and manage login portals.
+    Portals(PortalsCommand),
     /// Manage service deployments.
     Svc(SvcCommand),
     /// Manage device deployments.

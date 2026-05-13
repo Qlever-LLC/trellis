@@ -48,6 +48,7 @@ Browser auth endpoints:
 - `GET /auth/login/:provider`
 - `GET /auth/callback/:provider`
 - `GET /auth/flow/:flowId`
+- `POST /auth/flow/:flowId/register/local`
 - `POST /auth/flow/:flowId/approval`
 - `POST /auth/flow/:flowId/bind`
 
@@ -93,10 +94,10 @@ Behavior:
    the requested contract envelope, rebind immediately and return
    `status: "bound"`
 5. Otherwise create an auth-owned browser flow record
-6. Resolve portal routing from the initiating app identity and deployment
-   envelope metadata
-7. Otherwise use the built-in Trellis login portal served by the Trellis HTTP
-   server
+6. Resolve login portal routing from auth-owned portal route selectors using app
+   contract id and origin
+7. Otherwise use the DB-projected built-in Trellis login portal served by the
+   Trellis HTTP server
 8. Return `status: "flow_started"` with `{ flowId, loginUrl }`
 
 Rules:
@@ -111,8 +112,8 @@ Rules:
   rather than requiring the browser app to resubmit it
 - if present, `context` is stored on the browser flow and returned to portals as
   app-owned opaque data
-- a portal is trusted for this redirect only because deployment-envelope routing
-  metadata routed the flow there; portal routes do not by themselves grant
+- a portal is trusted for this redirect only because auth-owned login portal
+  routing selected it for the flow; portal routes do not by themselves grant
   delegated approval or service authority
 - first login does not require pre-registering a portal because the built-in
   Trellis login portal is always available
@@ -171,6 +172,9 @@ Rules:
 - callback redirects preserve `flowId`; they do not need to carry `trellisUrl`
   in the default model because the selected portal deployment already has an
   explicit Trellis instance URL configuration
+- if an OAuth/OIDC callback resolves to an unknown federated identity, Trellis
+  may self-register it only when the selected login portal's effective policy
+  allows federated registration and the provider is configured for the instance
 
 ### GET /auth/flow/:flowId
 
@@ -194,6 +198,22 @@ type PortalFlowState =
       description: string;
       origin?: string;
       context?: unknown;
+    };
+    portal?: {
+      portalId: string;
+      displayName: string;
+      entryUrl: string | null;
+      builtIn: boolean;
+      disabled: boolean;
+      createdAt: string;
+      updatedAt: string;
+    };
+    registration?: {
+      localIdentity: { available: boolean };
+      federatedIdentity: {
+        available: boolean;
+        providers: Array<{ id: string; displayName: string }>;
+      };
     };
   }
   | {
@@ -270,9 +290,40 @@ Rules:
   still use its own local routes and UI state while rendering the flow
 - portal-specific customization data travels through `app.context` rather than
   ad hoc query parameters between app and portal
+- portal registration UI is gated by auth-owned flow state; clients MUST use
+  `registration.localIdentity` and `registration.federatedIdentity` rather than
+  inferring registration availability from provider lists or local UI defaults
 - framework-neutral browser helpers and thin framework wrappers may hide the
   fetch and redirect plumbing, but exact helper declarations belong in the
   generated `/api` reference rather than in design docs
+
+### POST /auth/flow/:flowId/register/local
+
+Registers a local username/password identity for the selected browser login flow
+and returns the next browser-flow state.
+
+Request body:
+
+```ts
+{
+  username: string;
+  password: string;
+  name: string;
+  email: string;
+}
+```
+
+Rules:
+
+- local self-registration is allowed only when the selected login portal's
+  effective policy enables local registration and the instance-level
+  `auth.localIdentity.enabled` gate is enabled
+- the request body uses `name` and `email`; portals MUST NOT split this into
+  `firstName` or `familyName` wire fields
+- successful local registration creates the account, local identity, password
+  credential, and pending browser auth state atomically for the active flow
+- duplicate local usernames and unavailable local registration are expected
+  caller-visible failures, not unexpected server errors
 
 ### POST /auth/flow/:flowId/approval
 
@@ -1020,9 +1071,11 @@ Portal rules:
 
 - Trellis always provides built-in login and generic device-activation portal
   routes; they are commonly served by the Trellis HTTP server from static assets
-  and are not represented as mutable portal records
-- portal routing is deployment-owned metadata exposed on envelope/detail views,
-  not a standalone portal/default/selection authority API
+  and the built-in login portal is represented as a visible, non-deletable
+  auth-owned portal record
+- login portal policy and route selection live in auth-owned projected storage
+  and are exposed through `Auth.Portals.*` admin RPCs; device-activation portal
+  routing remains deployment-owned unless its design explicitly changes
 - custom portal apps should use explicit Trellis URL config rather than
   same-origin inference
 - portal routing metadata does not imply approval, capabilities, or
@@ -1037,12 +1090,13 @@ Portal rules:
 
 Portal routing rules:
 
-- login flows resolve portal routing from the app identity and current
-  deployment envelope metadata, then fall back to the built-in Trellis login
-  portal
+- login flows resolve portal routing from auth-owned selectors in this order:
+  contract id plus origin, contract id, origin, global default, built-in login
+  portal fallback
 - device activation resolves portal routing from the device deployment envelope,
   then falls back to the built-in Trellis device portal
-- `portalId: null` means the built-in Trellis portal is used for that route
+- for login routes, the built-in login portal has the explicit id
+  `trellis.builtin.login`
 - most deployments can rely on the built-in portal; custom routing is optional
 
 Library rule:
@@ -1071,8 +1125,9 @@ Capability rule:
 - grant overrides are deployment metadata, not user-owned grants; user-facing
   callers still see only explicit user capabilities in insufficient-capability
   responses
-- portal routes, defaults, and selections are deployment-owned routing metadata
-  only and do not imply approval, capabilities, or availability
+- portal routes, defaults, selections, and registration settings do not imply
+  approval, service authority, or capability grants; registration availability
+  is reported explicitly in browser-flow state
 
 Canonical RPC inventory:
 
@@ -1116,6 +1171,12 @@ Canonical RPC inventory:
 - `rpc.v1.Auth.Users.Update`
 - `rpc.v1.Auth.UserIdentities.List`
 - `rpc.v1.Auth.UserIdentities.Unlink`
+- `rpc.v1.Auth.Portals.List`
+- `rpc.v1.Auth.Portals.LoginSettings.Get`
+- `rpc.v1.Auth.Portals.LoginSettings.Update`
+- `rpc.v1.Auth.Portals.LoginRoutes.List`
+- `rpc.v1.Auth.Portals.LoginRoutes.Put`
+- `rpc.v1.Auth.Portals.LoginRoutes.Remove`
 - `rpc.v1.Auth.AccountFlows.CreateInvite`
 - `rpc.v1.Auth.AccountFlows.CreateIdentityLink`
 - `rpc.v1.Auth.AccountFlows.CreatePasswordSetup`

@@ -427,6 +427,72 @@ Deno.test("connectClientWithDeps maps malformed bind responses to TransportError
   }
 });
 
+Deno.test("connectClientWithDeps maps insufficient bind capabilities to TransportError", async () => {
+  const originalFetch = globalThis.fetch;
+  const handle = await createBrowserHandle();
+
+  try {
+    globalThis.fetch = ((input: URL | Request | string) => {
+      const url = String(input);
+      if (url.includes("/auth/flow/flow-insufficient/bind")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "insufficient_capabilities",
+              approval: {
+                contractId: testContract.CONTRACT.id,
+                contractDigest: testContract.CONTRACT_DIGEST,
+                displayName: testContract.CONTRACT.displayName,
+                description: testContract.CONTRACT.description,
+                participantKind: "app",
+                capabilities: {
+                  admin: {
+                    displayName: "Admin",
+                    description: "Admin access",
+                  },
+                },
+              },
+              missingCapabilities: ["admin"],
+              userCapabilities: [],
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const error = await assertRejects(
+      () =>
+        connectClientWithDeps({
+          trellisUrl: "https://trellis.example.com",
+          contract: testContract,
+          auth: {
+            handle,
+            currentUrl: new URL(
+              "https://app.example.com/dashboard?flowId=flow-insufficient",
+            ),
+          },
+        }, {
+          loadTransport: async () => {
+            throw new Error("loadTransport should not be called");
+          },
+          now: () => 1_700_000_000_000,
+        }),
+      TransportError,
+    );
+
+    assertEquals(error.code, "trellis.auth.insufficient_capabilities");
+    assertEquals(error.getContext().missingCapabilities, ["admin"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("connectClientWithDeps maps invalid login flow responses to TransportError", async () => {
   const originalFetch = globalThis.fetch;
 

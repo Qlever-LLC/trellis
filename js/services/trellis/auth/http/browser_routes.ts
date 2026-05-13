@@ -56,6 +56,79 @@ const LocalLoginRequestSchema = Type.Object({
   password: Type.String({ minLength: 1 }),
 }, { additionalProperties: false });
 
+const LocalRegistrationRequestSchema = Type.Object({
+  username: Type.String({ minLength: 1 }),
+  password: Type.String({ minLength: 1 }),
+  name: Type.String({ minLength: 1 }),
+  email: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+
+async function createPendingAuthForIdentity(args: {
+  context: AuthHttpRouteContext;
+  flowId: string;
+  flow: Awaited<ReturnType<AuthHttpRouteContext["loadBrowserFlow"]>> & {
+    sessionKey: string;
+  };
+  account: { userId: string; email: string | null; name: string | null };
+  identity: {
+    identityId: string;
+    provider: string;
+    subject: string;
+    email: string | null;
+    displayName: string | null;
+  };
+  user: {
+    id: string;
+    origin: string;
+    email?: string;
+    name?: string;
+    image?: string;
+  };
+  provider?: string;
+  pendingAuthKV: AuthHttpRouteContext["opts"]["runtimeDeps"]["pendingAuthKV"];
+  logger: AuthHttpRouteContext["opts"]["runtimeDeps"]["logger"];
+}) {
+  const authToken = randomToken(32);
+  const authTokenHash = await hashKey(authToken);
+  const email = args.account.email ?? args.identity.email ?? args.user.email;
+  const name = args.account.name ?? args.identity.displayName ?? args.user.name;
+  const pending: PendingAuth = {
+    userId: args.account.userId,
+    identity: {
+      identityId: args.identity.identityId,
+      provider: args.identity.provider,
+      subject: args.identity.subject,
+    },
+    user: {
+      origin: args.user.origin,
+      id: args.user.id,
+      ...(email ? { email } : {}),
+      ...(name ? { name } : {}),
+      ...(args.user.image ? { image: args.user.image } : {}),
+    },
+    sessionKey: args.flow.sessionKey,
+    redirectTo: args.flow.redirectTo ?? "",
+    ...(args.flow.app ? { app: args.flow.app } : {}),
+    contract: args.flow.contract ?? {},
+    createdAt: new Date(),
+  };
+
+  const pendingPut = await args.pendingAuthKV.create(authTokenHash, pending);
+  if (isErr(pendingPut)) {
+    args.logger.error(
+      { error: pendingPut.error },
+      "Failed to store pending auth",
+    );
+    throw new HTTPException(500, { message: "Failed to store auth token" });
+  }
+
+  await args.context.saveBrowserFlow({
+    ...args.flow,
+    ...(args.provider ? { provider: args.provider } : {}),
+    authToken,
+  });
+}
+
 function accountFlowOAuthErrorStatus(
   error: CompleteAccountFlowOAuthError,
 ): 400 | 403 | 404 | 409 | 410 {
@@ -327,43 +400,75 @@ export function registerBrowserAuthRoutes(
       lastLoginAt: now.toISOString(),
     });
 
-    const authToken = randomToken(32);
-    const authTokenHash = await hashKey(authToken);
-    const email = account.email ?? identity.email;
-    const name = account.name ?? identity.displayName;
-    const pending: PendingAuth = {
-      userId: account.userId,
-      identity: {
-        identityId: identity.identityId,
-        provider: identity.provider,
-        subject: identity.subject,
-      },
-      user: {
-        origin: "local",
-        id: identity.subject,
-        ...(email ? { email } : {}),
-        ...(name ? { name } : {}),
-      },
-      sessionKey: flow.sessionKey,
-      redirectTo: flow.redirectTo ?? "",
-      ...(flow.app ? { app: flow.app } : {}),
-      contract: flow.contract ?? {},
-      createdAt: now,
-    };
-
-    const pendingPut = await pendingAuthKV.create(authTokenHash, pending);
-    if (isErr(pendingPut)) {
-      logger.error({ error: pendingPut.error }, "Failed to store pending auth");
-      throw new HTTPException(500, { message: "Failed to store auth token" });
-    }
-
-    await context.saveBrowserFlow({
-      ...flow,
+    await createPendingAuthForIdentity({
+      context,
+      flowId: request.flowId,
+      flow: { ...flow, sessionKey: flow.sessionKey },
+      account,
+      identity,
+      user: { origin: "local", id: identity.subject },
       provider: "local",
-      authToken,
+      pendingAuthKV,
+      logger,
     });
 
     return c.json({ status: "authenticated", flowId: request.flowId });
+  });
+
+  app.post("/auth/flow/:flowId/register/local", async (c) => {
+    const flowId = c.req.param("flowId");
+    const flow = await context.loadBrowserFlow(flowId);
+    if (!flow) {
+      throw new HTTPException(404, { message: "Expired browser flow" });
+    }
+    if (flow.kind !== "login" || flow.expiresAt <= new Date()) {
+      throw new HTTPException(404, { message: "Expired browser flow" });
+    }
+    if (!flow.sessionKey) {
+      throw new HTTPException(400, { message: "Invalid browser flow state" });
+    }
+
+    const bodyResult = await AsyncResult.try(() => c.req.json());
+    if (bodyResult.isErr()) return c.json({ error: "Invalid JSON body" }, 400);
+    const body = bodyResult.take();
+    if (!Value.Check(LocalRegistrationRequestSchema, body)) {
+      return c.json({ error: "Invalid local registration request" }, 400);
+    }
+    if (!opts.loginPortalStorage) {
+      throw new HTTPException(503, { message: "registration_unavailable" });
+    }
+    const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    const registration = context.registrationAvailability(selectedPortal);
+    if (!registration.localIdentity.available) {
+      throw new HTTPException(403, { message: "registration_unavailable" });
+    }
+
+    const request = Value.Parse(LocalRegistrationRequestSchema, body);
+    const result = await opts.loginPortalStorage.registerLocalIdentity({
+      username: request.username,
+      password: request.password,
+      name: request.name,
+      email: request.email,
+      active: selectedPortal.settings.selfRegisteredAccountActive,
+      capabilities: selectedPortal.defaultCapabilities,
+      capabilityGroups: selectedPortal.defaultCapabilityGroups,
+      userId: `usr_${randomToken(16)}`,
+    });
+    if (!result.ok) return c.json({ error: result.error }, 409);
+
+    await createPendingAuthForIdentity({
+      context,
+      flowId,
+      flow: { ...flow, sessionKey: flow.sessionKey },
+      account: result.account,
+      identity: result.identity,
+      user: { origin: "local", id: result.identity.subject },
+      provider: "local",
+      pendingAuthKV,
+      logger,
+    });
+
+    return c.json({ status: "authenticated", flowId });
   });
 
   app.get("/auth/callback/:provider", async (c) => {
@@ -449,9 +554,35 @@ export function registerBrowserAuthRoutes(
       return c.redirect(portalUrl.toString());
     }
 
-    const linkedUser = await context.resolveLinkedActiveUserIdentity({
+    let linkedUser = await context.resolveLinkedActiveUserIdentity({
       provider: providerId,
       subject: user.id,
+    }).catch(async (error) => {
+      if (!(error instanceof HTTPException) || error.status !== 403) {
+        throw error;
+      }
+      if (!opts.loginPortalStorage) throw error;
+      const flow = await context.loadBrowserFlow(oauthEntry.value.flowId);
+      if (!flow || flow.kind !== "login" || flow.expiresAt <= new Date()) {
+        throw error;
+      }
+      const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+      const registration = context.registrationAvailability(selectedPortal);
+      if (!registration.federatedIdentity.available) throw error;
+      const result = await opts.loginPortalStorage.registerFederatedIdentity({
+        provider: providerId,
+        user,
+        active: selectedPortal.settings.selfRegisteredAccountActive,
+        capabilities: selectedPortal.defaultCapabilities,
+        capabilityGroups: selectedPortal.defaultCapabilityGroups,
+        userId: `usr_${randomToken(16)}`,
+      });
+      if (!result.ok) throw error;
+      return {
+        account: result.account,
+        identity: result.identity,
+        ok: true as const,
+      };
     });
     await opts.userIdentityStorage.put({
       ...linkedUser.identity,
@@ -459,35 +590,6 @@ export function registerBrowserAuthRoutes(
       email: user.email ?? linkedUser.identity.email,
       lastLoginAt: new Date().toISOString(),
     });
-
-    const authToken = randomToken(32);
-    const authTokenHash = await hashKey(authToken);
-    const pending: PendingAuth = {
-      userId: linkedUser.account.userId,
-      identity: {
-        identityId: linkedUser.identity.identityId,
-        provider: linkedUser.identity.provider,
-        subject: linkedUser.identity.subject,
-      },
-      user: {
-        origin: providerId,
-        id: user.id,
-        email: linkedUser.account.email ?? user.email,
-        name: linkedUser.account.name ?? user.name,
-        image: user.picture,
-      },
-      sessionKey: oauthEntry.value.sessionKey,
-      redirectTo: oauthEntry.value.redirectTo,
-      ...(oauthEntry.value.app ? { app: oauthEntry.value.app } : {}),
-      contract: oauthEntry.value.contract,
-      createdAt: new Date(),
-    };
-
-    const pendingPut = await pendingAuthKV.create(authTokenHash, pending);
-    if (isErr(pendingPut)) {
-      logger.error({ error: pendingPut.error }, "Failed to store pending auth");
-      throw new HTTPException(500, { message: "Failed to store auth token" });
-    }
 
     const flowId = oauthEntry.value.flowId;
     if (!flowId) {
@@ -499,22 +601,33 @@ export function registerBrowserAuthRoutes(
       throw new HTTPException(404, { message: "Expired browser flow" });
     }
 
-    await context.saveBrowserFlow({
-      ...flow,
-      authToken,
+    await createPendingAuthForIdentity({
+      context,
+      flowId,
+      flow: { ...flow, sessionKey: oauthEntry.value.sessionKey },
+      account: linkedUser.account,
+      identity: linkedUser.identity,
+      user: {
+        origin: providerId,
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        image: user.picture,
+      },
+      pendingAuthKV,
+      logger,
     });
 
-    const contract = flow.contract ?? {};
-    const portalEntryUrl = await context.resolvePortalEntryUrlForContract(
-      contract,
-    );
-    if (!portalEntryUrl) {
+    const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    const resolvedPortalEntryUrl = selectedPortal.portal.entryUrl ??
+      (await context.resolvePortalEntryUrlForContract(flow.contract ?? {}));
+    if (!resolvedPortalEntryUrl) {
       throw new HTTPException(503, {
         message: "Auth portal is not configured",
       });
     }
 
-    const portalUrl = new URL(portalEntryUrl);
+    const portalUrl = new URL(resolvedPortalEntryUrl);
     portalUrl.searchParams.set("flowId", flowId);
     return c.redirect(portalUrl.toString());
   });

@@ -166,6 +166,7 @@ Deno.test("Portal and browser-flow schemas validate", () => {
       origin: "https://app.example.com",
     },
     contract: { id: "trellis.console@v1" },
+    portalId: "trellis.builtin.login",
     createdAt: new Date().toISOString(),
     expiresAt: new Date().toISOString(),
   }));

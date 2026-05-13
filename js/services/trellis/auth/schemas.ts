@@ -15,6 +15,10 @@ import {
   DeviceActivationRecordSchema,
   DeviceActivationReviewSchema,
   DeviceDeploymentSchema,
+  FlowRegistrationAvailabilitySchema,
+  LoginPortalRecordSchema,
+  LoginPortalRouteSchema,
+  LoginPortalSettingsSchema,
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
 } from "../../../packages/trellis/auth/protocol.ts";
@@ -55,10 +59,20 @@ export {
   DeviceActivationRecordSchema,
   DeviceActivationReviewSchema,
   DeviceDeploymentSchema,
+  FlowRegistrationAvailabilitySchema,
+  LoginPortalRecordSchema,
+  LoginPortalRouteSchema,
+  LoginPortalSettingsSchema,
   SentinelCredsSchema,
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
 };
+export type {
+  FlowRegistrationAvailability,
+  LoginPortalRecord,
+  LoginPortalRoute,
+  LoginPortalSettings,
+} from "../../../packages/trellis/auth/protocol.ts";
 
 export const SessionKeySchema = Type.String({
   pattern: "^[A-Za-z0-9_-]{43}$",
@@ -248,6 +262,7 @@ export const AuthBrowserFlowSchema = Type.Object({
   contract: Type.Optional(Type.Object({}, { additionalProperties: true })),
   provider: Type.Optional(Type.String({ minLength: 1 })),
   authToken: Type.Optional(Type.String({ minLength: 1 })),
+  portalId: Type.Optional(Type.String({ minLength: 1 })),
   deviceActivation: Type.Optional(DeviceActivationFlowStateSchema),
   createdAt: IsoDateSchema,
   expiresAt: IsoDateSchema,

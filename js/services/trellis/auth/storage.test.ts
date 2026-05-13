@@ -10,6 +10,7 @@ import type { TrellisStorage } from "../storage/db.ts";
 import { identityIdForProviderSubject } from "./identity.ts";
 import {
   accountFlows,
+  authPortals,
   deviceActivationReviews,
   deviceActivations,
   deviceDeployments,
@@ -55,6 +56,7 @@ import {
   SqlDeviceProvisioningSecretRepository,
   SqlIdentityEnvelopeRepository,
   SqlLocalCredentialRepository,
+  SqlLoginPortalRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -93,6 +95,7 @@ async function withRepositories(
       deviceActivations: SqlDeviceActivationRepository;
       deviceActivationReviews: SqlDeviceActivationReviewRepository;
       sessions: SqlSessionRepository;
+      loginPortals: SqlLoginPortalRepository;
     },
     storage: TrellisStorage,
   ) => Promise<void>,
@@ -126,6 +129,7 @@ async function withRepositories(
         storage.db,
       ),
       sessions: new SqlSessionRepository(storage.db),
+      loginPortals: new SqlLoginPortalRepository(storage.db),
     }, storage);
   } finally {
     storage.client.close();
@@ -477,6 +481,90 @@ Deno.test("account storage creates without replacing duplicates", async () => {
     assertEquals(await accounts.create(first), true);
     assertEquals(await accounts.create(duplicate), false);
     assertEquals(await accounts.get(first.userId), first);
+  });
+});
+
+Deno.test("login portal storage provides built-in default policy", async () => {
+  await withRepositories(async ({ loginPortals }, storage) => {
+    const selected = await loginPortals.resolveForApp({});
+
+    assertEquals(selected.portal.portalId, "trellis.builtin.login");
+    assertEquals(selected.settings.localRegistrationEnabled, true);
+    assertEquals(selected.settings.federatedRegistrationEnabled, true);
+    assertEquals(selected.settings.selfRegisteredAccountActive, true);
+    assertEquals(selected.defaultCapabilities, []);
+    assertEquals(selected.defaultCapabilityGroups, []);
+    const [row] = await storage.db.select().from(authPortals);
+    assertEquals(row?.portalId, "trellis.builtin.login");
+    assertEquals(
+      await loginPortals.deletePortal("trellis.builtin.login"),
+      false,
+    );
+  });
+});
+
+Deno.test("login portal self-registration creates local account atomically", async () => {
+  await withRepositories(async ({
+    accounts,
+    localCredentials,
+    loginPortals,
+    userIdentities,
+  }) => {
+    const result = await loginPortals.registerLocalIdentity({
+      username: "alex",
+      password: "correct horse battery staple",
+      name: "Alex Local",
+      email: "alex@example.com",
+      active: true,
+      capabilities: ["profile.basic"],
+      capabilityGroups: ["users"],
+      userId: "usr_self_registered",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    assertEquals(result.ok, true);
+    assertEquals(await accounts.get("usr_self_registered"), {
+      userId: "usr_self_registered",
+      name: "Alex Local",
+      email: "alex@example.com",
+      active: true,
+      capabilities: ["profile.basic"],
+      capabilityGroups: ["users"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const identityId = identityIdForProviderSubject("local", "alex");
+    assertEquals(
+      await userIdentities.getByProviderSubject("local", "alex"),
+      {
+        identityId,
+        userId: "usr_self_registered",
+        provider: "local",
+        subject: "alex",
+        displayName: "Alex Local",
+        email: "alex@example.com",
+        emailVerified: false,
+        linkedAt: "2026-01-01T00:00:00.000Z",
+        lastLoginAt: "2026-01-01T00:00:00.000Z",
+      },
+    );
+    assertEquals(
+      (await localCredentials.get(identityId))?.identityId,
+      identityId,
+    );
+
+    const duplicate = await loginPortals.registerLocalIdentity({
+      username: "alex",
+      password: "different password",
+      name: "Alex Duplicate",
+      email: "dup@example.com",
+      active: true,
+      capabilities: [],
+      capabilityGroups: [],
+      userId: "usr_duplicate",
+    });
+    assertEquals(duplicate, { ok: false, error: "identity_conflict" });
+    assertEquals(await accounts.get("usr_duplicate"), undefined);
   });
 });
 

@@ -8,6 +8,13 @@
       "when": 1777161600000,
       "tag": "00000_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778544000000,
+      "tag": "00001_login_portals",
+      "breakpoints": true
     }
   ]
 }

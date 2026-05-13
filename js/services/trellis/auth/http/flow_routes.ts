@@ -98,6 +98,8 @@ export function registerFlowRoutes(
 
     const providersList = buildProvidersList(providers);
     const contract = flow.contract ?? {};
+    const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    const registration = context.registrationAvailability(selectedPortal);
     let resolution = null;
     let redirectLocation = undefined;
     let returnLocation = undefined;
@@ -134,6 +136,8 @@ export function registerFlowRoutes(
         flow,
         app: appMeta,
         providers: providersList,
+        portal: selectedPortal.portal,
+        registration,
         resolution,
         redirectLocation,
         returnLocation,
@@ -166,6 +170,8 @@ export function registerFlowRoutes(
     const pending = pendingRecord.value as PendingAuth;
     const resolution = await context.requireApprovalResolution(pending);
     const providersList = buildProvidersList(providers);
+    const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    const registration = context.registrationAvailability(selectedPortal);
     const contract = flow.contract ?? {};
     const appMeta = buildAppMeta({
       contract,
@@ -184,6 +190,8 @@ export function registerFlowRoutes(
           flow,
           app: appMeta,
           providers: providersList,
+          portal: selectedPortal.portal,
+          registration,
           resolution,
           returnLocation,
         }),
@@ -198,6 +206,8 @@ export function registerFlowRoutes(
           flow,
           app: appMeta,
           providers: providersList,
+          portal: selectedPortal.portal,
+          registration,
           resolution,
           redirectLocation: buildRedirectLocation(pending.redirectTo, {
             authError: "approval_denied",
@@ -220,6 +230,8 @@ export function registerFlowRoutes(
         flow,
         app: appMeta,
         providers: providersList,
+        portal: selectedPortal.portal,
+        registration,
         resolution: updatedResolution,
         redirectLocation: buildRedirectLocation(pending.redirectTo, { flowId }),
       }),

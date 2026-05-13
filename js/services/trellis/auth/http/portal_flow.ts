@@ -1,4 +1,6 @@
 import type {
+  FlowRegistrationAvailability,
+  LoginPortalRecord,
   PortalFlowApp,
   PortalFlowApproval,
   PortalFlowProvider,
@@ -13,6 +15,8 @@ export async function buildPortalFlowState(args: {
   flow: AuthBrowserFlow | null;
   app: PortalFlowApp;
   providers: PortalFlowProvider[];
+  portal?: LoginPortalRecord;
+  registration?: FlowRegistrationAvailability;
   resolution?: PortalFlowResolution | null;
   redirectLocation?: string;
   returnLocation?: string;
@@ -33,6 +37,8 @@ export async function buildPortalFlowState(args: {
       flowId: args.flowId,
       providers: args.providers,
       app: args.app,
+      ...(args.portal ? { portal: args.portal } : {}),
+      ...(args.registration ? { registration: args.registration } : {}),
     };
   }
 

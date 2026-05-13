@@ -537,12 +537,19 @@ async function bindClientFlow(args: {
       context: { flowId: args.flowId },
     });
   }
-  if (parsed.status !== "bound") {
+  if (parsed.status === "insufficient_capabilities") {
     throw createTransportError({
-      code: "trellis.auth.bind_invalid_response",
-      message: "Trellis returned an invalid sign-in response.",
-      hint: "Start the sign-in flow again.",
-      context: { flowId: args.flowId, status: parsed.status },
+      code: "trellis.auth.insufficient_capabilities",
+      message: "The signed-in Trellis account lacks required capabilities.",
+      hint:
+        "Ask an administrator to grant the missing capabilities or sign in with a different account.",
+      context: {
+        flowId: args.flowId,
+        contractId: parsed.approval.contractId,
+        contractDigest: parsed.approval.contractDigest,
+        missingCapabilities: parsed.missingCapabilities,
+        userCapabilities: parsed.userCapabilities,
+      },
     });
   }
 }

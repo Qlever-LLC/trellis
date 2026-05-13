@@ -19,6 +19,8 @@ import { createLocalCredentialPassword } from "../local_credentials/passwords.ts
 import type {
   AccountFlow,
   LocalCredential,
+  LoginPortalRecord,
+  LoginPortalSettings,
   OAuthState,
   PendingAuth,
   Session,
@@ -34,6 +36,7 @@ const config: Config = {
   web: { origins: [], allowInsecureOrigins: [] },
   httpRateLimit: { windowMs: 60_000, max: 0 },
   storage: { dbPath: ":memory:" },
+  auth: { localIdentity: { enabled: true } },
   ttlMs: {
     sessions: 1,
     oauth: 1,
@@ -62,6 +65,24 @@ const config: Config = {
     alwaysShowProviderChooser: false,
     providers: {},
   },
+};
+
+const portalRecord: LoginPortalRecord = {
+  portalId: "trellis.builtin.login",
+  displayName: "Trellis Login",
+  entryUrl: null,
+  builtIn: true,
+  disabled: false,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+const portalSettings: LoginPortalSettings = {
+  portalId: portalRecord.portalId,
+  localRegistrationEnabled: true,
+  federatedRegistrationEnabled: true,
+  selfRegisteredAccountActive: true,
+  updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
 function testProvider(name: string, displayName: string): Provider {
@@ -983,6 +1004,156 @@ Deno.test({
     assertEquals((await response.json()).providers, [
       { id: "local", displayName: "Username and password" },
     ]);
+  },
+});
+
+Deno.test({
+  name: "auth HTTP flow state reports selected portal registration policy",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({ authToken: undefined }, {}, {
+      github: testProvider("github", "GitHub"),
+    }, {
+      loginPortalStorage: {
+        resolveForApp: () =>
+          Promise.resolve({
+            portal: portalRecord,
+            settings: portalSettings,
+            defaultCapabilities: [],
+            defaultCapabilityGroups: [],
+          }),
+      },
+    });
+
+    const response = await app.request("http://trellis/auth/flow/flow-local");
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), {
+      status: "choose_provider",
+      flowId: "flow-local",
+      providers: [
+        { id: "local", displayName: "Username and password" },
+        { id: "github", displayName: "GitHub" },
+      ],
+      app: {
+        contractId: "unknown",
+        contractDigest: "unknown",
+        displayName: "Trellis",
+        description: "Trellis",
+      },
+      portal: portalRecord,
+      registration: {
+        localIdentity: { available: true },
+        federatedIdentity: {
+          available: true,
+          providers: [{ id: "github", displayName: "GitHub" }],
+        },
+      },
+    });
+  },
+});
+
+Deno.test({
+  name: "auth HTTP local self-registration creates pending auth",
+  sanitizeResources: false,
+  fn: async () => {
+    let registered = false;
+    let pendingAuth: PendingAuth | undefined;
+    const app = await registerTestRoutes(
+      {
+        flowId: "flow-register",
+        authToken: undefined,
+        sessionKey: "session-local",
+        redirectTo: "http://localhost:5173/app",
+        contract: { id: "client.example@v1" },
+      },
+      {},
+      {},
+      {
+        loginPortalStorage: {
+          resolveForApp: () =>
+            Promise.resolve({
+              portal: portalRecord,
+              settings: portalSettings,
+              defaultCapabilities: ["profile.basic"],
+              defaultCapabilityGroups: ["users"],
+            }),
+          registerLocalIdentity: (request: {
+            username: string;
+            name: string;
+            email: string;
+            active: boolean;
+            capabilities: string[];
+            capabilityGroups: string[];
+            userId: string;
+          }) => {
+            registered = true;
+            return Promise.resolve({
+              ok: true as const,
+              account: {
+                userId: request.userId,
+                name: request.name,
+                email: request.email,
+                active: request.active,
+                capabilities: request.capabilities,
+                capabilityGroups: request.capabilityGroups,
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              },
+              identity: {
+                identityId: identityIdForProviderSubject(
+                  "local",
+                  request.username,
+                ),
+                userId: request.userId,
+                provider: "local",
+                subject: request.username,
+                displayName: request.name,
+                email: request.email,
+                emailVerified: false,
+                linkedAt: "2026-01-01T00:00:00.000Z",
+                lastLoginAt: "2026-01-01T00:00:00.000Z",
+              },
+            });
+          },
+        },
+      },
+      {
+        pendingAuthKV: {
+          get: () => AsyncResult.ok({ value: {} }),
+          put: () => AsyncResult.ok(undefined),
+          create: (_key: string, value: PendingAuth) => {
+            pendingAuth = value;
+            return AsyncResult.ok(undefined);
+          },
+          delete: () => AsyncResult.ok(undefined),
+          keys: () => AsyncResult.ok((async function* () {})()),
+        },
+      },
+    );
+
+    const response = await app.request(
+      "http://trellis/auth/flow/flow-register/register/local",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: "alex",
+          password: "correct horse battery staple",
+          name: "Alex Local",
+          email: "alex@example.com",
+        }),
+      },
+    );
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), {
+      status: "authenticated",
+      flowId: "flow-register",
+    });
+    assertEquals(registered, true);
+    assertEquals(pendingAuth?.identity.provider, "local");
+    assertEquals(pendingAuth?.user.email, "alex@example.com");
   },
 });
 

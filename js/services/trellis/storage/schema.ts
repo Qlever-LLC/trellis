@@ -396,6 +396,75 @@ export const deploymentPortalRoutes = sqliteTable(
   },
 );
 
+export const authPortals = sqliteTable(
+  "auth_portals",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    portalId: text("portal_id").notNull().unique(),
+    displayName: text("display_name").notNull(),
+    entryUrl: text("entry_url"),
+    builtIn: integer("built_in", { mode: "boolean" }).notNull(),
+    disabled: integer("disabled", { mode: "boolean" }).notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+);
+
+export const authLoginPortalSettings = sqliteTable(
+  "auth_login_portal_settings",
+  {
+    portalId: text("portal_id").primaryKey(),
+    localRegistrationEnabled: integer("local_registration_enabled", {
+      mode: "boolean",
+    }).notNull(),
+    federatedRegistrationEnabled: integer("federated_registration_enabled", {
+      mode: "boolean",
+    }).notNull(),
+    selfRegisteredAccountActive: integer("self_registered_account_active", {
+      mode: "boolean",
+    }).notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+);
+
+export const authLoginPortalDefaultCapabilities = sqliteTable(
+  "auth_login_portal_default_capabilities",
+  {
+    portalId: text("portal_id").notNull(),
+    capability: text("capability").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.portalId, table.capability] })],
+);
+
+export const authLoginPortalDefaultCapabilityGroups = sqliteTable(
+  "auth_login_portal_default_capability_groups",
+  {
+    portalId: text("portal_id").notNull(),
+    groupKey: text("group_key").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.portalId, table.groupKey] })],
+);
+
+export const authLoginPortalRoutes = sqliteTable(
+  "auth_login_portal_routes",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    routeId: text("route_id").notNull().unique(),
+    portalId: text("portal_id").notNull(),
+    contractId: text("contract_id"),
+    origin: text("origin"),
+    disabled: integer("disabled", { mode: "boolean" }).notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("auth_login_portal_routes_lookup_idx").on(
+      table.contractId,
+      table.origin,
+      table.disabled,
+    ),
+  ],
+);
+
 export const deploymentGrantOverrides = sqliteTable(
   "deployment_grant_overrides",
   {
@@ -585,6 +654,11 @@ export const schema = {
   deploymentEnvelopeResources,
   deploymentEnvelopeCapabilities,
   deploymentPortalRoutes,
+  authPortals,
+  authLoginPortalSettings,
+  authLoginPortalDefaultCapabilities,
+  authLoginPortalDefaultCapabilityGroups,
+  authLoginPortalRoutes,
   deploymentGrantOverrides,
   deploymentResourceBindings,
   deploymentContractEvidence,

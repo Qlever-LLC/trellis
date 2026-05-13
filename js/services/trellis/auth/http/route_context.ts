@@ -13,7 +13,10 @@ import { createProviders } from "../providers/registry.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type {
   AccountFlowKind,
+  FlowRegistrationAvailability,
   IdentityEnvelopeRecord,
+  LoginPortalRecord,
+  LoginPortalSettings,
   PendingAuth,
   Session,
   SessionApprovalSource,
@@ -36,12 +39,14 @@ import type {
   SqlEnvelopeExpansionRequestRepository,
   SqlIdentityEnvelopeRepository,
   SqlLocalCredentialRepository,
+  SqlLoginPortalRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlUserAccountRepository,
   SqlUserIdentityRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
+import { BUILTIN_LOGIN_PORTAL_ID } from "../storage.ts";
 import { buildClientTransports } from "../transports.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import type {
@@ -105,6 +110,12 @@ type HttpIdentityEnvelopeStorage = Pick<
   SqlIdentityEnvelopeRepository,
   "listByUser" | "listPage" | "put"
 >;
+type HttpLoginPortalStorage = Pick<
+  SqlLoginPortalRepository,
+  | "resolveForApp"
+  | "registerLocalIdentity"
+  | "registerFederatedIdentity"
+>;
 
 export type AuthHttpRouteOptions = {
   contractStorage: HttpContractStorage;
@@ -115,6 +126,7 @@ export type AuthHttpRouteOptions = {
   userStorage: HttpUserProjectionStorage;
   capabilityGroupStorage: HttpCapabilityGroupStorage;
   contractApprovalStorage: HttpIdentityEnvelopeStorage;
+  loginPortalStorage?: HttpLoginPortalStorage;
   deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
   serviceInstanceStorage: SqlServiceInstanceRepository;
@@ -158,6 +170,7 @@ export type BrowserFlowRecord = {
   contract?: Record<string, unknown>;
   provider?: string;
   authToken?: string;
+  portalId?: string;
   deviceActivation?: {
     instanceId: string;
     deploymentId: string;
@@ -170,6 +183,37 @@ export type BrowserFlowRecord = {
 };
 
 type ApprovalResolution = Awaited<ReturnType<typeof getApprovalResolution>>;
+
+type SelectedLoginPortal = {
+  portal: LoginPortalRecord;
+  settings: LoginPortalSettings;
+  defaultCapabilities: string[];
+  defaultCapabilityGroups: string[];
+};
+
+function builtinLoginPortal(config: Config): SelectedLoginPortal {
+  const now = new Date().toISOString();
+  return {
+    portal: {
+      portalId: BUILTIN_LOGIN_PORTAL_ID,
+      displayName: "Trellis Login",
+      entryUrl: null,
+      builtIn: true,
+      disabled: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+    settings: {
+      portalId: BUILTIN_LOGIN_PORTAL_ID,
+      localRegistrationEnabled: true,
+      federatedRegistrationEnabled: true,
+      selfRegisteredAccountActive: true,
+      updatedAt: now,
+    },
+    defaultCapabilities: [],
+    defaultCapabilityGroups: [],
+  };
+}
 
 function isIdentityEnvelopeRecord(
   value: unknown,
@@ -305,9 +349,45 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     return new URL(pathname, base).toString();
   }
 
+  async function resolveSelectedLoginPortal(
+    flow: Pick<BrowserFlowRecord, "app" | "contract">,
+  ): Promise<SelectedLoginPortal> {
+    if (!opts.loginPortalStorage) return builtinLoginPortal(config);
+    const contractId = flow.app?.contractId ??
+      (typeof flow.contract?.id === "string" ? flow.contract.id : undefined);
+    return await opts.loginPortalStorage.resolveForApp({
+      ...(contractId ? { contractId } : {}),
+      ...(flow.app?.origin ? { origin: flow.app.origin } : {}),
+    });
+  }
+
+  function registrationAvailability(
+    selected: SelectedLoginPortal,
+  ): FlowRegistrationAvailability {
+    const federatedProviders = Object.entries(providers).map((
+      [id, provider],
+    ) => ({
+      id,
+      displayName: provider.displayName,
+    }));
+    return {
+      localIdentity: {
+        available: config.auth.localIdentity.enabled &&
+          selected.settings.localRegistrationEnabled,
+      },
+      federatedIdentity: {
+        available: federatedProviders.length > 0 &&
+          selected.settings.federatedRegistrationEnabled,
+        providers: federatedProviders,
+      },
+    };
+  }
+
   async function resolvePortalEntryUrlForContract(
     contract: Record<string, unknown>,
   ): Promise<string | null> {
+    const selected = await resolveSelectedLoginPortal({ contract });
+    if (selected.portal.entryUrl) return selected.portal.entryUrl;
     const contractId = typeof contract.id === "string" ? contract.id : null;
     if (contractId) {
       const envelopes = await opts.deploymentEnvelopeStorage
@@ -502,9 +582,16 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     context?: Record<string, unknown>;
     plan: Awaited<ReturnType<typeof planUserContractApproval>>;
   }) {
-    const portalEntryUrl = await resolvePortalEntryUrlForContract(
-      args.contract,
-    );
+    const app = buildAppIdentity({
+      contractId: args.plan.contract.id,
+      redirectTo: args.redirectTo,
+    });
+    const selectedPortal = await resolveSelectedLoginPortal({
+      app,
+      contract: args.contract,
+    });
+    const portalEntryUrl = selectedPortal.portal.entryUrl ??
+      builtinPortalEntryUrl("/_trellis/portal/users/login");
     if (!portalEntryUrl) {
       throw new HTTPException(503, {
         message: "Auth portal is not configured",
@@ -517,12 +604,10 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
       kind: "login",
       sessionKey: args.sessionKey,
       redirectTo: args.redirectTo,
-      app: buildAppIdentity({
-        contractId: args.plan.contract.id,
-        redirectTo: args.redirectTo,
-      }),
+      app,
       ...(args.context ? { context: args.context } : {}),
       contract: args.plan.contract,
+      portalId: selectedPortal.portal.portalId,
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + config.ttlMs.oauth),
     });
@@ -602,6 +687,8 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     resolveAccountFlowPortalEntryUrl,
     loadCurrentUserSession,
     requireApprovalResolution,
+    resolveSelectedLoginPortal,
+    registrationAvailability,
     resolveLinkedActiveUserIdentity,
     bindResolvedUserSession,
     createFlowStartResponse,
