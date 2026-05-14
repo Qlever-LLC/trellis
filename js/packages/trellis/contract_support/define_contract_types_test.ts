@@ -240,11 +240,12 @@ const billingCapabilities = {
 } as const;
 
 const billing = defineServiceContract(
-  { schemas: billingSchemas, capabilities: billingCapabilities },
+  { schemas: billingSchemas },
   () => ({
     id: "trellis.billing@v1",
     displayName: "Billing",
     description: "Expose billing operations for contract typing tests.",
+    capabilities: billingCapabilities,
     operations: {
       "Billing.Refund": {
         version: "v1",

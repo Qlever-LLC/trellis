@@ -73,7 +73,6 @@ const billingCapabilities = {
 
 const billing = defineServiceContract(
   {
-    capabilities: billingCapabilities,
     schemas: {
       RefundInput: Type.Object({ chargeId: Type.String() }, {
         additionalProperties: false,
@@ -96,6 +95,7 @@ const billing = defineServiceContract(
     id: "trellis.billing.watch-test@v1",
     displayName: "Billing Watch Test",
     description: "Exercise operations watch streams over NATS.",
+    capabilities: billingCapabilities,
     uses: {
       auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
     },

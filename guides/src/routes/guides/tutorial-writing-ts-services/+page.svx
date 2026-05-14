@@ -199,7 +199,7 @@ export const CreateOrderResponseSchema = Type.Object({
 export type CreateOrderResponse = Static<typeof CreateOrderResponseSchema>;
 ```
 
-Register the new RPC in `contracts/orders_service.ts`. Update your imports and fill in the `rpc` section:
+Register the new RPC in `contracts/orders_service.ts`. Update your imports, declare the local capability metadata in the contract body, and fill in the `rpc` section:
 
 ```ts
 import {
@@ -209,9 +209,20 @@ import {
 
 // ...
 
+// In the first defineServiceContract argument:
+{
   schemas: {
     CreateOrderRequest: CreateOrderRequestSchema,
     CreateOrderResponse: CreateOrderResponseSchema,
+  },
+}
+
+// In the returned contract body:
+  capabilities: {
+    "orders.write": {
+      displayName: "Write orders",
+      description: "Create order records.",
+    },
   },
 
   rpc: {
@@ -225,7 +236,7 @@ import {
   },
 ```
 
-The `capabilities` field is key: only callers that have been granted the `orders.write` capability can invoke this RPC. Trellis enforces this on every request before your handler ever runs — there is no auth middleware to write.
+The top-level `capabilities` map defines what `orders.write` means for approval and admin UIs. The RPC-level `capabilities.call` field is the gate: only callers that have been granted the projected `orders.write` capability can invoke this RPC. Trellis enforces this on every request before your handler ever runs — there is no auth middleware to write.
 
 Now implement the handler in `main.ts`:
 
@@ -290,11 +301,23 @@ import {
 
 // ...
 
+// In the first defineServiceContract argument:
+{
   schemas: {
     CreateOrderRequest: CreateOrderRequestSchema,
     CreateOrderResponse: CreateOrderResponseSchema,
     GetOrderRequest: GetOrderRequestSchema,
     GetOrderResponse: GetOrderResponseSchema,
+  },
+}
+
+// In the returned contract body, add to the existing capabilities map:
+  capabilities: {
+    "orders.write": { /* ... */ },
+    "orders.read": {
+      displayName: "Read orders",
+      description: "Read order records.",
+    },
   },
 
   rpc: {

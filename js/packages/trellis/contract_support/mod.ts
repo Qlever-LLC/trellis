@@ -191,7 +191,6 @@ export type ContractRefBuilder<
   TErrors extends
     | Readonly<Record<string, ErrorClass>>
     | undefined = undefined,
-  TCapabilities extends ContractCapabilities | undefined = undefined,
 > = {
   schema<const TName extends SchemaNameOf<TSchemas>>(
     schemaName: TName,
@@ -199,7 +198,7 @@ export type ContractRefBuilder<
   error<const TName extends ErrorNameOf<TErrors>>(
     errorName: TName,
   ): TName;
-  capability<const TName extends CapabilityRef<TCapabilities>>(
+  capability<const TName extends GlobalCapability | PlatformCapability>(
     capabilityName: TName,
   ): TName;
 };
@@ -779,7 +778,10 @@ export type EmptyApi = {
 
 type BaselineAuthApi = {
   rpc: {
-    "Auth.Sessions.Me": RPCDesc<Schema<Record<string, never>>, Schema<AuthSessionsMeResponse>>;
+    "Auth.Sessions.Me": RPCDesc<
+      Schema<Record<string, never>>,
+      Schema<AuthSessionsMeResponse>
+    >;
     "Auth.Sessions.Logout": RPCDesc<
       Schema<AuthSessionsLogoutInput>,
       Schema<AuthSessionsLogoutResponse>
@@ -1110,7 +1112,10 @@ const TRELLIS_AUTH_CONTRACT_ID = "trellis.auth@v1";
 const TRELLIS_STATE_CONTRACT_ID = "trellis.state@v1";
 const TRELLIS_HEALTH_CONTRACT_ID = "trellis.health@v1";
 
-const BASELINE_AUTH_RPC_CALL = ["Auth.Sessions.Me", "Auth.Sessions.Logout"] as const;
+const BASELINE_AUTH_RPC_CALL = [
+  "Auth.Sessions.Me",
+  "Auth.Sessions.Logout",
+] as const;
 const BASELINE_STATE_RPC_CALL = [
   "State.Get",
   "State.Put",
@@ -1149,10 +1154,16 @@ function trellisEventDesc<TEvent>(
 
 const BASELINE_AUTH_API: BaselineAuthApi = {
   rpc: {
-    "Auth.Sessions.Me": trellisRpcDesc<Record<string, never>, AuthSessionsMeResponse>(
+    "Auth.Sessions.Me": trellisRpcDesc<
+      Record<string, never>,
+      AuthSessionsMeResponse
+    >(
       "Auth.Sessions.Me",
     ),
-    "Auth.Sessions.Logout": trellisRpcDesc<AuthSessionsLogoutInput, AuthSessionsLogoutResponse>(
+    "Auth.Sessions.Logout": trellisRpcDesc<
+      AuthSessionsLogoutInput,
+      AuthSessionsLogoutResponse
+    >(
       "Auth.Sessions.Logout",
     ),
   },
@@ -1555,25 +1566,20 @@ type DefineContractRegistry<
   TErrors extends
     | Readonly<Record<string, unknown>>
     | undefined = undefined,
-  TCapabilities extends ContractCapabilities | undefined = undefined,
 > = {
   schemas?: TSchemas;
   errors?: TErrors;
-  capabilities?: TCapabilities;
 };
 
 type AnyDefineContractRegistry = DefineContractRegistry<
   Readonly<Record<string, TSchema>> | undefined,
-  Readonly<Record<string, unknown>> | undefined,
-  ContractCapabilities | undefined
+  Readonly<Record<string, unknown>> | undefined
 >;
 
 type ClientContractRegistry<
   TSchemas extends Readonly<Record<string, TSchema>> | undefined = undefined,
-  TCapabilities extends ContractCapabilities | undefined = undefined,
 > = {
   schemas?: TSchemas;
-  capabilities?: TCapabilities;
 };
 
 type RegistrySchemas<TRegistry extends AnyDefineContractRegistry> =
@@ -1588,12 +1594,6 @@ type RegistryErrors<TRegistry extends AnyDefineContractRegistry> =
       ? ExtractErrorClasses<
         TErrors
       >
-    : undefined
-    : undefined;
-
-type RegistryCapabilities<TRegistry extends AnyDefineContractRegistry> =
-  TRegistry extends { capabilities: infer TCapabilities }
-    ? TCapabilities extends ContractCapabilities | undefined ? TCapabilities
     : undefined
     : undefined;
 
@@ -1644,7 +1644,7 @@ type BodyRpcMethods<TBody, TRegistry extends AnyDefineContractRegistry> =
           ContractSourceRpcMethod<
             SchemaNameOf<RegistrySchemas<TRegistry>>,
             ErrorNameOf<RegistryErrors<TRegistry>>,
-            CapabilityRef<RegistryCapabilities<TRegistry>>
+            CapabilityRef<BodyCapabilities<TBody>>
           >
         >
       >
@@ -1659,7 +1659,7 @@ type BodyOperations<TBody, TRegistry extends AnyDefineContractRegistry> =
           string,
           ContractSourceOperation<
             SchemaNameOf<RegistrySchemas<TRegistry>>,
-            CapabilityRef<RegistryCapabilities<TRegistry>>
+            CapabilityRef<BodyCapabilities<TBody>>
           >
         >
       >
@@ -1674,7 +1674,7 @@ type BodyEvents<TBody, TRegistry extends AnyDefineContractRegistry> =
           string,
           ContractSourceEvent<
             SchemaNameOf<RegistrySchemas<TRegistry>>,
-            CapabilityRef<RegistryCapabilities<TRegistry>>
+            CapabilityRef<BodyCapabilities<TBody>>
           >
         >
       >
@@ -1849,10 +1849,9 @@ type WithKind<TBody extends { id: string }, TKind extends ContractKind> =
 function createContractRefBuilder<
   TSchemas extends Readonly<Record<string, TSchema>> | undefined,
   TErrors extends Readonly<Record<string, ErrorClass>> | undefined,
-  TCapabilities extends ContractCapabilities | undefined,
 >(
-  registry: DefineContractRegistry<TSchemas, TErrors, TCapabilities>,
-): ContractRefBuilder<TSchemas, TErrors, TCapabilities> {
+  registry: DefineContractRegistry<TSchemas, TErrors>,
+): ContractRefBuilder<TSchemas, TErrors> {
   const schemaRef = registry.schemas
     ? createSchemaRef(registry.schemas)
     : undefined;
@@ -1870,7 +1869,7 @@ function createContractRefBuilder<
     error<const TName extends ErrorNameOf<TErrors>>(errorName: TName): TName {
       return errorName;
     },
-    capability<const TName extends CapabilityRef<TCapabilities>>(
+    capability<const TName extends GlobalCapability | PlatformCapability>(
       capabilityName: TName,
     ): TName {
       return capabilityName;
@@ -2080,6 +2079,16 @@ function assertRegistryDoesNotDeclareExports(
   if (Object.hasOwn(registry, "exports")) {
     throw new Error(
       "contract exports must be declared in the callback body, not the registry argument",
+    );
+  }
+}
+
+function assertRegistryDoesNotDeclareCapabilities(
+  registry: AnyDefineContractRegistry,
+): void {
+  if (Object.hasOwn(registry, "capabilities")) {
+    throw new Error(
+      "contract capabilities must be declared in the callback body, not the registry argument",
     );
   }
 }
@@ -4055,12 +4064,12 @@ function defineContract(
   string
 > {
   assertRegistryDoesNotDeclareExports(registry);
+  assertRegistryDoesNotDeclareCapabilities(registry);
   const errorClasses = getErrorClassRegistry(registry.errors);
   const normalizedErrors = normalizeErrorRegistry(registry.errors);
   const body = build(createContractRefBuilder({
     ...(registry.schemas ? { schemas: registry.schemas } : {}),
     ...(errorClasses ? { errors: errorClasses } : {}),
-    ...(registry.capabilities ? { capabilities: registry.capabilities } : {}),
   }));
   const materializedSchemas = materializeErrorSchemas(
     registry.schemas,
@@ -4068,7 +4077,6 @@ function defineContract(
   );
   const source: DefineContractSource = {
     ...body,
-    ...(registry.capabilities ? { capabilities: registry.capabilities } : {}),
     ...(materializedSchemas ? { schemas: materializedSchemas } : {}),
     ...(normalizedErrors ? { errors: normalizedErrors } : {}),
   };
@@ -4140,9 +4148,9 @@ export function defineServiceContract<
   const TErrors extends Readonly<Record<string, unknown>> | undefined,
   const TRegistry extends DefineContractRegistry<
     Readonly<Record<string, TSchema>> | undefined,
-    TErrors,
-    ContractCapabilities | undefined
+    TErrors
   >,
+  const TCapabilities extends ContractCapabilities | undefined,
   const TUses extends AuthorContractUses | undefined,
   const TRpc extends
     | Readonly<
@@ -4151,7 +4159,7 @@ export function defineServiceContract<
         ContractSourceRpcMethod<
           SchemaNameOf<RegistrySchemas<TRegistry>>,
           ErrorNameOf<RegistryErrors<TRegistry>>,
-          CapabilityRef<RegistryCapabilities<TRegistry>>
+          CapabilityRef<TCapabilities>
         >
       >
     >
@@ -4162,7 +4170,7 @@ export function defineServiceContract<
         string,
         ContractSourceOperation<
           SchemaNameOf<RegistrySchemas<TRegistry>>,
-          CapabilityRef<RegistryCapabilities<TRegistry>>
+          CapabilityRef<TCapabilities>
         >
       >
     >
@@ -4173,13 +4181,13 @@ export function defineServiceContract<
         string,
         ContractSourceEvent<
           SchemaNameOf<RegistrySchemas<TRegistry>>,
-          CapabilityRef<RegistryCapabilities<TRegistry>>
+          CapabilityRef<TCapabilities>
         >
       >
     >
     | undefined,
   const TBody extends ServiceContractBodyInput<
-    ContractCapabilities | undefined,
+    TCapabilities,
     RegistrySchemas<TRegistry>,
     TUses,
     RegistryErrors<TRegistry>,
@@ -4188,12 +4196,11 @@ export function defineServiceContract<
     TEvents
   >,
 >(
-  registry: TRegistry & { exports?: never },
+  registry: TRegistry & { capabilities?: never; exports?: never },
   build: (
     ref: ContractRefBuilder<
       RegistrySchemas<TRegistry>,
-      RegistryErrors<TRegistry>,
-      RegistryCapabilities<TRegistry>
+      RegistryErrors<TRegistry>
     >,
   ) => TBody,
 ): DefinedContract<
@@ -4287,7 +4294,10 @@ function defineClientContract<
   const TBody extends ClientContractBodyInput<TSchemas, TUses>,
 >(
   kind: TKind,
-  registry: ClientContractRegistry<TSchemas> & { exports?: never },
+  registry: ClientContractRegistry<TSchemas> & {
+    capabilities?: never;
+    exports?: never;
+  },
   build: (ref: ContractRefBuilder<TSchemas>) => TBody,
 ): DefinedContract<
   OwnedApiFromSource<
@@ -4387,7 +4397,10 @@ export function defineAppContract<
   const TUses extends AuthorContractUses | undefined,
   const TBody extends ClientContractBodyInput<TSchemas, TUses>,
 >(
-  registry: ClientContractRegistry<TSchemas> & { exports?: never },
+  registry: ClientContractRegistry<TSchemas> & {
+    capabilities?: never;
+    exports?: never;
+  },
   build: (ref: ContractRefBuilder<TSchemas>) => TBody,
 ): DefinedContract<
   OwnedApiFromSource<
@@ -4455,6 +4468,7 @@ export function defineAppContract(
     | [() => ContractIdentityFields & Record<string, unknown>]
     | [
       ClientContractRegistry<Readonly<Record<string, TSchema>>> & {
+        capabilities?: never;
         exports?: never;
       },
       (
@@ -4475,7 +4489,10 @@ export function defineAgentContract<
   const TUses extends AuthorContractUses | undefined,
   const TBody extends ClientContractBodyInput<TSchemas, TUses>,
 >(
-  registry: ClientContractRegistry<TSchemas> & { exports?: never },
+  registry: ClientContractRegistry<TSchemas> & {
+    capabilities?: never;
+    exports?: never;
+  },
   build: (ref: ContractRefBuilder<TSchemas>) => TBody,
 ): DefinedContract<
   OwnedApiFromSource<
@@ -4543,6 +4560,7 @@ export function defineAgentContract(
     | [() => ContractIdentityFields & Record<string, unknown>]
     | [
       ClientContractRegistry<Readonly<Record<string, TSchema>>> & {
+        capabilities?: never;
         exports?: never;
       },
       (
@@ -4563,7 +4581,10 @@ export function defineDeviceContract<
   const TUses extends AuthorContractUses | undefined,
   const TBody extends ClientContractBodyInput<TSchemas, TUses>,
 >(
-  registry: ClientContractRegistry<TSchemas> & { exports?: never },
+  registry: ClientContractRegistry<TSchemas> & {
+    capabilities?: never;
+    exports?: never;
+  },
   build: (ref: ContractRefBuilder<TSchemas>) => TBody,
 ): DefinedContract<
   OwnedApiFromSource<
@@ -4631,6 +4652,7 @@ export function defineDeviceContract(
     | [() => ContractIdentityFields & Record<string, unknown>]
     | [
       ClientContractRegistry<Readonly<Record<string, TSchema>>> & {
+        capabilities?: never;
         exports?: never;
       },
       (

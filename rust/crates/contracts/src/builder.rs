@@ -207,6 +207,12 @@ fn project_contract_capabilities(
                 declared,
                 "operation cancel capabilities",
             )?;
+            project_capability_list(
+                &mut capabilities.control,
+                &contract_id,
+                declared,
+                "operation control capabilities",
+            )?;
         }
     }
     for event in manifest.events.values_mut() {
@@ -279,6 +285,10 @@ fn assert_no_undeclared_local_capabilities(
             assert_capability_list_external(&capabilities.call, "operation call capabilities")?;
             assert_capability_list_external(&capabilities.read, "operation read capabilities")?;
             assert_capability_list_external(&capabilities.cancel, "operation cancel capabilities")?;
+            assert_capability_list_external(
+                &capabilities.control,
+                "operation control capabilities",
+            )?;
         }
     }
     for event in manifest.events.values() {

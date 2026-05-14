@@ -61,6 +61,21 @@ function schemaRef<
 }
 
 if (false) {
+  defineServiceContract(
+    {
+      // @ts-expect-error overload should reject registry-side capabilities
+      schemas: baseSchemas,
+      // @ts-expect-error capabilities belong in the contract body, not the registry
+      capabilities: {},
+    },
+    () => ({
+      id: "capability.registry-compile-error@v1",
+      displayName: "Capability registry compile error",
+      description:
+        "This contract intentionally fails type checking without the directive.",
+    }),
+  );
+
   defineServiceContract({ schemas: baseSchemas }, (ref) => ({
     id: "capability.compile-error@v1",
     displayName: "Capability compile error",
@@ -82,19 +97,17 @@ if (false) {
 
 Deno.test("kind-specific helpers preserve emitted manifest shape and digest", async () => {
   const auth = defineServiceContract(
-    {
-      schemas: baseSchemas,
+    { schemas: baseSchemas },
+    () => ({
+      id: "trellis.auth@v1",
+      displayName: "Trellis Auth",
+      description: "Expose auth RPCs and events for source emission tests.",
       capabilities: {
         "events.auth": {
           displayName: "Auth events",
           description: "Publish and subscribe to auth events.",
         },
       },
-    },
-    () => ({
-      id: "trellis.auth@v1",
-      displayName: "Trellis Auth",
-      description: "Expose auth RPCs and events for source emission tests.",
       exports: {
         schemas: ["StringValue"],
       },
@@ -120,24 +133,22 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
     }),
   );
 
-  const activity = defineServiceContract(
-    {
-      schemas: baseSchemas,
+  const audit = defineServiceContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "trellis.audit@v1",
+      displayName: "Audit",
+      description: "Expose audit APIs while depending on auth in tests.",
       capabilities: {
-        "activity.read": {
-          displayName: "Read activity",
-          description: "Read activity entries.",
+        "audit.read": {
+          displayName: "Read audit",
+          description: "Read audit entries.",
         },
-        "events.activity": {
-          displayName: "Activity events",
-          description: "Publish and subscribe to activity events.",
+        "events.audit": {
+          displayName: "Audit events",
+          description: "Publish and subscribe to audit events.",
         },
       },
-    },
-    () => ({
-      id: "trellis.activity@v1",
-      displayName: "Activity",
-      description: "Expose activity APIs while depending on auth in tests.",
       uses: {
         auth: auth.use({
           rpc: { call: ["Auth.Sessions.Me"] },
@@ -145,41 +156,41 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
         }),
       },
       rpc: {
-        "Activity.List": {
+        "Audit.List": {
           version: "v1",
           input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
           output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
-          capabilities: { call: ["activity.read"] },
+          capabilities: { call: ["audit.read"] },
           errors: ["UnexpectedError"],
         },
       },
       events: {
-        "Activity.Recorded": {
+        "Audit.Recorded": {
           version: "v1",
           event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
           capabilities: {
-            publish: ["events.activity"],
-            subscribe: ["events.activity"],
+            publish: ["events.audit"],
+            subscribe: ["events.audit"],
           },
         },
       },
     }),
   );
 
-  assertEquals(activity.CONTRACT, {
+  assertEquals(audit.CONTRACT, {
     format: "trellis.contract.v1",
-    id: "trellis.activity@v1",
-    displayName: "Activity",
-    description: "Expose activity APIs while depending on auth in tests.",
+    id: "trellis.audit@v1",
+    displayName: "Audit",
+    description: "Expose audit APIs while depending on auth in tests.",
     kind: "service",
     capabilities: {
-      [globalCapabilityName("trellis.activity@v1", "activity.read")]: {
-        displayName: "Read activity",
-        description: "Read activity entries.",
+      [globalCapabilityName("trellis.audit@v1", "audit.read")]: {
+        displayName: "Read audit",
+        description: "Read audit entries.",
       },
-      [globalCapabilityName("trellis.activity@v1", "events.activity")]: {
-        displayName: "Activity events",
-        description: "Publish and subscribe to activity events.",
+      [globalCapabilityName("trellis.audit@v1", "events.audit")]: {
+        displayName: "Audit events",
+        description: "Publish and subscribe to audit events.",
       },
     },
     schemas: {
@@ -205,28 +216,28 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
       },
     },
     rpc: {
-      "Activity.List": {
+      "Audit.List": {
         version: "v1",
-        subject: "rpc.v1.Activity.List",
+        subject: "rpc.v1.Audit.List",
         input: { schema: "Empty" },
         output: { schema: "StringValue" },
         capabilities: {
-          call: [globalCapabilityName("trellis.activity@v1", "activity.read")],
+          call: [globalCapabilityName("trellis.audit@v1", "audit.read")],
         },
         errors: [{ type: "UnexpectedError" }],
       },
     },
     events: {
-      "Activity.Recorded": {
+      "Audit.Recorded": {
         version: "v1",
-        subject: "events.v1.Activity.Recorded",
+        subject: "events.v1.Audit.Recorded",
         event: { schema: "StringValue" },
         capabilities: {
           publish: [
-            globalCapabilityName("trellis.activity@v1", "events.activity"),
+            globalCapabilityName("trellis.audit@v1", "events.audit"),
           ],
           subscribe: [
-            globalCapabilityName("trellis.activity@v1", "events.activity"),
+            globalCapabilityName("trellis.audit@v1", "events.audit"),
           ],
         },
       },
@@ -234,22 +245,28 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
   });
 
   assertEquals(
-    activity.API.owned.rpc["Activity.List"].subject,
-    "rpc.v1.Activity.List",
+    audit.API.owned.rpc["Audit.List"].subject,
+    "rpc.v1.Audit.List",
   );
-  assertEquals(activity.API.used.rpc["Auth.Sessions.Me"].subject, "rpc.v1.Auth.Sessions.Me");
   assertEquals(
-    activity.API.used.events["Auth.Connections.Opened"].subject,
+    audit.API.used.rpc["Auth.Sessions.Me"].subject,
+    "rpc.v1.Auth.Sessions.Me",
+  );
+  assertEquals(
+    audit.API.used.events["Auth.Connections.Opened"].subject,
     "events.v1.Auth.Connections.Opened",
   );
   assertEquals(
-    activity.API.trellis.rpc["Activity.List"].subject,
-    "rpc.v1.Activity.List",
+    audit.API.trellis.rpc["Audit.List"].subject,
+    "rpc.v1.Audit.List",
   );
-  assertEquals(activity.API.trellis.rpc["Auth.Sessions.Me"].subject, "rpc.v1.Auth.Sessions.Me");
   assertEquals(
-    activity.CONTRACT_DIGEST,
-    digestContractManifest(activity.CONTRACT),
+    audit.API.trellis.rpc["Auth.Sessions.Me"].subject,
+    "rpc.v1.Auth.Sessions.Me",
+  );
+  assertEquals(
+    audit.CONTRACT_DIGEST,
+    digestContractManifest(audit.CONTRACT),
   );
   assertEquals(auth.CONTRACT.exports, {
     schemas: ["StringValue"],
@@ -404,6 +421,40 @@ Deno.test("contract helpers reject registry-side exports at runtime", () => {
   );
 });
 
+Deno.test("contract helpers reject registry-side capabilities at runtime", () => {
+  assertThrows(
+    () =>
+      defineServiceContract(
+        JSON.parse(
+          '{"capabilities":{"read":{"displayName":"Read","description":"Read."}}}',
+        ),
+        () => ({
+          id: "capabilities.registry-service@v1",
+          displayName: "Registry Capabilities Service",
+          description: "Should reject registry-side capabilities.",
+        }),
+      ),
+    Error,
+    "contract capabilities must be declared in the callback body",
+  );
+
+  assertThrows(
+    () =>
+      defineAppContract(
+        JSON.parse(
+          '{"capabilities":{"read":{"displayName":"Read","description":"Read."}}}',
+        ),
+        () => ({
+          id: "capabilities.registry-app@v1",
+          displayName: "Registry Capabilities App",
+          description: "Should reject registry-side capabilities.",
+        }),
+      ),
+    Error,
+    "contract capabilities must be declared in the callback body",
+  );
+});
+
 Deno.test("defineServiceContract emits RPC error refs using declared wire types", () => {
   const NotFoundError = defineError({
     type: "NotFoundError",
@@ -508,7 +559,10 @@ Deno.test("defineAppContract emits top-level named state declarations", async ()
     },
   });
 
-  assertEquals(dashboard.API.used.rpc["Auth.Sessions.Me"].subject, "rpc.v1.Auth.Sessions.Me");
+  assertEquals(
+    dashboard.API.used.rpc["Auth.Sessions.Me"].subject,
+    "rpc.v1.Auth.Sessions.Me",
+  );
   assertEquals(
     dashboard.API.used.rpc["Auth.Sessions.Logout"].subject,
     "rpc.v1.Auth.Sessions.Logout",
@@ -602,10 +656,7 @@ Deno.test("contract digest normalizes capability order and duplicates", () => {
       description: "Control operations.",
     },
   } as const;
-  const first = defineServiceContract({
-    schemas: baseSchemas,
-    capabilities: digestCapabilities,
-  }, (ref) => ({
+  const first = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
     id: "digest.capabilities@v1",
     displayName: "Digest Capabilities",
     description: "Verify capability normalization.",
@@ -667,10 +718,7 @@ Deno.test("contract digest normalizes capability order and duplicates", () => {
     },
   }));
 
-  const second = defineServiceContract({
-    schemas: baseSchemas,
-    capabilities: digestCapabilities,
-  }, (ref) => ({
+  const second = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
     id: "digest.capabilities@v1",
     displayName: "Digest Capabilities",
     description: "Verify capability normalization.",
@@ -796,13 +844,11 @@ Deno.test("defineServiceContract emits top-level capabilities with global names"
       consequence: "Exposes user profile data.",
     },
   } as const;
-  const contract = defineServiceContract({
-    schemas: baseSchemas,
-    capabilities: authCapabilities,
-  }, (ref) => ({
+  const contract = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
     id: "trellis.auth@v1",
     displayName: "Auth Capabilities",
     description: "Verify capability declarations emit globally.",
+    capabilities: authCapabilities,
     rpc: {
       "Auth.Users.List": {
         version: "v1",
@@ -886,13 +932,11 @@ Deno.test("contract digest changes when capability metadata changes", () => {
       description: "Read records with changed metadata.",
     },
   } as const;
-  const first = defineServiceContract({
-    schemas: baseSchemas,
-    capabilities: firstCapabilities,
-  }, (ref) => ({
+  const first = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
     id: "digest.capability-metadata@v1",
     displayName: "Capability Metadata",
     description: "First capability metadata.",
+    capabilities: firstCapabilities,
     rpc: {
       "Capability.Read": {
         version: "v1",
@@ -903,13 +947,11 @@ Deno.test("contract digest changes when capability metadata changes", () => {
     },
   }));
 
-  const second = defineServiceContract({
-    schemas: baseSchemas,
-    capabilities: secondCapabilities,
-  }, (ref) => ({
+  const second = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
     id: "digest.capability-metadata@v1",
     displayName: "Capability Metadata",
     description: "First capability metadata.",
+    capabilities: secondCapabilities,
     rpc: {
       "Capability.Read": {
         version: "v1",
@@ -928,18 +970,16 @@ Deno.test("shared manifest normalization preserves digest-bearing capabilities",
     "digest.normalization@v1",
     "read",
   );
-  const contract = defineServiceContract({
-    schemas: baseSchemas,
+  const contract = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+    id: "digest.normalization@v1",
+    displayName: "Digest Normalization",
+    description: "Verify shared contract manifest normalization.",
     capabilities: {
       read: {
         displayName: "Read",
         description: "Read records.",
       },
     },
-  }, (ref) => ({
-    id: "digest.normalization@v1",
-    displayName: "Digest Normalization",
-    description: "Verify shared contract manifest normalization.",
     rpc: {
       "Normalization.Read": {
         version: "v1",
@@ -1291,13 +1331,11 @@ Deno.test("contract digest changes for meaningful interface changes", () => {
       description: "Read digest records.",
     },
   } as const;
-  const first = defineServiceContract({
-    schemas: baseSchemas,
-    capabilities: digestReadCapability,
-  }, (ref) => ({
+  const first = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
     id: "digest.meaningful@v1",
     displayName: "Digest Meaningful",
     description: "First interface.",
+    capabilities: digestReadCapability,
     rpc: {
       "Digest.Read": {
         version: "v1",
@@ -1307,13 +1345,11 @@ Deno.test("contract digest changes for meaningful interface changes", () => {
     },
   }));
 
-  const second = defineServiceContract({
-    schemas: baseSchemas,
-    capabilities: digestReadCapability,
-  }, (ref) => ({
+  const second = defineServiceContract({ schemas: baseSchemas }, (ref) => ({
     id: "digest.meaningful@v1",
     displayName: "Digest Meaningful",
     description: "First interface.",
+    capabilities: digestReadCapability,
     rpc: {
       "Digest.Read": {
         version: "v1",
@@ -1538,7 +1574,9 @@ Deno.test("defineServiceContract validates use(...) provenance and selected keys
     "does not expose rpc key 'Auth.Nope'",
   );
 
-  const forgedUse = structuredClone(auth.use({ rpc: { call: ["Auth.Sessions.Me"] } }));
+  const forgedUse = structuredClone(
+    auth.use({ rpc: { call: ["Auth.Sessions.Me"] } }),
+  );
 
   assertThrows(
     () =>
@@ -1628,14 +1666,14 @@ Deno.test("defineServiceContract emits store resources with defaults", () => {
 });
 
 Deno.test("locally defined contracts can be reused as dependencies", () => {
-  const activity = defineServiceContract(
+  const audit = defineServiceContract(
     { schemas: baseSchemas },
     () => ({
-      id: "trellis.activity@v1",
-      displayName: "Activity",
-      description: "Expose activity events for dependency reuse tests.",
+      id: "trellis.audit@v1",
+      displayName: "Audit",
+      description: "Expose audit events for dependency reuse tests.",
       events: {
-        "Activity.Recorded": {
+        "Audit.Recorded": {
           version: "v1",
           event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
         },
@@ -1648,23 +1686,23 @@ Deno.test("locally defined contracts can be reused as dependencies", () => {
     displayName: "Dashboard",
     description: "Reuse locally defined contracts as dependencies in tests.",
     uses: {
-      activity: activity.use({
-        events: { subscribe: ["Activity.Recorded"] },
+      audit: audit.use({
+        events: { subscribe: ["Audit.Recorded"] },
       }),
     },
   }));
 
   assertEquals(
-    flatUses(dashboard.CONTRACT.uses)?.activity.contract,
-    "trellis.activity@v1",
+    flatUses(dashboard.CONTRACT.uses)?.audit.contract,
+    "trellis.audit@v1",
   );
   assertEquals(
-    dashboard.API.used.events["Activity.Recorded"].subject,
-    "events.v1.Activity.Recorded",
+    dashboard.API.used.events["Audit.Recorded"].subject,
+    "events.v1.Audit.Recorded",
   );
   assertEquals(
-    dashboard.API.trellis.events["Activity.Recorded"].subject,
-    "events.v1.Activity.Recorded",
+    dashboard.API.trellis.events["Audit.Recorded"].subject,
+    "events.v1.Audit.Recorded",
   );
 });
 
@@ -1692,11 +1730,12 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
     SelectReason: Type.Object({ reason: Type.String() }),
   } as const;
   const billing = defineServiceContract(
-    { schemas: billingSchemas, capabilities: billingCapabilities },
+    { schemas: billingSchemas },
     () => ({
       id: "trellis.billing@v1",
       displayName: "Billing",
       description: "Expose billing operations for source emission tests.",
+      capabilities: billingCapabilities,
       operations: {
         "Billing.Refund": {
           version: "v1",

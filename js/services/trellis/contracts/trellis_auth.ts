@@ -852,8 +852,12 @@ export const TRELLIS_AUTH_EVENTS = {
 } as const;
 
 const baseTrellisAuth = defineServiceContract(
-  {
-    schemas,
+  { schemas },
+  () => ({
+    id: "trellis.auth@v1",
+    displayName: "Trellis Auth",
+    description:
+      "Provide Trellis authentication, session, deployment, instance, and admin RPCs.",
     capabilities: {
       "device.review": {
         displayName: "Review device activation",
@@ -864,12 +868,6 @@ const baseTrellisAuth = defineServiceContract(
         description: "Publish or subscribe to Trellis auth lifecycle events.",
       },
     },
-  },
-  () => ({
-    id: "trellis.auth@v1",
-    displayName: "Trellis Auth",
-    description:
-      "Provide Trellis authentication, session, deployment, instance, and admin RPCs.",
     rpc: TRELLIS_AUTH_RPC,
     operations: TRELLIS_AUTH_OPERATIONS,
     events: TRELLIS_AUTH_EVENTS,

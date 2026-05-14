@@ -42,7 +42,6 @@ function base64urlEncode(data: Uint8Array): string {
 
 const billing = defineServiceContract(
   {
-    capabilities: billingCapabilities,
     schemas: {
       RefundInput: Type.Object({ chargeId: Type.String() }),
       RefundProgress: Type.Object({ message: Type.String() }),
@@ -53,6 +52,7 @@ const billing = defineServiceContract(
     id: "trellis.billing.service-operation-test@v1",
     displayName: "Billing Service Operation Test",
     description: "Exercise service.operation ergonomics.",
+    capabilities: billingCapabilities,
     operations: {
       "Billing.Refund": {
         version: "v1",
@@ -72,7 +72,6 @@ const billing = defineServiceContract(
 
 const billingV2 = defineServiceContract(
   {
-    capabilities: billingCapabilities,
     schemas: {
       RefundInput: Type.Object({ chargeId: Type.String() }),
       RefundProgress: Type.Object({ message: Type.String() }),
@@ -83,6 +82,7 @@ const billingV2 = defineServiceContract(
     id: "trellis.billing.other-service-operation-test@v1",
     displayName: "Other Billing Service Operation Test",
     description: "Exercise service.operation control validation.",
+    capabilities: billingCapabilities,
     operations: {
       "Billing.Refund": {
         version: "v1",
@@ -102,7 +102,6 @@ const billingV2 = defineServiceContract(
 
 const billingWithStatus = defineServiceContract(
   {
-    capabilities: billingCapabilities,
     schemas: {
       RefundInput: Type.Object({ chargeId: Type.String() }),
       RefundProgress: Type.Object({ message: Type.String() }),
@@ -117,6 +116,7 @@ const billingWithStatus = defineServiceContract(
     displayName: "Billing Status Service Operation Test",
     description:
       "Exercise service.operation control operation-name validation.",
+    capabilities: billingCapabilities,
     operations: {
       "Billing.Refund": {
         version: "v1",
@@ -146,7 +146,6 @@ const billingWithStatus = defineServiceContract(
 
 const demoFiles = defineServiceContract(
   {
-    capabilities: uploadCapabilities,
     schemas: {
       UploadInput: Type.Object({
         key: Type.String(),
@@ -166,6 +165,7 @@ const demoFiles = defineServiceContract(
     id: "trellis.demo.files.service-operation-test@v1",
     displayName: "Demo Files Service Operation Test",
     description: "Exercise transfer-capable operations.",
+    capabilities: uploadCapabilities,
     resources: {
       store: {
         uploads: {

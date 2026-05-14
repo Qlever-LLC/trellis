@@ -141,6 +141,16 @@ export const ordersService = defineServiceContract({ schemas, errors }, (ref) =>
   id: "orders-service@v1",
   displayName: "Orders Service",
   description: "Create and track orders, emit fulfillment events.",
+  capabilities: {
+    "orders.read": {
+      displayName: "Read orders",
+      description: "Read order records and status.",
+    },
+    "orders.write": {
+      displayName: "Write orders",
+      description: "Create and update order records.",
+    },
+  },
   uses: {
     required: {
       core: core.use({
@@ -217,7 +227,8 @@ Key things to note:
 - `uses` declares cross-contract dependencies — without these, Trellis will not grant access to those RPCs/events
 - `auth.use(...)` explicitly declares the auth surfaces this service needs, such as `Auth.Connections.Opened` event delivery
 - `resources.kv.orders` requests a KV bucket with the logical alias `orders` — Trellis assigns the physical name when the deployment envelope expands to include that resource boundary
-- `capabilities` controls who can call each operation — `orders.read` and `orders.write` gate the `Orders.Get` and `Orders.Create` RPCs respectively
+- top-level `capabilities` declares human-facing metadata for contract-owned capability keys; surface-level capability lists such as `capabilities.call` reference those local keys
+- `orders.read` and `orders.write` gate the `Orders.Get` and `Orders.Create` RPCs respectively. Emission projects them to global capability keys such as `orders-service::orders.read` in the manifest.
 - templated event subjects must declare `params` in subject-token order, and each
   JSON Pointer must resolve through object-schema `properties` in the event
   payload schema

@@ -99,7 +99,6 @@ const billingCapabilities = {
 
 const billing = defineServiceContract(
   {
-    capabilities: billingCapabilities,
     schemas: {
       RefundInput: Type.Object({ chargeId: Type.String() }, {
         additionalProperties: false,
@@ -116,6 +115,7 @@ const billing = defineServiceContract(
     id: "trellis.billing.durable-test@v1",
     displayName: "Billing Durable Test",
     description: "Exercise durable operations state over restart.",
+    capabilities: billingCapabilities,
     uses: {
       auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
     },

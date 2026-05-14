@@ -393,6 +393,14 @@ fn builder_supports_owned_and_used_operations() {
             consequence: None,
         },
     )
+    .capability(
+        "payments.control",
+        trellis_contracts::ContractCapabilityMetadata {
+            display_name: "Control payments".to_string(),
+            description: "Submit payment operation control signals.".to_string(),
+            consequence: None,
+        },
+    )
     .operation(
         "Payments.Capture",
         trellis_contracts::operation(
@@ -405,6 +413,7 @@ fn builder_supports_owned_and_used_operations() {
         .with_call_capabilities(["payments.capture"])
         .with_read_capabilities(["payments.read"])
         .with_cancel_capabilities(["payments.cancel"])
+        .with_control_capabilities(["payments.control"])
         .cancel(true),
     )
     .build()
@@ -417,6 +426,14 @@ fn builder_supports_owned_and_used_operations() {
         .get("billing")
         .and_then(|use_ref| use_ref.operations.as_ref())
         .is_some());
+    assert_eq!(
+        manifest
+            .operations
+            .get("Payments.Capture")
+            .and_then(|operation| operation.capabilities.as_ref())
+            .and_then(|capabilities| capabilities.control.as_ref()),
+        Some(&vec!["example.operations::payments.control".to_string()])
+    );
 }
 
 #[test]

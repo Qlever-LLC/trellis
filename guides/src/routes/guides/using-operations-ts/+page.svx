@@ -17,12 +17,21 @@ import {
   ProcessOrderResultSchema,
 } from "./schemas.ts";
 
-// In defineContract — add to schemas map and operations:
-schemas: {
-  // ... existing schemas ...
-  ProcessOrderRequest: ProcessOrderRequestSchema,
-  ProcessOrderProgress: ProcessOrderProgressSchema,
-  ProcessOrderResult: ProcessOrderResultSchema,
+// In the first defineServiceContract argument, add to the schemas map:
+{
+  schemas: {
+    // ... existing schemas ...
+    ProcessOrderRequest: ProcessOrderRequestSchema,
+    ProcessOrderProgress: ProcessOrderProgressSchema,
+    ProcessOrderResult: ProcessOrderResultSchema,
+  },
+}
+
+// In the returned contract body, make sure these local capabilities are declared
+// in the top-level capabilities map before referencing them from the operation:
+capabilities: {
+  "orders.read": { /* ... */ },
+  "orders.write": { /* ... */ },
 },
 operations: {
   "Orders.Process": {

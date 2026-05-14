@@ -48,11 +48,12 @@ function schemaRef<const TName extends keyof typeof schemas & string>(
 }
 
 const billing = defineServiceContract(
-  { schemas, capabilities },
+  { schemas },
   () => ({
     id: "trellis.billing.test@v1",
     displayName: "Billing Test",
     description: "Exercise operations runtime helpers.",
+    capabilities,
     operations: {
       "Billing.Refund": {
         version: "v1",

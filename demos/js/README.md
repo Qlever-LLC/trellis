@@ -163,6 +163,11 @@ for named post-start signals. An omitted `read` list defaults to `call`, while
 the demo's explicit empty `read` lists make watching available to authenticated
 callers without extra capabilities.
 
+Because the demo service intentionally uses empty capability gates for its public
+surfaces, its contract does not declare a top-level local `capabilities` map. In
+services that define local capability keys, declare that metadata in the returned
+contract body rather than in the schema registry argument.
+
 ## Jobs Are Private Implementation
 
 Jobs are demonstrated behind the `Sites.Refresh` operation. The caller starts

@@ -20,16 +20,20 @@ import {
   NotifyWarehouseResultSchema,
 } from "./schemas.ts";
 
-// In defineContract:
-schemas: {
-  // ... existing order schemas ...
-  ReserveInventoryPayload: ReserveInventoryPayloadSchema,
-  ReserveInventoryResult: ReserveInventoryResultSchema,
-  ChargePaymentPayload: ChargePaymentPayloadSchema,
-  ChargePaymentResult: ChargePaymentResultSchema,
-  NotifyWarehousePayload: NotifyWarehousePayloadSchema,
-  NotifyWarehouseResult: NotifyWarehouseResultSchema,
-},
+// In the first defineServiceContract argument, add to the schemas map:
+{
+  schemas: {
+    // ... existing order schemas ...
+    ReserveInventoryPayload: ReserveInventoryPayloadSchema,
+    ReserveInventoryResult: ReserveInventoryResultSchema,
+    ChargePaymentPayload: ChargePaymentPayloadSchema,
+    ChargePaymentResult: ChargePaymentResultSchema,
+    NotifyWarehousePayload: NotifyWarehousePayloadSchema,
+    NotifyWarehouseResult: NotifyWarehouseResultSchema,
+  },
+}
+
+// In the returned contract body:
 resources: {
   kv: {
     orders: {

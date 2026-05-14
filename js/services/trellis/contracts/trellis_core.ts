@@ -28,8 +28,12 @@ const schemas = {
 } as const;
 
 export const trellisCore = defineServiceContract(
-  {
-    schemas,
+  { schemas },
+  (ref) => ({
+    id: "trellis.core@v1",
+    displayName: "Trellis Core",
+    description:
+      "Trellis runtime RPCs available to all connected participants.",
     capabilities: {
       "trellis.catalog.read": {
         displayName: "Read contract catalog",
@@ -40,12 +44,6 @@ export const trellisCore = defineServiceContract(
         description: "Read installed contract manifests and metadata.",
       },
     },
-  },
-  (ref) => ({
-    id: "trellis.core@v1",
-    displayName: "Trellis Core",
-    description:
-      "Trellis runtime RPCs available to all connected participants.",
     rpc: {
       "Trellis.Catalog": {
         version: "v1",
