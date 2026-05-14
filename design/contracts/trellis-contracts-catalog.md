@@ -1105,11 +1105,20 @@ runtime discovery RPC set.
 
 - initial service deployment creates an empty service deployment envelope and a
   provisioned service instance key
-- service contract rollout expands the deployment envelope with reviewed
-  contract evidence before the service runtime can present that evidence
-- UI and CLI implementations MAY present a human review screen before calling
-  those admin RPCs
-- services do not self-register contracts at runtime
+- service runtime bootstrap MAY present the full manifest for the requested
+  digest when Trellis does not already know it
+- bootstrap validates and analyzes the presented manifest; invalid manifests and
+  required dependencies that do not resolve against active contracts fail before
+  any envelope expansion request is created
+- when the presented contract boundary does not fit the deployment envelope,
+  bootstrap stores the contract evidence, creates a pending envelope expansion
+  request for the missing delta, and returns `envelope_expansion_required` so the
+  service runtime can wait and retry
+- approving the pending request expands the deployment envelope, persists the
+  reviewed evidence and resource bindings, and allows a later bootstrap retry to
+  complete
+- UI and CLI implementations MAY still present a human review screen before
+  calling direct envelope expansion RPCs for pre-approved rollout workflows
 
 #### `Trellis.Bindings.Get`
 

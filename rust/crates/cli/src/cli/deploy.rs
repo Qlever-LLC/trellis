@@ -60,6 +60,24 @@ pub enum DeviceReviewState {
     Rejected,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
+/// Allowed deployment envelope expansion request state filters.
+pub enum EnvelopeExpansionRequestState {
+    Pending,
+    Approved,
+    Rejected,
+}
+
+impl EnvelopeExpansionRequestState {
+    pub fn as_wire_value(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
+        }
+    }
+}
+
 impl DeviceReviewState {
     pub fn as_wire_value(self) -> &'static str {
         match self {
@@ -136,6 +154,8 @@ pub enum SvcResourceAction {
     Remove(RemoveArgs),
     Instances(SvcInstancesArgs),
     Provision(SvcProvisionArgs),
+    #[command(subcommand)]
+    Expansions(SvcExpansionsCommand),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -240,6 +260,31 @@ pub struct DevInstancesArgs {
 pub struct SvcProvisionArgs {
     #[arg(long = "instance-seed")]
     pub instance_seed: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
+/// Manage pending service deployment envelope expansion requests.
+pub enum SvcExpansionsCommand {
+    List(SvcExpansionsListArgs),
+    Approve(SvcExpansionDecisionArgs),
+    Reject(SvcExpansionDecisionArgs),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// List service deployment envelope expansion requests.
+pub struct SvcExpansionsListArgs {
+    #[arg(long, default_value = "pending")]
+    pub state: EnvelopeExpansionRequestState,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Decide one service deployment envelope expansion request.
+pub struct SvcExpansionDecisionArgs {
+    #[arg(value_name = "REQUEST_ID")]
+    pub request_id: String,
+
+    #[arg(long)]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Args)]

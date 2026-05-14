@@ -174,6 +174,8 @@ type ServiceBootstrapFailure = {
   reason: string;
   message?: string;
   serverNow?: number;
+  requestId?: string;
+  deploymentId?: string;
 };
 
 const DEFAULT_BOOTSTRAP_PENDING_RETRY_MS = 5_000;
@@ -394,12 +396,15 @@ async function fetchServiceBootstrapInfoOnce(args: {
 
 async function fetchServiceBootstrapInfo(args: {
   trellisUrl: string;
+  serviceName: string;
   contractId: string;
   contractDigest: string;
   contract?: TrellisContractV1;
   auth: SessionAuth;
+  log: LoggerLike;
 }): Promise<ServiceBootstrapResponse> {
   let includeContract = false;
+  const loggedPendingRequests = new Set<string>();
   while (true) {
     const settled = await fetchServiceBootstrapInfoOnce({
       ...args,
@@ -431,7 +436,24 @@ async function fetchServiceBootstrapInfo(args: {
         continue;
       }
       if (failure.reason === "envelope_expansion_required") {
-        await delay(bootstrapRetryDelayMs(settled.response));
+        const retryDelayMs = bootstrapRetryDelayMs(settled.response);
+        const pendingKey = failure.requestId ??
+          `${failure.deploymentId ?? "unknown"}:${args.contractDigest}`;
+        if (!loggedPendingRequests.has(pendingKey)) {
+          loggedPendingRequests.add(pendingKey);
+          args.log.info(
+            {
+              service: args.serviceName,
+              deploymentId: failure.deploymentId,
+              requestId: failure.requestId,
+              contractId: args.contractId,
+              contractDigest: args.contractDigest,
+              retryDelayMs,
+            },
+            "Service deployment envelope expansion pending; waiting for approval",
+          );
+        }
+        await delay(retryDelayMs);
         includeContract = true;
         continue;
       }
@@ -2046,12 +2068,15 @@ export class TrellisService<
           ...deps,
         } satisfies TrellisServiceRuntimeDeps;
         const auth = await createAuth({ sessionKeySeed: args.sessionKeySeed });
+        const bootstrapLog = resolveServiceLogger(args.server?.log);
         const bootstrap = await fetchServiceBootstrapInfo({
           trellisUrl: args.trellisUrl,
+          serviceName: args.name,
           contractId: args.contract.CONTRACT_ID,
           contractDigest: args.contract.CONTRACT_DIGEST,
           contract: args.contract.CONTRACT,
           auth,
+          log: bootstrapLog,
         });
         const { authenticator: authTokenAuthenticator, inboxPrefix } =
           await auth

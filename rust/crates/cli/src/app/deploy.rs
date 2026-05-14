@@ -6,7 +6,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use clap::Parser;
 use miette::IntoDiagnostic;
-use serde_json::json;
+use serde_json::{json, Value};
 use trellis_auth as authlib;
 use trellis_client::SessionAuth;
 
@@ -99,6 +99,9 @@ async fn run_svc_resource(format: OutputFormat, command: SvcResourceCommand) -> 
         }
         SvcResourceAction::Instances(args) => service_instances(format, &command.id, &args).await,
         SvcResourceAction::Provision(args) => provision_service(format, &command.id, &args).await,
+        SvcResourceAction::Expansions(expansions) => {
+            service_expansions(format, &command.id, expansions).await
+        }
     }
 }
 
@@ -191,7 +194,7 @@ async fn show_service(format: OutputFormat, id: &str) -> miette::Result<()> {
         .into_iter()
         .find(|deployment| deployment.deployment_id == id)
         .ok_or_else(|| miette::miette!("service deployment not found: {id}"))?;
-    output::print_json(&json!({ "deployment": deployment }))
+    print_deployment_show_result(format, DeploymentKind::Service, &deployment)
 }
 
 async fn show_device(format: OutputFormat, id: &str) -> miette::Result<()> {
@@ -203,7 +206,7 @@ async fn show_device(format: OutputFormat, id: &str) -> miette::Result<()> {
         .into_iter()
         .find(|deployment| deployment.deployment_id == id)
         .ok_or_else(|| miette::miette!("device deployment not found: {id}"))?;
-    output::print_json(&json!({ "deployment": deployment }))
+    print_deployment_show_result(format, DeploymentKind::Device, &deployment)
 }
 
 async fn create_service(
@@ -252,7 +255,14 @@ async fn apply_contract(
         )
         .await
         .into_diagnostic()?;
-    output::print_json(&response)
+    if output::is_json(format) {
+        output::print_json(&response)?;
+    } else {
+        output::print_success("deployment envelope expanded");
+        output::print_info(&format!("deploymentId={deployment_id}"));
+        output::print_info(&format!("contractDigest={}", resolved.loaded.digest));
+    }
+    Ok(())
 }
 
 async fn toggle_service(format: OutputFormat, id: &str, enable: bool) -> miette::Result<()> {
@@ -269,7 +279,7 @@ async fn toggle_service(format: OutputFormat, id: &str, enable: bool) -> miette:
             .await
             .into_diagnostic()?
     };
-    output::print_json(&json!({ "deployment": deployment }))
+    print_toggle_service_result(format, id, enable, &deployment)
 }
 
 async fn toggle_device(format: OutputFormat, id: &str, enable: bool) -> miette::Result<()> {
@@ -285,7 +295,7 @@ async fn toggle_device(format: OutputFormat, id: &str, enable: bool) -> miette::
             .await
             .into_diagnostic()?
     };
-    output::print_json(&json!({ "success": success, "deploymentId": id }))
+    print_toggle_success_result(format, DeploymentKind::Device, id, enable, success)
 }
 
 async fn remove_deployment(
@@ -333,7 +343,7 @@ async fn remove_deployment(
         }
     }
     .into_diagnostic()?;
-    output::print_json(&json!({ "success": success, "deploymentId": id }))
+    print_remove_result(format, kind, id, success)
 }
 
 async fn service_instances(
@@ -346,7 +356,7 @@ async fn service_instances(
         .list_service_instances(Some(id), args.disabled.then_some(true))
         .await
         .into_diagnostic()?;
-    output::print_json(&json!({ "instances": instances }))
+    print_service_instances_result(format, instances)
 }
 
 async fn device_instances(
@@ -359,7 +369,7 @@ async fn device_instances(
         .list_device_instances(Some(id), args.state.map(DeviceInstanceState::as_wire_value))
         .await
         .into_diagnostic()?;
-    output::print_json(&json!({ "instances": instances }))
+    print_device_instances_result(format, instances)
 }
 
 async fn provision_service(
@@ -382,9 +392,7 @@ async fn provision_service(
         })
         .await
         .into_diagnostic()?;
-    output::print_json(
-        &json!({ "instance": instance, "generatedSeed": generated_seed, "instanceSeed": generated_seed.then_some(instance_seed) }),
-    )
+    print_service_provision_result(format, &instance, generated_seed, &instance_seed)
 }
 
 async fn provision_device(
@@ -406,7 +414,7 @@ async fn provision_device(
         )
         .await
         .into_diagnostic()?;
-    output::print_json(&json!({ "instance": instance, "rootSecret": root_secret }))
+    print_device_provision_result(format, &instance, &root_secret)
 }
 
 async fn dev_activations(
@@ -425,7 +433,7 @@ async fn dev_activations(
                 )
                 .await
                 .into_diagnostic()?;
-            output::print_json(&json!({ "activations": activations }))
+            print_device_activations_result(format, activations)
         }
         DevActivationsCommand::Revoke(args) => {
             let (_state, connected) = connect_authenticated_cli_client(format).await?;
@@ -433,7 +441,7 @@ async fn dev_activations(
                 .revoke_device_activation(&args.instance_id)
                 .await
                 .into_diagnostic()?;
-            output::print_json(&json!({ "success": success, "instanceId": args.instance_id }))
+            print_revoke_activation_result(format, &args.instance_id, success)
         }
     }
 }
@@ -455,14 +463,19 @@ async fn dev_reviews(
                 )
                 .await
                 .into_diagnostic()?;
-            output::print_json(&json!({ "reviews": reviews }))
+            print_device_reviews_result(format, reviews)
         }
-        DevReviewsCommand::Approve(args) => review_decide(auth_client, &args, "approve").await,
-        DevReviewsCommand::Reject(args) => review_decide(auth_client, &args, "reject").await,
+        DevReviewsCommand::Approve(args) => {
+            review_decide(format, auth_client, &args, "approve").await
+        }
+        DevReviewsCommand::Reject(args) => {
+            review_decide(format, auth_client, &args, "reject").await
+        }
     }
 }
 
 async fn review_decide(
+    format: OutputFormat,
     auth_client: authlib::AuthClient<'_>,
     args: &DevReviewDecisionArgs,
     decision: &str,
@@ -471,7 +484,367 @@ async fn review_decide(
         .decide_device_activation_review(&args.review_id, decision, args.reason.as_deref())
         .await
         .into_diagnostic()?;
-    output::print_json(&response)
+    if output::is_json(format) {
+        output::print_json(&response)?;
+    } else {
+        let message = match decision {
+            "approve" => "approved device review",
+            "reject" => "rejected device review",
+            _ => "updated device review",
+        };
+        output::print_success(message);
+        output::print_info(&format!("reviewId={}", args.review_id));
+    }
+    Ok(())
+}
+
+async fn service_expansions(
+    format: OutputFormat,
+    deployment_id: &str,
+    command: SvcExpansionsCommand,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    match command {
+        SvcExpansionsCommand::List(args) => {
+            let response = connected
+                .request_json_value(
+                    "rpc.v1.Auth.EnvelopeExpansions.List",
+                    &json!({
+                        "deploymentId": deployment_id,
+                        "state": args.state.as_wire_value(),
+                        "limit": 500,
+                        "offset": 0,
+                    }),
+                )
+                .await
+                .into_diagnostic()?;
+            print_expansion_requests_result(format, response)
+        }
+        SvcExpansionsCommand::Approve(args) => {
+            expansion_decide(format, &connected, &args, "approve").await
+        }
+        SvcExpansionsCommand::Reject(args) => {
+            expansion_decide(format, &connected, &args, "reject").await
+        }
+    }
+}
+
+async fn expansion_decide(
+    format: OutputFormat,
+    connected: &trellis_client::TrellisClient,
+    args: &SvcExpansionDecisionArgs,
+    decision: &str,
+) -> miette::Result<()> {
+    let subject = match decision {
+        "approve" => "rpc.v1.Auth.EnvelopeExpansions.Approve",
+        "reject" => "rpc.v1.Auth.EnvelopeExpansions.Reject",
+        _ => return Err(miette::miette!("unknown expansion decision: {decision}")),
+    };
+    let mut body = json!({ "requestId": args.request_id });
+    if let Some(reason) = args.reason.as_deref() {
+        body["reason"] = json!(reason);
+    }
+    let response = connected
+        .request_json_value(subject, &body)
+        .await
+        .into_diagnostic()?;
+    if output::is_json(format) {
+        output::print_json(&response)?;
+    } else {
+        let message = match decision {
+            "approve" => "approved envelope expansion request",
+            "reject" => "rejected envelope expansion request",
+            _ => "updated envelope expansion request",
+        };
+        output::print_success(message);
+        output::print_info(&format!("requestId={}", args.request_id));
+    }
+    Ok(())
+}
+
+fn print_deployment_show_result<T: serde::Serialize>(
+    format: OutputFormat,
+    kind: DeploymentKind,
+    deployment: &T,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(&json!({ "deployment": deployment }))?;
+        return Ok(());
+    }
+
+    let value = serde_json::to_value(deployment).into_diagnostic()?;
+    output::print_info(&format!(
+        "ref={}",
+        ref_label(kind, &value_string(&value, "deploymentId"))
+    ));
+    print_value_field(&value, "disabled");
+    print_value_field(&value, "namespaces");
+    print_value_field(&value, "reviewMode");
+    Ok(())
+}
+
+fn print_toggle_service_result<T: serde::Serialize>(
+    format: OutputFormat,
+    id: &str,
+    enable: bool,
+    deployment: &T,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(&json!({ "deployment": deployment }))?;
+        return Ok(());
+    }
+
+    print_toggle_text(DeploymentKind::Service, id, enable);
+    Ok(())
+}
+
+fn print_toggle_success_result(
+    format: OutputFormat,
+    kind: DeploymentKind,
+    id: &str,
+    enable: bool,
+    success: bool,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "deploymentId": id }))?;
+        return Ok(());
+    }
+
+    if success {
+        print_toggle_text(kind, id, enable);
+    } else {
+        output::print_info("no matching deployment updated");
+        output::print_info(&format!("ref={}", ref_label(kind, id)));
+    }
+    Ok(())
+}
+
+fn print_toggle_text(kind: DeploymentKind, id: &str, enable: bool) {
+    let state = if enable { "enabled" } else { "disabled" };
+    output::print_success(&format!("{state} deployment"));
+    output::print_info(&format!("ref={}", ref_label(kind, id)));
+}
+
+fn print_remove_result(
+    format: OutputFormat,
+    kind: DeploymentKind,
+    id: &str,
+    success: bool,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "deploymentId": id }))?;
+        return Ok(());
+    }
+
+    if success {
+        output::print_success("removed deployment");
+    } else {
+        output::print_info("no matching deployment removed");
+    }
+    output::print_info(&format!("ref={}", ref_label(kind, id)));
+    Ok(())
+}
+
+fn print_service_instances_result<T: serde::Serialize>(
+    format: OutputFormat,
+    instances: T,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(&json!({ "instances": instances }))?;
+        return Ok(());
+    }
+
+    print_value_table(
+        &serde_json::to_value(instances).into_diagnostic()?,
+        &["instanceId", "deploymentId", "disabled"],
+    )
+}
+
+fn print_device_instances_result<T: serde::Serialize>(
+    format: OutputFormat,
+    instances: T,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(&json!({ "instances": instances }))?;
+        return Ok(());
+    }
+
+    print_value_table(
+        &serde_json::to_value(instances).into_diagnostic()?,
+        &[
+            "instanceId",
+            "deploymentId",
+            "state",
+            "publicIdentityKey",
+            "name",
+            "serialNumber",
+            "modelNumber",
+        ],
+    )
+}
+
+fn print_service_provision_result<T: serde::Serialize>(
+    format: OutputFormat,
+    instance: &T,
+    generated_seed: bool,
+    instance_seed: &str,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(
+            &json!({ "instance": instance, "generatedSeed": generated_seed, "instanceSeed": generated_seed.then_some(instance_seed) }),
+        )?;
+        return Ok(());
+    }
+
+    output::print_success("provisioned service instance");
+    let value = serde_json::to_value(instance).into_diagnostic()?;
+    print_value_field(&value, "instanceId");
+    print_value_field(&value, "deploymentId");
+    print_value_field(&value, "instanceKey");
+    if generated_seed {
+        output::print_info(&format!("instanceSeed={instance_seed}"));
+    }
+    Ok(())
+}
+
+fn print_device_provision_result<T: serde::Serialize>(
+    format: OutputFormat,
+    instance: &T,
+    root_secret: &str,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(&json!({ "instance": instance, "rootSecret": root_secret }))?;
+        return Ok(());
+    }
+
+    output::print_success("provisioned device instance");
+    let value = serde_json::to_value(instance).into_diagnostic()?;
+    print_value_field(&value, "instanceId");
+    print_value_field(&value, "deploymentId");
+    print_value_field(&value, "publicIdentityKey");
+    output::print_info(&format!("rootSecret={root_secret}"));
+    Ok(())
+}
+
+fn print_device_activations_result<T: serde::Serialize>(
+    format: OutputFormat,
+    activations: T,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(&json!({ "activations": activations }))?;
+        return Ok(());
+    }
+
+    print_value_table(
+        &serde_json::to_value(activations).into_diagnostic()?,
+        &[
+            "instanceId",
+            "deploymentId",
+            "state",
+            "activatedAt",
+            "revokedAt",
+        ],
+    )
+}
+
+fn print_revoke_activation_result(
+    format: OutputFormat,
+    instance_id: &str,
+    success: bool,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(&json!({ "success": success, "instanceId": instance_id }))?;
+        return Ok(());
+    }
+
+    if success {
+        output::print_success("revoked device activation");
+    } else {
+        output::print_info("no matching activation revoked");
+    }
+    output::print_info(&format!("instanceId={instance_id}"));
+    Ok(())
+}
+
+fn print_device_reviews_result<T: serde::Serialize>(
+    format: OutputFormat,
+    reviews: T,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(&json!({ "reviews": reviews }))?;
+        return Ok(());
+    }
+
+    print_value_table(
+        &serde_json::to_value(reviews).into_diagnostic()?,
+        &[
+            "reviewId",
+            "instanceId",
+            "deploymentId",
+            "state",
+            "createdAt",
+        ],
+    )
+}
+
+fn print_expansion_requests_result(format: OutputFormat, response: Value) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(&response)?;
+        return Ok(());
+    }
+
+    print_value_table(
+        response.get("requests").unwrap_or(&Value::Null),
+        &[
+            "requestId",
+            "deploymentId",
+            "contractId",
+            "contractDigest",
+            "state",
+            "createdAt",
+        ],
+    )
+}
+
+fn print_value_table(value: &Value, columns: &[&str]) -> miette::Result<()> {
+    let rows = value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| {
+                    columns
+                        .iter()
+                        .map(|column| value_string(item, column))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    println!("{}", output::table(columns, rows));
+    Ok(())
+}
+
+fn print_value_field(value: &Value, field: &str) {
+    let rendered = value_string(value, field);
+    if !rendered.is_empty() {
+        output::print_info(&format!("{field}={rendered}"));
+    }
+}
+
+fn value_string(value: &Value, field: &str) -> String {
+    match value.get(field) {
+        Some(Value::String(value)) => value.clone(),
+        Some(Value::Bool(value)) => value.to_string(),
+        Some(Value::Number(value)) => value.to_string(),
+        Some(Value::Array(values)) => values
+            .iter()
+            .map(json_value_label)
+            .collect::<Vec<_>>()
+            .join(","),
+        Some(Value::Object(_)) => value.get(field).map(json_value_label).unwrap_or_default(),
+        Some(Value::Null) | None => String::new(),
+    }
 }
 
 fn print_deployment_result<T: serde::Serialize>(

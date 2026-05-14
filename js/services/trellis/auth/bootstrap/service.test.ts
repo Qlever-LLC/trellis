@@ -91,6 +91,20 @@ function expandedContract(): TrellisContractV1 {
   };
 }
 
+function jobsContract(): TrellisContractV1 {
+  return {
+    ...baseContract(),
+    resources: {},
+    jobs: {
+      process: {
+        payload: { schema: "CacheEntry" },
+        result: { schema: "Empty" },
+        maxDeliver: 3,
+      },
+    },
+  };
+}
+
 async function validatedContract(contract: TrellisContractV1) {
   return await createTestContracts().validateContract(contract);
 }
@@ -390,6 +404,40 @@ Deno.test("POST /bootstrap/service reuses pending request for the same contract 
   assertEquals(setup.expansionRequests.length, 1);
 });
 
+Deno.test("POST /bootstrap/service reports presented contract validation details", async () => {
+  const setup = await createApp();
+  const invalidContract: TrellisContractV1 = {
+    ...baseContract(),
+    resources: {
+      kv: {
+        cache: {
+          purpose: "Store cache entries",
+          schema: { schema: "MissingSchema" },
+        },
+      },
+    },
+  };
+
+  const response = await setup.bootstrap({
+    contractId: invalidContract.id,
+    contractDigest: "invalid_digest",
+    contract: invalidContract,
+  });
+
+  assertEquals(response.status, 409);
+  const body = await response.json();
+  assertEquals(body.reason, "presented_contract_invalid");
+  assertEquals(
+    body.contractError,
+    "resources.kv 'cache': unknown schema 'MissingSchema'",
+  );
+  assertEquals(
+    body.message,
+    "Presented contract manifest is invalid: resources.kv 'cache': unknown schema 'MissingSchema'",
+  );
+  assertEquals(setup.expansionRequests.length, 0);
+});
+
 Deno.test("POST /bootstrap/service reconnects after accepted expansion from global contract storage", async () => {
   const setup = await createApp({ knownExpandedContract: false });
   const first = await setup.bootstrap({
@@ -466,6 +514,50 @@ Deno.test("POST /bootstrap/service returns stored resource bindings", async () =
   assertEquals((await response.json()).binding.resources, {
     kv: { cache: binding.binding },
   });
+});
+
+Deno.test("POST /bootstrap/service stores jobs bindings in contract resource shape", async () => {
+  const contract = await validatedContract(jobsContract());
+  const jobsBinding = {
+    namespace: "deployment_1_jobs",
+    workStream: "JOBS_WORK",
+    queues: {
+      process: {
+        queueType: "process",
+        publishPrefix: "trellis.jobs.deployment_1_jobs.process",
+        workSubject: "trellis.work.deployment_1_jobs.process",
+        consumerName: "deployment-1-process",
+        payload: { schema: "CacheEntry" },
+        result: { schema: "Empty" },
+        maxDeliver: 3,
+        backoffMs: [1000, 5000],
+        ackWaitMs: 30000,
+        defaultDeadlineMs: 60000,
+        progress: true,
+        logs: true,
+        dlq: true,
+        concurrency: 2,
+      },
+    },
+  };
+  const setup = await createApp({
+    provisionResourceBindings: async () => ({ jobs: jobsBinding }),
+  });
+  setup.envelope.boundary = await contractBoundary(
+    setup.contracts,
+    contract.contract,
+  );
+
+  const response = await setup.bootstrap({
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
+    contract: contract.contract,
+  });
+
+  assertEquals(response.status, 200);
+  const expected = { jobs: jobsBinding };
+  assertEquals((await response.json()).binding.resources, expected);
+  assertEquals(setup.services[0]?.resourceBindings, expected);
 });
 
 Deno.test("POST /bootstrap/service rejects when provisioning misses a requested resource binding", async () => {

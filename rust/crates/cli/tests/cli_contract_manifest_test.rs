@@ -41,6 +41,9 @@ fn agent_contract_manifest_validates_and_declares_expected_auth_and_core_surface
         "Auth.Capabilities.List",
         "Auth.CapabilityGroups.List",
         "Auth.AccountFlows.CreatePasswordSetup",
+        "Auth.EnvelopeExpansions.Approve",
+        "Auth.EnvelopeExpansions.List",
+        "Auth.EnvelopeExpansions.Reject",
         "Auth.Envelopes.Expand",
     ] {
         assert!(
@@ -53,9 +56,6 @@ fn agent_contract_manifest_validates_and_declares_expected_auth_and_core_surface
     assert!(!calls
         .iter()
         .any(|value| value == "Auth.Envelopes.Changes.Preview"));
-    assert!(!calls
-        .iter()
-        .any(|value| value == "Auth.EnvelopeExpansions.Approve"));
     assert!(!calls.iter().any(|value| value == "Auth.Envelopes.Shrink"));
     assert!(calls.iter().any(|value| value == "Auth.Deployments.List"));
     assert!(calls
@@ -118,6 +118,6 @@ fn agent_contract_digest_matches_js_projection() {
     assert_eq!(
         trellis_auth::contract_digest(trellis_cli::agent_contract::agent_contract_json())
             .expect("agent contract digest"),
-        "gq_RKTRRLUEvAmTdJ4NjvkHa6XTWXRtEHN_EyBYTg80"
+        "jeV98TXIA6rH5dN9EgU5n_1yfCkeQcvw5pAjCChXclw"
     );
 }

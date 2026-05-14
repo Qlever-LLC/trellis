@@ -874,6 +874,7 @@ Deno.test("TrellisService.connect surfaces bootstrap failure reasons", async () 
 
 Deno.test("TrellisService.connect waits for pending envelope expansion", async () => {
   const originalFetch = globalThis.fetch;
+  const testLogger = createTestLogger();
   let fetchCount = 0;
 
   try {
@@ -887,6 +888,7 @@ Deno.test("TrellisService.connect waits for pending envelope expansion", async (
               message:
                 "Service deployment 'demo-js' envelope does not cover contract 'trellis.demo-service@v1'. An expansion request was created.",
               requestId: "request_123",
+              deploymentId: "demo-js",
             }),
             {
               status: 202,
@@ -939,7 +941,7 @@ Deno.test("TrellisService.connect waits for pending envelope expansion", async (
           contract: core,
           name: "svc",
           sessionKeySeed: TEST_SEED,
-          server: {},
+          server: { log: testLogger.logger },
         }, {
           connect: async (): Promise<NatsConnection> => {
             throw new Error("stop-after-bootstrap");
@@ -949,6 +951,14 @@ Deno.test("TrellisService.connect waits for pending envelope expansion", async (
       "Trellis could not open the service runtime connection.",
     );
     assertEquals(fetchCount, 2);
+    assertEquals(testLogger.infoCalls, [[{
+      service: "svc",
+      deploymentId: "demo-js",
+      requestId: "request_123",
+      contractId: core.CONTRACT_ID,
+      contractDigest: core.CONTRACT_DIGEST,
+      retryDelayMs: 0,
+    }, "Service deployment envelope expansion pending; waiting for approval"]]);
   } finally {
     globalThis.fetch = originalFetch;
   }

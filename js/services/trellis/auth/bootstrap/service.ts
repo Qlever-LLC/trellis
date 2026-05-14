@@ -170,6 +170,10 @@ function bootstrapFailure(
   };
 }
 
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 async function getRequiredServiceCapabilities(
   contracts: Pick<ContractsModule, "getActiveEntries">,
   contract: TrellisContractV1,
@@ -241,12 +245,35 @@ function resourceKey(kind: string, alias: string): string {
 
 function resourceBindingsForResponse(
   records: DeploymentResourceBinding[],
-): Record<string, Record<string, unknown>> {
-  const resources: Record<string, Record<string, unknown>> = {};
+): Record<string, unknown> {
+  const resources: Record<string, unknown> = {};
+  const resourcesByKind: Record<string, Record<string, unknown>> = {};
+  let jobsBinding:
+    | {
+      namespace: unknown;
+      workStream?: unknown;
+      queues: Record<string, Record<string, unknown>>;
+    }
+    | undefined;
   for (const record of records) {
-    resources[record.kind] ??= {};
-    resources[record.kind][record.alias] = record.binding;
+    if (record.kind === "jobs") {
+      const { namespace, workStream, ...queueBinding } = record.binding;
+      jobsBinding ??= {
+        namespace,
+        ...(workStream !== undefined ? { workStream } : {}),
+        queues: {},
+      };
+      jobsBinding.queues[record.alias] = queueBinding;
+      continue;
+    }
+
+    resourcesByKind[record.kind] ??= {};
+    resourcesByKind[record.kind][record.alias] = record.binding;
   }
+  for (const [kind, bindings] of Object.entries(resourcesByKind)) {
+    resources[kind] = bindings;
+  }
+  if (jobsBinding) resources.jobs = jobsBinding;
   return resources;
 }
 
@@ -494,16 +521,18 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         rawContract,
       );
       validated = await deps.contracts.validateContract(rawContract);
-    } catch {
+    } catch (error) {
+      const contractError = toError(error);
       return c.json(
         bootstrapFailure(
           "presented_contract_invalid",
-          "Presented contract manifest is invalid. Review and apply a valid contract before starting this service.",
+          `Presented contract manifest is invalid: ${contractError.message}`,
           {
             instanceId: service.instanceId,
             deploymentId: deployment.deploymentId,
             contractId: request.contractId,
             contractDigest: request.contractDigest,
+            contractError: contractError.message,
           },
         ),
         409,

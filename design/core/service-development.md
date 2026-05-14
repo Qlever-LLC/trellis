@@ -241,13 +241,19 @@ Behavior:
 
 - `TrellisService.connect(...)` performs bootstrap, auth handshake, contract
   verification, runtime connection setup, and eager binding resolution
-- if the contract is not installed, startup fails immediately
-- service bootstrap is a validation and binding-resolution step, not a resource
-  provisioning step; it validates the exact presented digest against the service
-  instance and parent deployment, then persists instance runtime state without
-  activating catalog/auth surfaces; enabled deployment evidence selects the
-  active digest set once envelope expansion succeeds, while full manifests are
-  hydrated from built-in Trellis contracts or the global `contracts` store
+- if Trellis does not know the requested digest, service bootstrap asks the
+  runtime for the full manifest; the runtime retries with the canonical contract
+  emitted by `defineServiceContract(...)` or the generated SDK module
+- service bootstrap validates and analyzes the presented manifest before any
+  envelope decision; invalid manifests or required `uses` dependencies that
+  cannot be resolved against active contracts fail immediately
+- if the deployment envelope does not cover the validated contract boundary,
+  bootstrap records the presented contract evidence, creates a pending envelope
+  expansion request for the missing delta, and asks the service runtime to retry
+  until an admin approves or rejects the request
+- once the envelope fits, bootstrap resolves or provisions required resource
+  bindings, persists instance runtime state, and returns transport and binding
+  details to the service runtime
 - schema-backed KV handles such as `service.kv.<alias>` resolve during bootstrap
   as direct typed stores, while store handles such as `service.store.<alias>`
   are opened explicitly before use
@@ -257,9 +263,9 @@ Behavior:
   resolves a typed `service.jobs` facade for job creation, handler registration,
   and worker startup
 - the shared jobs streams are Trellis-owned infrastructure; service envelope
-  expansion provisions or binds them before jobs-enabled services start, so
-  bootstrap consumes existing bindings rather than provisioning shared jobs
-  infrastructure. Jobs admin projections are internal to the Jobs admin runtime.
+  expansion approval or successful bootstrap provisions or binds them before
+  jobs-enabled services become ready. Jobs admin projections are internal to the
+  Jobs admin runtime.
 - when an RPC needs to start caller-visible follow-up work after a transfer,
   prefer a transfer-capable operation over an RPC-started workflow
 - the `trellis` control-plane service is the one bootstrap exception and may use

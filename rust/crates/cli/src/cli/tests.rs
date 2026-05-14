@@ -221,6 +221,34 @@ fn parses_target_first_service_and_device_resource_tokens() {
         },
         other => panic!("unexpected top-level command: {other:?}"),
     }
+
+    let cli = Cli::parse_from([
+        "trellis",
+        "svc",
+        "billing",
+        "expansions",
+        "approve",
+        "request_123",
+        "--reason",
+        "approved_by_operator",
+    ]);
+    match cli.command {
+        TopLevelCommand::Svc(command) => match command.command {
+            SvcSubcommand::Resource(raw) => assert_eq!(
+                raw,
+                vec![
+                    "billing",
+                    "expansions",
+                    "approve",
+                    "request_123",
+                    "--reason",
+                    "approved_by_operator"
+                ]
+            ),
+            other => panic!("unexpected svc command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
 }
 
 #[test]
