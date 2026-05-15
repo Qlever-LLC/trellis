@@ -42,6 +42,28 @@ export function formatIdentityProviderSubject(
   return `${identity.provider}:${identity.subject}`;
 }
 
+export function formatIdentityProviderLabel(provider: string): string {
+  const normalized = provider.trim().toLowerCase();
+  switch (normalized) {
+    case "local":
+      return "Password";
+    case "github":
+      return "GitHub";
+    case "google":
+      return "Google";
+    case "microsoft":
+    case "azuread":
+    case "azure-ad":
+      return "Microsoft";
+    case "oidc":
+      return "OIDC";
+    case "saml":
+      return "SAML";
+    default:
+      return provider.trim() || "External provider";
+  }
+}
+
 export function formatShortKey(
   value: string | null | undefined,
   size = 12,

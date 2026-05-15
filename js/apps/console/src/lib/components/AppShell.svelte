@@ -137,6 +137,7 @@
                 <p class="truncate text-sm font-medium">{profile.name}</p>
                 <p class="text-xs text-base-content/60">{getRoleLabel(profile)}</p>
               </div>
+              <a class="btn btn-ghost btn-sm justify-start" href={resolveAppPath("/profile")}>Account</a>
               <button type="button" class="btn btn-ghost btn-sm justify-start" onclick={onSignOut}>Sign out</button>
             </div>
           </details>

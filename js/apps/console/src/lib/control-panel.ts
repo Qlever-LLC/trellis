@@ -11,7 +11,7 @@ type Profile =
   | undefined;
 
 export const routeTitles = {
-  "/profile": "Profile",
+  "/profile": "Account",
   "/admin": "Overview",
   "/admin/users": "Users",
   "/admin/users/edit": "Edit User",
@@ -45,7 +45,7 @@ export const routeTitles = {
   "/admin/devices/activations/revoke": "Revoke Device Activation",
   "/admin/devices/reviews": "Device Reviews",
   "/admin/devices/reviews/decide": "Decide Device Review",
-  "/profile/grants/revoke": "Revoke Profile Grant",
+  "/profile/grants/revoke": "Revoke Account Access",
 } as const;
 
 type AppPathname = keyof typeof routeTitles;
@@ -64,6 +64,10 @@ export type NavSection = {
 };
 
 const navSections: NavSection[] = [
+  {
+    title: "Account",
+    items: [{ href: "/profile", label: "Account", icon: "settings" }],
+  },
   {
     title: "Operate",
     adminOnly: true,
@@ -108,7 +112,6 @@ const navSections: NavSection[] = [
         icon: "shield",
       },
       { href: "/admin/portals", label: "Registry", icon: "database" },
-      { href: "/profile", label: "Profile", icon: "settings" },
     ],
   },
 ];
