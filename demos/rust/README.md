@@ -32,7 +32,9 @@ cargo run --manifest-path demos/rust/Cargo.toml -p trellis-rust-demo-service -- 
 ```
 
 Run with authenticated Trellis service bootstrap after the service deployment is
-created, applied, and provisioned:
+created and provisioned. The deployment envelope can be expanded before startup,
+or the service can present its manifest during bootstrap and wait while the
+resulting expansion request is approved:
 
 ```sh
 cargo run --manifest-path demos/rust/Cargo.toml -p trellis-rust-demo-service -- \
@@ -49,8 +51,10 @@ RUST_LOG=trellis_rust_demo_service=debug,trellis_service=debug,trellis_jobs=debu
   --seed <instance-seed>
 ```
 
-Use the `instanceSeed` field from `trellis --format json deploy provision
-svc/demo.field-ops` as `<instance-seed>`.
+Use the `instanceSeed` field from
+`trellis --format json deploy provision
+svc/demo.field-ops` as
+`<instance-seed>`.
 
 Authenticated mode does not need `--nats-url`; Trellis returns the runtime NATS
 servers during bootstrap. The authenticated service opens the resolved
@@ -93,10 +97,10 @@ cargo run --manifest-path demos/rust/Cargo.toml -p trellis-rust-demo-device -- \
   --trellis-url http://localhost:3000
 ```
 
-The first run creates a private JSON store at `.trellis-demo-device.json`, starts
-device activation, and prints the activation URL, public identity key, and local
-confirmation code. After approval, rerun with the confirmation code to mark the
-local state activated and connect:
+The first run creates a private JSON store at `.trellis-demo-device.json`,
+starts device activation, and prints the activation URL, public identity key,
+and local confirmation code. After approval, rerun with the confirmation code to
+mark the local state activated and connect:
 
 ```sh
 cargo run --manifest-path demos/rust/Cargo.toml -p trellis-rust-demo-device -- \
@@ -106,8 +110,9 @@ cargo run --manifest-path demos/rust/Cargo.toml -p trellis-rust-demo-device -- \
 
 Later `--device` runs reuse the stored root secret and refresh connect info from
 Trellis. The store intentionally persists only the root secret, Trellis URL, and
-activation state; sentinel credentials and NATS topology are refreshed in memory.
-Use `--device-store <path>` or `TRELLIS_DEVICE_STORE` for a different file.
+activation state; sentinel credentials and NATS topology are refreshed in
+memory. Use `--device-store <path>` or `TRELLIS_DEVICE_STORE` for a different
+file.
 
 The Rust device CLI uses the generated participant facade for online `fieldOps`
 RPCs and operations, generated state helpers for `selectedSite` and
@@ -116,10 +121,11 @@ generated event-subscription helpers for service events.
 
 ## Current Gaps
 
-- live authenticated service/device smoke coverage against a running Trellis stack
+- live authenticated service/device smoke coverage against a running Trellis
+  stack
 - live verification of worker-host queue consumption for service-private jobs;
-  authenticated mode starts a `refreshSiteSummary` worker host when the jobs work
-  stream and `siteSummaries` KV binding are available, while raw local/tests keep
-  the synchronous inline path
-- reusable public `TrellisDevice.connect(...)`-style persistence abstraction; the
-  current root-secret persistence is demo-local
+  authenticated mode starts a `refreshSiteSummary` worker host when the jobs
+  work stream and `siteSummaries` KV binding are available, while raw
+  local/tests keep the synchronous inline path
+- reusable public `TrellisDevice.connect(...)`-style persistence abstraction;
+  the current root-secret persistence is demo-local

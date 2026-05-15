@@ -489,9 +489,15 @@ Rules:
 - if a service or device author explicitly declares `uses.health` for
   `trellis.health@v1`, authoring helpers merge the baseline heartbeat publish
   selector into that alias rather than requiring a second alias
-- validation, install, or upgrade MUST fail if a required referenced contract is
-  unavailable or if any required referenced RPC, operation, event, or feed name
-  does not exist on that contract
+- manifest validation is structural and MAY accept required referenced contracts
+  that are not active yet so Trellis can collect contract evidence and create
+  review requests during cyclic or staged service rollouts
+- review and approval planning MAY resolve required dependency surfaces from
+  known inactive contract manifests, but MUST fail if a required referenced
+  contract is unknown or if any required referenced RPC, operation, event, or
+  feed name does not exist on the known contract
+- active-catalog refresh and runtime permission derivation MUST fail closed if a
+  required referenced contract is not active in the proposed active closure
 - missing optional contracts and missing optional surfaces do not fail
   validation and do not grant transport authority
 - known optional surfaces may grant transport authority even when no
@@ -514,11 +520,15 @@ Rules:
 
 ### Runtime surface status
 
-Catalog knowledge, authorization, and runtime availability are separate
-decisions. `Trellis.Surface.Status` is an advisory Trellis core RPC that checks
-the active catalog first, checks the caller's current capability envelope
-second, and checks live service implementation state only after authorization
-succeeds.
+Catalog knowledge, reviewability, authorization, and runtime availability are
+separate decisions. A contract is known when Trellis has stored a validated
+manifest by digest. A requested deployment boundary is reviewable when required
+dependency manifests are known and referenced surfaces can be displayed for
+approval. A contract is active only when its approved deployment evidence
+belongs to an enabled active closure whose required dependencies also resolve as
+active. `Trellis.Surface.Status` is an advisory Trellis core RPC that checks the
+active catalog first, checks the caller's current capability envelope second,
+and checks live service implementation state only after authorization succeeds.
 
 Status outcomes are:
 
@@ -1107,16 +1117,25 @@ runtime discovery RPC set.
   provisioned service instance key
 - service runtime bootstrap MAY present the full manifest for the requested
   digest when Trellis does not already know it
-- bootstrap validates and analyzes the presented manifest; invalid manifests and
-  required dependencies that do not resolve against active contracts fail before
-  any envelope expansion request is created
+- bootstrap validates and stores the presented manifest as a known contract;
+  invalid manifests still fail before any envelope expansion request is created
+- when required dependencies are unknown, bootstrap MAY create a pending
+  expansion request that records the unresolved contract ids as activation
+  blockers, but it MUST NOT derive dependency surfaces or capabilities from
+  missing evidence
+- when required dependencies are known but inactive, bootstrap and admin review
+  MAY derive requested surfaces and capabilities from the known manifests so the
+  dependency cycle can be reviewed and approved
 - when the presented contract boundary does not fit the deployment envelope,
   bootstrap stores the contract evidence, creates a pending envelope expansion
-  request for the missing delta, and returns `envelope_expansion_required` so the
-  service runtime can wait and retry
+  request for the missing delta, and returns `envelope_expansion_required` so
+  the service runtime can wait and retry
+- when the deployment envelope fits but the required dependency closure is not
+  active yet, bootstrap returns `contract_activation_pending`; service runtimes
+  wait and retry rather than receiving runtime credentials
 - approving the pending request expands the deployment envelope, persists the
-  reviewed evidence and resource bindings, and allows a later bootstrap retry to
-  complete
+  reviewed evidence and resource bindings. Runtime bootstrap completes only
+  after every required dependency in the approved closure is also active.
 - UI and CLI implementations MAY still present a human review screen before
   calling direct envelope expansion RPCs for pre-approved rollout workflows
 

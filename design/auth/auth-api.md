@@ -857,6 +857,15 @@ for the durable deployment record:
   enabled parent deployment envelope and matches the service instance's current
   runtime evidence before persisting liveness state. Instance state affects
   runtime availability; it does not activate catalog/auth surfaces.
+- service bootstrap may create pending expansion requests from presented
+  manifests whose required dependency contracts are not active yet. Unknown
+  required dependencies are recorded as unresolved contract blockers; known
+  inactive dependencies can be used for review-time surface and capability
+  display, but not for runtime grants.
+- if the deployment envelope fits but the required dependency closure is not
+  active, service bootstrap returns `contract_activation_pending` and must not
+  persist liveness state, resource bindings, or active deployment evidence for
+  that ready attempt.
 - the successful service bootstrap response includes the resolved resource
   binding payload for the presented digest; service runtimes use that binding to
   initialize KV, store, jobs, and transfer helpers without requiring a

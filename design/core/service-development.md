@@ -245,15 +245,23 @@ Behavior:
   runtime for the full manifest; the runtime retries with the canonical contract
   emitted by `defineServiceContract(...)` or the generated SDK module
 - service bootstrap validates and analyzes the presented manifest before any
-  envelope decision; invalid manifests or required `uses` dependencies that
-  cannot be resolved against active contracts fail immediately
+  envelope decision; invalid manifests fail immediately, while unknown required
+  `uses` dependencies can still produce a pending expansion request that records
+  the unresolved contract id as an activation blocker
+- expansion planning resolves dependency surfaces from known inactive manifests
+  when available, so services in a dependency cycle can each submit reviewable
+  contract evidence before either one receives runtime credentials
 - if the deployment envelope does not cover the validated contract boundary,
   bootstrap records the presented contract evidence, creates a pending envelope
   expansion request for the missing delta, and asks the service runtime to retry
   until an admin approves or rejects the request
-- once the envelope fits, bootstrap resolves or provisions required resource
-  bindings, persists instance runtime state, and returns transport and binding
-  details to the service runtime
+- once the envelope fits, bootstrap first verifies that required `uses`
+  dependencies resolve against the active catalog. If the approved dependency
+  closure is still incomplete, bootstrap returns `contract_activation_pending`
+  and the service runtime keeps waiting.
+- after the dependency closure is active, bootstrap resolves or provisions
+  required resource bindings, persists instance runtime state, and returns
+  transport and binding details to the service runtime
 - schema-backed KV handles such as `service.kv.<alias>` resolve during bootstrap
   as direct typed stores, while store handles such as `service.store.<alias>`
   are opened explicitly before use

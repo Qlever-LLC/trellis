@@ -943,9 +943,8 @@ Deno.test("TrellisService.connect waits for pending envelope expansion", async (
           sessionKeySeed: TEST_SEED,
           server: { log: testLogger.logger },
         }, {
-          connect: async (): Promise<NatsConnection> => {
-            throw new Error("stop-after-bootstrap");
-          },
+          connect: (): Promise<NatsConnection> =>
+            Promise.reject(new Error("stop-after-bootstrap")),
         }).orThrow(),
       TransportError,
       "Trellis could not open the service runtime connection.",
@@ -959,6 +958,96 @@ Deno.test("TrellisService.connect waits for pending envelope expansion", async (
       contractDigest: core.CONTRACT_DIGEST,
       retryDelayMs: 0,
     }, "Service deployment envelope expansion pending; waiting for approval"]]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("TrellisService.connect waits for pending contract activation", async () => {
+  const originalFetch = globalThis.fetch;
+  const testLogger = createTestLogger();
+  let fetchCount = 0;
+
+  try {
+    globalThis.fetch = (() => {
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              reason: "contract_activation_pending",
+              message:
+                "Service contract 'trellis.core@v1' digest 'digest_123' is not active yet.",
+              deploymentId: "demo-js",
+            }),
+            {
+              status: 202,
+              headers: {
+                "Content-Type": "application/json",
+                "Retry-After": "0",
+              },
+            },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "ready",
+            serverNow: 1_700_000_120,
+            connectInfo: {
+              sessionKey: "session-key",
+              contractId: core.CONTRACT_ID,
+              contractDigest: core.CONTRACT_DIGEST,
+              transports: {
+                native: { natsServers: ["nats://127.0.0.1:4222"] },
+              },
+              transport: {
+                sentinel: { jwt: "jwt", seed: "seed" },
+              },
+              auth: {
+                mode: "service_identity",
+                iatSkewSeconds: 30,
+              },
+            },
+            binding: {
+              contractId: core.CONTRACT_ID,
+              digest: core.CONTRACT_DIGEST,
+              resources: { kv: {} },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    }) as typeof fetch;
+
+    await assertRejects(
+      () =>
+        TrellisService.connect({
+          trellisUrl: "https://trellis.example.com",
+          contract: core,
+          name: "svc",
+          sessionKeySeed: TEST_SEED,
+          server: { log: testLogger.logger },
+        }, {
+          connect: (): Promise<NatsConnection> =>
+            Promise.reject(new Error("stop-after-bootstrap")),
+        }).orThrow(),
+      TransportError,
+      "Trellis could not open the service runtime connection.",
+    );
+    assertEquals(fetchCount, 2);
+    assertEquals(testLogger.infoCalls, [[{
+      service: "svc",
+      deploymentId: "demo-js",
+      requestId: undefined,
+      contractId: core.CONTRACT_ID,
+      contractDigest: core.CONTRACT_DIGEST,
+      retryDelayMs: 0,
+    }, "Service contract activation pending; waiting for dependency closure"]]);
   } finally {
     globalThis.fetch = originalFetch;
   }

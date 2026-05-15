@@ -33,6 +33,9 @@ deno task -c demos/app/deno.json dev
 The TypeScript demo is the full end-to-end runtime path today. It includes:
 
 - service deployment apply/provision flow through the `trellis` CLI
+- service-bootstrap expansion requests, including the local-development path
+  where a service can upload its manifest and wait for approval instead of
+  requiring every dependent contract to already be active
 - activated device approval and reconnect flow
 - browser app sign-in and SDK calls
 - operations, operation progress, cancel, events, state, send transfers, receive

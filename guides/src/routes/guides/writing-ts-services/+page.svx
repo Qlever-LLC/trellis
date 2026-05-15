@@ -250,9 +250,9 @@ const service = await TrellisService.connect({
 });
 ```
 
-`TrellisService.connect(...)` automatically verifies that the presented contract evidence fits the enabled deployment envelope before it resolves required resource bindings plus any optional bindings that were successfully provisioned when the envelope expanded. If the deployment envelope does not cover the contract boundary or the running binary presents unavailable evidence, startup fails with a clear error message.
+`TrellisService.connect(...)` automatically verifies that the presented contract evidence fits the enabled deployment envelope before it resolves required resource bindings plus any optional bindings that were successfully provisioned when the envelope expanded. If the deployment envelope does not cover the contract boundary, the runtime presents its manifest, Trellis creates or reuses a pending envelope expansion request, and startup waits while retrying. If the envelope fits but a required dependency closure is not active yet, startup also waits instead of receiving runtime credentials.
 
-Catalog and auth activation do not wait for this runtime connection. Once the boundary is available on an enabled service deployment, it is active; service instances only determine whether a particular process may connect and serve traffic within that envelope.
+Catalog and auth activation do not wait for this runtime connection, but they do require the approved dependency closure to resolve. Once the boundary is available on an enabled service deployment and every required `uses` dependency is active, it is active; service instances only determine whether a particular process may connect and serve traffic within that envelope.
 
 For Node, change the import to `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
 
@@ -534,9 +534,11 @@ trellis deploy create svc/orders-service
 trellis deploy provision svc/orders-service
 ```
 
-Before starting the service runtime, use the Console Envelopes page or the
-`Auth.Envelopes.Expand` admin RPC to add the service contract boundary to the
-deployment envelope.
+You can add the service contract boundary before starting the runtime through the
+Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC. During local
+development, it is also valid to start the service first: bootstrap presents the
+manifest, creates a pending expansion request for the missing boundary, and waits
+until an admin approves it.
 
 If you ship the service as an OCI image, embed the generated contract artifact in the image and label its path so operators can add its boundary to the deployment envelope:
 
@@ -564,6 +566,11 @@ resolve that digest from built-in contracts or the global contract store,
 bootstrap returns `manifest_required`; the service runtime retries with the full
 manifest, Trellis verifies and stores it globally, and NATS runtime auth permits
 only the surfaces and resources covered by the deployment envelope.
+
+For cyclic service dependencies, start each service once so Trellis can learn all
+of the involved manifests. A pending request can be reviewed from known inactive
+dependency contracts, but service runtimes stay in bootstrap retry until all
+approved required dependencies are active together.
 
 Then run the service:
 

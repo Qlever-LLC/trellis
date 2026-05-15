@@ -811,6 +811,46 @@ Deno.test("Auth.Envelopes.Expand expands modeled rows and stores evidence", asyn
   );
 });
 
+Deno.test("Auth.Envelopes.Expand resolves required dependency surfaces from known inactive contracts", async () => {
+  const contract = serviceContract();
+  const contracts = createTestContracts();
+  contracts.addKnownTestContract({
+    digest: "platform-digest",
+    contract: dependencyContract(),
+  });
+  const { handler } = makeDeps({ contracts });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      contract,
+      expectedDigest: digestContractManifest(contract),
+    },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  const value = result.take() as AuthEnvelopesExpandResponse;
+  assertEquals(value.delta.contracts, [
+    { contractId: "acme.billing@v1", required: true },
+    { contractId: "acme.platform@v1", required: true },
+  ]);
+  assertEquals(value.delta.surfaces, [{
+    contractId: "acme.billing@v1",
+    kind: "rpc",
+    name: "Charge",
+    action: "call",
+    required: true,
+  }, {
+    contractId: "acme.platform@v1",
+    kind: "rpc",
+    name: "Read",
+    action: "call",
+    required: true,
+  }]);
+  assertEquals(value.delta.capabilities, ["platform.read"]);
+});
+
 Deno.test("Auth.EnvelopeExpansions.Approve expands envelope from pending request", async () => {
   const contract = serviceContract();
   const { envelopes, resources, evidence, contractStorage } = makeDeps();

@@ -43,6 +43,7 @@ type EnvelopeContractDeps = Pick<
   ContractsModule,
   | "getActiveEntries"
   | "getKnownContract"
+  | "getKnownEntriesByContractId"
   | "validateContract"
 >;
 
@@ -524,6 +525,7 @@ async function boundaryForKnownDigest(input: {
   const analysis = await analyzeContractEnvelopeBoundary(
     input.contracts,
     contract,
+    { dependencyResolution: "known" },
   );
   return mergeBoundaries(analysis.required, analysis.contributedAvailability);
 }
@@ -790,6 +792,7 @@ export function createAuthEnvelopesExpandHandler(deps: {
       analysis = await analyzeContractEnvelopeBoundary(
         deps.contracts,
         req.contract,
+        { dependencyResolution: "known" },
       );
       validated = await deps.contracts.validateContract(req.contract);
     } catch (error) {

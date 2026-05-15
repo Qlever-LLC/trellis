@@ -4,6 +4,7 @@ import { createAuth } from "@qlever-llc/trellis/auth";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 import { createTestContracts } from "../../catalog/test_contracts.ts";
+import type { ContractEntry } from "../../catalog/uses.ts";
 import type { ContractResourceBindings } from "../../catalog/resources.ts";
 import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
 import { computeEnvelopeDelta } from "../envelope_decision.ts";
@@ -105,6 +106,46 @@ function jobsContract(): TrellisContractV1 {
   };
 }
 
+function dependencyContract(): TrellisContractV1 {
+  return {
+    format: "trellis.contract.v1",
+    id: "dep.example@v1",
+    displayName: "Dependency Service",
+    description: "Dependency service contract",
+    kind: "service",
+    schemas: { Empty: { type: "object" } },
+    capabilities: {
+      "dep.read": {
+        displayName: "Read dependency",
+        description: "Call dependency read RPCs.",
+      },
+    },
+    rpc: {
+      Read: {
+        version: "v1",
+        subject: "rpc.v1.dep.Read",
+        input: { schema: "Empty" },
+        output: { schema: "Empty" },
+        capabilities: { call: ["dep.read"] },
+      },
+    },
+  };
+}
+
+function serviceUsingDependencyContract(): TrellisContractV1 {
+  return {
+    ...baseContract(),
+    uses: {
+      required: {
+        dep: {
+          contract: "dep.example@v1",
+          rpc: { call: ["Read"] },
+        },
+      },
+    },
+  };
+}
+
 async function validatedContract(contract: TrellisContractV1) {
   return await createTestContracts().validateContract(contract);
 }
@@ -112,8 +153,13 @@ async function validatedContract(contract: TrellisContractV1) {
 async function contractBoundary(
   contracts: ReturnType<typeof createTestContracts>,
   contract: TrellisContractV1,
+  options?: { dependencyResolution?: "active" | "known" },
 ): Promise<EnvelopeBoundary> {
-  const analysis = await analyzeContractEnvelopeBoundary(contracts, contract);
+  const analysis = await analyzeContractEnvelopeBoundary(
+    contracts,
+    contract,
+    options,
+  );
   return mergeBoundaries(analysis.required, analysis.contributedAvailability);
 }
 
@@ -125,6 +171,7 @@ async function createApp(args: {
   nowSeconds?: number;
   initialEvidence?: DeploymentContractEvidence[];
   initialBindings?: DeploymentResourceBinding[];
+  knownContracts?: ContractEntry[];
   knownExpandedContract?: boolean;
   provisionResourceBindings?: (
     contract: TrellisContractV1,
@@ -143,6 +190,9 @@ async function createApp(args: {
       digest: expanded.digest,
       contract: expanded.contract,
     });
+  }
+  for (const entry of args.knownContracts ?? []) {
+    contracts.addKnownTestContract(entry);
   }
 
   const envelope: DeploymentEnvelope = {
@@ -381,6 +431,104 @@ Deno.test("POST /bootstrap/service creates pending request when envelope does no
   assertEquals(setup.expansionRequests.length, 1);
   assertEquals(setup.expansionRequests[0]?.state, "pending");
   assertEquals(setup.services.length, 0);
+});
+
+Deno.test("POST /bootstrap/service plans expansion through known inactive required dependency", async () => {
+  const dependency = await validatedContract(dependencyContract());
+  const service = await validatedContract(serviceUsingDependencyContract());
+  const setup = await createApp({
+    knownContracts: [{
+      digest: dependency.digest,
+      contract: dependency.contract,
+    }],
+  });
+
+  const response = await setup.bootstrap({
+    contractId: service.contract.id,
+    contractDigest: service.digest,
+    contract: service.contract,
+  });
+
+  assertEquals(response.status, 202);
+  const body = await response.json();
+  assertEquals(body.reason, "envelope_expansion_required");
+  assertEquals(setup.expansionRequests.length, 1);
+  assertEquals(setup.expansionRequests[0]?.delta.contracts, [
+    { contractId: "dep.example@v1", required: true },
+  ]);
+  assertEquals(setup.expansionRequests[0]?.delta.surfaces, [{
+    contractId: "dep.example@v1",
+    kind: "rpc",
+    name: "Read",
+    action: "call",
+    required: true,
+  }]);
+  assertEquals(setup.expansionRequests[0]?.delta.capabilities, ["dep.read"]);
+  assertEquals(setup.services.length, 0);
+});
+
+Deno.test("POST /bootstrap/service stores pending contract when required dependency is unknown", async () => {
+  const service = await validatedContract(serviceUsingDependencyContract());
+  const setup = await createApp();
+
+  const response = await setup.bootstrap({
+    contractId: service.contract.id,
+    contractDigest: service.digest,
+    contract: service.contract,
+  });
+
+  assertEquals(response.status, 202);
+  const body = await response.json();
+  assertEquals(body.reason, "envelope_expansion_required");
+  assertEquals(setup.expansionRequests.length, 1);
+  assertEquals(setup.expansionRequests[0]?.delta.contracts, [
+    { contractId: "dep.example@v1", required: true },
+  ]);
+  assertEquals(setup.expansionRequests[0]?.delta.surfaces, []);
+  assertEquals(setup.expansionRequests[0]?.delta.capabilities, []);
+  assertEquals(
+    setup.storedContracts.some((stored) =>
+      stored.digest === service.digest &&
+      stored.contractId === service.contract.id
+    ),
+    true,
+  );
+  assertEquals(setup.services.length, 0);
+});
+
+Deno.test("POST /bootstrap/service does not become ready when required dependency is inactive", async () => {
+  const dependency = await validatedContract(dependencyContract());
+  const service = await validatedContract(serviceUsingDependencyContract());
+  const contracts = createTestContracts();
+  contracts.addKnownTestContract({
+    digest: dependency.digest,
+    contract: dependency.contract,
+  });
+  const setup = await createApp({
+    knownContracts: [{
+      digest: dependency.digest,
+      contract: dependency.contract,
+    }],
+    envelopeBoundary: await contractBoundary(
+      contracts,
+      service.contract,
+      { dependencyResolution: "known" },
+    ),
+  });
+
+  const response = await setup.bootstrap({
+    contractId: service.contract.id,
+    contractDigest: service.digest,
+    contract: service.contract,
+  });
+
+  assertEquals(response.status, 202);
+  const body = await response.json();
+  assertEquals(body.reason, "contract_activation_pending");
+  assertEquals(setup.services.length, 0);
+  assertEquals(setup.evidence.length, 0);
+  assertEquals(setup.bindings.length, 0);
+  assertEquals(setup.putExpansions.length, 0);
 });
 
 Deno.test("POST /bootstrap/service reuses pending request for the same contract digest", async () => {

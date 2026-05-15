@@ -121,11 +121,13 @@ uses: {
 Legacy flat `uses` remains accepted and is treated as required. Prefer grouped
 `uses.required` and `uses.optional` in new code:
 
-- required dependencies fail closed during active-catalog refresh and approval planning
+- required dependencies fail closed during active-catalog refresh and runtime permission derivation
+- service expansion planning can collect pending evidence before every required dependency is active. If a required dependency manifest is known but inactive, Trellis can use it to show the requested surfaces for review. If it is unknown, Trellis records the unresolved contract id as a blocker until that service also uploads its manifest.
 - optional dependencies participate in contract identity but grant no authority when the target contract or surface is missing
 - if the same alias appears in both groups, the required entry wins
 
 If a dependency is not declared in `uses`, Trellis will not grant that cross-contract access when the contract boundary is added to the deployment envelope.
+Approved service boundaries only become runtime-active when the full required dependency closure resolves as active; until then service bootstrap waits instead of receiving NATS credentials.
 When a dependency resolves to multiple active digests in the same contract lineage, Trellis only merges additive compatible surfaces. Divergent duplicate RPC, operation, event, feed, or job descriptors fail validation instead of producing ambiguous permissions.
 
 ### Surface availability

@@ -105,6 +105,7 @@ export type ServiceBootstrapDeps = {
     ContractsModule,
     | "getActiveEntries"
     | "getContract"
+    | "getKnownEntriesByContractId"
     | "validateContract"
   >;
   transports: {
@@ -519,6 +520,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       analysis = await analyzeContractEnvelopeBoundary(
         deps.contracts,
         rawContract,
+        { dependencyResolution: "knownOrPending" },
       );
       validated = await deps.contracts.validateContract(rawContract);
     } catch (error) {
@@ -641,6 +643,30 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
+    let capabilities: string[];
+    try {
+      capabilities = await getRequiredServiceCapabilities(
+        deps.contracts,
+        contract,
+      );
+    } catch (error) {
+      const activationError = toError(error);
+      return c.json(
+        bootstrapFailure(
+          "contract_activation_pending",
+          `Service contract '${request.contractId}' digest '${request.contractDigest}' is not active yet: ${activationError.message}`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: service.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+            activationError: activationError.message,
+          },
+        ),
+        202,
+      );
+    }
+
     const existingBindings = await deps.deploymentResourceBindingStorage
       .listByDeployment(service.deploymentId);
     const existingBindingByKey = new Map(
@@ -721,10 +747,6 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
 
     const resourceBindings = resourceBindingsForResponse(
       resourceBindingRecords,
-    );
-    const capabilities = await getRequiredServiceCapabilities(
-      deps.contracts,
-      contract,
     );
 
     let nextService = service;

@@ -457,6 +457,28 @@ async function fetchServiceBootstrapInfo(args: {
         includeContract = true;
         continue;
       }
+      if (failure.reason === "contract_activation_pending") {
+        const retryDelayMs = bootstrapRetryDelayMs(settled.response);
+        const pendingKey = failure.requestId ??
+          `${failure.deploymentId ?? "unknown"}:${args.contractDigest}`;
+        if (!loggedPendingRequests.has(pendingKey)) {
+          loggedPendingRequests.add(pendingKey);
+          args.log.info(
+            {
+              service: args.serviceName,
+              deploymentId: failure.deploymentId,
+              requestId: failure.requestId,
+              contractId: args.contractId,
+              contractDigest: args.contractDigest,
+              retryDelayMs,
+            },
+            "Service contract activation pending; waiting for dependency closure",
+          );
+        }
+        await delay(retryDelayMs);
+        includeContract = true;
+        continue;
+      }
       throw new TransportError({
         code: "trellis.bootstrap.failed",
         message: `Service bootstrap failed: ${

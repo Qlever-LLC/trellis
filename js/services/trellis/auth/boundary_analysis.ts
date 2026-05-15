@@ -9,7 +9,9 @@ import type {
 import { getContractResourceAnalysis } from "../catalog/resources.ts";
 import type { ContractsModule } from "../catalog/runtime.ts";
 import {
+  type ContractEntry,
   resolveContractUsesFromEntries,
+  resolveContractUsesFromKnownEntries,
   sortUniqueStrings,
 } from "../catalog/uses.ts";
 import { operationControlCapabilityRules } from "../catalog/permissions.ts";
@@ -60,10 +62,19 @@ export type ContractEnvelopeBoundary = {
   contributedAvailability: EnvelopeBoundary;
 };
 
-type ContractBoundaryDeps = Pick<
-  ContractsModule,
-  "validateContract" | "getActiveEntries"
->;
+type ContractBoundaryDeps =
+  & Pick<
+    ContractsModule,
+    "validateContract" | "getActiveEntries"
+  >
+  & {
+    getKnownEntriesByContractId?:
+      ContractsModule["getKnownEntriesByContractId"];
+  };
+
+type ContractEnvelopeBoundaryOptions = {
+  dependencyResolution?: "active" | "known" | "knownOrPending";
+};
 
 function emptyBoundary(): EnvelopeBoundary {
   return {
@@ -305,19 +316,28 @@ async function deriveUseBoundary(
   contract: TrellisContractV1,
   key: "required" | "optional",
   uses: ContractUsesFlat | undefined,
+  options: ContractEnvelopeBoundaryOptions,
 ): Promise<EnvelopeBoundary> {
   const required = key === "required";
   const boundary = emptyBoundary();
-  const contractWithUses = withUses(contract, key, uses);
-  const activeEntries = await contracts.getActiveEntries();
-  const resolved = resolveContractUsesFromEntries(
-    activeEntries,
-    contractWithUses,
-  );
-  const activeIds = new Set(activeEntries.map((entry) => entry.contract.id));
+  const dependencyResolution = options.dependencyResolution ?? "active";
+  const entries = dependencyResolution === "active"
+    ? await contracts.getActiveEntries()
+    : await getKnownDependencyEntries(contracts, uses);
+  const entryIds = new Set(entries.map((entry) => entry.contract.id));
+  const resolvableUses = dependencyResolution === "knownOrPending"
+    ? usesForKnownEntries(uses, entryIds)
+    : uses;
+  const contractWithUses = withUses(contract, key, resolvableUses);
+  const resolved = dependencyResolution === "active"
+    ? resolveContractUsesFromEntries(entries, contractWithUses)
+    : resolveContractUsesFromKnownEntries(entries, contractWithUses);
 
   for (const use of Object.values(uses ?? {})) {
-    if (activeIds.has(use.contract)) {
+    if (
+      entryIds.has(use.contract) ||
+      (required && dependencyResolution === "knownOrPending")
+    ) {
       boundary.contracts.push({ contractId: use.contract, required });
     }
   }
@@ -364,6 +384,41 @@ async function deriveUseBoundary(
   }
 
   return normalizeBoundary(boundary);
+}
+
+function usesForKnownEntries(
+  uses: ContractUsesFlat | undefined,
+  knownContractIds: Set<string>,
+): ContractUsesFlat | undefined {
+  if (!uses) return undefined;
+  return Object.fromEntries(
+    Object.entries(uses).filter(([, use]) =>
+      knownContractIds.has(use.contract)
+    ),
+  );
+}
+
+async function getKnownDependencyEntries(
+  contracts: ContractBoundaryDeps,
+  uses: ContractUsesFlat | undefined,
+): Promise<ContractEntry[]> {
+  if (!uses || Object.keys(uses).length === 0) return [];
+  if (!contracts.getKnownEntriesByContractId) {
+    throw new Error("Known contract dependency lookup is unavailable");
+  }
+  const entriesByDigest = new Map<string, ContractEntry>();
+  for (
+    const contractId of sortUniqueStrings(
+      Object.values(uses ?? {}).map((use) => use.contract),
+    )
+  ) {
+    for (
+      const entry of await contracts.getKnownEntriesByContractId(contractId)
+    ) {
+      entriesByDigest.set(entry.digest, entry);
+    }
+  }
+  return [...entriesByDigest.values()];
 }
 
 function optionalUsesWithoutRequiredAliases(
@@ -460,6 +515,7 @@ function deriveContributedAvailability(
 export async function analyzeContractEnvelopeBoundary(
   contracts: ContractBoundaryDeps,
   rawContract: unknown,
+  options: ContractEnvelopeBoundaryOptions = {},
 ): Promise<ContractEnvelopeBoundary> {
   const validated = await contracts.validateContract(rawContract);
   const groupedUses = getGroupedUses(validated.contract);
@@ -468,12 +524,14 @@ export async function analyzeContractEnvelopeBoundary(
     validated.contract,
     "required",
     groupedUses.required,
+    options,
   );
   const optional = await deriveUseBoundary(
     contracts,
     validated.contract,
     "optional",
     optionalUsesWithoutRequiredAliases(groupedUses),
+    options,
   );
   const resources = deriveContractResources(validated.contract);
   const ownTransferResources = deriveOwnTransferResources(validated.contract);

@@ -93,7 +93,7 @@ console.log("Connected to Trellis!");
 
 > **Node.js users:** Import from `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
 
-`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, verifies that the presented contract evidence fits the enabled deployment envelope, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved. Catalog activation comes from the enabled service deployment envelope, so the contract can be active before this instance connects. If the deployment envelope does not cover the contract boundary yet, it will throw with a clear message telling you exactly what to do.
+`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, verifies that the presented contract evidence fits the enabled deployment envelope, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved. Catalog activation comes from the enabled service deployment envelope and its active required dependency closure, so the contract can be active before this instance connects. If the deployment envelope does not cover the contract boundary yet, bootstrap creates or reuses a pending expansion request and waits while retrying.
 
 Before we can run this, we need to create a deployment, provision a service instance, and add the contract boundary to the deployment envelope.
 
@@ -104,7 +104,7 @@ trellis deploy create svc/orders-service
 trellis deploy provision svc/orders-service
 ```
 
-Before starting the service, use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add the service contract boundary to the deployment envelope.
+Before starting the service, use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add the service contract boundary to the deployment envelope. During local development you can also start first and approve the pending expansion request that bootstrap creates.
 
 Now you can run your service:
 
