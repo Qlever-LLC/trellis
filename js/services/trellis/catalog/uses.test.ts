@@ -185,9 +185,11 @@ Deno.test("active uses validation rejects missing active dependencies", () => {
             description: "Portal test contract",
             kind: "service",
             uses: {
-              billing: {
-                contract: "billing@v1",
-                operations: { call: ["Refund"] },
+              required: {
+                billing: {
+                  contract: "billing@v1",
+                  operations: { call: ["Refund"] },
+                },
               },
             },
           },

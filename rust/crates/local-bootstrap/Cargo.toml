@@ -1,0 +1,17 @@
+[package]
+name = "trellis-local-bootstrap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Local development bootstrap generation for Trellis runtimes."
+
+[dependencies]
+base64.workspace = true
+rand = "0.10.0"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"

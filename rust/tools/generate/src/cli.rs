@@ -73,6 +73,12 @@ pub struct PrepareArgs {
     #[arg(long)]
     pub out: Option<PathBuf>,
 
+    #[arg(long, value_delimiter = ',', value_enum)]
+    pub targets: Vec<PackageTarget>,
+
+    #[arg(long)]
+    pub no_npm: bool,
+
     #[arg(default_value = ".")]
     pub root: PathBuf,
 }
@@ -87,6 +93,15 @@ pub struct DiscoverArgs {
 pub enum RuntimeSource {
     Registry,
     Local,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum PackageTarget {
+    Manifest,
+    Jsr,
+    Npm,
+    Cargo,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -117,8 +132,9 @@ pub struct GenerateCommand {
 #[derive(Debug, Subcommand)]
 pub enum GenerateSubcommand {
     Manifest(GenerateManifestArgs),
-    Ts(GenerateTsSdkArgs),
-    Rust(GenerateRustSdkArgs),
+    Jsr(GenerateJsrPackageArgs),
+    Npm(GenerateNpmPackageArgs),
+    Cargo(GenerateCargoPackageArgs),
     All(GenerateAllArgs),
 }
 
@@ -132,7 +148,7 @@ pub struct GenerateManifestArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct GenerateTsSdkArgs {
+pub struct GenerateJsrPackageArgs {
     #[command(flatten)]
     pub contract: ContractInputArgs,
 
@@ -156,7 +172,25 @@ pub struct GenerateTsSdkArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct GenerateRustSdkArgs {
+pub struct GenerateNpmPackageArgs {
+    #[command(flatten)]
+    pub contract: ContractInputArgs,
+
+    #[arg(long)]
+    pub out: PathBuf,
+
+    #[arg(long)]
+    pub artifact_version: Option<String>,
+
+    #[arg(long)]
+    pub package_name: Option<String>,
+
+    #[arg(long, default_value = "@trellis-sdk/")]
+    pub prefix: String,
+}
+
+#[derive(Debug, Args)]
+pub struct GenerateCargoPackageArgs {
     #[command(flatten)]
     pub contract: ContractInputArgs,
 
@@ -188,10 +222,13 @@ pub struct GenerateAllArgs {
     pub artifact_version: Option<String>,
 
     #[arg(long)]
-    pub ts_out: Option<PathBuf>,
+    pub jsr_out: Option<PathBuf>,
 
     #[arg(long)]
-    pub rust_out: Option<PathBuf>,
+    pub npm_out: Option<PathBuf>,
+
+    #[arg(long)]
+    pub cargo_out: Option<PathBuf>,
 
     #[arg(long)]
     pub package_name: Option<String>,
@@ -213,7 +250,7 @@ pub struct GenerateAllArgs {
 mod tests {
     use clap::Parser;
 
-    use super::{Cli, SelfSubcommand, TopLevelCommand};
+    use super::{Cli, GenerateSubcommand, PackageTarget, SelfSubcommand, TopLevelCommand};
 
     #[test]
     fn prepare_accepts_watch_flag() {
@@ -291,6 +328,63 @@ mod tests {
         };
 
         assert_eq!(args.prefix, "@trellis-sdk/");
+    }
+
+    #[test]
+    fn prepare_accepts_comma_separated_targets() {
+        let cli = Cli::try_parse_from([
+            "trellis-generate",
+            "prepare",
+            "--targets",
+            "manifest,jsr,npm,cargo",
+            ".",
+        ])
+        .expect("prepare --targets should parse");
+
+        let Some(TopLevelCommand::Prepare(args)) = cli.command else {
+            panic!("expected prepare command");
+        };
+
+        assert_eq!(
+            args.targets,
+            vec![
+                PackageTarget::Manifest,
+                PackageTarget::Jsr,
+                PackageTarget::Npm,
+                PackageTarget::Cargo,
+            ]
+        );
+    }
+
+    #[test]
+    fn prepare_accepts_no_npm() {
+        let cli = Cli::try_parse_from(["trellis-generate", "prepare", "--no-npm", "."])
+            .expect("prepare --no-npm should parse");
+
+        let Some(TopLevelCommand::Prepare(args)) = cli.command else {
+            panic!("expected prepare command");
+        };
+
+        assert!(args.no_npm);
+    }
+
+    #[test]
+    fn generate_uses_package_target_subcommands() {
+        let cli = Cli::try_parse_from([
+            "trellis-generate",
+            "generate",
+            "jsr",
+            "--source",
+            "contract.ts",
+            "--out",
+            "generated/packages/jsr/demo",
+        ])
+        .expect("generate jsr should parse");
+
+        let Some(TopLevelCommand::Generate(command)) = cli.command else {
+            panic!("expected generate command");
+        };
+        assert!(matches!(command.command, GenerateSubcommand::Jsr(_)));
     }
 
     #[test]

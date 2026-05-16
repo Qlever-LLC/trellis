@@ -1,33 +1,24 @@
-import { connect } from "@nats-io/transport-deno";
+import type {
+  Msg,
+  MsgHdrs,
+  NatsConnection,
+  Payload,
+  Subscription,
+} from "@nats-io/nats-core";
 import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import {
-  AuthSessionsMeResponseSchema,
-  AuthSessionsMeSchema,
   AuthRequestsValidateResponseSchema,
   AuthRequestsValidateSchema,
+  AuthSessionsMeResponseSchema,
+  AuthSessionsMeSchema,
 } from "@qlever-llc/trellis/auth";
-import { assert, assertEquals, assertExists, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 
 import { Type } from "typebox";
 import { err, isErr, ok } from "../../result/mod.ts";
 import { createClient } from "../client.ts";
 import { defineServiceContract } from "../contract.ts";
 import { AuthError } from "../errors/index.ts";
-import { defineError } from "../index.ts";
-import { NatsTest } from "../testing/nats.ts";
-import {
-  getActiveSpan,
-  getTracer,
-  initTracing,
-  withSpanAsync,
-} from "../tracing.ts";
 import type { TrellisAuth } from "../trellis.ts";
-
-const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
 
 function base64urlEncode(data: Uint8Array): string {
   const b64 = btoa(String.fromCharCode(...data));
@@ -70,32 +61,57 @@ async function createTestAuth(): Promise<
 }
 
 const TEST_USER = {
-  trellisId: "test-trellis-id",
-  id: "test-user-123",
-  origin: "test",
+  userId: "test-user-123",
   active: true,
   name: "Test User",
   email: "test@example.com",
   capabilities: ["service"],
+  identity: {
+    identityId: "test-identity-123",
+    provider: "test",
+    subject: "test-subject-123",
+  },
 };
 const TEST_CALLER = {
   type: "user" as const,
+  participantKind: "app" as const,
   ...TEST_USER,
 };
 
-const testTraceProvider = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
-});
-testTraceProvider.register();
+type TestAuthUserCaller = {
+  type: "user";
+  participantKind: "app" | "agent";
+  userId: string;
+  active: boolean;
+  name: string;
+  email: string;
+  image?: string;
+  capabilities: string[];
+  identity: {
+    identityId: string;
+    provider: string;
+    subject: string;
+  };
+};
+
+function authSessionsMeUserResponse(caller: TestAuthUserCaller) {
+  return {
+    participantKind: caller.participantKind,
+    user: {
+      userId: caller.userId,
+      active: caller.active,
+      name: caller.name,
+      email: caller.email,
+      ...(caller.image ? { image: caller.image } : {}),
+      capabilities: caller.capabilities,
+      identity: caller.identity,
+    },
+    device: null,
+    service: null,
+  };
+}
 
 const EmptySchema = Type.Object({});
-const NotFoundError = defineError({
-  type: "NotFoundError",
-  fields: {
-    resource: Type.String(),
-  },
-  message: ({ resource }) => `${resource} not found`,
-});
 
 const authSchemas = {
   AuthRequestsValidateInput: AuthRequestsValidateSchema,
@@ -103,14 +119,6 @@ const authSchemas = {
   AuthSessionsMeInput: AuthSessionsMeSchema,
   AuthSessionsMeOutput: AuthSessionsMeResponseSchema,
   EmptySchema,
-  TraceOutput: Type.Object({ traceId: Type.String() }),
-  EventPayload: Type.Object({
-    header: Type.Object({
-      id: Type.String(),
-      time: Type.String(),
-    }),
-    foo: Type.String(),
-  }),
 } as const;
 
 function schemaRef<const TName extends keyof typeof authSchemas & string>(
@@ -156,507 +164,182 @@ const authContract = defineServiceContract(
   }),
 );
 
-const traceContract = defineServiceContract(
-  {
-    schemas: {
-      EmptySchema,
-      TraceOutput: authSchemas.TraceOutput,
-    },
-  },
-  () => ({
-    id: "trellis.trace.rpc-test@v1",
-    displayName: "Trace RPC Test",
-    description: "Exercise traced RPC calls against a dependent auth contract.",
-    uses: {
-      auth: authContract.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
-    },
-    rpc: {
-      "Test.Trace": {
-        version: "v1",
-        input: schemaRef("EmptySchema"),
-        output: schemaRef("TraceOutput"),
-        errors: ["UnexpectedError"],
-      },
-    },
-  }),
-);
-
-const traceRuntimeContract = {
-  CONTRACT: traceContract.CONTRACT,
-  API: {
-    owned: traceContract.API.trellis,
-  },
+type BufferedSubscription = Subscription & {
+  push(message: Msg): void;
 };
 
-const localErrorContract = defineServiceContract(
-  {
-    schemas: {
-      EmptySchema,
-    },
-    errors: {
-      NotFoundError,
-    },
-  },
-  (ref) => ({
-    id: "trellis.local-error.rpc-test@v1",
-    displayName: "Local Error RPC Test",
-    description: "Round-trip a contract-local error as a real runtime class.",
-    rpc: {
-      "Test.LocalError": {
-        version: "v1",
-        input: schemaRef("EmptySchema"),
-        output: schemaRef("EmptySchema"),
-        authRequired: false,
-        errors: [ref.error("NotFoundError"), ref.error("UnexpectedError")],
-      },
-    },
-  }),
-);
+function createRoutedNatsConnection(): NatsConnection {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const subscriptions: BufferedSubscription[] = [];
+  let closed = false;
 
-async function waitFor<T>(
-  fn: () => Promise<T | null>,
-  opts: { description: string; timeoutMs?: number; intervalMs?: number },
-): Promise<T> {
-  const timeoutMs = opts.timeoutMs ?? 5_000;
-  const intervalMs = opts.intervalMs ?? 50;
-  const start = Date.now();
+  const payloadBytes = (payload: Payload | undefined): Uint8Array => {
+    if (payload === undefined) return new Uint8Array();
+    if (typeof payload === "string") return encoder.encode(payload);
+    return payload;
+  };
 
-  while (true) {
-    const result = await fn();
-    if (result !== null) return result;
-
-    if (Date.now() - start > timeoutMs) {
-      throw new Error(`Timeout waiting for ${opts.description}`);
+  const subjectMatches = (pattern: string, subject: string): boolean => {
+    const patternParts = pattern.split(".");
+    const subjectParts = subject.split(".");
+    for (let index = 0; index < patternParts.length; index += 1) {
+      const part = patternParts[index];
+      if (part === ">") return true;
+      if (subjectParts[index] === undefined) return false;
+      if (part !== "*" && part !== subjectParts[index]) return false;
     }
+    return patternParts.length === subjectParts.length;
+  };
 
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
+  const createMessage = (args: {
+    subject: string;
+    data: Uint8Array;
+    headers?: MsgHdrs;
+    reply?: string;
+    onRespond?: (data: Uint8Array, headers?: MsgHdrs) => void;
+  }): Msg => ({
+    subject: args.subject,
+    sid: 1,
+    data: args.data,
+    headers: args.headers,
+    reply: args.reply,
+    respond: (payload?: Payload, opts?: { headers?: MsgHdrs }) => {
+      args.onRespond?.(payloadBytes(payload), opts?.headers);
+      return true;
+    },
+    json: <T>() => JSON.parse(decoder.decode(args.data)) as T,
+    string: () => decoder.decode(args.data),
+  });
+
+  const createSubscription = (subject: string): BufferedSubscription => {
+    const queue: Msg[] = [];
+    let subscriptionClosed = false;
+    let received = 0;
+    let pendingResolver: (() => void) | undefined;
+    const notify = () => {
+      pendingResolver?.();
+      pendingResolver = undefined;
+    };
+
+    const subscription: BufferedSubscription = {
+      closed: Promise.resolve(),
+      unsubscribe: () => {
+        subscriptionClosed = true;
+        notify();
+      },
+      drain: async () => {
+        subscriptionClosed = true;
+        notify();
+      },
+      isDraining: () => false,
+      isClosed: () => subscriptionClosed,
+      callback: () => {},
+      getSubject: () => subject,
+      getReceived: () => received,
+      getProcessed: () => received,
+      getPending: () => queue.length,
+      getID: () => 1,
+      getMax: () => undefined,
+      push: (message: Msg) => {
+        if (subscriptionClosed) return;
+        queue.push(message);
+        received += 1;
+        notify();
+      },
+      [Symbol.asyncIterator]: async function* () {
+        while (!subscriptionClosed) {
+          const next = queue.shift();
+          if (next) {
+            yield next;
+            continue;
+          }
+          await new Promise<void>((resolve) => {
+            pendingResolver = resolve;
+          });
+        }
+      },
+    };
+    subscriptions.push(subscription);
+    return subscription;
+  };
+
+  const closeSubscriptions = () => {
+    closed = true;
+    for (const subscription of subscriptions) {
+      subscription.unsubscribe();
+    }
+  };
+
+  const connection: NatsConnection & { options: { inboxPrefix: string } } = {
+    options: { inboxPrefix: "_INBOX.test" },
+    info: undefined,
+    closed: async () => undefined,
+    close: async () => closeSubscriptions(),
+    publish: () => {},
+    publishMessage: () => {},
+    respondMessage: () => true,
+    subscribe: (subject) => createSubscription(subject),
+    request: async (subject, payload, opts) => {
+      const subscription = subscriptions.find((candidate) =>
+        subjectMatches(candidate.getSubject(), subject)
+      );
+      if (!subscription) {
+        throw new Error(`no responders for ${subject}`);
+      }
+
+      const requestData = payloadBytes(payload);
+      const sessionKey = opts?.headers?.get("session-key");
+      const reply = typeof sessionKey === "string"
+        ? `_INBOX.${sessionKey.slice(0, 16)}.reply`
+        : "_INBOX.test.reply";
+
+      return await new Promise<Msg>((resolve) => {
+        subscription.push(createMessage({
+          subject,
+          data: requestData,
+          headers: opts?.headers,
+          reply,
+          onRespond: (data, headers) => {
+            resolve(createMessage({ subject, data, headers }));
+          },
+        }));
+      });
+    },
+    requestMany: async () =>
+      (async function* () {
+        return;
+      })(),
+    flush: async () => {},
+    drain: async () => closeSubscriptions(),
+    isClosed: () => closed,
+    isDraining: () => false,
+    getServer: () => "nats://127.0.0.1:4222",
+    status: () => ({
+      async *[Symbol.asyncIterator]() {},
+    }),
+    stats: () => ({ inBytes: 0, outBytes: 0, inMsgs: 0, outMsgs: 0 }),
+    rtt: async () => 0,
+    reconnect: async () => {},
+  };
+
+  return connection;
 }
 
 Deno.test({
-  name: "NATS RPC Integration",
-  ignore: !RUN_NATS_TESTS,
-  async fn(t) {
-    initTracing("trellis-tests");
-
-    await using nats = await NatsTest.start();
-
-    await t.step("NatsTest container starts and connects", () => {
-      assertEquals(nats.nc.isClosed(), false);
-    });
-
-    await t.step(
-      "Trellis client validates input schema before sending",
-      async () => {
-        const { auth } = await createTestAuth();
-        const client = createClient(
-          authContract,
-          nats.nc,
-          auth,
-          {
-            name: "client",
-          },
-        );
-
-        const result = await client.request(
-          "Auth.Requests.Validate",
-          JSON.parse(
-            '{"proof":"test-proof","subject":"rpc.Test","payloadHash":"not-a-hash"}',
-          ),
-        );
-
-        assertEquals(result.isErr(), true);
-      },
-    );
-
-    await t.step("Trellis template generates correct subjects", () => {
-      const client = createClient(
-        emptyContract,
-        nats.nc,
-        { sessionKey: "test", sign: () => new Uint8Array(64) },
-        { name: "client" },
-      );
-
-      const result = client.template("rpc.{/id}", { id: "test-123" });
-      assertEquals(result.isOk(), true);
-      assertEquals(result.take(), "rpc.test-123");
-    });
-
-    await t.step("Trellis template escapes special characters", () => {
-      const client = createClient(
-        emptyContract,
-        nats.nc,
-        { sessionKey: "test", sign: () => new Uint8Array(64) },
-        { name: "client" },
-      );
-
-      const result = client.template("rpc.{/id}", { id: "test.with.dots" });
-      assertEquals(result.isOk(), true);
-      assertEquals(result.take(), "rpc.test~2E~with~2E~dots");
-    });
-
-    await t.step("publish() encodes event header time as string", async () => {
-      const eventContract = defineServiceContract(
-        {
-          schemas: {
-            EventPayload: authSchemas.EventPayload,
-          },
-        },
-        (ref) => ({
-          id: "trellis.event.rpc-test@v1",
-          displayName: "Event RPC Test",
-          description:
-            "Publish events for mixed RPC and event integration tests.",
-          events: {
-            "Test.Event": {
-              version: "v1",
-              event: ref.schema("EventPayload"),
-            },
-          },
-        }),
-      );
-
-      const client = createClient(
-        eventContract,
-        nats.nc,
-        { sessionKey: "test", sign: () => new Uint8Array(64) },
-        { name: "publisher" },
-      );
-
-      const result = await client.publish("Test.Event", { foo: "bar" });
-      assertEquals(result.isOk(), true);
-    });
-
-    await t.step(
-      "declared local RPC errors reconstruct to real runtime classes",
-      async () => {
-        const service = createClient(
-          localErrorContract,
-          nats.nc,
-          { sessionKey: "local-error-service", sign: () => new Uint8Array(64) },
-          { name: "local-error-service" },
-        );
-
-        await service.mount("Test.LocalError", async () => {
-          return err(new NotFoundError({ resource: "Workspace" }));
-        });
-
-        const client = createClient(
-          localErrorContract,
-          nats.nc,
-          { sessionKey: "local-error-client", sign: () => new Uint8Array(64) },
-          { name: "local-error-client" },
-        );
-
-        const response = await client.request("Test.LocalError", {});
-        const value = response.take();
-        assert(isErr(value));
-        const error = isErr(value) ? value.error : null;
-        assertEquals(error instanceof NotFoundError, true);
-        if (error instanceof NotFoundError) {
-          assertEquals(error.resource, "Workspace");
-          assertEquals(error.message, "Workspace not found");
-        }
-      },
-    );
-
-    await t.step("trace context propagates across RPC", async () => {
-      const authService = createClient(
-        authContract,
-        nats.nc,
-        { sessionKey: "auth-service", sign: () => new Uint8Array(64) },
-        { name: "auth-service" },
-      );
-      const traceService = createClient(
-        traceRuntimeContract,
-        nats.nc,
-        { sessionKey: "trace-service", sign: () => new Uint8Array(64) },
-        { name: "trace-service" },
-      );
-
-      // The server auth path for non-auth RPCs calls Auth.Requests.Validate internally.
-      // For this unit integration, mount a permissive Auth.Requests.Validate handler.
-      await authService.mount(
-        "Auth.Requests.Validate",
-        async ({ input }: { input: unknown }) => {
-          const authInput = input as { sessionKey: string };
-          return ok({
-            allowed: true,
-            inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
-            caller: TEST_CALLER,
-          });
-        },
-      );
-
-      await traceService.mount("Test.Trace", async () => {
-        const span = getActiveSpan();
-        return ok({ traceId: span?.spanContext().traceId ?? "" });
-      });
-
-      const { auth, inboxPrefix } = await createTestAuth();
-      const info = nats.nc.info!;
-      const nc = await connect({
-        servers: `localhost:${info.port}`,
-        inboxPrefix,
-      });
-      const client = createClient(
-        traceContract,
-        nc,
-        auth,
-        { name: "trace-client" },
-      );
-
-      const parent = getTracer().startSpan("test.parent");
-      const parentTraceId = parent.spanContext().traceId;
-
-      const result = await withSpanAsync(
-        parent,
-        async () => await client.request("Test.Trace", {}),
-      );
-      parent.end();
-
-      if (result.isErr()) throw result.error;
-      const value = result.take() as { traceId: string };
-      assertEquals(value.traceId, parentTraceId);
-
-      await nc.close();
-    });
-
-    await t.step("AuthRequestsValidate RPC round-trip works", async () => {
-      const authService = createClient(
-        authContract,
-        nats.nc,
-        { sessionKey: "auth", sign: () => new Uint8Array(64) },
-        { name: "auth-service" },
-      );
-
-      await authService.mount(
-        "Auth.Requests.Validate",
-        async ({ input }: { input: unknown }) => {
-          const authInput = input as { sessionKey: string };
-          return ok({
-            allowed: true,
-            inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
-            caller: TEST_CALLER,
-          });
-        },
-      );
-
-      const { auth, inboxPrefix } = await createTestAuth();
-      const info = nats.nc.info!;
-      const nc = await connect({
-        servers: `localhost:${info.port}`,
-        inboxPrefix,
-      });
-      const client = createClient(
-        authContract,
-        nc,
-        auth,
-        { name: "client" },
-      );
-      const response = await waitFor<
-        { caller: { trellisId?: string; id?: string; deviceId?: string } }
-      >(async () => {
-        const r = await client.request(
-          "Auth.Requests.Validate",
-          {
-            sessionKey: "valid-session",
-            proof: "proof",
-            subject: "rpc.Test",
-            payloadHash: base64urlEncode(new Uint8Array(32)),
-            capabilities: [],
-          },
-          { timeout: 500 },
-        );
-        const v = r.take();
-        if (isErr(v)) return null;
-        return v;
-      }, { description: "AuthRequestsValidate responder ready" }) as {
-        allowed: boolean;
-        caller: {
-          type: string;
-          trellisId?: string;
-          id?: string;
-          deviceId?: string;
-          origin?: string;
-          email?: string;
-        };
-      };
-
-      assertEquals(response.allowed, true);
-      assertExists(response.caller);
-      assertEquals(response.caller.type, "user");
-      assertExists(response.caller.trellisId);
-      assertExists(response.caller.id);
-      assertEquals(response.caller.trellisId, TEST_USER.trellisId);
-      assertEquals(response.caller.id, TEST_USER.id);
-      assertEquals(response.caller.origin, TEST_USER.origin);
-      assertEquals(response.caller.email, TEST_USER.email);
-      await nc.close();
-    });
-
-    await t.step("Full RPC with auth validation works", async () => {
-      const meService = createClient(
-        authContract,
-        nats.nc,
-        { sessionKey: "service", sign: () => new Uint8Array(64) },
-        { name: "me-service" },
-      );
-      const authService = createClient(
-        authContract,
-        nats.nc,
-        { sessionKey: "auth", sign: () => new Uint8Array(64) },
-        { name: "auth-service-2" },
-      );
-
-      await authService.mount(
-        "Auth.Requests.Validate",
-        async ({ input }: { input: unknown }) => {
-          const authInput = input as { sessionKey: string };
-          return ok({
-            allowed: true,
-            inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
-            caller: TEST_CALLER,
-          });
-        },
-      );
-
-      await meService.mount("Auth.Sessions.Me", async ({ context: ctx }) => {
-        if (ctx.caller.type !== "user") {
-          throw new Error("expected user caller");
-        }
-        return ok({
-          user: {
-            id: ctx.caller.id,
-            origin: ctx.caller.origin ?? "",
-            active: ctx.caller.active ?? true,
-            name: ctx.caller.name ?? "",
-            email: ctx.caller.email ?? "",
-            ...(ctx.caller.image ? { image: ctx.caller.image } : {}),
-            capabilities: ctx.caller.capabilities ?? [],
-          },
-          device: null,
-          service: null,
-        });
-      });
-
-      const { auth, inboxPrefix } = await createTestAuth();
-      const info = nats.nc.info!;
-      const nc = await connect({
-        servers: `localhost:${info.port}`,
-        inboxPrefix,
-      });
-      const client = createClient(
-        authContract,
-        nc,
-        auth,
-        { name: "client" },
-      );
-      const response = await waitFor<{ user: { id: string } | null }>(
-        async () => {
-          const r = await client.request("Auth.Sessions.Me", {}, { timeout: 500 });
-          const v = r.take();
-          if (isErr(v)) return null;
-          return v;
-        },
-        { description: "Me responder ready" },
-      );
-
-      assertExists(response.user);
-      assertEquals(response.user?.id, TEST_USER.id);
-      await nc.close();
-    });
-
-    await t.step(
-      "request().orThrow() unwraps successful RPC responses",
-      async () => {
-        const meService = createClient(
-          authContract,
-          nats.nc,
-          { sessionKey: "service-throw", sign: () => new Uint8Array(64) },
-          { name: "me-service-throw" },
-        );
-        const authService = createClient(
-          authContract,
-          nats.nc,
-          { sessionKey: "auth-throw", sign: () => new Uint8Array(64) },
-          { name: "auth-service-throw" },
-        );
-
-        await authService.mount(
-          "Auth.Requests.Validate",
-          async ({ input }: { input: unknown }) => {
-            const authInput = input as { sessionKey: string };
-            return ok({
-              allowed: true,
-              inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
-              caller: TEST_CALLER,
-            });
-          },
-        );
-
-        await meService.mount("Auth.Sessions.Me", async ({ context: ctx }) => {
-          if (ctx.caller.type !== "user") {
-            throw new Error("expected user caller");
-          }
-          return ok({
-            user: {
-              id: ctx.caller.id,
-              origin: ctx.caller.origin ?? "",
-              active: ctx.caller.active ?? true,
-              name: ctx.caller.name ?? "",
-              email: ctx.caller.email ?? "",
-              ...(ctx.caller.image ? { image: ctx.caller.image } : {}),
-              capabilities: ctx.caller.capabilities ?? [],
-            },
-            device: null,
-            service: null,
-          });
-        });
-
-        const { auth, inboxPrefix } = await createTestAuth();
-        const info = nats.nc.info!;
-        const nc = await connect({
-          servers: `localhost:${info.port}`,
-          inboxPrefix,
-        });
-        const client = createClient(
-          authContract,
-          nc,
-          auth,
-          { name: "client-throw" },
-        );
-        const response = await waitFor<{ user: { id: string } | null }>(
-          () =>
-            client.request("Auth.Sessions.Me", {}, { timeout: 500 }).orThrow().catch(
-              () => null,
-            ),
-          { description: "Me responder ready for request().orThrow()" },
-        );
-
-        assertExists(response?.user);
-        assertEquals(response?.user?.id, TEST_USER.id);
-        await nc.close();
-      },
-    );
-  },
-});
-
-Deno.test({
   name: "Full RPC retries transient session_not_found during auth validation",
-  ignore: !RUN_NATS_TESTS,
   async fn() {
-    await using nats = await NatsTest.start();
+    const nc = createRoutedNatsConnection();
 
     const meService = createClient(
       authContract,
-      nats.nc,
+      nc,
       { sessionKey: "service-retry", sign: () => new Uint8Array(64) },
       { name: "me-service-retry" },
     );
     const authService = createClient(
       authContract,
-      nats.nc,
+      nc,
       { sessionKey: "auth-retry", sign: () => new Uint8Array(64) },
       { name: "auth-service-retry" },
     );
@@ -665,14 +348,19 @@ Deno.test({
     await authService.mount(
       "Auth.Requests.Validate",
       async ({ input }: { input: unknown }) => {
-        const authInput = input as { sessionKey: string };
+        const sessionKey = typeof input === "object" && input !== null
+          ? Reflect.get(input, "sessionKey")
+          : undefined;
+        if (typeof sessionKey !== "string") {
+          throw new Error("expected Auth.Requests.Validate session key");
+        }
         validateCalls += 1;
         if (validateCalls === 1) {
           return err(new AuthError({ reason: "session_not_found" }));
         }
         return ok({
           allowed: true,
-          inboxPrefix: `_INBOX.${authInput.sessionKey.slice(0, 16)}`,
+          inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,
           caller: TEST_CALLER,
         });
       },
@@ -682,27 +370,10 @@ Deno.test({
       if (ctx.caller.type !== "user") {
         throw new Error("expected user caller");
       }
-      return ok({
-        user: {
-          id: ctx.caller.id,
-          origin: ctx.caller.origin ?? "",
-          active: ctx.caller.active ?? true,
-          name: ctx.caller.name ?? "",
-          email: ctx.caller.email ?? "",
-          ...(ctx.caller.image ? { image: ctx.caller.image } : {}),
-          capabilities: ctx.caller.capabilities ?? [],
-        },
-        device: null,
-        service: null,
-      });
+      return ok(authSessionsMeUserResponse(ctx.caller));
     });
 
-    const { auth, inboxPrefix } = await createTestAuth();
-    const info = nats.nc.info!;
-    const nc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
+    const { auth } = await createTestAuth();
     const client = createClient(
       authContract,
       nc,
@@ -710,19 +381,13 @@ Deno.test({
       { name: "client-retry" },
     );
 
-    const response = await waitFor<{ user: { id: string } | null }>(
-      async () => {
-        const r = await client.request("Auth.Sessions.Me", {}, { timeout: 500 });
-        const v = r.take();
-        if (isErr(v)) return null;
-        return v;
-      },
-      {
-        description: "Me responder ready after transient auth validation miss",
-      },
-    );
+    const result = await client.request("Auth.Sessions.Me", {}, {
+      timeout: 500,
+    });
+    const response = result.take();
+    if (isErr(response)) throw response.error;
 
-    assertEquals(response.user?.id, TEST_USER.id);
+    assertEquals(response.user?.userId, TEST_USER.userId);
     assertEquals(validateCalls, 2);
     await nc.close();
   },

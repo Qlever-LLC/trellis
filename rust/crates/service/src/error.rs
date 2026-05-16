@@ -1,6 +1,58 @@
+use serde_json::{Map, Value};
+
+/// Structured RPC error declared by a service contract.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeclaredRpcError {
+    error_type: String,
+    message: String,
+    fields: Map<String, Value>,
+}
+
+impl DeclaredRpcError {
+    /// Build a contract-declared RPC error payload.
+    pub fn new<K>(
+        error_type: impl Into<String>,
+        message: impl Into<String>,
+        fields: impl IntoIterator<Item = (K, Value)>,
+    ) -> Self
+    where
+        K: Into<String>,
+    {
+        Self {
+            error_type: error_type.into(),
+            message: message.into(),
+            fields: fields
+                .into_iter()
+                .map(|(key, value)| (key.into(), value))
+                .collect(),
+        }
+    }
+
+    /// Return the declared RPC error type discriminator.
+    pub fn error_type(&self) -> &str {
+        &self.error_type
+    }
+
+    /// Return the human-facing declared RPC error message.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub(crate) fn to_payload(&self, id: String) -> Value {
+        let mut payload = self.fields.clone();
+        payload.insert("id".to_string(), Value::String(id));
+        payload.insert("type".to_string(), Value::String(self.error_type.clone()));
+        payload.insert("message".to_string(), Value::String(self.message.clone()));
+        Value::Object(payload)
+    }
+}
+
 /// Errors returned by the Trellis server runtime.
 #[derive(thiserror::Error, Debug)]
 pub enum ServerError {
+    #[error("declared RPC error {0:?}")]
+    DeclaredRpc(DeclaredRpcError),
+
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
 

@@ -32,7 +32,7 @@ resources: {
   kv: {
     activity: {
       purpose: "Store normalized activity entries",
-      schema: ref.schema("ActivityEntry"),
+      schema: ref.schema("AuditEntry"),
       required: true,
       history: 1,
       ttlMs: 0,

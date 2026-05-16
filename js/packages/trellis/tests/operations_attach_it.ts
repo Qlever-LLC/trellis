@@ -1,4 +1,4 @@
-import { connect } from "@nats-io/transport-deno";
+import type { NatsConnection } from "@nats-io/nats-core";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { defineServiceContract } from "../contract.ts";
@@ -6,10 +6,12 @@ import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 import { AsyncResult, ok } from "../index.ts";
 import { TrellisServiceRuntime } from "../server/mod.ts";
 import { createClient } from "../client.ts";
-import { NatsTest } from "../testing/nats.ts";
-import type { TrellisAuth } from "../trellis.ts";
-
-const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
+import { createRoutedNatsConnections } from "../testing/routed_nats.ts";
+import type {
+  DurableOperationRecord,
+  RuntimeOperationRecord,
+  TrellisAuth,
+} from "../trellis.ts";
 
 function base64urlEncode(data: Uint8Array): string {
   const b64 = btoa(String.fromCharCode(...data));
@@ -25,6 +27,21 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
   copy.set(data);
   return copy.buffer;
 }
+
+const billingCapabilities = {
+  "billing.refund": {
+    displayName: "Refund billing",
+    description: "Start billing refund operations.",
+  },
+  "billing.read": {
+    displayName: "Read billing",
+    description: "Read billing refund operations.",
+  },
+  "billing.cancel": {
+    displayName: "Cancel billing",
+    description: "Cancel billing refund operations.",
+  },
+} as const;
 
 async function createTestAuth(): Promise<
   { auth: TrellisAuth; inboxPrefix: string }
@@ -69,8 +86,11 @@ const billing = defineServiceContract(
     id: "trellis.billing.attach-test@v1",
     displayName: "Billing Attach Test",
     description: "Exercise operations attach() over NATS.",
+    capabilities: billingCapabilities,
     uses: {
-      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+      required: {
+        auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+      },
     },
     operations: {
       "Billing.Refund": {
@@ -97,8 +117,16 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error("condition was not met");
+}
+
 function startPermissiveAuthResponder(
-  nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"],
+  nc: NatsConnection,
 ): void {
   const sub = nc.subscribe("rpc.v1.Auth.Requests.Validate");
   void (async () => {
@@ -110,9 +138,7 @@ function startPermissiveAuthResponder(
         caller: {
           type: "user",
           participantKind: "app",
-          id: "auth0|test-user",
-          trellisId: "tid_test_user",
-          origin: "test",
+          userId: "test-user-123",
           active: true,
           name: "Test User",
           email: "test@example.com",
@@ -122,41 +148,57 @@ function startPermissiveAuthResponder(
             "billing.cancel",
             "service",
           ],
+          identity: {
+            identityId: "test-identity-123",
+            provider: "test",
+            subject: "test-subject-123",
+          },
         },
       }));
     }
   })();
 }
 
+async function createAttachTestRuntime() {
+  const createConnection = createRoutedNatsConnections();
+  const authNc = createConnection();
+  startPermissiveAuthResponder(authNc);
+  const { auth } = await createTestAuth();
+  const serverNc = createConnection();
+  const clientNc = createConnection();
+  const server = TrellisServiceRuntime.create(
+    "billing-server",
+    serverNc,
+    auth,
+    { api: billing.API.trellis },
+  );
+  const operationRecords = new Map<string, DurableOperationRecord>();
+  server.saveOperationRecord = async (runtime: RuntimeOperationRecord) => {
+    operationRecords.set(runtime.id, {
+      ownerSessionKey: runtime.ownerSessionKey,
+      sequence: runtime.sequence,
+      signalSequence: runtime.signalSequence,
+      signals: structuredClone(runtime.signals),
+      snapshot: structuredClone(runtime.snapshot),
+    });
+  };
+  server.loadOperationRecord = async (operationId: string) => {
+    return operationRecords.get(operationId) ?? null;
+  };
+  const client = createClient(billing, clientNc, auth, {
+    name: "attach-client",
+  });
+  return { server, client, clientNc, authNc };
+}
+
 Deno.test({
   name: "Operation attach waits for job completion",
-  ignore: !RUN_NATS_TESTS,
   async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const { auth, inboxPrefix } = await createTestAuth();
-    const info = nats.nc.info!;
-
-    const serverNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-    const clientNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-
-    const server = TrellisServiceRuntime.create(
-      "billing-server",
-      serverNc,
-      auth,
-      { api: billing.API.trellis },
-    );
-    const client = createClient(billing, clientNc, auth, {
-      name: "attach-client",
-    });
+    const { server, client, clientNc, authNc } =
+      await createAttachTestRuntime();
 
     const jobDone = deferred();
+    let jobWaitStarted = false;
 
     await server.operation("Billing.Refund").handle(async ({ input, op }) => {
       assertEquals(input.chargeId, "ch_123");
@@ -167,17 +209,14 @@ Deno.test({
         type: "submit-refund",
         wait: () =>
           AsyncResult.from((async () => {
+            await server.operations.started(op.id);
+            await server.operations.progress(op.id, { message: "working" });
+            jobWaitStarted = true;
             await jobDone.promise;
+            await server.operations.complete(op.id, { refundId: "rf_123" });
             return ok(undefined);
           })()),
       };
-
-      void (async () => {
-        await server.operations.started(op.id);
-        await server.operations.progress(op.id, { message: "working" });
-        await server.operations.complete(op.id, { refundId: "rf_123" });
-        jobDone.resolve();
-      })();
 
       return await op.attach(job);
     });
@@ -192,6 +231,13 @@ Deno.test({
         },
       });
       assertExists(ref);
+
+      await waitUntil(() => jobWaitStarted);
+      const running = await ref.get().orThrow();
+      assertEquals(running.state, "running");
+      assertEquals(running.progress, { message: "working" });
+
+      jobDone.resolve();
 
       const terminal = await ref.wait().match({
         ok: (value) => value,
@@ -212,6 +258,7 @@ Deno.test({
     } finally {
       await server.stop();
       await clientNc.drain();
+      await authNc.drain();
     }
   },
 });

@@ -24,6 +24,11 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
         trellis_contracts::use_contract("trellis.core@v1")
             .with_rpc_call(["Trellis.Bindings.Get", "Trellis.Catalog"]),
     )
+    .use_ref(
+        "auth",
+        trellis_contracts::use_contract("trellis.auth@v1")
+            .with_rpc_call(["Auth.Requests.Validate"]),
+    )
     .capability(
         READ_CAPABILITY,
         ContractCapabilityMetadata {

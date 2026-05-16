@@ -83,7 +83,7 @@ print the event paths plus the watch decision and reason.
 
 Rust contributors should run `cargo xtask prepare` before `cargo build` or
 `cargo install --path rust/crates/cli`, because the Rust workspace depends on
-generated SDK crates under `generated/rust/sdks/`. `cargo xtask build` is a
+generated SDK crates under `generated/packages/cargo/`. `cargo xtask build` is a
 convenience wrapper that runs `prepare` first and then invokes `cargo build`.
 
 `trellis-generate` still owns the explicit source-to-artifact interface for repo
@@ -91,12 +91,13 @@ scripts, wrappers, and CI:
 
 ```text
 trellis-generate
-trellis-generate prepare [--watch [--changes]] [path]
+trellis-generate prepare [--targets manifest,jsr,npm,cargo] [--no-npm] [--watch [--changes]] [path]
 trellis-generate discover <path>
 trellis-generate generate manifest (--source <file> | --manifest <file> | --image <ref>) --out <file>
-trellis-generate generate ts (--source <file> | --manifest <file> | --image <ref>) --out <dir>
-trellis-generate generate rust (--source <file> | --manifest <file> | --image <ref>) --out <dir>
-trellis-generate generate all (--source <file> | --manifest <file> | --image <ref>) --out-manifest <file> [--ts-out <dir>] [--rust-out <dir>]
+trellis-generate generate jsr (--source <file> | --manifest <file> | --image <ref>) --out <dir>
+trellis-generate generate npm (--source <file> | --manifest <file> | --image <ref>) --out <dir>
+trellis-generate generate cargo (--source <file> | --manifest <file> | --image <ref>) --out <dir>
+trellis-generate generate all (--source <file> | --manifest <file> | --image <ref>) --out-manifest <file> [--jsr-out <dir>] [--npm-out <dir>] [--cargo-out <dir>]
 trellis-generate self check [--prerelease]
 trellis-generate self update [--prerelease]
 ```
@@ -107,13 +108,14 @@ These commands:
   images
 - validate canonical manifests against `trellis.contract.v1`
 - compute canonical JSON and digests
-- generate language SDKs from the resolved contract inputs
-- preserve the current TypeScript generated surface where practical
-- generate Rust SDK crates that target `trellis-client` and `trellis-service`
+- generate package-manager-specific SDK artifacts from the resolved contract inputs
+- preserve the current JSR TypeScript generated surface where practical
+- generate npm JavaScript packages from the JSR package model
+- generate Cargo SDK crates that target `trellis-client` and `trellis-service`
 - use required contract `kind` metadata to decide discovery behavior: `service`
-  generates manifest, TypeScript SDK, and Rust SDK artifacts; `app` generates
-  manifest and TypeScript SDK artifacts; `agent` and `device` contracts are
-  verified only
+  generates manifest, JSR, npm, and Cargo artifacts; `app` generates manifest,
+  JSR, and npm artifacts; `agent` and `device` contracts are verified, with Rust
+  participant facades generated where applicable
 - when omitted, `prepare [path]` defaults to the current working directory
 - discovery uses configured package/workspace entries and explicit contract
   source inputs; it does not implicitly scan `src/lib` for contracts

@@ -24,8 +24,9 @@ fn run_cli(cli: Cli) -> miette::Result<()> {
         Some(TopLevelCommand::Discover(args)) => discover::discover(&args, cli.force),
         Some(TopLevelCommand::Generate(command)) => match command.command {
             GenerateSubcommand::Manifest(args) => generate::manifest(&args),
-            GenerateSubcommand::Ts(args) => generate::ts_sdk(&args),
-            GenerateSubcommand::Rust(args) => generate::rust_sdk(&args),
+            GenerateSubcommand::Jsr(args) => generate::jsr_package(&args),
+            GenerateSubcommand::Npm(args) => generate::npm_package(&args),
+            GenerateSubcommand::Cargo(args) => generate::cargo_package(&args),
             GenerateSubcommand::All(args) => generate::all(&args, cli.force),
         },
         Some(TopLevelCommand::Self_(command)) => self_command(command),

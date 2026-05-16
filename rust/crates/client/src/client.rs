@@ -18,7 +18,10 @@ use crate::proof::now_iat_seconds;
 use crate::transfer::{
     get_download_grant, put_upload_grant, DownloadTransferGrant, FileInfo, UploadTransferGrant,
 };
-use crate::{EventDescriptor, FeedDescriptor, RpcDescriptor, SessionAuth, TrellisClientError};
+use crate::{
+    EventDescriptor, FeedDescriptor, RpcDescriptor, RpcErrorPayload, SessionAuth,
+    TrellisClientError,
+};
 
 const HEALTH_HEARTBEAT_SUBJECT: &str = "events.v1.Health.Heartbeat";
 const HEALTH_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
@@ -33,6 +36,18 @@ pub struct ServiceConnectOptions<'a> {
     pub contract_digest: &'a str,
     pub session_key_seed_base64url: &'a str,
     pub timeout_ms: u64,
+}
+
+/// Connection options for a Trellis service that can present its contract manifest during bootstrap.
+pub struct ServiceConnectWithContractOptions<'a> {
+    pub trellis_url: &'a str,
+    pub contract_id: &'a str,
+    pub contract_digest: &'a str,
+    pub contract_json: &'a str,
+    pub session_key_seed_base64url: &'a str,
+    pub timeout_ms: u64,
+    pub retry_delay_ms: u64,
+    pub approval_timeout_ms: u64,
 }
 
 /// Connection options for an activated device principal.
@@ -50,6 +65,8 @@ struct ServiceBootstrapRequest<'a> {
     session_key: &'a str,
     contract_id: &'a str,
     contract_digest: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    contract: Option<&'a Value>,
     iat: u64,
     sig: String,
 }
@@ -74,6 +91,17 @@ struct ServiceBootstrapFailure {
 struct ServiceBootstrapResult {
     response: ServiceBootstrapResponse,
     iat_clock: IatClock,
+}
+
+#[derive(Debug)]
+struct ServiceBootstrapFetchOptions<'a> {
+    trellis_url: &'a str,
+    contract_id: &'a str,
+    contract_digest: &'a str,
+    contract: Option<&'a Value>,
+    timeout_ms: u64,
+    retry_delay_ms: Option<u64>,
+    approval_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -259,12 +287,14 @@ fn build_service_bootstrap_request<'a>(
     auth: &'a SessionAuth,
     contract_id: &'a str,
     contract_digest: &'a str,
+    contract: Option<&'a Value>,
     iat: u64,
 ) -> ServiceBootstrapRequest<'a> {
     ServiceBootstrapRequest {
         session_key: &auth.session_key,
         contract_id,
         contract_digest,
+        contract,
         iat,
         sig: auth.sign_sha256_domain("nats-connect", &format!("{iat}:{contract_digest}")),
     }
@@ -273,6 +303,45 @@ fn build_service_bootstrap_request<'a>(
 async fn fetch_service_bootstrap(
     auth: &SessionAuth,
     opts: &ServiceConnectOptions<'_>,
+) -> Result<ServiceBootstrapResult, TrellisClientError> {
+    fetch_service_bootstrap_inner(
+        auth,
+        &ServiceBootstrapFetchOptions {
+            trellis_url: opts.trellis_url,
+            contract_id: opts.contract_id,
+            contract_digest: opts.contract_digest,
+            contract: None,
+            timeout_ms: opts.timeout_ms,
+            retry_delay_ms: None,
+            approval_timeout_ms: None,
+        },
+    )
+    .await
+}
+
+async fn fetch_service_bootstrap_with_contract(
+    auth: &SessionAuth,
+    opts: &ServiceConnectWithContractOptions<'_>,
+    contract: &Value,
+) -> Result<ServiceBootstrapResult, TrellisClientError> {
+    fetch_service_bootstrap_inner(
+        auth,
+        &ServiceBootstrapFetchOptions {
+            trellis_url: opts.trellis_url,
+            contract_id: opts.contract_id,
+            contract_digest: opts.contract_digest,
+            contract: Some(contract),
+            timeout_ms: opts.timeout_ms,
+            retry_delay_ms: Some(opts.retry_delay_ms),
+            approval_timeout_ms: Some(opts.approval_timeout_ms),
+        },
+    )
+    .await
+}
+
+async fn fetch_service_bootstrap_inner(
+    auth: &SessionAuth,
+    opts: &ServiceBootstrapFetchOptions<'_>,
 ) -> Result<ServiceBootstrapResult, TrellisClientError> {
     let mut url = reqwest::Url::parse(opts.trellis_url)
         .map_err(|error| TrellisClientError::Bootstrap(error.to_string()))?;
@@ -286,12 +355,18 @@ async fn fetch_service_bootstrap(
         .map_err(|error| TrellisClientError::Bootstrap(error.to_string()))?;
     let mut iat_clock = IatClock::default();
 
-    for attempt in 0..2 {
+    let mut include_contract = false;
+    let mut adjusted_iat = false;
+    let approval_deadline = opts.approval_timeout_ms.map(|timeout_ms| {
+        tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms)
+    });
+    loop {
         let request_started_at = now_iat_seconds();
         let request = build_service_bootstrap_request(
             auth,
             opts.contract_id,
             opts.contract_digest,
+            include_contract.then_some(()).and(opts.contract),
             iat_clock.current_iat(),
         );
         let response = client
@@ -307,17 +382,47 @@ async fn fetch_service_bootstrap(
             .map_err(|error| TrellisClientError::Bootstrap(error.to_string()))?;
         let request_ended_at = now_iat_seconds();
 
-        if !status.is_success() {
-            if attempt == 0
-                && adjust_iat_after_out_of_range(
-                    &body,
-                    &mut iat_clock,
-                    request_started_at,
-                    request_ended_at,
-                )
+        if let Ok(failure) = serde_json::from_str::<ServiceBootstrapFailure>(&body) {
+            if failure.reason == "iat_out_of_range" {
+                if !adjusted_iat
+                    && adjust_iat_after_out_of_range(
+                        &body,
+                        &mut iat_clock,
+                        request_started_at,
+                        request_ended_at,
+                    )
+                {
+                    adjusted_iat = true;
+                    continue;
+                }
+            } else if failure.reason == "manifest_required"
+                && opts.contract.is_some()
+                && !include_contract
             {
+                include_contract = true;
+                continue;
+            } else if failure.reason == "envelope_expansion_required" && opts.contract.is_some() {
+                include_contract = true;
+                let retry_delay =
+                    std::time::Duration::from_millis(opts.retry_delay_ms.unwrap_or(1_000).max(1));
+                if let Some(deadline) = approval_deadline {
+                    let now = tokio::time::Instant::now();
+                    if now >= deadline {
+                        return Err(TrellisClientError::Bootstrap(
+                            "timed out waiting for service bootstrap envelope expansion approval"
+                                .into(),
+                        ));
+                    }
+                    tokio::time::sleep(retry_delay.min(deadline.saturating_duration_since(now)))
+                        .await;
+                } else {
+                    tokio::time::sleep(retry_delay).await;
+                }
                 continue;
             }
+        }
+
+        if !status.is_success() {
             return Err(TrellisClientError::BootstrapHttp {
                 status: status.as_u16(),
                 body,
@@ -333,8 +438,6 @@ async fn fetch_service_bootstrap(
             iat_clock,
         });
     }
-
-    unreachable!("service bootstrap retry loop is bounded")
 }
 
 fn adjust_iat_after_out_of_range(
@@ -570,6 +673,95 @@ fn spawn_health_heartbeat_task(
     })
 }
 
+async fn connect_bootstrapped_service(
+    auth: SessionAuth,
+    session_key_seed_base64url: &str,
+    contract_id: &str,
+    contract_digest: &str,
+    timeout_ms: u64,
+    bootstrap_result: ServiceBootstrapResult,
+) -> Result<TrellisClient, TrellisClientError> {
+    let bootstrap = bootstrap_result.response;
+    let iat_clock = bootstrap_result.iat_clock;
+    validate_service_bootstrap_contract_digest(
+        contract_digest,
+        &bootstrap.connect_info.contract_digest,
+    )?;
+    let native = bootstrap
+        .connect_info
+        .transports
+        .native
+        .ok_or_else(|| TrellisClientError::Bootstrap("missing native NATS transport".into()))?;
+    if native.nats_servers.is_empty() {
+        return Err(TrellisClientError::Bootstrap(
+            "native NATS transport has no servers".into(),
+        ));
+    }
+    if bootstrap.status != "ready" {
+        return Err(TrellisClientError::Bootstrap(format!(
+            "unexpected service bootstrap status '{}'",
+            bootstrap.status
+        )));
+    }
+    let service_bootstrap_binding = Some(bootstrap.binding);
+    let inbox_prefix = auth.inbox_prefix();
+    let callback_auth = std::sync::Arc::new(SessionAuth::from_seed_base64url(
+        session_key_seed_base64url,
+    )?);
+    let key_pair = std::sync::Arc::new(
+        KeyPair::from_seed(&bootstrap.connect_info.transport.sentinel.seed)
+            .map_err(|error| TrellisClientError::NatsConnect(error.to_string()))?,
+    );
+    let sentinel_jwt = bootstrap.connect_info.transport.sentinel.jwt;
+    let callback_contract_digest = bootstrap.connect_info.contract_digest;
+
+    let nats = ConnectOptions::with_auth_callback(move |nonce| {
+        let auth = callback_auth.clone();
+        let key_pair = key_pair.clone();
+        let sentinel_jwt = sentinel_jwt.clone();
+        let contract_digest = callback_contract_digest.clone();
+        async move {
+            let mut credentials = async_nats::Auth::new();
+            credentials.jwt = Some(sentinel_jwt);
+            credentials.signature = Some(key_pair.sign(&nonce).map_err(async_nats::AuthError::new)?);
+            credentials.token = Some(auth.nats_connect_token(iat_clock.current_iat(), &contract_digest));
+            Ok(credentials)
+        }
+    })
+    .custom_inbox_prefix(inbox_prefix)
+    .connect(native.nats_servers)
+    .await
+    .map_err(|error| {
+        TrellisClientError::NatsConnect(format!(
+            "service runtime connect failed for contract '{contract_id}' digest '{contract_digest}': {error}"
+        ))
+    })?;
+
+    let health_heartbeat_config = HealthHeartbeatConfig {
+        service_name: contract_id.to_string(),
+        kind: HealthHeartbeatServiceKind::Service,
+        instance_id: new_service_instance_id(),
+        contract_id: contract_id.to_string(),
+        contract_digest: contract_digest.to_string(),
+        started_at: now_rfc3339(),
+        publish_interval_ms: HEALTH_HEARTBEAT_INTERVAL_MS,
+        info: None,
+    };
+    publish_health_heartbeat(&nats, &health_heartbeat_config).await;
+    let health_heartbeat_task = Some(spawn_health_heartbeat_task(
+        nats.clone(),
+        health_heartbeat_config,
+    ));
+
+    Ok(TrellisClient {
+        nats,
+        auth,
+        timeout_ms,
+        service_bootstrap_binding,
+        health_heartbeat_task,
+    })
+}
+
 /// Connection options for a user/session-key principal.
 pub struct UserConnectOptions<'a> {
     pub servers: &'a str,
@@ -627,87 +819,34 @@ impl TrellisClient {
     ) -> Result<Self, TrellisClientError> {
         let auth = SessionAuth::from_seed_base64url(opts.session_key_seed_base64url)?;
         let bootstrap_result = fetch_service_bootstrap(&auth, &opts).await?;
-        let bootstrap = bootstrap_result.response;
-        let iat_clock = bootstrap_result.iat_clock;
-        validate_service_bootstrap_contract_digest(
-            opts.contract_digest,
-            &bootstrap.connect_info.contract_digest,
-        )?;
-        let native =
-            bootstrap.connect_info.transports.native.ok_or_else(|| {
-                TrellisClientError::Bootstrap("missing native NATS transport".into())
-            })?;
-        if native.nats_servers.is_empty() {
-            return Err(TrellisClientError::Bootstrap(
-                "native NATS transport has no servers".into(),
-            ));
-        }
-        if bootstrap.status != "ready" {
-            return Err(TrellisClientError::Bootstrap(format!(
-                "unexpected service bootstrap status '{}'",
-                bootstrap.status
-            )));
-        }
-        let service_bootstrap_binding = Some(bootstrap.binding);
-        let inbox_prefix = auth.inbox_prefix();
-        let callback_auth = std::sync::Arc::new(SessionAuth::from_seed_base64url(
-            opts.session_key_seed_base64url,
-        )?);
-        let key_pair = std::sync::Arc::new(
-            KeyPair::from_seed(&bootstrap.connect_info.transport.sentinel.seed)
-                .map_err(|error| TrellisClientError::NatsConnect(error.to_string()))?,
-        );
-        let sentinel_jwt = bootstrap.connect_info.transport.sentinel.jwt;
-        let contract_digest = bootstrap.connect_info.contract_digest;
-
-        let nats = ConnectOptions::with_auth_callback(move |nonce| {
-            let auth = callback_auth.clone();
-            let key_pair = key_pair.clone();
-            let sentinel_jwt = sentinel_jwt.clone();
-            let contract_digest = contract_digest.clone();
-            async move {
-                let mut credentials = async_nats::Auth::new();
-                credentials.jwt = Some(sentinel_jwt);
-                credentials.signature =
-                    Some(key_pair.sign(&nonce).map_err(async_nats::AuthError::new)?);
-                credentials.token =
-                    Some(auth.nats_connect_token(iat_clock.current_iat(), &contract_digest));
-                Ok(credentials)
-            }
-        })
-        .custom_inbox_prefix(inbox_prefix)
-        .connect(native.nats_servers)
-        .await
-        .map_err(|error| {
-            TrellisClientError::NatsConnect(format!(
-                "service runtime connect failed for contract '{}' digest '{}': {error}",
-                opts.contract_id, opts.contract_digest
-            ))
-        })?;
-
-        let health_heartbeat_config = HealthHeartbeatConfig {
-            service_name: opts.contract_id.to_string(),
-            kind: HealthHeartbeatServiceKind::Service,
-            instance_id: new_service_instance_id(),
-            contract_id: opts.contract_id.to_string(),
-            contract_digest: opts.contract_digest.to_string(),
-            started_at: now_rfc3339(),
-            publish_interval_ms: HEALTH_HEARTBEAT_INTERVAL_MS,
-            info: None,
-        };
-        publish_health_heartbeat(&nats, &health_heartbeat_config).await;
-        let health_heartbeat_task = Some(spawn_health_heartbeat_task(
-            nats.clone(),
-            health_heartbeat_config,
-        ));
-
-        Ok(Self {
-            nats,
+        connect_bootstrapped_service(
             auth,
-            timeout_ms: opts.timeout_ms,
-            service_bootstrap_binding,
-            health_heartbeat_task,
-        })
+            opts.session_key_seed_base64url,
+            opts.contract_id,
+            opts.contract_digest,
+            opts.timeout_ms,
+            bootstrap_result,
+        )
+        .await
+    }
+
+    /// Connect using service bootstrap, presenting the contract manifest and waiting while approval is pending.
+    pub async fn connect_service_with_contract(
+        opts: ServiceConnectWithContractOptions<'_>,
+    ) -> Result<Self, TrellisClientError> {
+        let auth = SessionAuth::from_seed_base64url(opts.session_key_seed_base64url)?;
+        let contract = serde_json::from_str(opts.contract_json)?;
+        let bootstrap_result =
+            fetch_service_bootstrap_with_contract(&auth, &opts, &contract).await?;
+        connect_bootstrapped_service(
+            auth,
+            opts.session_key_seed_base64url,
+            opts.contract_id,
+            opts.contract_digest,
+            opts.timeout_ms,
+            bootstrap_result,
+        )
+        .await
     }
 
     /// Connect an activated device using refreshed auth-owned connect info.
@@ -1148,8 +1287,9 @@ fn decode_json_message(message: async_nats::Message) -> Result<Value, TrellisCli
             .get("status")
             .is_some_and(|status| status.as_str() == "error")
         {
-            let value: Value = serde_json::from_slice(&message.payload)?;
-            return Err(TrellisClientError::RpcError(value.to_string()));
+            return Err(TrellisClientError::RpcError(
+                RpcErrorPayload::from_json_slice(&message.payload)?,
+            ));
         }
     }
 
@@ -1181,8 +1321,9 @@ where
             .get("status")
             .is_some_and(|status| status.as_str() == "error")
         {
-            let value: Value = serde_json::from_slice(payload)?;
-            return Err(TrellisClientError::RpcError(value.to_string()));
+            return Err(TrellisClientError::RpcError(
+                RpcErrorPayload::from_json_slice(payload)?,
+            ));
         }
         if headers
             .get("feed-status")
@@ -1742,6 +1883,33 @@ mod tests {
             .expect("write response");
     }
 
+    async fn write_ready_service_bootstrap(stream: &mut TcpStream) {
+        write_json_http_response(
+            stream,
+            "200 OK",
+            json!({
+                "status": "ready",
+                "connectInfo": {
+                    "contractDigest": "digest-alpha",
+                    "transports": {
+                        "native": {
+                            "natsServers": ["127.0.0.1:4222"]
+                        }
+                    },
+                    "transport": {
+                        "sentinel": {
+                            "jwt": "sentinel.jwt",
+                            "seed": "unused-by-fetch"
+                        }
+                    }
+                },
+                "binding": {},
+                "serverNow": now_iat_seconds()
+            }),
+        )
+        .await;
+    }
+
     #[test]
     fn service_bootstrap_request_uses_iat_contract_digest_signature() {
         let auth = SessionAuth::from_seed_base64url("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")
@@ -1750,6 +1918,7 @@ mod tests {
             &auth,
             "trellis.jobs@v1",
             "digest-alpha",
+            None,
             1_735_689_600,
         );
 
@@ -1873,6 +2042,199 @@ mod tests {
             auth.sign_sha256_domain("nats-connect", &format!("{second_iat}:digest-alpha"))
         );
         assert!(result.iat_clock.current_iat().abs_diff(server_now) <= 1);
+    }
+
+    #[tokio::test]
+    async fn service_bootstrap_retries_with_manifest_when_manifest_required() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind bootstrap server");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let server_task = tokio::spawn(async move {
+            let (mut first, _) = listener.accept().await.expect("first bootstrap request");
+            let first_request = read_json_http_request(&mut first).await;
+            write_json_http_response(
+                &mut first,
+                "409 Conflict",
+                json!({ "reason": "manifest_required" }),
+            )
+            .await;
+
+            let (mut second, _) = listener.accept().await.expect("second bootstrap request");
+            let second_request = read_json_http_request(&mut second).await;
+            write_ready_service_bootstrap(&mut second).await;
+            (first_request, second_request)
+        });
+        let auth = SessionAuth::from_seed_base64url("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")
+            .expect("session auth");
+        let opts = ServiceConnectWithContractOptions {
+            trellis_url: &url,
+            contract_id: "trellis.jobs@v1",
+            contract_digest: "digest-alpha",
+            contract_json: r#"{"id":"trellis.jobs@v1"}"#,
+            session_key_seed_base64url: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+            timeout_ms: 2_000,
+            retry_delay_ms: 1,
+            approval_timeout_ms: 2_000,
+        };
+        let contract: Value = serde_json::from_str(opts.contract_json).expect("contract json");
+
+        fetch_service_bootstrap_with_contract(&auth, &opts, &contract)
+            .await
+            .expect("bootstrap retry succeeds");
+        let (first_request, second_request) = server_task.await.expect("server task");
+
+        assert!(first_request.get("contract").is_none());
+        assert_eq!(
+            second_request["contract"],
+            json!({ "id": "trellis.jobs@v1" })
+        );
+    }
+
+    #[tokio::test]
+    async fn service_bootstrap_returns_error_when_manifest_remains_required() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind bootstrap server");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let server_task = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().await.expect("bootstrap request");
+                let _request = read_json_http_request(&mut stream).await;
+                write_json_http_response(
+                    &mut stream,
+                    "409 Conflict",
+                    json!({ "reason": "manifest_required" }),
+                )
+                .await;
+            }
+        });
+        let auth = SessionAuth::from_seed_base64url("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")
+            .expect("session auth");
+        let opts = ServiceConnectWithContractOptions {
+            trellis_url: &url,
+            contract_id: "trellis.jobs@v1",
+            contract_digest: "digest-alpha",
+            contract_json: r#"{"id":"trellis.jobs@v1"}"#,
+            session_key_seed_base64url: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+            timeout_ms: 2_000,
+            retry_delay_ms: 1,
+            approval_timeout_ms: 2_000,
+        };
+        let contract: Value = serde_json::from_str(opts.contract_json).expect("contract json");
+
+        let error = fetch_service_bootstrap_with_contract(&auth, &opts, &contract)
+            .await
+            .expect_err("repeated manifest_required should fail");
+        server_task.await.expect("server task");
+
+        match error {
+            TrellisClientError::BootstrapHttp { status, body } => {
+                assert_eq!(status, 409);
+                assert!(body.contains("manifest_required"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn service_bootstrap_waits_for_envelope_expansion_approval() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind bootstrap server");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let server_task = tokio::spawn(async move {
+            let (mut first, _) = listener.accept().await.expect("first bootstrap request");
+            let first_request = read_json_http_request(&mut first).await;
+            write_json_http_response(
+                &mut first,
+                "202 Accepted",
+                json!({ "reason": "envelope_expansion_required" }),
+            )
+            .await;
+
+            let (mut second, _) = listener.accept().await.expect("second bootstrap request");
+            let second_request = read_json_http_request(&mut second).await;
+            write_ready_service_bootstrap(&mut second).await;
+            (first_request, second_request)
+        });
+        let auth = SessionAuth::from_seed_base64url("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")
+            .expect("session auth");
+        let opts = ServiceConnectWithContractOptions {
+            trellis_url: &url,
+            contract_id: "trellis.jobs@v1",
+            contract_digest: "digest-alpha",
+            contract_json: r#"{"id":"trellis.jobs@v1"}"#,
+            session_key_seed_base64url: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+            timeout_ms: 2_000,
+            retry_delay_ms: 1,
+            approval_timeout_ms: 2_000,
+        };
+        let contract: Value = serde_json::from_str(opts.contract_json).expect("contract json");
+
+        fetch_service_bootstrap_with_contract(&auth, &opts, &contract)
+            .await
+            .expect("bootstrap retry succeeds");
+        let (first_request, second_request) = server_task.await.expect("server task");
+
+        assert!(first_request.get("contract").is_none());
+        assert_eq!(
+            second_request["contract"],
+            json!({ "id": "trellis.jobs@v1" })
+        );
+    }
+
+    #[tokio::test]
+    async fn service_bootstrap_times_out_waiting_for_envelope_expansion() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind bootstrap server");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let server_task = tokio::spawn(async move {
+            let mut request_count = 0;
+            loop {
+                let Ok(Ok((mut stream, _))) =
+                    tokio::time::timeout(std::time::Duration::from_millis(100), listener.accept())
+                        .await
+                else {
+                    break request_count;
+                };
+                request_count += 1;
+                let _request = read_json_http_request(&mut stream).await;
+                write_json_http_response(
+                    &mut stream,
+                    "202 Accepted",
+                    json!({ "reason": "envelope_expansion_required" }),
+                )
+                .await;
+            }
+        });
+        let auth = SessionAuth::from_seed_base64url("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")
+            .expect("session auth");
+        let opts = ServiceConnectWithContractOptions {
+            trellis_url: &url,
+            contract_id: "trellis.jobs@v1",
+            contract_digest: "digest-alpha",
+            contract_json: r#"{"id":"trellis.jobs@v1"}"#,
+            session_key_seed_base64url: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+            timeout_ms: 2_000,
+            retry_delay_ms: 1,
+            approval_timeout_ms: 5,
+        };
+        let contract: Value = serde_json::from_str(opts.contract_json).expect("contract json");
+
+        let error = fetch_service_bootstrap_with_contract(&auth, &opts, &contract)
+            .await
+            .expect_err("pending approval should time out");
+        let request_count = server_task.await.expect("server task");
+
+        match error {
+            TrellisClientError::Bootstrap(message) => {
+                assert!(message.contains("timed out waiting"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        assert!(request_count >= 1);
     }
 
     #[tokio::test]

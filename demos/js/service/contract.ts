@@ -126,9 +126,9 @@ export const contract = defineServiceContract(
       },
     },
     events: {
-      "Activity.Recorded": {
+      "Audit.Recorded": {
         version: "v1",
-        event: ref.schema("ActivityRecordedEvent"),
+        event: ref.schema("AuditRecordedEvent"),
       },
       "Reports.Published": {
         version: "v1",
@@ -144,7 +144,7 @@ export const contract = defineServiceContract(
       },
     },
     feeds: {
-      "Activity.Live": {
+      "Audit.Feed": {
         version: "v1",
         input: ref.schema("ActivityLiveFeedRequest"),
         event: ref.schema("ActivityLiveFeedEvent"),

@@ -1,5 +1,79 @@
 use serde_json::Value;
 
+/// Structured payload returned by a remote RPC error response.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RpcErrorPayload {
+    raw: String,
+    value: Option<Value>,
+}
+
+impl RpcErrorPayload {
+    /// Builds a payload from a raw JSON RPC error body.
+    pub fn from_json_slice(raw: &[u8]) -> Result<Self, serde_json::Error> {
+        let value = serde_json::from_slice::<Value>(raw)?;
+        Ok(Self {
+            raw: String::from_utf8_lossy(raw).into_owned(),
+            value: Some(value),
+        })
+    }
+
+    /// Builds a payload from a decoded JSON RPC error body.
+    pub fn from_value(value: Value) -> Self {
+        Self {
+            raw: value.to_string(),
+            value: Some(value),
+        }
+    }
+
+    /// Builds a payload from an unstructured error message.
+    pub fn from_message(message: impl Into<String>) -> Self {
+        Self {
+            raw: message.into(),
+            value: None,
+        }
+    }
+
+    /// Returns the original payload text.
+    pub fn raw(&self) -> &str {
+        &self.raw
+    }
+
+    /// Returns the decoded JSON payload when the RPC error body was structured.
+    pub fn value(&self) -> Option<&Value> {
+        self.value.as_ref()
+    }
+
+    /// Returns the remote error discriminator when present.
+    pub fn error_type(&self) -> Option<&str> {
+        self.value
+            .as_ref()
+            .and_then(|value| value.get("type"))
+            .and_then(Value::as_str)
+    }
+
+    /// Decode this payload as a declared RPC error when its discriminator matches.
+    pub fn decode_declared<T>(&self, error_type: &str) -> Result<Option<T>, serde_json::Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let Some(value) = self.value.as_ref() else {
+            return Ok(None);
+        };
+        if self.error_type() != Some(error_type) {
+            return Ok(None);
+        }
+        serde_json::from_value(value.clone()).map(Some)
+    }
+
+    fn format_human(&self) -> String {
+        if let Some(value) = &self.value {
+            format_rpc_error_value(value, &self.raw)
+        } else {
+            self.raw.clone()
+        }
+    }
+}
+
 fn format_json_value(value: &Value) -> String {
     match value {
         Value::String(value) => value.clone(),
@@ -45,11 +119,7 @@ fn format_context(value: &Value) -> Option<String> {
     }
 }
 
-fn format_rpc_error_payload(raw: &str) -> String {
-    let Ok(value) = serde_json::from_str::<Value>(raw) else {
-        return raw.to_string();
-    };
-
+fn format_rpc_error_value(value: &Value, raw: &str) -> String {
     let issues = value
         .get("issues")
         .and_then(Value::as_array)
@@ -76,6 +146,15 @@ fn format_rpc_error_payload(raw: &str) -> String {
     }
 
     message
+}
+
+#[cfg(test)]
+fn format_rpc_error_payload(raw: &str) -> String {
+    let Ok(value) = serde_json::from_str::<Value>(raw) else {
+        return raw.to_string();
+    };
+
+    format_rpc_error_value(&value, raw)
 }
 
 fn format_bootstrap_http_payload(raw: &str) -> String {
@@ -144,8 +223,8 @@ pub enum TrellisClientError {
     #[error("invalid json: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("rpc returned error: {}", format_rpc_error_payload(.0))]
-    RpcError(String),
+    #[error("rpc returned error: {}", .0.format_human())]
+    RpcError(RpcErrorPayload),
 
     #[error("operation protocol error: {0}")]
     OperationProtocol(String),
@@ -156,7 +235,7 @@ pub enum TrellisClientError {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_bootstrap_http_payload, format_rpc_error_payload};
+    use super::{format_bootstrap_http_payload, format_rpc_error_payload, RpcErrorPayload};
 
     #[test]
     fn formats_validation_error_payload_human_readably() {
@@ -170,6 +249,57 @@ mod tests {
     #[test]
     fn leaves_non_json_payloads_unchanged() {
         assert_eq!(format_rpc_error_payload("plain error"), "plain error");
+    }
+
+    #[test]
+    fn rpc_error_payload_preserves_structured_error_type() {
+        let raw = r#"{"type":"UnexpectedError","message":"rust handler error marker"}"#;
+        let payload = RpcErrorPayload::from_json_slice(raw.as_bytes()).unwrap();
+
+        assert_eq!(payload.raw(), raw);
+        assert_eq!(payload.error_type(), Some("UnexpectedError"));
+    }
+
+    #[test]
+    fn rpc_error_payload_decodes_matching_declared_error() {
+        #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
+        struct NotFoundError {
+            resource: String,
+        }
+
+        let raw = r#"{"id":"err-1","type":"NotFoundError","message":"Workspace not found","resource":"Workspace"}"#;
+        let payload = RpcErrorPayload::from_json_slice(raw.as_bytes()).unwrap();
+
+        assert_eq!(
+            payload
+                .decode_declared::<NotFoundError>("NotFoundError")
+                .unwrap(),
+            Some(NotFoundError {
+                resource: "Workspace".to_string()
+            })
+        );
+        assert_eq!(
+            payload
+                .decode_declared::<NotFoundError>("OtherError")
+                .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn rpc_error_display_uses_formatted_payload() {
+        let error =
+            super::TrellisClientError::RpcError(RpcErrorPayload::from_value(serde_json::json!({
+                "context": { "deploymentId": "demo" },
+                "issues": [{ "message": "service deployment not found", "path": "/deploymentId" }],
+                "message": "Validation failed. /deploymentId: service deployment not found.",
+                "type": "ValidationError"
+            })));
+
+        assert_eq!(
+            error.to_string(),
+            "rpc returned error: deploymentId: service deployment not found (deploymentId=demo)"
+        );
     }
 
     #[test]

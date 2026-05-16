@@ -78,7 +78,11 @@ const heartbeatTestContract = defineServiceContract({}, () => ({
   id: "trellis.server.heartbeat-test@v1",
   displayName: "Heartbeat Test",
   description: "Verify heartbeat runtime lifecycle behavior.",
-  uses: { health: health.use({ events: { publish: ["Health.Heartbeat"] } }) },
+  uses: {
+    required: {
+      health: health.use({ events: { publish: ["Health.Heartbeat"] } }),
+    },
+  },
 }));
 
 type WaitableService = {

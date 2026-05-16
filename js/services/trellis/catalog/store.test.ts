@@ -772,14 +772,16 @@ Deno.test("contract store rejects raw subject uses", async () => {
       store.validateContract({
         ...makeContract("subject-uses@v1", "rpc.v1.SubjectUses.Ping", "uses"),
         uses: {
-          audit: {
-            contract: "audit@v1",
-            subjects: { publish: ["Audit"] },
+          required: {
+            audit: {
+              contract: "audit@v1",
+              subjects: { publish: ["Audit"] },
+            },
           },
         },
       }),
     Error,
-    "Contract uses 'audit' declares unsupported subjects",
+    "does not match any schema",
   );
 });
 

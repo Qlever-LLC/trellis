@@ -54,23 +54,23 @@ const config = {
       ),
       "@qlever-llc/trellis/sdk/auth": resolve(
         rootDir,
-        "../../../generated/js/sdks/auth/mod.ts",
+        "../../../generated/packages/jsr/auth/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/core": resolve(
         rootDir,
-        "../../../generated/js/sdks/trellis-core/mod.ts",
+        "../../../generated/packages/jsr/trellis-core/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/health": resolve(
         rootDir,
-        "../../../generated/js/sdks/health/mod.ts",
+        "../../../generated/packages/jsr/health/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/jobs": resolve(
         rootDir,
-        "../../../generated/js/sdks/jobs/mod.ts",
+        "../../../generated/packages/jsr/jobs/mod.ts",
       ),
       "@qlever-llc/trellis/sdk/state": resolve(
         rootDir,
-        "../../../generated/js/sdks/state/mod.ts",
+        "../../../generated/packages/jsr/state/mod.ts",
       ),
       "@qlever-llc/trellis/service/deno": resolve(
         rootDir,

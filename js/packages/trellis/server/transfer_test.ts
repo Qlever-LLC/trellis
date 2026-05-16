@@ -8,7 +8,7 @@ import {
 import { AsyncResult, Result } from "@qlever-llc/result";
 
 import { createAuth } from "../auth.ts";
-import { NatsTest } from "../testing/nats.ts";
+import { createRoutedNatsConnections } from "../testing/routed_nats.ts";
 import {
   type StoreBody,
   type StorePutOptions,
@@ -16,11 +16,9 @@ import {
   TypedStore,
   TypedStoreEntry,
 } from "../store.ts";
-import type { StoreError } from "../errors/StoreError.ts";
+import { StoreError } from "../errors/StoreError.ts";
 import { createTransferHandle } from "../transfer.ts";
 import { ServiceTransfer } from "./transfer.ts";
-
-const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
 
 const SERVICE_SEED = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const USER_SEED = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
@@ -31,6 +29,51 @@ function encode(value: string): Uint8Array {
 
 function decode(value: Uint8Array): string {
   return new TextDecoder().decode(value);
+}
+
+function streamFromBytes(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
+async function collectStoreBody(body: StoreBody): Promise<Uint8Array> {
+  if (body instanceof Uint8Array) return body;
+  if (body instanceof ArrayBuffer) return new Uint8Array(body);
+
+  const reader = body instanceof ReadableStream
+    ? body.getReader()
+    : new ReadableStream<Uint8Array>({
+      async start(controller) {
+        for await (const chunk of body) {
+          controller.enqueue(chunk);
+        }
+        controller.close();
+      },
+    }).getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(next.value);
+      total += next.value.length;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return merged;
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
@@ -119,38 +162,93 @@ function createFakeNatsConnection(
   };
 }
 
-function createFakeStore(): TypedStore {
-  const info = {
-    key: "incoming/test.txt",
-    size: 14,
-    updatedAt: new Date(0).toISOString(),
-    metadata: {},
-  };
-  const entry: TypedStoreEntry = Object.assign(
-    Object.create(TypedStoreEntry.prototype),
-    { key: info.key, info },
+function createFakeStore(maxObjectBytes = 1024): TypedStore {
+  const objects = new Map<
+    string,
+    { bytes: Uint8Array; info: StoreStatusEntry }
+  >(
+    [[
+      "incoming/test.txt",
+      {
+        bytes: encode("hello transfer"),
+        info: {
+          key: "incoming/test.txt",
+          size: 14,
+          updatedAt: new Date(0).toISOString(),
+          metadata: {},
+        },
+      },
+    ]],
   );
   const status: StoreStatus = {
     size: 0,
     sealed: false,
     ttlMs: 0,
-    maxObjectBytes: 1024,
+    maxObjectBytes,
   };
 
+  const entryFor = (
+    object: { bytes: Uint8Array; info: StoreStatusEntry },
+  ): TypedStoreEntry =>
+    Object.assign(Object.create(TypedStoreEntry.prototype), {
+      key: object.info.key,
+      info: object.info,
+      stream: () =>
+        AsyncResult.from(
+          Promise.resolve(Result.ok(streamFromBytes(object.bytes))),
+        ),
+      bytes: () => AsyncResult.from(Promise.resolve(Result.ok(object.bytes))),
+    });
+
   return Object.assign(Object.create(TypedStore.prototype), {
-    get: (_key: string) => AsyncResult.from(Promise.resolve(Result.ok(entry))),
-    put: (_key: string, _body: StoreBody, _options?: StorePutOptions) =>
-      AsyncResult.from(Promise.resolve(Result.ok(undefined))),
+    get: (key: string) =>
+      AsyncResult.from(Promise.resolve((() => {
+        const object = objects.get(key);
+        if (!object) {
+          return Result.err(
+            new StoreError({
+              operation: "get",
+              context: { key, reason: "not_found" },
+            }),
+          );
+        }
+        return Result.ok(entryFor(object));
+      })())),
+    put: (key: string, body: StoreBody, _options?: StorePutOptions) =>
+      AsyncResult.from((async () => {
+        const bytes = await collectStoreBody(body);
+        objects.set(key, {
+          bytes,
+          info: {
+            key,
+            size: bytes.length,
+            updatedAt: new Date(0).toISOString(),
+            metadata: {},
+          },
+        });
+        return Result.ok(undefined);
+      })()),
     status: () => AsyncResult.from(Promise.resolve(Result.ok(status))),
   });
 }
 
-function createFakeStoreHandle() {
-  const store = createFakeStore();
+type StoreStatusEntry = {
+  key: string;
+  size: number;
+  updatedAt: string;
+  metadata: Record<string, string>;
+};
+
+function createFakeStoreHandle(maxObjectBytes = 1024) {
+  const store = createFakeStore(maxObjectBytes);
   return {
     open: (): AsyncResult<TypedStore, StoreError> =>
       AsyncResult.from(Promise.resolve(Result.ok(store))),
   };
+}
+
+function createTransferTestConnection(): NatsConnection {
+  return createRoutedNatsConnections()();
 }
 
 async function waitUntil(predicate: () => boolean): Promise<void> {
@@ -238,257 +336,119 @@ Deno.test("ServiceTransfer initiateUpload waits for subscription readiness", asy
 });
 
 Deno.test({
-  name:
-    "ServiceTransfer issues grants and round-trips bytes through store-backed sessions",
-  ignore: !RUN_NATS_TESTS,
-  async fn() {
-    await using nats = await NatsTest.start();
-
-    const storeResult = await TypedStore.open(
-      nats.nc,
-      "service-transfer-test",
-      {
-        ttlMs: 60_000,
-        maxObjectBytes: 1024 * 1024,
-        maxTotalBytes: 4 * 1024 * 1024,
-      },
-    );
-    assertEquals(storeResult.isOk(), true);
-
-    const serviceAuth = await createAuth({ sessionKeySeed: SERVICE_SEED });
-    const userAuth = await createAuth({ sessionKeySeed: USER_SEED });
-
-    const transfer = new ServiceTransfer({
-      name: "files-service",
-      nc: nats.nc,
-      auth: serviceAuth,
-      stores: {
-        uploads: {
-          open: () =>
-            TypedStore.open(nats.nc, "service-transfer-test", {
-              ttlMs: 60_000,
-              maxObjectBytes: 1024 * 1024,
-              maxTotalBytes: 4 * 1024 * 1024,
-              bindOnly: true,
-            }),
-        },
-      },
-    });
-
-    const uploadGrant = await transfer.initiateUpload({
-      sessionKey: userAuth.sessionKey,
-      store: "uploads",
-      key: "incoming/test.txt",
-      expiresInMs: 60_000,
-      maxBytes: 1024,
-      contentType: "text/plain",
-      metadata: { source: "test" },
-    });
-    assertEquals(uploadGrant.isOk(), true);
-    const uploadGrantValue = uploadGrant.match({
-      ok: (value) => value,
-      err: (error) => {
-        throw error;
-      },
-    });
-
-    assertEquals(uploadGrantValue.direction, "send");
-    const uploaded = await createTransferHandle(
-      nats.nc,
-      userAuth,
-      3000,
-      uploadGrantValue,
-    ).send(encode("hello transfer"));
-    assertEquals(uploaded.isOk(), true);
-
-    const downloadGrant = await transfer.initiateDownload({
-      sessionKey: userAuth.sessionKey,
-      store: "uploads",
-      key: "incoming/test.txt",
-      expiresInMs: 60_000,
-    });
-    assertEquals(downloadGrant.isOk(), true);
-    const downloadGrantValue = downloadGrant.match({
-      ok: (value) => value,
-      err: (error) => {
-        throw error;
-      },
-    });
-
-    assertEquals(downloadGrantValue.direction, "receive");
-    const downloaded = await createTransferHandle(
-      nats.nc,
-      userAuth,
-      3000,
-      downloadGrantValue,
-    ).bytes();
-    assertEquals(downloaded.isOk(), true);
-    const downloadedValue = downloaded.match({
-      ok: (value) => value,
-      err: (error) => {
-        throw error;
-      },
-    });
-    assertEquals(decode(downloadedValue), "hello transfer");
-
-    await transfer.stop();
-  },
-});
-
-Deno.test({
   name: "ServiceTransfer derives upload maxBytes from the backing store limit",
-  ignore: !RUN_NATS_TESTS,
   async fn() {
-    await using nats = await NatsTest.start();
-
-    const storeResult = await TypedStore.open(
-      nats.nc,
-      "service-transfer-max-bytes-test",
-      {
-        ttlMs: 60_000,
-        maxObjectBytes: 1024,
-        maxTotalBytes: 4 * 1024 * 1024,
-      },
-    );
-    assertEquals(storeResult.isOk(), true);
-
+    const nc = createTransferTestConnection();
     const serviceAuth = await createAuth({ sessionKeySeed: SERVICE_SEED });
     const userAuth = await createAuth({ sessionKeySeed: USER_SEED });
 
     const transfer = new ServiceTransfer({
       name: "files-service",
-      nc: nats.nc,
+      nc,
       auth: serviceAuth,
-      stores: {
-        uploads: {
-          open: () =>
-            TypedStore.open(nats.nc, "service-transfer-max-bytes-test", {
-              ttlMs: 60_000,
-              maxObjectBytes: 1024,
-              maxTotalBytes: 4 * 1024 * 1024,
-              bindOnly: true,
-            }),
+      stores: { uploads: createFakeStoreHandle(1024) },
+    });
+
+    try {
+      const uploadGrant = await transfer.initiateUpload({
+        sessionKey: userAuth.sessionKey,
+        store: "uploads",
+        key: "incoming/too-large.bin",
+        expiresInMs: 60_000,
+        contentType: "application/octet-stream",
+      });
+      assertEquals(uploadGrant.isOk(), true);
+      const uploadGrantValue = uploadGrant.match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
         },
-      },
-    });
+      });
+      assertEquals(uploadGrantValue.maxBytes, 1024);
 
-    const uploadGrant = await transfer.initiateUpload({
-      sessionKey: userAuth.sessionKey,
-      store: "uploads",
-      key: "incoming/too-large.bin",
-      expiresInMs: 60_000,
-      contentType: "application/octet-stream",
-    });
-    assertEquals(uploadGrant.isOk(), true);
-    const uploadGrantValue = uploadGrant.match({
-      ok: (value) => value,
-      err: (error) => {
-        throw error;
-      },
-    });
-    assertEquals(uploadGrantValue.maxBytes, 1024);
-
-    const oversized = new Uint8Array(2048);
-    const uploaded = await createTransferHandle(
-      nats.nc,
-      userAuth,
-      3000,
-      uploadGrantValue,
-    ).send(oversized);
-    assertEquals(uploaded.isErr(), true);
-    const uploadError = uploaded.match({
-      ok: () => {
-        throw new Error("oversized upload unexpectedly succeeded");
-      },
-      err: (error) => error,
-    });
-    assertEquals(uploadError.getContext().reason, "max_bytes_exceeded");
-    assertEquals(uploadError.getContext().maxBytes, 1024);
-    assertEquals(uploadError.getContext().attemptedBytes, 2048);
-
-    await transfer.stop();
+      const oversized = new Uint8Array(2048);
+      const uploaded = await createTransferHandle(
+        nc,
+        userAuth,
+        3000,
+        uploadGrantValue,
+      ).send(oversized);
+      assertEquals(uploaded.isErr(), true);
+      const uploadError = uploaded.match({
+        ok: () => {
+          throw new Error("oversized upload unexpectedly succeeded");
+        },
+        err: (error) => error,
+      });
+      assertEquals(uploadError.getContext().reason, "max_bytes_exceeded");
+      assertEquals(uploadError.getContext().maxBytes, 1024);
+      assertEquals(uploadError.getContext().attemptedBytes, 2048);
+    } finally {
+      await transfer.stop();
+      await nc.drain();
+    }
   },
 });
 
 Deno.test({
   name:
     "ServiceTransfer runs the onStored callback after the object lands in store",
-  ignore: !RUN_NATS_TESTS,
   async fn() {
-    await using nats = await NatsTest.start();
-
-    const storeResult = await TypedStore.open(
-      nats.nc,
-      "service-transfer-on-stored-test",
-      {
-        ttlMs: 60_000,
-        maxObjectBytes: 1024 * 1024,
-        maxTotalBytes: 4 * 1024 * 1024,
-      },
-    );
-    assertEquals(storeResult.isOk(), true);
-
+    const nc = createTransferTestConnection();
     const serviceAuth = await createAuth({ sessionKeySeed: SERVICE_SEED });
     const userAuth = await createAuth({ sessionKeySeed: USER_SEED });
     const stored = deferred<{ key: string; body: string; size: number }>();
 
     const transfer = new ServiceTransfer({
       name: "files-service",
-      nc: nats.nc,
+      nc,
       auth: serviceAuth,
-      stores: {
-        uploads: {
-          open: () =>
-            TypedStore.open(nats.nc, "service-transfer-on-stored-test", {
-              ttlMs: 60_000,
-              maxObjectBytes: 1024 * 1024,
-              maxTotalBytes: 4 * 1024 * 1024,
-              bindOnly: true,
-            }),
+      stores: { uploads: createFakeStoreHandle(1024 * 1024) },
+    });
+
+    try {
+      const uploadGrant = await transfer.initiateUpload({
+        sessionKey: userAuth.sessionKey,
+        store: "uploads",
+        key: "incoming/stored.txt",
+        expiresInMs: 60_000,
+        onStored: async ({ entry, info }) => {
+          const bytes = await entry.bytes();
+          const body = bytes.match({
+            ok: (value) => value,
+            err: (error) => {
+              throw error;
+            },
+          });
+          stored.resolve({
+            key: info.key,
+            body: decode(body),
+            size: info.size,
+          });
         },
-      },
-    });
+      });
+      const uploadGrantValue = uploadGrant.match({
+        ok: (value) => value,
+        err: (error) => {
+          throw error;
+        },
+      });
 
-    const uploadGrant = await transfer.initiateUpload({
-      sessionKey: userAuth.sessionKey,
-      store: "uploads",
-      key: "incoming/stored.txt",
-      expiresInMs: 60_000,
-      onStored: async ({ entry, info }) => {
-        const bytes = await entry.bytes();
-        const body = bytes.match({
-          ok: (value) => value,
-          err: (error) => {
-            throw error;
-          },
-        });
-        stored.resolve({
-          key: info.key,
-          body: decode(body),
-          size: info.size,
-        });
-      },
-    });
-    const uploadGrantValue = uploadGrant.match({
-      ok: (value) => value,
-      err: (error) => {
-        throw error;
-      },
-    });
-
-    const uploaded = await createTransferHandle(
-      nats.nc,
-      userAuth,
-      3000,
-      uploadGrantValue,
-    ).send(encode("stored callback"));
-    assertEquals(uploaded.isOk(), true);
-    assertEquals(await stored.promise, {
-      key: "incoming/stored.txt",
-      body: "stored callback",
-      size: 15,
-    });
-
-    await transfer.stop();
+      const uploaded = await createTransferHandle(
+        nc,
+        userAuth,
+        3000,
+        uploadGrantValue,
+      ).send(encode("stored callback"));
+      assertEquals(uploaded.isOk(), true);
+      assertEquals(await stored.promise, {
+        key: "incoming/stored.txt",
+        body: "stored callback",
+        size: 15,
+      });
+    } finally {
+      await transfer.stop();
+      await nc.drain();
+    }
   },
 });

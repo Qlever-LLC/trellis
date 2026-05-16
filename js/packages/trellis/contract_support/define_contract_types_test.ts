@@ -86,47 +86,49 @@ const auth = defineServiceContract(
   }),
 );
 
-const activitySchemas = {
+const auditSchemas = {
   Empty: EmptySchema,
   StringValue: StringSchema,
 } as const;
 
-const activity = defineServiceContract(
-  { schemas: activitySchemas },
+const audit = defineServiceContract(
+  { schemas: auditSchemas },
   () => ({
-    id: "trellis.activity@v1",
-    displayName: "Activity",
-    description: "Expose activity RPCs and subscribe to auth events for tests.",
+    id: "trellis.audit@v1",
+    displayName: "Audit",
+    description: "Expose audit RPCs and subscribe to auth events for tests.",
     uses: {
-      auth: auth.use({
-        rpc: { call: ["Auth.Sessions.Me"] },
-        events: { subscribe: ["Auth.Connections.Opened"] },
-        feeds: { subscribe: ["Auth.ConnectFeed"] },
-      }),
+      required: {
+        auth: auth.use({
+          rpc: { call: ["Auth.Sessions.Me"] },
+          events: { subscribe: ["Auth.Connections.Opened"] },
+          feeds: { subscribe: ["Auth.ConnectFeed"] },
+        }),
+      },
     },
     rpc: {
-      "Activity.List": {
+      "Audit.List": {
         version: "v1",
-        input: schemaRef<typeof activitySchemas, "Empty">("Empty"),
-        output: schemaRef<typeof activitySchemas, "StringValue">("StringValue"),
+        input: schemaRef<typeof auditSchemas, "Empty">("Empty"),
+        output: schemaRef<typeof auditSchemas, "StringValue">("StringValue"),
       },
     },
     events: {
-      "Activity.Recorded": {
+      "Audit.Recorded": {
         version: "v1",
-        event: schemaRef<typeof activitySchemas, "StringValue">("StringValue"),
+        event: schemaRef<typeof auditSchemas, "StringValue">("StringValue"),
       },
     },
   }),
 );
 
-activity.API.owned.rpc["Activity.List"].subject;
-activity.API.used.rpc["Auth.Sessions.Me"].subject;
-activity.API.used.events["Auth.Connections.Opened"].subject;
-activity.API.used.feeds["Auth.ConnectFeed"].subject;
-activity.API.trellis.rpc["Activity.List"].subject;
-activity.API.trellis.rpc["Auth.Sessions.Me"].subject;
-activity.API.trellis.feeds["Auth.ConnectFeed"].subject;
+audit.API.owned.rpc["Audit.List"].subject;
+audit.API.used.rpc["Auth.Sessions.Me"].subject;
+audit.API.used.events["Auth.Connections.Opened"].subject;
+audit.API.used.feeds["Auth.ConnectFeed"].subject;
+audit.API.trellis.rpc["Audit.List"].subject;
+audit.API.trellis.rpc["Auth.Sessions.Me"].subject;
+audit.API.trellis.feeds["Auth.ConnectFeed"].subject;
 auth.CONTRACT.feeds?.["Auth.ConnectFeed"]?.subject;
 auth.CONTRACT.feeds?.["Auth.ConnectFeed"]?.capabilities?.subscribe?.[0];
 auth.CONTRACT.exports?.schemas?.[0];
@@ -145,15 +147,17 @@ type _AuthUseDoesNotAcceptTrellisCatalog = Assert<
 const dashboard = defineAppContract(() => ({
   id: "trellis.dashboard@v1",
   displayName: "Dashboard",
-  description: "Consume activity events in contract typing tests.",
+  description: "Consume audit events in contract typing tests.",
   uses: {
-    activity: activity.use({
-      events: { subscribe: ["Activity.Recorded"] },
-    }),
+    required: {
+      audit: audit.use({
+        events: { subscribe: ["Audit.Recorded"] },
+      }),
+    },
   },
 }));
 
-dashboard.API.used.events["Activity.Recorded"].subject;
+dashboard.API.used.events["Audit.Recorded"].subject;
 
 const preferencesSchemas = {
   Preferences: Type.Object({ theme: Type.String() }),
@@ -283,9 +287,11 @@ const payments = defineServiceContract(
     displayName: "Payments",
     description: "Consume billing operations for contract typing tests.",
     uses: {
-      billing: billing.use({
-        operations: { call: ["Billing.Refund"] },
-      }),
+      required: {
+        billing: billing.use({
+          operations: { call: ["Billing.Refund"] },
+        }),
+      },
     },
     operations: {
       "Payments.Capture": {
@@ -485,7 +491,9 @@ const appContract = defineAppContract(() => ({
   displayName: "Builder App",
   description: "Exercise the app helper.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Sessions.Me"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Sessions.Me"] } }),
+    },
   },
 }));
 
@@ -497,7 +505,9 @@ const deviceContract = defineDeviceContract(() => ({
   displayName: "Builder Device",
   description: "Exercise the device helper.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout"] } }),
+    },
   },
 }));
 

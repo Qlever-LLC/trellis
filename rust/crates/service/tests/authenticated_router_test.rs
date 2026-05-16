@@ -5,7 +5,8 @@ use bytes::Bytes;
 use futures_util::future::{ready, BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use trellis_service::{
-    AuthenticatedRouter, RequestContext, RequestValidator, Router, RpcDescriptor, ServerError,
+    AuthenticatedRouter, RequestContext, RequestValidation, RequestValidator, Router,
+    RpcDescriptor, ServerError,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,9 +53,14 @@ impl RequestValidator for StubValidator {
         _subject: &'a str,
         _payload: &'a Bytes,
         _context: &'a RequestContext,
-    ) -> BoxFuture<'a, Result<bool, ServerError>> {
+    ) -> BoxFuture<'a, Result<RequestValidation, ServerError>> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        ready(Ok(self.allowed)).boxed()
+        ready(Ok(if self.allowed {
+            RequestValidation::allowed()
+        } else {
+            RequestValidation::denied()
+        }))
+        .boxed()
     }
 }
 
@@ -97,6 +103,9 @@ async fn authenticated_router_rejects_missing_session_key_before_validation() {
                 session_key: None,
                 proof: Some("proof".to_string()),
                 reply_to: None,
+                caller: None,
+                traceparent: None,
+                tracestate: None,
             },
         )
         .await;
@@ -125,6 +134,9 @@ async fn authenticated_router_rejects_request_when_validator_denies() {
                 session_key: Some("svc_session".to_string()),
                 proof: Some("proof".to_string()),
                 reply_to: None,
+                caller: None,
+                traceparent: None,
+                tracestate: None,
             },
         )
         .await;
@@ -156,6 +168,9 @@ async fn authenticated_router_dispatches_to_inner_router_when_validator_allows()
                 session_key: Some("svc_session".to_string()),
                 proof: Some("proof".to_string()),
                 reply_to: None,
+                caller: None,
+                traceparent: None,
+                tracestate: None,
             },
         )
         .await
@@ -190,6 +205,9 @@ async fn authenticated_router_rejects_mismatched_reply_inbox() {
                 session_key: Some(session_key.to_string()),
                 proof: Some("proof".to_string()),
                 reply_to: Some("_INBOX.someone_else.1".to_string()),
+                caller: None,
+                traceparent: None,
+                tracestate: None,
             },
         )
         .await;

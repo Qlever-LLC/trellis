@@ -414,10 +414,10 @@ async function watchActivity(device: Device): Promise<void> {
 
   try {
     await device.event(
-      "Activity.Recorded",
+      "Audit.Recorded",
       {},
       (event) => {
-        console.info("Activity.Recorded");
+        console.info("Audit.Recorded");
         console.dir(event, { depth: null });
         return ok(undefined);
       },

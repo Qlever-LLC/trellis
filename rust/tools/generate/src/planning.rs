@@ -12,7 +12,7 @@ use crate::artifacts::{
     trellis_package_version, ts_package_name_from_id, write_contract_outputs,
     write_contract_shell_outputs, write_participant_facade_outputs,
 };
-use crate::cli::RuntimeSource;
+use crate::cli::{PackageTarget, RuntimeSource};
 use crate::contract_input;
 use crate::discovery::{discover_contract_metadata, DiscoveredContractSource};
 use crate::output;
@@ -30,9 +30,10 @@ pub struct AutoPlanEntry {
     pub contract_kind: ContractKind,
     pub action: AutoAction,
     pub out_manifest: Option<PathBuf>,
-    pub ts_out: Option<PathBuf>,
-    pub rust_out: Option<PathBuf>,
-    pub rust_participant_out: Option<PathBuf>,
+    pub jsr_out: Option<PathBuf>,
+    pub npm_out: Option<PathBuf>,
+    pub cargo_out: Option<PathBuf>,
+    pub cargo_participant_out: Option<PathBuf>,
     pub runtime_source: RuntimeSource,
     pub runtime_repo_root: Option<PathBuf>,
 }
@@ -49,6 +50,15 @@ pub fn build_auto_plan(
     shared_output_root: Option<&Path>,
     prefix: &str,
 ) -> miette::Result<Vec<AutoPlanEntry>> {
+    build_auto_plan_with_targets(discovered, shared_output_root, prefix, None)
+}
+
+pub fn build_auto_plan_with_targets(
+    discovered: Vec<DiscoveredContractSource>,
+    shared_output_root: Option<&Path>,
+    prefix: &str,
+    requested_targets: Option<&[PackageTarget]>,
+) -> miette::Result<Vec<AutoPlanEntry>> {
     let mut plan = Vec::new();
     for contract in discovered {
         let (contract_id, contract_kind) = discover_contract_metadata(&contract)?;
@@ -62,42 +72,71 @@ pub fn build_auto_plan(
         } else {
             RuntimeSource::Registry
         };
-        let (out_manifest, ts_out, rust_out, rust_participant_out) = match action {
+        let (out_manifest, jsr_out, npm_out, cargo_out, cargo_participant_out) = match action {
             AutoAction::Generate => {
                 let sdk_stem = sdk_output_stem(&contract_id);
-                let ts_sdk_root = resolve_typescript_sdk_root(
+                let targets = targets_for_entry(&contract, &contract_kind, requested_targets);
+                let jsr_package_root = resolve_jsr_package_root(
                     &output_root,
                     &contract.project_root,
                     runtime_repo_root.as_deref(),
                 );
-                let out_manifest = output_root
-                    .join("generated/contracts/manifests")
-                    .join(format!("{}.json", &contract_id));
-                let ts_out = if matches!(contract_kind, ContractKind::Service | ContractKind::App) {
-                    Some(ts_sdk_root.join(&sdk_stem))
+                let out_manifest = if !targets.is_empty() {
+                    Some(
+                        output_root
+                            .join("generated/contracts/manifests")
+                            .join(format!("{}.json", &contract_id)),
+                    )
                 } else {
                     None
                 };
-                let rust_out = if matches!(contract_kind, ContractKind::Service) {
-                    Some(output_root.join("generated/rust/sdks").join(&sdk_stem))
+                let jsr_out = if targets.contains(&PackageTarget::Jsr) {
+                    Some(jsr_package_root.join(&sdk_stem))
                 } else {
                     None
                 };
-                let rust_participant_out =
+                let npm_out = if targets.contains(&PackageTarget::Npm) {
+                    Some(output_root.join("generated/packages/npm").join(&sdk_stem))
+                } else {
+                    None
+                };
+                let cargo_out = if targets.contains(&PackageTarget::Cargo) {
+                    Some(output_root.join("generated/packages/cargo").join(&sdk_stem))
+                } else {
+                    None
+                };
+                let cargo_participant_out =
                     if matches!(contract_kind, ContractKind::Device | ContractKind::Agent)
                         && matches!(contract.language, crate::discovery::SourceLanguage::Rust)
                     {
                         Some(
                             output_root
-                                .join("generated/rust/participants")
+                                .join("generated/packages/cargo-participants")
                                 .join(&sdk_stem),
                         )
                     } else {
                         None
                     };
-                (Some(out_manifest), ts_out, rust_out, rust_participant_out)
+                (
+                    out_manifest,
+                    jsr_out,
+                    npm_out,
+                    cargo_out,
+                    cargo_participant_out,
+                )
             }
-            AutoAction::Verify => (None, None, None, None),
+            AutoAction::Verify => (None, None, None, None, None),
+        };
+        let action = if matches!(action, AutoAction::Generate)
+            && out_manifest.is_none()
+            && jsr_out.is_none()
+            && npm_out.is_none()
+            && cargo_out.is_none()
+            && cargo_participant_out.is_none()
+        {
+            AutoAction::Verify
+        } else {
+            action
         };
         plan.push(AutoPlanEntry {
             discovered: contract,
@@ -105,15 +144,49 @@ pub fn build_auto_plan(
             contract_kind,
             action,
             out_manifest,
-            ts_out,
-            rust_out,
-            rust_participant_out,
+            jsr_out,
+            npm_out,
+            cargo_out,
+            cargo_participant_out,
             runtime_source,
             runtime_repo_root,
         });
     }
     sort_auto_plan(&mut plan, prefix);
     Ok(plan)
+}
+
+fn targets_for_entry(
+    contract: &DiscoveredContractSource,
+    kind: &ContractKind,
+    requested_targets: Option<&[PackageTarget]>,
+) -> Vec<PackageTarget> {
+    let defaults = if matches!(kind, ContractKind::Service) {
+        vec![
+            PackageTarget::Manifest,
+            PackageTarget::Jsr,
+            PackageTarget::Npm,
+            PackageTarget::Cargo,
+        ]
+    } else if matches!(kind, ContractKind::App) {
+        vec![
+            PackageTarget::Manifest,
+            PackageTarget::Jsr,
+            PackageTarget::Npm,
+        ]
+    } else if matches!(contract.language, crate::discovery::SourceLanguage::Rust) {
+        vec![PackageTarget::Manifest]
+    } else {
+        Vec::new()
+    };
+
+    match requested_targets {
+        Some(targets) => defaults
+            .into_iter()
+            .filter(|target| targets.contains(target))
+            .collect(),
+        None => defaults,
+    }
 }
 
 fn sort_auto_plan(plan: &mut Vec<AutoPlanEntry>, prefix: &str) {
@@ -125,7 +198,7 @@ fn sort_auto_plan(plan: &mut Vec<AutoPlanEntry>, prefix: &str) {
         let next = remaining
             .iter()
             .position(|entry| {
-                local_ts_sdk_dependencies(entry, plan, prefix)
+                local_jsr_package_dependencies(entry, plan, prefix)
                     .into_iter()
                     .all(|dependency| {
                         sorted
@@ -153,7 +226,7 @@ fn compare_auto_plan_entries(left: &AutoPlanEntry, right: &AutoPlanEntry) -> std
         })
 }
 
-fn local_ts_sdk_dependencies(
+fn local_jsr_package_dependencies(
     entry: &AutoPlanEntry,
     plan: &[AutoPlanEntry],
     prefix: &str,
@@ -167,7 +240,7 @@ fn local_ts_sdk_dependencies(
 
     plan.iter()
         .filter(|candidate| candidate.contract_id != entry.contract_id)
-        .filter(|candidate| candidate.ts_out.is_some())
+        .filter(|candidate| candidate.jsr_out.is_some())
         .filter_map(|candidate| {
             let package_name = ts_package_name_from_id(&candidate.contract_id, prefix);
             source_imports_specifier(&source, &package_name).then(|| candidate.contract_id.clone())
@@ -186,18 +259,18 @@ fn source_imports_specifier(source: &str, specifier: &str) -> bool {
         || source.contains(&dynamic_single_quoted)
 }
 
-fn resolve_typescript_sdk_root(
+fn resolve_jsr_package_root(
     output_root: &Path,
     project_root: &Path,
     runtime_repo_root: Option<&Path>,
 ) -> PathBuf {
     if runtime_repo_root == Some(output_root) {
-        return output_root.join("generated/js/sdks");
+        return output_root.join("generated/packages/jsr");
     }
 
     find_nested_workspace_root(project_root, output_root)
-        .map(|workspace_root| workspace_root.join("generated/js/sdks"))
-        .unwrap_or_else(|| output_root.join("generated/js/sdks"))
+        .map(|workspace_root| workspace_root.join("generated/packages/jsr"))
+        .unwrap_or_else(|| output_root.join("generated/packages/jsr"))
 }
 
 fn detect_runtime_repo_root(output_root: &Path) -> Option<PathBuf> {
@@ -290,19 +363,21 @@ pub fn execute_auto_plan(
                     &artifact_version,
                     entry.runtime_source,
                     &trellis_package_version(),
-                    entry.ts_out.is_some(),
-                    entry.rust_out.is_some(),
+                    entry.jsr_out.is_some(),
+                    entry.npm_out.is_some(),
+                    entry.cargo_out.is_some(),
                     &package_name,
                     &crate_name,
                     generator_fingerprint,
                 );
                 if !force
-                    && entry.rust_participant_out.is_none()
+                    && entry.cargo_participant_out.is_none()
                     && generated_artifacts_are_fresh(
                         &metadata,
                         out_manifest,
-                        entry.ts_out.as_deref(),
-                        entry.rust_out.as_deref(),
+                        entry.jsr_out.as_deref(),
+                        entry.npm_out.as_deref(),
+                        entry.cargo_out.as_deref(),
                     )
                 {
                     output::print_success(&format!(
@@ -317,8 +392,9 @@ pub fn execute_auto_plan(
                     &resolved,
                     artifact_version.clone(),
                     out_manifest,
-                    entry.ts_out.as_deref(),
-                    entry.rust_out.as_deref(),
+                    entry.jsr_out.as_deref(),
+                    entry.npm_out.as_deref(),
+                    entry.cargo_out.as_deref(),
                     &package_name,
                     &crate_name,
                     entry.runtime_source,
@@ -326,11 +402,11 @@ pub fn execute_auto_plan(
                     generator_fingerprint,
                     "generated contract artifacts",
                 )?;
-                if let Some(rust_participant_out) = &entry.rust_participant_out {
+                if let Some(cargo_participant_out) = &entry.cargo_participant_out {
                     if let Some(mappings) = participant_alias_mappings(entry, plan) {
                         write_participant_facade_outputs(
                             out_manifest,
-                            rust_participant_out,
+                            cargo_participant_out,
                             &format!(
                                 "trellis-participant-{}",
                                 sdk_output_stem(&resolved.loaded.manifest.id)
@@ -341,7 +417,7 @@ pub fn execute_auto_plan(
                             mappings,
                         )?;
                     } else {
-                        remove_stale_participant_facade_outputs(rust_participant_out)?;
+                        remove_stale_participant_facade_outputs(cargo_participant_out)?;
                         output::print_info(&format!(
                             "skipped Rust participant facade for {} because no uses aliases have local Rust SDK mappings",
                             resolved.loaded.manifest.id
@@ -380,8 +456,9 @@ fn write_auto_plan_shells(
             &entry.contract_id,
             "0.0.0-shell",
             entry.out_manifest.as_deref(),
-            entry.ts_out.as_deref(),
-            entry.rust_out.as_deref(),
+            entry.jsr_out.as_deref(),
+            entry.npm_out.as_deref(),
+            entry.cargo_out.as_deref(),
             &package_name,
             &crate_name,
             entry.runtime_source,
@@ -396,8 +473,9 @@ fn shell_outputs_are_not_needed(entry: &AutoPlanEntry, generator_fingerprint: &s
         return false;
     };
     generated_artifacts_metadata_matches_generator(out_manifest, generator_fingerprint)
-        && ts_shell_key_outputs_exist(entry.ts_out.as_deref())
-        && rust_shell_key_outputs_exist(entry.rust_out.as_deref())
+        && ts_shell_key_outputs_exist(entry.jsr_out.as_deref())
+        && npm_shell_key_outputs_exist(entry.npm_out.as_deref())
+        && rust_shell_key_outputs_exist(entry.cargo_out.as_deref())
 }
 
 fn generated_artifacts_metadata_matches_generator(
@@ -425,6 +503,13 @@ fn ts_shell_key_outputs_exist(ts_out: Option<&Path>) -> bool {
         && ts_out.join("owned_api.ts").exists()
         && ts_out.join("contract.ts").exists()
         && ts_out.join("client.ts").exists()
+}
+
+fn npm_shell_key_outputs_exist(npm_out: Option<&Path>) -> bool {
+    let Some(npm_out) = npm_out else {
+        return true;
+    };
+    npm_out.join("package.json").exists()
 }
 
 fn rust_shell_key_outputs_exist(rust_out: Option<&Path>) -> bool {
@@ -484,14 +569,14 @@ fn participant_alias_mappings(
     let mut mappings = Vec::new();
     for (alias, use_ref) in loaded.manifest.uses.iter() {
         if let Some(mapped) = plan.iter().find(|candidate| {
-            candidate.contract_id == use_ref.contract && candidate.rust_out.is_some()
+            candidate.contract_id == use_ref.contract && candidate.cargo_out.is_some()
         }) {
             let manifest_path = mapped.out_manifest.as_ref()?.clone();
             mappings.push(trellis_codegen_rust::ParticipantAliasMapping {
                 alias: alias.clone(),
                 crate_name: default_rust_crate_name_from_id(&mapped.contract_id),
                 manifest_path,
-                crate_path: mapped.rust_out.clone(),
+                crate_path: mapped.cargo_out.clone(),
             });
             continue;
         }
@@ -524,7 +609,7 @@ fn built_in_rust_alias_mapping(
 
     let repo_root = entry.runtime_repo_root.as_ref()?;
     let sdk_root = repo_root
-        .join("generated/rust/sdks")
+        .join("generated/packages/cargo")
         .join(sdk_output_stem(contract_id));
     let manifest_path = repo_root
         .join("generated/contracts/manifests")
@@ -570,16 +655,19 @@ fn print_auto_entry(entry: &AutoPlanEntry) {
     if let Some(out_manifest) = &entry.out_manifest {
         output::print_detail("manifest", out_manifest.display().to_string());
     }
-    if let Some(ts_out) = &entry.ts_out {
-        output::print_detail("ts sdk", ts_out.display().to_string());
+    if let Some(jsr_out) = &entry.jsr_out {
+        output::print_detail("jsr package", jsr_out.display().to_string());
     }
-    if let Some(rust_out) = &entry.rust_out {
-        output::print_detail("rust sdk", rust_out.display().to_string());
+    if let Some(npm_out) = &entry.npm_out {
+        output::print_detail("npm package", npm_out.display().to_string());
     }
-    if let Some(rust_participant_out) = &entry.rust_participant_out {
+    if let Some(cargo_out) = &entry.cargo_out {
+        output::print_detail("cargo package", cargo_out.display().to_string());
+    }
+    if let Some(cargo_participant_out) = &entry.cargo_participant_out {
         output::print_detail(
-            "rust participant",
-            rust_participant_out.display().to_string(),
+            "cargo participant",
+            cargo_participant_out.display().to_string(),
         );
     }
 }
@@ -607,7 +695,7 @@ mod tests {
     use crate::discovery::SourceLanguage;
 
     #[test]
-    fn auto_plan_orders_local_ts_sdk_imports_before_dependents() {
+    fn auto_plan_orders_local_jsr_package_imports_before_dependents() {
         let _env_lock = crate::contract_input::test_env_lock();
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
@@ -669,6 +757,18 @@ mod tests {
                 .map(|entry| entry.contract_id.as_str())
                 .collect::<Vec<_>>(),
             vec!["krishi.sherpa@v1", "krishi.notifications@v1"]
+        );
+        assert_eq!(
+            plan[0].jsr_out,
+            Some(root.join("generated/packages/jsr/krishi-sherpa"))
+        );
+        assert_eq!(
+            plan[0].npm_out,
+            Some(root.join("generated/packages/npm/krishi-sherpa"))
+        );
+        assert_eq!(
+            plan[0].cargo_out,
+            Some(root.join("generated/packages/cargo/krishi-sherpa"))
         );
     }
 }

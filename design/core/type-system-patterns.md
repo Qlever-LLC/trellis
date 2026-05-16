@@ -51,7 +51,9 @@ export const contract = defineServiceContract(
     displayName: "Graph Service",
     description: "Serve graph RPCs and publish partner change events.",
     uses: {
-      trellis: core.use({ rpc: { call: ["Trellis.Catalog"] } }),
+      required: {
+        trellis: core.use({ rpc: { call: ["Trellis.Catalog"] } }),
+      },
     },
     rpc: {
       "User.Find": {
@@ -179,12 +181,13 @@ SQL-backed Trellis storage separates row identity from domain identity.
 Rules:
 
 - SQL tables use an app-generated ULID `id` primary key for row identity
-- public IDs, external IDs, contract IDs, digests, session keys, and other domain
-  identifiers remain separate semantic columns with their own constraints
+- public IDs, external IDs, contract IDs, digests, session keys, and other
+  domain identifiers remain separate semantic columns with their own constraints
 - repository and service code should query by the semantic identifier that
   matches the operation rather than exposing row IDs as public API identifiers
 - schema names should make the distinction clear, for example `id` for row
-  identity and `contract_id`, `trellis_id`, or `deployment_id` for domain identity
+  identity and `contract_id`, `trellis_id`, or `deployment_id` for domain
+  identity
 
 ## Result Type
 

@@ -165,6 +165,11 @@ impl ConnectedJobsService {
         self.binding.as_ref()
     }
 
+    /// Return the underlying authenticated NATS client.
+    pub fn nats(&self) -> &async_nats::Client {
+        self.client.nats()
+    }
+
     /// Bootstrap an authenticated service host without starting background loops.
     pub async fn bootstrap(&self) -> Result<JobsServiceHost<'_>, ServerError> {
         let (_, router, _) = build_jobs_runtime(

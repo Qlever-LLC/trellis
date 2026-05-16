@@ -5,6 +5,7 @@ import type {
   ContractRpcMethod,
   ContractSchemaRef,
   ContractSchemas,
+  ContractUses,
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
 import { canonicalizeJson, isJsonValue } from "@qlever-llc/trellis/contracts";
@@ -64,8 +65,6 @@ type ContractUsesGrouped = {
   required?: ContractUsesFlat;
   optional?: ContractUsesFlat;
 };
-
-type ContractUses = ContractUsesFlat | ContractUsesGrouped;
 
 type ContractUseEntry = {
   alias: string;
@@ -639,34 +638,9 @@ function mergeCompatibleContractSurfaces(
   };
 }
 
-function isContractUseRef(value: unknown): value is ContractUseRef {
-  return !!value && typeof value === "object" &&
-    typeof (value as { contract?: unknown }).contract === "string";
-}
-
-function isContractUsesGrouped(
-  uses: ContractUses,
-): uses is ContractUsesGrouped {
-  const maybeGrouped = uses as {
-    required?: unknown;
-    optional?: unknown;
-  };
-  return (maybeGrouped.required !== undefined &&
-    !isContractUseRef(maybeGrouped.required)) ||
-    (maybeGrouped.optional !== undefined &&
-      !isContractUseRef(maybeGrouped.optional));
-}
-
 function contractUseEntries(contract: TrellisContractV1): ContractUseEntry[] {
   const uses = (contract as TrellisContractV1 & { uses?: ContractUses }).uses;
   if (!uses) return [];
-  if (!isContractUsesGrouped(uses)) {
-    return Object.entries(uses).map(([alias, use]) => ({
-      alias,
-      use,
-      required: true,
-    }));
-  }
 
   const requiredAliases = new Set(Object.keys(uses.required ?? {}));
   return [

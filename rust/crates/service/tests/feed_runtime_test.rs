@@ -42,6 +42,9 @@ async fn registered_feed_returns_ready_stream_response_and_json_events() {
                 session_key: Some("abcdefghijklmnop-session".to_string()),
                 proof: Some("proof".to_string()),
                 reply_to: Some("_INBOX.abcdefghijklmnop.1".to_string()),
+                caller: None,
+                traceparent: None,
+                tracestate: None,
             },
         )
         .await

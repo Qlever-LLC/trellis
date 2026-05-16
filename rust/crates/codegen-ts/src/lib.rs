@@ -95,16 +95,6 @@ pub fn generate_ts_sdk(opts: &GenerateTsSdkOpts) -> Result<(), CodegenTsError> {
     )?;
     write_generated_file(&opts.out_dir.join("mod.ts"), &render_mod_ts(opts, &loaded))?;
 
-    let scripts_dir = opts.out_dir.join("scripts");
-    if is_standalone_package_name(&opts.package_name) {
-        fs::create_dir_all(&scripts_dir)?;
-        write_generated_file(
-            &scripts_dir.join("build_npm.ts"),
-            &render_build_npm_ts(opts, &loaded),
-        )?;
-    } else if scripts_dir.exists() {
-        fs::remove_dir_all(&scripts_dir)?;
-    }
     write_generated_file(
         &opts.out_dir.join("README.md"),
         &render_readme(opts, &loaded),
@@ -148,14 +138,6 @@ fn deno_json(
             ".": "./mod.ts"
         }),
     );
-    if is_standalone_package_name(&opts.package_name) {
-        root.insert(
-            "tasks".to_string(),
-            serde_json::json!({
-                "build:npm": "deno run -A scripts/build_npm.ts"
-            }),
-        );
-    }
     if extends.is_none() {
         let mut imports = serde_json::Map::new();
         imports.insert(
@@ -176,13 +158,6 @@ fn deno_json(
     );
 
     Ok(root)
-}
-
-fn is_standalone_package_name(package_name: &str) -> bool {
-    if package_name.starts_with("@trellis-sdk/") {
-        return false;
-    }
-    !package_name.starts_with('@') || package_name.matches('/').count() == 1
 }
 
 fn render_contract_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
@@ -1743,24 +1718,6 @@ fn client_state_value_type(loaded: &LoadedManifest, schema_name: &str) -> String
         .unwrap_or_else(|| schema_to_ts(resolve_schema_ref(loaded, schema_name)))
 }
 
-fn render_build_npm_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
-    let source_reference =
-        manifest_source_reference(&opts.manifest_path, opts.runtime_deps.repo_root.as_deref());
-    let trellis_dependency = format!("^{}", opts.runtime_deps.version);
-
-    format!(
-        "// Generated from {}\nimport {{ build, emptyDir }} from \"jsr:@deno/dnt@^0.41.3\";\n\nawait emptyDir(new URL(\"../npm\", import.meta.url));\n\nawait build({{\n  entryPoints: [\"./mod.ts\"],\n  outDir: \"./npm\",\n  shims: {{\n    deno: true,\n  }},\n  test: false,\n  typeCheck: false,\n  package: {{\n    name: {},\n    version: {},\n    description: \"Generated Trellis SDK for contract {}\",\n    license: \"Apache-2.0\",\n    homepage: \"https://github.com/Qlever-LLC/trellis#readme\",\n    bugs: {{\n      url: \"https://github.com/Qlever-LLC/trellis/issues\",\n    }},\n    repository: {{\n      type: \"git\",\n      url: \"https://github.com/Qlever-LLC/trellis\",\n    }},\n    publishConfig: {{\n      access: \"public\",\n    }},\n    peerDependencies: {{\n      \"@qlever-llc/trellis\": {},\n    }},\n    devDependencies: {{\n      \"@qlever-llc/trellis\": {},\n    }},\n  }},\n}});\n\nconst packageJsonPath = new URL(\"../npm/package.json\", import.meta.url);\nconst packageJson = JSON.parse(await Deno.readTextFile(packageJsonPath));\ndelete packageJson.dependencies?.[\"@qlever-llc/trellis\"];\npackageJson.peerDependencies = {{\n  ...(packageJson.peerDependencies ?? {{}}),\n  \"@qlever-llc/trellis\": {},\n}};\npackageJson.devDependencies = {{\n  ...(packageJson.devDependencies ?? {{}}),\n  \"@qlever-llc/trellis\": {},\n}};\nawait Deno.writeTextFile(packageJsonPath, `${{JSON.stringify(packageJson, null, 2)}}\n`);\n",
-        escape_js_string(&source_reference),
-        js_string(&opts.package_name),
-        js_string(&opts.package_version),
-        escape_js_string(&loaded.manifest.id),
-        js_string(&trellis_dependency),
-        js_string(&trellis_dependency),
-        js_string(&trellis_dependency),
-        js_string(&trellis_dependency),
-    )
-}
-
 fn resolved_extends(opts: &GenerateTsSdkOpts) -> Result<Option<String>, CodegenTsError> {
     match opts.runtime_deps.source {
         TsRuntimeSource::Registry => Ok(None),
@@ -1932,7 +1889,7 @@ mod path_tests {
     fn relative_path_string_is_normalized_without_dot_segments() {
         assert_eq!(
             relative_path_string(
-                Path::new("/repo/generated/js/sdks/trellis-core"),
+                Path::new("/repo/generated/packages/jsr/trellis-core"),
                 Path::new("/repo/js/packages/contracts/npm"),
             ),
             "../../../../js/packages/contracts/npm"
@@ -2603,7 +2560,7 @@ mod tests {
         .unwrap();
         let opts = GenerateTsSdkOpts {
             manifest_path: PathBuf::from("generated/contracts/manifests/trellis.core@v1.json"),
-            out_dir: PathBuf::from("generated/js/sdks/trellis-core"),
+            out_dir: PathBuf::from("generated/packages/jsr/trellis-core"),
             package_name: "@qlever-llc/trellis-sdk-core".to_string(),
             package_version: "0.4.0".to_string(),
             runtime_deps: TsRuntimeDeps {
@@ -2627,9 +2584,23 @@ mod tests {
     }
 
     #[test]
+    fn jsr_package_generation_does_not_emit_npm_build_scripts() {
+        let (opts, _loaded, root) =
+            sample_opts_and_loaded("@qlever-llc/trellis-sdk-core", "trellis.core@v1");
+
+        generate_ts_sdk(&opts).unwrap();
+
+        let deno = fs::read_to_string(opts.out_dir.join("deno.json")).unwrap();
+        assert!(!deno.contains("build:npm"));
+        assert!(!opts.out_dir.join("scripts/build_npm.ts").exists());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn local_mode_derives_extends_from_repo_root() {
         let repo_root = unique_temp_dir("repo-root");
-        let out_dir = repo_root.join("generated/js/sdks/auth");
+        let out_dir = repo_root.join("generated/packages/jsr/auth");
         fs::create_dir_all(repo_root.join("js")).unwrap();
         fs::create_dir_all(&out_dir).unwrap();
         fs::write(repo_root.join("js/deno.json"), "{}\n").unwrap();
@@ -2667,7 +2638,7 @@ mod tests {
     #[test]
     fn local_mode_emits_package_runtime_imports() {
         let repo_root = unique_temp_dir("repo-root-local-imports");
-        let out_dir = repo_root.join("workspaces/demo/generated/js/sdks/auth");
+        let out_dir = repo_root.join("workspaces/demo/generated/packages/jsr/auth");
         fs::create_dir_all(repo_root.join("js/packages/trellis")).unwrap();
         fs::create_dir_all(&out_dir).unwrap();
         fs::write(repo_root.join("js/deno.json"), "{}\n").unwrap();
@@ -2691,35 +2662,6 @@ mod tests {
         assert!(!owned_api.contains("js/packages/trellis"));
         assert!(!contract.contains("js/packages/trellis"));
         assert!(!types.contains("js/packages/trellis"));
-
-        fs::remove_dir_all(root).unwrap();
-        fs::remove_dir_all(repo_root).unwrap();
-    }
-
-    #[test]
-    fn local_mode_build_npm_uses_registry_version_metadata() {
-        let repo_root = unique_temp_dir("repo-root-local-build-npm");
-        let out_dir = repo_root.join("generated/js/sdks/auth");
-        fs::create_dir_all(repo_root.join("js/packages/trellis/npm")).unwrap();
-        fs::create_dir_all(&out_dir).unwrap();
-        fs::write(repo_root.join("deno.json"), "{}\n").unwrap();
-
-        let (mut opts, loaded, root) =
-            sample_opts_and_loaded("@qlever-llc/trellis-sdk-auth", "trellis.auth@v1");
-        opts.out_dir = out_dir;
-        opts.runtime_deps = TsRuntimeDeps {
-            source: TsRuntimeSource::Local,
-            version: "0.4.0".to_string(),
-            repo_root: Some(repo_root.clone()),
-        };
-
-        let build_npm = render_build_npm_ts(&opts, &loaded);
-
-        assert!(build_npm.contains("\"@qlever-llc/trellis\": \"^0.4.0\""));
-        assert!(build_npm.contains("peerDependencies"));
-        assert!(build_npm.contains("devDependencies"));
-        assert!(build_npm.contains("delete packageJson.dependencies"));
-        assert!(!build_npm.contains("file:"));
 
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(repo_root).unwrap();
@@ -2772,8 +2714,6 @@ mod tests {
         let contract = render_contract_ts(&opts, &loaded);
         let mod_ts = render_mod_ts(&opts, &loaded);
         let types = render_types_ts(&opts, &loaded);
-        let build_npm = render_build_npm_ts(&opts, &loaded);
-
         assert!(contract.contains(
             "import type { ContractDependencyUse, SdkContractModule, TrellisContractV1, UseSpec } from \"@qlever-llc/trellis\";"
         ));
@@ -2805,11 +2745,6 @@ mod tests {
         assert!(types.contains("export type ExampleLiveEvent = { message: string; };"));
         assert!(types
             .contains("\"Example.Live\": { input: ExampleLiveInput; event: ExampleLiveEvent; };"));
-        assert!(build_npm.contains("\"@qlever-llc/trellis\": \"^0.4.0\""));
-        assert!(build_npm.contains("peerDependencies"));
-        assert!(build_npm.contains("devDependencies"));
-        assert!(!build_npm.contains("@qlever-llc/trellis/contracts/contract-module"));
-
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3002,12 +2937,10 @@ mod tests {
         let deno = deno_json(&opts, &loaded).unwrap();
         let client = render_client_ts(&opts, &loaded);
         let api = render_api_ts(&opts, &loaded);
-        let build_npm = render_build_npm_ts(&opts, &loaded);
         let imports = deno.get("imports").and_then(Value::as_object).unwrap();
 
         assert!(client.contains("import type * as JobsSdk from \"@qlever-llc/trellis/sdk/jobs\";"));
         assert!(imports.get("@qlever-llc/trellis/sdk/jobs").is_none());
-        assert!(!build_npm.contains("\"@qlever-llc/trellis-sdk\""));
         assert!(client.contains("export type TrellisDemoAppState = {"));
         assert!(client.contains("\"settings\": ValueStateStoreClient<Types.Settings>;"));
         assert!(client.contains("\"profiles\": MapStateStoreClient<Types.Settings>;"));

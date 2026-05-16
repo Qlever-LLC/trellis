@@ -8,6 +8,8 @@ type StreamRetentionPolicy = "limits" | "interest" | "workqueue";
 type StreamStorageType = "file" | "memory";
 type StreamDiscardPolicy = "old" | "new";
 
+const TRELLIS_JOBS_CONTRACT_ID = "trellis.jobs@v1";
+
 export type KvResourceRequest = {
   alias: string;
   purpose: string;
@@ -622,6 +624,12 @@ export function getContractResourceSummary(
   };
 }
 
+export function needsUnboundContractInfrastructure(
+  contract: TrellisContractV1,
+): boolean {
+  return contract.id === TRELLIS_JOBS_CONTRACT_ID;
+}
+
 function buildJobsNamespace(
   serviceDeploymentId: string,
   contractId: string,
@@ -642,10 +650,12 @@ export async function provisionContractResourceBindings(
   const requests = getKvResourceRequests(contract);
   const stores = getStoreResourceRequests(contract);
   const jobs = getJobsQueueRequests(contract);
+  const needsBuiltinJobsInfrastructure = jobs.length > 0 ||
+    contract.id === TRELLIS_JOBS_CONTRACT_ID;
   if (
     requests.length === 0 &&
     stores.length === 0 &&
-    jobs.length === 0
+    !needsBuiltinJobsInfrastructure
   ) {
     return {};
   }
@@ -721,13 +731,16 @@ export async function provisionContractResourceBindings(
     }
   }
 
-  if (jobs.length > 0) {
+  if (needsBuiltinJobsInfrastructure) {
     if (!nats) {
       throw new Error(
         "NATS connection is required to provision jobs resources",
       );
     }
     await ensureBuiltinJobsInfrastructure(nats, options);
+  }
+
+  if (jobs.length > 0) {
     const namespace = buildJobsNamespace(serviceDeploymentId, contract.id);
     bindings.jobs = {
       namespace,

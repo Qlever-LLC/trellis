@@ -68,13 +68,15 @@ function makeUsesContractRecord(): ContractRecord {
       description: "Reader device contract",
       kind: "device",
       uses: {
-        auth: {
-          contract: "trellis.auth@v1",
-          rpc: { call: ["Auth.Sessions.Me"] },
-        },
-        billing: {
-          contract: "billing@v1",
-          operations: { call: ["Billing.Refund"] },
+        required: {
+          auth: {
+            contract: "trellis.auth@v1",
+            rpc: { call: ["Auth.Sessions.Me"] },
+          },
+          billing: {
+            contract: "billing@v1",
+            operations: { call: ["Billing.Refund"] },
+          },
         },
       },
     }),

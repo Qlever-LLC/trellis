@@ -129,11 +129,39 @@ pub struct OperationSnapshotFrame<TProgress = Value, TOutput = Value> {
     pub snapshot: OperationSnapshot<TProgress, TOutput>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// Signal accepted for delivery to an operation provider.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationSignal {
+    pub operation_id: String,
+    pub signal: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<Value>,
+    pub signal_sequence: u64,
+    pub accepted_at: String,
+}
+
+/// Acknowledgement frame returned to callers after a signal is accepted.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationSignalAccepted<TProgress = Value, TOutput = Value> {
+    pub kind: String,
+    pub operation_id: String,
+    pub signal: String,
+    pub signal_sequence: u64,
+    pub accepted_at: String,
+    pub snapshot: OperationSnapshot<TProgress, TOutput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationControlRequest {
     pub action: String,
     pub operation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<Value>,
 }
 
 pub trait OperationDescriptor {
@@ -190,6 +218,16 @@ struct StoredOperation {
     operation: String,
     snapshot: OperationSnapshot<Value, Value>,
     updates: watch::Sender<OperationSnapshot<Value, Value>>,
+    signals: Vec<OperationSignal>,
+    signal_updates: watch::Sender<u64>,
+}
+
+#[derive(Debug)]
+struct OperationSignalStreamState {
+    inner: Arc<OperationRuntimeInner>,
+    operation_ref: OperationRefData,
+    next_index: usize,
+    receiver: watch::Receiver<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -286,6 +324,7 @@ where
             error: None,
         };
         let (updates, _receiver) = watch::channel(snapshot.clone());
+        let (signal_updates, _receiver) = watch::channel(0);
         let mut operations = self.inner.operations.lock().await;
         if operations.contains_key(&operation_id) {
             return Err(ServerError::OperationAlreadyExists { operation_id });
@@ -297,6 +336,8 @@ where
                 operation: D::KEY.to_string(),
                 snapshot: snapshot.clone(),
                 updates,
+                signals: Vec::new(),
+                signal_updates,
             },
         );
 
@@ -460,6 +501,59 @@ where
         self.control(operation_id).await?.cancel().await
     }
 
+    /// Accept a caller signal for an operation id and return its acknowledgement frame.
+    pub async fn signal(
+        &self,
+        operation_id: impl Into<String>,
+        signal: impl Into<String>,
+        input: Option<Value>,
+    ) -> Result<OperationSignalAccepted<D::Progress, D::Output>, ServerError> {
+        let operation_id = operation_id.into();
+        let signal = signal.into();
+        if signal.trim().is_empty() {
+            return Err(ServerError::OperationUnsupportedControl {
+                operation: D::KEY.to_string(),
+                action: "signal".to_string(),
+            });
+        }
+
+        let mut operations = self.inner.operations.lock().await;
+        let stored =
+            operations
+                .get_mut(&operation_id)
+                .ok_or_else(|| ServerError::OperationNotFound {
+                    operation_id: operation_id.clone(),
+                })?;
+        self.validate_stored(&operation_id, stored)?;
+        if stored.snapshot.state.is_terminal() {
+            return Err(ServerError::OperationTerminal {
+                operation_id,
+                state: operation_state_name(&stored.snapshot.state).to_string(),
+            });
+        }
+
+        let signal_sequence = stored.signals.len() as u64 + 1;
+        let accepted_at = now_timestamp();
+        let signal_event = OperationSignal {
+            operation_id: operation_id.clone(),
+            signal: signal.clone(),
+            input,
+            signal_sequence,
+            accepted_at: accepted_at.clone(),
+        };
+        stored.signals.push(signal_event);
+        let _ = stored.signal_updates.send(signal_sequence);
+
+        Ok(OperationSignalAccepted {
+            kind: "signal-accepted".to_string(),
+            operation_id,
+            signal,
+            signal_sequence,
+            accepted_at,
+            snapshot: typed_snapshot(stored.snapshot.clone())?,
+        })
+    }
+
     fn validate_stored(
         &self,
         operation_id: &str,
@@ -554,6 +648,71 @@ where
         }
         self.update(OperationState::Cancelled, None, None, None)
             .await
+    }
+
+    /// Iterate accepted signals for this operation from this subscription onward.
+    pub async fn signals(
+        &self,
+    ) -> Result<BoxStream<'static, Result<OperationSignal, ServerError>>, ServerError> {
+        let receiver = {
+            let operations = self.operation.inner.operations.lock().await;
+            let stored = operations.get(&self.operation_ref.id).ok_or_else(|| {
+                ServerError::OperationNotFound {
+                    operation_id: self.operation_ref.id.clone(),
+                }
+            })?;
+            self.operation
+                .validate_stored(&self.operation_ref.id, stored)?;
+            stored.signal_updates.subscribe()
+        };
+        let state = OperationSignalStreamState {
+            inner: Arc::clone(&self.operation.inner),
+            operation_ref: self.operation_ref.clone(),
+            next_index: 0,
+            receiver,
+        };
+
+        Ok(Box::pin(stream::unfold(state, |mut state| async move {
+            loop {
+                {
+                    let inner = Arc::clone(&state.inner);
+                    let operations = inner.operations.lock().await;
+                    let stored = match operations.get(&state.operation_ref.id) {
+                        Some(stored) => stored,
+                        None => {
+                            return Some((
+                                Err(ServerError::OperationNotFound {
+                                    operation_id: state.operation_ref.id.clone(),
+                                }),
+                                state,
+                            ));
+                        }
+                    };
+                    if stored.service != state.operation_ref.service
+                        || stored.operation != state.operation_ref.operation
+                    {
+                        return Some((
+                            Err(ServerError::OperationMismatch {
+                                operation_id: state.operation_ref.id.clone(),
+                                expected_service: state.operation_ref.service.clone(),
+                                expected_operation: state.operation_ref.operation.clone(),
+                                actual_service: stored.service.clone(),
+                                actual_operation: stored.operation.clone(),
+                            }),
+                            state,
+                        ));
+                    }
+                    if let Some(signal) = stored.signals.get(state.next_index).cloned() {
+                        state.next_index += 1;
+                        return Some((Ok(signal), state));
+                    }
+                }
+
+                if state.receiver.changed().await.is_err() {
+                    return None;
+                }
+            }
+        })))
     }
 
     async fn update(

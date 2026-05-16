@@ -45,6 +45,8 @@ pub struct TransferUploadGrantArgs<'a> {
     pub service_name: &'a str,
     /// Caller session key that owns this transfer grant.
     pub session_key: &'a str,
+    /// Service session key used to scope the NATS transfer subject.
+    pub service_session_key: &'a str,
     /// Resolved service resource bindings from bootstrap.
     pub resources: &'a ServiceResourceBindings,
     /// Contract-local store alias used by the transfer declaration.
@@ -72,6 +74,8 @@ pub struct TransferDownloadGrantArgs<'a> {
     pub service_name: &'a str,
     /// Caller session key that owns this transfer grant.
     pub session_key: &'a str,
+    /// Service session key used to scope the NATS transfer subject.
+    pub service_session_key: &'a str,
     /// Resolved service resource bindings from bootstrap.
     pub resources: &'a ServiceResourceBindings,
     /// Contract-local store alias used by the transfer declaration.
@@ -590,6 +594,11 @@ fn transfer_request_context(message: &async_nats::Message) -> RequestContext {
             .map(ToString::to_string),
         proof: optional_header(message.headers.as_ref(), "proof").map(ToString::to_string),
         reply_to: message.reply.as_ref().map(ToString::to_string),
+        caller: None,
+        traceparent: optional_header(message.headers.as_ref(), "traceparent")
+            .map(ToString::to_string),
+        tracestate: optional_header(message.headers.as_ref(), "tracestate")
+            .map(ToString::to_string),
     }
 }
 
@@ -622,7 +631,7 @@ where
         });
     }
 
-    if validator.validate(subject, payload, context).await? {
+    if validator.validate(subject, payload, context).await?.allowed {
         Ok(())
     } else {
         Err(ServerError::RequestDenied {
@@ -705,7 +714,11 @@ pub fn plan_upload_transfer_grant(
             service: args.service_name.to_string(),
             session_key: args.session_key.to_string(),
             transfer_id: args.transfer_id.to_string(),
-            subject: transfer_subject(UPLOAD_SUBJECT_PREFIX, args.session_key, args.transfer_id),
+            subject: transfer_subject(
+                UPLOAD_SUBJECT_PREFIX,
+                args.service_session_key,
+                args.transfer_id,
+            ),
             expires_at: args.expires_at.to_string(),
             chunk_bytes: args.chunk_bytes,
             max_bytes,
@@ -739,7 +752,11 @@ pub fn plan_download_transfer_grant(
             service: args.service_name.to_string(),
             session_key: args.session_key.to_string(),
             transfer_id: args.transfer_id.to_string(),
-            subject: transfer_subject(DOWNLOAD_SUBJECT_PREFIX, args.session_key, args.transfer_id),
+            subject: transfer_subject(
+                DOWNLOAD_SUBJECT_PREFIX,
+                args.service_session_key,
+                args.transfer_id,
+            ),
             expires_at: args.expires_at.to_string(),
             chunk_bytes: args.chunk_bytes,
             info: args.info,
@@ -965,6 +982,8 @@ mod tests {
 
     use futures_util::future::BoxFuture;
 
+    use crate::RequestValidation;
+
     use super::*;
 
     #[derive(Debug, Clone)]
@@ -979,10 +998,14 @@ mod tests {
             _subject: &'a str,
             _payload: &'a Bytes,
             _context: &'a RequestContext,
-        ) -> BoxFuture<'a, Result<bool, ServerError>> {
+        ) -> BoxFuture<'a, Result<RequestValidation, ServerError>> {
             Box::pin(async move {
                 self.calls.fetch_add(1, Ordering::SeqCst);
-                Ok(self.allowed)
+                Ok(if self.allowed {
+                    RequestValidation::allowed()
+                } else {
+                    RequestValidation::denied()
+                })
             })
         }
     }
@@ -999,6 +1022,9 @@ mod tests {
             session_key: Some("wrong-session".to_string()),
             proof: Some("proof".to_string()),
             reply_to: None,
+            caller: None,
+            traceparent: None,
+            tracestate: None,
         };
 
         let error = validate_transfer_request(
@@ -1031,6 +1057,9 @@ mod tests {
             session_key: Some("wrong-session".to_string()),
             proof: None,
             reply_to: None,
+            caller: None,
+            traceparent: None,
+            tracestate: None,
         };
 
         let error = validate_transfer_request(
@@ -1059,6 +1088,9 @@ mod tests {
             session_key: Some("expected-session".to_string()),
             proof: Some("proof".to_string()),
             reply_to: None,
+            caller: None,
+            traceparent: None,
+            tracestate: None,
         };
 
         let error = validate_transfer_request(

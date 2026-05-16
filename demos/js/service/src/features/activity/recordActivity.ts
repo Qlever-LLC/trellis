@@ -14,7 +14,7 @@ export async function recordActivity(
   activity: ActivityInput,
 ): Promise<void> {
   const occurredAt = new Date().toISOString();
-  await trellis.publish("Activity.Recorded", {
+  await trellis.publish("Audit.Recorded", {
     activityId: `activity-${crypto.randomUUID()}`,
     occurredAt,
     ...activity,

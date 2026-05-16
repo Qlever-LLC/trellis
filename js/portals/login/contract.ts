@@ -7,11 +7,13 @@ export const contract = defineAppContract(() => ({
   description:
     "Trellis built-in app for authenticated device activation over the Auth.DeviceUserAuthorities.Resolve operation.",
   uses: {
-    auth: trellisAuth.use({
-      operations: {
-        call: ["Auth.DeviceUserAuthorities.Resolve"],
-      },
-    }),
+    required: {
+      auth: trellisAuth.use({
+        operations: {
+          call: ["Auth.DeviceUserAuthorities.Resolve"],
+        },
+      }),
+    },
   },
 }));
 

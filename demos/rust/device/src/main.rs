@@ -246,7 +246,7 @@ async fn spawn_event_watchers(client: &TrellisClient) -> anyhow::Result<()> {
     tokio::spawn(async move {
         while let Some(event) = activity.next().await {
             match event {
-                Ok(event) => println!("event Activity.Recorded: {}", event.message),
+                Ok(event) => println!("event Audit.Recorded: {}", event.message),
                 Err(error) => eprintln!("activity event error: {error}"),
             }
         }

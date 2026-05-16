@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use trellis_service::{
@@ -67,6 +68,9 @@ fn request(subject: &str, payload: Value) -> InboundRequest {
             session_key: Some("svc_session".to_string()),
             proof: Some("proof".to_string()),
             reply_to: Some("_INBOX.1".to_string()),
+            caller: None,
+            traceparent: None,
+            tracestate: None,
         },
     }
 }
@@ -251,6 +255,54 @@ async fn service_control_handle_supports_typed_started_progress_complete_fail_an
         .await
         .expect("cancel succeeds");
     assert_eq!(snapshot.state, OperationState::Cancelled);
+}
+
+#[tokio::test]
+async fn operation_signals_are_acknowledged_and_delivered_to_control_handle() {
+    let runtime = InMemoryOperationRuntime::new("billing");
+    let refunds = runtime.operation::<RefundOperation>();
+
+    refunds.accept("op_signal").await.expect("accept succeeds");
+    let control = refunds
+        .control("op_signal")
+        .await
+        .expect("control succeeds");
+    let mut signals = control.signals().await.expect("signals subscribe succeeds");
+    control.started().await.expect("started succeeds");
+
+    let ack = refunds
+        .signal(
+            "op_signal",
+            "selectWorkspace",
+            Some(json!({ "workspaceId": "ws_1" })),
+        )
+        .await
+        .expect("signal succeeds");
+    assert_eq!(ack.kind, "signal-accepted");
+    assert_eq!(ack.operation_id, "op_signal");
+    assert_eq!(ack.signal, "selectWorkspace");
+    assert_eq!(ack.signal_sequence, 1);
+    assert_eq!(ack.snapshot.state, OperationState::Running);
+
+    let signal = signals
+        .try_next()
+        .await
+        .expect("stream succeeds")
+        .expect("signal delivered");
+    assert_eq!(signal.signal_sequence, 1);
+    assert_eq!(signal.input, Some(json!({ "workspaceId": "ws_1" })));
+
+    control
+        .complete(RefundOutput {
+            refund_id: "rf_done".to_string(),
+        })
+        .await
+        .expect("complete succeeds");
+    let terminal_signal = refunds.signal("op_signal", "continue", None).await;
+    assert!(matches!(
+        terminal_signal,
+        Err(ServerError::OperationTerminal { .. })
+    ));
 }
 
 #[tokio::test]

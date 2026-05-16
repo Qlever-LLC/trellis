@@ -12,11 +12,13 @@ Deno.test("createClient prefers trellis API for app contracts", () => {
     displayName: "App Test",
     description: "Exercise runtime API selection for app contracts.",
     uses: {
-      auth: auth.use({
-        rpc: {
-          call: ["Auth.Sessions.Me", "Auth.Identities.List"],
-        },
-      }),
+      required: {
+        auth: auth.use({
+          rpc: {
+            call: ["Auth.Sessions.Me", "Auth.Identities.List"],
+          },
+        }),
+      },
     },
   }));
 
@@ -57,7 +59,9 @@ async function typecheckInferredCreateClientSurface(): Promise<void> {
     displayName: "App Inference Test",
     description: "Exercise inferred createClient app API typing.",
     uses: {
-      service: service.use({ rpc: { call: ["Inference.Ping"] } }),
+      required: {
+        service: service.use({ rpc: { call: ["Inference.Ping"] } }),
+      },
     },
   }));
   const nats = { options: { inboxPrefix: "_INBOX.test" } } as never;
@@ -134,7 +138,9 @@ Deno.test("API composition", async (t) => {
       displayName: "App Used Test",
       description: "Exercise API composition with declared dependency uses.",
       uses: {
-        core: catalogContract.use({ rpc: { call: ["Trellis.Catalog"] } }),
+        required: {
+          core: catalogContract.use({ rpc: { call: ["Trellis.Catalog"] } }),
+        },
       },
     }));
 

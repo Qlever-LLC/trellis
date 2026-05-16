@@ -100,6 +100,7 @@ fn run_local_generator(
     args: &[OsString],
 ) -> Result<ExitStatus, GenerateRunnerError> {
     Command::new("cargo")
+        .current_dir(repo_root)
         .arg("run")
         .arg("--manifest-path")
         .arg(repo_root.join("rust/tools/generate/Cargo.toml"))

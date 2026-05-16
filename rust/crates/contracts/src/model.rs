@@ -131,13 +131,6 @@ pub struct ContractUses {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum ContractUsesWire {
-    Grouped(ContractUsesGroupedWire),
-    Flat(BTreeMap<String, ContractUseRef>),
-}
-
-#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ContractUsesGroupedWire {
     #[serde(default)]
@@ -151,16 +144,11 @@ impl<'de> Deserialize<'de> for ContractUses {
     where
         D: Deserializer<'de>,
     {
-        match ContractUsesWire::deserialize(deserializer)? {
-            ContractUsesWire::Grouped(grouped) => Ok(Self {
-                required: grouped.required,
-                optional: grouped.optional,
-            }),
-            ContractUsesWire::Flat(required) => Ok(Self {
-                required,
-                optional: BTreeMap::new(),
-            }),
-        }
+        let grouped = ContractUsesGroupedWire::deserialize(deserializer)?;
+        Ok(Self {
+            required: grouped.required,
+            optional: grouped.optional,
+        })
     }
 }
 
@@ -169,10 +157,6 @@ impl Serialize for ContractUses {
     where
         S: Serializer,
     {
-        if self.optional.is_empty() {
-            return self.required.serialize(serializer);
-        }
-
         #[derive(Serialize)]
         struct GroupedUses<'a> {
             #[serde(skip_serializing_if = "BTreeMap::is_empty")]

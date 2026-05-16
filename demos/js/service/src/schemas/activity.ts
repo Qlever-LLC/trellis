@@ -1,6 +1,6 @@
 import Type from "typebox";
 
-export const ActivityRecordedEvent = Type.Object({
+export const AuditRecordedEvent = Type.Object({
   activityId: Type.String({ minLength: 1 }),
   kind: Type.String({ minLength: 1 }),
   message: Type.String({ minLength: 1 }),

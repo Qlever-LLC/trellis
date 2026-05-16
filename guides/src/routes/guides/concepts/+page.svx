@@ -118,8 +118,8 @@ uses: {
 },
 ```
 
-Legacy flat `uses` remains accepted and is treated as required. Prefer grouped
-`uses.required` and `uses.optional` in new code:
+Contracts must declare dependencies with grouped `uses.required` and
+`uses.optional`:
 
 - required dependencies fail closed during active-catalog refresh and runtime permission derivation
 - service expansion planning can collect pending evidence before every required dependency is active. If a required dependency manifest is known but inactive, Trellis can use it to show the requested surfaces for review. If it is unknown, Trellis records the unresolved contract id as a blocker until that service also uploads its manifest.
@@ -361,7 +361,7 @@ Jobs are not visible to callers. If you need a caller-observable async workflow,
 
 `@qlever-llc/trellis/sdk/*` subpaths (for example `@qlever-llc/trellis/sdk/auth`, `@qlever-llc/trellis/sdk/core`, and `@qlever-llc/trellis/sdk/state`) are generated from contract definitions as part of the contract build pipeline. Import the root `sdk` export with a local alias for typed request or response types and explicit `use(...)` declarations.
 
-App and service contracts prepared by `prepare` provide enough type information for browser apps to derive local client types directly from their contract object with `TrellisClientFor<typeof contract>`. App-local `getTrellis()` helpers should use those contract-derived types instead of importing generated `client.ts` facades from `generated/js/sdks/...` paths.
+App and service contracts prepared by `prepare` provide enough type information for browser apps to derive local client types directly from their contract object with `TrellisClientFor<typeof contract>`. App-local `getTrellis()` helpers should use those contract-derived types instead of importing generated `client.ts` facades from `generated/packages/jsr/...` paths.
 
 `@qlever-llc/trellis-svelte` exposes Svelte integration helpers such as `TrellisProvider` and `createTrellisApp(...)`; raw NATS access is intentionally not part of its public API. `getTrellis()` and `getConnection()` should normally be app-local helpers layered over the app's own `trellisApp`.
 

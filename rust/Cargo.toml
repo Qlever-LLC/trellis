@@ -3,6 +3,7 @@ members = [
   "crates/auth",
   "crates/auth-adapters",
   "crates/core-bootstrap",
+  "crates/local-bootstrap",
   "crates/jobs",
   "crates/service-jobs",
   "crates/service",
@@ -10,6 +11,7 @@ members = [
   "crates/codegen-ts",
   "crates/codegen-rust",
   "crates/generate-runner",
+  "crates/integration-harness",
   "crates/client",
   "crates/cli",
 ]
@@ -44,6 +46,8 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 time = { version = "0.3.47", features = ["formatting"] }
 self_update = { version = "0.44.0", default-features = false, features = ["archive-tar", "archive-zip", "compression-flate2", "compression-zip-deflate", "rustls", "ureq"] }
-trellis-sdk-auth = { path = "../generated/rust/sdks/auth", version = "0.8.4" }
-trellis-sdk-core = { path = "../generated/rust/sdks/trellis-core", version = "0.8.4" }
-trellis-sdk-jobs = { path = "../generated/rust/sdks/jobs", version = "0.8.4" }
+trellis-sdk-auth = { path = "../generated/packages/cargo/auth", version = "0.8.2" }
+trellis-sdk-core = { path = "../generated/packages/cargo/trellis-core", version = "0.8.2" }
+trellis-sdk-health = { path = "../generated/packages/cargo/health", version = "0.8.2" }
+trellis-sdk-jobs = { path = "../generated/packages/cargo/jobs", version = "0.8.2" }
+trellis-sdk-state = { path = "../generated/packages/cargo/state", version = "0.8.2" }

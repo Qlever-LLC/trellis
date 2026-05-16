@@ -1366,14 +1366,20 @@ fn render_rpc_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         String::new(),
         "use serde::{Deserialize, Serialize};".to_string(),
         String::new(),
-        "use trellis_client::RpcDescriptor;".to_string(),
-        "use trellis_service::RpcDescriptor as ServerRpcDescriptor;".to_string(),
-        String::new(),
-        "/// Empty request or response payload used by zero-argument RPCs.".to_string(),
-        "#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]".to_string(),
-        "pub struct Empty {}".to_string(),
-        String::new(),
     ];
+
+    if !loaded.manifest.rpc.is_empty() {
+        lines.push("use trellis_client::RpcDescriptor;".to_string());
+        lines.push("use trellis_service::RpcDescriptor as ServerRpcDescriptor;".to_string());
+        lines.push(String::new());
+    }
+
+    lines.push("/// Empty request or response payload used by zero-argument RPCs.".to_string());
+    lines.push(
+        "#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]".to_string(),
+    );
+    lines.push("pub struct Empty {}".to_string());
+    lines.push(String::new());
 
     for (key, rpc) in &loaded.manifest.rpc {
         let base = key_to_pascal(key);
@@ -1828,20 +1834,42 @@ fn render_client_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
 }
 
 fn render_server_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
-    let mut imports = vec!["HandlerResult", "RequestContext", "Router"];
+    let mut imports = Vec::new();
+    if !loaded.manifest.rpc.is_empty() {
+        imports.extend(["HandlerResult", "RequestContext", "Router"]);
+    }
+    if !loaded.manifest.operations.is_empty() {
+        if !imports.contains(&"RequestContext") {
+            imports.push("RequestContext");
+        }
+        if !imports.contains(&"Router") {
+            imports.push("Router");
+        }
+    }
     if !loaded.manifest.events.is_empty() {
         imports.push("EventPublisher");
         imports.push("ServerError");
     }
-    if !loaded.manifest.feeds.is_empty() && !imports.contains(&"ServerError") {
-        imports.push("ServerError");
+    if !loaded.manifest.feeds.is_empty() {
+        if !imports.contains(&"RequestContext") {
+            imports.push("RequestContext");
+        }
+        if !imports.contains(&"Router") {
+            imports.push("Router");
+        }
+        if !imports.contains(&"ServerError") {
+            imports.push("ServerError");
+        }
     }
     let mut lines = vec![
         format!("//! Thin server-side helpers for `{}`.", loaded.manifest.id),
         String::new(),
-        format!("use trellis_service::{{{}}};", imports.join(", ")),
-        String::new(),
     ];
+
+    if !imports.is_empty() {
+        lines.push(format!("use trellis_service::{{{}}};", imports.join(", ")));
+        lines.push(String::new());
+    }
 
     for (key, rpc) in &loaded.manifest.rpc {
         let base = key_to_pascal(key);
@@ -2389,8 +2417,8 @@ mod tests {
                     "ProcessProgress": {"type":"object","properties":{"step":{"type":"string"}},"required":["step"],"additionalProperties":false},
                     "ProcessOutput": {"type":"object","properties":{"done":{"type":"boolean"}},"required":["done"],"additionalProperties":false},
                     "AuthChangedEvent": {"type":"object","properties":{"status":{"type":"string"}},"required":["status"],"additionalProperties":false},
-                    "ActivityFeedInput": {"type":"object","properties":{"since":{"type":"string"}},"required":["since"],"additionalProperties":false},
-                    "ActivityFeedEvent": {"type":"object","properties":{"message":{"type":"string"}},"required":["message"],"additionalProperties":false},
+                    "AuditFeedInput": {"type":"object","properties":{"since":{"type":"string"}},"required":["since"],"additionalProperties":false},
+                    "AuditFeedEvent": {"type":"object","properties":{"message":{"type":"string"}},"required":["message"],"additionalProperties":false},
                     "ExternalCheckpoint": {"type":"object","properties":{"cursor":{"type":"string"}},"required":["cursor"],"additionalProperties":false}
                 },
                 "exports": {"schemas": ["ExternalCheckpoint"]},
@@ -2405,7 +2433,7 @@ mod tests {
                     "Auth.Changed": {"version":"v1","subject":"events.v1.Auth.Changed","event":{"schema":"AuthChangedEvent"},"capabilities":{"publish":["auth.event.publish"],"subscribe":["auth.event.subscribe"]}}
                 },
                 "feeds": {
-                    "Activity.Feed": {"version":"v1","subject":"feeds.v1.Activity.Feed","input":{"schema":"ActivityFeedInput"},"event":{"schema":"ActivityFeedEvent"},"capabilities":{"subscribe":["activity.feed.subscribe"]}}
+                    "Audit.Feed": {"version":"v1","subject":"feeds.v1.Audit.Feed","input":{"schema":"AuditFeedInput"},"event":{"schema":"AuditFeedEvent"},"capabilities":{"subscribe":["audit.feed.subscribe"]}}
                 }
             }"#,
         )
@@ -2434,7 +2462,7 @@ mod tests {
         let cargo = render_cargo_toml(
             &GenerateRustSdkOpts {
                 manifest_path: PathBuf::from("generated/contracts/manifests/trellis.core@v1.json"),
-                out_dir: PathBuf::from("generated/rust/sdks/trellis-core"),
+                out_dir: PathBuf::from("generated/packages/cargo/trellis-core"),
                 crate_name: "trellis-sdk-core".to_string(),
                 crate_version: "0.1.0".to_string(),
                 runtime_deps: RustRuntimeDeps {
@@ -2496,7 +2524,7 @@ mod tests {
         let cargo = render_cargo_toml(
             &GenerateRustSdkOpts {
                 manifest_path: PathBuf::from("generated/contracts/manifests/trellis.core@v1.json"),
-                out_dir: PathBuf::from("generated/rust/sdks/trellis-core"),
+                out_dir: PathBuf::from("generated/packages/cargo/trellis-core"),
                 crate_name: "trellis-sdk-core".to_string(),
                 crate_version: "0.1.0".to_string(),
                 runtime_deps: RustRuntimeDeps {
@@ -2705,8 +2733,8 @@ mod tests {
         assert!(types_rs.contains("pub struct TrellisProcessProgress {"));
         assert!(types_rs.contains("pub struct TrellisProcessOutput {"));
         assert!(types_rs.contains("pub struct AuthChangedEvent {"));
-        assert!(types_rs.contains("pub struct ActivityFeedInput {"));
-        assert!(types_rs.contains("pub struct ActivityFeedEvent {"));
+        assert!(types_rs.contains("pub struct AuditFeedInput {"));
+        assert!(types_rs.contains("pub struct AuditFeedEvent {"));
         assert!(types_rs.contains("pub struct ExternalCheckpoint {"));
         assert!(types_rs.contains("pub status: String,"));
         assert!(rpc_rs.contains("pub struct TrellisCatalogRpc;"));
@@ -2731,30 +2759,28 @@ mod tests {
         ));
         assert!(events_rs.contains("const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &["));
         assert!(events_rs.contains("\"auth.event.subscribe\""));
-        assert!(feeds_rs.contains("pub struct ActivityFeedFeedDescriptor;"));
-        assert!(feeds_rs.contains("impl FeedDescriptor for ActivityFeedFeedDescriptor"));
-        assert!(feeds_rs.contains("impl ServerFeedDescriptor for ActivityFeedFeedDescriptor"));
-        assert!(feeds_rs.contains("type Input = crate::types::ActivityFeedInput;"));
-        assert!(feeds_rs.contains("type Event = crate::types::ActivityFeedEvent;"));
-        assert!(feeds_rs.contains("const SUBJECT: &'static str = \"feeds.v1.Activity.Feed\";"));
+        assert!(feeds_rs.contains("pub struct AuditFeedFeedDescriptor;"));
+        assert!(feeds_rs.contains("impl FeedDescriptor for AuditFeedFeedDescriptor"));
+        assert!(feeds_rs.contains("impl ServerFeedDescriptor for AuditFeedFeedDescriptor"));
+        assert!(feeds_rs.contains("type Input = crate::types::AuditFeedInput;"));
+        assert!(feeds_rs.contains("type Event = crate::types::AuditFeedEvent;"));
+        assert!(feeds_rs.contains("const SUBJECT: &'static str = \"feeds.v1.Audit.Feed\";"));
         assert!(feeds_rs.contains(
-            "const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[\"activity.feed.subscribe\"];"
+            "const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[\"audit.feed.subscribe\"];"
         ));
         assert!(client_rs.contains("pub struct CoreClient<'a>"));
         assert!(client_rs.contains("pub async fn trellis_catalog("));
-        assert!(client_rs.contains("pub async fn activity_feed("));
+        assert!(client_rs.contains("pub async fn audit_feed("));
         assert!(client_rs.contains("futures_util::stream::BoxStream"));
-        assert!(client_rs.contains("self.inner.feed::<crate::feeds::ActivityFeedFeedDescriptor>"));
+        assert!(client_rs.contains("self.inner.feed::<crate::feeds::AuditFeedFeedDescriptor>"));
         assert!(client_rs.contains("trellis_client::OperationInvoker<"));
         assert!(client_rs.contains("crate::operations::TrellisProcessOperation"));
         assert!(server_rs.contains("register_trellis_catalog"));
         assert!(server_rs.contains("register_trellis_process"));
-        assert!(server_rs.contains("register_activity_feed"));
-        assert!(
-            server_rs.contains("router.register_feed::<crate::feeds::ActivityFeedFeedDescriptor")
-        );
+        assert!(server_rs.contains("register_audit_feed"));
+        assert!(server_rs.contains("router.register_feed::<crate::feeds::AuditFeedFeedDescriptor"));
         assert!(server_rs.contains(
-            "S: futures_util::Stream<Item = Result<crate::types::ActivityFeedEvent, ServerError>>"
+            "S: futures_util::Stream<Item = Result<crate::types::AuditFeedEvent, ServerError>>"
         ));
         assert!(server_rs.contains("pub fn register_trellis_process_provider<P>"));
         assert!(server_rs.contains(
@@ -2763,6 +2789,63 @@ mod tests {
         assert!(server_rs.contains("router"));
         assert!(server_rs.contains("register_operation_provider::<"));
         assert!(server_rs.contains("crate::operations::TrellisProcessOperation"));
+
+        fs::remove_dir_all(out_dir).unwrap();
+    }
+
+    #[test]
+    fn generated_event_only_sdk_omits_unused_imports() {
+        let out_dir = unique_temp_dir("event-only-sdk-imports");
+        fs::create_dir_all(&out_dir).unwrap();
+        let manifest_path = write_remote_manifest(
+            &out_dir,
+            "trellis.health@v1.json",
+            json!({
+                "format": "trellis.contract.v1",
+                "id": "trellis.health@v1",
+                "displayName": "Trellis Health",
+                "description": "Trellis health events.",
+                "kind": "service",
+                "schemas": {
+                    "Heartbeat": {
+                        "type": "object",
+                        "properties": { "service": { "type": "string" } },
+                        "required": ["service"],
+                        "additionalProperties": false
+                    }
+                },
+                "events": {
+                    "Health.Heartbeat": {
+                        "version": "v1",
+                        "subject": "events.v1.Health.Heartbeat",
+                        "event": { "schema": "Heartbeat" }
+                    }
+                }
+            }),
+        );
+
+        generate_rust_sdk(&GenerateRustSdkOpts {
+            manifest_path,
+            out_dir: out_dir.join("generated"),
+            crate_name: "trellis-sdk-health".to_string(),
+            crate_version: "0.1.0".to_string(),
+            runtime_deps: RustRuntimeDeps {
+                source: RustRuntimeSource::Registry,
+                version: "0.1.0".to_string(),
+                repo_root: None,
+            },
+        })
+        .unwrap();
+
+        let rpc_rs = fs::read_to_string(out_dir.join("generated/src/rpc.rs")).unwrap();
+        let server_rs = fs::read_to_string(out_dir.join("generated/src/server.rs")).unwrap();
+
+        assert!(!rpc_rs.contains("trellis_client::RpcDescriptor"));
+        assert!(!rpc_rs.contains("trellis_service::RpcDescriptor"));
+        assert!(!server_rs.contains("HandlerResult"));
+        assert!(!server_rs.contains("RequestContext"));
+        assert!(!server_rs.contains("Router"));
+        assert!(server_rs.contains("use trellis_service::{EventPublisher, ServerError};"));
 
         fs::remove_dir_all(out_dir).unwrap();
     }
@@ -3005,16 +3088,16 @@ mod tests {
 
         let local_manifest = write_remote_manifest(
             &out_dir,
-            "activity@v1.json",
+            "audit@v1.json",
             json!({
                 "format": "trellis.contract.v1",
-                "id": "activity@v1",
-                "displayName": "Activity",
-                "description": "Activity service.",
+                "id": "audit@v1",
+                "displayName": "Audit",
+                "description": "Audit service.",
                 "kind": "service",
                 "schemas": {
-                    "ActivityListInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "ActivityListOutput": {"type":"object","properties":{"items":{"type":"array","items":{"type":"string"}}},"required":["items"],"additionalProperties":false}
+                    "AuditListInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
+                    "AuditListOutput": {"type":"object","properties":{"items":{"type":"array","items":{"type":"string"}}},"required":["items"],"additionalProperties":false}
                 },
                 "uses": {
                     "core": {
@@ -3028,11 +3111,11 @@ mod tests {
                     }
                 },
                 "rpc": {
-                    "Activity.List": {
+                    "Audit.List": {
                         "version": "v1",
-                        "subject": "rpc.v1.Activity.List",
-                        "input": {"schema":"ActivityListInput"},
-                        "output": {"schema":"ActivityListOutput"}
+                        "subject": "rpc.v1.Audit.List",
+                        "input": {"schema":"AuditListInput"},
+                        "output": {"schema":"AuditListOutput"}
                     }
                 }
             }),
@@ -3106,14 +3189,14 @@ mod tests {
         generate_rust_participant_facade(&GenerateRustParticipantFacadeOpts {
             manifest_path: local_manifest,
             out_dir: out_dir.join("facade"),
-            crate_name: "activity-participant".to_string(),
+            crate_name: "audit-participant".to_string(),
             crate_version: "0.1.0".to_string(),
             runtime_deps: RustRuntimeDeps {
                 source: RustRuntimeSource::Local,
                 version: "0.1.0".to_string(),
                 repo_root: Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")),
             },
-            owned_sdk_crate_name: Some("activity-sdk".to_string()),
+            owned_sdk_crate_name: Some("audit-sdk".to_string()),
             owned_sdk_path: Some(owned_sdk_dir),
             alias_mappings: vec![
                 ParticipantAliasMapping {
@@ -3152,7 +3235,7 @@ mod tests {
         assert!(connect_rs.contains("connect_user"));
         assert!(
             contract_rs.contains("participant.contract.json")
-                || contract_rs.contains("activity@v1.json")
+                || contract_rs.contains("audit@v1.json")
         );
         assert!(contract_rs.contains("pub const CONTRACT_DIGEST: &str = "));
         assert!(out_dir.join("facade/contracts/core.json").exists());

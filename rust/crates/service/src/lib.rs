@@ -28,13 +28,14 @@ pub use connected::{
     ConnectedServiceHostWithValidator, ConnectedServiceParts, SingleSubjectServiceRunner,
 };
 pub use descriptor::{EventDescriptor, FeedDescriptor, RpcDescriptor};
-pub use error::{HandlerResult, ServerError};
+pub use error::{DeclaredRpcError, HandlerResult, ServerError};
 pub use health::{HealthCheck, HealthReport};
 pub use operations::{
     control_subject, AcceptedOperation, InMemoryOperationRuntime, OperationControl,
     OperationControlRequest, OperationDescriptor, OperationError, OperationFailure,
-    OperationProvider, OperationRefData, OperationSnapshot, OperationSnapshotFrame, OperationState,
-    OperationTransferProgress, ServiceOperation,
+    OperationProvider, OperationRefData, OperationSignal, OperationSignalAccepted,
+    OperationSnapshot, OperationSnapshotFrame, OperationState, OperationTransferProgress,
+    ServiceOperation,
 };
 pub use publisher::EventPublisher;
 pub use request_loop::{
@@ -51,7 +52,7 @@ pub use runtime::{
     bootstrap_and_run_single_subject_service, run_multi_subject_service,
     run_single_subject_service, subscribe_subject,
 };
-pub use service::{AuthenticatedRouter, RequestValidator};
+pub use service::{AuthenticatedRouter, RequestValidation, RequestValidator};
 pub use service_host::{bootstrap_service_host, ServiceHost};
 pub use transfer::{
     decode_upload_transfer_chunk, plan_download_transfer_chunks, plan_download_transfer_chunks_at,

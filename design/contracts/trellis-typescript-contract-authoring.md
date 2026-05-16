@@ -120,7 +120,9 @@ const app = defineAppContract(() => ({
   displayName: "Example App",
   description: "Example app.",
   uses: {
-    catalog: catalog.use({ rpc: { call: ["Catalog.Search"] } }),
+    required: {
+      catalog: catalog.use({ rpc: { call: ["Catalog.Search"] } }),
+    },
   },
 }));
 ```
@@ -414,20 +416,20 @@ The `use(...)` helper:
 This makes imported SDK modules the source of truth for remote dependency names
 in TypeScript authoring.
 
-Contracts may place SDK-backed uses either in `uses.required` or
-`uses.optional`. A legacy flat `uses` object remains accepted and is emitted as
-required-by-default for compatibility with existing manifests. Required uses
-fail closed during active-catalog validation. Optional uses are included in
-digest identity, but missing optional contracts or surfaces are skipped and
-grant no transport authority. If an alias appears in both groups, the required
+Contracts must place SDK-backed uses either in `uses.required` or
+`uses.optional`; aliases directly under `uses` are invalid. Required uses fail
+closed during active-catalog validation. Optional uses are included in digest
+identity, but missing optional contracts or surfaces are skipped and grant no
+transport authority. If an alias appears in both groups, the required
 declaration wins.
 
 Some Trellis-owned surfaces are derived from the participant kind or local
 contract features. App, agent, and device contracts receive baseline auth RPCs
-such as `Auth.Sessions.Me` and `Auth.Sessions.Logout` without authoring boilerplate; service
-runtimes may also receive baseline auth surfaces such as `Auth.Requests.Validate`
-without each service authoring a `uses` entry. Contracts that need non-baseline
-auth surfaces still declare them with `auth.use(...)`.
+such as `Auth.Sessions.Me` and `Auth.Sessions.Logout` without authoring
+boilerplate; service runtimes may also receive baseline auth surfaces such as
+`Auth.Requests.Validate` without each service authoring a `uses` entry.
+Contracts that need non-baseline auth surfaces still declare them with
+`auth.use(...)`.
 
 ### 3b) Named contract state stores
 

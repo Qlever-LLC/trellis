@@ -3,7 +3,7 @@ import { buildDntPackage } from "../../../tools/package_build/build_dnt_package.
 const npmPackageJsonPath = new URL("../npm/package.json", import.meta.url);
 const npmDirUrl = new URL("../npm/", import.meta.url);
 const generatedSdkSourceUrl = new URL(
-  "../../../../generated/js/sdks/",
+  "../../../../generated/packages/jsr/",
   import.meta.url,
 );
 const generatedSdkBuildUrl = new URL(

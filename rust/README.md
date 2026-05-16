@@ -30,6 +30,6 @@ prepare workflow through Cargo. For JS-first repo workflows, use `cd js && deno 
 
 Before `cargo build` or `cargo install --path rust/crates/cli`, run
 `cargo xtask prepare` so the generated Rust SDK crates under
-`generated/rust/sdks/` exist. If you are doing a normal Rust build from the repo,
+`generated/packages/cargo/` exist. If you are doing a normal Rust build from the repo,
 prefer `cargo xtask build`, which runs `prepare` first and then invokes
 `cargo build`.

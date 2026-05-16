@@ -271,9 +271,11 @@ Deno.test("contracts runtime lets app approval use evidenced service contract wi
         description: "Browser app",
         kind: "app",
         uses: {
-          billing: {
-            contract: "billing@v1",
-            operations: { call: ["Refund"] },
+          required: {
+            billing: {
+              contract: "billing@v1",
+              operations: { call: ["Refund"] },
+            },
           },
         },
       });
@@ -336,9 +338,11 @@ Deno.test("contracts runtime rejects uses dependencies before persistence", asyn
       description: "Calls billing operations.",
       kind: "service",
       uses: {
-        billing: {
-          contract: "billing@v1",
-          operations: { call: ["Billing.Missing"] },
+        required: {
+          billing: {
+            contract: "billing@v1",
+            operations: { call: ["Billing.Missing"] },
+          },
         },
       },
     } satisfies TrellisContractV1;
@@ -372,9 +376,11 @@ Deno.test("contracts runtime validates uses against active contracts", async () 
       description: "Calls billing operations.",
       kind: "service",
       uses: {
-        billing: {
-          contract: "billing@v1",
-          operations: { call: ["Billing.Missing"] },
+        required: {
+          billing: {
+            contract: "billing@v1",
+            operations: { call: ["Billing.Missing"] },
+          },
         },
       },
     } satisfies TrellisContractV1;
@@ -402,9 +408,11 @@ Deno.test("contracts runtime validates uses against active contracts", async () 
     const goodConsumer = {
       ...badConsumer,
       uses: {
-        billing: {
-          contract: "billing@v1",
-          operations: { call: ["Refund"] },
+        required: {
+          billing: {
+            contract: "billing@v1",
+            operations: { call: ["Refund"] },
+          },
         },
       },
     } satisfies TrellisContractV1;
@@ -527,9 +535,11 @@ Deno.test("contracts runtime can refresh removal catalogs with existing inactive
         description: "Calls billing operations.",
         kind: "service",
         uses: {
-          billing: {
-            contract: "billing@v1",
-            operations: { call: ["Refund"] },
+          required: {
+            billing: {
+              contract: "billing@v1",
+              operations: { call: ["Refund"] },
+            },
           },
         },
       });
@@ -1052,9 +1062,11 @@ Deno.test("contracts runtime refresh rejects active uses dependencies without mu
         description: "Calls billing operations.",
         kind: "service",
         uses: {
-          billing: {
-            contract: "billing@v1",
-            operations: { call: ["Refund"] },
+          required: {
+            billing: {
+              contract: "billing@v1",
+              operations: { call: ["Refund"] },
+            },
           },
         },
       } satisfies TrellisContractV1,

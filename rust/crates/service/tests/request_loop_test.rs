@@ -50,6 +50,22 @@ impl RecordingHandler {
             seen: Arc::new(Mutex::new(Vec::new())),
         }
     }
+
+    #[allow(clippy::result_large_err)]
+    fn declared_error() -> Self {
+        Self {
+            result: Arc::new(|| {
+                Err(ServerError::DeclaredRpc(
+                    trellis_service::DeclaredRpcError::new(
+                        "NotFoundError",
+                        "Workspace not found",
+                        [("resource", serde_json::json!("Workspace"))],
+                    ),
+                ))
+            }),
+            seen: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
 }
 
 impl RequestHandler for RecordingHandler {
@@ -78,6 +94,9 @@ fn request(reply_to: Option<&str>) -> InboundRequest {
             session_key: Some("svc_session".to_string()),
             proof: Some("proof".to_string()),
             reply_to: reply_to.map(ToString::to_string),
+            caller: None,
+            traceparent: None,
+            tracestate: None,
         },
     }
 }
@@ -141,6 +160,25 @@ async fn dispatch_one_returns_error_reply_when_handler_fails() {
         body["context"]["causeMessage"],
         "request denied for subject 'rpc.v1.Jobs.Health' and session 'svc_session'"
     );
+}
+
+#[tokio::test]
+async fn dispatch_one_returns_declared_rpc_error_directly() {
+    let handler = RecordingHandler::declared_error();
+    let incoming = request(Some("_INBOX.1"));
+
+    let reply = dispatch_one(&handler, incoming)
+        .await
+        .expect("dispatch should emit error reply")
+        .expect("reply should be present");
+
+    assert!(reply.is_error);
+    let body: serde_json::Value =
+        serde_json::from_slice(&reply.payload).expect("error payload should be JSON");
+    assert!(body["id"].as_str().is_some_and(|value| !value.is_empty()));
+    assert_eq!(body["type"], "NotFoundError");
+    assert_eq!(body["message"], "Workspace not found");
+    assert_eq!(body["resource"], "Workspace");
 }
 
 #[tokio::test]

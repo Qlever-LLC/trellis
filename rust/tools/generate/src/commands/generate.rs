@@ -3,11 +3,15 @@ use std::fs;
 use miette::IntoDiagnostic;
 
 use crate::artifacts::{
-    current_generator_fingerprint, default_rust_crate_name_from_id, generated_artifacts_are_fresh,
-    generated_artifacts_metadata, infer_artifact_version, resolve_contract, rust_runtime_deps,
-    trellis_package_version, ts_package_name_from_id, ts_runtime_deps, write_contract_outputs,
+    build_npm_package_from_jsr, current_generator_fingerprint, default_rust_crate_name_from_id,
+    generated_artifacts_are_fresh, generated_artifacts_metadata, infer_artifact_version,
+    resolve_contract, rust_runtime_deps, stage_jsr_package_for_npm, trellis_package_version,
+    ts_package_name_from_id, ts_runtime_deps, write_contract_outputs,
 };
-use crate::cli::{GenerateAllArgs, GenerateManifestArgs, GenerateRustSdkArgs, GenerateTsSdkArgs};
+use crate::cli::{
+    GenerateAllArgs, GenerateCargoPackageArgs, GenerateJsrPackageArgs, GenerateManifestArgs,
+    GenerateNpmPackageArgs,
+};
 use crate::output;
 use trellis_codegen_rust::GenerateRustSdkOpts;
 use trellis_codegen_ts::GenerateTsSdkOpts;
@@ -27,7 +31,7 @@ pub fn manifest(args: &GenerateManifestArgs) -> miette::Result<()> {
     Ok(())
 }
 
-pub fn ts_sdk(args: &GenerateTsSdkArgs) -> miette::Result<()> {
+pub fn jsr_package(args: &GenerateJsrPackageArgs) -> miette::Result<()> {
     let resolved = resolve_contract(&args.contract)?;
     let package_name = args
         .package_name
@@ -36,7 +40,7 @@ pub fn ts_sdk(args: &GenerateTsSdkArgs) -> miette::Result<()> {
     let artifact_version = infer_artifact_version(
         &resolved,
         args.artifact_version.clone(),
-        "generate a TypeScript SDK",
+        "generate a JSR package",
     )?;
     trellis_codegen_ts::generate_ts_sdk(&GenerateTsSdkOpts {
         manifest_path: resolved.manifest_path.clone(),
@@ -50,14 +54,42 @@ pub fn ts_sdk(args: &GenerateTsSdkArgs) -> miette::Result<()> {
         ),
     })
     .into_diagnostic()?;
-    output::print_success(&format!(
-        "generated TypeScript SDK at {}",
-        args.out.display()
-    ));
+    output::print_success(&format!("generated JSR package at {}", args.out.display()));
     Ok(())
 }
 
-pub fn rust_sdk(args: &GenerateRustSdkArgs) -> miette::Result<()> {
+pub fn npm_package(args: &GenerateNpmPackageArgs) -> miette::Result<()> {
+    let resolved = resolve_contract(&args.contract)?;
+    let package_name = args
+        .package_name
+        .clone()
+        .unwrap_or_else(|| ts_package_name_from_id(&resolved.loaded.manifest.id, &args.prefix));
+    let artifact_version = infer_artifact_version(
+        &resolved,
+        args.artifact_version.clone(),
+        "generate an npm package",
+    )?;
+    let staging = tempfile::tempdir().into_diagnostic()?;
+    let jsr_out = stage_jsr_package_for_npm(
+        &resolved.loaded.manifest.id,
+        &resolved.manifest_path,
+        staging.path(),
+        &package_name,
+        &artifact_version,
+    )?;
+    build_npm_package_from_jsr(
+        &jsr_out,
+        &args.out,
+        &package_name,
+        &artifact_version,
+        &trellis_package_version(),
+        &resolved.loaded.manifest.id,
+    )?;
+    output::print_success(&format!("generated npm package at {}", args.out.display()));
+    Ok(())
+}
+
+pub fn cargo_package(args: &GenerateCargoPackageArgs) -> miette::Result<()> {
     let resolved = resolve_contract(&args.contract)?;
     let crate_name = args
         .crate_name
@@ -66,7 +98,7 @@ pub fn rust_sdk(args: &GenerateRustSdkArgs) -> miette::Result<()> {
     let artifact_version = infer_artifact_version(
         &resolved,
         args.artifact_version.clone(),
-        "generate a Rust SDK",
+        "generate a Cargo package",
     )?;
     trellis_codegen_rust::generate_rust_sdk(&GenerateRustSdkOpts {
         manifest_path: resolved.manifest_path.clone(),
@@ -80,7 +112,10 @@ pub fn rust_sdk(args: &GenerateRustSdkArgs) -> miette::Result<()> {
         ),
     })
     .into_diagnostic()?;
-    output::print_success(&format!("generated Rust SDK at {}", args.out.display()));
+    output::print_success(&format!(
+        "generated Cargo package at {}",
+        args.out.display()
+    ));
     Ok(())
 }
 
@@ -105,8 +140,9 @@ pub fn all(args: &GenerateAllArgs, force: bool) -> miette::Result<()> {
         &artifact_version,
         args.runtime_source,
         &trellis_package_version(),
-        args.ts_out.is_some(),
-        args.rust_out.is_some(),
+        args.jsr_out.is_some(),
+        args.npm_out.is_some(),
+        args.cargo_out.is_some(),
         &package_name,
         &crate_name,
         generator_fingerprint,
@@ -115,8 +151,9 @@ pub fn all(args: &GenerateAllArgs, force: bool) -> miette::Result<()> {
         && generated_artifacts_are_fresh(
             &metadata,
             &args.out_manifest,
-            args.ts_out.as_deref(),
-            args.rust_out.as_deref(),
+            args.jsr_out.as_deref(),
+            args.npm_out.as_deref(),
+            args.cargo_out.as_deref(),
         )
     {
         output::print_success(&format!(
@@ -129,8 +166,9 @@ pub fn all(args: &GenerateAllArgs, force: bool) -> miette::Result<()> {
         &resolved,
         artifact_version,
         &args.out_manifest,
-        args.ts_out.as_deref(),
-        args.rust_out.as_deref(),
+        args.jsr_out.as_deref(),
+        args.npm_out.as_deref(),
+        args.cargo_out.as_deref(),
         &package_name,
         &crate_name,
         args.runtime_source,

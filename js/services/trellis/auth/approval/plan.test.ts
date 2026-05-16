@@ -73,12 +73,12 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
       },
     },
     feeds: {
-      "Activity.Live": {
+      "Audit.Feed": {
         version: "v1",
-        subject: "feeds.v1.example.Activity.Live",
+        subject: "feeds.v1.example.Audit.Feed",
         input: { schema: "EmptyInput" },
         event: { schema: "AuthConnectionsOpenedEvent" },
-        capabilities: { subscribe: ["activity:read"] },
+        capabilities: { subscribe: ["audit:read"] },
       },
     },
   };
@@ -95,12 +95,14 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     description: "Browser app",
     kind: "app",
     uses: {
-      auth: {
-        contract: "example.auth@v1",
-        rpc: { call: ["Auth.Sessions.Me", "Evidence.Download"] },
-        operations: { call: ["Evidence.Upload"] },
-        events: { subscribe: ["Auth.Connections.Opened"] },
-        feeds: { subscribe: ["Activity.Live"] },
+      required: {
+        auth: {
+          contract: "example.auth@v1",
+          rpc: { call: ["Auth.Sessions.Me", "Evidence.Download"] },
+          operations: { call: ["Evidence.Upload"] },
+          events: { subscribe: ["Auth.Connections.Opened"] },
+          feeds: { subscribe: ["Audit.Feed"] },
+        },
       },
     },
   });
@@ -110,10 +112,6 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     "audit:read": {
       displayName: "audit:read",
       description: "Requires audit:read.",
-    },
-    "activity:read": {
-      displayName: "activity:read",
-      description: "Requires activity:read.",
     },
     "evidence:read": {
       displayName: "evidence:read",
@@ -136,7 +134,7 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     "$JS.API.CONSUMER.INFO.trellis.>",
     "$JS.API.CONSUMER.MSG.NEXT.trellis.>",
     "$JS.API.INFO",
-    "feeds.v1.example.Activity.Live",
+    "feeds.v1.example.Audit.Feed",
     "operations.v1.example.Evidence.Upload",
     "operations.v1.example.Evidence.Upload.control",
     "rpc.v1.example.Auth.Sessions.Me",
@@ -187,9 +185,11 @@ Deno.test("planUserContractApproval includes operation read and declared cancel 
     description: "Browser app",
     kind: "app",
     uses: {
-      jobs: {
-        contract: "example.jobs@v1",
-        operations: { call: ["Jobs.Run"] },
+      required: {
+        jobs: {
+          contract: "example.jobs@v1",
+          operations: { call: ["Jobs.Run"] },
+        },
       },
     },
   });
@@ -246,14 +246,16 @@ Deno.test("planUserContractApproval rejects app contracts with raw subject uses"
         description: "Browser app",
         kind: "app",
         uses: {
-          audit: {
-            contract: "example.audit@v1",
-            subjects: { subscribe: ["Audit"] },
+          required: {
+            audit: {
+              contract: "example.audit@v1",
+              subjects: { subscribe: ["Audit"] },
+            },
           },
         },
       }),
     Error,
-    "Contract uses 'audit' declares unsupported subjects",
+    "does not match any schema",
   );
 });
 
@@ -298,10 +300,12 @@ Deno.test("planUserContractApproval maps explicit transfer declarations by direc
     description: "Browser app",
     kind: "app",
     uses: {
-      files: {
-        contract: "example.files@v1",
-        rpc: { call: ["Download"] },
-        operations: { call: ["Upload"] },
+      required: {
+        files: {
+          contract: "example.files@v1",
+          rpc: { call: ["Download"] },
+          operations: { call: ["Upload"] },
+        },
       },
     },
   });
@@ -333,9 +337,11 @@ Deno.test("planUserContractApproval rejects app contracts with inactive dependen
         description: "Browser app",
         kind: "app",
         uses: {
-          auth: {
-            contract: "missing.auth@v1",
-            rpc: { call: ["Auth.Sessions.Me"] },
+          required: {
+            auth: {
+              contract: "missing.auth@v1",
+              rpc: { call: ["Auth.Sessions.Me"] },
+            },
           },
         },
       }),
@@ -356,9 +362,11 @@ Deno.test("planUserContractApproval rejects agent contracts with inactive depend
         description: "Agent",
         kind: "agent",
         uses: {
-          jobs: {
-            contract: "missing.jobs@v1",
-            operations: { call: ["Jobs.Run"] },
+          required: {
+            jobs: {
+              contract: "missing.jobs@v1",
+              operations: { call: ["Jobs.Run"] },
+            },
           },
         },
       }),
@@ -400,9 +408,11 @@ Deno.test("planUserContractApproval rejects inactive dependency surfaces even wh
         description: "Browser app",
         kind: "app",
         uses: {
-          auth: {
-            contract: "example.auth@v1",
-            rpc: { call: ["Auth.Sessions.Me"] },
+          required: {
+            auth: {
+              contract: "example.auth@v1",
+              rpc: { call: ["Auth.Sessions.Me"] },
+            },
           },
         },
       }),
@@ -446,9 +456,11 @@ Deno.test("planUserContractApproval still rejects invalid active dependencies", 
         description: "Browser app",
         kind: "app",
         uses: {
-          auth: {
-            contract: "example.auth@v1",
-            rpc: { call: ["Auth.Missing"] },
+          required: {
+            auth: {
+              contract: "example.auth@v1",
+              rpc: { call: ["Auth.Missing"] },
+            },
           },
         },
       }),

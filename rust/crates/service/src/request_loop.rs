@@ -172,6 +172,16 @@ pub fn decode_nats_request(message: &async_nats::Message) -> InboundRequest {
         .as_ref()
         .and_then(|headers| headers.get("proof"))
         .map(|value| value.as_str().to_string());
+    let traceparent = message
+        .headers
+        .as_ref()
+        .and_then(|headers| headers.get("traceparent"))
+        .map(|value| value.as_str().to_string());
+    let tracestate = message
+        .headers
+        .as_ref()
+        .and_then(|headers| headers.get("tracestate"))
+        .map(|value| value.as_str().to_string());
 
     InboundRequest {
         subject: subject.clone(),
@@ -182,6 +192,9 @@ pub fn decode_nats_request(message: &async_nats::Message) -> InboundRequest {
             session_key,
             proof,
             reply_to: reply_to.clone(),
+            caller: None,
+            traceparent,
+            tracestate,
         },
     }
 }
@@ -197,6 +210,17 @@ pub fn encode_success_reply(reply_to: String, payload: Bytes) -> OutboundReply {
 
 /// Encode one failed handler result for reply publishing.
 pub fn encode_error_reply(reply_to: String, error: &ServerError) -> OutboundReply {
+    if let ServerError::DeclaredRpc(error) = error {
+        let payload = serde_json::to_vec(&error.to_payload(error_id())).unwrap_or_else(|_| {
+            br#"{"id":"rust-server-error","type":"UnexpectedError","message":"An unexpected error has occurred"}"#.to_vec()
+        });
+        return OutboundReply {
+            reply_to,
+            payload: Bytes::from(payload),
+            is_error: true,
+        };
+    }
+
     #[derive(serde::Serialize)]
     struct ErrorPayload<'a> {
         id: String,

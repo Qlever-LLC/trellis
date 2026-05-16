@@ -7,19 +7,31 @@ use futures_util::future::BoxFuture;
 use futures_util::{Stream, StreamExt};
 use std::pin::Pin;
 
+use serde_json::Value;
+
 use crate::{
     control_subject, AcceptedOperation, FeedDescriptor, HandlerResponse, HandlerResult,
-    OperationControlRequest, OperationDescriptor, OperationProvider, OperationSnapshot,
-    OperationSnapshotFrame, ResponseStream, RpcDescriptor, ServerError,
+    OperationControlRequest, OperationDescriptor, OperationProvider, OperationSignalAccepted,
+    OperationSnapshot, OperationSnapshotFrame, ResponseStream, RpcDescriptor, ServerError,
 };
 
 /// Request metadata forwarded to mounted RPC handlers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RequestContext {
+    /// NATS subject that received the request.
     pub subject: String,
+    /// Runtime session key from the authenticated request headers.
     pub session_key: Option<String>,
+    /// Proof signature from the authenticated request headers.
     pub proof: Option<String>,
+    /// NATS reply inbox used for request/reply responses.
     pub reply_to: Option<String>,
+    /// Validated caller metadata returned by `Auth.Requests.Validate`.
+    pub caller: Option<Value>,
+    /// W3C trace context header propagated by the caller, if present.
+    pub traceparent: Option<String>,
+    /// W3C trace state header propagated by the caller, if present.
+    pub tracestate: Option<String>,
 }
 
 type BoxedHandler = Box<
@@ -185,6 +197,78 @@ impl Router {
         let watch = Arc::new(watch);
         let cancel = Arc::new(cancel);
 
+        self.register_operation_with_watch_and_signal::<D, _, _, _, _, _, _, _, _, _>(
+            move |ctx, input| {
+                let start = Arc::clone(&start);
+                async move { start(ctx, input).await }
+            },
+            move |ctx, operation_id| {
+                let get = Arc::clone(&get);
+                async move { get(ctx, operation_id).await }
+            },
+            move |ctx, operation_id| watch(ctx, operation_id),
+            move |ctx, operation_id| {
+                let cancel = Arc::clone(&cancel);
+                async move { cancel(ctx, operation_id).await }
+            },
+            |_ctx, _operation_id, _signal, _input| async move {
+                Err(ServerError::InvalidOperationControlAction {
+                    subject: D::SUBJECT.to_string(),
+                    action: "signal".to_string(),
+                })
+            },
+        );
+    }
+
+    /// Register one operation-backed handler with watch and signal control support.
+    pub fn register_operation_with_watch_and_signal<
+        D,
+        FStart,
+        FutStart,
+        FGet,
+        FutGet,
+        FWatch,
+        FCancel,
+        FutCancel,
+        FSignal,
+        FutSignal,
+    >(
+        &mut self,
+        start: FStart,
+        get: FGet,
+        watch: FWatch,
+        cancel: FCancel,
+        signal: FSignal,
+    ) where
+        D: OperationDescriptor + 'static,
+        FStart: Fn(RequestContext, D::Input) -> FutStart + Send + Sync + 'static,
+        FutStart: Future<Output = Result<AcceptedOperation<D::Progress, D::Output>, ServerError>>
+            + Send
+            + 'static,
+        FGet: Fn(RequestContext, String) -> FutGet + Send + Sync + 'static,
+        FutGet: Future<Output = Result<OperationSnapshot<D::Progress, D::Output>, ServerError>>
+            + Send
+            + 'static,
+        FWatch: Fn(RequestContext, String) -> OperationWatch<D::Progress, D::Output>
+            + Send
+            + Sync
+            + 'static,
+        FCancel: Fn(RequestContext, String) -> FutCancel + Send + Sync + 'static,
+        FutCancel: Future<Output = Result<OperationSnapshot<D::Progress, D::Output>, ServerError>>
+            + Send
+            + 'static,
+        FSignal:
+            Fn(RequestContext, String, String, Option<Value>) -> FutSignal + Send + Sync + 'static,
+        FutSignal: Future<Output = Result<OperationSignalAccepted<D::Progress, D::Output>, ServerError>>
+            + Send
+            + 'static,
+    {
+        let start = Arc::new(start);
+        let get = Arc::new(get);
+        let watch = Arc::new(watch);
+        let cancel = Arc::new(cancel);
+        let signal = Arc::new(signal);
+
         self.handlers.insert(
             D::SUBJECT.to_string(),
             Box::new(
@@ -210,6 +294,7 @@ impl Router {
                     let get = Arc::clone(&get);
                     let watch = Arc::clone(&watch);
                     let cancel = Arc::clone(&cancel);
+                    let signal = Arc::clone(&signal);
                     let request = serde_json::from_slice::<OperationControlRequest>(&payload)
                         .map_err(ServerError::Json);
                     Box::pin(async move {
@@ -249,6 +334,18 @@ impl Router {
                             "cancel" if D::CANCELABLE => {
                                 HandlerResponse::Frames(vec![snapshot_frame(
                                     cancel(ctx, request.operation_id).await?,
+                                )?])
+                            }
+                            "signal" => {
+                                let signal_name = request.signal.ok_or_else(|| {
+                                    ServerError::InvalidOperationControlAction {
+                                        subject: D::SUBJECT.to_string(),
+                                        action: "signal".to_string(),
+                                    }
+                                })?;
+                                HandlerResponse::Frames(vec![signal_frame(
+                                    signal(ctx, request.operation_id, signal_name, request.input)
+                                        .await?,
                                 )?])
                             }
                             action => {
@@ -384,6 +481,16 @@ where
         kind: "snapshot".to_string(),
         snapshot,
     })?))
+}
+
+fn signal_frame<TProgress, TOutput>(
+    accepted: OperationSignalAccepted<TProgress, TOutput>,
+) -> Result<Bytes, ServerError>
+where
+    TProgress: serde::Serialize,
+    TOutput: serde::Serialize,
+{
+    Ok(Bytes::from(serde_json::to_vec(&accepted)?))
 }
 
 fn operation_watch_frame<TProgress, TOutput>(

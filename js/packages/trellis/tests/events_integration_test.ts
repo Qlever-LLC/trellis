@@ -126,7 +126,9 @@ Deno.test({
           description:
             "Exercise event publishing and subscription flows in tests.",
           uses: {
-            auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+            required: {
+              auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+            },
           },
           events: {
             "Test.Ack": {

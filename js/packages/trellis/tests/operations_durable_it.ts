@@ -117,7 +117,9 @@ const billing = defineServiceContract(
     description: "Exercise durable operations state over restart.",
     capabilities: billingCapabilities,
     uses: {
-      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+      required: {
+        auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+      },
     },
     operations: {
       "Billing.Refund": {

@@ -92,7 +92,7 @@ Examples:
 
 ```text
 feeds.v1.Device.Events
-feeds.v1.Activity.Live
+feeds.v1.Audit.Feed
 feeds.v1.Inspection.Updates
 ```
 

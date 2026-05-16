@@ -3,7 +3,7 @@
   import { getTrellis } from "$lib/trellis";
   import { formatDateTimeWithAge } from "$lib/format";
 
-  type ActivityRecordedEvent = {
+  type AuditRecordedEvent = {
     activityId: string;
     kind: string;
     message: string;
@@ -20,7 +20,7 @@
     refreshedAt: string;
   };
   type ActivityLiveFeedEvent =
-    | { name: "Activity.Recorded"; event: ActivityRecordedEvent }
+    | { name: "Audit.Recorded"; event: AuditRecordedEvent }
     | { name: "Reports.Published"; event: ReportsPublishedEvent }
     | { name: "Sites.Refreshed"; event: SitesRefreshedEvent };
   type OperationName = "Sites.Refresh" | "Reports.Generate";
@@ -28,7 +28,7 @@
   type LiveEvent = {
     id: string;
     kind: LiveEventKind;
-    name: "Activity.Recorded" | "Reports.Published" | "Sites.Refreshed" | OperationName;
+    name: "Audit.Recorded" | "Reports.Published" | "Sites.Refreshed" | OperationName;
     action: string;
     subject: string;
     occurredAt: string;
@@ -75,7 +75,7 @@
   let mounted = false;
   let localUpdateListener: EventListener | null = null;
 
-  function isActivityRecordedEvent(value: unknown): value is ActivityRecordedEvent {
+  function isAuditRecordedEvent(value: unknown): value is AuditRecordedEvent {
     return typeof value === "object" && value !== null &&
       "activityId" in value && typeof value.activityId === "string" &&
       "kind" in value && typeof value.kind === "string" &&
@@ -101,7 +101,7 @@
 
   function isActivityLiveFeedEvent(value: unknown): value is ActivityLiveFeedEvent {
     if (typeof value !== "object" || value === null || !("name" in value) || !("event" in value)) return false;
-    if (value.name === "Activity.Recorded") return isActivityRecordedEvent(value.event);
+    if (value.name === "Audit.Recorded") return isAuditRecordedEvent(value.event);
     if (value.name === "Reports.Published") return isReportsPublishedEvent(value.event);
     if (value.name === "Sites.Refreshed") return isSitesRefreshedEvent(value.event);
     return false;
@@ -220,11 +220,11 @@
     return kindLabel(event.kind);
   }
 
-  function handleActivityRecorded(event: ActivityRecordedEvent): void {
+  function handleAuditRecorded(event: AuditRecordedEvent): void {
     addEvent({
       id: `${event.activityId}-${event.occurredAt}`,
       kind: "event",
-      name: "Activity.Recorded",
+      name: "Audit.Recorded",
       action: formatEventKind(event.kind),
       subject: subjectFromActivity(event.message),
       occurredAt: event.occurredAt,
@@ -259,7 +259,7 @@
     if (!isActivityLiveFeedEvent(value)) {
       return;
     }
-    if (value.name === "Activity.Recorded") handleActivityRecorded(value.event);
+    if (value.name === "Audit.Recorded") handleAuditRecorded(value.event);
     if (value.name === "Reports.Published") handleReportsPublished(value.event);
     if (value.name === "Sites.Refreshed") handleSitesRefreshed(value.event);
   }
@@ -297,7 +297,7 @@
     let startupComplete = false;
 
     try {
-      const stream = await trellis.feed("Activity.Live")
+      const stream = await trellis.feed("Audit.Feed")
         .input({})
         .subscribe({ signal: localController.signal })
         .orThrow();
@@ -370,7 +370,7 @@
   </header>
 
   <p class="capability-note">
-    <strong>Feed + operations:</strong> Activity.Live + Sites.Refresh + Reports.Generate
+    <strong>Feed + operations:</strong> Audit.Feed + Sites.Refresh + Reports.Generate
   </p>
 
   {#if error}

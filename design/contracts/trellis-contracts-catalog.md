@@ -431,14 +431,10 @@ Rules:
 ### Declared dependencies (`uses`)
 
 Contracts MAY declare explicit dependencies on other contracts through a
-top-level `uses` object.
-
-`uses` supports two equivalent authoring forms:
-
-- legacy flat `uses`, where every alias is treated as required
-- grouped `uses.required` and `uses.optional`, where required aliases fail
-  closed and optional aliases grant authority only when their target contract
-  and surface resolve in the active catalog
+top-level `uses` object. Dependency aliases MUST be grouped under
+`uses.required` or `uses.optional`; required aliases fail closed and optional
+aliases grant authority only when their target contract and surface resolve in
+the active catalog.
 
 Example:
 
@@ -474,8 +470,8 @@ Rules:
 
 - dependencies are declared by logical contract `id` plus logical
   operation/RPC/event names, not by raw capability strings
-- a flat alias under `uses` is required; the digest projection treats flat uses
-  and grouped `uses.required` as equivalent, while optional uses also
+- dependencies MUST be grouped under `uses.required` or `uses.optional`; aliases
+  directly under `uses` are invalid, and both required and optional uses
   participate in digest identity
 - if the same alias appears in both `required` and `optional`, the required
   entry wins and the optional duplicate is ignored
@@ -486,9 +482,10 @@ Rules:
   `health` use automatically, targeting `trellis.health@v1` with
   `events.publish: ["Health.Heartbeat"]`; `trellis.health@v1` itself is excluded
   from this self-use
-- if a service or device author explicitly declares `uses.health` for
-  `trellis.health@v1`, authoring helpers merge the baseline heartbeat publish
-  selector into that alias rather than requiring a second alias
+- if a service or device author explicitly declares `uses.required.health` or
+  `uses.optional.health` for `trellis.health@v1`, authoring helpers merge the
+  baseline heartbeat publish selector into that alias rather than requiring a
+  second alias
 - manifest validation is structural and MAY accept required referenced contracts
   that are not active yet so Trellis can collect contract evidence and create
   review requests during cyclic or staged service rollouts

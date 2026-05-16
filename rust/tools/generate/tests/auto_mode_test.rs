@@ -84,9 +84,9 @@ fn explicit_generate_all_emits_buildable_sdk_packages() {
             project.join("contracts/orders.ts").to_str().unwrap(),
             "--out-manifest",
             manifest_path.to_str().unwrap(),
-            "--ts-out",
+            "--jsr-out",
             ts_out.to_str().unwrap(),
-            "--rust-out",
+            "--cargo-out",
             rust_out.to_str().unwrap(),
             "--package-name",
             "@qlever-llc/trellis-sdk-orders-test",
@@ -133,7 +133,7 @@ fn explicit_generate_all_defaults_out_of_tree_package_to_trellis_sdk_scope() {
             project.join("contracts/cloud.ts").to_str().unwrap(),
             "--out-manifest",
             manifest_path.to_str().unwrap(),
-            "--ts-out",
+            "--jsr-out",
             ts_out.to_str().unwrap(),
         ])
         .output()
@@ -215,9 +215,11 @@ export default contract;
   operations: {},
   events: {},
   uses: {
-    orders: {
-      contract: "trellis.orders@v1",
-      rpc: { call: ["Orders.Get"] },
+    required: {
+      orders: {
+        contract: "trellis.orders@v1",
+        rpc: { call: ["Orders.Get"] },
+      },
     },
   },
 };
@@ -249,20 +251,24 @@ export default contract;
         .exists());
     assert!(temp
         .path()
-        .join("generated/js/sdks/dashboard/client.ts")
+        .join("generated/packages/jsr/dashboard/client.ts")
         .exists());
-    let client =
-        fs::read_to_string(temp.path().join("generated/js/sdks/dashboard/client.ts")).unwrap();
+    let client = fs::read_to_string(
+        temp.path()
+            .join("generated/packages/jsr/dashboard/client.ts"),
+    )
+    .unwrap();
     assert!(client.contains(
         "request(method: \"Orders.Get\", input: OrdersSdk.OrdersGetInput, opts?: RequestOpts): AsyncResult<OrdersSdk.OrdersGetOutput, BaseError>;"
     ));
-    let api = fs::read_to_string(temp.path().join("generated/js/sdks/dashboard/api.ts")).unwrap();
+    let api =
+        fs::read_to_string(temp.path().join("generated/packages/jsr/dashboard/api.ts")).unwrap();
     assert!(api.contains("export const USED_API: UsedApi = {"));
     assert!(api.contains("import { OWNED_API as OrdersApi } from \"../orders/owned_api.ts\";"));
     assert!(api.contains("\"Orders.Get\"() { return OrdersApi.rpc[\"Orders.Get\"]"));
     assert!(!temp
         .path()
-        .join("generated/rust/sdks/dashboard/Cargo.toml")
+        .join("generated/packages/cargo/dashboard/Cargo.toml")
         .exists());
 }
 
@@ -335,13 +341,15 @@ fn prepare_generates_rust_participant_facade_for_local_device_uses() {
   "description": "Fixture device contract",
   "kind": "device",
   "uses": {
-    "orders": {
-      "contract": "trellis.orders@v1",
-      "rpc": { "call": ["Orders.Get"] }
-    },
-    "inventory": {
-      "contract": "trellis.inventory@v1",
-      "rpc": { "call": ["Inventory.Get"] }
+    "required": {
+      "orders": {
+        "contract": "trellis.orders@v1",
+        "rpc": { "call": ["Orders.Get"] }
+      },
+      "inventory": {
+        "contract": "trellis.inventory@v1",
+        "rpc": { "call": ["Inventory.Get"] }
+      }
     }
   }
 }
@@ -361,16 +369,18 @@ fn prepare_generates_rust_participant_facade_for_local_device_uses() {
 
     assert!(temp
         .path()
-        .join("generated/rust/sdks/orders/Cargo.toml")
+        .join("generated/packages/cargo/orders/Cargo.toml")
         .exists());
-    let participant = temp.path().join("generated/rust/participants/device");
+    let participant = temp
+        .path()
+        .join("generated/packages/cargo-participants/device");
     assert!(participant.join("Cargo.toml").exists());
     assert!(participant.join("src/lib.rs").exists());
     assert!(participant.join("contracts/orders.json").exists());
     assert!(participant.join("contracts/inventory.json").exists());
     assert!(!temp
         .path()
-        .join("generated/rust/sdks/device/Cargo.toml")
+        .join("generated/packages/cargo/device/Cargo.toml")
         .exists());
 
     let cargo_toml = fs::read_to_string(participant.join("Cargo.toml")).unwrap();
@@ -393,13 +403,15 @@ fn prepare_generates_rust_participant_facade_for_local_device_uses() {
   "description": "Fixture device contract",
   "kind": "device",
   "uses": {
-    "orders": {
-      "contract": "trellis.orders-remote@v1",
-      "rpc": { "call": ["Orders.Get"] }
-    },
-    "inventory": {
-      "contract": "trellis.inventory@v1",
-      "rpc": { "call": ["Inventory.Get"] }
+    "required": {
+      "orders": {
+        "contract": "trellis.orders-remote@v1",
+        "rpc": { "call": ["Orders.Get"] }
+      },
+      "inventory": {
+        "contract": "trellis.inventory@v1",
+        "rpc": { "call": ["Inventory.Get"] }
+      }
     }
   }
 }
@@ -424,13 +436,15 @@ fn prepare_generates_rust_participant_facade_for_local_device_uses() {
   "description": "Fixture device contract",
   "kind": "device",
   "uses": {
-    "orders": {
-      "contract": "trellis.orders-remote@v1",
-      "rpc": { "call": ["Orders.Get"] }
-    },
-    "inventory": {
-      "contract": "trellis.inventory-remote@v1",
-      "rpc": { "call": ["Inventory.Get"] }
+    "required": {
+      "orders": {
+        "contract": "trellis.orders-remote@v1",
+        "rpc": { "call": ["Orders.Get"] }
+      },
+      "inventory": {
+        "contract": "trellis.inventory-remote@v1",
+        "rpc": { "call": ["Inventory.Get"] }
+      }
     }
   }
 }
@@ -475,7 +489,7 @@ fn prepare_skips_rust_participant_facade_without_local_uses_mappings() {
     );
     assert!(!temp
         .path()
-        .join("generated/rust/participants/device/Cargo.toml")
+        .join("generated/packages/cargo-participants/device/Cargo.toml")
         .exists());
 }
 
@@ -515,8 +529,13 @@ fn prepare_accepts_custom_output_root() {
     assert!(out
         .join("generated/contracts/manifests/trellis.orders@v1.json")
         .exists());
-    assert!(out.join("generated/js/sdks/orders/mod.ts").exists());
-    assert!(out.join("generated/rust/sdks/orders/Cargo.toml").exists());
+    assert!(out.join("generated/packages/jsr/orders/mod.ts").exists());
+    assert!(out
+        .join("generated/packages/npm/orders/package.json")
+        .exists());
+    assert!(out
+        .join("generated/packages/cargo/orders/Cargo.toml")
+        .exists());
     assert!(!service.join("generated").exists());
 }
 
@@ -558,10 +577,13 @@ fn prepare_ignores_sveltekit_lib_contract() {
         .path()
         .join("generated/contracts/manifests/trellis.console@v1.json")
         .exists());
-    assert!(!temp.path().join("js/generated/js/sdks/console").exists());
     assert!(!temp
         .path()
-        .join("generated/rust/sdks/console/Cargo.toml")
+        .join("js/generated/packages/jsr/console")
+        .exists());
+    assert!(!temp
+        .path()
+        .join("generated/packages/cargo/console/Cargo.toml")
         .exists());
 }
 
@@ -603,13 +625,13 @@ fn prepare_writes_demo_typescript_sdks_inside_demos_js_workspace() {
         .join("generated/contracts/manifests/trellis.demo-rpc-service@v1.json")
         .exists());
     assert!(demos_root
-        .join("js/generated/js/sdks/demo-rpc-service/mod.ts")
+        .join("js/generated/packages/jsr/demo-rpc-service/mod.ts")
         .exists());
     assert!(demos_root
-        .join("js/generated/js/sdks/demo-rpc-service/client.ts")
+        .join("js/generated/packages/jsr/demo-rpc-service/client.ts")
         .exists());
     assert!(demos_root
-        .join("generated/rust/sdks/demo-rpc-service/Cargo.toml")
+        .join("generated/packages/cargo/demo-rpc-service/Cargo.toml")
         .exists());
 }
 
@@ -671,7 +693,7 @@ export default contract;
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let sdk = repo.join("generated/js/sdks/dashboard");
+    let sdk = repo.join("generated/packages/jsr/dashboard");
     let api = fs::read_to_string(sdk.join("api.ts")).unwrap();
     let owned_api = fs::read_to_string(sdk.join("owned_api.ts")).unwrap();
     let contract = fs::read_to_string(sdk.join("contract.ts")).unwrap();
@@ -719,10 +741,15 @@ fn local_mode_generates_app_typescript_client_without_rust_sdk() {
         .join("generated/contracts/manifests/trellis.dashboard@v1.json")
         .exists());
     assert!(project
-        .join("generated/js/sdks/dashboard/client.ts")
+        .join("generated/packages/jsr/dashboard/client.ts")
         .exists());
-    assert!(project.join("generated/js/sdks/dashboard/mod.ts").exists());
-    assert!(!project.join("generated/rust/sdks/dashboard").exists());
+    assert!(project
+        .join("generated/packages/jsr/dashboard/mod.ts")
+        .exists());
+    assert!(project
+        .join("generated/packages/npm/dashboard/package.json")
+        .exists());
+    assert!(!project.join("generated/packages/cargo/dashboard").exists());
 }
 
 #[test]
@@ -756,9 +783,14 @@ fn local_mode_generates_service_artifacts_from_nearest_project_root() {
     assert!(project
         .join("generated/contracts/manifests/trellis.orders@v1.json")
         .exists());
-    assert!(project.join("generated/js/sdks/orders/mod.ts").exists());
     assert!(project
-        .join("generated/rust/sdks/orders/Cargo.toml")
+        .join("generated/packages/jsr/orders/mod.ts")
+        .exists());
+    assert!(project
+        .join("generated/packages/npm/orders/package.json")
+        .exists());
+    assert!(project
+        .join("generated/packages/cargo/orders/Cargo.toml")
         .exists());
     assert!(String::from_utf8(output.stdout)
         .unwrap()
@@ -796,10 +828,10 @@ fn local_mode_generates_service_artifacts_from_top_level_contract_ts() {
         .join("generated/contracts/manifests/trellis.top-level-orders@v1.json")
         .exists());
     assert!(project
-        .join("generated/js/sdks/top-level-orders/mod.ts")
+        .join("generated/packages/jsr/top-level-orders/mod.ts")
         .exists());
     assert!(project
-        .join("generated/rust/sdks/top-level-orders/Cargo.toml")
+        .join("generated/packages/cargo/top-level-orders/Cargo.toml")
         .exists());
 }
 
@@ -863,10 +895,10 @@ printf '{\"format\":\"trellis.contract.v1\",\"id\":\"trellis.node-orders@v1\",\"
         .join("generated/contracts/manifests/trellis.node-orders@v1.json")
         .exists());
     assert!(project
-        .join("generated/js/sdks/node-orders/mod.ts")
+        .join("generated/packages/jsr/node-orders/mod.ts")
         .exists());
     assert!(project
-        .join("generated/rust/sdks/node-orders/Cargo.toml")
+        .join("generated/packages/cargo/node-orders/Cargo.toml")
         .exists());
 }
 
@@ -985,11 +1017,11 @@ fn prepare_mode_supports_top_level_contract_js() {
         .exists());
     assert!(temp
         .path()
-        .join("generated/js/sdks/orders-js/mod.ts")
+        .join("generated/packages/jsr/orders-js/mod.ts")
         .exists());
     assert!(temp
         .path()
-        .join("generated/rust/sdks/orders-js/Cargo.toml")
+        .join("generated/packages/cargo/orders-js/Cargo.toml")
         .exists());
 }
 
@@ -1066,10 +1098,10 @@ fn local_mode_generates_service_artifacts_from_rust_contract_sources() {
         .join("generated/contracts/manifests/trellis.rust-service@v1.json")
         .exists());
     assert!(project
-        .join("generated/js/sdks/rust-service/mod.ts")
+        .join("generated/packages/jsr/rust-service/mod.ts")
         .exists());
     assert!(project
-        .join("generated/rust/sdks/rust-service/Cargo.toml")
+        .join("generated/packages/cargo/rust-service/Cargo.toml")
         .exists());
 }
 
@@ -1177,7 +1209,7 @@ fn local_mode_regenerates_when_a_key_output_is_missing() {
         String::from_utf8_lossy(&first.stderr)
     );
 
-    fs::remove_file(project.join("generated/js/sdks/orders/contract.ts")).unwrap();
+    fs::remove_file(project.join("generated/packages/jsr/orders/contract.ts")).unwrap();
 
     let second = trellis_generate().current_dir(&project).output().unwrap();
     assert!(
@@ -1214,7 +1246,7 @@ fn local_mode_regenerates_when_rust_sdk_cargo_toml_is_invalid() {
         String::from_utf8_lossy(&first.stderr)
     );
 
-    let cargo_toml = project.join("generated/rust/sdks/orders/Cargo.toml");
+    let cargo_toml = project.join("generated/packages/cargo/orders/Cargo.toml");
     fs::write(
         &cargo_toml,
         concat!(
@@ -1275,9 +1307,9 @@ fn generate_all_skips_when_metadata_matches_outputs() {
             project.join("contracts/orders.ts").to_str().unwrap(),
             "--out-manifest",
             manifest_path.to_str().unwrap(),
-            "--ts-out",
+            "--jsr-out",
             ts_out.to_str().unwrap(),
-            "--rust-out",
+            "--cargo-out",
             rust_out.to_str().unwrap(),
         ])
         .output()
@@ -1296,9 +1328,9 @@ fn generate_all_skips_when_metadata_matches_outputs() {
             project.join("contracts/orders.ts").to_str().unwrap(),
             "--out-manifest",
             manifest_path.to_str().unwrap(),
-            "--ts-out",
+            "--jsr-out",
             ts_out.to_str().unwrap(),
-            "--rust-out",
+            "--cargo-out",
             rust_out.to_str().unwrap(),
         ])
         .output()

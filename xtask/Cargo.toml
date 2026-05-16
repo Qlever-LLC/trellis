@@ -6,6 +6,12 @@ publish = false
 
 [workspace]
 
+[dependencies]
+clap = { version = "4.6.0", features = ["derive"] }
+miette = { version = "7.6.0", features = ["fancy"] }
+trellis-generate-runner = { path = "../rust/crates/generate-runner" }
+trellis-integration-harness = { path = "../rust/crates/integration-harness" }
+
 [[bin]]
 name = "xtask-shim"
 path = "../rust/xtask/src/main.rs"

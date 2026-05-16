@@ -1,8 +1,18 @@
 use ed25519_dalek::{Signature, Signer, SigningKey};
-use serde_json::json;
+use serde::Serialize;
 
 use crate::proof::{base64url_decode, base64url_encode, build_proof_input, sha256};
 use crate::TrellisClientError;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NatsConnectToken<'a> {
+    contract_digest: &'a str,
+    iat: u64,
+    session_key: &'a str,
+    sig: &'a str,
+    v: u8,
+}
 
 /// Session-scoped signing material used for Trellis auth and RPC proofs.
 pub struct SessionAuth {
@@ -46,13 +56,13 @@ impl SessionAuth {
     pub fn nats_connect_token(&self, iat: u64, contract_digest: &str) -> String {
         let signature =
             self.sign_sha256_domain("nats-connect", &format!("{iat}:{contract_digest}"));
-        serde_json::to_string(&json!({
-          "v": 1,
-          "sessionKey": self.session_key,
-          "iat": iat,
-          "contractDigest": contract_digest,
-          "sig": signature,
-        }))
+        serde_json::to_string(&NatsConnectToken {
+            contract_digest,
+            iat,
+            session_key: &self.session_key,
+            sig: &signature,
+            v: 1,
+        })
         .expect("nats auth token json")
     }
 

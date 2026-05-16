@@ -6,10 +6,10 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use miette::IntoDiagnostic;
 use notify::{EventKind, RecursiveMode, Watcher};
 
-use crate::cli::PrepareArgs;
+use crate::cli::{PackageTarget, PrepareArgs};
 use crate::discovery::discover_contracts;
 use crate::output;
-use crate::planning::{build_auto_plan, execute_auto_plan, AutoPlanEntry};
+use crate::planning::{build_auto_plan_with_targets, execute_auto_plan, AutoPlanEntry};
 
 pub fn run(args: &PrepareArgs, force: bool) -> miette::Result<()> {
     if args.watch {
@@ -30,11 +30,34 @@ fn build_prepare_plan(args: &PrepareArgs) -> miette::Result<Vec<AutoPlanEntry>> 
         Some(out) => absolute_path(out)?,
         None => canonical_root,
     };
-    build_auto_plan(
+    let targets = prepare_targets(args);
+    build_auto_plan_with_targets(
         discover_contracts(&args.root)?,
         Some(&output_root),
         &args.prefix,
+        targets.as_deref(),
     )
+}
+
+fn prepare_targets(args: &PrepareArgs) -> Option<Vec<PackageTarget>> {
+    if args.targets.is_empty() && !args.no_npm {
+        return None;
+    }
+
+    let mut targets = if args.targets.is_empty() {
+        vec![
+            PackageTarget::Manifest,
+            PackageTarget::Jsr,
+            PackageTarget::Npm,
+            PackageTarget::Cargo,
+        ]
+    } else {
+        args.targets.clone()
+    };
+    if args.no_npm {
+        targets.retain(|target| !matches!(target, PackageTarget::Npm));
+    }
+    Some(targets)
 }
 
 fn absolute_path(path: &Path) -> miette::Result<PathBuf> {
@@ -514,7 +537,7 @@ mod tests {
             "/repo/generated/contracts/manifests/trellis.orders@v1.json"
         )));
         assert!(!filter.is_relevant(Path::new(
-            "/repo/services/orders/generated/js/sdks/orders/mod.ts"
+            "/repo/services/orders/generated/packages/jsr/orders/mod.ts"
         )));
         assert!(!filter.is_relevant(Path::new(
             "/repo/.worktrees/prepare-watch/contracts/orders.ts"
@@ -569,7 +592,7 @@ mod tests {
         let root = Path::new("/repo");
         let filter = super::WatchPathFilter::empty(root);
         let paths = vec![
-            Path::new("/repo/generated/js/sdks/orders/mod.ts").to_path_buf(),
+            Path::new("/repo/generated/packages/jsr/orders/mod.ts").to_path_buf(),
             Path::new("/repo/.worktrees/prepare-watch/contracts/orders.ts").to_path_buf(),
         ];
 
@@ -989,9 +1012,10 @@ mod tests {
             contract_kind,
             action: AutoAction::Generate,
             out_manifest: None,
-            ts_out: None,
-            rust_out: None,
-            rust_participant_out: None,
+            jsr_out: None,
+            npm_out: None,
+            cargo_out: None,
+            cargo_participant_out: None,
             runtime_source: RuntimeSource::Local,
             runtime_repo_root: Some(PathBuf::from(".")),
         }

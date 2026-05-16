@@ -1,4 +1,10 @@
-import { connect } from "@nats-io/transport-deno";
+import type {
+  Msg,
+  MsgHdrs,
+  NatsConnection,
+  Payload,
+  Subscription,
+} from "@nats-io/nats-core";
 import { assert, assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { defineServiceContract } from "../contract.ts";
@@ -7,10 +13,11 @@ import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 import { ok } from "../index.ts";
 import { TrellisServiceRuntime } from "../server/mod.ts";
 import { createClient } from "../client.ts";
-import { NatsTest } from "../testing/nats.ts";
-import type { TrellisAuth } from "../trellis.ts";
-
-const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
+import type {
+  DurableOperationRecord,
+  RuntimeOperationRecord,
+  TrellisAuth,
+} from "../trellis.ts";
 
 function base64urlEncode(data: Uint8Array): string {
   const b64 = btoa(String.fromCharCode(...data));
@@ -97,7 +104,9 @@ const billing = defineServiceContract(
     description: "Exercise operations watch streams over NATS.",
     capabilities: billingCapabilities,
     uses: {
-      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+      required: {
+        auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+      },
     },
     operations: {
       "Billing.Refund": {
@@ -139,8 +148,224 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
+type BufferedSubscription = Subscription & {
+  push(message: Msg): void;
+};
+
+function createRoutedNatsConnections(): () => NatsConnection {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const subscriptions: BufferedSubscription[] = [];
+
+  const payloadBytes = (payload: Payload | undefined): Uint8Array => {
+    if (payload === undefined) return new Uint8Array();
+    if (typeof payload === "string") return encoder.encode(payload);
+    return payload;
+  };
+
+  const subjectMatches = (pattern: string, subject: string): boolean => {
+    const patternParts = pattern.split(".");
+    const subjectParts = subject.split(".");
+    for (let index = 0; index < patternParts.length; index += 1) {
+      const part = patternParts[index];
+      if (part === ">") return true;
+      if (subjectParts[index] === undefined) return false;
+      if (part !== "*" && part !== subjectParts[index]) return false;
+    }
+    return patternParts.length === subjectParts.length;
+  };
+
+  const route = (message: Msg) => {
+    for (const subscription of subscriptions) {
+      if (subjectMatches(subscription.getSubject(), message.subject)) {
+        subscription.push(message);
+      }
+    }
+  };
+
+  const createMessage = (args: {
+    subject: string;
+    data: Uint8Array;
+    headers?: MsgHdrs;
+    reply?: string;
+    onRespond?: (data: Uint8Array, headers?: MsgHdrs) => void;
+  }): Msg => ({
+    subject: args.subject,
+    sid: 1,
+    data: args.data,
+    headers: args.headers,
+    reply: args.reply,
+    respond: (payload?: Payload, opts?: { headers?: MsgHdrs }) => {
+      const data = payloadBytes(payload);
+      if (args.onRespond) {
+        args.onRespond(data, opts?.headers);
+        return true;
+      }
+      if (!args.reply) return false;
+      route(
+        createMessage({ subject: args.reply, data, headers: opts?.headers }),
+      );
+      return true;
+    },
+    json: <T>() => JSON.parse(decoder.decode(args.data)) as T,
+    string: () => decoder.decode(args.data),
+  });
+
+  const createSubscription = (subject: string): BufferedSubscription => {
+    const queue: Msg[] = [];
+    let subscriptionClosed = false;
+    let received = 0;
+    let pendingResolver: (() => void) | undefined;
+    const notify = () => {
+      pendingResolver?.();
+      pendingResolver = undefined;
+    };
+
+    const subscription: BufferedSubscription = {
+      closed: Promise.resolve(),
+      unsubscribe: () => {
+        subscriptionClosed = true;
+        notify();
+      },
+      drain: async () => {
+        subscriptionClosed = true;
+        notify();
+      },
+      isDraining: () => false,
+      isClosed: () => subscriptionClosed,
+      callback: () => {},
+      getSubject: () => subject,
+      getReceived: () => received,
+      getProcessed: () => received,
+      getPending: () => queue.length,
+      getID: () => 1,
+      getMax: () => undefined,
+      push: (message: Msg) => {
+        if (subscriptionClosed) return;
+        queue.push(message);
+        received += 1;
+        notify();
+      },
+      [Symbol.asyncIterator]: async function* () {
+        while (!subscriptionClosed) {
+          const next = queue.shift();
+          if (next) {
+            yield next;
+            continue;
+          }
+          await new Promise<void>((resolve) => {
+            pendingResolver = resolve;
+          });
+        }
+      },
+    };
+    subscriptions.push(subscription);
+    return subscription;
+  };
+
+  return () => {
+    let closed = false;
+    const close = () => {
+      closed = true;
+    };
+    const connection: NatsConnection & { options: { inboxPrefix: string } } = {
+      options: { inboxPrefix: "_INBOX.test" },
+      info: undefined,
+      closed: async () => undefined,
+      close: async () => close(),
+      publish: (subject, payload, opts) => {
+        route(createMessage({
+          subject,
+          data: payloadBytes(payload),
+          headers: opts?.headers,
+          reply: opts?.reply,
+        }));
+      },
+      publishMessage: () => {},
+      respondMessage: () => true,
+      subscribe: (subject) => createSubscription(subject),
+      request: async (subject, payload, opts) => {
+        const subscription = subscriptions.find((candidate) =>
+          subjectMatches(candidate.getSubject(), subject)
+        );
+        if (!subscription) {
+          throw new Error(`no responders for ${subject}`);
+        }
+
+        const sessionKey = opts?.headers?.get("session-key");
+        const reply = typeof sessionKey === "string"
+          ? `_INBOX.${sessionKey.slice(0, 16)}.reply`
+          : "_INBOX.test.reply";
+
+        return await new Promise<Msg>((resolve) => {
+          subscription.push(createMessage({
+            subject,
+            data: payloadBytes(payload),
+            headers: opts?.headers,
+            reply,
+            onRespond: (data, headers) => {
+              resolve(createMessage({ subject, data, headers }));
+            },
+          }));
+        });
+      },
+      requestMany: async () =>
+        (async function* () {
+          return;
+        })(),
+      flush: async () => {},
+      drain: async () => close(),
+      isClosed: () => closed,
+      isDraining: () => false,
+      getServer: () => "nats://in-memory",
+      status: () => ({
+        async *[Symbol.asyncIterator]() {},
+      }),
+      stats: () => ({ inBytes: 0, outBytes: 0, inMsgs: 0, outMsgs: 0 }),
+      rtt: async () => 0,
+      reconnect: async () => {},
+    };
+    return connection;
+  };
+}
+
+async function createOperationTestRuntime(
+  name: string,
+  observeAuth?: (
+    input: { sessionKey: string; capabilities?: string[] },
+  ) => void,
+) {
+  const createConnection = createRoutedNatsConnections();
+  const authNc = createConnection();
+  startPermissiveAuthResponder(authNc, observeAuth);
+  const { auth } = await createTestAuth();
+  const serverNc = createConnection();
+  const clientNc = createConnection();
+  const server = TrellisServiceRuntime.create(
+    "billing-server",
+    serverNc,
+    auth,
+    { api: billing.API.trellis },
+  );
+  const operationRecords = new Map<string, DurableOperationRecord>();
+  server.saveOperationRecord = async (runtime: RuntimeOperationRecord) => {
+    operationRecords.set(runtime.id, {
+      ownerSessionKey: runtime.ownerSessionKey,
+      sequence: runtime.sequence,
+      signalSequence: runtime.signalSequence,
+      signals: structuredClone(runtime.signals),
+      snapshot: structuredClone(runtime.snapshot),
+    });
+  };
+  server.loadOperationRecord = async (operationId: string) => {
+    return operationRecords.get(operationId) ?? null;
+  };
+  const client = createClient(billing, clientNc, auth, { name });
+  return { server, client, clientNc };
+}
+
 function startPermissiveAuthResponder(
-  nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"],
+  nc: NatsConnection,
   observe?: (input: { sessionKey: string; capabilities?: string[] }) => void,
 ): void {
   const sub = nc.subscribe("rpc.v1.Auth.Requests.Validate");
@@ -157,9 +382,7 @@ function startPermissiveAuthResponder(
         caller: {
           type: "user",
           participantKind: "app",
-          id: "auth0|test-user",
-          trellisId: "tid_test_user",
-          origin: "test",
+          userId: "test-user-123",
           active: true,
           name: "Test User",
           email: "test@example.com",
@@ -170,6 +393,11 @@ function startPermissiveAuthResponder(
             "billing.control",
             "service",
           ],
+          identity: {
+            identityId: "test-identity-123",
+            provider: "test",
+            subject: "test-subject-123",
+          },
         },
       }));
     }
@@ -178,35 +406,13 @@ function startPermissiveAuthResponder(
 
 Deno.test({
   name:
-    "Operation cancel rejects unsupported operations and uses cancel capabilities over NATS",
-  ignore: !RUN_NATS_TESTS,
+    "Operation cancel rejects unsupported operations and uses cancel capabilities",
   async fn() {
-    await using nats = await NatsTest.start();
     const authRequests: Array<{ capabilities?: string[] }> = [];
-    startPermissiveAuthResponder(nats.nc, (input) => {
-      authRequests.push({ capabilities: input.capabilities });
-    });
-    const { auth, inboxPrefix } = await createTestAuth();
-    const info = nats.nc.info!;
-
-    const serverNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-    const clientNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-
-    const server = TrellisServiceRuntime.create(
-      "billing-server",
-      serverNc,
-      auth,
-      { api: billing.API.trellis },
+    const { server, client, clientNc } = await createOperationTestRuntime(
+      "cancel-control-client",
+      (input) => authRequests.push({ capabilities: input.capabilities }),
     );
-    const client = createClient(billing, clientNc, auth, {
-      name: "cancel-control-client",
-    });
 
     await server.operation("Billing.Refund").handle(async ({ op }) => {
       await op.started();
@@ -277,32 +483,11 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Operations watch stream over NATS",
-  ignore: !RUN_NATS_TESTS,
+  name: "Operations watch stream delivers callbacks in order",
   async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const { auth, inboxPrefix } = await createTestAuth();
-    const info = nats.nc.info!;
-
-    const serverNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-    const clientNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-
-    const server = TrellisServiceRuntime.create(
-      "billing-server",
-      serverNc,
-      auth,
-      { api: billing.API.trellis },
+    const { server, client, clientNc } = await createOperationTestRuntime(
+      "watch-client",
     );
-    const client = createClient(billing, clientNc, auth, {
-      name: "watch-client",
-    });
 
     const gate = deferred();
 
@@ -367,32 +552,11 @@ Deno.test({
 
 Deno.test({
   name:
-    "Operations builder callbacks keep accepted deterministic over NATS for fast completion",
-  ignore: !RUN_NATS_TESTS,
+    "Operations builder callbacks keep accepted deterministic for fast completion",
   async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const { auth, inboxPrefix } = await createTestAuth();
-    const info = nats.nc.info!;
-
-    const serverNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-    const clientNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-
-    const server = TrellisServiceRuntime.create(
-      "billing-server",
-      serverNc,
-      auth,
-      { api: billing.API.trellis },
+    const { server, client, clientNc } = await createOperationTestRuntime(
+      "watch-client-fast-complete",
     );
-    const client = createClient(billing, clientNc, auth, {
-      name: "watch-client-fast-complete",
-    });
 
     await server.operation("Billing.Refund").handle(async ({ input, op }) => {
       assertEquals(input.chargeId, "ch_fast");
@@ -439,32 +603,11 @@ Deno.test({
 
 Deno.test({
   name:
-    "Operation signals are persisted, acknowledged, and consumed in acceptance order over NATS",
-  ignore: !RUN_NATS_TESTS,
+    "Operation signals are persisted, acknowledged, and consumed in acceptance order",
   async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const { auth, inboxPrefix } = await createTestAuth();
-    const info = nats.nc.info!;
-
-    const serverNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-    const clientNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-
-    const server = TrellisServiceRuntime.create(
-      "billing-server",
-      serverNc,
-      auth,
-      { api: billing.API.trellis },
+    const { server, client, clientNc } = await createOperationTestRuntime(
+      "signal-client",
     );
-    const client = createClient(billing, clientNc, auth, {
-      name: "signal-client",
-    });
 
     await server.operation("Billing.Refund").handle(async ({ input, op }) => {
       assertEquals(input.chargeId, "ch_signal");
@@ -550,31 +693,10 @@ Deno.test({
 
 Deno.test({
   name: "Queued operation signal is delivered before live signals",
-  ignore: !RUN_NATS_TESTS,
   async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const { auth, inboxPrefix } = await createTestAuth();
-    const info = nats.nc.info!;
-
-    const serverNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-    const clientNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-
-    const server = TrellisServiceRuntime.create(
-      "billing-server",
-      serverNc,
-      auth,
-      { api: billing.API.trellis },
+    const { server, client, clientNc } = await createOperationTestRuntime(
+      "queued-signal-client",
     );
-    const client = createClient(billing, clientNc, auth, {
-      name: "queued-signal-client",
-    });
     const gate = deferred();
 
     await server.operation("Billing.Refund").handle(async ({ input, op }) => {
@@ -638,32 +760,11 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Terminal and invalid operation signals are rejected over NATS",
-  ignore: !RUN_NATS_TESTS,
+  name: "Terminal and invalid operation signals are rejected",
   async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const { auth, inboxPrefix } = await createTestAuth();
-    const info = nats.nc.info!;
-
-    const serverNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-    const clientNc = await connect({
-      servers: `localhost:${info.port}`,
-      inboxPrefix,
-    });
-
-    const server = TrellisServiceRuntime.create(
-      "billing-server",
-      serverNc,
-      auth,
-      { api: billing.API.trellis },
+    const { server, client, clientNc } = await createOperationTestRuntime(
+      "rejected-signal-client",
     );
-    const client = createClient(billing, clientNc, auth, {
-      name: "rejected-signal-client",
-    });
 
     await server.operation("Billing.Refund").handle(async ({ input, op }) => {
       await op.started();

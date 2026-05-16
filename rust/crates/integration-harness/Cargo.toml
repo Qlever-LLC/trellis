@@ -1,0 +1,35 @@
+[package]
+name = "trellis-integration-harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Integration harness support for Trellis xtask workflows."
+
+[dependencies]
+async-nats.workspace = true
+bytes.workspace = true
+clap.workspace = true
+futures-util.workspace = true
+miette.workspace = true
+serde_json.workspace = true
+thirtyfour = "0.36.1"
+tokio.workspace = true
+trellis-auth = { path = "../auth" }
+trellis-auth-adapters = { path = "../auth-adapters" }
+trellis-client = { path = "../client" }
+trellis-contracts = { path = "../contracts" }
+trellis-jobs = { path = "../jobs" }
+trellis-local-bootstrap = { path = "../local-bootstrap" }
+trellis-sdk-auth.workspace = true
+trellis-sdk-core.workspace = true
+trellis-sdk-health.workspace = true
+trellis-sdk-jobs.workspace = true
+trellis-sdk-state.workspace = true
+trellis-service = { path = "../service" }
+trellis-service-jobs = { path = "../service-jobs" }
+time.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"

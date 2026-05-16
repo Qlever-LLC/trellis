@@ -5,7 +5,7 @@ from the TypeScript demo so they resemble out-of-tree Rust consumers.
 
 - `contracts/service.rs`: Rust-authored service contract manifest.
 - `contracts/device.rs`: Rust-authored device contract manifest.
-- `generated/rust/sdks/demo-service`: generated Rust demo service SDK.
+- `generated/packages/cargo/demo-service`: generated Rust demo service SDK.
 - `service`: Rust Field Ops service.
 - `device`: Rust field-device wizard CLI.
 

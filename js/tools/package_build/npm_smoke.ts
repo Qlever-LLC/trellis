@@ -266,6 +266,7 @@ async function writeConsumerProject(projectDir: string) {
       {
         compilerOptions: {
           target: "ES2022",
+          lib: ["ESNext", "DOM"],
           module: "NodeNext",
           moduleResolution: "NodeNext",
           strict: true,

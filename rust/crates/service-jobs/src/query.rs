@@ -404,7 +404,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use futures_util::future::{ready, BoxFuture, FutureExt};
-    use trellis_client::TrellisClientError;
+    use trellis_client::{RpcErrorPayload, TrellisClientError};
     use trellis_core_bootstrap::CoreBootstrapClientPort;
     use trellis_sdk_core::types::{
         TrellisBindingsGetRequest, TrellisBindingsGetResponse, TrellisBindingsGetResponseBinding,
@@ -425,7 +425,7 @@ mod tests {
             &'a self,
         ) -> BoxFuture<'a, Result<TrellisCatalogResponse, TrellisClientError>> {
             ready(Err(TrellisClientError::RpcError(
-                "trellis_catalog should not be called".to_string(),
+                RpcErrorPayload::from_message("trellis_catalog should not be called"),
             )))
             .boxed()
         }
@@ -523,7 +523,7 @@ mod tests {
         let expected = expected_contract();
         let core_client = FakeCoreClient {
             binding_result: Mutex::new(Some(Err(TrellisClientError::RpcError(
-                "bindings failed".to_string(),
+                RpcErrorPayload::from_message("bindings failed"),
             )))),
             seen_requests: Arc::new(Mutex::new(Vec::new())),
         };

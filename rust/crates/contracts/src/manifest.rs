@@ -272,7 +272,7 @@ fn project_resources(resources: Option<&Value>) -> Option<Value> {
     (!projected.is_empty()).then_some(Value::Object(projected))
 }
 
-fn project_uses_flat(uses: Option<&Value>) -> Option<Value> {
+fn project_use_refs(uses: Option<&Value>) -> Option<Value> {
     let uses = object(uses)?;
     let mut projected_uses = serde_json::Map::new();
     for (alias, use_ref) in uses {
@@ -329,34 +329,13 @@ fn project_uses_flat(uses: Option<&Value>) -> Option<Value> {
 
 fn project_uses(uses: Option<&Value>) -> Option<Value> {
     let uses = object(uses)?;
-    if !is_grouped_uses_object(uses) {
-        return project_uses_flat(Some(&Value::Object(uses.clone())));
-    }
+    let required = project_use_refs(uses.get("required"));
+    let optional = omit_required_use_aliases(project_use_refs(uses.get("optional")), &required);
 
-    let required = project_uses_flat(uses.get("required"));
-    let optional = omit_required_use_aliases(project_uses_flat(uses.get("optional")), &required);
-
-    match (required, optional) {
-        (Some(required), None) => Some(required),
-        (required, optional) => {
-            let mut grouped = serde_json::Map::new();
-            insert_if_present(&mut grouped, "required", required);
-            insert_if_present(&mut grouped, "optional", optional);
-            (!grouped.is_empty()).then_some(Value::Object(grouped))
-        }
-    }
-}
-
-fn is_grouped_uses_object(uses: &serde_json::Map<String, Value>) -> bool {
-    ["required", "optional"]
-        .iter()
-        .any(|key| object(uses.get(*key)).is_some_and(|value| !is_use_ref_object(value)))
-}
-
-fn is_use_ref_object(value: &serde_json::Map<String, Value>) -> bool {
-    value
-        .get("contract")
-        .is_some_and(serde_json::Value::is_string)
+    let mut grouped = serde_json::Map::new();
+    insert_if_present(&mut grouped, "required", required);
+    insert_if_present(&mut grouped, "optional", optional);
+    (!grouped.is_empty()).then_some(Value::Object(grouped))
 }
 
 fn omit_required_use_aliases(optional: Option<Value>, required: &Option<Value>) -> Option<Value> {

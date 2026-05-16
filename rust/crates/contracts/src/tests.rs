@@ -440,10 +440,10 @@ fn manifest_validation_rejects_stream_resources() {
         "kind": "service",
         "resources": {
             "streams": {
-                "activity": {
-                    "purpose": "Persist activity events",
+                "audit": {
+                    "purpose": "Persist audit events",
                     "required": true,
-                    "subjects": ["events.v1.Activity.Recorded"]
+                    "subjects": ["events.v1.Audit.Recorded"]
                 }
             }
         }
@@ -505,10 +505,12 @@ fn manifest_parses_owned_and_used_operations() {
             "CaptureResult": {"type": "object", "properties": {}, "additionalProperties": false}
         },
         "uses": {
-            "billing": {
-                "contract": "billing@v1",
-                "operations": {
-                    "call": ["Billing.Refund"]
+            "required": {
+                "billing": {
+                    "contract": "billing@v1",
+                    "operations": {
+                        "call": ["Billing.Refund"]
+                    }
                 }
             }
         },
@@ -628,17 +630,17 @@ fn manifest_parses_top_level_feeds() {
         "description": "Expose queryable feeds.",
         "kind": "service",
         "schemas": {
-            "ActivityFeedInput": {"type": "object", "properties": {}, "additionalProperties": false},
-            "ActivityFeedEvent": {"type": "object", "properties": {}, "additionalProperties": false}
+            "AuditFeedInput": {"type": "object", "properties": {}, "additionalProperties": false},
+            "AuditFeedEvent": {"type": "object", "properties": {}, "additionalProperties": false}
         },
         "feeds": {
-            "Activity.Feed": {
+            "Audit.Feed": {
                 "version": "v1",
-                "subject": "feeds.v1.Activity.Feed",
-                "input": {"schema": "ActivityFeedInput"},
-                "event": {"schema": "ActivityFeedEvent"},
+                "subject": "feeds.v1.Audit.Feed",
+                "input": {"schema": "AuditFeedInput"},
+                "event": {"schema": "AuditFeedEvent"},
                 "capabilities": {
-                    "subscribe": ["activity.feed.subscribe"]
+                    "subscribe": ["audit.feed.subscribe"]
                 }
             }
         }
@@ -647,17 +649,17 @@ fn manifest_parses_top_level_feeds() {
 
     let feed = manifest
         .feeds
-        .get("Activity.Feed")
+        .get("Audit.Feed")
         .expect("owned feed should exist");
     assert_eq!(feed.version, "v1");
-    assert_eq!(feed.subject, "feeds.v1.Activity.Feed");
-    assert_eq!(feed.input.schema, "ActivityFeedInput");
-    assert_eq!(feed.event.schema, "ActivityFeedEvent");
+    assert_eq!(feed.subject, "feeds.v1.Audit.Feed");
+    assert_eq!(feed.input.schema, "AuditFeedInput");
+    assert_eq!(feed.event.schema, "AuditFeedEvent");
     assert_eq!(
         feed.capabilities
             .as_ref()
             .and_then(|value| value.subscribe.as_ref()),
-        Some(&vec!["activity.feed.subscribe".to_string()])
+        Some(&vec!["audit.feed.subscribe".to_string()])
     );
 }
 
@@ -670,27 +672,26 @@ fn manifest_parses_used_feed_subscriptions() {
         "description": "Subscribe to queryable feeds.",
         "kind": "service",
         "uses": {
-            "activity": {
-                "contract": "activity@v1",
-                "feeds": {
-                    "subscribe": ["Activity.Feed"]
+            "required": {
+                "audit": {
+                    "contract": "audit@v1",
+                    "feeds": {
+                        "subscribe": ["Audit.Feed"]
+                    }
                 }
             }
         }
     }))
     .expect("manifest with used feeds should parse");
 
-    let use_ref = manifest
-        .uses
-        .get("activity")
-        .expect("activity use should exist");
+    let use_ref = manifest.uses.get("audit").expect("audit use should exist");
     assert_eq!(
         use_ref
             .feeds
             .as_ref()
             .and_then(|value| value.subscribe.as_ref())
             .cloned(),
-        Some(vec!["Activity.Feed".to_string()])
+        Some(vec!["Audit.Feed".to_string()])
     );
 }
 
@@ -710,9 +711,9 @@ fn manifest_parses_grouped_required_and_optional_uses() {
                 }
             },
             "optional": {
-                "activity": {
-                    "contract": "activity@v1",
-                    "feeds": {"subscribe": ["Activity.Feed"]}
+                "audit": {
+                    "contract": "audit@v1",
+                    "feeds": {"subscribe": ["Audit.Feed"]}
                 }
             }
         }
@@ -726,17 +727,17 @@ fn manifest_parses_grouped_required_and_optional_uses() {
         Some(&vec!["Billing.Charge".to_string()])
     );
 
-    let activity = manifest.uses.get("activity").expect("optional use");
-    assert_eq!(activity.contract, "activity@v1");
+    let audit = manifest.uses.get("audit").expect("optional use");
+    assert_eq!(audit.contract, "audit@v1");
     assert_eq!(
-        activity
+        audit
             .feeds
             .as_ref()
             .and_then(|feeds| feeds.subscribe.as_ref()),
-        Some(&vec!["Activity.Feed".to_string()])
+        Some(&vec!["Audit.Feed".to_string()])
     );
     assert!(manifest.uses.required().contains_key("billing"));
-    assert!(manifest.uses.optional().contains_key("activity"));
+    assert!(manifest.uses.optional().contains_key("audit"));
 }
 
 #[test]
@@ -774,63 +775,71 @@ fn grouped_required_uses_take_precedence_over_duplicate_optional_aliases() {
 }
 
 #[test]
-fn contract_digest_treats_legacy_flat_uses_as_grouped_required() {
-    let legacy = json!({
+fn manifest_rejects_flat_uses() {
+    let error = parse_manifest(json!({
         "format": "trellis.contract.v1",
-        "id": "example.uses-digest@v1",
-        "displayName": "Uses Digest",
-        "description": "Compare uses layouts.",
+        "id": "example.flat-uses@v1",
+        "displayName": "Flat Uses",
+        "description": "Flat uses are no longer accepted.",
         "kind": "service",
         "uses": {
             "billing": {
                 "contract": "billing@v1",
-                "rpc": {"call": ["Billing.Charge", "Billing.Refund"]}
+                "rpc": {"call": ["Billing.Charge"]}
             }
         }
-    });
-    let grouped = json!({
-        "format": "trellis.contract.v1",
-        "id": "example.uses-digest@v1",
-        "displayName": "Uses Digest",
-        "description": "Compare uses layouts.",
-        "kind": "service",
-        "uses": {
-            "required": {
-                "billing": {
-                    "contract": "billing@v1",
-                    "rpc": {"call": ["Billing.Charge", "Billing.Refund"]}
-                }
-            }
-        }
-    });
+    }))
+    .expect_err("flat uses should be rejected");
 
-    assert_eq!(
-        digest_contract_value(&legacy).expect("legacy digest"),
-        digest_contract_value(&grouped).expect("grouped digest")
-    );
+    let ContractsError::Json(error) = error else {
+        panic!("expected serde json error");
+    };
+    assert!(error.to_string().contains("unknown field `billing`"));
 }
 
 #[test]
-fn contract_digest_keeps_legacy_flat_aliases_named_required() {
+fn contract_digest_projects_grouped_required_aliases_only() {
     let manifest = json!({
         "format": "trellis.contract.v1",
         "id": "example.required-alias@v1",
         "displayName": "Required Alias",
-        "description": "Legacy alias name overlaps grouped uses.",
+        "description": "Grouped alias name overlaps grouped uses.",
         "kind": "service",
         "uses": {
             "required": {
-                "contract": "required@v1",
-                "rpc": {"call": ["Required.Ping"]}
+                "required": {
+                    "contract": "required@v1",
+                    "rpc": {"call": ["Required.Ping"]}
+                }
             }
         }
     });
     let projected = project_contract_digest_manifest(&manifest);
 
     assert_eq!(
-        projected["uses"]["required"]["contract"],
+        projected["uses"]["required"]["required"]["contract"],
         json!("required@v1")
     );
+}
+
+#[test]
+fn contract_digest_does_not_project_flat_uses() {
+    let manifest = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.flat-projection@v1",
+        "displayName": "Flat Projection",
+        "description": "Flat uses are not normalized into grouped required uses.",
+        "kind": "service",
+        "uses": {
+            "billing": {
+                "contract": "billing@v1",
+                "rpc": {"call": ["Billing.Charge"]}
+            }
+        }
+    });
+    let projected = project_contract_digest_manifest(&manifest);
+
+    assert!(projected.get("uses").is_none());
 }
 
 #[test]
@@ -849,9 +858,9 @@ fn contract_digest_keeps_grouped_aliases_named_contract() {
                 }
             },
             "optional": {
-                "activity": {
-                    "contract": "activity@v1",
-                    "feeds": {"subscribe": ["Activity.Feed"]}
+                "audit": {
+                    "contract": "audit@v1",
+                    "feeds": {"subscribe": ["Audit.Feed"]}
                 }
             }
         }
@@ -863,8 +872,8 @@ fn contract_digest_keeps_grouped_aliases_named_contract() {
         json!("required@v1")
     );
     assert_eq!(
-        projected["uses"]["optional"]["activity"]["feeds"]["subscribe"],
-        json!(["Activity.Feed"])
+        projected["uses"]["optional"]["audit"]["feeds"]["subscribe"],
+        json!(["Audit.Feed"])
     );
 }
 
@@ -923,9 +932,9 @@ fn contract_digest_includes_sorted_optional_uses_and_feed_subscriptions() {
         "kind": "service",
         "uses": {
             "optional": {
-                "activity": {
-                    "contract": "activity@v1",
-                    "feeds": {"subscribe": ["Activity.Z", "Activity.A", "Activity.Z"]}
+                "audit": {
+                    "contract": "audit@v1",
+                    "feeds": {"subscribe": ["Audit.Z", "Audit.A", "Audit.Z"]}
                 }
             }
         }
@@ -938,9 +947,9 @@ fn contract_digest_includes_sorted_optional_uses_and_feed_subscriptions() {
         "kind": "service",
         "uses": {
             "optional": {
-                "activity": {
-                    "contract": "activity@v1",
-                    "feeds": {"subscribe": ["Activity.A", "Activity.Z"]}
+                "audit": {
+                    "contract": "audit@v1",
+                    "feeds": {"subscribe": ["Audit.A", "Audit.Z"]}
                 }
             }
         }
@@ -953,9 +962,9 @@ fn contract_digest_includes_sorted_optional_uses_and_feed_subscriptions() {
         "kind": "service",
         "uses": {
             "optional": {
-                "activity": {
-                    "contract": "activity@v1",
-                    "feeds": {"subscribe": ["Activity.A"]}
+                "audit": {
+                    "contract": "audit@v1",
+                    "feeds": {"subscribe": ["Audit.A"]}
                 }
             }
         }
@@ -985,14 +994,24 @@ fn builder_use_ref_is_required_and_optional_use_ref_is_grouped_optional() {
         use_contract("billing@v1").with_rpc_call(["Billing.Charge"]),
     )
     .optional_use_ref(
-        "activity",
-        use_contract("activity@v1").with_feed_subscribe(["Activity.Feed"]),
+        "audit",
+        use_contract("audit@v1").with_feed_subscribe(["Audit.Feed"]),
     )
     .build()
     .expect("builder manifest");
 
     assert!(manifest.uses.required().contains_key("billing"));
-    assert!(manifest.uses.optional().contains_key("activity"));
+    assert!(manifest.uses.optional().contains_key("audit"));
+
+    let serialized = serde_json::to_value(&manifest).expect("serialize manifest");
+    assert_eq!(
+        serialized["uses"]["required"]["billing"]["contract"],
+        json!("billing@v1")
+    );
+    assert_eq!(
+        serialized["uses"]["optional"]["audit"]["contract"],
+        json!("audit@v1")
+    );
 }
 
 #[test]
@@ -1004,13 +1023,13 @@ fn manifest_validation_rejects_unknown_feed_schema_refs() {
         "description": "Expose queryable feeds.",
         "kind": "service",
         "schemas": {
-            "ActivityFeedInput": {"type": "object", "properties": {}, "additionalProperties": false}
+            "AuditFeedInput": {"type": "object", "properties": {}, "additionalProperties": false}
         },
         "feeds": {
-            "Activity.Feed": {
+            "Audit.Feed": {
                 "version": "v1",
-                "subject": "feeds.v1.Activity.Feed",
-                "input": {"schema": "ActivityFeedInput"},
+                "subject": "feeds.v1.Audit.Feed",
+                "input": {"schema": "AuditFeedInput"},
                 "event": {"schema": "MissingFeedEvent"}
             }
         }
@@ -1033,16 +1052,16 @@ fn contract_digest_changes_when_feed_schemas_change() {
         "description": "Expose queryable feeds.",
         "kind": "service",
         "schemas": {
-            "ActivityFeedInput": {"type": "object", "properties": {}, "additionalProperties": false},
-            "ActivityFeedEvent": {"type": "object", "properties": {}, "additionalProperties": false},
+            "AuditFeedInput": {"type": "object", "properties": {}, "additionalProperties": false},
+            "AuditFeedEvent": {"type": "object", "properties": {}, "additionalProperties": false},
             "Unused": {"type": "object", "properties": {"ignored": {"type": "string"}}, "additionalProperties": false}
         },
         "feeds": {
-            "Activity.Feed": {
+            "Audit.Feed": {
                 "version": "v1",
-                "subject": "feeds.v1.Activity.Feed",
-                "input": {"schema": "ActivityFeedInput"},
-                "event": {"schema": "ActivityFeedEvent"}
+                "subject": "feeds.v1.Audit.Feed",
+                "input": {"schema": "AuditFeedInput"},
+                "event": {"schema": "AuditFeedEvent"}
             }
         }
     });
@@ -1058,7 +1077,7 @@ fn contract_digest_changes_when_feed_schemas_change() {
         digest
     );
 
-    manifest["schemas"]["ActivityFeedInput"] = json!({
+    manifest["schemas"]["AuditFeedInput"] = json!({
         "type": "object",
         "required": ["cursor"],
         "properties": {"cursor": {"type": "string"}},
@@ -1069,9 +1088,9 @@ fn contract_digest_changes_when_feed_schemas_change() {
         digest
     );
 
-    manifest["schemas"]["ActivityFeedInput"] =
+    manifest["schemas"]["AuditFeedInput"] =
         json!({"type": "object", "properties": {}, "additionalProperties": false});
-    manifest["schemas"]["ActivityFeedEvent"] = json!({
+    manifest["schemas"]["AuditFeedEvent"] = json!({
         "type": "object",
         "required": ["id"],
         "properties": {"id": {"type": "string"}},
@@ -1216,8 +1235,8 @@ fn manifest_validation_rejects_raw_subjects() {
         "description": "Expose raw subjects",
         "kind": "service",
         "subjects": {
-            "Activity.Raw": {
-                "subject": "activity.raw"
+            "Audit.Raw": {
+                "subject": "audit.raw"
             }
         }
     }))

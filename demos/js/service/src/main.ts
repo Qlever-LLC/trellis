@@ -78,7 +78,7 @@ async function main(): Promise<void> {
   await service.operation("Evidence.Upload").handle(
     features.evidence.uploadEvidence,
   );
-  await service.feed("Activity.Live").handle(
+  await service.feed("Audit.Feed").handle(
     async ({ emit, signal }) => {
       const controller = new AbortController();
       const stop = () => {
@@ -88,10 +88,10 @@ async function main(): Promise<void> {
 
       try {
         await service.trellis.event(
-          "Activity.Recorded",
+          "Audit.Recorded",
           {},
           (event) => {
-            return emit({ name: "Activity.Recorded", event });
+            return emit({ name: "Audit.Recorded", event });
           },
           { mode: "ephemeral", replay: "new", signal: controller.signal },
         ).orThrow();

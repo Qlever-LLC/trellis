@@ -33,7 +33,7 @@ const fieldOps = trellisDemoService.use({
   },
   events: {
     subscribe: [
-      "Activity.Recorded",
+      "Audit.Recorded",
       "Reports.Published",
       "Evidence.Uploaded",
       "Sites.Refreshed",

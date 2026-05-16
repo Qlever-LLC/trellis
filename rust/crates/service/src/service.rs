@@ -1,7 +1,41 @@
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
+use serde_json::Value;
 
 use crate::{HandlerResponse, RequestContext, Router, ServerError};
+
+/// Result returned by request validators after checking caller authorization.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RequestValidation {
+    pub allowed: bool,
+    pub caller: Option<Value>,
+}
+
+impl RequestValidation {
+    /// Construct an allowed validation result with no caller metadata.
+    pub fn allowed() -> Self {
+        Self {
+            allowed: true,
+            caller: None,
+        }
+    }
+
+    /// Construct an allowed validation result with caller metadata.
+    pub fn allowed_caller(caller: Value) -> Self {
+        Self {
+            allowed: true,
+            caller: Some(caller),
+        }
+    }
+
+    /// Construct a denied validation result.
+    pub fn denied() -> Self {
+        Self {
+            allowed: false,
+            caller: None,
+        }
+    }
+}
 
 /// Auth validator called before dispatching requests to mounted handlers.
 pub trait RequestValidator: Send + Sync {
@@ -10,7 +44,7 @@ pub trait RequestValidator: Send + Sync {
         subject: &'a str,
         payload: &'a Bytes,
         context: &'a RequestContext,
-    ) -> BoxFuture<'a, Result<bool, ServerError>>;
+    ) -> BoxFuture<'a, Result<RequestValidation, ServerError>>;
 }
 
 /// A router wrapper that enforces auth validation before handler execution.
@@ -59,8 +93,8 @@ where
             });
         }
 
-        let allowed = self.validator.validate(subject, &payload, &context).await?;
-        if !allowed {
+        let validation = self.validator.validate(subject, &payload, &context).await?;
+        if !validation.allowed {
             return Err(ServerError::RequestDenied {
                 subject: subject.to_string(),
                 session_key,
@@ -69,6 +103,10 @@ where
 
         validate_reply_inbox(subject, &session_key, context.reply_to.as_deref())?;
 
+        let context = RequestContext {
+            caller: validation.caller,
+            ..context
+        };
         self.router.handle_request(subject, payload, context).await
     }
 
@@ -97,8 +135,8 @@ where
             });
         }
 
-        let allowed = self.validator.validate(subject, &payload, &context).await?;
-        if !allowed {
+        let validation = self.validator.validate(subject, &payload, &context).await?;
+        if !validation.allowed {
             return Err(ServerError::RequestDenied {
                 subject: subject.to_string(),
                 session_key,
@@ -107,6 +145,10 @@ where
 
         validate_reply_inbox(subject, &session_key, context.reply_to.as_deref())?;
 
+        let context = RequestContext {
+            caller: validation.caller,
+            ..context
+        };
         self.router
             .handle_request_frames(subject, payload, context)
             .await
@@ -137,8 +179,8 @@ where
             });
         }
 
-        let allowed = self.validator.validate(subject, &payload, &context).await?;
-        if !allowed {
+        let validation = self.validator.validate(subject, &payload, &context).await?;
+        if !validation.allowed {
             return Err(ServerError::RequestDenied {
                 subject: subject.to_string(),
                 session_key,
@@ -147,6 +189,10 @@ where
 
         validate_reply_inbox(subject, &session_key, context.reply_to.as_deref())?;
 
+        let context = RequestContext {
+            caller: validation.caller,
+            ..context
+        };
         self.router
             .handle_request_response(subject, payload, context)
             .await

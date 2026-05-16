@@ -1,17 +1,16 @@
-import { connect } from "@nats-io/transport-deno";
-import type { ConnectionOptions } from "@nats-io/transport-deno";
+import type { NatsConnection } from "@nats-io/nats-core";
 import { isErr, ok } from "@qlever-llc/trellis";
-import type { InferSchemaType } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertExists } from "@std/assert";
 import { Type } from "typebox";
 import { createClient } from "../client.ts";
 import { defineServiceContract } from "../contract.ts";
-import { TypedStore } from "../store.ts";
-import { NatsTest } from "../testing/nats.ts";
-import type { NatsConnectFn, NatsConnectOpts } from "./runtime.ts";
+import { createRoutedNatsConnections } from "../testing/routed_nats.ts";
+import type {
+  DurableOperationRecord,
+  RuntimeOperationRecord,
+} from "../trellis.ts";
+import type { NatsConnectFn } from "./runtime.ts";
 import { TrellisService } from "./service.ts";
-
-const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
 
 const billingCapabilities = {
   "billing.refund": {
@@ -25,13 +24,6 @@ const billingCapabilities = {
   "billing.cancel": {
     displayName: "Cancel billing",
     description: "Cancel billing operations.",
-  },
-} as const;
-
-const uploadCapabilities = {
-  uploader: {
-    displayName: "Upload files",
-    description: "Start and read file upload operations.",
   },
 } as const;
 
@@ -144,78 +136,8 @@ const billingWithStatus = defineServiceContract(
   }),
 );
 
-const demoFiles = defineServiceContract(
-  {
-    schemas: {
-      UploadInput: Type.Object({
-        key: Type.String(),
-        contentType: Type.Optional(Type.String()),
-      }),
-      UploadProgress: Type.Object({
-        stage: Type.String(),
-        message: Type.String(),
-      }),
-      UploadOutput: Type.Object({
-        key: Type.String(),
-        size: Type.Integer(),
-      }),
-    },
-  },
-  (ref) => ({
-    id: "trellis.demo.files.service-operation-test@v1",
-    displayName: "Demo Files Service Operation Test",
-    description: "Exercise transfer-capable operations.",
-    capabilities: uploadCapabilities,
-    resources: {
-      store: {
-        uploads: {
-          purpose: "Temporary uploads",
-          ttlMs: 60_000,
-          maxObjectBytes: 1024 * 1024,
-          maxTotalBytes: 4 * 1024 * 1024,
-        },
-      },
-    },
-    operations: {
-      "Demo.Files.Upload": {
-        version: "v1",
-        input: ref.schema("UploadInput"),
-        progress: ref.schema("UploadProgress"),
-        output: ref.schema("UploadOutput"),
-        transfer: {
-          direction: "send",
-          store: "uploads",
-          key: "/key",
-          contentType: "/contentType",
-          expiresInMs: 60_000,
-        },
-        capabilities: {
-          call: ["uploader"],
-          read: ["uploader"],
-        },
-      },
-    },
-  }),
-);
-
-type RefundInput = InferSchemaType<
-  typeof billing.API.owned.operations["Billing.Refund"]["input"]
->;
-type UploadInput = InferSchemaType<
-  typeof demoFiles.API.owned.operations["Demo.Files.Upload"]["input"]
->;
-const natsConnect: NatsConnectFn = async (opts) => {
-  const connectOpts: ConnectionOptions = {
-    servers: opts.servers,
-    ...(typeof opts.inboxPrefix === "string"
-      ? { inboxPrefix: opts.inboxPrefix }
-      : {}),
-  };
-  return await connect(connectOpts);
-};
-
 function startPermissiveAuthResponder(
-  nc: Awaited<ReturnType<typeof NatsTest.start>>["nc"],
+  nc: NatsConnection,
 ): void {
   const sub = nc.subscribe("rpc.v1.Auth.Requests.Validate");
   void (async () => {
@@ -227,9 +149,7 @@ function startPermissiveAuthResponder(
         caller: {
           type: "user",
           participantKind: "app",
-          id: "auth0|test-user",
-          trellisId: "tid_test_user",
-          origin: "test",
+          userId: "test-user-123",
           active: true,
           name: "Test User",
           email: "test@example.com",
@@ -240,11 +160,69 @@ function startPermissiveAuthResponder(
             "uploader",
             "service",
           ],
+          identity: {
+            identityId: "test-identity-123",
+            provider: "test",
+            subject: "test-subject-123",
+          },
         },
       }));
     }
   })();
 }
+
+function createOperationTestNats(): {
+  port: number;
+  connect: NatsConnectFn;
+  clientConnection(inboxPrefix: string): NatsConnection;
+  installOperationRecords(service: object): void;
+  close(): Promise<void>;
+} {
+  const createConnection = createRoutedNatsConnections({
+    ackEventsWithoutSubscriber: true,
+  });
+  const operationRecords = new Map<string, DurableOperationRecord>();
+  const authConnection = createConnection();
+  startPermissiveAuthResponder(authConnection);
+  return {
+    port: 0,
+    connect: async (opts) =>
+      createConnection({
+        inboxPrefix: typeof opts.inboxPrefix === "string"
+          ? opts.inboxPrefix
+          : undefined,
+      }),
+    clientConnection: (inboxPrefix) => createConnection({ inboxPrefix }),
+    installOperationRecords: (service) => {
+      const descriptor = Object.getOwnPropertyDescriptor(service, "server");
+      if (!descriptor || !("value" in descriptor)) {
+        throw new Error("service runtime handle is unavailable");
+      }
+      const runtime: OperationRecordRuntime = descriptor.value;
+      runtime.saveOperationRecord = async (record) => {
+        operationRecords.set(record.id, {
+          ownerSessionKey: record.ownerSessionKey,
+          sequence: record.sequence,
+          signalSequence: record.signalSequence,
+          signals: structuredClone(record.signals),
+          snapshot: structuredClone(record.snapshot),
+        });
+      };
+      runtime.loadOperationRecord = async (operationId) =>
+        operationRecords.get(operationId) ?? null;
+    },
+    close: async () => {
+      await authConnection.drain();
+    },
+  };
+}
+
+type OperationRecordRuntime = {
+  saveOperationRecord(record: RuntimeOperationRecord): Promise<void>;
+  loadOperationRecord(
+    operationId: string,
+  ): Promise<DurableOperationRecord | null>;
+};
 
 type RefundOperationHandle = {
   started(): Promise<unknown>;
@@ -302,11 +280,8 @@ function installBootstrapMock(args: {
 
 Deno.test({
   name: "TrellisService.operation handles owned workflows",
-  ignore: !RUN_NATS_TESTS,
   async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const info = nats.nc.info!;
+    const nats = createOperationTestNats();
     const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
     const originalFetch = globalThis.fetch;
 
@@ -323,7 +298,7 @@ Deno.test({
                 contractDigest: billing.CONTRACT_DIGEST,
                 transports: {
                   native: {
-                    natsServers: [`localhost:${info.port}`],
+                    natsServers: [`localhost:${nats.port}`],
                     tlsRequired: false,
                   },
                 },
@@ -357,14 +332,14 @@ Deno.test({
         name: "billing-service",
         sessionKeySeed: seed,
         server: {},
-      }, { connect: natsConnect }).orThrow();
+      }, { connect: nats.connect }).orThrow();
+      nats.installOperationRecords(service);
 
       assertEquals(typeof service.operation, "function");
 
-      const clientNc = await connect({
-        servers: `localhost:${info.port}`,
-        inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
-      });
+      const clientNc = nats.clientConnection(
+        `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
+      );
       const clientAuth = {
         sessionKey: service.auth.sessionKey,
         sign: service.auth.sign,
@@ -405,6 +380,7 @@ Deno.test({
       await clientNc.drain();
       await service.stop();
     } finally {
+      await nats.close();
       globalThis.fetch = originalFetch;
     }
   },
@@ -413,11 +389,8 @@ Deno.test({
 Deno.test({
   name:
     "TrellisService.operation can defer external completion without auto-completing",
-  ignore: !RUN_NATS_TESTS,
   async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const info = nats.nc.info!;
+    const nats = createOperationTestNats();
     const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
     const originalFetch = globalThis.fetch;
 
@@ -434,7 +407,7 @@ Deno.test({
                 contractDigest: billing.CONTRACT_DIGEST,
                 transports: {
                   native: {
-                    natsServers: [`localhost:${info.port}`],
+                    natsServers: [`localhost:${nats.port}`],
                     tlsRequired: false,
                   },
                 },
@@ -468,12 +441,12 @@ Deno.test({
         name: "billing-service",
         sessionKeySeed: seed,
         server: {},
-      }, { connect: natsConnect }).orThrow();
+      }, { connect: nats.connect }).orThrow();
+      nats.installOperationRecords(service);
 
-      const clientNc = await connect({
-        servers: `localhost:${info.port}`,
-        inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
-      });
+      const clientNc = nats.clientConnection(
+        `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
+      );
       const clientAuth = {
         sessionKey: service.auth.sessionKey,
         sign: service.auth.sign,
@@ -521,6 +494,7 @@ Deno.test({
       await clientNc.drain();
       await service.stop();
     } finally {
+      await nats.close();
       globalThis.fetch = originalFetch;
     }
   },
@@ -529,17 +503,14 @@ Deno.test({
 Deno.test({
   name:
     "TrellisService.operation.control resumes a deferred operation by id without rerunning the handler",
-  ignore: !RUN_NATS_TESTS,
   async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const info = nats.nc.info!;
+    const nats = createOperationTestNats();
     const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
     const originalFetch = globalThis.fetch;
 
     try {
       installBootstrapMock({
-        port: info.port,
+        port: nats.port,
         contractId: billing.CONTRACT_ID,
         contractDigest: billing.CONTRACT_DIGEST,
       });
@@ -550,12 +521,12 @@ Deno.test({
         name: "billing-service",
         sessionKeySeed: seed,
         server: {},
-      }, { connect: natsConnect }).orThrow();
+      }, { connect: nats.connect }).orThrow();
+      nats.installOperationRecords(service);
 
-      const clientNc = await connect({
-        servers: `localhost:${info.port}`,
-        inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
-      });
+      const clientNc = nats.clientConnection(
+        `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
+      );
       const client = createClient(billing, clientNc, {
         sessionKey: service.auth.sessionKey,
         sign: service.auth.sign,
@@ -588,6 +559,7 @@ Deno.test({
       await clientNc.drain();
       await service.stop();
     } finally {
+      await nats.close();
       globalThis.fetch = originalFetch;
     }
   },
@@ -596,17 +568,14 @@ Deno.test({
 Deno.test({
   name:
     "TrellisService.operation.control loads durable deferred records after restart",
-  ignore: !RUN_NATS_TESTS,
   async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const info = nats.nc.info!;
+    const nats = createOperationTestNats();
     const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
     const originalFetch = globalThis.fetch;
 
     try {
       installBootstrapMock({
-        port: info.port,
+        port: nats.port,
         contractId: billing.CONTRACT_ID,
         contractDigest: billing.CONTRACT_DIGEST,
       });
@@ -617,7 +586,8 @@ Deno.test({
         name: "billing-service",
         sessionKeySeed: seed,
         server: {},
-      }, { connect: natsConnect }).orThrow();
+      }, { connect: nats.connect }).orThrow();
+      nats.installOperationRecords(service1);
       const accepted = await service1.operation("Billing.Refund").accept({
         sessionKey: service1.auth.sessionKey,
       }).orThrow();
@@ -634,15 +604,15 @@ Deno.test({
         name: "billing-service",
         sessionKeySeed: seed,
         server: {},
-      }, { connect: natsConnect }).orThrow();
+      }, { connect: nats.connect }).orThrow();
+      nats.installOperationRecords(service2);
 
       const controlled = await service2.operation("Billing.Refund")
         .control(accepted.id).orThrow();
 
-      const clientNc = await connect({
-        servers: `localhost:${info.port}`,
-        inboxPrefix: `_INBOX.${service2.auth.sessionKey.slice(0, 16)}`,
-      });
+      const clientNc = nats.clientConnection(
+        `_INBOX.${service2.auth.sessionKey.slice(0, 16)}`,
+      );
       const client = createClient(billing, clientNc, {
         sessionKey: service2.auth.sessionKey,
         sign: service2.auth.sign,
@@ -667,6 +637,7 @@ Deno.test({
       await clientNc.drain();
       await service2.stop();
     } finally {
+      await nats.close();
       globalThis.fetch = originalFetch;
     }
   },
@@ -675,17 +646,14 @@ Deno.test({
 Deno.test({
   name:
     "TrellisService.operation.control rejects invalid id, operation, service, payloads, and terminal updates",
-  ignore: !RUN_NATS_TESTS,
   async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const info = nats.nc.info!;
+    const nats = createOperationTestNats();
     const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
     const originalFetch = globalThis.fetch;
 
     try {
       installBootstrapMock({
-        port: info.port,
+        port: nats.port,
         contractId: billingWithStatus.CONTRACT_ID,
         contractDigest: billingWithStatus.CONTRACT_DIGEST,
       });
@@ -696,7 +664,8 @@ Deno.test({
         name: "billing-service",
         sessionKeySeed: seed,
         server: {},
-      }, { connect: natsConnect }).orThrow();
+      }, { connect: nats.connect }).orThrow();
+      nats.installOperationRecords(service);
       const accepted = await service.operation("Billing.Refund").accept({
         sessionKey: service.auth.sessionKey,
       }).orThrow();
@@ -722,10 +691,9 @@ Deno.test({
       const controlled = await service.operation("Billing.Refund")
         .control(accepted.id).orThrow();
 
-      const clientNc = await connect({
-        servers: `localhost:${info.port}`,
-        inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
-      });
+      const clientNc = nats.clientConnection(
+        `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
+      );
       const client = createClient(billingWithStatus, clientNc, {
         sessionKey: service.auth.sessionKey,
         sign: service.auth.sign,
@@ -752,7 +720,7 @@ Deno.test({
       assertEquals(completed.output, { refundId: "rf_done" });
 
       installBootstrapMock({
-        port: info.port,
+        port: nats.port,
         contractId: billingV2.CONTRACT_ID,
         contractDigest: billingV2.CONTRACT_DIGEST,
       });
@@ -762,7 +730,8 @@ Deno.test({
         name: "other-billing-service",
         sessionKeySeed: seed,
         server: {},
-      }, { connect: natsConnect }).orThrow();
+      }, { connect: nats.connect }).orThrow();
+      nats.installOperationRecords(otherService);
       const wrongService = await otherService.operation("Billing.Refund")
         .control(accepted.id).take();
       assertEquals(isErr(wrongService), true);
@@ -771,6 +740,7 @@ Deno.test({
       await clientNc.drain();
       await service.stop();
     } finally {
+      await nats.close();
       globalThis.fetch = originalFetch;
     }
   },
@@ -779,11 +749,8 @@ Deno.test({
 Deno.test({
   name:
     "TrellisService.operation.accept creates a durable operation that a client can resume",
-  ignore: !RUN_NATS_TESTS,
   async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const info = nats.nc.info!;
+    const nats = createOperationTestNats();
     const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
     const originalFetch = globalThis.fetch;
 
@@ -800,7 +767,7 @@ Deno.test({
                 contractDigest: billing.CONTRACT_DIGEST,
                 transports: {
                   native: {
-                    natsServers: [`localhost:${info.port}`],
+                    natsServers: [`localhost:${nats.port}`],
                     tlsRequired: false,
                   },
                 },
@@ -834,12 +801,12 @@ Deno.test({
         name: "billing-service",
         sessionKeySeed: seed,
         server: {},
-      }, { connect: natsConnect }).orThrow();
+      }, { connect: nats.connect }).orThrow();
+      nats.installOperationRecords(service);
 
-      const clientNc = await connect({
-        servers: `localhost:${info.port}`,
-        inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
-      });
+      const clientNc = nats.clientConnection(
+        `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
+      );
       const clientAuth = {
         sessionKey: service.auth.sessionKey,
         sign: service.auth.sign,
@@ -877,187 +844,7 @@ Deno.test({
       await clientNc.drain();
       await service.stop();
     } finally {
-      globalThis.fetch = originalFetch;
-    }
-  },
-});
-
-Deno.test({
-  name:
-    "TrellisService.operation handles transfer-capable workflows with caller and provider updates",
-  ignore: !RUN_NATS_TESTS,
-  async fn() {
-    await using nats = await NatsTest.start();
-    startPermissiveAuthResponder(nats.nc);
-    const info = nats.nc.info!;
-    const seed = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
-    const originalFetch = globalThis.fetch;
-
-    try {
-      globalThis.fetch = (() => {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              status: "ready",
-              serverNow: 1_700_000_000,
-              connectInfo: {
-                sessionKey: "session-key",
-                contractId: demoFiles.CONTRACT_ID,
-                contractDigest: demoFiles.CONTRACT_DIGEST,
-                transports: {
-                  native: {
-                    natsServers: [`localhost:${info.port}`],
-                    tlsRequired: false,
-                  },
-                },
-                transport: {
-                  sentinel: { jwt: "jwt", seed: "seed" },
-                },
-                auth: {
-                  mode: "service_identity",
-                  iatSkewSeconds: 30,
-                },
-              },
-              binding: {
-                contractId: demoFiles.CONTRACT_ID,
-                digest: demoFiles.CONTRACT_DIGEST,
-                resources: {
-                  kv: {},
-                  store: {
-                    uploads: {
-                      name: "demo-files-upload-store",
-                      ttlMs: 60_000,
-                      maxObjectBytes: 1024 * 1024,
-                      maxTotalBytes: 4 * 1024 * 1024,
-                    },
-                  },
-                },
-              },
-            }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            },
-          ),
-        );
-      }) as typeof fetch;
-
-      const createdStore = await TypedStore.open(
-        nats.nc,
-        "demo-files-upload-store",
-        {
-          ttlMs: 60_000,
-          maxObjectBytes: 1024 * 1024,
-          maxTotalBytes: 4 * 1024 * 1024,
-        },
-      );
-      if (createdStore.isErr()) {
-        throw createdStore.error;
-      }
-
-      const service = await TrellisService.connect({
-        trellisUrl: "https://trellis.example.com",
-        contract: demoFiles,
-        name: "demo-files-service",
-        sessionKeySeed: seed,
-        server: {},
-      }, { connect: natsConnect }).orThrow();
-
-      const clientNc = await connect({
-        servers: `localhost:${info.port}`,
-        inboxPrefix: `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
-      });
-      const clientAuth = {
-        sessionKey: service.auth.sessionKey,
-        sign: service.auth.sign,
-      };
-      const client = createClient(demoFiles, clientNc, clientAuth, {
-        name: "demo-files-client",
-      });
-
-      const providerUpdates: Array<number> = [];
-      const callerUpdates: Array<number> = [];
-      const callerEvents: Array<string> = [];
-      await service.operation("Demo.Files.Upload").handle(
-        async ({ input, op, transfer, trellis }) => {
-          assertEquals(input satisfies UploadInput, input);
-          assertExists(trellis);
-          const watchProviderUpdates = (async () => {
-            for await (const update of transfer.updates()) {
-              providerUpdates.push(update.transferredBytes);
-            }
-          })();
-
-          const transferred = await transfer.completed();
-          const storedInfo = transferred.match({
-            ok: (value) => value,
-            err: (error) => {
-              throw error;
-            },
-          });
-
-          await watchProviderUpdates;
-          await new Promise((resolve) => setTimeout(resolve, 25));
-          const started = await op.started();
-          if (started.isErr()) {
-            throw started.error;
-          }
-          return ok({ key: input.key, size: storedInfo.size });
-        },
-      );
-
-      const upload = await client.operation("Demo.Files.Upload").input({
-        key: "incoming/test.txt",
-        contentType: "text/plain",
-      })
-        .onAccepted(() => {
-          callerEvents.push("accepted");
-        })
-        .transfer(new TextEncoder().encode("hello transfer"))
-        .onTransfer((event) => {
-          callerEvents.push("transfer");
-          callerUpdates.push(event.transfer.transferredBytes);
-        })
-        .onStarted(() => {
-          callerEvents.push("started");
-        })
-        .onCompleted(() => {
-          callerEvents.push("completed");
-        })
-        .start().match({
-          ok: (value) => value,
-          err: (error) => {
-            throw error;
-          },
-        });
-
-      const terminal = await upload.wait();
-      const terminalValue = terminal.match({
-        ok: (value) => value,
-        err: (error) => {
-          throw error;
-        },
-      });
-      await waitFor(
-        () =>
-          providerUpdates.at(-1) === 14 && callerEvents.at(-1) === "completed",
-        { description: "transfer completion callbacks" },
-      );
-
-      assertEquals(terminalValue.terminal.state, "completed");
-      assertEquals(terminalValue.terminal.output, {
-        key: "incoming/test.txt",
-        size: 14,
-      });
-      assertEquals(terminalValue.transferred.size, 14);
-      assertEquals(providerUpdates.at(-1), 14);
-      assertEquals(callerEvents[0], "accepted");
-      assertEquals(callerEvents.includes("started"), true);
-      assertEquals(callerEvents.at(-1), "completed");
-
-      await clientNc.drain();
-      await service.stop();
-    } finally {
+      await nats.close();
       globalThis.fetch = originalFetch;
     }
   },

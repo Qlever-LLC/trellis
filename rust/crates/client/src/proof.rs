@@ -5,7 +5,7 @@ use base64::Engine as _;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 
-use crate::TrellisClientError;
+use crate::{RpcErrorPayload, TrellisClientError};
 
 pub(crate) fn sha256(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
@@ -69,8 +69,9 @@ pub fn verify_proof(
     let input = build_proof_input(public_session_key, subject, &payload_hash);
     let digest = sha256(&input);
 
-    let public_key = VerifyingKey::from_bytes(&public_key)
-        .map_err(|error| TrellisClientError::RpcError(error.to_string()))?;
+    let public_key = VerifyingKey::from_bytes(&public_key).map_err(|error| {
+        TrellisClientError::RpcError(RpcErrorPayload::from_message(error.to_string()))
+    })?;
     let signature = Signature::from_bytes(&signature);
     Ok(public_key.verify(&digest, &signature).is_ok())
 }

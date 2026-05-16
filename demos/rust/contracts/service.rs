@@ -202,7 +202,7 @@ fn named_live_feed_event(name: &str, event_schema: Value) -> Value {
 fn activity_live_feed_event_schema() -> Value {
     json!({
         "anyOf": [
-            named_live_feed_event("Activity.Recorded", json!({
+            named_live_feed_event("Audit.Recorded", json!({
                 "type": "object",
                 "required": ["activityId", "kind", "message", "occurredAt"],
                 "properties": {
@@ -241,7 +241,7 @@ fn activity_live_feed_event_schema() -> Value {
 fn with_schemas(builder: ContractManifestBuilder) -> ContractManifestBuilder {
     builder
         .schema(
-            "ActivityRecordedEvent",
+            "AuditRecordedEvent",
             json!({
                 "type": "object",
                 "required": ["activityId", "kind", "message", "occurredAt"],
@@ -662,8 +662,8 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             ),
         )
         .event(
-            "Activity.Recorded",
-            event("v1", "events.v1.Activity.Recorded", "ActivityRecordedEvent"),
+            "Audit.Recorded",
+            event("v1", "events.v1.Audit.Recorded", "AuditRecordedEvent"),
         )
         .event(
             "Reports.Published",
@@ -678,10 +678,10 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             event("v1", "events.v1.Sites.Refreshed", "SitesRefreshedEvent"),
         )
         .feed(
-            "Activity.Live",
+            "Audit.Feed",
             feed(
                 "v1",
-                "feeds.v1.Activity.Live",
+                "feeds.v1.Audit.Feed",
                 "ActivityLiveFeedRequest",
                 "ActivityLiveFeedEvent",
             )

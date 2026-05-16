@@ -3,7 +3,6 @@ import { Type } from "typebox";
 
 import {
   type ContractUses,
-  type ContractUsesFlat,
   defineAppContract,
   defineDeviceContract,
   defineError,
@@ -30,25 +29,10 @@ function baselineHealthUse() {
   };
 }
 
-function flatUses(
+function requiredUses(
   uses: ContractUses | undefined,
-): ContractUsesFlat | undefined {
-  if (!uses) {
-    return undefined;
-  }
-  const maybeGrouped = uses as { required?: unknown; optional?: unknown };
-  if (maybeGrouped.optional !== undefined) {
-    return undefined;
-  }
-  if (
-    maybeGrouped.required !== undefined &&
-    typeof maybeGrouped.required === "object" &&
-    maybeGrouped.required !== null &&
-    !("contract" in maybeGrouped.required)
-  ) {
-    return undefined;
-  }
-  return uses as ContractUsesFlat;
+): ContractUses["required"] | undefined {
+  return uses?.required;
 }
 
 function schemaRef<
@@ -150,10 +134,12 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
         },
       },
       uses: {
-        auth: auth.use({
-          rpc: { call: ["Auth.Sessions.Me"] },
-          events: { subscribe: ["Auth.Connections.Opened"] },
-        }),
+        required: {
+          auth: auth.use({
+            rpc: { call: ["Auth.Sessions.Me"] },
+            events: { subscribe: ["Auth.Connections.Opened"] },
+          }),
+        },
       },
       rpc: {
         "Audit.List": {
@@ -205,14 +191,16 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
       },
     },
     uses: {
-      auth: {
-        contract: "trellis.auth@v1",
-        rpc: { call: ["Auth.Sessions.Me"] },
-        events: { subscribe: ["Auth.Connections.Opened"] },
-      },
-      health: {
-        contract: "trellis.health@v1",
-        events: { publish: ["Health.Heartbeat"] },
+      required: {
+        auth: {
+          contract: "trellis.auth@v1",
+          rpc: { call: ["Auth.Sessions.Me"] },
+          events: { subscribe: ["Auth.Connections.Opened"] },
+        },
+        health: {
+          contract: "trellis.health@v1",
+          events: { publish: ["Health.Heartbeat"] },
+        },
       },
     },
     rpc: {
@@ -281,7 +269,10 @@ Deno.test("service contracts automatically use baseline health heartbeat", () =>
       "Verify service contracts publish runtime heartbeat by default.",
   }));
 
-  assertEquals(flatUses(contract.CONTRACT.uses)?.health, baselineHealthUse());
+  assertEquals(
+    requiredUses(contract.CONTRACT.uses)?.health,
+    baselineHealthUse(),
+  );
   assertEquals(
     (contract.API.used.events as Record<string, { subject: string }>)[
       "Health.Heartbeat"
@@ -331,14 +322,17 @@ Deno.test("device contracts keep implicit auth state and baseline health", () =>
   );
 
   assertEquals(
-    flatUses(contract.CONTRACT.uses)?.auth?.contract,
+    requiredUses(contract.CONTRACT.uses)?.auth?.contract,
     "trellis.auth@v1",
   );
   assertEquals(
-    flatUses(contract.CONTRACT.uses)?.state?.contract,
+    requiredUses(contract.CONTRACT.uses)?.state?.contract,
     "trellis.state@v1",
   );
-  assertEquals(flatUses(contract.CONTRACT.uses)?.health, baselineHealthUse());
+  assertEquals(
+    requiredUses(contract.CONTRACT.uses)?.health,
+    baselineHealthUse(),
+  );
 });
 
 Deno.test("explicit health use preserves selections and gains baseline heartbeat", () => {
@@ -347,11 +341,13 @@ Deno.test("explicit health use preserves selections and gains baseline heartbeat
     displayName: "Explicit Health Service",
     description: "Verify explicit health use merges with baseline heartbeat.",
     uses: {
-      health: health.use({ events: { subscribe: ["Health.Heartbeat"] } }),
+      required: {
+        health: health.use({ events: { subscribe: ["Health.Heartbeat"] } }),
+      },
     },
   }));
 
-  assertEquals(flatUses(contract.CONTRACT.uses)?.health, {
+  assertEquals(requiredUses(contract.CONTRACT.uses)?.health, {
     contract: "trellis.health@v1",
     events: {
       publish: ["Health.Heartbeat"],
@@ -546,14 +542,16 @@ Deno.test("defineAppContract emits top-level named state declarations", async ()
       },
     },
     uses: {
-      auth: {
-        contract: "trellis.auth@v1",
-        rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] },
-      },
-      state: {
-        contract: "trellis.state@v1",
-        rpc: {
-          call: ["State.Delete", "State.Get", "State.List", "State.Put"],
+      required: {
+        auth: {
+          contract: "trellis.auth@v1",
+          rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] },
+        },
+        state: {
+          contract: "trellis.state@v1",
+          rpc: {
+            call: ["State.Delete", "State.Get", "State.List", "State.Put"],
+          },
         },
       },
     },
@@ -1036,9 +1034,11 @@ Deno.test("contract digest normalizes uses logical-name order and duplicates", (
     displayName: "Digest Uses",
     description: "Verify uses normalization.",
     uses: {
-      dependency: dependency.use({
-        rpc: { call: ["Dependency.B", "Dependency.A", "Dependency.A"] },
-      }),
+      required: {
+        dependency: dependency.use({
+          rpc: { call: ["Dependency.B", "Dependency.A", "Dependency.A"] },
+        }),
+      },
     },
   }));
 
@@ -1047,20 +1047,22 @@ Deno.test("contract digest normalizes uses logical-name order and duplicates", (
     displayName: "Digest Uses",
     description: "Verify uses normalization.",
     uses: {
-      dependency: dependency.use({
-        rpc: { call: ["Dependency.A", "Dependency.B"] },
-      }),
+      required: {
+        dependency: dependency.use({
+          rpc: { call: ["Dependency.A", "Dependency.B"] },
+        }),
+      },
     },
   }));
 
-  assertEquals(flatUses(first.CONTRACT.uses)?.dependency.rpc?.call, [
+  assertEquals(requiredUses(first.CONTRACT.uses)?.dependency.rpc?.call, [
     "Dependency.A",
     "Dependency.B",
   ]);
   assertEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
 });
 
-Deno.test("grouped required uses emit grouped manifest and match legacy digest", () => {
+Deno.test("grouped required uses emit grouped manifest", () => {
   const dependency = defineServiceContract(
     { schemas: baseSchemas },
     (ref) => ({
@@ -1082,18 +1084,6 @@ Deno.test("grouped required uses emit grouped manifest and match legacy digest",
       },
     }),
   );
-
-  const legacy = defineServiceContract({}, () => ({
-    id: "grouped.required@v1",
-    displayName: "Grouped Required",
-    description: "Declare legacy required uses.",
-    uses: {
-      dependency: dependency.use({
-        rpc: { call: ["Dependency.Read"] },
-        events: { subscribe: ["Dependency.Changed"] },
-      }),
-    },
-  }));
 
   const grouped = defineServiceContract({}, () => ({
     id: "grouped.required@v1",
@@ -1127,7 +1117,10 @@ Deno.test("grouped required uses emit grouped manifest and match legacy digest",
     grouped.API.used.events["Dependency.Changed"].subject,
     "events.v1.Dependency.Changed",
   );
-  assertEquals(legacy.CONTRACT_DIGEST, grouped.CONTRACT_DIGEST);
+  assertEquals(
+    grouped.CONTRACT_DIGEST,
+    digestContractManifest(grouped.CONTRACT),
+  );
 });
 
 Deno.test("grouped optional uses normalize selectors and affect digest", () => {
@@ -1533,7 +1526,9 @@ Deno.test("defineServiceContract rejects duplicate logical keys across used and 
           displayName: "Duplicate",
           description: "Trigger duplicate logical RPC key validation.",
           uses: {
-            auth: auth.use({ rpc: { call: ["Auth.Sessions.Me"] } }),
+            required: {
+              auth: auth.use({ rpc: { call: ["Auth.Sessions.Me"] } }),
+            },
           },
           rpc: {
             "Auth.Sessions.Me": {
@@ -1584,7 +1579,7 @@ Deno.test("defineServiceContract validates use(...) provenance and selected keys
         id: "forged@v1",
         displayName: "Forged",
         description: "Trigger forged use provenance validation.",
-        uses: { auth: forgedUse },
+        uses: { required: { auth: forgedUse } },
       })),
     Error,
     "must be created with contractModule.use(...)",
@@ -1686,14 +1681,16 @@ Deno.test("locally defined contracts can be reused as dependencies", () => {
     displayName: "Dashboard",
     description: "Reuse locally defined contracts as dependencies in tests.",
     uses: {
-      audit: audit.use({
-        events: { subscribe: ["Audit.Recorded"] },
-      }),
+      required: {
+        audit: audit.use({
+          events: { subscribe: ["Audit.Recorded"] },
+        }),
+      },
     },
   }));
 
   assertEquals(
-    flatUses(dashboard.CONTRACT.uses)?.audit.contract,
+    requiredUses(dashboard.CONTRACT.uses)?.audit.contract,
     "trellis.audit@v1",
   );
   assertEquals(
@@ -1768,9 +1765,11 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
       displayName: "Payments",
       description: "Use billing operations in source emission tests.",
       uses: {
-        billing: billing.use({
-          operations: { call: ["Billing.Refund"] },
-        }),
+        required: {
+          billing: billing.use({
+            operations: { call: ["Billing.Refund"] },
+          }),
+        },
       },
       operations: {
         "Payments.Capture": {
@@ -1790,7 +1789,7 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
       output: { schema: "StringValue" },
     },
   });
-  assertEquals(flatUses(payments.CONTRACT.uses)?.billing, {
+  assertEquals(requiredUses(payments.CONTRACT.uses)?.billing, {
     contract: "trellis.billing@v1",
     operations: { call: ["Billing.Refund"] },
   });
@@ -1910,7 +1909,11 @@ Deno.test("defineServiceContract rejects duplicate logical keys across used and 
           displayName: "Duplicate Operations",
           description: "Trigger duplicate logical operation key validation.",
           uses: {
-            billing: billing.use({ operations: { call: ["Billing.Refund"] } }),
+            required: {
+              billing: billing.use({
+                operations: { call: ["Billing.Refund"] },
+              }),
+            },
           },
           operations: {
             "Billing.Refund": {

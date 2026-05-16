@@ -4,6 +4,7 @@ import { Objm } from "@nats-io/obj";
 import { TypedStore } from "@qlever-llc/trellis";
 import { assertEquals, assertRejects } from "@std/assert";
 import { NatsTest } from "../../../packages/trellis/testing/nats.ts";
+import { CONTRACT as TRELLIS_JOBS_CONTRACT } from "#trellis-generated-sdk/jobs";
 
 import {
   getJobsQueueRequests,
@@ -19,18 +20,18 @@ import {
 
 const CONTRACT = {
   format: "trellis.contract.v1",
-  id: "activity@v1",
-  displayName: "Activity",
-  description: "Store activity entries in KV.",
+  id: "audit@v1",
+  displayName: "Audit",
+  description: "Store audit entries in KV.",
   kind: "service",
   schemas: {
-    ActivityEntry: { type: "object" },
+    AuditEntry: { type: "object" },
   },
   resources: {
     kv: {
-      activity: {
-        purpose: "Store activity entries",
-        schema: { schema: "ActivityEntry" },
+      audit: {
+        purpose: "Store audit entries",
+        schema: { schema: "AuditEntry" },
       },
     },
   },
@@ -49,8 +50,8 @@ const RUN_NATS_TESTS = isEnvFlagEnabled("TRELLIS_TEST_NATS");
 Deno.test("resource requests apply KV defaults", () => {
   assertEquals(getKvResourceRequests(CONTRACT), [
     {
-      alias: "activity",
-      purpose: "Store activity entries",
+      alias: "audit",
+      purpose: "Store audit entries",
       required: true,
       history: 1,
       ttlMs: 0,
@@ -99,7 +100,7 @@ Deno.test("store resources require NATS during provisioning", async () => {
       provisionContractResourceBindings(
         undefined,
         contract,
-        "activity.default",
+        "audit.default",
       ),
     Error,
     "NATS connection is required to provision store resources",
@@ -111,9 +112,9 @@ Deno.test("optional resources do not require NATS and do not create bindings", a
     ...CONTRACT,
     resources: {
       kv: {
-        activity: {
-          purpose: "Store activity entries",
-          schema: { schema: "ActivityEntry" },
+        audit: {
+          purpose: "Store audit entries",
+          schema: { schema: "AuditEntry" },
           required: false,
         },
       },
@@ -130,7 +131,7 @@ Deno.test("optional resources do not require NATS and do not create bindings", a
     await provisionContractResourceBindings(
       undefined,
       contract,
-      "activity.default",
+      "audit.default",
     ),
     {},
   );
@@ -246,9 +247,9 @@ Deno.test("required resources still require NATS when optional resources are pre
     ...CONTRACT,
     resources: {
       kv: {
-        activity: {
-          purpose: "Store activity entries",
-          schema: { schema: "ActivityEntry" },
+        audit: {
+          purpose: "Store audit entries",
+          schema: { schema: "AuditEntry" },
           required: false,
         },
       },
@@ -266,7 +267,7 @@ Deno.test("required resources still require NATS when optional resources are pre
       provisionContractResourceBindings(
         undefined,
         contract,
-        "activity.default",
+        "audit.default",
       ),
     Error,
     "NATS connection is required to provision store resources",
@@ -276,8 +277,8 @@ Deno.test("required resources still require NATS when optional resources are pre
 Deno.test("resource permission grants include only bound KV usage subjects", () => {
   const grants = getResourcePermissionGrants({
     kv: {
-      activity: {
-        bucket: "svc_test_activity_v1_activity",
+      audit: {
+        bucket: "svc_test_audit_v1_audit",
         history: 1,
         ttlMs: 0,
       },
@@ -289,70 +290,70 @@ Deno.test("resource permission grants include only bound KV usage subjects", () 
     true,
   );
   assertEquals(
-    grants.publish.includes("$KV.svc_test_activity_v1_activity.>"),
+    grants.publish.includes("$KV.svc_test_audit_v1_audit.>"),
     true,
   );
   assertEquals(
     grants.publish.includes(
-      "$JS.API.STREAM.INFO.KV_svc_test_activity_v1_activity",
+      "$JS.API.STREAM.INFO.KV_svc_test_audit_v1_audit",
     ),
     true,
   );
   assertEquals(
     grants.publish.includes(
-      "$JS.API.STREAM.CREATE.KV_svc_test_activity_v1_activity",
+      "$JS.API.STREAM.CREATE.KV_svc_test_audit_v1_audit",
     ),
     false,
   );
   assertEquals(
     grants.publish.includes(
-      "$JS.API.STREAM.MSG.GET.KV_svc_test_activity_v1_activity",
+      "$JS.API.STREAM.MSG.GET.KV_svc_test_audit_v1_audit",
     ),
     true,
   );
   assertEquals(
     grants.publish.includes(
-      "$JS.API.DIRECT.GET.KV_svc_test_activity_v1_activity",
+      "$JS.API.DIRECT.GET.KV_svc_test_audit_v1_audit",
     ),
     true,
   );
   assertEquals(
     grants.publish.includes(
-      "$JS.API.DIRECT.GET.KV_svc_test_activity_v1_activity.>",
+      "$JS.API.DIRECT.GET.KV_svc_test_audit_v1_audit.>",
     ),
     true,
   );
   assertEquals(
-    grants.publish.includes("$JS.API.$KV.svc_test_activity_v1_activity.>"),
+    grants.publish.includes("$JS.API.$KV.svc_test_audit_v1_audit.>"),
     true,
   );
   // KV watches in the current NATS client create and delete ephemeral consumers.
   assertEquals(
     grants.publish.includes(
-      "$JS.API.CONSUMER.CREATE.KV_svc_test_activity_v1_activity",
+      "$JS.API.CONSUMER.CREATE.KV_svc_test_audit_v1_audit",
     ),
     true,
   );
   assertEquals(
     grants.publish.includes(
-      "$JS.API.CONSUMER.CREATE.KV_svc_test_activity_v1_activity.>",
+      "$JS.API.CONSUMER.CREATE.KV_svc_test_audit_v1_audit.>",
     ),
     true,
   );
   assertEquals(
     grants.publish.includes(
-      "$JS.API.CONSUMER.DURABLE.CREATE.KV_svc_test_activity_v1_activity.>",
+      "$JS.API.CONSUMER.DURABLE.CREATE.KV_svc_test_audit_v1_audit.>",
     ),
     false,
   );
   assertEquals(
     grants.publish.includes(
-      "$JS.API.CONSUMER.DELETE.KV_svc_test_activity_v1_activity.>",
+      "$JS.API.CONSUMER.DELETE.KV_svc_test_audit_v1_audit.>",
     ),
     true,
   );
   assertEquals(
-    grants.publish.includes("$JS.ACK.KV_svc_test_activity_v1_activity.>"),
+    grants.publish.includes("$JS.ACK.KV_svc_test_audit_v1_audit.>"),
     true,
   );
 });
@@ -386,8 +387,8 @@ Deno.test("KV reconciliation updates existing bucket limits", async () => {
     {
       streamInfo: {
         config: {
-          name: "KV_activity",
-          subjects: ["$KV.activity.>"],
+          name: "KV_audit",
+          subjects: ["$KV.audit.>"],
           retention: "limits",
           max_consumers: -1,
           max_msgs_per_subject: 1,
@@ -419,7 +420,7 @@ Deno.test("KV reconciliation updates existing bucket limits", async () => {
   );
 
   assertEquals(updates, [{
-    name: "KV_activity",
+    name: "KV_audit",
     config: {
       max_msgs_per_subject: 3,
       max_age: 60_000 * 1_000_000,
@@ -673,6 +674,19 @@ Deno.test("jobs provisioning requires NATS", async () => {
   );
 });
 
+Deno.test("Jobs admin contract infrastructure provisioning requires NATS", async () => {
+  await assertRejects(
+    () =>
+      provisionContractResourceBindings(
+        undefined,
+        TRELLIS_JOBS_CONTRACT,
+        "trellis.jobs",
+      ),
+    Error,
+    "NATS connection is required to provision jobs resources",
+  );
+});
+
 Deno.test("jobs resource grants use service-visible queue bindings", () => {
   const grants = getResourcePermissionGrants({
     jobs: {
@@ -766,11 +780,11 @@ Deno.test({
     const bindings = await provisionContractResourceBindings(
       nats.nc,
       contract,
-      "activity.default",
+      "audit.default",
     );
 
     assertEquals(bindings.store?.uploads, {
-      name: "svc_activity_def_activity_v1_uploads_4d0bbccb282e",
+      name: "svc_audit_def_audit_v1_uploads_4d0bbccb282e",
       ttlMs: 60_000,
       maxTotalBytes: 4096,
     });
@@ -851,14 +865,14 @@ Deno.test({
     const initialBindings = await provisionContractResourceBindings(
       nats.nc,
       initialContract,
-      "activity.default",
+      "audit.default",
     );
     assertEquals(initialBindings.store?.uploads.maxTotalBytes, 4096);
 
     const updatedBindings = await provisionContractResourceBindings(
       nats.nc,
       updatedContract,
-      "activity.default",
+      "audit.default",
     );
     assertEquals(updatedBindings.store?.uploads.maxTotalBytes, 16_384);
 
@@ -907,6 +921,33 @@ Deno.test({
     assertEquals(jobsWork.config.subjects, ["trellis.work.>"]);
     assertEquals(jobsWork.config.retention, "workqueue");
     assertEquals(Array.isArray(jobsWork.config.sources), true);
+    assertEquals(jobsAdvisories.config.subjects, [
+      "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.JOBS_WORK.>",
+    ]);
+  },
+});
+
+Deno.test({
+  name:
+    "Jobs admin contract provisioning creates shared built-in jobs resources",
+  ignore: !RUN_NATS_TESTS,
+  async fn() {
+    await using nats = await NatsTest.start();
+
+    const bindings = await provisionContractResourceBindings(
+      nats.nc,
+      TRELLIS_JOBS_CONTRACT,
+      "trellis.jobs",
+    );
+
+    const jsm = await jetstreamManager(nats.nc);
+    const jobs = await jsm.streams.info("JOBS");
+    const jobsWork = await jsm.streams.info("JOBS_WORK");
+    const jobsAdvisories = await jsm.streams.info("JOBS_ADVISORIES");
+
+    assertEquals(bindings, {});
+    assertEquals(jobs.config.subjects, ["trellis.jobs.>"]);
+    assertEquals(jobsWork.config.subjects, ["trellis.work.>"]);
     assertEquals(jobsAdvisories.config.subjects, [
       "$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.JOBS_WORK.>",
     ]);

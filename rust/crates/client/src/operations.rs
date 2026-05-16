@@ -64,6 +64,18 @@ struct SnapshotFrame<TProgress = Value, TOutput = Value> {
     snapshot: OperationSnapshot<TProgress, TOutput>,
 }
 
+/// Acknowledgement returned after an operation signal is accepted by the provider.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationSignalAccepted<TProgress = Value, TOutput = Value> {
+    pub kind: String,
+    pub operation_id: String,
+    pub signal: String,
+    pub signal_sequence: u64,
+    pub accepted_at: String,
+    pub snapshot: OperationSnapshot<TProgress, TOutput>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct OperationErrorFrame {
@@ -485,6 +497,27 @@ where
         decode_snapshot_response(response)
     }
 
+    /// Send a control signal to the running operation.
+    pub async fn signal(
+        &self,
+        signal: impl Into<String>,
+        input: Option<Value>,
+    ) -> Result<OperationSignalAccepted<D::Progress, D::Output>, TrellisClientError> {
+        let mut body = json!({
+            "action": "signal",
+            "operationId": self.id(),
+            "signal": signal.into(),
+        });
+        if let Some(input) = input {
+            body["input"] = input;
+        }
+        let response = self
+            .transport
+            .request_json_value(control_subject(D::SUBJECT), body)
+            .await?;
+        decode_signal_response(response)
+    }
+
     pub async fn watch(
         &self,
     ) -> Result<
@@ -588,6 +621,22 @@ fn decode_snapshot_response<TProgress: DeserializeOwned, TOutput: DeserializeOwn
     }
 }
 
+fn decode_signal_response<TProgress: DeserializeOwned, TOutput: DeserializeOwned>(
+    value: Value,
+) -> Result<OperationSignalAccepted<TProgress, TOutput>, TrellisClientError> {
+    let kind = value.get("kind").and_then(Value::as_str).ok_or_else(|| {
+        TrellisClientError::OperationProtocol("expected signal frame kind".to_string())
+    })?;
+
+    match kind {
+        "signal-accepted" => Ok(serde_json::from_value(value)?),
+        "error" => Err(operation_error_frame(value)),
+        _ => Err(TrellisClientError::OperationProtocol(format!(
+            "expected signal-accepted frame, got '{kind}'"
+        ))),
+    }
+}
+
 fn operation_error_frame(value: Value) -> TrellisClientError {
     match serde_json::from_value::<OperationErrorFrame>(value) {
         Ok(frame) => TrellisClientError::OperationProtocol(format!(
@@ -632,7 +681,7 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::{
-        control_subject, FileInfo, OperationDescriptor, OperationInvoker,
+        control_subject, FileInfo, OperationDescriptor, OperationInvoker, OperationSignalAccepted,
         OperationTransferProgress, OperationTransport, TransferOperationDescriptor,
         UploadTransferGrant,
     };
@@ -846,5 +895,44 @@ mod tests {
             }
             other => panic!("unexpected error: {other}"),
         }
+    }
+
+    #[tokio::test]
+    async fn signal_sends_control_signal_and_decodes_ack() {
+        let transport = RecordingTransport::with_responses(vec![json!({
+            "kind": "signal-accepted",
+            "operationId": "op_signal",
+            "signal": "selectWorkspace",
+            "signalSequence": 1,
+            "acceptedAt": "2026-05-15T00:00:00Z",
+            "snapshot": {
+                "revision": 2,
+                "state": "running",
+                "progress": { "message": "waiting" }
+            }
+        })]);
+        let invoker = OperationInvoker::<_, RefundOperation>::new(&transport);
+
+        let ack: OperationSignalAccepted<RefundProgress, RefundOutput> = invoker
+            .control("op_signal")
+            .expect("operation id is valid")
+            .signal("selectWorkspace", Some(json!({ "workspaceId": "ws_1" })))
+            .await
+            .expect("signal succeeds");
+
+        assert_eq!(ack.signal, "selectWorkspace");
+        assert_eq!(ack.signal_sequence, 1);
+        assert_eq!(
+            transport.requests(),
+            vec![(
+                control_subject(RefundOperation::SUBJECT),
+                json!({
+                    "action": "signal",
+                    "operationId": "op_signal",
+                    "signal": "selectWorkspace",
+                    "input": { "workspaceId": "ws_1" }
+                })
+            )]
+        );
     }
 }

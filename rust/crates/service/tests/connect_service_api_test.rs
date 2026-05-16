@@ -11,8 +11,8 @@ use trellis_service::{
     AuthenticatedServiceConnectOptions, BootstrapBinding, BootstrapBindingInfo,
     BootstrapContractRef, ConnectServiceError, ConnectedServiceParts, CoreBootstrapPort,
     InboundRequest, JobsQueueResourceBinding, JobsResourceBinding, JobsSchemaRef,
-    KvResourceBinding, RequestContext, RequestValidator, Router, RpcDescriptor, ServerError,
-    ServiceResourceBindings,
+    KvResourceBinding, RequestContext, RequestValidation, RequestValidator, Router, RpcDescriptor,
+    ServerError, ServiceResourceBindings,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,8 +45,13 @@ impl RequestValidator for StubValidator {
         _subject: &'a str,
         _payload: &'a Bytes,
         _context: &'a RequestContext,
-    ) -> BoxFuture<'a, Result<bool, ServerError>> {
-        ready(Ok(self.allowed)).boxed()
+    ) -> BoxFuture<'a, Result<RequestValidation, ServerError>> {
+        ready(Ok(if self.allowed {
+            RequestValidation::allowed()
+        } else {
+            RequestValidation::denied()
+        }))
+        .boxed()
     }
 }
 
@@ -191,6 +196,9 @@ fn make_request() -> InboundRequest {
             session_key: Some("svc_session".to_string()),
             proof: Some("proof".to_string()),
             reply_to: Some("_INBOX.svc_session.1".to_string()),
+            caller: None,
+            traceparent: None,
+            tracestate: None,
         },
     }
 }

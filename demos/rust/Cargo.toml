@@ -1,6 +1,6 @@
 [workspace]
 members = ["device", "service"]
-exclude = ["generated/rust/participants/demo-device", "generated/rust/sdks/demo-service"]
+exclude = ["generated/packages/cargo-participants/demo-device", "generated/packages/cargo/demo-service"]
 resolver = "2"
 
 [workspace.package]
@@ -24,8 +24,8 @@ trellis-auth = { path = "../../rust/crates/auth" }
 trellis-auth-adapters = { path = "../../rust/crates/auth-adapters" }
 trellis-client = { path = "../../rust/crates/client" }
 trellis-core-bootstrap = { path = "../../rust/crates/core-bootstrap" }
-trellis-participant-demo-device = { path = "generated/rust/participants/demo-device" }
-trellis-sdk-core = { path = "../../generated/rust/sdks/trellis-core" }
+trellis-participant-demo-device = { path = "generated/packages/cargo-participants/demo-device" }
+trellis-sdk-core = { path = "../../generated/packages/cargo/trellis-core" }
 trellis-service = { path = "../../rust/crates/service" }
-trellis-sdk-demo-service = { path = "generated/rust/sdks/demo-service" }
+trellis-sdk-demo-service = { path = "generated/packages/cargo/demo-service" }
 trellis-jobs = { path = "../../rust/crates/jobs" }

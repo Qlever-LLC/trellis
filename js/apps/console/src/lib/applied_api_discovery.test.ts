@@ -66,10 +66,12 @@ const installedContract = {
       },
     },
     uses: {
-      auth: {
-        contract: "trellis.auth@v1",
-        rpc: { call: ["Auth.Sessions.Me"] },
-        events: { subscribe: ["Auth.Connections.Opened"] },
+      required: {
+        auth: {
+          contract: "trellis.auth@v1",
+          rpc: { call: ["Auth.Sessions.Me"] },
+          events: { subscribe: ["Auth.Connections.Opened"] },
+        },
       },
     },
   },

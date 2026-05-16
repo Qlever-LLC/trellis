@@ -342,14 +342,14 @@ export type ContractUse = {
   feeds?: { subscribe?: string[] };
 };
 
-export type ContractUsesFlat = Record<string, ContractUse>;
+type ContractUsesFlat = Record<string, ContractUse>;
 
 export type ContractUsesGrouped = {
-  required?: ContractUsesFlat;
-  optional?: ContractUsesFlat;
+  required?: Record<string, ContractUse>;
+  optional?: Record<string, ContractUse>;
 };
 
-export type ContractUses = ContractUsesFlat | ContractUsesGrouped;
+export type ContractUses = ContractUsesGrouped;
 
 export type TrellisContractV1 = {
   format: typeof CONTRACT_FORMAT_V1;
@@ -722,16 +722,14 @@ export type ContractSourceUse = {
   feeds?: { subscribe?: readonly string[] };
 };
 
-export type ContractSourceUsesFlat = Record<string, ContractSourceUse>;
+type ContractSourceUsesFlat = Record<string, ContractSourceUse>;
 
 export type ContractSourceUsesGrouped = {
-  required?: ContractSourceUsesFlat;
-  optional?: ContractSourceUsesFlat;
+  required?: Record<string, ContractSourceUse>;
+  optional?: Record<string, ContractSourceUse>;
 };
 
-export type ContractSourceUses =
-  | ContractSourceUsesFlat
-  | ContractSourceUsesGrouped;
+export type ContractSourceUses = ContractSourceUsesGrouped;
 
 export type TrellisContractSource = {
   id: string;
@@ -927,7 +925,7 @@ type AuthorContractUsesGrouped = {
   optional?: AuthorContractUsesFlat;
 };
 
-type AuthorContractUses = AuthorContractUsesFlat | AuthorContractUsesGrouped;
+type AuthorContractUses = AuthorContractUsesGrouped;
 
 export type ContractUseFn<TContractId extends string, TApi extends ApiShape> = <
   const TSpec extends UseSpec<TApi>,
@@ -1295,7 +1293,6 @@ type DependencyUsesFromUses<TUses> = TUses extends {
 } ?
     | NonNullable<TUses["required"]>[keyof NonNullable<TUses["required"]>]
     | NonNullable<TUses["optional"]>[keyof NonNullable<TUses["optional"]>]
-  : TUses extends Record<string, unknown> ? TUses[keyof TUses]
   : never;
 
 export type UsedApiFromUses<TUses> = [TUses] extends [undefined] ? EmptyApi
@@ -2281,24 +2278,6 @@ function projectDigestResources(
   };
 }
 
-function isContractUse(value: unknown): value is ContractUse {
-  return !!value && typeof value === "object" &&
-    typeof (value as { contract?: unknown }).contract === "string";
-}
-
-function isContractUsesGrouped(
-  uses: ContractUses,
-): uses is ContractUsesGrouped {
-  const maybeGrouped = uses as {
-    required?: unknown;
-    optional?: unknown;
-  };
-  return (maybeGrouped.required !== undefined &&
-    !isContractUse(maybeGrouped.required)) ||
-    (maybeGrouped.optional !== undefined &&
-      !isContractUse(maybeGrouped.optional));
-}
-
 function projectDigestUsesFlat(
   uses: ContractUsesFlat | undefined,
 ): ContractUsesFlat | undefined {
@@ -2358,21 +2337,18 @@ function projectDigestUses(
   if (!uses) {
     return undefined;
   }
-  if (!isContractUsesGrouped(uses)) {
-    return projectDigestUsesFlat(uses);
-  }
 
   const required = projectDigestUsesFlat(uses.required);
   const optional = omitRequiredUseAliases(
     projectDigestUsesFlat(uses.optional),
     required,
   );
-  if (!optional) {
-    return required;
+  if (!required && !optional) {
+    return undefined;
   }
   return {
     ...(required ? { required } : {}),
-    optional,
+    ...(optional ? { optional } : {}),
   };
 }
 
@@ -2772,24 +2748,6 @@ function emitState(
   );
 }
 
-function isContractSourceUse(value: unknown): value is ContractSourceUse {
-  return !!value && typeof value === "object" &&
-    typeof (value as { contract?: unknown }).contract === "string";
-}
-
-function isContractSourceUsesGrouped(
-  uses: ContractSourceUses,
-): uses is ContractSourceUsesGrouped {
-  const maybeGrouped = uses as {
-    required?: unknown;
-    optional?: unknown;
-  };
-  return (maybeGrouped.required !== undefined &&
-    !isContractSourceUse(maybeGrouped.required)) ||
-    (maybeGrouped.optional !== undefined &&
-      !isContractSourceUse(maybeGrouped.optional));
-}
-
 function emitUsesFlat(
   uses: ContractSourceUsesFlat | undefined,
 ): ContractUsesFlat | undefined {
@@ -2831,9 +2789,6 @@ function emitUses(
 ): ContractUses | undefined {
   if (!uses) {
     return undefined;
-  }
-  if (!isContractSourceUsesGrouped(uses)) {
-    return emitUsesFlat(uses);
   }
 
   const required = emitUsesFlat(uses.required);
@@ -3596,26 +3551,6 @@ function getContractModuleFromUse(
   return contractModule;
 }
 
-function isAuthorContractDependencyUse(
-  value: unknown,
-): value is AuthorContractDependencyUse {
-  return !!value && typeof value === "object" &&
-    typeof (value as { contract?: unknown }).contract === "string";
-}
-
-function isAuthorContractUsesGrouped(
-  uses: AuthorContractUses,
-): uses is AuthorContractUsesGrouped {
-  const maybeGrouped = uses as {
-    required?: unknown;
-    optional?: unknown;
-  };
-  return (maybeGrouped.required !== undefined &&
-    !isAuthorContractDependencyUse(maybeGrouped.required)) ||
-    (maybeGrouped.optional !== undefined &&
-      !isAuthorContractDependencyUse(maybeGrouped.optional));
-}
-
 function normalizeUseEntries(
   uses: AuthorContractUsesFlat | undefined,
 ): {
@@ -3756,18 +3691,12 @@ function normalizeUses(
 ): {
   manifestUses: ContractSourceUses | undefined;
   usedApi: TrellisApiLike;
-  grouped: boolean;
 } {
   if (!uses) {
     return {
       manifestUses: undefined,
       usedApi: emptyApi(),
-      grouped: false,
     };
-  }
-  if (!isAuthorContractUsesGrouped(uses)) {
-    const flat = normalizeUseEntries(uses);
-    return { ...flat, grouped: false };
   }
 
   const required = normalizeUseEntries(uses.required);
@@ -3784,7 +3713,6 @@ function normalizeUses(
       ...(optional.manifestUses ? { optional: optional.manifestUses } : {}),
     },
     usedApi,
-    grouped: true,
   };
 }
 
@@ -3945,52 +3873,27 @@ function normalizeContractUses(source: DefineContractSource): {
   const usedApi = emptyApi();
   mergeUseIntoApi(usedApi, explicit.usedApi);
 
-  if (explicit.grouped) {
-    const explicitGrouped = explicit.manifestUses &&
-        isContractSourceUsesGrouped(explicit.manifestUses)
-      ? explicit.manifestUses
-      : {};
-    const required: Record<string, ContractSourceUse> = {
-      ...(explicitGrouped.required ?? {}),
-    };
-    const optional = explicitGrouped.optional
-      ? { ...explicitGrouped.optional }
-      : undefined;
-    for (
-      const [alias, use] of Object.entries(deriveImplicitTrellisUses(source))
-    ) {
-      mergeUseIntoManifest(required, alias, use.manifestUse);
-      mergeUseIntoApi(usedApi, use.api);
-    }
-    return {
-      manifestUses: Object.keys(required).length > 0 ||
-          (optional && Object.keys(optional).length > 0)
-        ? {
-          ...(Object.keys(required).length > 0 ? { required } : {}),
-          ...(optional && Object.keys(optional).length > 0 ? { optional } : {}),
-        }
-        : undefined,
-      usedApi,
-    };
-  }
-
-  const manifestUses: Record<string, ContractSourceUse> = {
-    ...(!explicit.manifestUses ||
-        isContractSourceUsesGrouped(explicit.manifestUses)
-      ? {}
-      : explicit.manifestUses),
+  const required: Record<string, ContractSourceUse> = {
+    ...(explicit.manifestUses?.required ?? {}),
   };
+  const optional = explicit.manifestUses?.optional
+    ? { ...explicit.manifestUses.optional }
+    : undefined;
 
   for (
     const [alias, use] of Object.entries(deriveImplicitTrellisUses(source))
   ) {
-    mergeUseIntoManifest(manifestUses, alias, use.manifestUse);
+    mergeUseIntoManifest(required, alias, use.manifestUse);
     mergeUseIntoApi(usedApi, use.api);
   }
 
   return {
-    manifestUses: Object.keys(manifestUses).length > 0
-      ? manifestUses
+    manifestUses: Object.keys(required).length > 0 ||
+        (optional && Object.keys(optional).length > 0)
+      ? {
+        ...(Object.keys(required).length > 0 ? { required } : {}),
+        ...(optional && Object.keys(optional).length > 0 ? { optional } : {}),
+      }
       : undefined,
     usedApi,
   };

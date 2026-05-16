@@ -90,17 +90,19 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
         PartnerFeedInput: { type: "object" },
       },
       uses: {
-        core: {
-          contract: "trellis.core@v1",
-          rpc: { call: ["Trellis.Catalog"] },
-        },
-        auth: {
-          contract: "trellis.auth@v1",
-          events: { subscribe: ["Auth.Connections.Opened"] },
-        },
-        billing: {
-          contract: "billing@v1",
-          operations: { call: ["Billing.Refund"] },
+        required: {
+          core: {
+            contract: "trellis.core@v1",
+            rpc: { call: ["Trellis.Catalog"] },
+          },
+          auth: {
+            contract: "trellis.auth@v1",
+            events: { subscribe: ["Auth.Connections.Opened"] },
+          },
+          billing: {
+            contract: "billing@v1",
+            operations: { call: ["Billing.Refund"] },
+          },
         },
       },
       rpc: {
@@ -163,15 +165,17 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
       description: "User-facing portal app.",
       kind: "app",
       uses: {
-        graph: {
-          contract: "graph@v1",
-          rpc: { call: ["Partner.List"] },
-          operations: { call: ["Partner.Sync"] },
-          events: {
-            publish: ["Partner.Changed"],
-            subscribe: ["Partner.Changed"],
+        required: {
+          graph: {
+            contract: "graph@v1",
+            rpc: { call: ["Partner.List"] },
+            operations: { call: ["Partner.Sync"] },
+            events: {
+              publish: ["Partner.Changed"],
+              subscribe: ["Partner.Changed"],
+            },
+            feeds: { subscribe: ["Partner.Feed"] },
           },
-          feeds: { subscribe: ["Partner.Feed"] },
         },
       },
     },
@@ -313,9 +317,11 @@ Deno.test("user permissions can include known caller app outside active catalog"
     description: "Console app",
     kind: "app",
     uses: {
-      auth: {
-        contract: "trellis.auth@v1",
-        rpc: { call: ["Auth.Sessions.Me"] },
+      required: {
+        auth: {
+          contract: "trellis.auth@v1",
+          rpc: { call: ["Auth.Sessions.Me"] },
+        },
       },
     },
   };
@@ -422,9 +428,11 @@ Deno.test("feed-only uses grant feed request publish without raw event subscribe
     description: "Consumes only feed surfaces.",
     kind: "app",
     uses: {
-      feedService: {
-        contract: "feed-service@v1",
-        feeds: { subscribe: ["Device.Events"] },
+      required: {
+        feedService: {
+          contract: "feed-service@v1",
+          feeds: { subscribe: ["Device.Events"] },
+        },
       },
     },
   };
@@ -657,14 +665,16 @@ Deno.test("user uses resolution allows multiple active compatible digests", () =
     digest: "health-app-digest",
     contract: {
       format: "trellis.contract.v1",
-      id: "health-app@v1",
+        id: "health-app@v1",
       displayName: "Health App",
       description: "Reads Trellis health.",
       kind: "app",
       uses: {
-        core: {
-          contract: "trellis.core@v1",
-          rpc: { call: ["Trellis.Health"] },
+        required: {
+          core: {
+            contract: "trellis.core@v1",
+            rpc: { call: ["Trellis.Health"] },
+          },
         },
       },
     },
@@ -877,9 +887,13 @@ Deno.test("operation control publish honors empty capability lists and declared 
       description: "Uses open operations.",
       kind: "app",
       uses: {
-        jobs: {
-          contract: "jobs@v1",
-          operations: { call: ["Open.Run", "Open.Stop", "Open.CallDefault"] },
+        required: {
+          jobs: {
+            contract: "jobs@v1",
+            operations: {
+              call: ["Open.Run", "Open.Stop", "Open.CallDefault"],
+            },
+          },
         },
       },
     },

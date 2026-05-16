@@ -15,12 +15,15 @@ mod state;
 mod transfer;
 
 pub use auth::SessionAuth;
-pub use client::{DeviceConnectOptions, ServiceConnectOptions, TrellisClient, UserConnectOptions};
+pub use client::{
+    DeviceConnectOptions, ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient,
+    UserConnectOptions,
+};
 pub use descriptor::{EventDescriptor, FeedDescriptor, RpcDescriptor};
-pub use error::TrellisClientError;
+pub use error::{RpcErrorPayload, TrellisClientError};
 pub use operations::{
     control_subject, OperationDescriptor, OperationEvent, OperationInputBuilder, OperationInvoker,
-    OperationRef, OperationRefData, OperationSnapshot, OperationState,
+    OperationRef, OperationRefData, OperationSignalAccepted, OperationSnapshot, OperationState,
     OperationTransferInputBuilder, OperationTransferProgress, OperationTransferStartError,
     OperationTransport, StartedOperationTransfer, TransferOperationDescriptor,
 };

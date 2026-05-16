@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
@@ -8,7 +9,7 @@ use trellis_auth_adapters::request_validator::{
     make_validate_request, payload_hash_base64url, AuthRequestValidatorAdapter,
     AuthRequestValidatorClientPort,
 };
-use trellis_client::TrellisClientError;
+use trellis_client::{RpcErrorPayload, TrellisClientError};
 use trellis_service::{RequestContext, RequestValidator, ServerError};
 
 #[test]
@@ -27,6 +28,9 @@ fn make_validate_request_maps_subject_session_proof_and_hash() {
         session_key: Some("svc_session".to_string()),
         proof: Some("proof_b64url".to_string()),
         reply_to: None,
+        caller: None,
+        traceparent: None,
+        tracestate: None,
     };
 
     let request = make_validate_request("rpc.v1.Ping", b"{\"a\":1}\n", &context)
@@ -43,7 +47,7 @@ fn make_validate_request_maps_subject_session_proof_and_hash() {
 }
 
 struct FakeAuthValidateClient {
-    result: Mutex<Option<Result<AuthRequestsValidateResponse, TrellisClientError>>>,
+    results: Mutex<VecDeque<Result<AuthRequestsValidateResponse, TrellisClientError>>>,
     seen_requests: Arc<Mutex<Vec<AuthRequestsValidateRequest>>>,
 }
 
@@ -57,13 +61,32 @@ impl AuthRequestValidatorClientPort for FakeAuthValidateClient {
             .expect("lock seen requests")
             .push(input.clone());
         let result = self
-            .result
+            .results
             .lock()
-            .expect("lock result")
-            .take()
+            .expect("lock results")
+            .pop_front()
             .expect("result should be set");
         ready(result).boxed()
     }
+}
+
+fn fake_client(
+    results: impl Into<VecDeque<Result<AuthRequestsValidateResponse, TrellisClientError>>>,
+    seen_requests: Arc<Mutex<Vec<AuthRequestsValidateRequest>>>,
+) -> FakeAuthValidateClient {
+    FakeAuthValidateClient {
+        results: Mutex::new(results.into()),
+        seen_requests,
+    }
+}
+
+fn auth_error(reason: &str) -> TrellisClientError {
+    TrellisClientError::RpcError(RpcErrorPayload::from_value(json!({
+        "id": "test-error",
+        "type": "AuthError",
+        "message": format!("Auth failed: {reason}"),
+        "reason": reason,
+    })))
 }
 
 fn allowed_response(allowed: bool) -> AuthRequestsValidateResponse {
@@ -83,23 +106,27 @@ fn allowed_response(allowed: bool) -> AuthRequestsValidateResponse {
 #[tokio::test]
 async fn adapter_validate_calls_auth_and_returns_allowed() {
     let seen_requests = Arc::new(Mutex::new(Vec::new()));
-    let adapter = AuthRequestValidatorAdapter::new(FakeAuthValidateClient {
-        result: Mutex::new(Some(Ok(allowed_response(true)))),
-        seen_requests: Arc::clone(&seen_requests),
-    });
+    let adapter = AuthRequestValidatorAdapter::new(fake_client(
+        [Ok(allowed_response(true))],
+        Arc::clone(&seen_requests),
+    ));
     let context = RequestContext {
         subject: "rpc.v1.Ignored".to_string(),
         session_key: Some("svc_session".to_string()),
         proof: Some("proof_b64url".to_string()),
         reply_to: None,
+        caller: None,
+        traceparent: None,
+        tracestate: None,
     };
 
-    let allowed = adapter
+    let validation = adapter
         .validate("rpc.v1.Ping", &Bytes::from_static(br#"{"a":1}"#), &context)
         .await
         .expect("validation request should succeed");
 
-    assert!(allowed);
+    assert!(validation.allowed);
+    assert_eq!(validation.caller, Some(allowed_response(true).caller));
 
     let seen = seen_requests.lock().expect("lock seen requests");
     assert_eq!(seen.len(), 1);
@@ -110,15 +137,18 @@ async fn adapter_validate_calls_auth_and_returns_allowed() {
 
 #[tokio::test]
 async fn adapter_validate_maps_client_error_to_server_error() {
-    let adapter = AuthRequestValidatorAdapter::new(FakeAuthValidateClient {
-        result: Mutex::new(Some(Err(TrellisClientError::Timeout))),
-        seen_requests: Arc::new(Mutex::new(Vec::new())),
-    });
+    let adapter = AuthRequestValidatorAdapter::new(fake_client(
+        [Err(TrellisClientError::Timeout)],
+        Arc::new(Mutex::new(Vec::new())),
+    ));
     let context = RequestContext {
         subject: "rpc.v1.Ignored".to_string(),
         session_key: Some("svc_session".to_string()),
         proof: Some("proof_b64url".to_string()),
         reply_to: None,
+        caller: None,
+        traceparent: None,
+        tracestate: None,
     };
 
     let result = adapter
@@ -129,4 +159,64 @@ async fn adapter_validate_maps_client_error_to_server_error() {
         result,
         Err(ServerError::Nats(message)) if message.contains("Auth.Requests.Validate")
     ));
+}
+
+#[tokio::test]
+async fn adapter_validate_retries_transient_session_not_found_once_then_succeeds() {
+    let seen_requests = Arc::new(Mutex::new(Vec::new()));
+    let adapter = AuthRequestValidatorAdapter::new(fake_client(
+        [
+            Err(auth_error("session_not_found")),
+            Ok(allowed_response(true)),
+        ],
+        Arc::clone(&seen_requests),
+    ));
+    let context = RequestContext {
+        subject: "rpc.v1.Ignored".to_string(),
+        session_key: Some("svc_session".to_string()),
+        proof: Some("proof_b64url".to_string()),
+        reply_to: None,
+        caller: None,
+        traceparent: None,
+        tracestate: None,
+    };
+
+    let validation = adapter
+        .validate("rpc.v1.Ping", &Bytes::from_static(br#"{"a":1}"#), &context)
+        .await
+        .expect("validation should succeed after retry");
+
+    assert!(validation.allowed);
+    assert_eq!(seen_requests.lock().expect("lock seen requests").len(), 2);
+}
+
+#[tokio::test]
+async fn adapter_validate_does_not_retry_non_transient_auth_error() {
+    let seen_requests = Arc::new(Mutex::new(Vec::new()));
+    let adapter = AuthRequestValidatorAdapter::new(fake_client(
+        [
+            Err(auth_error("invalid_signature")),
+            Ok(allowed_response(true)),
+        ],
+        Arc::clone(&seen_requests),
+    ));
+    let context = RequestContext {
+        subject: "rpc.v1.Ignored".to_string(),
+        session_key: Some("svc_session".to_string()),
+        proof: Some("proof_b64url".to_string()),
+        reply_to: None,
+        caller: None,
+        traceparent: None,
+        tracestate: None,
+    };
+
+    let result = adapter
+        .validate("rpc.v1.Ping", &Bytes::from_static(br#"{"a":1}"#), &context)
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(ServerError::Nats(message)) if message.contains("invalid_signature")
+    ));
+    assert_eq!(seen_requests.lock().expect("lock seen requests").len(), 1);
 }

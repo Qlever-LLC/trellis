@@ -15,7 +15,7 @@ use trellis_client::{ServiceConnectOptions, TrellisClient};
 use trellis_core_bootstrap::CoreBootstrapBinding;
 use trellis_sdk_core::types::TrellisBindingsGetResponseBinding;
 use trellis_sdk_demo_service::types::{
-    ActivityLiveEvent, ActivityRecordedEvent, AssignmentsListRequest, AssignmentsListResponse,
+    ActivityLiveEvent, AuditRecordedEvent, AssignmentsListRequest, AssignmentsListResponse,
     AssignmentsListResponseAssignmentsItem, EvidenceDeleteRequest, EvidenceDeleteResponse,
     EvidenceDownloadRequest, EvidenceDownloadResponse, EvidenceDownloadResponseTransfer,
     EvidenceDownloadResponseTransferInfo, EvidenceListRequest, EvidenceListResponse,
@@ -55,7 +55,7 @@ const REFRESH_JOB_CREATE_PAUSE_MS: u64 = 700;
 const REFRESH_COMPLETE_PAUSE_MS: u64 = 700;
 const REFRESH_ACTIVITY_PAUSE_MS: u64 = 700;
 const ACTIVITY_LIVE_SOURCE_EVENTS: &[(&str, &str)] = &[
-    ("Activity.Recorded", "events.v1.Activity.Recorded"),
+    ("Audit.Recorded", "events.v1.Audit.Recorded"),
     ("Reports.Published", "events.v1.Reports.Published"),
     ("Evidence.Uploaded", "events.v1.Evidence.Uploaded"),
     ("Sites.Refreshed", "events.v1.Sites.Refreshed"),
@@ -679,7 +679,7 @@ fn service_subjects() -> &'static [&'static str] {
         "operations.v1.Reports.Generate.control",
         "operations.v1.Sites.Refresh",
         "operations.v1.Sites.Refresh.control",
-        "feeds.v1.Activity.Live",
+        "feeds.v1.Audit.Feed",
     ]
 }
 
@@ -734,7 +734,7 @@ async fn subscribe_activity_live_sources(
                 .await
                 .map_err(|error| {
                     ServerError::Nats(format!(
-                        "failed to subscribe to Activity.Live source event {subject}: {error}"
+                        "failed to subscribe to Audit.Feed source event {subject}: {error}"
                     ))
                 })?,
         );
@@ -1316,7 +1316,7 @@ async fn evidence_delete(
     context.store.delete(&key).await?;
     publish_activity_event(
         context.publisher.as_ref(),
-        ActivityRecordedEvent {
+        AuditRecordedEvent {
             activity_id: format!("activity-evidence-deleted-{key}"),
             kind: "evidence-deleted".to_string(),
             message: format!("Deleted evidence upload {key}"),
@@ -1586,7 +1586,7 @@ async fn publish_sites_refresh_events(context: &AppContext, output: &SitesRefres
     }
 
     let occurred_at = now_iso();
-    let activity = ActivityRecordedEvent {
+    let activity = AuditRecordedEvent {
         activity_id: format!("activity-refresh-{}", output.site.site_id),
         kind: "site-refreshed".to_string(),
         message: format!("Refreshed {}", output.site.site_name),
@@ -1595,7 +1595,7 @@ async fn publish_sites_refresh_events(context: &AppContext, output: &SitesRefres
         related_inspection_id: None,
     };
     if let Err(error) = server::publish_activity_recorded(publisher, &activity).await {
-        tracing::warn!(error = %error, "failed to publish Activity.Recorded");
+        tracing::warn!(error = %error, "failed to publish Audit.Recorded");
     }
 }
 
@@ -1746,7 +1746,7 @@ async fn publish_reports_generate_events(
         || inspection_id.clone(),
         |assignment| format!("{} / {}", assignment.site_name, assignment.asset_name),
     );
-    let activity = ActivityRecordedEvent {
+    let activity = AuditRecordedEvent {
         activity_id: format!("activity-closeout-{inspection_id}"),
         kind: "closeout-published".to_string(),
         message: format!("Published closeout status for {inspection_label}"),
@@ -1755,7 +1755,7 @@ async fn publish_reports_generate_events(
         related_inspection_id: Some(inspection_id),
     };
     if let Err(error) = server::publish_activity_recorded(publisher, &activity).await {
-        tracing::warn!(error = %error, "failed to publish Activity.Recorded");
+        tracing::warn!(error = %error, "failed to publish Audit.Recorded");
     }
 }
 
@@ -1779,7 +1779,7 @@ async fn publish_evidence_upload_events(publisher: Option<&EventPublisher>, evid
 
     publish_activity_event(
         Some(publisher),
-        ActivityRecordedEvent {
+        AuditRecordedEvent {
             activity_id: format!("activity-evidence-uploaded-{}", evidence.evidence_id),
             kind: "evidence-uploaded".to_string(),
             message: format!(
@@ -1797,7 +1797,7 @@ async fn publish_evidence_upload_events(publisher: Option<&EventPublisher>, evid
 
 async fn publish_activity_event(
     publisher: Option<&EventPublisher>,
-    activity: ActivityRecordedEvent,
+    activity: AuditRecordedEvent,
     context: &str,
 ) {
     let Some(publisher) = publisher else {
@@ -1805,7 +1805,7 @@ async fn publish_activity_event(
     };
 
     if let Err(error) = server::publish_activity_recorded(publisher, &activity).await {
-        tracing::warn!(error = %error, context, "failed to publish Activity.Recorded");
+        tracing::warn!(error = %error, context, "failed to publish Audit.Recorded");
     }
 }
 
@@ -2515,8 +2515,8 @@ fn evidence_to_response(evidence: &Evidence) -> EvidenceListResponseEvidenceItem
 }
 
 #[allow(dead_code)]
-fn activity_event(message: impl Into<String>) -> ActivityRecordedEvent {
-    ActivityRecordedEvent {
+fn activity_event(message: impl Into<String>) -> AuditRecordedEvent {
+    AuditRecordedEvent {
         activity_id: "activity-rust-demo".to_string(),
         kind: "demo".to_string(),
         message: message.into(),

@@ -156,26 +156,26 @@ mod tests {
     fn falls_back_to_static_typescript_metadata_when_runtime_resolution_fails() {
         let _env_lock = crate::contract_input::test_env_lock();
         let temp = TempDir::new().unwrap();
-        let project = temp.path().join("activity-app");
+        let project = temp.path().join("audit-app");
         let contracts = project.join("contracts");
         fs::create_dir_all(&contracts).unwrap();
         fs::write(
             project.join("package.json"),
-            "{\n  \"name\": \"activity-app\",\n  \"version\": \"0.4.0\",\n  \"type\": \"module\"\n}\n",
+            "{\n  \"name\": \"audit-app\",\n  \"version\": \"0.4.0\",\n  \"type\": \"module\"\n}\n",
         )
         .unwrap();
         fs::write(
-            contracts.join("activity_app.ts"),
+            contracts.join("audit_app.ts"),
             concat!(
                 "import { defineAppContract } from '@qlever-llc/trellis/contracts';\n",
-                "import { activity } from '@qlever-llc/trellis/sdk/activity';\n",
-                "export const activityApp = defineAppContract(() => ({\n",
-                "  id: \"trellis.activity-app@v1\",\n",
-                "  displayName: \"Activity App\",\n",
-                "  description: \"Activity UI\",\n",
-                "  uses: { activity },\n",
+                "import { auth } from '@qlever-llc/trellis/sdk/auth';\n",
+                "export const auditApp = defineAppContract(() => ({\n",
+                "  id: \"trellis.audit-app@v1\",\n",
+                "  displayName: \"Audit App\",\n",
+                "  description: \"Audit UI\",\n",
+                "  uses: { auth },\n",
                 "}));\n",
-                "export default activityApp;\n",
+                "export default auditApp;\n",
             ),
         )
         .unwrap();
@@ -183,12 +183,12 @@ mod tests {
         let discovered = DiscoveredContractSource {
             project_root: project.clone(),
             manifest_path: project.join("package.json"),
-            source_path: contracts.join("activity_app.ts"),
+            source_path: contracts.join("audit_app.ts"),
             language: SourceLanguage::TypeScript,
         };
 
         let (id, kind) = discover_contract_metadata(&discovered).unwrap();
-        assert_eq!(id, "trellis.activity-app@v1");
+        assert_eq!(id, "trellis.audit-app@v1");
         assert_eq!(kind, ContractKind::App);
     }
 

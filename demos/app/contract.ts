@@ -25,7 +25,7 @@ const contract = defineAppContract({ schemas }, (ref) => ({
           call: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
           read: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
         },
-        feeds: { subscribe: ["Activity.Live"] },
+        feeds: { subscribe: ["Audit.Feed"] },
       }),
     },
   },

@@ -178,13 +178,14 @@ fn rejected_admin_session_error_report(
 fn is_rejected_admin_session_error(error: &authlib::TrellisAuthError) -> bool {
     match error {
         authlib::TrellisAuthError::TrellisClient(
-            TrellisClientError::NatsConnect(message)
-            | TrellisClientError::NatsRequest(message)
-            | TrellisClientError::RpcError(message),
+            TrellisClientError::NatsConnect(message) | TrellisClientError::NatsRequest(message),
         )
         | authlib::TrellisAuthError::AuthRequestHttpFailure(_, message)
         | authlib::TrellisAuthError::BindHttpFailure(_, message) => {
             is_rejected_admin_session_message(message)
+        }
+        authlib::TrellisAuthError::TrellisClient(TrellisClientError::RpcError(payload)) => {
+            is_rejected_admin_session_message(payload.raw())
         }
         _ => false,
     }
@@ -200,10 +201,12 @@ fn is_rejected_admin_session_message(message: &str) -> bool {
 fn is_admin_session_authorization_violation_error(error: &authlib::TrellisAuthError) -> bool {
     match error {
         authlib::TrellisAuthError::TrellisClient(
-            TrellisClientError::NatsConnect(message)
-            | TrellisClientError::NatsRequest(message)
-            | TrellisClientError::RpcError(message),
+            TrellisClientError::NatsConnect(message) | TrellisClientError::NatsRequest(message),
         ) => message
+            .to_ascii_lowercase()
+            .contains("authorization violation"),
+        authlib::TrellisAuthError::TrellisClient(TrellisClientError::RpcError(payload)) => payload
+            .raw()
             .to_ascii_lowercase()
             .contains("authorization violation"),
         _ => false,
@@ -238,7 +241,7 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
     use trellis_auth::{save_admin_session, AdminSessionState, TrellisAuthError};
-    use trellis_client::TrellisClientError;
+    use trellis_client::{RpcErrorPayload, TrellisClientError};
 
     fn config_env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -291,7 +294,7 @@ mod tests {
     #[test]
     fn does_not_treat_generic_rpc_authorization_violation_as_rejected_session() {
         let error = TrellisAuthError::TrellisClient(TrellisClientError::RpcError(
-            "authorization violation".to_string(),
+            RpcErrorPayload::from_message("authorization violation"),
         ));
 
         assert!(!is_rejected_admin_session_error(&error));
@@ -318,7 +321,7 @@ mod tests {
     #[test]
     fn treats_session_not_found_message_as_rejected_session() {
         let error = TrellisAuthError::TrellisClient(TrellisClientError::RpcError(
-            "session_not_found".to_string(),
+            RpcErrorPayload::from_message("session_not_found"),
         ));
 
         assert!(is_rejected_admin_session_error(&error));
@@ -452,7 +455,7 @@ mod tests {
         assert_rejected_session_error_clears_local_session(
             "session-not-found-rejected-session",
             TrellisAuthError::TrellisClient(TrellisClientError::RpcError(
-                "session_not_found".to_string(),
+                RpcErrorPayload::from_message("session_not_found"),
             )),
         );
     }

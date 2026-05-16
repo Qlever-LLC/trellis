@@ -53,7 +53,7 @@ const config = {
       "@qlever-llc/trellis/sdk/auth": aliasPath("../trellis/js/packages/trellis/sdk/auth.ts"),
 
       // Needed for local generated SDKs that are not installed packages.
-      "@my-org/orders-service-sdk": aliasPath("generated/js/sdks/orders-service/mod.ts"),
+      "@my-org/orders-service-sdk": aliasPath("generated/packages/jsr/orders-service/mod.ts"),
     },
   },
 };
@@ -117,7 +117,7 @@ A simple setup that ensures this:
 }
 ```
 
-`prepare` generates the app SDK under `generated/js/sdks/my-app/` for consumers that need generated SDK modules. Svelte app-local helpers can derive the connected client type directly from the local contract. Regenerate whenever the contract changes.
+`prepare` generates the app SDK under `generated/packages/jsr/my-app/` for consumers that need generated SDK modules. Svelte app-local helpers can derive the connected client type directly from the local contract. Regenerate whenever the contract changes.
 
 For active app or service-contract editing, keep `deno task prepare:watch`
 running in a separate terminal. It watches broadly but only prepares affected
@@ -166,7 +166,7 @@ export { contract };
 
 For the common case where your browser app talks to one known Trellis server, resolve that fixed `trellisUrl` once and pass it into `createTrellisApp`. If users choose a Trellis instance at runtime, pass a resolver such as `trellisUrl: () => selectedUrl` and update the selected value before rendering `TrellisProvider`.
 
-The `MyAppClient` alias is contract-derived and local to the app. App code should not import through `generated/js/sdks/.../client.ts` just to type `getTrellis()`.
+The `MyAppClient` alias is contract-derived and local to the app. App code should not import through `generated/packages/jsr/.../client.ts` just to type `getTrellis()`.
 
 ## 4. Build the login page
 

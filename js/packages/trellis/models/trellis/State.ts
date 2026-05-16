@@ -50,5 +50,6 @@ export type StateMigrationRequired = {
 export const StateUserTargetSchema = Type.Object({
   origin: Type.String({ minLength: 1 }),
   id: Type.String({ minLength: 1 }),
+  userId: Type.Optional(Type.String({ minLength: 1 })),
 });
 export type StateUserTarget = StaticDecode<typeof StateUserTargetSchema>;

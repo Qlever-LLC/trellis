@@ -39,6 +39,12 @@ fn builder_adds_baseline_health_for_service_contracts() {
             .and_then(|events| events.publish.as_ref()),
         Some(&vec!["Health.Heartbeat".to_string()])
     );
+
+    let serialized = serde_json::to_value(&manifest).expect("serialize manifest");
+    assert_eq!(
+        serialized["uses"]["required"]["health"]["contract"],
+        json!("trellis.health@v1")
+    );
 }
 
 #[test]
@@ -98,6 +104,28 @@ fn builder_merges_explicit_health_use_with_baseline_heartbeat() {
         .expect("health events");
     assert_eq!(events.publish, Some(vec!["Health.Heartbeat".to_string()]));
     assert_eq!(events.subscribe, Some(vec!["Health.Heartbeat".to_string()]));
+}
+
+#[test]
+fn builder_preserves_event_publish_and_subscribe_on_same_use() {
+    let manifest = ContractManifestBuilder::new(
+        "example.events-agent@v1",
+        "Example Events Agent",
+        "Example events agent manifest.",
+        ContractKind::Agent,
+    )
+    .use_ref(
+        "events",
+        use_contract("example.events@v1")
+            .with_event_publish(["Example.Changed"])
+            .with_event_subscribe(["Example.Changed"]),
+    )
+    .build()
+    .expect("builder should preserve both event permissions");
+
+    let events = manifest.uses["events"].events.as_ref().expect("events use");
+    assert_eq!(events.publish, Some(vec!["Example.Changed".to_string()]));
+    assert_eq!(events.subscribe, Some(vec!["Example.Changed".to_string()]));
 }
 
 #[test]
@@ -219,6 +247,44 @@ fn builder_supports_uses_rpc_kv_store_and_job_queue_resources() {
     );
     assert!(manifest.resources.store.contains_key("uploads"));
     assert!(manifest.jobs.contains_key("document-process"));
+}
+
+#[test]
+fn builder_supports_contract_local_error_declarations() {
+    let manifest = ContractManifestBuilder::new(
+        "example.errors@v1",
+        "Example Errors",
+        "Example error manifest.",
+        ContractKind::Service,
+    )
+    .schema(
+        "NotFoundErrorData",
+        json!({
+            "type": "object",
+            "required": ["id", "type", "message", "resource"],
+            "properties": {
+                "id": { "type": "string" },
+                "type": { "type": "string", "const": "NotFoundError" },
+                "message": { "type": "string" },
+                "resource": { "type": "string" },
+                "context": { "type": "object", "patternProperties": { "^.*$": {} } },
+                "traceId": { "type": "string" }
+            }
+        }),
+    )
+    .error("NotFoundError", "NotFoundError", "NotFoundErrorData")
+    .build()
+    .expect("builder should produce a valid manifest");
+
+    let error = manifest
+        .errors
+        .get("NotFoundError")
+        .expect("declared error");
+    assert_eq!(error.error_type, "NotFoundError");
+    assert_eq!(
+        error.schema.as_ref().map(|schema| schema.schema.as_str()),
+        Some("NotFoundErrorData")
+    );
 }
 
 #[test]

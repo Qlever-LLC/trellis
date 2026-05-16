@@ -90,7 +90,9 @@ export const agent = defineAgentContract(() => ({
   description:
     "Query the graph service and inspect auth state as delegated tooling.",
   uses: {
-    graph: graph.use({ rpc: { call: ["Graph.Query"] } }),
+    required: {
+      graph: graph.use({ rpc: { call: ["Graph.Query"] } }),
+    },
   },
 }));
 

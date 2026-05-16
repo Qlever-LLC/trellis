@@ -268,7 +268,7 @@ Deno.test("createHealthHeartbeat includes baseline service metadata", () => {
   const heartbeat = createHealthHeartbeat({
     serviceName: "activity",
     instanceId: "instance-1",
-    contractId: "trellis.activity@v1",
+    contractId: "trellis.audit@v1",
     contractDigest: "digest",
     startedAt: "2026-01-01T00:00:00.000Z",
     publishIntervalMs: 30_000,
@@ -288,7 +288,7 @@ Deno.test("createHealthHeartbeat includes baseline service metadata", () => {
 Deno.test("ServiceHealth aggregates registered checks and info", async () => {
   const health = new ServiceHealth({
     serviceName: "activity",
-    contractId: "trellis.activity@v1",
+    contractId: "trellis.audit@v1",
     contractDigest: "digest",
     publishIntervalMs: 30_000,
     checks: {
@@ -310,7 +310,7 @@ Deno.test("ServiceHealth aggregates registered checks and info", async () => {
 
   assertEquals(response.status, "degraded");
   assertEquals(response.checks.length, 2);
-  assertEquals(heartbeat.service.contractId, "trellis.activity@v1");
+  assertEquals(heartbeat.service.contractId, "trellis.audit@v1");
   assertEquals(heartbeat.service.version, "1.2.3");
   assertEquals(heartbeat.status, "degraded");
 });
@@ -338,7 +338,7 @@ Deno.test("health wire schemas accept additive fields", () => {
       name: "activity",
       kind: "service",
       instanceId: "instance-1",
-      contractId: "trellis.activity@v1",
+      contractId: "trellis.audit@v1",
       contractDigest: "digest",
       startedAt: "2026-01-01T00:00:00.000Z",
       publishIntervalMs: 30_000,

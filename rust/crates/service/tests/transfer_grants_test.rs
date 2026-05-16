@@ -94,6 +94,7 @@ fn upload_plan(max_bytes: Option<u64>) -> trellis_service::UploadTransferGrantPl
     plan_upload_transfer_grant(TransferUploadGrantArgs {
         service_name: "field-ops-service",
         session_key: "session-key-1234567890",
+        service_session_key: "service-key-1234567890",
         resources: &resources(),
         store: "evidence",
         key: "evidence/photo.jpg",
@@ -111,6 +112,7 @@ fn download_plan(size: u64) -> trellis_service::DownloadTransferGrantPlan {
     plan_download_transfer_grant(TransferDownloadGrantArgs {
         service_name: "field-ops-service",
         session_key: "session-key-1234567890",
+        service_session_key: "service-key-1234567890",
         resources: &resources(),
         store: "evidence",
         transfer_id: "transfer-3",
@@ -543,6 +545,7 @@ fn upload_transfer_grant_uses_store_binding_and_effective_max_bytes() {
     let grant = plan_upload_transfer_grant(TransferUploadGrantArgs {
         service_name: "field-ops-service",
         session_key: "session-key-1234567890",
+        service_session_key: "service-key-1234567890",
         resources: &resources(),
         store: "evidence",
         key: "evidence/photo.jpg",
@@ -562,7 +565,7 @@ fn upload_transfer_grant_uses_store_binding_and_effective_max_bytes() {
     assert_eq!(grant.key, "evidence/photo.jpg");
     assert_eq!(
         grant.grant.subject,
-        "transfer.v1.upload.session-key-1234.transfer-1"
+        "transfer.v1.upload.service-key-1234.transfer-1"
     );
     assert_eq!(grant.grant.max_bytes, Some(1_024));
     assert_eq!(grant.grant.content_type.as_deref(), Some("image/jpeg"));
@@ -577,6 +580,7 @@ fn upload_transfer_grant_serializes_only_wire_fields() {
     let plan = plan_upload_transfer_grant(TransferUploadGrantArgs {
         service_name: "field-ops-service",
         session_key: "session-key-1234567890",
+        service_session_key: "service-key-1234567890",
         resources: &resources(),
         store: "evidence",
         key: "evidence/photo.jpg",
@@ -599,7 +603,7 @@ fn upload_transfer_grant_serializes_only_wire_fields() {
             "service": "field-ops-service",
             "sessionKey": "session-key-1234567890",
             "transferId": "transfer-1",
-            "subject": "transfer.v1.upload.session-key-1234.transfer-1",
+            "subject": "transfer.v1.upload.service-key-1234.transfer-1",
             "expiresAt": "2026-05-02T12:00:00.000Z",
             "chunkBytes": 65536,
             "maxBytes": 1024,
@@ -619,6 +623,7 @@ fn upload_transfer_grant_reports_unknown_store_alias() {
     let error = plan_upload_transfer_grant(TransferUploadGrantArgs {
         service_name: "field-ops-service",
         session_key: "session-key-1234567890",
+        service_session_key: "service-key-1234567890",
         resources: &ServiceResourceBindings::default(),
         store: "evidence",
         key: "evidence/photo.jpg",
@@ -645,6 +650,7 @@ fn upload_transfer_grant_rejects_zero_chunk_size() {
     let error = plan_upload_transfer_grant(TransferUploadGrantArgs {
         service_name: "field-ops-service",
         session_key: "session-key-1234567890",
+        service_session_key: "service-key-1234567890",
         resources: &resources(),
         store: "evidence",
         key: "evidence/photo.jpg",
@@ -668,6 +674,7 @@ fn download_transfer_grant_rejects_info_that_exceeds_store_max_object_bytes() {
     let error = plan_download_transfer_grant(TransferDownloadGrantArgs {
         service_name: "field-ops-service",
         session_key: "session-key-1234567890",
+        service_session_key: "service-key-1234567890",
         resources: &resources(),
         store: "evidence",
         transfer_id: "transfer-2",
@@ -705,6 +712,7 @@ fn download_transfer_grant_uses_store_binding_and_file_info() {
     let grant = plan_download_transfer_grant(TransferDownloadGrantArgs {
         service_name: "field-ops-service",
         session_key: "session-key-1234567890",
+        service_session_key: "service-key-1234567890",
         resources: &resources(),
         store: "evidence",
         transfer_id: "transfer-3",
@@ -728,7 +736,7 @@ fn download_transfer_grant_uses_store_binding_and_file_info() {
     assert_eq!(grant.grant.info.size, 512);
     assert_eq!(
         grant.grant.subject,
-        "transfer.v1.download.session-key-1234.transfer-3"
+        "transfer.v1.download.service-key-1234.transfer-3"
     );
 }
 
@@ -737,6 +745,7 @@ fn download_transfer_grant_serializes_only_wire_fields() {
     let plan = plan_download_transfer_grant(TransferDownloadGrantArgs {
         service_name: "field-ops-service",
         session_key: "session-key-1234567890",
+        service_session_key: "service-key-1234567890",
         resources: &resources(),
         store: "evidence",
         transfer_id: "transfer-3",
@@ -763,7 +772,7 @@ fn download_transfer_grant_serializes_only_wire_fields() {
             "service": "field-ops-service",
             "sessionKey": "session-key-1234567890",
             "transferId": "transfer-3",
-            "subject": "transfer.v1.download.session-key-1234.transfer-3",
+            "subject": "transfer.v1.download.service-key-1234.transfer-3",
             "expiresAt": "2026-05-02T12:00:00.000Z",
             "chunkBytes": 65536,
             "info": {
@@ -798,6 +807,7 @@ fn upload_transfer_grant_rejects_unsafe_transfer_ids() {
         let error = plan_upload_transfer_grant(TransferUploadGrantArgs {
             service_name: "field-ops-service",
             session_key: "session-key-1234567890",
+            service_session_key: "service-key-1234567890",
             resources: &resources(),
             store: "evidence",
             key: "evidence/photo.jpg",
@@ -822,6 +832,7 @@ fn download_transfer_grant_rejects_unsafe_transfer_ids() {
     let error = plan_download_transfer_grant(TransferDownloadGrantArgs {
         service_name: "field-ops-service",
         session_key: "session-key-1234567890",
+        service_session_key: "service-key-1234567890",
         resources: &resources(),
         store: "evidence",
         transfer_id: "bad/id",
@@ -849,6 +860,7 @@ fn download_transfer_grant_rejects_zero_chunk_size() {
     let error = plan_download_transfer_grant(TransferDownloadGrantArgs {
         service_name: "field-ops-service",
         session_key: "session-key-1234567890",
+        service_session_key: "service-key-1234567890",
         resources: &resources(),
         store: "evidence",
         transfer_id: "transfer-3",

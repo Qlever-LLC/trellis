@@ -154,6 +154,13 @@ function kvError(
   });
 }
 
+function kvNotFound(operation: "get", key: string): KVError {
+  return new KVError({
+    operation,
+    context: { key, reason: "not found" },
+  });
+}
+
 /**
  * Represents a watch event emitted when a KV entry changes.
  */
@@ -256,12 +263,10 @@ export class TypedKV<S extends TSchema> {
         );
       }
       if (!s) {
-        return Result.err(
-          new KVError({
-            operation: "get",
-            context: { key, reason: "not found" },
-          }),
-        );
+        return Result.err(kvNotFound("get", key));
+      }
+      if (s.operation === "DEL" || s.operation === "PURGE") {
+        return Result.err(kvNotFound("get", key));
       }
       const result = await createTypedKvEntry(this.schema, this.kv, s);
       return result as Result<TypedKVEntry<S>, KVError | ValidationError>;

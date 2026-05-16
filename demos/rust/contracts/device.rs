@@ -57,7 +57,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             ])
             .with_operation_call(["Evidence.Upload", "Reports.Generate", "Sites.Refresh"])
             .with_event_subscribe([
-                "Activity.Recorded",
+                "Audit.Recorded",
                 "Evidence.Uploaded",
                 "Reports.Published",
                 "Sites.Refreshed",

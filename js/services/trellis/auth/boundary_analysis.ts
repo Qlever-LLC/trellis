@@ -3,6 +3,7 @@ import type {
   ContractFeed,
   ContractOperation,
   ContractRpcMethod,
+  ContractUses,
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
 
@@ -46,8 +47,6 @@ type ContractUsesGrouped = {
   optional?: ContractUsesFlat;
 };
 
-type ContractUses = ContractUsesFlat | ContractUsesGrouped;
-
 type ContractWithUses = TrellisContractV1 & { uses?: ContractUses };
 
 export type ContractEnvelopeBoundary = {
@@ -85,21 +84,9 @@ function emptyBoundary(): EnvelopeBoundary {
   };
 }
 
-function isContractUseRef(value: unknown): value is ContractUseRef {
-  return !!value && typeof value === "object" &&
-    typeof (value as { contract?: unknown }).contract === "string";
-}
-
 function getGroupedUses(contract: TrellisContractV1): ContractUsesGrouped {
   const uses = (contract as ContractWithUses).uses;
-  if (!uses) return {};
-  const maybeGrouped = uses as ContractUsesGrouped;
-  const grouped = (maybeGrouped.required !== undefined &&
-    !isContractUseRef(maybeGrouped.required)) ||
-    (maybeGrouped.optional !== undefined &&
-      !isContractUseRef(maybeGrouped.optional));
-  if (grouped) return maybeGrouped;
-  return { required: uses as ContractUsesFlat };
+  return uses ?? {};
 }
 
 function withUses(

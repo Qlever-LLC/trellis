@@ -1,9 +1,9 @@
 use serde_json::Value;
 
 use crate::{
-    parse_manifest, ContractCapabilities, ContractCapabilityMetadata, ContractErrorRef,
-    ContractEvent, ContractExports, ContractFeed, ContractJobQueueResource, ContractKind,
-    ContractKvResource, ContractManifest, ContractOperation, ContractOperationSignal,
+    parse_manifest, ContractCapabilities, ContractCapabilityMetadata, ContractErrorDecl,
+    ContractErrorRef, ContractEvent, ContractExports, ContractFeed, ContractJobQueueResource,
+    ContractKind, ContractKvResource, ContractManifest, ContractOperation, ContractOperationSignal,
     ContractOperationTransfer, ContractOperationTransferDirection, ContractResources,
     ContractRpcMethod, ContractRpcTransfer, ContractRpcTransferDirection, ContractSchemaRef,
     ContractStateKind, ContractStateStore, ContractStoreResource, ContractUseFeed,
@@ -49,6 +49,23 @@ impl ContractManifestBuilder {
 
     pub fn schema(mut self, name: impl Into<String>, schema: Value) -> Self {
         self.manifest.schemas.insert(name.into(), schema);
+        self
+    }
+
+    /// Declare a contract-local structured error backed by a named schema.
+    pub fn error(
+        mut self,
+        name: impl Into<String>,
+        error_type: impl Into<String>,
+        schema: impl Into<String>,
+    ) -> Self {
+        self.manifest.errors.insert(
+            name.into(),
+            ContractErrorDecl {
+                error_type: error_type.into(),
+                schema: Some(schema_ref(schema)),
+            },
+        );
         self
     }
 
@@ -738,10 +755,8 @@ impl ContractUseRef {
         mut self,
         publish: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
-        self.events = Some(ContractUsePubSub {
-            publish: Some(publish.into_iter().map(Into::into).collect()),
-            subscribe: None,
-        });
+        let events = self.events.get_or_insert_with(ContractUsePubSub::default);
+        events.publish = Some(publish.into_iter().map(Into::into).collect());
         self
     }
 
@@ -759,10 +774,8 @@ impl ContractUseRef {
         mut self,
         subscribe: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
-        self.events = Some(ContractUsePubSub {
-            publish: None,
-            subscribe: Some(subscribe.into_iter().map(Into::into).collect()),
-        });
+        let events = self.events.get_or_insert_with(ContractUsePubSub::default);
+        events.subscribe = Some(subscribe.into_iter().map(Into::into).collect());
         self
     }
 

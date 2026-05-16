@@ -296,7 +296,9 @@ async function resolveAdminStore(
       ownerType: "user",
       contractId: req.contractId,
       contractDigest: req.contractDigest,
-      ownerKey: await trellisIdFromOriginId(req.user.origin, req.user.id),
+      ownerKey: "userId" in req.user && typeof req.user.userId === "string"
+        ? req.user.userId
+        : await trellisIdFromOriginId(req.user.origin, req.user.id),
       store: req.store,
       kind: definition.kind,
       schema,

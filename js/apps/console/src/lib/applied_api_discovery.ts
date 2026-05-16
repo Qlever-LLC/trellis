@@ -114,7 +114,16 @@ export function getAppliedApiUseRows(
   const uses = manifest ? getObjectProperty(manifest, "uses") : undefined;
   if (!uses) return [];
 
-  return Object.entries(uses)
+  const requiredUses = getObjectProperty(uses, "required") ?? {};
+  const optionalUses = getObjectProperty(uses, "optional") ?? {};
+  const requiredAliases = new Set(Object.keys(requiredUses));
+
+  return [
+    ...Object.entries(requiredUses),
+    ...Object.entries(optionalUses).filter(([alias]) =>
+      !requiredAliases.has(alias)
+    ),
+  ]
     .flatMap(([alias, value]) => {
       if (!isJsonObject(value)) return [];
       const contractId = getStringProperty(value, "contract");

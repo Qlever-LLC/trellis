@@ -5,7 +5,7 @@ use futures_util::future::{ready, BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use trellis_service::{
     dispatch_one, BootstrapBinding, ConnectedService, InboundRequest, RequestContext,
-    RequestValidator, Router, RpcDescriptor, ServerError,
+    RequestValidation, RequestValidator, Router, RpcDescriptor, ServerError,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,8 +38,13 @@ impl RequestValidator for StubValidator {
         _subject: &'a str,
         _payload: &'a Bytes,
         _context: &'a RequestContext,
-    ) -> BoxFuture<'a, Result<bool, ServerError>> {
-        ready(Ok(self.allowed)).boxed()
+    ) -> BoxFuture<'a, Result<RequestValidation, ServerError>> {
+        ready(Ok(if self.allowed {
+            RequestValidation::allowed()
+        } else {
+            RequestValidation::denied()
+        }))
+        .boxed()
     }
 }
 
@@ -70,6 +75,9 @@ fn make_request() -> InboundRequest {
             session_key: Some("svc_session".to_string()),
             proof: Some("proof".to_string()),
             reply_to: Some("_INBOX.svc_session.1".to_string()),
+            caller: None,
+            traceparent: None,
+            tracestate: None,
         },
     }
 }

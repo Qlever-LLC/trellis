@@ -177,7 +177,7 @@ public job polling API in this demo.
 
 ## Event Subscription Demo
 
-The app `Activity` route subscribes to `Activity.Recorded` and
+The app `Activity` route subscribes to `Audit.Recorded` and
 `Reports.Published` with ephemeral event handlers. The device TUI has a matching
 activity-watch menu option for a short terminal subscription. Report generation,
 evidence upload, and site refresh workflows publish service events that these

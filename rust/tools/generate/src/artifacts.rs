@@ -1,5 +1,7 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use miette::IntoDiagnostic;
 use serde::{Deserialize, Serialize};
@@ -25,16 +27,17 @@ pub struct GeneratedArtifactsMetadata {
     pub contract_digest: String,
     pub artifact_version: String,
     pub runtime_source: RuntimeSource,
-    pub ts_runtime_version: String,
-    pub has_ts_sdk: bool,
-    pub has_rust_sdk: bool,
+    pub jsr_runtime_version: String,
+    pub has_jsr_package: bool,
+    pub has_npm_package: bool,
+    pub has_cargo_package: bool,
     pub package_name: String,
     pub crate_name: String,
     pub generator_fingerprint: String,
 }
 
 impl GeneratedArtifactsMetadata {
-    const SCHEMA_VERSION: u8 = 1;
+    const SCHEMA_VERSION: u8 = 2;
 }
 
 pub fn detect_output_root(project_root: &Path) -> PathBuf {
@@ -80,6 +83,7 @@ pub fn write_contract_outputs(
     artifact_version: String,
     out_manifest: &Path,
     ts_out: Option<&Path>,
+    npm_out: Option<&Path>,
     rust_out: Option<&Path>,
     package_name: &str,
     crate_name: &str,
@@ -94,6 +98,7 @@ pub fn write_contract_outputs(
         runtime_source,
         &trellis_package_version(),
         ts_out.is_some(),
+        npm_out.is_some(),
         rust_out.is_some(),
         package_name,
         crate_name,
@@ -117,6 +122,25 @@ pub fn write_contract_outputs(
             ),
         })
         .into_diagnostic()?;
+    }
+
+    if let Some(npm_out) = npm_out {
+        let staging_dir = tempfile::tempdir().into_diagnostic()?;
+        let jsr_out = stage_jsr_package_for_npm(
+            &resolved.loaded.manifest.id,
+            out_manifest,
+            staging_dir.path(),
+            package_name,
+            &artifact_version,
+        )?;
+        build_npm_package_from_jsr(
+            &jsr_out,
+            npm_out,
+            package_name,
+            &artifact_version,
+            &trellis_package_version(),
+            &resolved.loaded.manifest.id,
+        )?;
     }
 
     if let Some(rust_out) = rust_out {
@@ -150,6 +174,7 @@ pub fn write_contract_shell_outputs(
     artifact_version: &str,
     out_manifest: Option<&Path>,
     ts_out: Option<&Path>,
+    npm_out: Option<&Path>,
     rust_out: Option<&Path>,
     package_name: &str,
     crate_name: &str,
@@ -165,6 +190,10 @@ pub fn write_contract_shell_outputs(
             runtime_source,
             runtime_repo_root.clone(),
         )?;
+    }
+
+    if let Some(npm_out) = npm_out {
+        write_npm_package_shell(npm_out, package_name, artifact_version)?;
     }
 
     if let Some(rust_out) = rust_out {
@@ -189,6 +218,29 @@ pub fn write_contract_shell_outputs(
     }
 
     Ok(())
+}
+
+fn write_npm_package_shell(
+    out: &Path,
+    package_name: &str,
+    package_version: &str,
+) -> miette::Result<()> {
+    fs::create_dir_all(out).into_diagnostic()?;
+    write_if_changed(
+        &out.join("package.json"),
+        &format!(
+            "{}\n",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "name": package_name,
+                "version": package_version,
+                "type": "module",
+                "exports": {
+                    ".": "./esm/mod.js"
+                }
+            }))
+            .into_diagnostic()?
+        ),
+    )
 }
 
 fn write_ts_sdk_shell(
@@ -473,13 +525,144 @@ pub fn write_participant_facade_outputs(
     Ok(())
 }
 
+pub fn build_npm_package_from_jsr(
+    jsr_out: &Path,
+    npm_out: &Path,
+    package_name: &str,
+    package_version: &str,
+    trellis_runtime_version: &str,
+    contract_id: &str,
+) -> miette::Result<()> {
+    let temp = tempfile::tempdir().into_diagnostic()?;
+    let script = temp.path().join("build_npm.ts");
+    let npm_out_arg = if npm_out.is_absolute() {
+        npm_out.to_path_buf()
+    } else {
+        std::env::current_dir().into_diagnostic()?.join(npm_out)
+    };
+    write_if_changed(
+        &script,
+        &render_npm_build_script(
+            package_name,
+            package_version,
+            trellis_runtime_version,
+            contract_id,
+        ),
+    )?;
+    let output = Command::new("deno")
+        .arg("run")
+        .arg("-A")
+        .arg(&script)
+        .arg(&npm_out_arg)
+        .current_dir(jsr_out)
+        .output()
+        .into_diagnostic()?;
+    if !output.status.success() {
+        return Err(miette::miette!(
+            "npm package build failed for {}\nstdout:\n{}\nstderr:\n{}",
+            package_name,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(())
+}
+
+pub fn stage_jsr_package_for_npm(
+    contract_id: &str,
+    manifest_path: &Path,
+    staging_root: &Path,
+    package_name: &str,
+    package_version: &str,
+) -> miette::Result<PathBuf> {
+    let mut staged = BTreeSet::new();
+    stage_jsr_manifest_for_npm(
+        contract_id,
+        contract_id,
+        manifest_path,
+        staging_root,
+        package_name,
+        package_version,
+        &mut staged,
+    )
+}
+
+fn stage_jsr_manifest_for_npm(
+    root_contract_id: &str,
+    contract_id: &str,
+    manifest_path: &Path,
+    staging_root: &Path,
+    package_name: &str,
+    package_version: &str,
+    staged: &mut BTreeSet<String>,
+) -> miette::Result<PathBuf> {
+    if !staged.insert(contract_id.to_string()) {
+        return Ok(staging_root.join(sdk_output_stem(contract_id)));
+    }
+
+    let loaded = trellis_contracts::load_manifest(manifest_path).into_diagnostic()?;
+    let out_dir = staging_root.join(sdk_output_stem(contract_id));
+    let generated_package_name = if contract_id == root_contract_id {
+        package_name.to_string()
+    } else {
+        ts_package_name_from_id(contract_id, "@trellis-sdk/")
+    };
+    trellis_codegen_ts::generate_ts_sdk(&GenerateTsSdkOpts {
+        manifest_path: manifest_path.to_path_buf(),
+        out_dir: out_dir.clone(),
+        package_name: generated_package_name,
+        package_version: package_version.to_string(),
+        runtime_deps: ts_runtime_deps(RuntimeSource::Registry, trellis_package_version(), None),
+    })
+    .into_diagnostic()?;
+
+    if let Some(manifest_dir) = manifest_path.parent() {
+        for (_alias, use_ref) in loaded.manifest.uses.iter() {
+            let dependency_manifest = manifest_dir.join(format!("{}.json", use_ref.contract));
+            if dependency_manifest.exists() {
+                stage_jsr_manifest_for_npm(
+                    root_contract_id,
+                    &use_ref.contract,
+                    &dependency_manifest,
+                    staging_root,
+                    &ts_package_name_from_id(&use_ref.contract, "@trellis-sdk/"),
+                    package_version,
+                    staged,
+                )?;
+            }
+        }
+    }
+
+    Ok(out_dir)
+}
+
+fn render_npm_build_script(
+    package_name: &str,
+    package_version: &str,
+    trellis_runtime_version: &str,
+    contract_id: &str,
+) -> String {
+    let trellis_dependency = format!("^{}", trellis_runtime_version);
+    format!(
+        "import {{ build, emptyDir }} from \"jsr:@deno/dnt@^0.42.3\";\n\nconst outDir = Deno.args[0];\nif (!outDir) {{\n  throw new Error(\"missing npm output directory\");\n}}\n\nawait emptyDir(outDir);\n\nawait build({{\n  entryPoints: [\"./mod.ts\"],\n  outDir,\n  shims: {{\n    deno: true,\n  }},\n  test: false,\n  typeCheck: false,\n  package: {{\n    name: {},\n    version: {},\n    description: \"Generated Trellis SDK for contract {}\",\n    license: \"Apache-2.0\",\n    homepage: \"https://github.com/Qlever-LLC/trellis#readme\",\n    bugs: {{\n      url: \"https://github.com/Qlever-LLC/trellis/issues\",\n    }},\n    repository: {{\n      type: \"git\",\n      url: \"https://github.com/Qlever-LLC/trellis\",\n    }},\n    publishConfig: {{\n      access: \"public\",\n    }},\n    peerDependencies: {{\n      \"@qlever-llc/trellis\": {},\n    }},\n    devDependencies: {{\n      \"@qlever-llc/trellis\": {},\n    }},\n  }},\n}});\n\nconst packageJsonPath = `${{outDir}}/package.json`;\nconst packageJson = JSON.parse(await Deno.readTextFile(packageJsonPath));\ndelete packageJson.dependencies?.[\"@qlever-llc/trellis\"];\npackageJson.peerDependencies = {{\n  ...(packageJson.peerDependencies ?? {{}}),\n  \"@qlever-llc/trellis\": {},\n}};\npackageJson.devDependencies = {{\n  ...(packageJson.devDependencies ?? {{}}),\n  \"@qlever-llc/trellis\": {},\n}};\nawait Deno.writeTextFile(packageJsonPath, `${{JSON.stringify(packageJson, null, 2)}}\\n`);\n",
+        js_string(package_name),
+        js_string(package_version),
+        contract_id,
+        js_string(&trellis_dependency),
+        js_string(&trellis_dependency),
+        js_string(&trellis_dependency),
+        js_string(&trellis_dependency),
+    )
+}
+
 pub fn generated_artifacts_metadata(
     resolved: &ResolvedContractInput,
     artifact_version: &str,
     runtime_source: RuntimeSource,
-    ts_runtime_version: &str,
-    has_ts_sdk: bool,
-    has_rust_sdk: bool,
+    jsr_runtime_version: &str,
+    has_jsr_package: bool,
+    has_npm_package: bool,
+    has_cargo_package: bool,
     package_name: &str,
     crate_name: &str,
     generator_fingerprint: &str,
@@ -490,9 +673,10 @@ pub fn generated_artifacts_metadata(
         contract_digest: resolved.loaded.digest.clone(),
         artifact_version: artifact_version.to_string(),
         runtime_source,
-        ts_runtime_version: ts_runtime_version.to_string(),
-        has_ts_sdk,
-        has_rust_sdk,
+        jsr_runtime_version: jsr_runtime_version.to_string(),
+        has_jsr_package,
+        has_npm_package,
+        has_cargo_package,
         package_name: package_name.to_string(),
         crate_name: crate_name.to_string(),
         generator_fingerprint: generator_fingerprint.to_string(),
@@ -503,6 +687,7 @@ pub fn generated_artifacts_are_fresh(
     expected: &GeneratedArtifactsMetadata,
     out_manifest: &Path,
     ts_out: Option<&Path>,
+    npm_out: Option<&Path>,
     rust_out: Option<&Path>,
 ) -> bool {
     let Some(existing) = read_generated_artifacts_metadata(out_manifest) else {
@@ -511,6 +696,7 @@ pub fn generated_artifacts_are_fresh(
     existing == *expected
         && out_manifest.exists()
         && ts_key_outputs_exist(ts_out)
+        && npm_key_outputs_exist(npm_out)
         && rust_key_outputs_exist(rust_out, expected)
 }
 
@@ -545,6 +731,13 @@ fn ts_key_outputs_exist(ts_out: Option<&Path>) -> bool {
         && ts_out.join("owned_api.ts").exists()
         && ts_out.join("contract.ts").exists()
         && ts_out.join("client.ts").exists()
+}
+
+fn npm_key_outputs_exist(npm_out: Option<&Path>) -> bool {
+    let Some(npm_out) = npm_out else {
+        return true;
+    };
+    npm_out.join("package.json").exists()
 }
 
 fn rust_key_outputs_exist(rust_out: Option<&Path>, expected: &GeneratedArtifactsMetadata) -> bool {
@@ -656,8 +849,8 @@ mod tests {
     use crate::cli::RuntimeSource;
 
     use super::{
-        generated_artifacts_metadata_path, trellis_package_version, ts_package_name_from_id,
-        write_contract_shell_outputs,
+        generated_artifacts_metadata_path, render_npm_build_script, trellis_package_version,
+        ts_package_name_from_id, write_contract_shell_outputs,
     };
 
     #[test]
@@ -694,6 +887,18 @@ mod tests {
     }
 
     #[test]
+    fn npm_build_script_uses_registry_runtime_dependency_metadata() {
+        let script =
+            render_npm_build_script("@trellis-sdk/demo", "1.2.3", "0.8.2", "trellis.demo@v1");
+
+        assert!(script.contains("\"@qlever-llc/trellis\": \"^0.8.2\""));
+        assert!(script.contains("peerDependencies"));
+        assert!(script.contains("devDependencies"));
+        assert!(script.contains("delete packageJson.dependencies"));
+        assert!(!script.contains("file:"));
+    }
+
+    #[test]
     fn contract_shell_outputs_create_permissive_typescript_sdk() {
         let temp = tempfile::tempdir().expect("create tempdir");
         let manifest = temp
@@ -703,13 +908,14 @@ mod tests {
         fs::create_dir_all(metadata.parent().expect("metadata parent"))
             .expect("create metadata dir");
         fs::write(&metadata, "{}\n").expect("write stale metadata");
-        let ts_out = temp.path().join("generated/js/sdks/demo");
+        let ts_out = temp.path().join("generated/packages/jsr/demo");
 
         write_contract_shell_outputs(
             "demo@v1",
             "0.0.0-shell",
             Some(&manifest),
             Some(&ts_out),
+            None,
             None,
             "@trellis-sdk/demo",
             "trellis_sdk_demo",
@@ -737,11 +943,12 @@ mod tests {
     #[test]
     fn contract_shell_outputs_create_rust_sdk_crate_shell() {
         let temp = tempfile::tempdir().expect("create tempdir");
-        let rust_out = temp.path().join("generated/rust/sdks/demo");
+        let rust_out = temp.path().join("generated/packages/cargo/demo");
 
         write_contract_shell_outputs(
             "demo@v1",
             "0.0.0-shell",
+            None,
             None,
             None,
             Some(&rust_out),
