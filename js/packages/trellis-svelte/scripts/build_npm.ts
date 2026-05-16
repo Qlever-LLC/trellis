@@ -1,4 +1,3 @@
-import { emptyDir } from "@deno/dnt";
 import { dirname, join } from "@std/path";
 import { compileModule } from "svelte/compiler";
 import ts from "typescript";
@@ -11,6 +10,13 @@ const description =
   "Svelte components and state helpers for Trellis browser applications.";
 const repositoryUrl = "git+https://github.com/Qlever-LLC/trellis.git";
 const outDir = "./npm";
+
+async function emptyDir(path: string): Promise<void> {
+  await Deno.remove(path, { recursive: true }).catch((error) => {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+  });
+  await Deno.mkdir(path, { recursive: true });
+}
 
 const sourceFiles = [
   "src/index.ts",

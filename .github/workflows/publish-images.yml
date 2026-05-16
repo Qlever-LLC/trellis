@@ -81,9 +81,11 @@ jobs:
             printf '[package]\nname = "%s"\nversion = "%s"\nedition = "2021"\nlicense = "Apache-2.0"\n\n[dependencies]\n' "$crate_name" "$workspace_version" > "$dir/Cargo.toml"
           }
 
-          write_stub_manifest ../generated/rust/sdks/auth trellis-sdk-auth
-          write_stub_manifest ../generated/rust/sdks/trellis-core trellis-sdk-core
-          write_stub_manifest ../generated/rust/sdks/jobs trellis-sdk-jobs
+          write_stub_manifest ../generated/packages/cargo/auth trellis-sdk-auth
+          write_stub_manifest ../generated/packages/cargo/trellis-core trellis-sdk-core
+          write_stub_manifest ../generated/packages/cargo/health trellis-sdk-health
+          write_stub_manifest ../generated/packages/cargo/jobs trellis-sdk-jobs
+          write_stub_manifest ../generated/packages/cargo/state trellis-sdk-state
 
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
@@ -190,9 +192,11 @@ jobs:
             printf '[package]\nname = "%s"\nversion = "%s"\nedition = "2021"\nlicense = "Apache-2.0"\n\n[dependencies]\n' "$crate_name" "$workspace_version" > "$dir/Cargo.toml"
           }
 
-          write_stub_manifest ../generated/rust/sdks/auth trellis-sdk-auth
-          write_stub_manifest ../generated/rust/sdks/trellis-core trellis-sdk-core
-          write_stub_manifest ../generated/rust/sdks/jobs trellis-sdk-jobs
+          write_stub_manifest ../generated/packages/cargo/auth trellis-sdk-auth
+          write_stub_manifest ../generated/packages/cargo/trellis-core trellis-sdk-core
+          write_stub_manifest ../generated/packages/cargo/health trellis-sdk-health
+          write_stub_manifest ../generated/packages/cargo/jobs trellis-sdk-jobs
+          write_stub_manifest ../generated/packages/cargo/state trellis-sdk-state
 
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2

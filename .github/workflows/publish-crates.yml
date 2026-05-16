@@ -74,9 +74,11 @@ jobs:
             printf '[package]\nname = "%s"\nversion = "%s"\nedition = "2021"\nlicense = "Apache-2.0"\n\n[dependencies]\n' "$crate_name" "$workspace_version" > "$dir/Cargo.toml"
           }
 
-          write_stub_manifest ../generated/rust/sdks/auth trellis-sdk-auth
-          write_stub_manifest ../generated/rust/sdks/trellis-core trellis-sdk-core
-          write_stub_manifest ../generated/rust/sdks/jobs trellis-sdk-jobs
+          write_stub_manifest ../generated/packages/cargo/auth trellis-sdk-auth
+          write_stub_manifest ../generated/packages/cargo/trellis-core trellis-sdk-core
+          write_stub_manifest ../generated/packages/cargo/health trellis-sdk-health
+          write_stub_manifest ../generated/packages/cargo/jobs trellis-sdk-jobs
+          write_stub_manifest ../generated/packages/cargo/state trellis-sdk-state
 
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
@@ -184,8 +186,8 @@ jobs:
           }
 
           generate_publishable_sdk_crates() {
-            cargo run --manifest-path tools/generate/Cargo.toml --bin trellis-generate -- generate rust --source ../js/services/trellis/contracts/trellis_auth.ts --out ../generated/rust/sdks/auth --crate-name trellis-sdk-auth --runtime-source registry
-            cargo run --manifest-path tools/generate/Cargo.toml --bin trellis-generate -- generate rust --source ../js/services/trellis/contracts/trellis_core.ts --out ../generated/rust/sdks/trellis-core --crate-name trellis-sdk-core --runtime-source registry
+            cargo run --manifest-path tools/generate/Cargo.toml --bin trellis-generate -- generate cargo --source ../js/services/trellis/contracts/trellis_auth.ts --out ../generated/packages/cargo/auth --crate-name trellis-sdk-auth --runtime-source registry
+            cargo run --manifest-path tools/generate/Cargo.toml --bin trellis-generate -- generate cargo --source ../js/services/trellis/contracts/trellis_core.ts --out ../generated/packages/cargo/trellis-core --crate-name trellis-sdk-core --runtime-source registry
           }
 
           # Publish crates that the generated Rust SDKs depend on before
@@ -202,8 +204,8 @@ jobs:
           # after the shared runtime crates are actually available there.
           generate_publishable_sdk_crates
 
-          publish_generated_crate ../generated/rust/sdks/auth/Cargo.toml trellis-sdk-auth
-          publish_generated_crate ../generated/rust/sdks/trellis-core/Cargo.toml trellis-sdk-core
+          publish_generated_crate ../generated/packages/cargo/auth/Cargo.toml trellis-sdk-auth
+          publish_generated_crate ../generated/packages/cargo/trellis-core/Cargo.toml trellis-sdk-core
 
           publish_workspace_crate trellis-auth
           publish_workspace_crate trellis-cli

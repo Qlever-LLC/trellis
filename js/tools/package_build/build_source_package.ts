@@ -1,4 +1,3 @@
-import { emptyDir } from "@deno/dnt";
 import { dirname, join } from "@std/path";
 import {
   resolveInternalNpmDependenciesForBuild,
@@ -15,6 +14,13 @@ type BuildSourcePackageOptions = {
 };
 
 const repositoryUrl = "git+https://github.com/Qlever-LLC/trellis.git";
+
+async function emptyDir(path: string): Promise<void> {
+  await Deno.remove(path, { recursive: true }).catch((error) => {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+  });
+  await Deno.mkdir(path, { recursive: true });
+}
 
 function commonPackageMetadata() {
   return {

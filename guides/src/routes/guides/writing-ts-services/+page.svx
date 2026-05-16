@@ -488,7 +488,7 @@ Other services and apps that want to call your RPCs or subscribe to your events 
 deno task prepare
 ```
 
-This produces a Deno package under `./generated/sdk/ts/`. The generated SDK version matches the version declared by the workspace that owns the contract source. It includes:
+This produces package-manager-specific SDK outputs under `./generated/packages/`. The generated SDK version matches the version declared by the workspace that owns the contract source. The JSR/TypeScript source package includes:
 
 - `mod.ts` — the contract module and `use(...)` export
 - `types.ts` — typed request, response, and event definitions
@@ -496,7 +496,10 @@ This produces a Deno package under `./generated/sdk/ts/`. The generated SDK vers
 - `contract.ts` — contract metadata and `use(...)` helpers for consumers
 - `client.ts` — a concrete consumer client facade with explicit request,
   operation, event, publish, and state members
-- `scripts/build_npm.ts` — a build script that uses `dnt` to produce an npm package
+
+The same prepare run also emits an npm package under `./generated/packages/npm/`
+and a Cargo package under `./generated/packages/cargo/` when the project shape
+supports those targets.
 
 Consumers import the SDK like any other Trellis contract package:
 
