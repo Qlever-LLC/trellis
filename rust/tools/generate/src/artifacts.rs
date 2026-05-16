@@ -1,17 +1,20 @@
 use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use miette::IntoDiagnostic;
 use serde::{Deserialize, Serialize};
+use trellis_contracts::LoadedManifest;
 use trellis_codegen_rust::{
     default_sdk_stem, rust_sdk_cargo_manifest_is_valid, GenerateRustParticipantFacadeOpts,
     GenerateRustSdkOpts, ParticipantAliasMapping, RustRuntimeDeps,
     RustRuntimeSource as CodegenRustRuntimeSource,
 };
 use trellis_codegen_ts::{
-    GenerateTsSdkOpts, TsRuntimeDeps, TsRuntimeSource as CodegenTsRuntimeSource,
+    collect_ts_sdk_sources, GenerateTsSdkOpts, TsRuntimeDeps,
+    TsRuntimeSource as CodegenTsRuntimeSource,
 };
 
 use crate::cli::{ContractInputArgs, RuntimeSource};
@@ -34,6 +37,11 @@ pub struct GeneratedArtifactsMetadata {
     pub package_name: String,
     pub crate_name: String,
     pub generator_fingerprint: String,
+}
+
+pub struct NpmTsSources {
+    pub root_dir: PathBuf,
+    pub dependency_packages: BTreeSet<String>,
 }
 
 impl GeneratedArtifactsMetadata {
@@ -126,20 +134,21 @@ pub fn write_contract_outputs(
 
     if let Some(npm_out) = npm_out {
         let staging_dir = tempfile::tempdir().into_diagnostic()?;
-        let jsr_out = stage_jsr_package_for_npm(
+        let npm_sources = stage_npm_ts_sources(
             &resolved.loaded.manifest.id,
             out_manifest,
             staging_dir.path(),
             package_name,
             &artifact_version,
         )?;
-        build_npm_package_from_jsr(
-            &jsr_out,
+        build_npm_package_from_ts_sources(
+            &npm_sources.root_dir,
             npm_out,
             package_name,
             &artifact_version,
             &trellis_package_version(),
             &resolved.loaded.manifest.id,
+            &npm_sources.dependency_packages,
         )?;
     }
 
@@ -225,7 +234,7 @@ fn write_npm_package_shell(
     package_name: &str,
     package_version: &str,
 ) -> miette::Result<()> {
-    fs::create_dir_all(out).into_diagnostic()?;
+    fs::create_dir_all(out.join("esm")).into_diagnostic()?;
     write_if_changed(
         &out.join("package.json"),
         &format!(
@@ -235,11 +244,20 @@ fn write_npm_package_shell(
                 "version": package_version,
                 "type": "module",
                 "exports": {
-                    ".": "./esm/mod.js"
-                }
+                    ".": {
+                        "types": "./esm/mod.d.ts",
+                        "import": "./esm/mod.js"
+                    }
+                },
+                "types": "./esm/mod.d.ts"
             }))
             .into_diagnostic()?
         ),
+    )?;
+    write_if_changed(&out.join("esm/mod.js"), "export const CONTRACT_DIGEST = \"shell\";\n")?;
+    write_if_changed(
+        &out.join("esm/mod.d.ts"),
+        "export declare const CONTRACT_DIGEST = \"shell\";\n",
     )
 }
 
@@ -525,58 +543,79 @@ pub fn write_participant_facade_outputs(
     Ok(())
 }
 
-pub fn build_npm_package_from_jsr(
-    jsr_out: &Path,
+pub fn build_npm_package_from_ts_sources(
+    src_dir: &Path,
     npm_out: &Path,
     package_name: &str,
     package_version: &str,
     trellis_runtime_version: &str,
     contract_id: &str,
+    dependency_packages: &BTreeSet<String>,
 ) -> miette::Result<()> {
-    let temp = tempfile::tempdir().into_diagnostic()?;
-    let script = temp.path().join("build_npm.ts");
-    let npm_out_arg = if npm_out.is_absolute() {
+    let npm_out = if npm_out.is_absolute() {
         npm_out.to_path_buf()
     } else {
         std::env::current_dir().into_diagnostic()?.join(npm_out)
     };
+    if npm_out.exists() {
+        fs::remove_dir_all(&npm_out).into_diagnostic()?;
+    }
+    fs::create_dir_all(&npm_out).into_diagnostic()?;
+    let esm_dir = npm_out.join("esm");
     write_if_changed(
-        &script,
-        &render_npm_build_script(
-            package_name,
-            package_version,
-            trellis_runtime_version,
-            contract_id,
-        ),
+        &src_dir.join("tsconfig.json"),
+        &render_npm_tsconfig(&npm_out),
     )?;
-    let output = Command::new("deno")
-        .arg("run")
-        .arg("-A")
-        .arg(&script)
-        .arg(&npm_out_arg)
-        .current_dir(jsr_out)
+    write_if_changed(
+        &src_dir.join("package.json"),
+        "{\n  \"type\": \"module\"\n}\n",
+    )?;
+    let tsc = resolve_tsc_bin()?;
+    let output = Command::new(&tsc)
+        .arg("-p")
+        .arg(src_dir.join("tsconfig.json"))
+        .current_dir(src_dir)
         .output()
         .into_diagnostic()?;
     if !output.status.success() {
         return Err(miette::miette!(
-            "npm package build failed for {}\nstdout:\n{}\nstderr:\n{}",
+            "npm package TypeScript build failed for {} using {:?}\nstdout:\n{}\nstderr:\n{}",
             package_name,
+            tsc,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    write_npm_package_json(
+        &npm_out,
+        package_name,
+        package_version,
+        trellis_runtime_version,
+        contract_id,
+        dependency_packages,
+    )?;
+    if let Ok(readme) = fs::read_to_string(src_dir.join("README.md")) {
+        write_if_changed(&npm_out.join("README.md"), &readme)?;
+    }
+    if !esm_dir.join("mod.js").exists() || !esm_dir.join("mod.d.ts").exists() {
+        return Err(miette::miette!(
+            "npm package TypeScript build for {} did not emit esm/mod.js and esm/mod.d.ts",
+            package_name
         ));
     }
     Ok(())
 }
 
-pub fn stage_jsr_package_for_npm(
+pub fn stage_npm_ts_sources(
     contract_id: &str,
     manifest_path: &Path,
     staging_root: &Path,
     package_name: &str,
     package_version: &str,
-) -> miette::Result<PathBuf> {
+) -> miette::Result<NpmTsSources> {
     let mut staged = BTreeSet::new();
-    stage_jsr_manifest_for_npm(
+    let mut dependency_packages = BTreeSet::new();
+    let root_dir = stage_npm_manifest_ts_sources(
         contract_id,
         contract_id,
         manifest_path,
@@ -584,10 +623,15 @@ pub fn stage_jsr_package_for_npm(
         package_name,
         package_version,
         &mut staged,
-    )
+        &mut dependency_packages,
+    )?;
+    Ok(NpmTsSources {
+        root_dir,
+        dependency_packages,
+    })
 }
 
-fn stage_jsr_manifest_for_npm(
+fn stage_npm_manifest_ts_sources(
     root_contract_id: &str,
     contract_id: &str,
     manifest_path: &Path,
@@ -595,6 +639,7 @@ fn stage_jsr_manifest_for_npm(
     package_name: &str,
     package_version: &str,
     staged: &mut BTreeSet<String>,
+    dependency_packages: &mut BTreeSet<String>,
 ) -> miette::Result<PathBuf> {
     if !staged.insert(contract_id.to_string()) {
         return Ok(staging_root.join(sdk_output_stem(contract_id)));
@@ -607,20 +652,33 @@ fn stage_jsr_manifest_for_npm(
     } else {
         ts_package_name_from_id(contract_id, "@trellis-sdk/")
     };
-    trellis_codegen_ts::generate_ts_sdk(&GenerateTsSdkOpts {
+    let opts = GenerateTsSdkOpts {
         manifest_path: manifest_path.to_path_buf(),
         out_dir: out_dir.clone(),
         package_name: generated_package_name,
         package_version: package_version.to_string(),
         runtime_deps: ts_runtime_deps(RuntimeSource::Registry, trellis_package_version(), None),
-    })
-    .into_diagnostic()?;
+    };
+    for source in collect_ts_sdk_sources(&opts).into_diagnostic()? {
+        if source
+            .path
+            .extension()
+            .is_some_and(|extension| extension == "ts")
+        {
+            write_if_changed(
+                &out_dir.join(source.path),
+                &rewrite_npm_ts_imports(&source.contents, &loaded),
+            )?;
+        } else if source.path == Path::new("README.md") {
+            write_if_changed(&out_dir.join(source.path), &source.contents)?;
+        }
+    }
 
     if let Some(manifest_dir) = manifest_path.parent() {
         for (_alias, use_ref) in loaded.manifest.uses.iter() {
             let dependency_manifest = manifest_dir.join(format!("{}.json", use_ref.contract));
             if dependency_manifest.exists() {
-                stage_jsr_manifest_for_npm(
+                stage_npm_manifest_ts_sources(
                     root_contract_id,
                     &use_ref.contract,
                     &dependency_manifest,
@@ -628,7 +686,11 @@ fn stage_jsr_manifest_for_npm(
                     &ts_package_name_from_id(&use_ref.contract, "@trellis-sdk/"),
                     package_version,
                     staged,
+                    dependency_packages,
                 )?;
+            }
+            if let Some(package_name) = npm_dependency_package_name(&use_ref.contract) {
+                dependency_packages.insert(package_name);
             }
         }
     }
@@ -636,23 +698,141 @@ fn stage_jsr_manifest_for_npm(
     Ok(out_dir)
 }
 
-fn render_npm_build_script(
+fn render_npm_tsconfig(npm_out: &Path) -> String {
+    let out_dir = npm_out.join("esm").to_string_lossy().replace('\\', "/");
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "compilerOptions": {
+                "declaration": true,
+                "emitDeclarationOnly": false,
+                "module": "NodeNext",
+                "moduleResolution": "NodeNext",
+                "noCheck": true,
+                "outDir": out_dir,
+                "rootDir": ".",
+                "skipLibCheck": true,
+                "strict": true,
+                "target": "ES2022",
+                "verbatimModuleSyntax": true
+            },
+            "include": ["./*.ts"]
+        }))
+        .expect("npm tsconfig json")
+    )
+}
+
+fn write_npm_package_json(
+    npm_out: &Path,
     package_name: &str,
     package_version: &str,
     trellis_runtime_version: &str,
     contract_id: &str,
-) -> String {
+    dependency_packages: &BTreeSet<String>,
+) -> miette::Result<()> {
     let trellis_dependency = format!("^{}", trellis_runtime_version);
-    format!(
-        "import {{ build, emptyDir }} from \"jsr:@deno/dnt@^0.42.3\";\n\nconst outDir = Deno.args[0];\nif (!outDir) {{\n  throw new Error(\"missing npm output directory\");\n}}\n\nawait emptyDir(outDir);\n\nawait build({{\n  entryPoints: [\"./mod.ts\"],\n  outDir,\n  shims: {{\n    deno: true,\n  }},\n  test: false,\n  typeCheck: false,\n  package: {{\n    name: {},\n    version: {},\n    description: \"Generated Trellis SDK for contract {}\",\n    license: \"Apache-2.0\",\n    homepage: \"https://github.com/Qlever-LLC/trellis#readme\",\n    bugs: {{\n      url: \"https://github.com/Qlever-LLC/trellis/issues\",\n    }},\n    repository: {{\n      type: \"git\",\n      url: \"https://github.com/Qlever-LLC/trellis\",\n    }},\n    publishConfig: {{\n      access: \"public\",\n    }},\n    peerDependencies: {{\n      \"@qlever-llc/trellis\": {},\n    }},\n    devDependencies: {{\n      \"@qlever-llc/trellis\": {},\n    }},\n  }},\n}});\n\nconst packageJsonPath = `${{outDir}}/package.json`;\nconst packageJson = JSON.parse(await Deno.readTextFile(packageJsonPath));\ndelete packageJson.dependencies?.[\"@qlever-llc/trellis\"];\npackageJson.peerDependencies = {{\n  ...(packageJson.peerDependencies ?? {{}}),\n  \"@qlever-llc/trellis\": {},\n}};\npackageJson.devDependencies = {{\n  ...(packageJson.devDependencies ?? {{}}),\n  \"@qlever-llc/trellis\": {},\n}};\nawait Deno.writeTextFile(packageJsonPath, `${{JSON.stringify(packageJson, null, 2)}}\\n`);\n",
-        js_string(package_name),
-        js_string(package_version),
-        contract_id,
-        js_string(&trellis_dependency),
-        js_string(&trellis_dependency),
-        js_string(&trellis_dependency),
-        js_string(&trellis_dependency),
+    let generated_dependency = format!("^{}", package_version);
+    let mut peer_dependencies = serde_json::Map::new();
+    peer_dependencies.insert(
+        "@qlever-llc/trellis".to_string(),
+        serde_json::Value::String(trellis_dependency.clone()),
+    );
+    for dependency in dependency_packages {
+        if dependency != package_name {
+            peer_dependencies.insert(
+                dependency.clone(),
+                serde_json::Value::String(generated_dependency.clone()),
+            );
+        }
+    }
+    write_if_changed(
+        &npm_out.join("package.json"),
+        &format!(
+            "{}\n",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "name": package_name,
+                "version": package_version,
+                "description": format!("Generated Trellis SDK for contract {contract_id}"),
+                "type": "module",
+                "license": "Apache-2.0",
+                "homepage": "https://github.com/Qlever-LLC/trellis#readme",
+                "bugs": {
+                    "url": "https://github.com/Qlever-LLC/trellis/issues"
+                },
+                "repository": {
+                    "type": "git",
+                    "url": "https://github.com/Qlever-LLC/trellis"
+                },
+                "publishConfig": {
+                    "access": "public"
+                },
+                "exports": {
+                    ".": {
+                        "types": "./esm/mod.d.ts",
+                        "import": "./esm/mod.js"
+                    }
+                },
+                "types": "./esm/mod.d.ts",
+                "peerDependencies": peer_dependencies,
+                "devDependencies": peer_dependencies
+            }))
+            .into_diagnostic()?
+        ),
     )
+}
+
+fn rewrite_npm_ts_imports(contents: &str, loaded: &LoadedManifest) -> String {
+    let mut rewritten = contents.replace(".ts\"", ".js\"").replace(".ts'", ".js'");
+    for (_alias, use_ref) in loaded.manifest.uses.iter() {
+        let Some(package_name) = npm_dependency_package_name(&use_ref.contract) else {
+            continue;
+        };
+        let stem = sdk_output_stem(&use_ref.contract);
+        for file in ["types", "api", "owned_api"] {
+            rewritten = rewritten.replace(&format!("\"../{stem}/{file}.js\""), &js_string(&package_name));
+            rewritten = rewritten.replace(&format!("'../{stem}/{file}.js'"), &format!("'{package_name}'"));
+        }
+    }
+    rewritten
+}
+
+fn npm_dependency_package_name(contract_id: &str) -> Option<String> {
+    let package_name = ts_package_name_from_id(contract_id, "@trellis-sdk/");
+    (!package_name.starts_with("@qlever-llc/trellis/sdk/")).then_some(package_name)
+}
+
+fn resolve_tsc_bin() -> miette::Result<OsString> {
+    if let Some(bin) = std::env::var_os("TRELLIS_TSC_BIN") {
+        if !bin.is_empty() {
+            return binary_is_available(&bin).then_some(bin).ok_or_else(|| {
+                miette::miette!(
+                    "TRELLIS_TSC_BIN is set, but the configured TypeScript compiler is not available"
+                )
+            });
+        }
+    }
+
+    let mut current = std::env::current_dir().into_diagnostic()?;
+    loop {
+        let candidate = current.join("node_modules/.bin/tsc");
+        if candidate.exists() {
+            return Ok(candidate.into_os_string());
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+
+    let tsc = OsString::from("tsc");
+    binary_is_available(&tsc).then_some(tsc).ok_or_else(|| {
+        miette::miette!(
+            "npm package generation requires the TypeScript compiler `tsc`; install TypeScript in the Node project, make `tsc` available on PATH, or set TRELLIS_TSC_BIN"
+        )
+    })
+}
+
+fn binary_is_available(binary: &OsString) -> bool {
+    Command::new(binary).arg("--version").output().is_ok()
 }
 
 pub fn generated_artifacts_metadata(
@@ -738,6 +918,8 @@ fn npm_key_outputs_exist(npm_out: Option<&Path>) -> bool {
         return true;
     };
     npm_out.join("package.json").exists()
+        && npm_out.join("esm/mod.js").exists()
+        && npm_out.join("esm/mod.d.ts").exists()
 }
 
 fn rust_key_outputs_exist(rust_out: Option<&Path>, expected: &GeneratedArtifactsMetadata) -> bool {
@@ -849,8 +1031,8 @@ mod tests {
     use crate::cli::RuntimeSource;
 
     use super::{
-        generated_artifacts_metadata_path, render_npm_build_script, trellis_package_version,
-        ts_package_name_from_id, write_contract_shell_outputs,
+        generated_artifacts_metadata_path, render_npm_tsconfig, rewrite_npm_ts_imports,
+        trellis_package_version, ts_package_name_from_id, write_contract_shell_outputs,
     };
 
     #[test]
@@ -887,15 +1069,46 @@ mod tests {
     }
 
     #[test]
-    fn npm_build_script_uses_registry_runtime_dependency_metadata() {
-        let script =
-            render_npm_build_script("@trellis-sdk/demo", "1.2.3", "0.8.2", "trellis.demo@v1");
+    fn npm_tsconfig_uses_node_esm_declaration_output() {
+        let tsconfig = render_npm_tsconfig(std::path::Path::new("/tmp/npm-out"));
 
-        assert!(script.contains("\"@qlever-llc/trellis\": \"^0.8.2\""));
-        assert!(script.contains("peerDependencies"));
-        assert!(script.contains("devDependencies"));
-        assert!(script.contains("delete packageJson.dependencies"));
-        assert!(!script.contains("file:"));
+        assert!(tsconfig.contains("\"module\": \"NodeNext\""));
+        assert!(tsconfig.contains("\"declaration\": true"));
+        assert!(tsconfig.contains("/tmp/npm-out/esm"));
+        assert!(!tsconfig.contains("deno"));
+        assert!(!tsconfig.contains("dnt"));
+    }
+
+    #[test]
+    fn npm_source_rewrite_changes_local_ts_specifiers_to_js() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let manifest = temp.path().join("contract.json");
+        fs::write(
+            &manifest,
+            r#"{
+  "format": "trellis.contract.v1",
+  "id": "trellis.app@v1",
+  "displayName": "App",
+  "description": "App",
+  "kind": "app",
+  "uses": {
+    "required": {
+      "dep": { "contract": "trellis.dep@v1", "rpc": { "call": ["Dep.Get"] } }
+    }
+  }
+}
+"#,
+        )
+        .expect("write manifest");
+        let loaded = trellis_contracts::load_manifest(&manifest).expect("load manifest");
+        let source = "export * from \"./types.ts\";\nimport type { Api } from '../dep/api.ts';\nimport { sdk } from '@qlever-llc/trellis';\n";
+        let rewritten = rewrite_npm_ts_imports(source, &loaded);
+
+        assert!(rewritten.contains("./types.js"));
+        assert!(rewritten.contains("@trellis-sdk/trellis-dep"));
+        assert!(rewritten.contains("@qlever-llc/trellis"));
+        assert!(!rewritten.contains(".ts\""));
+        assert!(!rewritten.contains(".ts'"));
     }
 
     #[test]

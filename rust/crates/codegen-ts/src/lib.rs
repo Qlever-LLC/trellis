@@ -45,6 +45,13 @@ pub struct GenerateTsSdkOpts {
     pub runtime_deps: TsRuntimeDeps,
 }
 
+/// One generated TypeScript SDK source file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratedTsSource {
+    pub path: PathBuf,
+    pub contents: String,
+}
+
 /// Runtime dependency configuration for generated TypeScript SDKs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TsRuntimeDeps {
@@ -62,45 +69,61 @@ pub enum TsRuntimeSource {
 
 /// Generate a TypeScript SDK package for one manifest.
 pub fn generate_ts_sdk(opts: &GenerateTsSdkOpts) -> Result<(), CodegenTsError> {
-    let loaded = load_manifest(&opts.manifest_path)?;
     fs::create_dir_all(&opts.out_dir)?;
 
-    write_generated_file(
-        &opts.out_dir.join("deno.json"),
-        &format!(
-            "{}\n",
-            serde_json::to_string_pretty(&deno_json(opts, &loaded)?)?
-        ),
-    )?;
-    write_generated_file(
-        &opts.out_dir.join("contract.ts"),
-        &render_contract_ts(opts, &loaded),
-    )?;
-    write_generated_file(
-        &opts.out_dir.join("types.ts"),
-        &render_types_ts(opts, &loaded),
-    )?;
-    write_generated_file(
-        &opts.out_dir.join("schemas.ts"),
-        &render_schemas_ts(opts, &loaded),
-    )?;
-    write_generated_file(
-        &opts.out_dir.join("owned_api.ts"),
-        &render_owned_api_ts(opts, &loaded),
-    )?;
-    write_generated_file(&opts.out_dir.join("api.ts"), &render_api_ts(opts, &loaded))?;
-    write_generated_file(
-        &opts.out_dir.join("client.ts"),
-        &render_client_ts(opts, &loaded),
-    )?;
-    write_generated_file(&opts.out_dir.join("mod.ts"), &render_mod_ts(opts, &loaded))?;
-
-    write_generated_file(
-        &opts.out_dir.join("README.md"),
-        &render_readme(opts, &loaded),
-    )?;
+    for source in collect_ts_sdk_sources(opts)? {
+        write_generated_file(&opts.out_dir.join(source.path), &source.contents)?;
+    }
 
     Ok(())
+}
+
+/// Render all files that make up a TypeScript SDK package without writing them.
+pub fn collect_ts_sdk_sources(
+    opts: &GenerateTsSdkOpts,
+) -> Result<Vec<GeneratedTsSource>, CodegenTsError> {
+    let loaded = load_manifest(&opts.manifest_path)?;
+    Ok(vec![
+        GeneratedTsSource {
+            path: PathBuf::from("deno.json"),
+            contents: format!(
+                "{}\n",
+                serde_json::to_string_pretty(&deno_json(opts, &loaded)?)?
+            ),
+        },
+        GeneratedTsSource {
+            path: PathBuf::from("contract.ts"),
+            contents: render_contract_ts(opts, &loaded),
+        },
+        GeneratedTsSource {
+            path: PathBuf::from("types.ts"),
+            contents: render_types_ts(opts, &loaded),
+        },
+        GeneratedTsSource {
+            path: PathBuf::from("schemas.ts"),
+            contents: render_schemas_ts(opts, &loaded),
+        },
+        GeneratedTsSource {
+            path: PathBuf::from("owned_api.ts"),
+            contents: render_owned_api_ts(opts, &loaded),
+        },
+        GeneratedTsSource {
+            path: PathBuf::from("api.ts"),
+            contents: render_api_ts(opts, &loaded),
+        },
+        GeneratedTsSource {
+            path: PathBuf::from("client.ts"),
+            contents: render_client_ts(opts, &loaded),
+        },
+        GeneratedTsSource {
+            path: PathBuf::from("mod.ts"),
+            contents: render_mod_ts(opts, &loaded),
+        },
+        GeneratedTsSource {
+            path: PathBuf::from("README.md"),
+            contents: render_readme(opts, &loaded),
+        },
+    ])
 }
 
 #[derive(Debug, Clone)]
@@ -2598,6 +2621,28 @@ mod tests {
     }
 
     #[test]
+    fn collect_ts_sdk_sources_returns_rendered_package_files() {
+        let (opts, _loaded, root) =
+            sample_opts_and_loaded("@qlever-llc/trellis-sdk-demo", "trellis.demo@v1");
+
+        let sources = collect_ts_sdk_sources(&opts).unwrap();
+        let paths = sources
+            .iter()
+            .map(|source| source.path.as_path())
+            .collect::<Vec<_>>();
+
+        assert!(paths.contains(&Path::new("mod.ts")));
+        assert!(paths.contains(&Path::new("contract.ts")));
+        assert!(paths.contains(&Path::new("README.md")));
+        assert!(sources
+            .iter()
+            .any(|source| source.path == Path::new("mod.ts")
+                && source.contents.contains("./contract.ts")));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn local_mode_derives_extends_from_repo_root() {
         let repo_root = unique_temp_dir("repo-root");
         let out_dir = repo_root.join("generated/packages/jsr/auth");
@@ -2904,16 +2949,18 @@ mod tests {
                     }
                 },
                 "uses": {
-                    "jobs": {
-                        "contract": "trellis.jobs@v1",
-                        "rpc": { "call": ["Jobs.Get"] },
-                        "operations": { "call": ["Jobs.Run"] },
-                        "events": {
-                            "publish": ["Jobs.Updated"],
-                            "subscribe": ["Jobs.Updated"]
-                        },
-                        "feeds": {
-                            "subscribe": ["Jobs.Live"]
+                    "required": {
+                        "jobs": {
+                            "contract": "trellis.jobs@v1",
+                            "rpc": { "call": ["Jobs.Get"] },
+                            "operations": { "call": ["Jobs.Run"] },
+                            "events": {
+                                "publish": ["Jobs.Updated"],
+                                "subscribe": ["Jobs.Updated"]
+                            },
+                            "feeds": {
+                                "subscribe": ["Jobs.Live"]
+                            }
                         }
                     }
                 }
@@ -3061,13 +3108,15 @@ mod tests {
                 "operations": {},
                 "events": {},
                 "uses": {
-                    "kvDemo": {
-                        "contract": "trellis.demo-kv-service@v1",
-                        "rpc": { "call": ["Kv.Get"] },
-                        "operations": { "call": ["Kv.Run"] },
-                        "events": {
-                            "publish": ["Kv.Updated"],
-                            "subscribe": ["Kv.Updated"]
+                    "required": {
+                        "kvDemo": {
+                            "contract": "trellis.demo-kv-service@v1",
+                            "rpc": { "call": ["Kv.Get"] },
+                            "operations": { "call": ["Kv.Run"] },
+                            "events": {
+                                "publish": ["Kv.Updated"],
+                                "subscribe": ["Kv.Updated"]
+                            }
                         }
                     }
                 }

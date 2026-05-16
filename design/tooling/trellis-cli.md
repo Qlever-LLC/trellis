@@ -110,7 +110,8 @@ These commands:
 - compute canonical JSON and digests
 - generate package-manager-specific SDK artifacts from the resolved contract inputs
 - preserve the current JSR TypeScript generated surface where practical
-- generate npm JavaScript packages from the JSR package model
+- generate npm JavaScript packages natively from generated TypeScript sources;
+  npm output does not require Deno or `dnt`
 - generate Cargo SDK crates that target `trellis-client` and `trellis-service`
 - use required contract `kind` metadata to decide discovery behavior: `service`
   generates manifest, JSR, npm, and Cargo artifacts; `app` generates manifest,
@@ -315,8 +316,16 @@ The developer-facing CLI boundary is the contract source.
 - single-contract TypeScript/JavaScript projects may use a top-level
   `contract.ts` or `contract.js`, and that file default exports the contract
   module that `trellis-generate` should load
-- multi-contract TypeScript/Deno projects use `contracts/*.ts`, and those files
-  default export the contract module that `trellis-generate` should load
+- multi-contract TypeScript/JavaScript projects use `contracts/*.ts` or
+  `contracts/*.js`, and those files default export the contract module that
+  `trellis-generate` should load
+- Deno-configured TypeScript projects resolve source modules with Deno; Node
+  package projects resolve TypeScript source modules with `tsx` and JavaScript
+  source modules with Node
+- generated JSR packages target Deno/JSR consumers, while generated npm packages
+  target Node/npm consumers and are produced without requiring Deno
+- npm package generation uses the Node TypeScript compiler (`tsc`), resolved from
+  the project, `PATH`, or `TRELLIS_TSC_BIN`
 - Rust projects use `contracts/*.rs` source modules with a `contract_manifest()`
   function, or another explicitly selected function, returning
   `ContractManifest` or `Result<ContractManifest, ContractsError>`; those

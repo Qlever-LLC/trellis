@@ -41,7 +41,47 @@ fn run_prepare(root: &Path) -> std::process::Output {
 }
 
 fn trellis_generate() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_trellis-generate"));
+    command.env("TRELLIS_TSC_BIN", fake_tsc_path());
+    command
+}
+
+fn fake_tsc_path() -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "trellis-generate-fake-tsc-{}.sh",
+        std::process::id()
+    ));
+    if !path.exists() {
+        write_executable(
+            &path,
+r#"#!/bin/sh
+set -eu
+if [ "${1:-}" = "--version" ]; then
+  printf 'Version 0.0.0-test\n'
+  exit 0
+fi
+config=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-p" ]; then
+    shift
+    config="$1"
+  fi
+  shift || true
+done
+if [ -z "$config" ]; then
+  config="tsconfig.json"
+fi
+out=$(awk -F'"' '/"outDir"/ { print $4; exit }' "$config")
+mkdir -p "$out"
+for f in *.ts; do
+  base=$(basename "$f" .ts)
+  cp "$f" "$out/$base.js"
+  cp "$f" "$out/$base.d.ts"
+done
+"#,
+        );
+    }
+    path
 }
 
 fn write_executable(path: &Path, script: &str) {
@@ -76,7 +116,7 @@ fn explicit_generate_all_emits_buildable_sdk_packages() {
         "service",
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
+    let output = trellis_generate()
         .args([
             "generate",
             "all",
@@ -125,7 +165,7 @@ fn explicit_generate_all_defaults_out_of_tree_package_to_trellis_sdk_scope() {
         "service",
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
+    let output = trellis_generate()
         .args([
             "generate",
             "all",
@@ -229,7 +269,7 @@ export default contract;
     )
     .unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
+    let output = trellis_generate()
         .args(["prepare", temp.path().to_str().unwrap()])
         .output()
         .unwrap();
@@ -611,7 +651,7 @@ fn prepare_writes_demo_typescript_sdks_inside_demos_js_workspace() {
         "service",
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
+    let output = trellis_generate()
         .args(["prepare", demos_root.to_str().unwrap()])
         .output()
         .unwrap();
@@ -770,7 +810,7 @@ fn local_mode_generates_service_artifacts_from_nearest_project_root() {
         "service",
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
+    let output = trellis_generate()
         .current_dir(project.join("src/nested"))
         .output()
         .unwrap();
@@ -840,6 +880,8 @@ fn local_mode_generates_service_artifacts_from_node_project_contracts() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("node-service");
     let tsx_path = temp.path().join("fake-tsx.sh");
+    let tsc_path = temp.path().join("fake-tsc.sh");
+    let npm_out = project.join("generated/packages/npm/node-orders");
     let support = project.join("node_modules/contract-support");
     fs::create_dir_all(project.join("contracts")).unwrap();
     fs::create_dir_all(&support).unwrap();
@@ -879,10 +921,32 @@ fn local_mode_generates_service_artifacts_from_node_project_contracts() {
 printf '{\"format\":\"trellis.contract.v1\",\"id\":\"trellis.node-orders@v1\",\"displayName\":\"Node Orders\",\"description\":\"Orders from node project\",\"kind\":\"service\"}'
 ",
     );
+    write_executable(
+        &tsc_path,
+        &format!(
+            "#!/bin/sh
+set -eu
+if [ \"${{1:-}}\" = \"--version\" ]; then
+  printf 'Version 0.0.0-test\\n'
+  exit 0
+fi
+out={}
+mkdir -p \"$out/esm\"
+for f in *.ts; do
+  base=$(basename \"$f\" .ts)
+  cp \"$f\" \"$out/esm/$base.js\"
+  cp \"$f\" \"$out/esm/$base.d.ts\"
+done
+",
+            npm_out.to_string_lossy()
+        ),
+    );
 
     let output = trellis_generate()
         .current_dir(&project)
         .env("TRELLIS_TSX_BIN", &tsx_path)
+        .env("TRELLIS_TSC_BIN", &tsc_path)
+        .env("TRELLIS_DENO_BIN", "disabled")
         .output()
         .unwrap();
     assert!(
@@ -897,6 +961,10 @@ printf '{\"format\":\"trellis.contract.v1\",\"id\":\"trellis.node-orders@v1\",\"
     assert!(project
         .join("generated/packages/jsr/node-orders/mod.ts")
         .exists());
+    assert!(npm_out.join("package.json").exists());
+    assert!(npm_out.join("README.md").exists());
+    assert!(npm_out.join("esm/mod.js").exists());
+    assert!(npm_out.join("esm/mod.d.ts").exists());
     assert!(project
         .join("generated/packages/cargo/node-orders/Cargo.toml")
         .exists());
@@ -928,7 +996,7 @@ fn discover_mode_summarizes_generation_actions_for_service_and_app_contracts() {
         "app",
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
+    let output = trellis_generate()
         .args(["discover", temp.path().to_str().unwrap()])
         .output()
         .unwrap();
@@ -1084,7 +1152,7 @@ fn local_mode_generates_service_artifacts_from_rust_contract_sources() {
     )
     .unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_trellis-generate"))
+    let output = trellis_generate()
         .current_dir(&project)
         .output()
         .unwrap();

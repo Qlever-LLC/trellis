@@ -3,10 +3,10 @@ use std::fs;
 use miette::IntoDiagnostic;
 
 use crate::artifacts::{
-    build_npm_package_from_jsr, current_generator_fingerprint, default_rust_crate_name_from_id,
-    generated_artifacts_are_fresh, generated_artifacts_metadata, infer_artifact_version,
-    resolve_contract, rust_runtime_deps, stage_jsr_package_for_npm, trellis_package_version,
-    ts_package_name_from_id, ts_runtime_deps, write_contract_outputs,
+    build_npm_package_from_ts_sources, current_generator_fingerprint,
+    default_rust_crate_name_from_id, generated_artifacts_are_fresh, generated_artifacts_metadata,
+    infer_artifact_version, resolve_contract, rust_runtime_deps, stage_npm_ts_sources,
+    trellis_package_version, ts_package_name_from_id, ts_runtime_deps, write_contract_outputs,
 };
 use crate::cli::{
     GenerateAllArgs, GenerateCargoPackageArgs, GenerateJsrPackageArgs, GenerateManifestArgs,
@@ -70,20 +70,21 @@ pub fn npm_package(args: &GenerateNpmPackageArgs) -> miette::Result<()> {
         "generate an npm package",
     )?;
     let staging = tempfile::tempdir().into_diagnostic()?;
-    let jsr_out = stage_jsr_package_for_npm(
+    let npm_sources = stage_npm_ts_sources(
         &resolved.loaded.manifest.id,
         &resolved.manifest_path,
         staging.path(),
         &package_name,
         &artifact_version,
     )?;
-    build_npm_package_from_jsr(
-        &jsr_out,
+    build_npm_package_from_ts_sources(
+        &npm_sources.root_dir,
         &args.out,
         &package_name,
         &artifact_version,
         &trellis_package_version(),
         &resolved.loaded.manifest.id,
+        &npm_sources.dependency_packages,
     )?;
     output::print_success(&format!("generated npm package at {}", args.out.display()));
     Ok(())
