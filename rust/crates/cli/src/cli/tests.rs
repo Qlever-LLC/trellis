@@ -172,6 +172,35 @@ fn parses_service_and_device_list_commands() {
 }
 
 #[test]
+fn service_and_device_help_shows_native_target_first_usage() {
+    let svc_error = Cli::try_parse_from(["trellis", "svc", "--help"])
+        .expect_err("svc help should render as a clap error");
+    let svc_help = svc_error.to_string();
+    assert!(svc_help.contains("Usage: trellis svc list [OPTIONS]"));
+    assert!(svc_help.contains("trellis svc <ID> <COMMAND>"));
+    assert!(svc_help.contains("<ID> and <COMMAND> are required"));
+    assert!(!svc_help.contains("[ID]"));
+    assert!(svc_help.contains("apply"));
+    assert!(svc_help.contains("expansions"));
+
+    let dev_error = Cli::try_parse_from(["trellis", "dev", "--help"])
+        .expect_err("dev help should render as a clap error");
+    let dev_help = dev_error.to_string();
+    assert!(dev_help.contains("Usage: trellis dev list [OPTIONS]"));
+    assert!(dev_help.contains("trellis dev <ID> <COMMAND>"));
+    assert!(dev_help.contains("<ID> and <COMMAND> are required"));
+    assert!(!dev_help.contains("[ID]"));
+    assert!(dev_help.contains("activations"));
+    assert!(dev_help.contains("reviews"));
+
+    let apply_error = Cli::try_parse_from(["trellis", "svc", "api", "apply", "--help"])
+        .expect_err("svc action help should render as a clap error");
+    assert!(apply_error
+        .to_string()
+        .contains("Usage: trellis svc <ID> apply"));
+}
+
+#[test]
 fn parses_target_first_service_and_device_resource_tokens() {
     let cli = Cli::parse_from([
         "trellis",
@@ -182,15 +211,15 @@ fn parses_target_first_service_and_device_resource_tokens() {
         "./trellis.contract.json",
     ]);
     match cli.command {
-        TopLevelCommand::Svc(command) => match command.command {
-            SvcSubcommand::Resource(raw) => {
-                assert_eq!(
-                    raw,
-                    vec!["api", "apply", "--manifest", "./trellis.contract.json"]
-                );
+        TopLevelCommand::Svc(command) => {
+            assert_eq!(command.id.as_deref(), Some("api"));
+            match command.command {
+                SvcSubcommand::Resource(SvcResourceAction::Apply(args)) => {
+                    assert_eq!(args.manifest.as_deref(), Some("./trellis.contract.json"));
+                }
+                other => panic!("unexpected svc command: {other:?}"),
             }
-            other => panic!("unexpected svc command: {other:?}"),
-        },
+        }
         other => panic!("unexpected top-level command: {other:?}"),
     }
 
@@ -205,20 +234,18 @@ fn parses_target_first_service_and_device_resource_tokens() {
         "approved_by_policy",
     ]);
     match cli.command {
-        TopLevelCommand::Dev(command) => match command.command {
-            DevSubcommand::Resource(raw) => assert_eq!(
-                raw,
-                vec![
-                    "reader",
-                    "reviews",
-                    "approve",
-                    "review_123",
-                    "--reason",
-                    "approved_by_policy"
-                ]
-            ),
-            other => panic!("unexpected dev command: {other:?}"),
-        },
+        TopLevelCommand::Dev(command) => {
+            assert_eq!(command.id.as_deref(), Some("reader"));
+            match command.command {
+                DevSubcommand::Resource(DevResourceAction::Reviews(
+                    DevReviewsCommand::Approve(args),
+                )) => {
+                    assert_eq!(args.review_id, "review_123");
+                    assert_eq!(args.reason.as_deref(), Some("approved_by_policy"));
+                }
+                other => panic!("unexpected dev command: {other:?}"),
+            }
+        }
         other => panic!("unexpected top-level command: {other:?}"),
     }
 
@@ -233,20 +260,18 @@ fn parses_target_first_service_and_device_resource_tokens() {
         "approved_by_operator",
     ]);
     match cli.command {
-        TopLevelCommand::Svc(command) => match command.command {
-            SvcSubcommand::Resource(raw) => assert_eq!(
-                raw,
-                vec![
-                    "billing",
-                    "expansions",
-                    "approve",
-                    "request_123",
-                    "--reason",
-                    "approved_by_operator"
-                ]
-            ),
-            other => panic!("unexpected svc command: {other:?}"),
-        },
+        TopLevelCommand::Svc(command) => {
+            assert_eq!(command.id.as_deref(), Some("billing"));
+            match command.command {
+                SvcSubcommand::Resource(SvcResourceAction::Expansions(
+                    SvcExpansionsCommand::Approve(args),
+                )) => {
+                    assert_eq!(args.request_id, "request_123");
+                    assert_eq!(args.reason.as_deref(), Some("approved_by_operator"));
+                }
+                other => panic!("unexpected svc command: {other:?}"),
+            }
+        }
         other => panic!("unexpected top-level command: {other:?}"),
     }
 }

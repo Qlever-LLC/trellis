@@ -90,7 +90,15 @@ impl DeviceReviewState {
 
 #[derive(Debug, Args)]
 /// Manage service deployments.
+#[command(
+    override_usage = "trellis svc list [OPTIONS]\n       trellis svc <ID> <COMMAND>",
+    after_help = "In the target-first form, <ID> and <COMMAND> are required."
+)]
 pub struct SvcCommand {
+    /// Service deployment ID for target-first actions.
+    #[arg(value_name = "ID", hide = true)]
+    pub id: Option<String>,
+
     #[command(subcommand)]
     pub command: SvcSubcommand,
 }
@@ -100,9 +108,8 @@ pub struct SvcCommand {
 pub enum SvcSubcommand {
     /// List service deployments.
     List(SvcListArgs),
-    /// Operate on one service deployment ID.
-    #[command(external_subcommand)]
-    Resource(Vec<String>),
+    #[command(flatten)]
+    Resource(SvcResourceAction),
 }
 
 #[derive(Debug, Args)]
@@ -114,7 +121,15 @@ pub struct SvcListArgs {
 
 #[derive(Debug, Args)]
 /// Manage device deployments.
+#[command(
+    override_usage = "trellis dev list [OPTIONS]\n       trellis dev <ID> <COMMAND>",
+    after_help = "In the target-first form, <ID> and <COMMAND> are required."
+)]
 pub struct DevCommand {
+    /// Device deployment ID for target-first actions.
+    #[arg(value_name = "ID", hide = true)]
+    pub id: Option<String>,
+
     #[command(subcommand)]
     pub command: DevSubcommand,
 }
@@ -124,9 +139,8 @@ pub struct DevCommand {
 pub enum DevSubcommand {
     /// List device deployments.
     List(DevListArgs),
-    /// Operate on one device deployment ID.
-    #[command(external_subcommand)]
-    Resource(Vec<String>),
+    #[command(flatten)]
+    Resource(DevResourceAction),
 }
 
 #[derive(Debug, Args)]
@@ -146,14 +160,28 @@ pub struct SvcResourceCommand {
 #[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
 /// Actions available for one service deployment.
 pub enum SvcResourceAction {
+    /// Show one service deployment.
+    #[command(override_usage = "trellis svc <ID> show")]
     Show,
+    #[command(override_usage = "trellis svc <ID> create [OPTIONS]")]
     Create(SvcCreateArgs),
+    #[command(
+        override_usage = "trellis svc <ID> apply (--source <SOURCE>|--manifest <PATH>|--image <IMAGE>)"
+    )]
     Apply(ApplyArgs),
+    /// Disable one service deployment.
+    #[command(override_usage = "trellis svc <ID> disable")]
     Disable,
+    /// Enable one service deployment.
+    #[command(override_usage = "trellis svc <ID> enable")]
     Enable,
+    #[command(override_usage = "trellis svc <ID> remove [OPTIONS]")]
     Remove(RemoveArgs),
+    #[command(override_usage = "trellis svc <ID> instances [OPTIONS]")]
     Instances(SvcInstancesArgs),
+    #[command(override_usage = "trellis svc <ID> provision [OPTIONS]")]
     Provision(SvcProvisionArgs),
+    #[command(override_usage = "trellis svc <ID> expansions <COMMAND>")]
     #[command(subcommand)]
     Expansions(SvcExpansionsCommand),
 }
@@ -168,16 +196,31 @@ pub struct DevResourceCommand {
 #[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
 /// Actions available for one device deployment.
 pub enum DevResourceAction {
+    /// Show one device deployment.
+    #[command(override_usage = "trellis dev <ID> show")]
     Show,
+    #[command(override_usage = "trellis dev <ID> create [OPTIONS]")]
     Create(DevCreateArgs),
+    #[command(
+        override_usage = "trellis dev <ID> apply (--source <SOURCE>|--manifest <PATH>|--image <IMAGE>)"
+    )]
     Apply(ApplyArgs),
+    /// Disable one device deployment.
+    #[command(override_usage = "trellis dev <ID> disable")]
     Disable,
+    /// Enable one device deployment.
+    #[command(override_usage = "trellis dev <ID> enable")]
     Enable,
+    #[command(override_usage = "trellis dev <ID> remove [OPTIONS]")]
     Remove(RemoveArgs),
+    #[command(override_usage = "trellis dev <ID> instances [OPTIONS]")]
     Instances(DevInstancesArgs),
+    #[command(override_usage = "trellis dev <ID> provision [OPTIONS]")]
     Provision(DevProvisionArgs),
+    #[command(override_usage = "trellis dev <ID> activations <COMMAND>")]
     #[command(subcommand)]
     Activations(DevActivationsCommand),
+    #[command(override_usage = "trellis dev <ID> reviews <COMMAND>")]
     #[command(subcommand)]
     Reviews(DevReviewsCommand),
 }
@@ -265,8 +308,11 @@ pub struct SvcProvisionArgs {
 #[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
 /// Manage pending service deployment envelope expansion requests.
 pub enum SvcExpansionsCommand {
+    #[command(override_usage = "trellis svc <ID> expansions list [OPTIONS]")]
     List(SvcExpansionsListArgs),
+    #[command(override_usage = "trellis svc <ID> expansions approve <REQUEST_ID> [OPTIONS]")]
     Approve(SvcExpansionDecisionArgs),
+    #[command(override_usage = "trellis svc <ID> expansions reject <REQUEST_ID> [OPTIONS]")]
     Reject(SvcExpansionDecisionArgs),
 }
 
@@ -306,7 +352,9 @@ pub struct DevProvisionArgs {
 #[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
 /// Device activation operations for one device deployment.
 pub enum DevActivationsCommand {
+    #[command(override_usage = "trellis dev <ID> activations list [OPTIONS]")]
     List(DevActivationsListArgs),
+    #[command(override_usage = "trellis dev <ID> activations revoke <INSTANCE_ID>")]
     Revoke(DevActivationRevokeArgs),
 }
 
@@ -330,8 +378,11 @@ pub struct DevActivationRevokeArgs {
 #[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
 /// Device activation review operations for one device deployment.
 pub enum DevReviewsCommand {
+    #[command(override_usage = "trellis dev <ID> reviews list [OPTIONS]")]
     List(DevReviewsListArgs),
+    #[command(override_usage = "trellis dev <ID> reviews approve <REVIEW_ID> [OPTIONS]")]
     Approve(DevReviewDecisionArgs),
+    #[command(override_usage = "trellis dev <ID> reviews reject <REVIEW_ID> [OPTIONS]")]
     Reject(DevReviewDecisionArgs),
 }
 

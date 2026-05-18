@@ -4,7 +4,6 @@ use std::path::Path;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use clap::Parser;
 use miette::IntoDiagnostic;
 use serde_json::{json, Value};
 use trellis_auth as authlib;
@@ -19,72 +18,34 @@ const DEVICE_NAME_METADATA_KEY: &str = "name";
 const DEVICE_SERIAL_METADATA_KEY: &str = "serialNumber";
 const DEVICE_MODEL_METADATA_KEY: &str = "modelNumber";
 
-#[derive(Debug, Parser)]
-struct SvcResourceParser {
-    id: String,
-    #[command(subcommand)]
-    action: Option<SvcResourceAction>,
-}
-
-#[derive(Debug, Parser)]
-struct DevResourceParser {
-    id: String,
-    #[command(subcommand)]
-    action: Option<DevResourceAction>,
-}
-
 pub(super) async fn run_svc(format: OutputFormat, command: SvcCommand) -> miette::Result<()> {
-    match command.command {
-        SvcSubcommand::List(args) => list_services(format, &args).await,
-        SvcSubcommand::Resource(raw) => {
-            let parsed = parse_svc_resource(raw)?;
-            run_svc_resource(format, parsed).await
+    match (command.id, command.command) {
+        (None, SvcSubcommand::List(args)) => list_services(format, &args).await,
+        (Some(id), SvcSubcommand::Resource(action)) => {
+            run_svc_resource(format, SvcResourceCommand { id, action }).await
         }
+        (Some(_), SvcSubcommand::List(_)) => Err(miette::miette!(
+            "`list` is a top-level service command; use `trellis svc list`"
+        )),
+        (None, SvcSubcommand::Resource(_)) => Err(miette::miette!(
+            "missing service deployment ID; use `trellis svc <ID> <COMMAND>`"
+        )),
     }
 }
 
 pub(super) async fn run_dev(format: OutputFormat, command: DevCommand) -> miette::Result<()> {
-    match command.command {
-        DevSubcommand::List(args) => list_devices(format, &args).await,
-        DevSubcommand::Resource(raw) => {
-            let parsed = parse_dev_resource(raw)?;
-            run_dev_resource(format, parsed).await
+    match (command.id, command.command) {
+        (None, DevSubcommand::List(args)) => list_devices(format, &args).await,
+        (Some(id), DevSubcommand::Resource(action)) => {
+            run_dev_resource(format, DevResourceCommand { id, action }).await
         }
+        (Some(_), DevSubcommand::List(_)) => Err(miette::miette!(
+            "`list` is a top-level device command; use `trellis dev list`"
+        )),
+        (None, DevSubcommand::Resource(_)) => Err(miette::miette!(
+            "missing device deployment ID; use `trellis dev <ID> <COMMAND>`"
+        )),
     }
-}
-
-fn parse_svc_resource(raw: Vec<String>) -> miette::Result<SvcResourceCommand> {
-    let parsed = match SvcResourceParser::try_parse_from(
-        std::iter::once("trellis svc").chain(raw.iter().map(String::as_str)),
-    ) {
-        Ok(parsed) => parsed,
-        Err(error) if error.kind() == clap::error::ErrorKind::DisplayHelp => {
-            error.print().into_diagnostic()?;
-            std::process::exit(0);
-        }
-        Err(error) => return Err(miette::miette!(error.to_string())),
-    };
-    Ok(SvcResourceCommand {
-        id: parsed.id,
-        action: parsed.action.unwrap_or(SvcResourceAction::Show),
-    })
-}
-
-fn parse_dev_resource(raw: Vec<String>) -> miette::Result<DevResourceCommand> {
-    let parsed = match DevResourceParser::try_parse_from(
-        std::iter::once("trellis dev").chain(raw.iter().map(String::as_str)),
-    ) {
-        Ok(parsed) => parsed,
-        Err(error) if error.kind() == clap::error::ErrorKind::DisplayHelp => {
-            error.print().into_diagnostic()?;
-            std::process::exit(0);
-        }
-        Err(error) => return Err(miette::miette!(error.to_string())),
-    };
-    Ok(DevResourceCommand {
-        id: parsed.id,
-        action: parsed.action.unwrap_or(DevResourceAction::Show),
-    })
 }
 
 async fn run_svc_resource(format: OutputFormat, command: SvcResourceCommand) -> miette::Result<()> {

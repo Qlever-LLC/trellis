@@ -118,6 +118,6 @@ fn agent_contract_digest_matches_js_projection() {
     assert_eq!(
         trellis_auth::contract_digest(trellis_cli::agent_contract::agent_contract_json())
             .expect("agent contract digest"),
-        "jeV98TXIA6rH5dN9EgU5n_1yfCkeQcvw5pAjCChXclw"
+        "Zm18na0dcuHAnHrfch0_QylYsa1DTA2Hn4oSBLIhPnI"
     );
 }
