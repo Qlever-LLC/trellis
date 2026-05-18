@@ -217,13 +217,11 @@ fn prepare_bootstraps_repo_without_discover_summary() {
       type: "object",
       properties: {},
       required: [],
-      additionalProperties: false,
     },
     Order: {
       type: "object",
       properties: { id: { type: "string" } },
       required: ["id"],
-      additionalProperties: false,
     },
   },
   rpc: {
@@ -333,8 +331,8 @@ fn prepare_generates_rust_participant_facade_for_local_device_uses() {
   "description": "Fixture service contract",
   "kind": "service",
   "schemas": {
-    "Empty": { "type": "object", "properties": {}, "required": [], "additionalProperties": false },
-    "Order": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"], "additionalProperties": false }
+    "Empty": { "type": "object", "properties": {}, "required": [] },
+    "Order": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
   },
   "rpc": {
     "Orders.Get": {
@@ -357,8 +355,8 @@ fn prepare_generates_rust_participant_facade_for_local_device_uses() {
   "description": "Fixture inventory contract",
   "kind": "service",
   "schemas": {
-    "Empty": { "type": "object", "properties": {}, "required": [], "additionalProperties": false },
-    "Stock": { "type": "object", "properties": { "sku": { "type": "string" } }, "required": ["sku"], "additionalProperties": false }
+    "Empty": { "type": "object", "properties": {}, "required": [] },
+    "Stock": { "type": "object", "properties": { "sku": { "type": "string" } }, "required": ["sku"] }
   },
   "rpc": {
     "Inventory.Get": {
@@ -703,7 +701,6 @@ fn prepare_in_local_runtime_repo_keeps_typescript_package_specifiers() {
       type: "object",
       properties: {},
       required: [],
-      additionalProperties: false,
     },
   },
   rpc: {

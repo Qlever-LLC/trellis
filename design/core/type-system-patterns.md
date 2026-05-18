@@ -164,8 +164,8 @@ const configSchema = z.object({
 Rules:
 
 - TypeBox for RPC, event, and operation wire schemas
-- do not default wire payload object schemas to
-  `{ additionalProperties: false }`
+- do not default wire payload object schemas to closed-object
+  additional-property rejection
 - same-lineage Trellis rollouts rely on older runtimes accepting newer payloads
   that add optional fields they do not know about yet
 - in TypeBox, prefer omitting `additionalProperties` for wire payload objects

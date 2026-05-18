@@ -359,7 +359,7 @@ Authoring note:
 - additive rollout only works when older runtimes can still validate newer
   payloads that include unknown optional fields
 - for TypeBox-authored request, response, progress, and event payload objects,
-  do not treat `{ additionalProperties: false }` as the default
+  do not treat closed-object additional-property rejection as the default
 - close a payload object only when rejecting unknown fields is an intentional
   contract rule and mixed-version additive rollout does not need those fields
 

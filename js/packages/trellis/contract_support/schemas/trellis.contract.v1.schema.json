@@ -110,7 +110,6 @@
     },
     "schemaRef": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["schema"],
       "properties": {
         "schema": {
@@ -131,7 +130,6 @@
     },
     "exports": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "schemas": {
           "type": "array",
@@ -145,7 +143,6 @@
     },
     "resources": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "kv": {
           "type": "object",
@@ -176,7 +173,6 @@
         },
         {
           "type": "object",
-          "additionalProperties": false,
           "properties": {
             "required": {
               "$ref": "#/$defs/usesFlat"
@@ -210,7 +206,6 @@
     },
     "stateStore": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["kind", "schema"],
       "properties": {
         "kind": {
@@ -238,7 +233,6 @@
     },
     "useRpc": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "call": {
           "$ref": "#/$defs/capabilities"
@@ -247,7 +241,6 @@
     },
     "useOperation": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "call": {
           "$ref": "#/$defs/capabilities"
@@ -256,7 +249,6 @@
     },
     "usePubSub": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "publish": {
           "$ref": "#/$defs/capabilities"
@@ -268,7 +260,6 @@
     },
     "useFeed": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "subscribe": {
           "$ref": "#/$defs/capabilities"
@@ -277,7 +268,6 @@
     },
     "useRef": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["contract"],
       "properties": {
         "contract": {
@@ -301,7 +291,6 @@
     "kvResource": {
       "type": "object",
       "required": ["purpose", "schema"],
-      "additionalProperties": false,
       "properties": {
         "purpose": {
           "type": "string",
@@ -333,7 +322,6 @@
     "storeResource": {
       "type": "object",
       "required": ["purpose"],
-      "additionalProperties": false,
       "properties": {
         "purpose": {
           "type": "string",
@@ -360,7 +348,6 @@
     },
     "jobQueue": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["payload"],
       "properties": {
         "payload": {
@@ -422,7 +409,6 @@
     },
     "contractCapabilityMetadata": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["displayName", "description"],
       "properties": {
         "displayName": {
@@ -441,7 +427,6 @@
     },
     "errorRef": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["type"],
       "properties": {
         "type": {
@@ -452,7 +437,6 @@
     },
     "rpcMethod": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["version", "subject", "input", "output"],
       "properties": {
         "version": {
@@ -471,7 +455,6 @@
         },
         "capabilities": {
           "type": "object",
-          "additionalProperties": false,
           "properties": {
             "call": {
               "$ref": "#/$defs/capabilities"
@@ -486,7 +469,6 @@
         },
         "transfer": {
           "type": "object",
-          "additionalProperties": false,
           "required": ["direction"],
           "properties": {
             "direction": {
@@ -498,7 +480,6 @@
     },
     "operation": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["version", "subject", "input", "output"],
       "properties": {
         "version": {
@@ -520,7 +501,6 @@
         },
         "transfer": {
           "type": "object",
-          "additionalProperties": false,
           "required": ["direction", "store", "key"],
           "properties": {
             "direction": {
@@ -554,7 +534,6 @@
         },
         "capabilities": {
           "type": "object",
-          "additionalProperties": false,
           "properties": {
             "call": {
               "$ref": "#/$defs/capabilities"
@@ -574,7 +553,6 @@
           "type": "object",
           "additionalProperties": {
             "type": "object",
-            "additionalProperties": false,
             "required": ["input"],
             "properties": {
               "input": {
@@ -590,7 +568,6 @@
     },
     "event": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["version", "subject", "event"],
       "properties": {
         "version": {
@@ -613,7 +590,6 @@
         },
         "capabilities": {
           "type": "object",
-          "additionalProperties": false,
           "properties": {
             "publish": {
               "$ref": "#/$defs/capabilities"
@@ -627,7 +603,6 @@
     },
     "feed": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["version", "subject", "input", "event"],
       "properties": {
         "version": {
@@ -646,7 +621,6 @@
         },
         "capabilities": {
           "type": "object",
-          "additionalProperties": false,
           "properties": {
             "subscribe": {
               "$ref": "#/$defs/capabilities"
@@ -657,7 +631,6 @@
     },
     "errorDecl": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["type"],
       "properties": {
         "type": {

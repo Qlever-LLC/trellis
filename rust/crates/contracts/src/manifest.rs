@@ -16,17 +16,72 @@ pub fn load_json_value(path: impl AsRef<Path>) -> Result<Value, ContractsError> 
 
 /// Parse and validate one contract manifest JSON value.
 pub fn parse_manifest(value: Value) -> Result<ContractManifest, ContractsError> {
+    reject_unsupported_contract_fields(&value)?;
     validate_manifest(&value)?;
     let manifest: ContractManifest = serde_json::from_value(value)?;
     validate_schema_refs(&manifest)?;
     Ok(manifest)
 }
 
+fn reject_unsupported_contract_fields(value: &Value) -> Result<(), ContractsError> {
+    let Some(object) = value.as_object() else {
+        return Ok(());
+    };
+    if object.contains_key("subjects") {
+        return Err(ContractsError::SchemaValidation {
+            kind: "contract",
+            details: "Contract subjects are not supported in v1".to_string(),
+        });
+    }
+    if let Some(resources) = object.get("resources").and_then(Value::as_object) {
+        if resources.contains_key("jobs") {
+            return Err(ContractsError::SchemaValidation {
+                kind: "contract",
+                details: "/resources/jobs is not supported in v1".to_string(),
+            });
+        }
+        if resources.contains_key("stream") || resources.contains_key("streams") {
+            return Err(ContractsError::SchemaValidation {
+                kind: "contract",
+                details: "/resources/streams is not supported in v1".to_string(),
+            });
+        }
+    }
+
+    let Some(uses) = object.get("uses").and_then(Value::as_object) else {
+        return Ok(());
+    };
+    for group in ["required", "optional"] {
+        let Some(grouped_uses) = uses.get(group).and_then(Value::as_object) else {
+            continue;
+        };
+        for (alias, use_ref) in grouped_uses {
+            if use_ref
+                .as_object()
+                .is_some_and(|use_object| use_object.contains_key("subjects"))
+            {
+                return Err(ContractsError::SchemaValidation {
+                    kind: "contract",
+                    details: format!("Contract uses '{alias}' declares unsupported subjects"),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Parse untrusted manifest JSON and return the normalized current v1 shape.
+pub fn normalize_manifest_value(value: Value) -> Result<Value, ContractsError> {
+    let manifest = parse_manifest(value)?;
+    Ok(serde_json::to_value(manifest)?)
+}
+
 /// Load, validate, canonicalize, and digest one manifest file.
 pub fn load_manifest(path: impl AsRef<Path>) -> Result<LoadedManifest, ContractsError> {
     let path = path.as_ref();
-    let value = load_json_value(path)?;
-    let manifest = parse_manifest(value.clone())?;
+    let raw_value = load_json_value(path)?;
+    let manifest = parse_manifest(raw_value)?;
+    let value = serde_json::to_value(&manifest)?;
     let canonical = canonicalize_json(&value)?;
     let digest = digest_contract_value(&value)?;
 
@@ -524,8 +579,9 @@ pub fn project_contract_digest_manifest(contract: &Value) -> Value {
 
 /// Compute the v1 contract digest for a JSON manifest value.
 pub fn digest_contract_value(contract: &Value) -> Result<String, ContractsError> {
+    let normalized = normalize_manifest_value(contract.clone())?;
     Ok(sha256_base64url(&canonicalize_json(
-        &project_contract_digest_manifest(contract),
+        &project_contract_digest_manifest(&normalized),
     )?))
 }
 

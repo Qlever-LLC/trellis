@@ -2435,64 +2435,56 @@ mod tests {
                 "schemas": {
                     "PingInput": {
                         "type": "object",
-                        "properties": {},
-                        "additionalProperties": false
+                        "properties": {}
                     },
                     "PingOutput": {
                         "type": "object",
                         "properties": {
                             "ok": { "type": "boolean" }
                         },
-                        "required": ["ok"],
-                        "additionalProperties": false
+                        "required": ["ok"]
                     },
                     "ProcessInput": {
                         "type": "object",
                         "properties": {
                             "amount": { "type": "number" }
                         },
-                        "required": ["amount"],
-                        "additionalProperties": false
+                        "required": ["amount"]
                     },
                     "ProcessProgress": {
                         "type": "object",
                         "properties": {
                             "step": { "type": "string" }
                         },
-                        "required": ["step"],
-                        "additionalProperties": false
+                        "required": ["step"]
                     },
                     "ProcessOutput": {
                         "type": "object",
                         "properties": {
                             "ok": { "type": "boolean" }
                         },
-                        "required": ["ok"],
-                        "additionalProperties": false
+                        "required": ["ok"]
                     },
                     "ProcessContinue": {
                         "type": "object",
                         "properties": {
                             "confirmed": { "type": "boolean" }
                         },
-                        "required": ["confirmed"],
-                        "additionalProperties": false
+                        "required": ["confirmed"]
                     },
                     "FeedInput": {
                         "type": "object",
                         "properties": {
                             "siteId": { "type": "string" }
                         },
-                        "required": ["siteId"],
-                        "additionalProperties": false
+                        "required": ["siteId"]
                     },
                     "FeedEvent": {
                         "type": "object",
                         "properties": {
                             "message": { "type": "string" }
                         },
-                        "required": ["message"],
-                        "additionalProperties": false
+                        "required": ["message"]
                     }
                 },
                 "rpc": {
@@ -2855,14 +2847,12 @@ mod tests {
         let empty_schema = json!({
             "type": "object",
             "properties": {},
-            "required": [],
-            "additionalProperties": false
+            "required": []
         });
         let status_schema = json!({
             "type": "object",
             "properties": { "status": { "type": "string" } },
-            "required": ["status"],
-            "additionalProperties": false
+            "required": ["status"]
         });
 
         fs::write(
@@ -2930,8 +2920,7 @@ mod tests {
                     "Settings": {
                         "type": "object",
                         "properties": { "enabled": { "type": "boolean" } },
-                        "required": ["enabled"],
-                        "additionalProperties": false
+                        "required": ["enabled"]
                     }
                 },
                 "exports": { "schemas": ["Settings"] },
@@ -3042,14 +3031,12 @@ mod tests {
         let empty_schema = json!({
             "type": "object",
             "properties": {},
-            "required": [],
-            "additionalProperties": false
+            "required": []
         });
         let status_schema = json!({
             "type": "object",
             "properties": { "status": { "type": "string" } },
-            "required": ["status"],
-            "additionalProperties": false
+            "required": ["status"]
         });
 
         fs::write(
@@ -3206,32 +3193,28 @@ mod tests {
                 "schemas": {
                     "PingInput": {
                         "type": "object",
-                        "properties": {},
-                        "additionalProperties": false
+                        "properties": {}
                     },
                     "PingOutput": {
                         "type": "object",
                         "properties": {
                             "ok": { "type": "boolean" }
                         },
-                        "required": ["ok"],
-                        "additionalProperties": false
+                        "required": ["ok"]
                     },
                     "JobPayload": {
                         "type": "object",
                         "properties": {
                             "id": { "type": "string" }
                         },
-                        "required": ["id"],
-                        "additionalProperties": false
+                        "required": ["id"]
                     },
                     "JobResult": {
                         "type": "object",
                         "properties": {
                             "ok": { "type": "boolean" }
                         },
-                        "required": ["ok"],
-                        "additionalProperties": false
+                        "required": ["ok"]
                     }
                 },
                 "rpc": {
@@ -3300,32 +3283,28 @@ mod tests {
                 "schemas": {
                     "PingInput": {
                         "type": "object",
-                        "properties": {},
-                        "additionalProperties": false
+                        "properties": {}
                     },
                     "PingOutput": {
                         "type": "object",
                         "properties": {
                             "ok": { "type": "boolean" }
                         },
-                        "required": ["ok"],
-                        "additionalProperties": false
+                        "required": ["ok"]
                     },
                     "EmailPayload": {
                         "type": "object",
                         "properties": {
                             "address": { "type": "string" }
                         },
-                        "required": ["address"],
-                        "additionalProperties": false
+                        "required": ["address"]
                     },
                     "EmailResult": {
                         "type": "object",
                         "properties": {
                             "delivered": { "type": "boolean" }
                         },
-                        "required": ["delivered"],
-                        "additionalProperties": false
+                        "required": ["delivered"]
                     }
                 },
                 "rpc": {
@@ -3398,8 +3377,7 @@ mod tests {
                     "BindingsGetInput": {
                         "type": "object",
                         "properties": {},
-                        "required": [],
-                        "additionalProperties": false
+                        "required": []
                     },
                     "BindingsGetOutput": {
                         "type": "object",
@@ -3407,12 +3385,10 @@ mod tests {
                             "binding": {
                                 "type": "object",
                                 "required": ["resources"],
-                                "additionalProperties": false,
                                 "properties": {
                                     "resources": {
                                         "type": "object",
                                         "required": ["streams"],
-                                        "additionalProperties": false,
                                         "properties": {
                                             "streams": {
                                                 "type": "object",
@@ -3420,7 +3396,6 @@ mod tests {
                                                     "^.*$": {
                                                         "type": "object",
                                                         "required": ["name", "sources"],
-                                                        "additionalProperties": false,
                                                         "properties": {
                                                             "name": { "type": "string" },
                                                             "sources": {
@@ -3428,7 +3403,6 @@ mod tests {
                                                                 "items": {
                                                                     "type": "object",
                                                                     "required": ["fromAlias", "streamName"],
-                                                                    "additionalProperties": false,
                                                                     "properties": {
                                                                         "fromAlias": { "type": "string" },
                                                                         "streamName": { "type": "string" }
@@ -3437,16 +3411,14 @@ mod tests {
                                                             }
                                                         }
                                                     }
-                                                },
-                                                "additionalProperties": false
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                         },
-                        "required": ["binding"],
-                        "additionalProperties": false
+                        "required": ["binding"]
                     }
                 },
                 "rpc": {
@@ -3523,13 +3495,11 @@ mod tests {
                     "Empty": {
                         "type": "object",
                         "properties": {},
-                        "required": [],
-                        "additionalProperties": false
+                        "required": []
                     },
                     "NotFoundErrorData": {
                         "type": "object",
                         "required": ["id", "type", "message", "resource"],
-                        "additionalProperties": false,
                         "properties": {
                             "id": { "type": "string" },
                             "type": { "const": "NotFoundError" },
@@ -3647,8 +3617,7 @@ mod tests {
                 "schemas": {
                     "PingInput": {
                         "type": "object",
-                        "properties": {},
-                        "additionalProperties": false
+                        "properties": {}
                     },
                     "PingOutput": {
                         "type": "object",
@@ -3659,25 +3628,21 @@ mod tests {
                                 "properties": {
                                     "name": { "type": "string" }
                                 },
-                                "required": ["name"],
-                                "additionalProperties": false
+                                "required": ["name"]
                             }
                         },
-                        "required": ["ok", "shared"],
-                        "additionalProperties": false
+                        "required": ["ok", "shared"]
                     },
                     "SharedModel": {
                         "type": "object",
                         "properties": {
                             "name": { "type": "string" }
                         },
-                        "required": ["name"],
-                        "additionalProperties": false
+                        "required": ["name"]
                     },
                     "NotFoundErrorData": {
                         "type": "object",
                         "required": ["id", "type", "message", "resource"],
-                        "additionalProperties": false,
                         "properties": {
                             "id": { "type": "string" },
                             "type": { "const": "NotFoundError" },
@@ -3690,8 +3655,7 @@ mod tests {
                         "properties": {
                             "value": { "type": "string" }
                         },
-                        "required": ["value"],
-                        "additionalProperties": false
+                        "required": ["value"]
                     }
                 },
                 "exports": {

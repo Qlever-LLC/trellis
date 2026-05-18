@@ -81,8 +81,8 @@ fn pack_trellis_owned_contracts_matches_shared_fixture() {
             "description": "Trellis runtime RPCs available to all connected participants.",
             "kind": "service",
             "schemas": {
-                "CatalogInput": {"type": "object", "properties": {}, "additionalProperties": false},
-                "CatalogOutput": {"type": "object", "properties": {}, "additionalProperties": false}
+                "CatalogInput": {"type": "object", "properties": {}},
+                "CatalogOutput": {"type": "object", "properties": {}}
             },
             "rpc": {
                 "Trellis.Catalog": {
@@ -105,7 +105,7 @@ fn pack_trellis_owned_contracts_matches_shared_fixture() {
             "description": "Provide Trellis authentication, session, deployment, and admin RPCs.",
             "kind": "service",
             "schemas": {
-                "AuthConnectionsOpenedEvent": {"type": "object", "properties": {}, "additionalProperties": false}
+                "AuthConnectionsOpenedEvent": {"type": "object", "properties": {}}
             },
             "events": {
                 "Auth.Connections.Opened": {
@@ -223,9 +223,9 @@ fn loaded_manifest_digest_uses_contract_identity_projection() {
         "description": "Example contract used in digest tests.",
         "kind": "service",
         "schemas": {
-            "PingInput": {"type": "object", "properties": {}, "additionalProperties": false},
-            "PingOutput": {"type": "object", "properties": {}, "additionalProperties": false},
-            "Unused": {"type": "object", "properties": {"ignored": {"type": "string"}}, "additionalProperties": false}
+            "PingInput": {"type": "object", "properties": {}},
+            "PingOutput": {"type": "object", "properties": {}},
+            "Unused": {"type": "object", "properties": {"ignored": {"type": "string"}}}
         },
         "rpc": {
             "Example.Ping": {
@@ -243,8 +243,7 @@ fn loaded_manifest_digest_uses_contract_identity_projection() {
     manifest["description"] = json!("Changed display metadata.");
     manifest["schemas"]["Unused"] = json!({
         "type": "object",
-        "properties": {"stillIgnored": {"type": "number"}},
-        "additionalProperties": false
+        "properties": {"stillIgnored": {"type": "number"}}
     });
     fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).expect("rewrite manifest");
     let metadata_only_digest = load_manifest(&manifest_path)
@@ -255,8 +254,7 @@ fn loaded_manifest_digest_uses_contract_identity_projection() {
     manifest["schemas"]["PingOutput"] = json!({
         "type": "object",
         "required": ["pong"],
-        "properties": {"pong": {"type": "boolean"}},
-        "additionalProperties": false
+        "properties": {"pong": {"type": "boolean"}}
     });
     fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).expect("rewrite manifest");
     let changed_interface_digest = load_manifest(&manifest_path)
@@ -374,8 +372,7 @@ fn manifest_parses_kv_resources_with_schema() {
             "CacheState": {
                 "type": "object",
                 "required": ["status"],
-                "properties": {"status": {"type": "string"}},
-                "additionalProperties": false
+                "properties": {"status": {"type": "string"}}
             }
         },
         "resources": {
@@ -500,9 +497,9 @@ fn manifest_parses_owned_and_used_operations() {
         "description": "Expose operations.",
         "kind": "service",
         "schemas": {
-            "CaptureRequest": {"type": "object", "properties": {}, "additionalProperties": false},
-            "CaptureProgress": {"type": "object", "properties": {}, "additionalProperties": false},
-            "CaptureResult": {"type": "object", "properties": {}, "additionalProperties": false}
+            "CaptureRequest": {"type": "object", "properties": {}},
+            "CaptureProgress": {"type": "object", "properties": {}},
+            "CaptureResult": {"type": "object", "properties": {}}
         },
         "uses": {
             "required": {
@@ -598,8 +595,8 @@ fn manifest_parses_explicit_rpc_receive_transfer() {
         "description": "Expose receive transfer grant RPCs.",
         "kind": "service",
         "schemas": {
-            "DownloadRequest": {"type": "object", "properties": {}, "additionalProperties": false},
-            "DownloadResponse": {"type": "object", "properties": {}, "additionalProperties": false}
+            "DownloadRequest": {"type": "object", "properties": {}},
+            "DownloadResponse": {"type": "object", "properties": {}}
         },
         "rpc": {
             "Evidence.Download": {
@@ -630,8 +627,8 @@ fn manifest_parses_top_level_feeds() {
         "description": "Expose queryable feeds.",
         "kind": "service",
         "schemas": {
-            "AuditFeedInput": {"type": "object", "properties": {}, "additionalProperties": false},
-            "AuditFeedEvent": {"type": "object", "properties": {}, "additionalProperties": false}
+            "AuditFeedInput": {"type": "object", "properties": {}},
+            "AuditFeedEvent": {"type": "object", "properties": {}}
         },
         "feeds": {
             "Audit.Feed": {
@@ -775,12 +772,12 @@ fn grouped_required_uses_take_precedence_over_duplicate_optional_aliases() {
 }
 
 #[test]
-fn manifest_rejects_flat_uses() {
-    let error = parse_manifest(json!({
+fn manifest_ignores_flat_uses_for_forward_compatibility() {
+    let manifest = parse_manifest(json!({
         "format": "trellis.contract.v1",
         "id": "example.flat-uses@v1",
         "displayName": "Flat Uses",
-        "description": "Flat uses are no longer accepted.",
+        "description": "Flat uses are ignored by current runtimes.",
         "kind": "service",
         "uses": {
             "billing": {
@@ -789,12 +786,9 @@ fn manifest_rejects_flat_uses() {
             }
         }
     }))
-    .expect_err("flat uses should be rejected");
+    .expect("flat uses should be accepted and ignored");
 
-    let ContractsError::Json(error) = error else {
-        panic!("expected serde json error");
-    };
-    assert!(error.to_string().contains("unknown field `billing`"));
+    assert_eq!(manifest.uses.iter().count(), 0);
 }
 
 #[test]
@@ -1023,7 +1017,7 @@ fn manifest_validation_rejects_unknown_feed_schema_refs() {
         "description": "Expose queryable feeds.",
         "kind": "service",
         "schemas": {
-            "AuditFeedInput": {"type": "object", "properties": {}, "additionalProperties": false}
+            "AuditFeedInput": {"type": "object", "properties": {}}
         },
         "feeds": {
             "Audit.Feed": {
@@ -1052,9 +1046,9 @@ fn contract_digest_changes_when_feed_schemas_change() {
         "description": "Expose queryable feeds.",
         "kind": "service",
         "schemas": {
-            "AuditFeedInput": {"type": "object", "properties": {}, "additionalProperties": false},
-            "AuditFeedEvent": {"type": "object", "properties": {}, "additionalProperties": false},
-            "Unused": {"type": "object", "properties": {"ignored": {"type": "string"}}, "additionalProperties": false}
+            "AuditFeedInput": {"type": "object", "properties": {}},
+            "AuditFeedEvent": {"type": "object", "properties": {}},
+            "Unused": {"type": "object", "properties": {"ignored": {"type": "string"}}}
         },
         "feeds": {
             "Audit.Feed": {
@@ -1069,8 +1063,7 @@ fn contract_digest_changes_when_feed_schemas_change() {
 
     manifest["schemas"]["Unused"] = json!({
         "type": "object",
-        "properties": {"stillIgnored": {"type": "number"}},
-        "additionalProperties": false
+        "properties": {"stillIgnored": {"type": "number"}}
     });
     assert_eq!(
         digest_contract_value(&manifest).expect("digest with unused schema change"),
@@ -1080,21 +1073,18 @@ fn contract_digest_changes_when_feed_schemas_change() {
     manifest["schemas"]["AuditFeedInput"] = json!({
         "type": "object",
         "required": ["cursor"],
-        "properties": {"cursor": {"type": "string"}},
-        "additionalProperties": false
+        "properties": {"cursor": {"type": "string"}}
     });
     assert_ne!(
         digest_contract_value(&manifest).expect("digest with input schema change"),
         digest
     );
 
-    manifest["schemas"]["AuditFeedInput"] =
-        json!({"type": "object", "properties": {}, "additionalProperties": false});
+    manifest["schemas"]["AuditFeedInput"] = json!({"type": "object", "properties": {}});
     manifest["schemas"]["AuditFeedEvent"] = json!({
         "type": "object",
         "required": ["id"],
-        "properties": {"id": {"type": "string"}},
-        "additionalProperties": false
+        "properties": {"id": {"type": "string"}}
     });
     assert_ne!(
         digest_contract_value(&manifest).expect("digest with event schema change"),
@@ -1111,8 +1101,8 @@ fn manifest_parses_top_level_jobs() {
         "description": "Expose job queues.",
         "kind": "service",
         "schemas": {
-            "JobPayload": {"type": "object", "properties": {}, "additionalProperties": false},
-            "JobResult": {"type": "object", "properties": {}, "additionalProperties": false}
+            "JobPayload": {"type": "object", "properties": {}},
+            "JobResult": {"type": "object", "properties": {}}
         },
         "jobs": {
             "document-process": {
@@ -1159,7 +1149,7 @@ fn manifest_validation_rejects_legacy_resource_jobs() {
         "description": "Expose job queues.",
         "kind": "service",
         "schemas": {
-            "JobPayload": {"type": "object", "properties": {}, "additionalProperties": false}
+            "JobPayload": {"type": "object", "properties": {}}
         },
         "resources": {
             "jobs": {
@@ -1189,7 +1179,7 @@ fn manifest_validation_rejects_unknown_operation_schema_refs() {
         "description": "Expose operations.",
         "kind": "service",
         "schemas": {
-            "CaptureRequest": {"type": "object", "properties": {}, "additionalProperties": false}
+            "CaptureRequest": {"type": "object", "properties": {}}
         },
         "operations": {
             "Payments.Capture": {

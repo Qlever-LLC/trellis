@@ -1,5 +1,3 @@
-import { compileSchema } from "json-schema-library";
-
 export type SubjectParam = `/${string}`;
 
 type JsonPrimitive = string | number | boolean | null;
@@ -56,6 +54,38 @@ export type ScalarJsonPointer<T> = ScalarPointerPaths<T, "", 6> extends infer P
   : never
   : never;
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function decodeJsonPointerSegment(segment: string): string {
+  return segment.replaceAll("~1", "/").replaceAll("~0", "~");
+}
+
+function resolveSubschema(
+  schema: unknown,
+  segments: readonly string[],
+): unknown | undefined {
+  if (segments.length === 0) return schema;
+  if (!isJsonObject(schema)) return undefined;
+
+  for (const key of ["allOf", "anyOf", "oneOf"] as const) {
+    const variants = schema[key];
+    if (!Array.isArray(variants)) continue;
+    for (const variant of variants) {
+      const resolved = resolveSubschema(variant, segments);
+      if (resolved !== undefined) return resolved;
+    }
+  }
+
+  const properties = schema.properties;
+  const [segment, ...rest] = segments;
+  if (!isJsonObject(properties) || !Object.hasOwn(properties, segment)) {
+    return undefined;
+  }
+  return resolveSubschema(properties[segment], rest);
+}
+
 function isTokenableSchema(schema: unknown): boolean {
   if (schema === true || schema === false) return false;
   if (!schema || typeof schema !== "object") return false;
@@ -103,12 +133,10 @@ export function getSubschemaAtDataPointer(
   schema: unknown,
   pointer: string,
 ): unknown | undefined {
-  const root = compileSchema(schema as Record<string, unknown>);
-  const { node, error } = root.getNode(pointer, undefined, {
-    withSchemaWarning: true,
-  });
-  if (error || !node) return undefined;
-  return node.schema;
+  return resolveSubschema(
+    schema,
+    pointer.slice(1).split("/").map(decodeJsonPointerSegment),
+  );
 }
 
 export function assertDataPointersExistAndAreTokenable(
@@ -116,19 +144,15 @@ export function assertDataPointersExistAndAreTokenable(
   schema: unknown,
   pointers: readonly string[],
 ): void {
-  const root = compileSchema(schema as Record<string, unknown>);
-
   for (const pointer of pointers) {
-    const { node, error } = root.getNode(pointer, undefined, {
-      withSchemaWarning: true,
-    });
-    if (error || !node) {
+    const node = getSubschemaAtDataPointer(schema, pointer);
+    if (node === undefined) {
       throw new Error(
         `Invalid event subject param pointer '${pointer}' for event '${name}' (path not found in schema)`,
       );
     }
 
-    if (!isTokenableSchema(node.schema)) {
+    if (!isTokenableSchema(node)) {
       throw new Error(
         `Invalid event subject param pointer '${pointer}' for event '${name}' (must resolve to string/number schema)`,
       );

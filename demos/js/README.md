@@ -58,10 +58,10 @@ properties that exist in the event payload schema.
 When evolving the demo service during a rollout, keep duplicate RPC, operation,
 event, and job payload schemas wire-compatible. The demo schemas intentionally
 use normal open TypeBox objects, so adding optional fields is the safe additive
-path. Adding required fields, closing objects with
-`additionalProperties: false`, or changing field types requires shrinking the
-old deployment envelope only after old runtimes are gone, or moving to a new
-contract lineage.
+path. Adding required fields, closing objects with closed-object
+additional-property rejection, or changing field types requires shrinking the old
+deployment envelope only after old runtimes are gone, or moving to a new contract
+lineage.
 
 ## Create And Start The Service
 

@@ -3,7 +3,6 @@
   "$id": "https://trellis.dev/schemas/trellis.catalog.v1.schema.json",
   "title": "Trellis Deployment Catalog v1",
   "type": "object",
-  "additionalProperties": false,
   "required": ["format", "contracts"],
   "properties": {
     "format": {
@@ -13,7 +12,6 @@
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": false,
         "required": ["id", "digest", "displayName", "description"],
         "properties": {
           "id": {

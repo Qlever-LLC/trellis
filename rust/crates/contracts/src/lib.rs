@@ -24,7 +24,8 @@ pub use catalog::{
 pub use error::ContractsError;
 pub use manifest::{
     digest_contract_json, digest_contract_value, load_json_value, load_manifest,
-    manifest_paths_in_dir, parse_manifest, project_contract_digest_manifest,
+    manifest_paths_in_dir, normalize_manifest_value, parse_manifest,
+    project_contract_digest_manifest,
 };
 pub use model::{
     Catalog, CatalogEntry, CatalogPack, ContractCapabilities, ContractCapabilityMetadata,

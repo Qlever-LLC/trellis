@@ -1,4 +1,5 @@
 import type {
+  JsonSchema,
   TrellisCatalogV1,
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
@@ -8,16 +9,12 @@ import {
   digestContractManifest,
   isJsonValue,
   type JsonValue,
-  normalizeContractManifest,
+  parseContractManifest,
 } from "@qlever-llc/trellis/contracts";
-import { compileSchema, draft2019, type JsonSchema } from "json-schema-library";
-import { Type } from "typebox";
-import { Value } from "typebox/value";
 
 import { templateToWildcard } from "./subject_templates.ts";
 
 type CatalogEntry = TrellisCatalogV1["contracts"][number];
-const JsonObjectSchema = Type.Object({}, { additionalProperties: true });
 
 export type ContractEntry = { digest: string; contract: TrellisContractV1 };
 
@@ -62,26 +59,36 @@ function assertNoUnsupportedSubjects(raw: Record<string, unknown>): void {
     throw new Error("Contract subjects are not supported in v1");
   }
 
+  const resources = raw.resources;
+  if (resources && typeof resources === "object" && !Array.isArray(resources)) {
+    if (Object.hasOwn(resources, "jobs")) {
+      throw new Error("/resources/jobs is not supported in v1");
+    }
+    if (
+      Object.hasOwn(resources, "stream") || Object.hasOwn(resources, "streams")
+    ) {
+      throw new Error("/resources/stream is not supported in v1");
+    }
+  }
+
   const uses = raw.uses;
   if (!uses || typeof uses !== "object" || Array.isArray(uses)) return;
-  for (const [alias, use] of Object.entries(uses)) {
-    if (!use || typeof use !== "object" || Array.isArray(use)) continue;
-    if (Object.hasOwn(use, "subjects")) {
+  for (const group of ["required", "optional"]) {
+    const groupedUses = (uses as Record<string, unknown>)[group];
+    if (
+      !groupedUses || typeof groupedUses !== "object" ||
+      Array.isArray(groupedUses)
+    ) {
+      continue;
+    }
+    for (const [alias, use] of Object.entries(groupedUses)) {
+      if (!use || typeof use !== "object" || Array.isArray(use)) continue;
+      if (!Object.hasOwn(use, "subjects")) continue;
       throw new Error(
         `Contract uses '${alias}' declares unsupported subjects`,
       );
     }
   }
-}
-
-function assertValidContractValue(
-  value: JsonValue,
-): asserts value is TrellisContractV1 {
-  void value;
-}
-
-function formatSchemaPath(context: string, pointer: string): string {
-  return pointer === "#" || pointer === "" ? context : `${context}${pointer}`;
 }
 
 function assertNoSchemaRefs(schema: JsonValue, context: string): void {
@@ -116,21 +123,54 @@ function assertSchemaObjectOrBoolean(
   );
 }
 
+const JSON_SCHEMA_TYPES = new Set([
+  "array",
+  "boolean",
+  "integer",
+  "null",
+  "number",
+  "object",
+  "string",
+]);
+
+function assertValidEmbeddedSchemaKeywords(
+  schema: JsonValue,
+  context: string,
+): void {
+  if (!schema || typeof schema !== "object") return;
+  if (Array.isArray(schema)) {
+    for (const [index, item] of schema.entries()) {
+      assertValidEmbeddedSchemaKeywords(item, `${context}/${index}`);
+    }
+    return;
+  }
+
+  const type = schema.type;
+  if (typeof type === "string" && !JSON_SCHEMA_TYPES.has(type)) {
+    throw new Error(`${context}/type: unknown JSON Schema type '${type}'`);
+  }
+  if (
+    Array.isArray(type) &&
+    !type.every((item) =>
+      typeof item === "string" && JSON_SCHEMA_TYPES.has(item)
+    )
+  ) {
+    throw new Error(
+      `${context}/type: type array contains an unknown JSON Schema type`,
+    );
+  }
+
+  for (const [key, value] of Object.entries(schema)) {
+    assertValidEmbeddedSchemaKeywords(value, `${context}/${key}`);
+  }
+}
+
 function validateEmbeddedSchemas(contract: TrellisContractV1): void {
   for (const [schemaName, schema] of Object.entries(contract.schemas ?? {})) {
     const context = `schemas.${schemaName}`;
     assertSchemaObjectOrBoolean(schema, context);
     assertNoSchemaRefs(schema, context);
-    const compiled = compileSchema(schema, { drafts: [draft2019] });
-    const schemaErrors = compiled.schemaErrors ?? [];
-    if (schemaErrors.length > 0) {
-      const msg = schemaErrors.map((error) =>
-        `${
-          formatSchemaPath(context, error.data.pointer)
-        }: ${error.data.message}`
-      ).join("\n");
-      throw new Error(`Invalid embedded contract schema:\n${msg}`);
-    }
+    assertValidEmbeddedSchemaKeywords(schema, context);
   }
 }
 
@@ -371,22 +411,6 @@ function validateSchemaRefs(contract: TrellisContractV1) {
   }
 }
 
-let validator: ReturnType<typeof compileSchema> | undefined;
-
-function contractValidator(): ReturnType<typeof compileSchema> {
-  if (validator) return validator;
-  const schemaPath = new URL(
-    "../../../packages/trellis/contract_support/schemas/trellis.contract.v1.schema.json",
-    import.meta.url,
-  );
-  const contractSchema = Value.Parse(
-    JsonObjectSchema,
-    JSON.parse(Deno.readTextFileSync(schemaPath)),
-  );
-  validator = compileSchema(contractSchema, { drafts: [draft2019] });
-  return validator;
-}
-
 function indexActiveId(
   index: Map<string, Set<string>>,
   digest: string,
@@ -574,20 +598,11 @@ export async function validateContractManifest(
   }
   assertNoUnsupportedSubjects(raw);
 
-  const { valid, errors } = contractValidator().validate(raw);
-  if (!valid) {
-    const msg = errors.map((
-      e: { data: { pointer: string }; message: string },
-    ) => `${e.data.pointer}: ${e.message}`).join("\n");
-    throw new Error(`Invalid contract:\n${msg}`);
-  }
-
-  assertValidContractValue(raw);
-  const contract = normalizeContractManifest(raw);
+  const contract = parseContractManifest(raw);
   validateEmbeddedSchemas(contract);
   validateSchemaRefs(contract);
   validateEventTemplateParams(contract);
-  const canonical = canonicalizeJson(raw as JsonValue);
+  const canonical = canonicalizeJson(contract);
   const digest = digestContractManifest(contract);
 
   return { digest, canonical, contract };

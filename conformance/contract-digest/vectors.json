@@ -16,8 +16,7 @@
       "schemas": {
         "Input": {
           "type": "object",
-          "properties": {},
-          "additionalProperties": false
+          "properties": {}
         },
         "Output": {
           "type": "object",
@@ -49,6 +48,6 @@
       },
       "unknownFutureField": true
     },
-    "digest": "xUqDCdoT1_uLoroJTKXsCy0TR0jVUsd40Sfllzdv4j0"
+    "digest": "u7h2fJxPcd9HDsSh0GzM3zjFrfS8btaLSh1nx9JV-9s"
   }
 ]

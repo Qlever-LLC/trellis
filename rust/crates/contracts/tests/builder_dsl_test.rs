@@ -69,10 +69,7 @@ fn builder_adds_baseline_health_for_device_contracts_with_state() {
         "Example device manifest.",
         ContractKind::Device,
     )
-    .schema(
-        "Preferences",
-        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
-    )
+    .schema("Preferences", json!({ "type": "object", "properties": {} }))
     .state(
         "preferences",
         state(ContractStateKind::Value, "Preferences"),
@@ -163,15 +160,14 @@ fn builder_supports_uses_rpc_kv_store_and_job_queue_resources() {
     )
     .schema(
         "HealthRequest",
-        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        json!({ "type": "object", "properties": {} }),
     )
     .schema(
         "HealthResponse",
         json!({
             "type": "object",
             "required": ["ok"],
-            "properties": {"ok": {"type": "boolean"}},
-            "additionalProperties": false
+            "properties": {"ok": {"type": "boolean"}}
         }),
     )
     .schema(
@@ -179,8 +175,7 @@ fn builder_supports_uses_rpc_kv_store_and_job_queue_resources() {
         json!({
             "type": "object",
             "required": ["status"],
-            "properties": {"status": {"type": "string"}},
-            "additionalProperties": false
+            "properties": {"status": {"type": "string"}}
         }),
     )
     .use_ref(
@@ -326,14 +321,8 @@ fn builder_supports_state_stores_exports_and_events() {
         "Example device manifest.",
         ContractKind::Device,
     )
-    .schema(
-        "Preferences",
-        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
-    )
-    .schema(
-        "Changed",
-        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
-    )
+    .schema("Preferences", json!({ "type": "object", "properties": {} }))
+    .schema("Changed", json!({ "type": "object", "properties": {} }))
     .export_schema("Preferences")
     .state(
         "preferences",
@@ -376,10 +365,7 @@ fn builder_build_returns_validation_error_for_unknown_schema_ref() {
         "Example contract description.",
         ContractKind::Service,
     )
-    .schema(
-        "Present",
-        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
-    )
+    .schema("Present", json!({ "type": "object", "properties": {} }))
     .rpc(
         "Example.Call",
         trellis_contracts::rpc("v1", "rpc.v1.Example.Call", "Missing", "Present"),
@@ -421,15 +407,15 @@ fn builder_supports_owned_and_used_operations() {
     )
     .schema(
         "CaptureRequest",
-        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        json!({ "type": "object", "properties": {} }),
     )
     .schema(
         "CaptureProgress",
-        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        json!({ "type": "object", "properties": {} }),
     )
     .schema(
         "CaptureResult",
-        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        json!({ "type": "object", "properties": {} }),
     )
     .use_ref(
         "billing",
@@ -512,7 +498,7 @@ fn builder_build_returns_validation_error_for_unknown_operation_schema_ref() {
     )
     .schema(
         "CaptureRequest",
-        json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        json!({ "type": "object", "properties": {} }),
     )
     .operation(
         "Payments.Capture",

@@ -4,6 +4,7 @@ import Type, {
   type TProperties,
   type TSchema,
 } from "typebox";
+import { Value } from "typebox/value";
 import type { BaseError } from "@qlever-llc/result";
 import type { AuthSessionsMeResponse } from "../auth/protocol.ts";
 import { TrellisError } from "../errors/TrellisError.ts";
@@ -55,6 +56,12 @@ import {
   getSubschemaAtDataPointer,
   type SubjectParam,
 } from "./schema_pointers.ts";
+import {
+  ContractJobQueueSchema,
+  ContractResourcesSchema,
+  ContractSchemaRefSchema,
+  ContractStateSchema,
+} from "./protocol.ts";
 
 export {
   ContractJobQueueSchema,
@@ -85,6 +92,195 @@ export {
 
 export const CONTRACT_FORMAT_V1 = "trellis.contract.v1" as const;
 export const CATALOG_FORMAT_V1 = "trellis.catalog.v1" as const;
+
+const NonEmptyStringSchema = Type.String({ minLength: 1 });
+const VersionSchema = Type.String({ pattern: "^v[0-9]+$" });
+const PointerStringSchema = Type.String({ pattern: "^/.*" });
+const CapabilityListSchema = Type.Array(NonEmptyStringSchema);
+const JsonSchemaValueSchema = Type.Union([
+  Type.Object({}, { additionalProperties: true }),
+  Type.Boolean(),
+]);
+
+export const ContractCapabilityMetadataSchema = Type.Object({
+  displayName: NonEmptyStringSchema,
+  description: NonEmptyStringSchema,
+  consequence: Type.Optional(NonEmptyStringSchema),
+});
+
+export const ContractCapabilitiesSchema = Type.Record(
+  NonEmptyStringSchema,
+  ContractCapabilityMetadataSchema,
+);
+
+export const ContractExportsSchema = Type.Object({
+  schemas: Type.Optional(
+    Type.Array(NonEmptyStringSchema, { uniqueItems: true }),
+  ),
+});
+
+const ContractUseRpcSchema = Type.Object({
+  call: Type.Optional(CapabilityListSchema),
+});
+
+const ContractUsePubSubSchema = Type.Object({
+  publish: Type.Optional(CapabilityListSchema),
+  subscribe: Type.Optional(CapabilityListSchema),
+});
+
+const ContractUseFeedSchema = Type.Object({
+  subscribe: Type.Optional(CapabilityListSchema),
+});
+
+const ContractUseSchema = Type.Object({
+  contract: NonEmptyStringSchema,
+  rpc: Type.Optional(ContractUseRpcSchema),
+  operations: Type.Optional(ContractUseRpcSchema),
+  events: Type.Optional(ContractUsePubSubSchema),
+  feeds: Type.Optional(ContractUseFeedSchema),
+});
+
+const ContractUsesFlatSchema = Type.Record(
+  NonEmptyStringSchema,
+  ContractUseSchema,
+);
+
+export const ContractUsesSchema = Type.Object({
+  required: Type.Optional(ContractUsesFlatSchema),
+  optional: Type.Optional(ContractUsesFlatSchema),
+});
+
+const ContractErrorDeclSchema = Type.Object({
+  type: NonEmptyStringSchema,
+  schema: Type.Optional(ContractSchemaRefSchema),
+});
+
+const ContractErrorRefSchema = Type.Object({
+  type: NonEmptyStringSchema,
+});
+
+const RpcCapabilitiesSchema = Type.Object({
+  call: Type.Optional(CapabilityListSchema),
+});
+
+const OperationCapabilitiesSchema = Type.Object({
+  call: Type.Optional(CapabilityListSchema),
+  read: Type.Optional(CapabilityListSchema),
+  cancel: Type.Optional(CapabilityListSchema),
+  control: Type.Optional(CapabilityListSchema),
+});
+
+const PubSubCapabilitiesSchema = Type.Object({
+  publish: Type.Optional(CapabilityListSchema),
+  subscribe: Type.Optional(CapabilityListSchema),
+});
+
+const FeedCapabilitiesSchema = Type.Object({
+  subscribe: Type.Optional(CapabilityListSchema),
+});
+
+const RpcTransferSchema = Type.Object({
+  direction: Type.Literal("receive"),
+});
+
+const OperationTransferSchema = Type.Object({
+  direction: Type.Literal("send"),
+  store: NonEmptyStringSchema,
+  key: PointerStringSchema,
+  contentType: Type.Optional(PointerStringSchema),
+  metadata: Type.Optional(PointerStringSchema),
+  expiresInMs: Type.Optional(Type.Integer({ minimum: 1 })),
+  maxBytes: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
+const ContractRpcMethodSchema = Type.Object({
+  version: VersionSchema,
+  subject: NonEmptyStringSchema,
+  input: ContractSchemaRefSchema,
+  output: ContractSchemaRefSchema,
+  capabilities: Type.Optional(RpcCapabilitiesSchema),
+  errors: Type.Optional(Type.Array(ContractErrorRefSchema)),
+  transfer: Type.Optional(RpcTransferSchema),
+});
+
+const ContractOperationSignalSchema = Type.Object({
+  input: ContractSchemaRefSchema,
+});
+
+const ContractOperationSchema = Type.Object({
+  version: VersionSchema,
+  subject: NonEmptyStringSchema,
+  input: ContractSchemaRefSchema,
+  progress: Type.Optional(ContractSchemaRefSchema),
+  output: ContractSchemaRefSchema,
+  transfer: Type.Optional(OperationTransferSchema),
+  capabilities: Type.Optional(OperationCapabilitiesSchema),
+  signals: Type.Optional(
+    Type.Record(NonEmptyStringSchema, ContractOperationSignalSchema),
+  ),
+  cancel: Type.Optional(Type.Boolean()),
+});
+
+const ContractEventSchema = Type.Object({
+  version: VersionSchema,
+  subject: NonEmptyStringSchema,
+  params: Type.Optional(Type.Array(PointerStringSchema)),
+  event: ContractSchemaRefSchema,
+  capabilities: Type.Optional(PubSubCapabilitiesSchema),
+});
+
+const ContractFeedSchema = Type.Object({
+  version: VersionSchema,
+  subject: NonEmptyStringSchema,
+  input: ContractSchemaRefSchema,
+  event: ContractSchemaRefSchema,
+  capabilities: Type.Optional(FeedCapabilitiesSchema),
+});
+
+export const TrellisContractV1Schema = Type.Object({
+  format: Type.Literal(CONTRACT_FORMAT_V1),
+  id: NonEmptyStringSchema,
+  displayName: NonEmptyStringSchema,
+  description: NonEmptyStringSchema,
+  kind: Type.Union([
+    Type.Literal("service"),
+    Type.Literal("app"),
+    Type.Literal("device"),
+    Type.Literal("agent"),
+  ]),
+  capabilities: Type.Optional(ContractCapabilitiesSchema),
+  schemas: Type.Optional(
+    Type.Record(NonEmptyStringSchema, JsonSchemaValueSchema),
+  ),
+  exports: Type.Optional(ContractExportsSchema),
+  uses: Type.Optional(ContractUsesSchema),
+  state: Type.Optional(ContractStateSchema),
+  rpc: Type.Optional(
+    Type.Record(NonEmptyStringSchema, ContractRpcMethodSchema),
+  ),
+  operations: Type.Optional(
+    Type.Record(NonEmptyStringSchema, ContractOperationSchema),
+  ),
+  events: Type.Optional(Type.Record(NonEmptyStringSchema, ContractEventSchema)),
+  feeds: Type.Optional(Type.Record(NonEmptyStringSchema, ContractFeedSchema)),
+  errors: Type.Optional(
+    Type.Record(NonEmptyStringSchema, ContractErrorDeclSchema),
+  ),
+  jobs: Type.Optional(
+    Type.Record(NonEmptyStringSchema, ContractJobQueueSchema),
+  ),
+  resources: Type.Optional(ContractResourcesSchema),
+});
+
+export const TrellisCatalogV1Schema = Type.Object({
+  format: Type.Literal(CATALOG_FORMAT_V1),
+  contracts: Type.Array(Type.Object({
+    id: NonEmptyStringSchema,
+    digest: Type.String({ pattern: "^[A-Za-z0-9_-]+$" }),
+    displayName: NonEmptyStringSchema,
+    description: NonEmptyStringSchema,
+  })),
+});
 
 const CONTRACT_MODULE_METADATA = Symbol.for(
   "@qlever-llc/trellis/contracts/contract-module",
@@ -2468,6 +2664,252 @@ function projectDigestFeeds(
   );
 }
 
+function mapValues<TInput, TOutput>(
+  values: Record<string, TInput> | undefined,
+  map: (value: TInput) => TOutput,
+): Record<string, TOutput> | undefined {
+  if (!values) return undefined;
+  return Object.fromEntries(
+    Object.entries(values).map(([key, value]) => [key, map(value)]),
+  );
+}
+
+function schemaRef(ref: ContractSchemaRef): ContractSchemaRef {
+  return { schema: ref.schema };
+}
+
+function capabilityMetadata(
+  metadata: ContractCapabilityMetadata,
+): ContractCapabilityMetadata {
+  return {
+    displayName: metadata.displayName,
+    description: metadata.description,
+    ...(metadata.consequence ? { consequence: metadata.consequence } : {}),
+  };
+}
+
+function useRpc(use: ContractUsesRpc | undefined): ContractUsesRpc | undefined {
+  if (!use) return undefined;
+  return {
+    ...(use.call ? { call: [...use.call] } : {}),
+  };
+}
+
+function usePubSub(
+  use: ContractUsesPubSub | undefined,
+): ContractUsesPubSub | undefined {
+  if (!use) return undefined;
+  return {
+    ...(use.publish ? { publish: [...use.publish] } : {}),
+    ...(use.subscribe ? { subscribe: [...use.subscribe] } : {}),
+  };
+}
+
+function contractUse(use: ContractUse): ContractUse {
+  return {
+    contract: use.contract,
+    ...(use.rpc ? { rpc: useRpc(use.rpc) } : {}),
+    ...(use.operations ? { operations: useRpc(use.operations) } : {}),
+    ...(use.events ? { events: usePubSub(use.events) } : {}),
+    ...(use.feeds
+      ? {
+        feeds: {
+          ...(use.feeds.subscribe
+            ? { subscribe: [...use.feeds.subscribe] }
+            : {}),
+        },
+      }
+      : {}),
+  };
+}
+
+function contractUses(
+  uses: ContractUses | undefined,
+): ContractUses | undefined {
+  if (!uses) return undefined;
+  return {
+    ...(uses.required
+      ? { required: mapValues(uses.required, contractUse) }
+      : {}),
+    ...(uses.optional
+      ? { optional: mapValues(uses.optional, contractUse) }
+      : {}),
+  };
+}
+
+function stateStore(store: ContractStateStore): ContractStateStore {
+  return {
+    kind: store.kind,
+    schema: schemaRef(store.schema),
+    ...(store.stateVersion ? { stateVersion: store.stateVersion } : {}),
+    ...(store.acceptedVersions
+      ? { acceptedVersions: mapValues(store.acceptedVersions, schemaRef) }
+      : {}),
+  };
+}
+
+function rpcMethod(method: ContractRpcMethod): ContractRpcMethod {
+  return {
+    version: method.version,
+    subject: method.subject,
+    input: schemaRef(method.input),
+    output: schemaRef(method.output),
+    ...(method.transfer
+      ? { transfer: { direction: method.transfer.direction } }
+      : {}),
+    ...(method.capabilities?.call
+      ? { capabilities: { call: [...method.capabilities.call] } }
+      : {}),
+    ...(method.errors
+      ? { errors: method.errors.map((error) => ({ type: error.type })) }
+      : {}),
+  };
+}
+
+function operation(operation: ContractOperation): ContractOperation {
+  return {
+    version: operation.version,
+    subject: operation.subject,
+    input: schemaRef(operation.input),
+    ...(operation.progress ? { progress: schemaRef(operation.progress) } : {}),
+    output: schemaRef(operation.output),
+    ...(operation.transfer
+      ? {
+        transfer: {
+          direction: operation.transfer.direction,
+          store: operation.transfer.store,
+          key: operation.transfer.key,
+          ...(operation.transfer.contentType
+            ? { contentType: operation.transfer.contentType }
+            : {}),
+          ...(operation.transfer.metadata
+            ? { metadata: operation.transfer.metadata }
+            : {}),
+          ...(operation.transfer.expiresInMs !== undefined
+            ? { expiresInMs: operation.transfer.expiresInMs }
+            : {}),
+          ...(operation.transfer.maxBytes !== undefined
+            ? { maxBytes: operation.transfer.maxBytes }
+            : {}),
+        },
+      }
+      : {}),
+    ...(operation.capabilities
+      ? {
+        capabilities: {
+          ...(operation.capabilities.call
+            ? { call: [...operation.capabilities.call] }
+            : {}),
+          ...(operation.capabilities.read
+            ? { read: [...operation.capabilities.read] }
+            : {}),
+          ...(operation.capabilities.cancel
+            ? { cancel: [...operation.capabilities.cancel] }
+            : {}),
+          ...(operation.capabilities.control
+            ? { control: [...operation.capabilities.control] }
+            : {}),
+        },
+      }
+      : {}),
+    ...(operation.signals
+      ? {
+        signals: mapValues(
+          operation.signals,
+          (signal) => ({ input: schemaRef(signal.input) }),
+        ),
+      }
+      : {}),
+    ...(operation.cancel !== undefined ? { cancel: operation.cancel } : {}),
+  };
+}
+
+function event(event: ContractEvent): ContractEvent {
+  return {
+    version: event.version,
+    subject: event.subject,
+    ...(event.params ? { params: [...event.params] } : {}),
+    event: schemaRef(event.event),
+    ...(event.capabilities
+      ? {
+        capabilities: {
+          ...(event.capabilities.publish
+            ? { publish: [...event.capabilities.publish] }
+            : {}),
+          ...(event.capabilities.subscribe
+            ? { subscribe: [...event.capabilities.subscribe] }
+            : {}),
+        },
+      }
+      : {}),
+  };
+}
+
+function feed(feed: ContractFeed): ContractFeed {
+  return {
+    version: feed.version,
+    subject: feed.subject,
+    input: schemaRef(feed.input),
+    event: schemaRef(feed.event),
+    ...(feed.capabilities?.subscribe
+      ? { capabilities: { subscribe: [...feed.capabilities.subscribe] } }
+      : {}),
+  };
+}
+
+function errorDecl(error: ContractErrorDecl): ContractErrorDecl {
+  return {
+    type: error.type,
+    ...(error.schema ? { schema: schemaRef(error.schema) } : {}),
+  };
+}
+
+function jobQueue(queue: ContractJobQueue): ContractJobQueue {
+  return {
+    payload: schemaRef(queue.payload),
+    ...(queue.result ? { result: schemaRef(queue.result) } : {}),
+    ...(queue.maxDeliver !== undefined ? { maxDeliver: queue.maxDeliver } : {}),
+    ...(queue.backoffMs ? { backoffMs: [...queue.backoffMs] } : {}),
+    ...(queue.ackWaitMs !== undefined ? { ackWaitMs: queue.ackWaitMs } : {}),
+    ...(queue.defaultDeadlineMs !== undefined
+      ? { defaultDeadlineMs: queue.defaultDeadlineMs }
+      : {}),
+    ...(queue.progress !== undefined ? { progress: queue.progress } : {}),
+    ...(queue.logs !== undefined ? { logs: queue.logs } : {}),
+    ...(queue.dlq !== undefined ? { dlq: queue.dlq } : {}),
+    ...(queue.concurrency !== undefined
+      ? { concurrency: queue.concurrency }
+      : {}),
+  };
+}
+
+function kvResource(resource: ContractKvResource): ContractKvResource {
+  return {
+    purpose: resource.purpose,
+    schema: schemaRef(resource.schema),
+    ...(resource.required !== undefined ? { required: resource.required } : {}),
+    ...(resource.history !== undefined ? { history: resource.history } : {}),
+    ...(resource.ttlMs !== undefined ? { ttlMs: resource.ttlMs } : {}),
+    ...(resource.maxValueBytes !== undefined
+      ? { maxValueBytes: resource.maxValueBytes }
+      : {}),
+  };
+}
+
+function storeResource(resource: ContractStoreResource): ContractStoreResource {
+  return {
+    purpose: resource.purpose,
+    ...(resource.required !== undefined ? { required: resource.required } : {}),
+    ...(resource.ttlMs !== undefined ? { ttlMs: resource.ttlMs } : {}),
+    ...(resource.maxObjectBytes !== undefined
+      ? { maxObjectBytes: resource.maxObjectBytes }
+      : {}),
+    ...(resource.maxTotalBytes !== undefined
+      ? { maxTotalBytes: resource.maxTotalBytes }
+      : {}),
+  };
+}
+
 /**
  * Return the canonical manifest shape used by Trellis runtimes before
  * validation, persistence, and digesting.
@@ -2486,19 +2928,66 @@ export function normalizeContractManifest(
     displayName: contract.displayName,
     description: contract.description,
     kind: contract.kind,
-    ...(contract.capabilities ? { capabilities: contract.capabilities } : {}),
+    ...(contract.capabilities
+      ? { capabilities: mapValues(contract.capabilities, capabilityMetadata) }
+      : {}),
     ...(contract.schemas ? { schemas: contract.schemas } : {}),
-    ...(contract.exports ? { exports: contract.exports } : {}),
-    ...(contract.uses ? { uses: contract.uses } : {}),
-    ...(contract.state ? { state: contract.state } : {}),
-    ...(contract.rpc ? { rpc: contract.rpc } : {}),
-    ...(contract.operations ? { operations: contract.operations } : {}),
-    ...(contract.events ? { events: contract.events } : {}),
-    ...(contract.feeds ? { feeds: contract.feeds } : {}),
-    ...(contract.jobs ? { jobs: contract.jobs } : {}),
-    ...(contract.resources ? { resources: contract.resources } : {}),
-    ...(contract.errors ? { errors: contract.errors } : {}),
+    ...(contract.exports
+      ? {
+        exports: {
+          ...(contract.exports.schemas
+            ? { schemas: [...contract.exports.schemas] }
+            : {}),
+        },
+      }
+      : {}),
+    ...(contract.uses ? { uses: contractUses(contract.uses) } : {}),
+    ...(contract.state ? { state: mapValues(contract.state, stateStore) } : {}),
+    ...(contract.rpc ? { rpc: mapValues(contract.rpc, rpcMethod) } : {}),
+    ...(contract.operations
+      ? { operations: mapValues(contract.operations, operation) }
+      : {}),
+    ...(contract.events ? { events: mapValues(contract.events, event) } : {}),
+    ...(contract.feeds ? { feeds: mapValues(contract.feeds, feed) } : {}),
+    ...(contract.jobs ? { jobs: mapValues(contract.jobs, jobQueue) } : {}),
+    ...(contract.resources
+      ? {
+        resources: {
+          ...(contract.resources.kv
+            ? { kv: mapValues(contract.resources.kv, kvResource) }
+            : {}),
+          ...(contract.resources.store
+            ? { store: mapValues(contract.resources.store, storeResource) }
+            : {}),
+        },
+      }
+      : {}),
+    ...(contract.errors
+      ? { errors: mapValues(contract.errors, errorDecl) }
+      : {}),
   };
+}
+
+/**
+ * Parse untrusted contract JSON into the current Trellis v1 manifest shape.
+ *
+ * Unknown extension fields are accepted for forward compatibility but are not
+ * returned. Callers must use the returned value for persistence and digesting.
+ */
+export function parseContractManifest(value: unknown): TrellisContractV1 {
+  try {
+    return normalizeContractManifest(
+      Value.Parse(TrellisContractV1Schema, value) as TrellisContractV1,
+    );
+  } catch (error) {
+    const details = [...Value.Errors(TrellisContractV1Schema, value)].map((
+      entry,
+    ) => `${entry.instancePath || "#"}: ${entry.message}`);
+    throw new TypeError(
+      `Invalid contract${details.length > 0 ? `:\n${details.join("\n")}` : ""}`,
+      { cause: error },
+    );
+  }
 }
 
 /**

@@ -159,7 +159,6 @@ function makeStateContract(
           theme: { type: "string" },
         },
         required: ["theme"],
-        additionalProperties: false,
       },
     },
     state: {
@@ -453,7 +452,7 @@ Deno.test("contract store rejects operation descriptors without output", async (
         },
       }),
     Error,
-    "#/operations/Refund: The required property `output` is missing",
+    "Invalid contract",
   );
 });
 
@@ -781,7 +780,7 @@ Deno.test("contract store rejects raw subject uses", async () => {
         },
       }),
     Error,
-    "does not match any schema",
+    "declares unsupported subjects",
   );
 });
 

@@ -2348,16 +2348,12 @@ fn is_empty_object_schema(schema: &serde_json::Value) -> bool {
         .get("properties")
         .and_then(serde_json::Value::as_object)
         .is_none_or(|properties| properties.is_empty());
-    let additional_properties_false = schema
-        .get("additionalProperties")
-        .and_then(serde_json::Value::as_bool)
-        == Some(false);
     let required_empty = schema
         .get("required")
         .and_then(serde_json::Value::as_array)
         .is_none_or(|required| required.is_empty());
 
-    properties_empty && additional_properties_false && required_empty
+    properties_empty && required_empty
 }
 
 fn render_lib_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
@@ -2411,15 +2407,15 @@ mod tests {
                 "description": "Trellis core runtime surface.",
                 "kind": "service",
                 "schemas": {
-                    "CatalogInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "CatalogOutput": {"type":"object","properties":{"catalog":{"type":"object"}},"required":["catalog"],"additionalProperties":false},
-                    "ProcessInput": {"type":"object","properties":{"amount":{"type":"number"}},"required":["amount"],"additionalProperties":false},
-                    "ProcessProgress": {"type":"object","properties":{"step":{"type":"string"}},"required":["step"],"additionalProperties":false},
-                    "ProcessOutput": {"type":"object","properties":{"done":{"type":"boolean"}},"required":["done"],"additionalProperties":false},
-                    "AuthChangedEvent": {"type":"object","properties":{"status":{"type":"string"}},"required":["status"],"additionalProperties":false},
-                    "AuditFeedInput": {"type":"object","properties":{"since":{"type":"string"}},"required":["since"],"additionalProperties":false},
-                    "AuditFeedEvent": {"type":"object","properties":{"message":{"type":"string"}},"required":["message"],"additionalProperties":false},
-                    "ExternalCheckpoint": {"type":"object","properties":{"cursor":{"type":"string"}},"required":["cursor"],"additionalProperties":false}
+                    "CatalogInput": {"type":"object","properties":{},"required":[]},
+                    "CatalogOutput": {"type":"object","properties":{"catalog":{"type":"object"}},"required":["catalog"]},
+                    "ProcessInput": {"type":"object","properties":{"amount":{"type":"number"}},"required":["amount"]},
+                    "ProcessProgress": {"type":"object","properties":{"step":{"type":"string"}},"required":["step"]},
+                    "ProcessOutput": {"type":"object","properties":{"done":{"type":"boolean"}},"required":["done"]},
+                    "AuthChangedEvent": {"type":"object","properties":{"status":{"type":"string"}},"required":["status"]},
+                    "AuditFeedInput": {"type":"object","properties":{"since":{"type":"string"}},"required":["since"]},
+                    "AuditFeedEvent": {"type":"object","properties":{"message":{"type":"string"}},"required":["message"]},
+                    "ExternalCheckpoint": {"type":"object","properties":{"cursor":{"type":"string"}},"required":["cursor"]}
                 },
                 "exports": {"schemas": ["ExternalCheckpoint"]},
                 "rpc": {
@@ -2810,8 +2806,7 @@ mod tests {
                     "Heartbeat": {
                         "type": "object",
                         "properties": { "service": { "type": "string" } },
-                        "required": ["service"],
-                        "additionalProperties": false
+                        "required": ["service"]
                     }
                 },
                 "events": {
@@ -2865,8 +2860,7 @@ mod tests {
                     "BindingsGetInput": {
                         "type": "object",
                         "properties": {},
-                        "required": [],
-                        "additionalProperties": false
+                        "required": []
                     },
                     "BindingsGetOutput": {
                         "type": "object",
@@ -2874,12 +2868,10 @@ mod tests {
                             "binding": {
                                 "type": "object",
                                 "required": ["resources"],
-                                "additionalProperties": false,
                                 "properties": {
                                     "resources": {
                                         "type": "object",
                                         "required": ["streams"],
-                                        "additionalProperties": false,
                                         "properties": {
                                             "streams": {
                                                 "type": "object",
@@ -2887,7 +2879,6 @@ mod tests {
                                                     "^.*$": {
                                                         "type": "object",
                                                         "required": ["name", "sources"],
-                                                        "additionalProperties": false,
                                                         "properties": {
                                                             "name": { "type": "string" },
                                                             "sources": {
@@ -2895,7 +2886,6 @@ mod tests {
                                                                 "items": {
                                                                     "type": "object",
                                                                     "required": ["fromAlias", "streamName"],
-                                                                    "additionalProperties": false,
                                                                     "properties": {
                                                                         "fromAlias": { "type": "string" },
                                                                         "streamName": { "type": "string" }
@@ -2904,16 +2894,14 @@ mod tests {
                                                             }
                                                         }
                                                     }
-                                                },
-                                                "additionalProperties": false
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                         },
-                        "required": ["binding"],
-                        "additionalProperties": false
+                        "required": ["binding"]
                     }
                 },
                 "rpc": {
@@ -2971,13 +2959,15 @@ mod tests {
                 "description": "Device.",
                 "kind": "device",
                 "uses": {
-                    "core": {
-                        "contract": "trellis.core@v1",
-                        "rpc": { "call": ["Trellis.Catalog"] }
-                    },
-                    "auth": {
-                        "contract": "trellis.auth@v1",
-                        "rpc": { "call": ["Auth.Sessions.Me"] }
+                    "required": {
+                        "core": {
+                            "contract": "trellis.core@v1",
+                            "rpc": { "call": ["Trellis.Catalog"] }
+                        },
+                        "auth": {
+                            "contract": "trellis.auth@v1",
+                            "rpc": { "call": ["Auth.Sessions.Me"] }
+                        }
                     }
                 }
             }),
@@ -2992,8 +2982,8 @@ mod tests {
                 "description": "Core.",
                 "kind": "service",
                 "schemas": {
-                    "CatalogInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "CatalogOutput": {"type":"object","properties":{},"required":[],"additionalProperties":false}
+                    "CatalogInput": {"type":"object","properties":{},"required":[]},
+                    "CatalogOutput": {"type":"object","properties":{},"required":[]}
                 },
                 "rpc": {
                     "Trellis.Catalog": {
@@ -3051,9 +3041,11 @@ mod tests {
                 "description": "Device.",
                 "kind": "device",
                 "uses": {
-                    "health": {
-                        "contract": "trellis.health@v1",
-                        "events": { "publish": ["Health.Heartbeat"] }
+                    "required": {
+                        "health": {
+                            "contract": "trellis.health@v1",
+                            "events": { "publish": ["Health.Heartbeat"] }
+                        }
                     }
                 }
             }),
@@ -3096,18 +3088,20 @@ mod tests {
                 "description": "Audit service.",
                 "kind": "service",
                 "schemas": {
-                    "AuditListInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "AuditListOutput": {"type":"object","properties":{"items":{"type":"array","items":{"type":"string"}}},"required":["items"],"additionalProperties":false}
+                    "AuditListInput": {"type":"object","properties":{},"required":[]},
+                    "AuditListOutput": {"type":"object","properties":{"items":{"type":"array","items":{"type":"string"}}},"required":["items"]}
                 },
                 "uses": {
-                    "core": {
-                        "contract": "trellis.core@v1",
-                        "rpc": { "call": ["Trellis.Catalog"] }
-                    },
-                    "auth": {
-                        "contract": "trellis.auth@v1",
-                        "rpc": { "call": ["Auth.Sessions.Me"] },
-                        "events": { "publish": ["Auth.Connections.Opened"], "subscribe": ["Auth.Connections.Opened"] }
+                    "required": {
+                        "core": {
+                            "contract": "trellis.core@v1",
+                            "rpc": { "call": ["Trellis.Catalog"] }
+                        },
+                        "auth": {
+                            "contract": "trellis.auth@v1",
+                            "rpc": { "call": ["Auth.Sessions.Me"] },
+                            "events": { "publish": ["Auth.Connections.Opened"], "subscribe": ["Auth.Connections.Opened"] }
+                        }
                     }
                 },
                 "rpc": {
@@ -3130,10 +3124,10 @@ mod tests {
                 "description": "Core.",
                 "kind": "service",
                 "schemas": {
-                    "CatalogInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "CatalogOutput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "ContractGetInput": {"type":"object","properties":{"digest":{"type":"string"}},"required":["digest"],"additionalProperties":false},
-                    "ContractGetOutput": {"type":"object","properties":{},"required":[],"additionalProperties":false}
+                    "CatalogInput": {"type":"object","properties":{},"required":[]},
+                    "CatalogOutput": {"type":"object","properties":{},"required":[]},
+                    "ContractGetInput": {"type":"object","properties":{"digest":{"type":"string"}},"required":["digest"]},
+                    "ContractGetOutput": {"type":"object","properties":{},"required":[]}
                 },
                 "rpc": {
                     "Trellis.Catalog": {
@@ -3161,9 +3155,9 @@ mod tests {
                 "description": "Auth.",
                 "kind": "service",
                 "schemas": {
-                    "AuthSessionsMeInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "AuthSessionsMeOutput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "AuthConnectionsOpenedEvent": {"type":"object","properties":{"user":{"type":"string"}},"required":["user"],"additionalProperties":false}
+                    "AuthSessionsMeInput": {"type":"object","properties":{},"required":[]},
+                    "AuthSessionsMeOutput": {"type":"object","properties":{},"required":[]},
+                    "AuthConnectionsOpenedEvent": {"type":"object","properties":{"user":{"type":"string"}},"required":["user"]}
                 },
                 "rpc": {
                     "Auth.Sessions.Me": {
@@ -3262,38 +3256,32 @@ mod tests {
                     "SelectedSite": {
                         "type": "object",
                         "properties": { "siteId": { "type": "string" } },
-                        "required": ["siteId"],
-                        "additionalProperties": false
+                        "required": ["siteId"]
                     },
                     "DraftInspection": {
                         "type": "object",
                         "properties": { "title": { "type": "string" } },
-                        "required": ["title"],
-                        "additionalProperties": false
+                        "required": ["title"]
                     },
                     "State": {
                         "type": "object",
                         "properties": { "flag": { "type": "boolean" } },
-                        "required": ["flag"],
-                        "additionalProperties": false
+                        "required": ["flag"]
                     },
                     "StateValue": {
                         "type": "object",
                         "properties": { "name": { "type": "string" } },
-                        "required": ["name"],
-                        "additionalProperties": false
+                        "required": ["name"]
                     },
                     "Foo": {
                         "type": "object",
                         "properties": { "one": { "type": "string" } },
-                        "required": ["one"],
-                        "additionalProperties": false
+                        "required": ["one"]
                     },
                     "FooState": {
                         "type": "object",
                         "properties": { "two": { "type": "string" } },
-                        "required": ["two"],
-                        "additionalProperties": false
+                        "required": ["two"]
                     }
                 },
                 "state": {
@@ -3392,11 +3380,13 @@ mod tests {
                 "kind": "service",
                 "schemas": {},
                 "uses": {
-                    "evidence": {
-                        "contract": "evidence@v1",
-                        "operations": { "call": ["Evidence.Upload"] },
-                        "events": { "subscribe": ["Evidence.Uploaded"] },
-                        "feeds": { "subscribe": ["Evidence.Stream"] }
+                    "required": {
+                        "evidence": {
+                            "contract": "evidence@v1",
+                            "operations": { "call": ["Evidence.Upload"] },
+                            "events": { "subscribe": ["Evidence.Uploaded"] },
+                            "feeds": { "subscribe": ["Evidence.Stream"] }
+                        }
                     }
                 }
             }),
@@ -3411,15 +3401,15 @@ mod tests {
                 "description": "Evidence.",
                 "kind": "service",
                 "schemas": {
-                    "UploadInput": {"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false},
-                    "UploadProgress": {"type":"object","properties":{"bytes":{"type":"number"}},"required":["bytes"],"additionalProperties":false},
-                    "UploadOutput": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false},
-                    "DeleteInput": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false},
-                    "DeleteProgress": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "DeleteOutput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "EvidenceUploadedEvent": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false},
-                    "EvidenceStreamInput": {"type":"object","properties":{},"required":[],"additionalProperties":false},
-                    "EvidenceStreamEvent": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}
+                    "UploadInput": {"type":"object","properties":{"path":{"type":"string"}},"required":["path"]},
+                    "UploadProgress": {"type":"object","properties":{"bytes":{"type":"number"}},"required":["bytes"]},
+                    "UploadOutput": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"]},
+                    "DeleteInput": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"]},
+                    "DeleteProgress": {"type":"object","properties":{},"required":[]},
+                    "DeleteOutput": {"type":"object","properties":{},"required":[]},
+                    "EvidenceUploadedEvent": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"]},
+                    "EvidenceStreamInput": {"type":"object","properties":{},"required":[]},
+                    "EvidenceStreamEvent": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}
                 },
                 "operations": {
                     "Evidence.Upload": {
@@ -3509,9 +3499,11 @@ mod tests {
                 "description": "Participant.",
                 "kind": "service",
                 "uses": {
-                    "evidence": {
-                        "contract": "evidence@v1",
-                        "feeds": { "subscribe": ["Evidence.Stream"] }
+                    "required": {
+                        "evidence": {
+                            "contract": "evidence@v1",
+                            "feeds": { "subscribe": ["Evidence.Stream"] }
+                        }
                     }
                 }
             }),

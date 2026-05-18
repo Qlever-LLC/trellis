@@ -131,7 +131,6 @@ pub struct ContractUses {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ContractUsesGroupedWire {
     #[serde(default)]
     required: BTreeMap<String, ContractUseRef>,
