@@ -180,6 +180,8 @@ type ServiceBootstrapFailure = {
 
 const DEFAULT_BOOTSTRAP_PENDING_RETRY_MS = 5_000;
 const MAX_BOOTSTRAP_PENDING_RETRY_MS = 60_000;
+const DEFAULT_BOOTSTRAP_UNAVAILABLE_INITIAL_RETRY_MS = 1_000;
+const MAX_BOOTSTRAP_UNAVAILABLE_RETRY_MS = 30_000;
 
 type RpcMethodName<TA extends TrellisAPI> = keyof TA["rpc"] & string;
 type RpcMethodInput<TA extends TrellisAPI, M extends RpcMethodName<TA>> =
@@ -302,6 +304,21 @@ function bootstrapRetryDelayMs(response: Response): number {
   );
 }
 
+function bootstrapUnavailableRetryDelayMs(attempt: number): number {
+  const exponent = Math.min(attempt, 10);
+  return Math.min(
+    DEFAULT_BOOTSTRAP_UNAVAILABLE_INITIAL_RETRY_MS * 2 ** exponent,
+    MAX_BOOTSTRAP_UNAVAILABLE_RETRY_MS,
+  );
+}
+
+class ServiceBootstrapEndpointUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super("Service bootstrap endpoint is unavailable.", { cause });
+    this.name = "ServiceBootstrapEndpointUnavailableError";
+  }
+}
+
 async function loadDefaultServiceRuntimeDeps(): Promise<
   TrellisServiceRuntimeDeps
 > {
@@ -350,7 +367,7 @@ const ServiceBootstrapFailureSchema = Type.Object({
 }, { additionalProperties: true });
 
 async function fetchServiceBootstrapInfoOnce(args: {
-  trellisUrl: string;
+  bootstrapUrl: URL;
   contractId: string;
   contractDigest: string;
   contract?: TrellisContractV1;
@@ -364,18 +381,24 @@ async function fetchServiceBootstrapInfoOnce(args: {
 }> {
   const requestStartedAtMs = Date.now();
   const iat = args.auth.currentIat();
-  const response = await fetch(new URL("/bootstrap/service", args.trellisUrl), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      sessionKey: args.auth.sessionKey,
-      contractId: args.contractId,
-      contractDigest: args.contractDigest,
-      ...(args.contract ? { contract: args.contract } : {}),
-      iat,
-      sig: await args.auth.natsConnectSigForIat(iat, args.contractDigest),
-    }),
+  const body = JSON.stringify({
+    sessionKey: args.auth.sessionKey,
+    contractId: args.contractId,
+    contractDigest: args.contractDigest,
+    ...(args.contract ? { contract: args.contract } : {}),
+    iat,
+    sig: await args.auth.natsConnectSigForIat(iat, args.contractDigest),
   });
+  let response: Response;
+  try {
+    response = await fetch(args.bootstrapUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+  } catch (cause) {
+    throw new ServiceBootstrapEndpointUnavailableError(cause);
+  }
   const responseReceivedAtMs = Date.now();
 
   const responseText = await response.text();
@@ -403,13 +426,41 @@ async function fetchServiceBootstrapInfo(args: {
   auth: SessionAuth;
   log: LoggerLike;
 }): Promise<ServiceBootstrapResponse> {
+  const bootstrapUrl = new URL("/bootstrap/service", args.trellisUrl);
   let includeContract = false;
+  let unavailableAttempt = 0;
   const loggedPendingRequests = new Set<string>();
   while (true) {
-    const settled = await fetchServiceBootstrapInfoOnce({
-      ...args,
-      contract: includeContract ? args.contract : undefined,
-    });
+    let settled: Awaited<ReturnType<typeof fetchServiceBootstrapInfoOnce>>;
+    try {
+      settled = await fetchServiceBootstrapInfoOnce({
+        ...args,
+        bootstrapUrl,
+        contract: includeContract ? args.contract : undefined,
+      });
+      unavailableAttempt = 0;
+    } catch (cause) {
+      if (!(cause instanceof ServiceBootstrapEndpointUnavailableError)) {
+        throw cause;
+      }
+
+      const retryDelayMs = bootstrapUnavailableRetryDelayMs(unavailableAttempt);
+      unavailableAttempt += 1;
+      args.log.warn(
+        {
+          service: args.serviceName,
+          trellisUrl: args.trellisUrl,
+          contractId: args.contractId,
+          contractDigest: args.contractDigest,
+          attempt: unavailableAttempt,
+          retryDelayMs,
+          causeMessage: getErrorCauseMessage(cause.cause),
+        },
+        "Service bootstrap endpoint unavailable; retrying",
+      );
+      await delay(retryDelayMs);
+      continue;
+    }
 
     if (
       settled.payload !== undefined &&

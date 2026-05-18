@@ -733,6 +733,93 @@ Deno.test("TrellisService.connect retries bootstrap with manifest when required"
   }
 });
 
+Deno.test("TrellisService.connect retries when bootstrap endpoint is unavailable", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const testLogger = createTestLogger();
+  const scheduledDelays: number[] = [];
+  let fetchCount = 0;
+
+  try {
+    globalThis.setTimeout = ((
+      handler: Parameters<typeof setTimeout>[0],
+      timeout?: number,
+    ) => {
+      scheduledDelays.push(timeout ?? 0);
+      return originalSetTimeout(handler, 0);
+    }) as typeof setTimeout;
+    globalThis.fetch = (() => {
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        return Promise.reject(new TypeError("Connection refused"));
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "ready",
+            serverNow: 1_700_000_120,
+            connectInfo: {
+              sessionKey: "session-key",
+              contractId: core.CONTRACT_ID,
+              contractDigest: core.CONTRACT_DIGEST,
+              transports: {
+                native: { natsServers: ["nats://127.0.0.1:4222"] },
+              },
+              transport: {
+                sentinel: { jwt: "jwt", seed: "seed" },
+              },
+              auth: {
+                mode: "service_identity",
+                iatSkewSeconds: 30,
+              },
+            },
+            binding: {
+              contractId: core.CONTRACT_ID,
+              digest: core.CONTRACT_DIGEST,
+              resources: { kv: {} },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    }) as typeof fetch;
+
+    await assertRejects(
+      () =>
+        TrellisService.connect({
+          trellisUrl: "https://trellis.example.com",
+          contract: core,
+          name: "svc",
+          sessionKeySeed: TEST_SEED,
+          server: { log: testLogger.logger },
+        }, {
+          connect: (): Promise<NatsConnection> =>
+            Promise.reject(new Error("stop-after-bootstrap")),
+        }).orThrow(),
+      TransportError,
+      "Trellis could not open the service runtime connection.",
+    );
+
+    assertEquals(fetchCount, 2);
+    assertEquals(scheduledDelays, [1_000]);
+    assertEquals(testLogger.warnCalls, [[{
+      service: "svc",
+      trellisUrl: "https://trellis.example.com",
+      contractId: core.CONTRACT_ID,
+      contractDigest: core.CONTRACT_DIGEST,
+      attempt: 1,
+      retryDelayMs: 1_000,
+      causeMessage: "Connection refused",
+    }, "Service bootstrap endpoint unavailable; retrying"]]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
 Deno.test("internal service connect uses a reconnect-safe auth token authenticator", async () => {
   const originalNow = Date.now;
   let firstToken = "";
