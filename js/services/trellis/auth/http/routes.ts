@@ -37,12 +37,93 @@ export function authHttpRateLimitKey(c: RateLimitContext): string {
   return remoteAddressFromEnv(c.env) ?? "trellis-auth-http";
 }
 
+function browserFlowPortalEndpointFlowId(
+  pathname: string,
+  method: string,
+): string | undefined {
+  const prefix = "/auth/flow/";
+  if (!pathname.startsWith(prefix)) return undefined;
+  const parts = pathname.slice(prefix.length).split("/");
+  if (parts.length > 3) return undefined;
+  if (parts.length === 1 && method !== "GET") return undefined;
+  if (
+    parts.length === 2 &&
+    (parts[1] !== "approval" || (method !== "POST" && method !== "OPTIONS"))
+  ) {
+    return undefined;
+  }
+  if (
+    parts.length === 3 &&
+    (parts[1] !== "register" || parts[2] !== "local" ||
+      (method !== "POST" && method !== "OPTIONS"))
+  ) {
+    return undefined;
+  }
+  const flowId = parts[0];
+  if (!flowId) return undefined;
+  try {
+    return decodeURIComponent(flowId);
+  } catch {
+    return undefined;
+  }
+}
+
+function setCorsHeaders(
+  c: {
+    header: (name: string, value: string) => void;
+    req: RateLimitContext["req"];
+  },
+  origin: string,
+): void {
+  c.header("Access-Control-Allow-Origin", origin);
+  c.header("Access-Control-Allow-Credentials", "true");
+  c.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  c.header("Vary", "Origin");
+  const requestHeaders = c.req?.header("access-control-request-headers");
+  if (requestHeaders) {
+    c.header("Access-Control-Allow-Headers", requestHeaders);
+  }
+}
+
 export function registerHttpRoutes(
   app: Hono,
   opts: AuthHttpRouteOptions,
 ): void {
   const { config } = opts;
   const context = createAuthHttpRouteContext(opts);
+
+  app.use("/auth/login/local", async (c, next) => {
+    const origin = c.req.header("origin");
+    if (origin) {
+      // The flow id is in the POST body, so preflight cannot be narrowed here.
+      // The route validates the selected portal origin after loading the flow.
+      setCorsHeaders(c, origin);
+      if (c.req.method === "OPTIONS") return c.body(null, 204);
+    }
+    await next();
+  });
+
+  app.use("/auth/flow/*", async (c, next) => {
+    const flowId = browserFlowPortalEndpointFlowId(
+      new URL(c.req.url).pathname,
+      c.req.method,
+    );
+    if (!flowId) {
+      await next();
+      return;
+    }
+    const origin = await context.resolveBrowserFlowCorsOrigin(
+      flowId,
+      c.req.header("origin"),
+    );
+    if (origin) {
+      setCorsHeaders(c, origin);
+      if (c.req.method === "OPTIONS") {
+        return c.body(null, 204);
+      }
+    }
+    await next();
+  });
 
   if (config.web.origins.length > 0) {
     app.use(

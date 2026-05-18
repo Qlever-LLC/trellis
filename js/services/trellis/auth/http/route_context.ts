@@ -48,6 +48,7 @@ import type {
 } from "../storage.ts";
 import { BUILTIN_LOGIN_PORTAL_ID } from "../storage.ts";
 import { buildClientTransports } from "../transports.ts";
+import { resolveCorsOrigin } from "../redirect.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import type {
   AuthStartBoundResponse,
@@ -112,6 +113,7 @@ type HttpIdentityEnvelopeStorage = Pick<
 >;
 type HttpLoginPortalStorage = Pick<
   SqlLoginPortalRepository,
+  | "getSelectedByPortalId"
   | "resolveForApp"
   | "registerLocalIdentity"
   | "registerFederatedIdentity"
@@ -350,15 +352,60 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
   }
 
   async function resolveSelectedLoginPortal(
-    flow: Pick<BrowserFlowRecord, "app" | "contract">,
+    flow: Pick<BrowserFlowRecord, "app" | "contract" | "portalId">,
   ): Promise<SelectedLoginPortal> {
     if (!opts.loginPortalStorage) return builtinLoginPortal(config);
+    if (flow.portalId) {
+      const selected = await opts.loginPortalStorage.getSelectedByPortalId(
+        flow.portalId,
+      );
+      if (selected) return selected;
+    }
     const contractId = flow.app?.contractId ??
       (typeof flow.contract?.id === "string" ? flow.contract.id : undefined);
     return await opts.loginPortalStorage.resolveForApp({
       ...(contractId ? { contractId } : {}),
       ...(flow.app?.origin ? { origin: flow.app.origin } : {}),
     });
+  }
+
+  function portalEntryOrigin(selected: SelectedLoginPortal): string | null {
+    if (!selected.portal.entryUrl) return null;
+    try {
+      return new URL(selected.portal.entryUrl).origin;
+    } catch {
+      return null;
+    }
+  }
+
+  function requireSelectedPortalOrigin(
+    selected: SelectedLoginPortal,
+    requestOrigin: string | undefined,
+  ): void {
+    if (!requestOrigin) return;
+    if (!selected.portal.entryUrl) return;
+    const expectedOrigin = portalEntryOrigin(selected);
+    if (!expectedOrigin || requestOrigin !== expectedOrigin) {
+      throw new HTTPException(403, { message: "portal_origin_mismatch" });
+    }
+  }
+
+  async function resolveBrowserFlowCorsOrigin(
+    flowId: string,
+    requestOrigin: string | undefined,
+  ): Promise<string | undefined> {
+    const configuredOrigin = resolveCorsOrigin(
+      requestOrigin,
+      config.web.origins,
+    );
+    if (configuredOrigin || !requestOrigin) return configuredOrigin;
+
+    const flow = await loadBrowserFlow(flowId);
+    if (!flow) return undefined;
+    const selected = await resolveSelectedLoginPortal(flow);
+    return portalEntryOrigin(selected) === requestOrigin
+      ? requestOrigin
+      : undefined;
   }
 
   function registrationAvailability(
@@ -688,6 +735,8 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     loadCurrentUserSession,
     requireApprovalResolution,
     resolveSelectedLoginPortal,
+    requireSelectedPortalOrigin,
+    resolveBrowserFlowCorsOrigin,
     registrationAvailability,
     resolveLinkedActiveUserIdentity,
     bindResolvedUserSession,

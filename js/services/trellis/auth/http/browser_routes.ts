@@ -361,6 +361,11 @@ export function registerBrowserAuthRoutes(
     if (!flow.sessionKey) {
       throw new HTTPException(400, { message: "Invalid browser flow state" });
     }
+    const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    context.requireSelectedPortalOrigin(
+      selectedPortal,
+      c.req.header("origin"),
+    );
 
     const identity = await opts.userIdentityStorage.getByProviderSubject(
       "local",
@@ -427,6 +432,11 @@ export function registerBrowserAuthRoutes(
     if (!flow.sessionKey) {
       throw new HTTPException(400, { message: "Invalid browser flow state" });
     }
+    const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    context.requireSelectedPortalOrigin(
+      selectedPortal,
+      c.req.header("origin"),
+    );
 
     const bodyResult = await AsyncResult.try(() => c.req.json());
     if (bodyResult.isErr()) return c.json({ error: "Invalid JSON body" }, 400);
@@ -437,7 +447,6 @@ export function registerBrowserAuthRoutes(
     if (!opts.loginPortalStorage) {
       throw new HTTPException(503, { message: "registration_unavailable" });
     }
-    const selectedPortal = await context.resolveSelectedLoginPortal(flow);
     const registration = context.registrationAvailability(selectedPortal);
     if (!registration.localIdentity.available) {
       throw new HTTPException(403, { message: "registration_unavailable" });

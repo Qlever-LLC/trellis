@@ -99,6 +99,10 @@ export function registerFlowRoutes(
     const providersList = buildProvidersList(providers);
     const contract = flow.contract ?? {};
     const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    context.requireSelectedPortalOrigin(
+      selectedPortal,
+      c.req.header("origin"),
+    );
     const registration = context.registrationAvailability(selectedPortal);
     let resolution = null;
     let redirectLocation = undefined;
@@ -151,6 +155,11 @@ export function registerFlowRoutes(
     if (!flow || !flow.authToken) {
       return c.json({ status: "expired" });
     }
+    const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    context.requireSelectedPortalOrigin(
+      selectedPortal,
+      c.req.header("origin"),
+    );
 
     const bodyResult = await AsyncResult.try(() => c.req.json());
     if (bodyResult.isErr()) {
@@ -170,7 +179,6 @@ export function registerFlowRoutes(
     const pending = pendingRecord.value as PendingAuth;
     const resolution = await context.requireApprovalResolution(pending);
     const providersList = buildProvidersList(providers);
-    const selectedPortal = await context.resolveSelectedLoginPortal(flow);
     const registration = context.registrationAvailability(selectedPortal);
     const contract = flow.contract ?? {};
     const appMeta = buildAppMeta({

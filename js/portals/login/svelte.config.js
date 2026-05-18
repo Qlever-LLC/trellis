@@ -4,15 +4,22 @@ import adapter from "@sveltejs/adapter-static";
 import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
+const env = (name) =>
+  globalThis.Deno?.env.get(name) ??
+    globalThis.process?.env?.[name];
+const buildDir = env("TRELLIS_LOGIN_PORTAL_BUILD_DIR") ?? "build";
+const svelteKitDir = env("TRELLIS_LOGIN_PORTAL_SVELTE_KIT_DIR") ??
+  ".svelte-kit";
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   preprocess: vitePreprocess(),
   kit: {
     appDir: "_trellis/assets",
+    outDir: svelteKitDir,
     adapter: adapter({
-      pages: "build",
-      assets: "build",
+      pages: buildDir,
+      assets: buildDir,
       fallback: "200.html",
     }),
     alias: {

@@ -85,6 +85,45 @@ const portalSettings: LoginPortalSettings = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
+const externalPortalRecord: LoginPortalRecord = {
+  portalId: "external.portal",
+  displayName: "External Portal",
+  entryUrl: "https://portal.example/login",
+  builtIn: false,
+  disabled: false,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+const externalPortalSettings: LoginPortalSettings = {
+  portalId: externalPortalRecord.portalId,
+  localRegistrationEnabled: true,
+  federatedRegistrationEnabled: true,
+  selfRegisteredAccountActive: true,
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+function externalPortalSelection() {
+  return {
+    portal: externalPortalRecord,
+    settings: externalPortalSettings,
+    defaultCapabilities: [],
+    defaultCapabilityGroups: [],
+  };
+}
+
+function externalLoginPortalStorage() {
+  return {
+    getSelectedByPortalId: (portalId: string) =>
+      Promise.resolve(
+        portalId === externalPortalRecord.portalId
+          ? externalPortalSelection()
+          : undefined,
+      ),
+    resolveForApp: () => Promise.resolve(externalPortalSelection()),
+  };
+}
+
 function testProvider(name: string, displayName: string): Provider {
   return {
     name,
@@ -1050,6 +1089,210 @@ Deno.test({
         },
       },
     });
+  },
+});
+
+Deno.test({
+  name: "auth HTTP flow state accepts configured external portal origin",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({ authToken: undefined }, {}, {}, {
+      loginPortalStorage: externalLoginPortalStorage(),
+    });
+
+    const response = await app.request("http://trellis/auth/flow/flow-local", {
+      headers: { origin: "https://portal.example" },
+    });
+
+    assertEquals(response.status, 200);
+    assertEquals(
+      response.headers.get("access-control-allow-origin"),
+      "https://portal.example",
+    );
+    assertEquals((await response.json()).portal, externalPortalRecord);
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP flow state checks the portal selected when the flow was created",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes(
+      {
+        authToken: undefined,
+        portalId: externalPortalRecord.portalId,
+      },
+      {},
+      {},
+      {
+        loginPortalStorage: {
+          getSelectedByPortalId: (portalId: string) =>
+            Promise.resolve(
+              portalId === externalPortalRecord.portalId
+                ? externalPortalSelection()
+                : undefined,
+            ),
+          resolveForApp: () => {
+            throw new Error("flow portal should not be re-resolved");
+          },
+        },
+      },
+    );
+
+    const response = await app.request("http://trellis/auth/flow/flow-local", {
+      headers: { origin: "https://portal.example" },
+    });
+
+    assertEquals(response.status, 200);
+    assertEquals((await response.json()).portal, externalPortalRecord);
+  },
+});
+
+Deno.test({
+  name: "auth HTTP flow state rejects mismatched external portal origin",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({ authToken: undefined }, {}, {}, {
+      loginPortalStorage: externalLoginPortalStorage(),
+    });
+
+    const response = await app.request("http://trellis/auth/flow/flow-local", {
+      headers: { origin: "https://attacker.example" },
+    });
+
+    assertEquals(response.status, 403);
+    assertStringIncludes(await response.text(), "portal_origin_mismatch");
+  },
+});
+
+Deno.test({
+  name: "auth HTTP approval route rejects mismatched external portal origin",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({}, {}, {}, {
+      loginPortalStorage: externalLoginPortalStorage(),
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/flow/missing/approval",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://attacker.example",
+        },
+        body: JSON.stringify({ decision: "approved" }),
+      },
+    );
+
+    assertEquals(response.status, 403);
+    assertStringIncludes(await response.text(), "portal_origin_mismatch");
+  },
+});
+
+Deno.test({
+  name: "auth HTTP bind route does not allow portal-origin CORS",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes(
+      { portalId: externalPortalRecord.portalId },
+      {},
+      {},
+      { loginPortalStorage: externalLoginPortalStorage() },
+    );
+
+    const response = await app.request(
+      "http://trellis/auth/flow/flow-local/bind",
+      {
+        method: "OPTIONS",
+        headers: {
+          origin: "https://portal.example",
+          "access-control-request-method": "POST",
+        },
+      },
+    );
+
+    assertEquals(response.headers.get("access-control-allow-origin"), null);
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP local login preflight allows portal origin for route-level validation",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({}, {}, {}, {
+      loginPortalStorage: externalLoginPortalStorage(),
+    });
+
+    const response = await app.request("http://trellis/auth/login/local", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://portal.example",
+        "access-control-request-method": "POST",
+      },
+    });
+
+    assertEquals(response.status, 204);
+    assertEquals(
+      response.headers.get("access-control-allow-origin"),
+      "https://portal.example",
+    );
+  },
+});
+
+Deno.test({
+  name: "auth HTTP local login rejects mismatched external portal origin",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({}, {}, {}, {
+      loginPortalStorage: externalLoginPortalStorage(),
+    });
+
+    const response = await app.request("http://trellis/auth/login/local", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: "https://attacker.example",
+      },
+      body: JSON.stringify({
+        flowId: "missing",
+        username: "alex",
+        password: "secret",
+      }),
+    });
+
+    assertEquals(response.status, 403);
+    assertStringIncludes(await response.text(), "portal_origin_mismatch");
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP local registration preflight accepts configured external portal origin",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({}, {}, {}, {
+      loginPortalStorage: externalLoginPortalStorage(),
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/flow/flow-local/register/local",
+      {
+        method: "OPTIONS",
+        headers: {
+          origin: "https://portal.example",
+          "access-control-request-method": "POST",
+        },
+      },
+    );
+
+    assertEquals(response.status, 204);
+    assertEquals(
+      response.headers.get("access-control-allow-origin"),
+      "https://portal.example",
+    );
   },
 });
 
