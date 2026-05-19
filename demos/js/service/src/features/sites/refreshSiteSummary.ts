@@ -14,6 +14,9 @@ export async function refreshSiteSummary(
   { job, trellis }: Args,
 ): Promise<Return> {
   const siteSummary = getSiteSummary(job.payload.siteId);
+  console.info(
+    `refreshSiteSummary job ${job.ref.id} request=${job.context.requestId} trace=${job.context.traceId}`,
+  );
 
   await job.progress({
     step: "loading-summary",

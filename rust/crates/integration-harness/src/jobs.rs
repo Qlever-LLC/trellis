@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fs::File;
 use std::path::PathBuf;
 use std::process::{Child, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex,
+};
 use std::time::Duration;
 
 use miette::{miette, IntoDiagnostic, Result};
@@ -16,20 +19,24 @@ use trellis_contracts::{
     ContractManifestBuilder,
 };
 use trellis_jobs::bindings::JobsRuntimeBinding;
-use trellis_jobs::events::{created_event, dead_event, failed_event, started_event};
+use trellis_jobs::events::{
+    completed_event, created_event, dead_event, failed_event, started_event,
+};
 use trellis_jobs::manager::{JobManager, JobMetaSource, JobProcessError, JobProcessOutcome};
-use trellis_jobs::runtime_worker::{JobCancellationToken, NatsJobEventPublisher};
+use trellis_jobs::runtime_worker::{
+    start_worker_host_from_binding, JobCancellationToken, NatsJobEventPublisher, WorkerHostOptions,
+};
 use trellis_jobs::subjects::{job_event_subject, worker_heartbeat_subject};
-use trellis_jobs::{JobEvent, JobLogLevel, WorkerHeartbeat};
+use trellis_jobs::{Job, JobContext, JobEvent, JobLogLevel, JobState, WorkerHeartbeat};
 use trellis_sdk_auth::client::AuthClient as SdkAuthClient;
 use trellis_sdk_auth::types::AuthEnvelopesExpandRequest;
 use trellis_sdk_core::types::TrellisBindingsGetResponseBinding;
 use trellis_sdk_jobs::client::JobsClient;
 use trellis_sdk_jobs::types::{
-    JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsHealthRequest,
-    JobsListDLQRequest, JobsListRequest, JobsListServicesRequest, JobsReplayDLQRequest,
-    JobsRetryRequest,
+    JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsListDLQRequest, JobsListRequest,
+    JobsReplayDLQRequest, JobsRetryRequest,
 };
+use trellis_service_jobs::{run_janitor_once, JobsServiceMode, SqliteJobsStore};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
@@ -43,12 +50,12 @@ const LOCAL_JOBS_DEPLOYMENT_ID: &str = "harness.jobs-local";
 const LOCAL_JOBS_CONTRACT_ID: &str = "trellis.integration-harness.jobs-local@v1";
 const LOCAL_RUST_QUEUE: &str = "rustProcess";
 const LOCAL_TS_QUEUE: &str = "tsProcess";
-const PASSING_CASES: usize = 18;
+const LOCAL_RUST_WORKER_CONSUMER: &str = "harness-local-jobs-rust-worker";
+const PASSING_CASES: usize = 29;
 
 fn local_jobs_service_contract_json() -> Result<String> {
     let payload_schema = json!({
         "type": "object",
-        "additionalProperties": false,
         "properties": {
             "documentId": { "type": "string" }
         },
@@ -56,10 +63,12 @@ fn local_jobs_service_contract_json() -> Result<String> {
     });
     let result_schema = json!({
         "type": "object",
-        "additionalProperties": false,
         "properties": {
             "documentId": { "type": "string" },
-            "processedBy": { "type": "string" }
+            "processedBy": { "type": "string" },
+            "requestId": { "type": "string" },
+            "traceId": { "type": "string" },
+            "traceparent": { "type": "string" }
         },
         "required": ["documentId", "processedBy"]
     });
@@ -98,8 +107,14 @@ import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { Type } from "typebox";
 
 const schemas = {
-  JobPayload: Type.Object({ documentId: Type.String() }, { additionalProperties: false }),
-  JobResult: Type.Object({ documentId: Type.String(), processedBy: Type.String() }, { additionalProperties: false }),
+  JobPayload: Type.Object({ documentId: Type.String() }),
+  JobResult: Type.Object({
+    documentId: Type.String(),
+    processedBy: Type.String(),
+    requestId: Type.Optional(Type.String()),
+    traceId: Type.Optional(Type.String()),
+    traceparent: Type.Optional(Type.String()),
+  }),
 } as const;
 
 const contract = defineServiceContract({ schemas }, (ref) => ({
@@ -107,8 +122,10 @@ const contract = defineServiceContract({ schemas }, (ref) => ({
   displayName: "Trellis Integration Harness Service-Local Jobs",
   description: "Harness-owned service contract for full-stack service-local Jobs verification.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
-    health: health.use({ events: { publish: ["Health.Heartbeat"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+      health: health.use({ events: { publish: ["Health.Heartbeat"] } }),
+    },
   },
   jobs: {
     rustProcess: {
@@ -136,16 +153,21 @@ const service = await TrellisService.connect({
 }).orThrow();
 
 service.jobs.tsProcess.handle(async ({ job }) => {
+  const contextResult = {
+    requestId: job.context.requestId,
+    traceId: job.context.traceId,
+    traceparent: job.context.traceparent,
+  };
   if (job.payload.documentId === "ts-active-cancel") {
     await job.progress({ step: "process", current: 0, total: 1, message: "ts cancel waiting" }).orThrow();
     while (!job.cancelled) {
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
-    return Result.ok({ documentId: job.payload.documentId, processedBy: "ts-cancelled" });
+    return Result.ok({ documentId: job.payload.documentId, processedBy: "ts-cancelled", ...contextResult });
   }
   await job.progress({ step: "process", current: 1, total: 1, message: "ts processing" }).orThrow();
   await job.log({ timestamp: new Date().toISOString(), level: "info", message: "ts processed" }).orThrow();
-  return Result.ok({ documentId: job.payload.documentId, processedBy: "ts" });
+  return Result.ok({ documentId: job.payload.documentId, processedBy: "ts", ...contextResult });
 });
 
 async function waitForState(
@@ -177,6 +199,20 @@ if (terminal.result?.processedBy !== "ts" || terminal.result?.documentId !== "ts
   throw new Error(`unexpected TS service-local result ${JSON.stringify(terminal.result)}`);
 }
 console.log(`TS_LOCAL_JOBS_COMPLETED ${ref.id}`);
+
+const rustRef = await service.jobs.rustProcess.create({ documentId: "ts-created-rust-worker" }).orThrow();
+console.log(`TS_CREATED_RUST_JOBS_CREATED ${rustRef.id}`);
+const rustTerminal = await rustRef.wait().orThrow();
+if (rustTerminal.state !== "completed") {
+  throw new Error(`expected TS-created Rust job to complete, got ${rustTerminal.state}`);
+}
+if (rustTerminal.result?.processedBy !== "rust-cross" || rustTerminal.result?.documentId !== "ts-created-rust-worker") {
+  throw new Error(`unexpected TS-created Rust result ${JSON.stringify(rustTerminal.result)}`);
+}
+if (rustTerminal.result?.requestId !== rustTerminal.context.requestId || rustTerminal.result?.traceId !== rustTerminal.context.traceId || rustTerminal.result?.traceparent !== rustTerminal.context.traceparent) {
+  throw new Error(`TS-created Rust job context was not echoed by Rust handler: ${JSON.stringify(rustTerminal)}`);
+}
+console.log(`TS_CREATED_RUST_JOBS_COMPLETED ${rustRef.id}`);
 
 const cancelRef = await service.jobs.tsProcess.create({ documentId: "ts-active-cancel" }).orThrow();
 await waitForState(cancelRef, "active");
@@ -229,6 +265,8 @@ pub(crate) async fn run_jobs_fixture(
         setup_login.state.session_key
     ));
     std::env::set_var("TRELLIS_JOBS_DB_PATH", &jobs_db_path);
+    let jobs_store = SqliteJobsStore::open(&jobs_db_path)
+        .map_err(|error| miette!("failed to open Jobs SQLite store: {error}"))?;
     let jobs_service = connect_jobs_service_with_retry(trellis_url, &jobs_service_seed).await?;
     let jobs_nats = jobs_service.nats().clone();
     let jobs_service_task = tokio::spawn(async move {
@@ -241,6 +279,7 @@ pub(crate) async fn run_jobs_fixture(
     let local_jobs_services =
         setup_service_local_jobs(trellis_url, &auth_client, &admin_client).await?;
 
+    let owner_service_seed = jobs_service_seed.clone();
     let call_result = async move {
         let caller_login = reauth_contract(
             &setup_login.state,
@@ -258,6 +297,9 @@ pub(crate) async fn run_jobs_fixture(
         run_service_local_jobs_fixture(&jobs_client, local_jobs_services).await?;
 
         seed_jobs_projection(&jobs_nats).await?;
+        assert_janitor_expiry(&jobs_client, &jobs_store, &jobs_nats).await?;
+        assert_owner_rpc_only_coexist(trellis_url, &owner_service_seed, &jobs_client, &jobs_nats)
+            .await?;
         let worker = await_worker_presence(&jobs_client).await?;
         if worker.job_type != HARNESS_JOBS_QUEUE {
             return Err(miette!(
@@ -338,6 +380,33 @@ pub(crate) async fn run_jobs_fixture(
             .await
             .into_diagnostic()?;
         assert_state(&dismissed.job.state, "dismissed", "Jobs.DismissDLQ")?;
+        let dismissed_get =
+            await_job_state(&jobs_client, "job-dead-dismiss-1", "dismissed").await?;
+        assert_state(
+            &dismissed_get.state,
+            "dismissed",
+            "Jobs.Get dismissed DLQ job",
+        )?;
+        let dlq_after_mutations = jobs_client
+            .jobs_list_dlq(&JobsListDLQRequest {
+                cursor: None,
+                limit: Some(20),
+                service: Some(HARNESS_JOBS_SERVICE.to_string()),
+                since: None,
+                state: None,
+                r#type: Some(HARNESS_JOBS_QUEUE.to_string()),
+            })
+            .await
+            .into_diagnostic()?;
+        if dlq_after_mutations
+            .jobs
+            .iter()
+            .any(|job| job.id == "job-dead-replay-1" || job.id == "job-dead-dismiss-1")
+        {
+            return Err(miette!(
+                "Jobs.ListDLQ still included replayed or dismissed jobs"
+            ));
+        }
 
         if jobs_client
             .jobs_retry(&JobsRetryRequest {
@@ -348,41 +417,25 @@ pub(crate) async fn run_jobs_fixture(
         {
             return Err(miette!("Jobs.Retry unexpectedly accepted dismissed job"));
         }
+        assert_invalid_jobs_mutations(&jobs_client).await?;
 
-        let read_denied_login = reauth_contract(
-            &caller_login.state,
-            &jobs_caller_contract_json(false, true)?,
-            trellis_url,
-            browser,
-        )
-        .await?;
-        let read_denied_client = connect_admin_client_async(&read_denied_login.state)
-            .await
-            .into_diagnostic()?;
-        if JobsClient::new(&read_denied_client)
-            .jobs_list(&JobsListRequest {
-                cursor: None,
-                limit: Some(1),
-                service: None,
-                since: None,
-                state: None,
-                r#type: None,
-            })
-            .await
-            .is_ok()
-        {
-            return Err(miette!(
-                "Jobs.List unexpectedly succeeded without read capability"
-            ));
-        }
-
-        Ok(PASSING_CASES)
+        Ok(caller_login.state.clone())
     }
     .await;
 
+    let caller_state = match call_result {
+        Ok(caller_state) => caller_state,
+        Err(error) => {
+            jobs_service_task.abort();
+            let _ = jobs_service_task.await;
+            return Err(error);
+        }
+    };
+
     jobs_service_task.abort();
     let _ = jobs_service_task.await;
-    call_result
+    assert_owner_restart_rpc_only(trellis_url, &jobs_service_seed, &caller_state, browser).await?;
+    Ok(PASSING_CASES)
 }
 
 fn jobs_caller_contract_json(read: bool, mutate: bool) -> Result<String> {
@@ -490,6 +543,7 @@ async fn run_service_local_jobs_fixture(
         run_rust_service_local_jobs(jobs_client, &services.rust_client).await?;
     let rust_job = await_job_state(jobs_client, &rust_job_id, "completed").await?;
     assert_job_result(&rust_job, "rust-service-local", "rust", "Rust JobManager")?;
+    assert_job_result_echoed_context(&rust_job, "Rust JobManager")?;
     let rust_cancelled = await_job_state(jobs_client, &rust_cancelled_job_id, "cancelled").await?;
     assert_state(
         &rust_cancelled.state,
@@ -500,6 +554,33 @@ async fn run_service_local_jobs_fixture(
     let ts_job_id = services.ts_process.wait_completed().await?;
     let ts_job = await_job_state(jobs_client, &ts_job_id, "completed").await?;
     assert_job_result(&ts_job, "ts-service-local", "ts", "TS service.jobs")?;
+    assert_job_result_echoed_context(&ts_job, "TS service.jobs")?;
+
+    let ts_created_rust_job_id = services.ts_process.wait_ts_created_rust_created().await?;
+    process_ts_created_rust_job(jobs_client, &services.rust_client, &ts_created_rust_job_id)
+        .await?;
+    services.ts_process.wait_ts_created_rust_completed().await?;
+    let ts_created_rust_job =
+        await_job_state(jobs_client, &ts_created_rust_job_id, "completed").await?;
+    assert_job_result(
+        &ts_created_rust_job,
+        "ts-created-rust-worker",
+        "rust-cross",
+        "TS-created Rust-handled job",
+    )?;
+    assert_job_result_echoed_context(&ts_created_rust_job, "TS-created Rust-handled job")?;
+
+    let rust_created_ts_job_id = create_rust_created_ts_job(&services.rust_client).await?;
+    let rust_created_ts_job =
+        await_job_state(jobs_client, &rust_created_ts_job_id, "completed").await?;
+    assert_job_result(
+        &rust_created_ts_job,
+        "rust-created-ts-worker",
+        "ts",
+        "Rust-created TS-handled job",
+    )?;
+    assert_job_result_echoed_context(&rust_created_ts_job, "Rust-created TS-handled job")?;
+
     let ts_cancelled_job_id = services.ts_process.wait_cancelled().await?;
     let ts_cancelled = await_job_state(jobs_client, &ts_cancelled_job_id, "cancelled").await?;
     assert_state(
@@ -507,6 +588,10 @@ async fn run_service_local_jobs_fixture(
         "cancelled",
         "TS service.jobs active cancel",
     )?;
+    assert_cancelled_before_worker_start(jobs_client, &services.rust_client).await?;
+    assert_queue_concurrency(jobs_client, &services.rust_client).await?;
+    assert_worker_shutdown_requeues(jobs_client, &services.rust_client).await?;
+    assert_natural_max_deliveries_dead(jobs_client, &services.rust_client).await?;
     Ok(())
 }
 
@@ -545,6 +630,7 @@ async fn run_rust_service_local_jobs(
     let job_id = job.id.clone();
     let outcome = complete_manager
         .process(job, JobCancellationToken::new(), |active| async move {
+            let context = active.context().clone();
             active
                 .update_progress(1, 1, Some("rust processing".to_string()))
                 .await
@@ -555,7 +641,10 @@ async fn run_rust_service_local_jobs(
                 .map_err(|error| JobProcessError::failed(error.to_string()))?;
             Ok::<Value, JobProcessError<String>>(json!({
                 "documentId": "rust-service-local",
-                "processedBy": "rust"
+                "processedBy": "rust",
+                "requestId": context.request_id,
+                "traceId": context.trace_id,
+                "traceparent": context.traceparent
             }))
         })
         .await
@@ -644,6 +733,75 @@ async fn run_rust_service_local_jobs(
     Ok((job_id, cancel_job_id))
 }
 
+async fn process_ts_created_rust_job(
+    jobs_client: &JobsClient<'_>,
+    rust_client: &TrellisClient,
+    job_id: &str,
+) -> Result<()> {
+    let projected = await_job_state(jobs_client, job_id, "pending").await?;
+    let job: Job = serde_json::from_value(
+        serde_json::to_value(projected)
+            .map_err(|error| miette!("failed to encode TS-created Rust job: {error}"))?,
+    )
+    .map_err(|error| miette!("failed to decode TS-created Rust job: {error}"))?;
+    let binding = service_local_runtime_binding(rust_client)?;
+    let manager = JobManager::new(
+        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        binding.jobs,
+        FixedJobMetaSource::new(
+            "ignored-ts-created-rust-process",
+            vec!["2026-03-28T13:02:00.000Z", "2026-03-28T13:02:01.000Z"],
+        ),
+    );
+    let outcome = manager
+        .process(job, JobCancellationToken::new(), |active| async move {
+            let context = active.context().clone();
+            let document_id = active
+                .job()
+                .payload
+                .get("documentId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            Ok::<Value, JobProcessError<String>>(json!({
+                "documentId": document_id,
+                "processedBy": "rust-cross",
+                "requestId": context.request_id,
+                "traceId": context.trace_id,
+                "traceparent": context.traceparent
+            }))
+        })
+        .await
+        .map_err(|error| miette!("failed to process TS-created Rust job: {error}"))?;
+    if !matches!(outcome, JobProcessOutcome::Completed { .. }) {
+        return Err(miette!(
+            "TS-created Rust job returned unexpected outcome: {:?}",
+            outcome
+        ));
+    }
+    Ok(())
+}
+
+async fn create_rust_created_ts_job(rust_client: &TrellisClient) -> Result<String> {
+    let binding = service_local_runtime_binding(rust_client)?;
+    let manager = JobManager::new(
+        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        binding.jobs,
+        FixedJobMetaSource::new(
+            "job-rust-created-ts-worker-1",
+            vec!["2026-03-28T13:03:00.000Z"],
+        ),
+    );
+    let job = manager
+        .create(
+            LOCAL_TS_QUEUE,
+            json!({ "documentId": "rust-created-ts-worker" }),
+        )
+        .await
+        .map_err(|error| miette!("failed to create Rust-created TS job: {error}"))?;
+    Ok(job.id)
+}
+
 fn assert_job_result(
     job: &trellis_sdk_jobs::types::JobsGetResponseJob,
     document_id: &str,
@@ -660,6 +818,28 @@ fn assert_job_result(
         return Err(miette!(
             "{context} completed job with unexpected result `{}`",
             result
+        ));
+    }
+    Ok(())
+}
+
+fn assert_job_result_echoed_context(
+    job: &trellis_sdk_jobs::types::JobsGetResponseJob,
+    context: &str,
+) -> Result<()> {
+    let result = job
+        .result
+        .as_ref()
+        .ok_or_else(|| miette!("{context} completed job without result"))?;
+    if result.get("requestId").and_then(Value::as_str) != Some(job.context.request_id.as_str())
+        || result.get("traceId").and_then(Value::as_str) != Some(job.context.trace_id.as_str())
+        || result.get("traceparent").and_then(Value::as_str)
+            != Some(job.context.traceparent.as_str())
+    {
+        return Err(miette!(
+            "{context} did not echo job context in result `{}` for context {:?}",
+            result,
+            job.context
         ));
     }
     Ok(())
@@ -754,6 +934,154 @@ async fn connect_local_jobs_service_with_retry(
     ))
 }
 
+async fn assert_owner_restart_rpc_only(
+    trellis_url: &str,
+    service_seed: &str,
+    caller_state: &trellis_auth::AdminSessionState,
+    browser: &BrowserContainer,
+) -> Result<()> {
+    let rpc_only_service = connect_jobs_service_with_retry(trellis_url, service_seed).await?;
+    let rpc_only_task = tokio::spawn(async move {
+        let result = rpc_only_service
+            .run_with_mode(JobsServiceMode::RpcOnly)
+            .await;
+        if let Err(error) = &result {
+            eprintln!("warning: Jobs RPC-only runtime exited before shutdown: {error}");
+        }
+        result
+    });
+
+    let result = async {
+        let caller_client = connect_admin_client_async(caller_state)
+            .await
+            .into_diagnostic()?;
+        let jobs_client = JobsClient::new(&caller_client);
+        await_jobs_health(&jobs_client).await?;
+        let worker = await_worker_presence(&jobs_client).await?;
+        if worker.job_type != HARNESS_JOBS_QUEUE {
+            return Err(miette!(
+                "Jobs RPC-only ListServices returned unexpected worker `{}`",
+                worker.job_type
+            ));
+        }
+        await_job_state(&jobs_client, "job-janitor-expired-1", "expired").await?;
+        assert_jobs_read_denied(trellis_url, caller_state, browser).await?;
+        Ok(())
+    }
+    .await;
+
+    rpc_only_task.abort();
+    let _ = rpc_only_task.await;
+    result
+}
+
+async fn assert_owner_rpc_only_coexist(
+    trellis_url: &str,
+    service_seed: &str,
+    jobs_client: &JobsClient<'_>,
+    nats: &async_nats::Client,
+) -> Result<()> {
+    let rpc_only_service = connect_jobs_service_with_retry(trellis_url, service_seed).await?;
+    let rpc_only_task = tokio::spawn(async move {
+        let result = rpc_only_service
+            .run_with_mode(JobsServiceMode::RpcOnly)
+            .await;
+        if let Err(error) = &result {
+            eprintln!("warning: concurrent Jobs RPC-only runtime exited before shutdown: {error}");
+        }
+        result
+    });
+
+    let result = async {
+        await_jobs_health(jobs_client).await?;
+        publish_created_job_event(
+            nats,
+            "job-owner-rpc-only-1",
+            json!({ "documentId": "owner-rpc-only" }),
+            "2026-03-28T12:03:00.000Z",
+        )
+        .await?;
+        let projected = await_job_state(jobs_client, "job-owner-rpc-only-1", "pending").await?;
+        if projected.service != HARNESS_JOBS_SERVICE {
+            return Err(miette!(
+                "owner/RPC-only coexist projected unexpected service `{}`",
+                projected.service
+            ));
+        }
+        Ok(())
+    }
+    .await;
+
+    rpc_only_task.abort();
+    let _ = rpc_only_task.await;
+    result
+}
+
+async fn assert_jobs_read_denied(
+    trellis_url: &str,
+    caller_state: &trellis_auth::AdminSessionState,
+    browser: &BrowserContainer,
+) -> Result<()> {
+    let read_denied_login = reauth_contract(
+        caller_state,
+        &jobs_caller_contract_json(false, true)?,
+        trellis_url,
+        browser,
+    )
+    .await?;
+    let read_denied_client = connect_admin_client_async(&read_denied_login.state)
+        .await
+        .into_diagnostic()?;
+    if JobsClient::new(&read_denied_client)
+        .jobs_list(&JobsListRequest {
+            cursor: None,
+            limit: Some(1),
+            service: None,
+            since: None,
+            state: None,
+            r#type: None,
+        })
+        .await
+        .is_ok()
+    {
+        return Err(miette!(
+            "Jobs.List unexpectedly succeeded without read capability"
+        ));
+    }
+    Ok(())
+}
+
+async fn assert_invalid_jobs_mutations(jobs_client: &JobsClient<'_>) -> Result<()> {
+    if jobs_client
+        .jobs_cancel(&JobsCancelRequest {
+            id: "job-completed-invalid-1".to_string(),
+        })
+        .await
+        .is_ok()
+    {
+        return Err(miette!("Jobs.Cancel unexpectedly accepted completed job"));
+    }
+    if jobs_client
+        .jobs_retry(&JobsRetryRequest {
+            id: "job-failed-1".to_string(),
+        })
+        .await
+        .is_ok()
+    {
+        return Err(miette!("Jobs.Retry unexpectedly accepted pending job"));
+    }
+    if jobs_client
+        .jobs_dismiss_dlq(&JobsDismissDLQRequest {
+            id: "job-janitor-future-1".to_string(),
+        })
+        .await
+        .is_ok()
+    {
+        return Err(miette!("Jobs.DismissDLQ unexpectedly accepted active job"));
+    }
+    Ok(())
+}
+
 async fn seed_jobs_projection(nats: &async_nats::Client) -> Result<()> {
     publish_fresh_worker_heartbeat(nats).await?;
     publish_created_job_event(
@@ -777,10 +1105,32 @@ async fn seed_jobs_projection(nats: &async_nats::Client) -> Result<()> {
             HARNESS_JOBS_SERVICE,
             HARNESS_JOBS_QUEUE,
             "job-failed-1",
+            &job_context("job-failed-1"),
             trellis_jobs::JobState::Active,
             1,
             "2026-03-28T12:00:11.000Z",
             "integration failure",
+        ),
+    )
+    .await?;
+    publish_created_job_event(
+        nats,
+        "job-completed-invalid-1",
+        json!({ "documentId": "completed-invalid" }),
+        "2026-03-28T12:00:14.000Z",
+    )
+    .await?;
+    publish_started_job_event(nats, "job-completed-invalid-1", "2026-03-28T12:00:15.000Z").await?;
+    publish_job_event(
+        nats,
+        completed_event(
+            HARNESS_JOBS_SERVICE,
+            HARNESS_JOBS_QUEUE,
+            "job-completed-invalid-1",
+            &job_context("job-completed-invalid-1"),
+            1,
+            "2026-03-28T12:00:16.000Z",
+            json!({ "documentId": "completed-invalid" }),
         ),
     )
     .await?;
@@ -804,6 +1154,7 @@ async fn seed_jobs_projection(nats: &async_nats::Client) -> Result<()> {
                 HARNESS_JOBS_SERVICE,
                 HARNESS_JOBS_QUEUE,
                 &job_id,
+                &job_context(&job_id),
                 trellis_jobs::JobState::Active,
                 5,
                 failed_at,
@@ -813,6 +1164,467 @@ async fn seed_jobs_projection(nats: &async_nats::Client) -> Result<()> {
         .await?;
     }
     Ok(())
+}
+
+async fn assert_janitor_expiry(
+    jobs_client: &JobsClient<'_>,
+    store: &SqliteJobsStore,
+    nats: &async_nats::Client,
+) -> Result<()> {
+    let mut overdue = projected_job(
+        "job-janitor-expired-1",
+        "2026-03-28T12:01:00.000Z",
+        JobState::Active,
+    );
+    overdue.deadline = Some("2026-03-28T12:01:30.000Z".to_string());
+    let mut future = projected_job(
+        "job-janitor-future-1",
+        "2026-03-28T12:01:00.000Z",
+        JobState::Active,
+    );
+    future.deadline = Some("2026-03-28T12:10:00.000Z".to_string());
+    store
+        .upsert_job(&overdue)
+        .map_err(|error| miette!("failed to seed overdue janitor job: {error}"))?;
+    store
+        .upsert_job(&future)
+        .map_err(|error| miette!("failed to seed future janitor job: {error}"))?;
+
+    let stats = run_janitor_once(nats.clone(), store, "2026-03-28T12:02:00.000Z")
+        .await
+        .map_err(|error| miette!("Jobs janitor run failed: {error}"))?;
+    if stats.eligible != 1 || stats.published != 1 {
+        return Err(miette!(
+            "Jobs janitor returned unexpected stats: scanned={} eligible={} published={}",
+            stats.scanned,
+            stats.eligible,
+            stats.published
+        ));
+    }
+
+    let expired = await_job_state(jobs_client, "job-janitor-expired-1", "expired").await?;
+    if expired.last_error.as_deref() != Some("job exceeded deadline") {
+        return Err(miette!(
+            "Jobs janitor projected unexpected lastError for expired job: {:?}",
+            expired.last_error
+        ));
+    }
+    await_job_state(jobs_client, "job-janitor-future-1", "active").await?;
+    Ok(())
+}
+
+async fn assert_natural_max_deliveries_dead(
+    jobs_client: &JobsClient<'_>,
+    rust_client: &TrellisClient,
+) -> Result<()> {
+    let mut binding = service_local_runtime_binding(rust_client)?;
+    let queue = binding
+        .jobs
+        .queues
+        .get_mut(LOCAL_RUST_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust queue binding is missing"))?;
+    queue.consumer_name = LOCAL_RUST_WORKER_CONSUMER.to_string();
+    queue.max_deliver = 2;
+    queue.backoff_ms = vec![100];
+    queue.ack_wait_ms = 100;
+
+    let manager = JobManager::new(
+        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        binding.jobs.clone(),
+        FixedJobMetaSource::new("job-local-natural-dead-1", vec!["2026-03-28T12:04:00.000Z"]),
+    );
+    let job = manager
+        .create(LOCAL_RUST_QUEUE, json!({ "documentId": "natural-dead" }))
+        .await
+        .map_err(|error| miette!("failed to create natural max-deliveries job: {error}"))?;
+
+    await_job_state(jobs_client, &job.id, "pending").await?;
+    let worker = start_worker_host_from_binding(
+        rust_client.nats().clone(),
+        binding,
+        "harness-jobs-natural-dead-worker".to_string(),
+        {
+            let nats = rust_client.nats().clone();
+            move || NatsJobEventPublisher::new(nats.clone())
+        },
+        |_queue_type, worker_index| {
+            FixedJobMetaSource::new(
+                format!("ignored-natural-dead-worker-{worker_index}"),
+                vec![
+                    "2026-03-28T12:04:01.000Z",
+                    "2026-03-28T12:04:02.000Z",
+                    "2026-03-28T12:04:03.000Z",
+                    "2026-03-28T12:04:04.000Z",
+                ],
+            )
+        },
+        |_active| async {
+            Err::<Value, JobProcessError<String>>(JobProcessError::retryable(
+                "natural max-deliveries failure".to_string(),
+            ))
+        },
+        WorkerHostOptions {
+            queue_types: Some(vec![LOCAL_RUST_QUEUE.to_string()]),
+            heartbeat_interval: Duration::from_secs(30),
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        },
+    )
+    .await
+    .map_err(|error| miette!("failed to start natural max-deliveries worker: {error}"))?;
+
+    let dead = await_job_state(jobs_client, &job.id, "dead").await;
+    let stop_result = worker.stop().await;
+    if let Err(error) = stop_result {
+        return Err(miette!(
+            "failed to stop natural max-deliveries worker: {error}"
+        ));
+    }
+    let dead = dead?;
+    if dead.tries != 2 {
+        return Err(miette!(
+            "natural max-deliveries job projected tries {}, expected 2",
+            dead.tries
+        ));
+    }
+    let last_error = dead.last_error.as_deref().unwrap_or_default();
+    if !last_error.contains("max deliveries exceeded") {
+        return Err(miette!(
+            "natural max-deliveries job projected unexpected lastError `{last_error}`"
+        ));
+    }
+    Ok(())
+}
+
+async fn assert_cancelled_before_worker_start(
+    jobs_client: &JobsClient<'_>,
+    rust_client: &TrellisClient,
+) -> Result<()> {
+    let mut binding = service_local_runtime_binding(rust_client)?;
+    binding
+        .jobs
+        .queues
+        .get_mut(LOCAL_RUST_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust queue binding is missing"))?
+        .consumer_name = LOCAL_RUST_WORKER_CONSUMER.to_string();
+    let manager = JobManager::new(
+        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        binding.jobs.clone(),
+        FixedJobMetaSource::new(
+            "job-local-cancel-before-worker-1",
+            vec!["2026-03-28T12:05:00.000Z"],
+        ),
+    );
+    let job = manager
+        .create(
+            LOCAL_RUST_QUEUE,
+            json!({ "documentId": "cancel-before-worker" }),
+        )
+        .await
+        .map_err(|error| miette!("failed to create pre-start cancellation job: {error}"))?;
+    await_job_state(jobs_client, &job.id, "pending").await?;
+
+    let cancelled = jobs_client
+        .jobs_cancel(&JobsCancelRequest { id: job.id.clone() })
+        .await
+        .into_diagnostic()?;
+    assert_state(
+        &cancelled.job.state,
+        "cancelled",
+        "Jobs.Cancel before worker start",
+    )?;
+
+    let handler_calls = Arc::new(AtomicUsize::new(0));
+    let cancelled_job_id = job.id.clone();
+    let worker = start_worker_host_from_binding(
+        rust_client.nats().clone(),
+        binding,
+        "harness-jobs-cancel-before-worker".to_string(),
+        {
+            let nats = rust_client.nats().clone();
+            move || NatsJobEventPublisher::new(nats.clone())
+        },
+        |_queue_type, worker_index| {
+            FixedJobMetaSource::new(
+                format!("ignored-cancel-before-worker-{worker_index}"),
+                vec!["2026-03-28T12:05:01.000Z", "2026-03-28T12:05:02.000Z"],
+            )
+        },
+        {
+            let handler_calls = Arc::clone(&handler_calls);
+            let cancelled_job_id = cancelled_job_id.clone();
+            move |active| {
+                let handler_calls = Arc::clone(&handler_calls);
+                let cancelled_job_id = cancelled_job_id.clone();
+                async move {
+                    if active.job().id == cancelled_job_id {
+                        handler_calls.fetch_add(1, Ordering::SeqCst);
+                    }
+                    Ok::<Value, JobProcessError<String>>(json!({ "processed": true }))
+                }
+            }
+        },
+        WorkerHostOptions {
+            queue_types: Some(vec![LOCAL_RUST_QUEUE.to_string()]),
+            heartbeat_interval: Duration::from_secs(30),
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        },
+    )
+    .await
+    .map_err(|error| miette!("failed to start pre-cancel worker: {error}"))?;
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let calls = handler_calls.load(Ordering::SeqCst);
+    let stop_result = worker.stop().await;
+    if let Err(error) = stop_result {
+        return Err(miette!("failed to stop pre-cancel worker: {error}"));
+    }
+    if calls != 0 {
+        return Err(miette!(
+            "pre-start cancelled job handler ran {calls} time(s), expected 0"
+        ));
+    }
+    await_job_state(jobs_client, &job.id, "cancelled").await?;
+    Ok(())
+}
+
+async fn assert_queue_concurrency(
+    jobs_client: &JobsClient<'_>,
+    rust_client: &TrellisClient,
+) -> Result<()> {
+    let mut binding = service_local_runtime_binding(rust_client)?;
+    let queue = binding
+        .jobs
+        .queues
+        .get_mut(LOCAL_RUST_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust queue binding is missing"))?;
+    queue.consumer_name = LOCAL_RUST_WORKER_CONSUMER.to_string();
+    queue.concurrency = 2;
+
+    let worker = start_worker_host_from_binding(
+        rust_client.nats().clone(),
+        binding.clone(),
+        "harness-jobs-concurrency-worker".to_string(),
+        {
+            let nats = rust_client.nats().clone();
+            move || NatsJobEventPublisher::new(nats.clone())
+        },
+        |_queue_type, worker_index| {
+            FixedJobMetaSource::new(
+                format!("ignored-concurrency-worker-{worker_index}"),
+                vec![
+                    "2026-03-28T12:06:01.000Z",
+                    "2026-03-28T12:06:02.000Z",
+                    "2026-03-28T12:06:03.000Z",
+                    "2026-03-28T12:06:04.000Z",
+                ],
+            )
+        },
+        |_active| async { Ok::<Value, JobProcessError<String>>(json!({ "processed": true })) },
+        WorkerHostOptions {
+            queue_types: Some(vec![LOCAL_RUST_QUEUE.to_string()]),
+            heartbeat_interval: Duration::from_millis(250),
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        },
+    )
+    .await
+    .map_err(|error| miette!("failed to start concurrency worker host: {error}"))?;
+    if worker.worker_count() != 2 {
+        return Err(miette!(
+            "concurrency worker host started {} worker(s), expected 2",
+            worker.worker_count()
+        ));
+    }
+    let presence =
+        await_worker_presence_by_instance(jobs_client, "harness-jobs-concurrency-worker").await?;
+    if presence.concurrency != Some(2) {
+        return Err(miette!(
+            "Jobs.ListServices projected concurrency {:?}, expected 2",
+            presence.concurrency
+        ));
+    }
+
+    let manager = JobManager::new(
+        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        binding.jobs.clone(),
+        FixedJobMetaSource::new("job-local-concurrency-a", vec!["2026-03-28T12:06:00.000Z"]),
+    );
+    let job_a = manager
+        .create(LOCAL_RUST_QUEUE, json!({ "documentId": "concurrency-a" }))
+        .await
+        .map_err(|error| miette!("failed to create concurrency job A: {error}"))?;
+    let manager = JobManager::new(
+        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        binding.jobs.clone(),
+        FixedJobMetaSource::new("job-local-concurrency-b", vec!["2026-03-28T12:06:00.100Z"]),
+    );
+    let job_b = manager
+        .create(LOCAL_RUST_QUEUE, json!({ "documentId": "concurrency-b" }))
+        .await
+        .map_err(|error| miette!("failed to create concurrency job B: {error}"))?;
+
+    let completed_a = await_job_state(jobs_client, &job_a.id, "completed").await;
+    let completed_b = await_job_state(jobs_client, &job_b.id, "completed").await;
+    let stop_result = worker.stop().await;
+    if let Err(error) = stop_result {
+        return Err(miette!("failed to stop concurrency worker host: {error}"));
+    }
+    completed_a?;
+    completed_b?;
+    Ok(())
+}
+
+async fn assert_worker_shutdown_requeues(
+    jobs_client: &JobsClient<'_>,
+    rust_client: &TrellisClient,
+) -> Result<()> {
+    let mut binding = service_local_runtime_binding(rust_client)?;
+    binding
+        .jobs
+        .queues
+        .get_mut(LOCAL_RUST_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust queue binding is missing"))?
+        .consumer_name = LOCAL_RUST_WORKER_CONSUMER.to_string();
+
+    let manager = JobManager::new(
+        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        binding.jobs.clone(),
+        FixedJobMetaSource::new(
+            "job-local-shutdown-requeue-1",
+            vec!["2026-03-28T12:07:00.000Z"],
+        ),
+    );
+    let job = manager
+        .create(
+            LOCAL_RUST_QUEUE,
+            json!({ "documentId": "shutdown-requeue" }),
+        )
+        .await
+        .map_err(|error| miette!("failed to create shutdown requeue job: {error}"))?;
+
+    let worker_a = start_worker_host_from_binding(
+        rust_client.nats().clone(),
+        binding,
+        "harness-jobs-shutdown-worker-a".to_string(),
+        {
+            let nats = rust_client.nats().clone();
+            move || NatsJobEventPublisher::new(nats.clone())
+        },
+        |_queue_type, worker_index| {
+            FixedJobMetaSource::new(
+                format!("ignored-shutdown-worker-a-{worker_index}"),
+                vec!["2026-03-28T12:07:01.000Z", "2026-03-28T12:07:02.000Z"],
+            )
+        },
+        |active| async move {
+            active
+                .heartbeat()
+                .await
+                .map_err(|error| JobProcessError::failed(error.to_string()))?;
+            while !active.is_cancelled() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Ok::<Value, JobProcessError<String>>(json!({
+                "documentId": "shutdown-requeue",
+                "processedBy": "worker-a"
+            }))
+        },
+        WorkerHostOptions {
+            queue_types: Some(vec![LOCAL_RUST_QUEUE.to_string()]),
+            heartbeat_interval: Duration::from_secs(30),
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        },
+    )
+    .await
+    .map_err(|error| miette!("failed to start shutdown worker A: {error}"))?;
+
+    await_job_state(jobs_client, &job.id, "active").await?;
+    worker_a
+        .stop()
+        .await
+        .map_err(|error| miette!("failed to stop shutdown worker A: {error}"))?;
+
+    let mut binding = service_local_runtime_binding(rust_client)?;
+    binding
+        .jobs
+        .queues
+        .get_mut(LOCAL_RUST_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust queue binding is missing"))?
+        .consumer_name = LOCAL_RUST_WORKER_CONSUMER.to_string();
+    let worker_b = start_worker_host_from_binding(
+        rust_client.nats().clone(),
+        binding,
+        "harness-jobs-shutdown-worker-b".to_string(),
+        {
+            let nats = rust_client.nats().clone();
+            move || NatsJobEventPublisher::new(nats.clone())
+        },
+        |_queue_type, worker_index| {
+            FixedJobMetaSource::new(
+                format!("ignored-shutdown-worker-b-{worker_index}"),
+                vec!["2026-03-28T12:07:03.000Z", "2026-03-28T12:07:04.000Z"],
+            )
+        },
+        |_active| async move {
+            Ok::<Value, JobProcessError<String>>(json!({
+                "documentId": "shutdown-requeue",
+                "processedBy": "worker-b"
+            }))
+        },
+        WorkerHostOptions {
+            queue_types: Some(vec![LOCAL_RUST_QUEUE.to_string()]),
+            heartbeat_interval: Duration::from_secs(30),
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        },
+    )
+    .await
+    .map_err(|error| miette!("failed to start shutdown worker B: {error}"))?;
+
+    let completed = await_job_state(jobs_client, &job.id, "completed").await;
+    let stop_result = worker_b.stop().await;
+    if let Err(error) = stop_result {
+        return Err(miette!("failed to stop shutdown worker B: {error}"));
+    }
+    let completed = completed?;
+    assert_job_result(
+        &completed,
+        "shutdown-requeue",
+        "worker-b",
+        "shutdown requeue",
+    )?;
+    Ok(())
+}
+
+fn service_local_runtime_binding(rust_client: &TrellisClient) -> Result<JobsRuntimeBinding> {
+    let binding_value = rust_client
+        .service_bootstrap_binding()
+        .ok_or_else(|| miette!("Rust service-local Jobs client is missing bootstrap binding"))?
+        .clone();
+    let binding: TrellisBindingsGetResponseBinding = serde_json::from_value(binding_value)
+        .map_err(|error| miette!("failed to decode service-local Jobs binding: {error}"))?;
+    JobsRuntimeBinding::try_from(&binding)
+        .map_err(|error| miette!("failed to decode service-local Jobs runtime binding: {error}"))
+}
+
+fn projected_job(id: &str, timestamp: &str, state: JobState) -> Job {
+    Job {
+        id: id.to_string(),
+        context: job_context(id),
+        service: HARNESS_JOBS_SERVICE.to_string(),
+        job_type: HARNESS_JOBS_QUEUE.to_string(),
+        state,
+        payload: json!({ "documentId": id }),
+        result: None,
+        created_at: timestamp.to_string(),
+        updated_at: timestamp.to_string(),
+        started_at: None,
+        completed_at: None,
+        tries: 1,
+        max_tries: 5,
+        last_error: None,
+        deadline: None,
+        progress: None,
+        logs: None,
+    }
 }
 
 async fn publish_started_job_event(
@@ -826,6 +1638,7 @@ async fn publish_started_job_event(
             HARNESS_JOBS_SERVICE,
             HARNESS_JOBS_QUEUE,
             job_id,
+            &job_context(job_id),
             trellis_jobs::JobState::Pending,
             1,
             timestamp,
@@ -846,6 +1659,7 @@ async fn publish_created_job_event(
             HARNESS_JOBS_SERVICE,
             HARNESS_JOBS_QUEUE,
             job_id,
+            &job_context(job_id),
             payload,
             5,
             timestamp,
@@ -857,14 +1671,21 @@ async fn publish_created_job_event(
 
 async fn publish_job_event(nats: &async_nats::Client, event: JobEvent) -> Result<()> {
     let jetstream = async_nats::jetstream::new(nats.clone());
+    let mut headers = async_nats::header::HeaderMap::new();
+    headers.insert("request-id", event.context.request_id.as_str());
+    headers.insert("traceparent", event.context.traceparent.as_str());
+    if let Some(tracestate) = event.context.tracestate.as_deref() {
+        headers.insert("tracestate", tracestate);
+    }
     let ack = jetstream
-        .publish(
+        .publish_with_headers(
             job_event_subject(
                 &event.service,
                 &event.job_type,
                 &event.job_id,
                 event.event_type,
             ),
+            headers,
             serde_json::to_vec(&event)
                 .map_err(|error| miette!("failed to serialize job event: {error}"))?
                 .into(),
@@ -874,6 +1695,19 @@ async fn publish_job_event(nats: &async_nats::Client, event: JobEvent) -> Result
     ack.await
         .map_err(|error| miette!("failed to ack job event publish: {error}"))?;
     Ok(())
+}
+
+fn job_context(job_id: &str) -> JobContext {
+    let suffix = job_id.bytes().fold(0_u64, |accumulator, byte| {
+        accumulator.wrapping_mul(31).wrapping_add(u64::from(byte))
+    });
+    let trace_id = format!("0123456789abcdef{suffix:016x}");
+    JobContext {
+        request_id: format!("request-{job_id}"),
+        trace_id: trace_id.clone(),
+        traceparent: format!("00-{trace_id}-0123456789abcdef-01"),
+        tracestate: None,
+    }
 }
 
 async fn publish_fresh_worker_heartbeat(nats: &async_nats::Client) -> Result<()> {
@@ -909,10 +1743,7 @@ async fn publish_fresh_worker_heartbeat(nats: &async_nats::Client) -> Result<()>
 async fn await_jobs_health(jobs_client: &JobsClient<'_>) -> Result<()> {
     let mut last_error = None;
     for _ in 0..200 {
-        match jobs_client
-            .jobs_health(&JobsHealthRequest(BTreeMap::new()))
-            .await
-        {
+        match jobs_client.jobs_health().await {
             Ok(_) => return Ok(()),
             Err(error) => last_error = Some(error),
         }
@@ -930,10 +1761,7 @@ async fn await_worker_presence(
     jobs_client: &JobsClient<'_>,
 ) -> Result<trellis_sdk_jobs::types::JobsListServicesResponseServicesItemWorkersItem> {
     for _ in 0..60 {
-        let response = jobs_client
-            .jobs_list_services(&JobsListServicesRequest(BTreeMap::new()))
-            .await
-            .into_diagnostic()?;
+        let response = jobs_client.jobs_list_services().await.into_diagnostic()?;
         if let Some(worker) = response
             .services
             .into_iter()
@@ -952,12 +1780,33 @@ async fn await_worker_presence(
     Err(miette!("Jobs.ListServices did not project worker presence"))
 }
 
+async fn await_worker_presence_by_instance(
+    jobs_client: &JobsClient<'_>,
+    instance_id: &str,
+) -> Result<trellis_sdk_jobs::types::JobsListServicesResponseServicesItemWorkersItem> {
+    for _ in 0..80 {
+        let response = jobs_client.jobs_list_services().await.into_diagnostic()?;
+        if let Some(worker) = response
+            .services
+            .into_iter()
+            .flat_map(|service| service.workers)
+            .find(|worker| worker.instance_id == instance_id)
+        {
+            return Ok(worker);
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    Err(miette!(
+        "Jobs.ListServices did not project worker instance `{instance_id}`"
+    ))
+}
+
 async fn await_job_state(
     jobs_client: &JobsClient<'_>,
     id: &str,
     expected_state: &str,
 ) -> Result<trellis_sdk_jobs::types::JobsGetResponseJob> {
-    for _ in 0..80 {
+    for _ in 0..400 {
         let response = jobs_client
             .jobs_get(&JobsGetRequest { id: id.to_string() })
             .await
@@ -1093,6 +1942,40 @@ impl TsLocalJobsServiceProcess {
             .filter(|id| !id.is_empty())
             .map(ToString::to_string)
             .ok_or_else(|| miette!("TS local Jobs fixture did not print completed job id"))
+    }
+
+    async fn wait_ts_created_rust_created(&self) -> Result<String> {
+        let stdout = self
+            .wait_for_stdout(
+                "TS_CREATED_RUST_JOBS_CREATED ",
+                "TS-created Rust job creation",
+            )
+            .await?;
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("TS_CREATED_RUST_JOBS_CREATED "))
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(ToString::to_string)
+            .ok_or_else(|| {
+                miette!("TS local Jobs fixture did not print TS-created Rust created job id")
+            })
+    }
+
+    async fn wait_ts_created_rust_completed(&self) -> Result<String> {
+        let stdout = self
+            .wait_for_stdout(
+                "TS_CREATED_RUST_JOBS_COMPLETED ",
+                "TS-created Rust-handled completion",
+            )
+            .await?;
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("TS_CREATED_RUST_JOBS_COMPLETED "))
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(ToString::to_string)
+            .ok_or_else(|| miette!("TS local Jobs fixture did not print TS-created Rust job id"))
     }
 
     async fn wait_cancelled(&self) -> Result<String> {

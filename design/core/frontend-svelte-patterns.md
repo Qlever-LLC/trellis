@@ -114,6 +114,20 @@ Rules:
   and update that selected value before rendering `TrellisProvider`; this should
   remain an explicit advanced pattern rather than the default guide story
 
+## Browser Auth Session Pattern
+
+Browser apps should make session-key persistence an explicit UX choice:
+
+- temporary sessions use a memory-only non-extractable WebCrypto key and end when
+  the tab/app session is discarded
+- remembered sessions use an IndexedDB-stored non-extractable WebCrypto key plus
+  expiry metadata
+- both modes still rely on Trellis session TTL, revocation, and fresh
+  per-request proofs; IndexedDB persistence is not a bypass for reauth
+- `session_not_found` and `reauth_required` should both be treated as
+  auth-required states that send the user through the configured login/reauth
+  flow with the current return URL
+
 ## Local Workspace Alias Pattern
 
 SvelteKit apps that consume local workspace packages must keep Deno, Vite, and

@@ -6,6 +6,7 @@ import {
 } from "@std/assert";
 import {
   type Msg,
+  type MsgHdrs,
   type NatsConnection,
   type Payload,
   PermissionViolationError,
@@ -18,8 +19,6 @@ import { Type } from "typebox";
 
 import type { LoggerLike } from "../globals.ts";
 import { TransportError } from "../errors/index.ts";
-import { TypedStore } from "../store.ts";
-import { NatsTest } from "../testing/nats.ts";
 import { defineServiceContract } from "../contract.ts";
 import type { NatsConnectFn } from "./runtime.ts";
 import { connectTrellisServiceInternal } from "./internal_connect.ts";
@@ -30,7 +29,6 @@ import {
 } from "./service.ts";
 
 const TEST_SEED = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const RUN_NATS_TESTS = Deno.env.get("TRELLIS_TEST_NATS") === "1";
 
 const handlerSurfaceTestSchemas = {
   PingInput: Type.Object({ value: Type.String() }),
@@ -93,6 +91,7 @@ type WaitableService = {
 type PublishedNatsMessage = {
   subject: string;
   data: Uint8Array;
+  headers?: MsgHdrs;
 };
 
 function hasServiceWait(value: object): value is WaitableService {
@@ -262,15 +261,18 @@ function createFakeNatsConnection(args: {
   const createMessage = (
     subject: string,
     value: unknown,
-    data: Uint8Array<ArrayBufferLike> = new Uint8Array(),
-  ): Msg => ({
-    subject,
-    sid: 1,
-    data,
-    respond: () => true,
-    json: <T>() => value as T,
-    string: () => "",
-  });
+    data?: Uint8Array<ArrayBufferLike>,
+  ): Msg => {
+    const messageData = data ?? new TextEncoder().encode(JSON.stringify(value));
+    return {
+      subject,
+      sid: 1,
+      data: messageData,
+      respond: () => true,
+      json: <T>() => value as T,
+      string: () => new TextDecoder().decode(messageData),
+    };
+  };
 
   type BufferedSubscription = Subscription & {
     push(message: Msg): void;
@@ -369,9 +371,13 @@ function createFakeNatsConnection(args: {
     options: {
       inboxPrefix: "_INBOX.test",
     },
-    publish: (subject: string, data?: Payload) => {
+    publish: (
+      subject: string,
+      data?: Payload,
+      opts?: { headers?: MsgHdrs },
+    ) => {
       const bytes = payloadBytes(data);
-      args.published?.push({ subject, data: bytes });
+      args.published?.push({ subject, data: bytes, headers: opts?.headers });
       for (const subscription of subscriptions) {
         if (subjectMatches(subscription.getSubject(), subject)) {
           let value: unknown = {};
@@ -1161,7 +1167,11 @@ Deno.test("internal service connect accepts log false", async () => {
     connect: async () => createFakeNatsConnection({ deferClosed: true }),
   });
 
-  assertEquals(service.name, "svc");
+  try {
+    assertEquals(service.name, "svc");
+  } finally {
+    await service.stop();
+  }
 });
 
 Deno.test("internal service connect uses the provided logger", async () => {
@@ -1681,6 +1691,7 @@ Deno.test("service-local JobRef wait observes scoped lifecycle events", async ()
     const ref = await service.jobs.refreshSummaries.create({
       siteId: "site-1",
     }).orThrow();
+    const context = (await ref.get().orThrow()).context;
     const waiting = ref.wait().orThrow();
 
     await delay(5);
@@ -1693,6 +1704,7 @@ Deno.test("service-local JobRef wait observes scoped lifecycle events", async ()
         eventType: "completed",
         state: "completed",
         previousState: "pending",
+        context,
         tries: 1,
         result: { refreshId: "refresh-1" },
         timestamp: "2024-01-01T00:00:01.000Z",
@@ -1719,6 +1731,7 @@ Deno.test("service-local JobRef wait observes terminal event before wait starts"
     const ref = await service.jobs.refreshSummaries.create({
       siteId: "site-1",
     }).orThrow();
+    const context = (await ref.get().orThrow()).context;
 
     service.nc.publish(
       `trellis.jobs.jobs_handler_test.refreshSummaries.${ref.id}.completed`,
@@ -1729,6 +1742,7 @@ Deno.test("service-local JobRef wait observes terminal event before wait starts"
         eventType: "completed",
         state: "completed",
         previousState: "pending",
+        context,
         tries: 1,
         result: { refreshId: "refresh-before-wait" },
         timestamp: "2024-01-01T00:00:01.000Z",
@@ -1759,6 +1773,7 @@ Deno.test("service-local JobRef cancel publishes scoped cancelled lifecycle even
     const ref = await service.jobs.refreshSummaries.create({
       siteId: "site-1",
     }).orThrow();
+    const created = await ref.get().orThrow();
     const cancelled = await ref.cancel().orThrow();
 
     assertEquals(cancelled.state, "cancelled");
@@ -1784,6 +1799,14 @@ Deno.test("service-local JobRef cancel publishes scoped cancelled lifecycle even
     assertEquals(event.eventType, "cancelled");
     assertEquals(event.state, "cancelled");
     assertEquals(event.previousState, "pending");
+    assertEquals(
+      eventMessage.headers?.get("request-id"),
+      created.context.requestId,
+    );
+    assertEquals(
+      eventMessage.headers?.get("traceparent"),
+      created.context.traceparent,
+    );
 
     const latest = await ref.get().orThrow();
     assertEquals(latest.state, "cancelled");
@@ -1803,6 +1826,7 @@ Deno.test("service-local JobRef cancel is a no-op after terminal completion", as
     const ref = await service.jobs.refreshSummaries.create({
       siteId: "site-1",
     }).orThrow();
+    const context = (await ref.get().orThrow()).context;
     service.nc.publish(
       `trellis.jobs.jobs_handler_test.refreshSummaries.${ref.id}.completed`,
       new TextEncoder().encode(JSON.stringify({
@@ -1812,6 +1836,7 @@ Deno.test("service-local JobRef cancel is a no-op after terminal completion", as
         eventType: "completed",
         state: "completed",
         previousState: "pending",
+        context,
         tries: 1,
         result: { refreshId: "refresh-1" },
         timestamp: "2024-01-01T00:00:01.000Z",
@@ -1833,122 +1858,4 @@ Deno.test("service-local JobRef cancel is a no-op after terminal completion", as
     await service.stop();
     restore();
   }
-});
-
-Deno.test({
-  name: "StoreHandle.waitFor resolves once the staged object appears",
-  ignore: !RUN_NATS_TESTS,
-  async fn() {
-    await using nats = await NatsTest.start();
-
-    const opened = await TypedStore.open(
-      nats.nc,
-      "store-handle-wait-for-test",
-      {
-        ttlMs: 60_000,
-        maxObjectBytes: 1024,
-        maxTotalBytes: 4096,
-      },
-    );
-    const store = opened.match({
-      ok: (value) => value,
-      err: (error) => {
-        throw error;
-      },
-    });
-
-    const handle = new StoreHandle(nats.nc, {
-      name: "store-handle-wait-for-test",
-      ttlMs: 60_000,
-      maxObjectBytes: 1024,
-      maxTotalBytes: 4096,
-    });
-
-    const writer = (async () => {
-      await delay(25);
-      const written = await store.put(
-        "incoming/ready.txt",
-        new TextEncoder().encode("hello"),
-      );
-      assertEquals(written.isOk(), true);
-    })();
-
-    const waited = await handle.waitFor("incoming/ready.txt", {
-      timeoutMs: 1_000,
-      pollIntervalMs: 10,
-    });
-    assertEquals(waited.isOk(), true);
-    const entry = waited.match({
-      ok: (value) => value,
-      err: (error) => {
-        throw error;
-      },
-    });
-    const body = await entry.bytes();
-    assertEquals(body.isOk(), true);
-    assertEquals(
-      body.match({
-        ok: (value) => new TextDecoder().decode(value),
-        err: (error) => {
-          throw error;
-        },
-      }),
-      "hello",
-    );
-
-    await writer;
-  },
-});
-
-Deno.test({
-  name:
-    "StoreHandle.waitFor returns an aborted error when the signal is cancelled",
-  ignore: !RUN_NATS_TESTS,
-  async fn() {
-    await using nats = await NatsTest.start();
-
-    const opened = await TypedStore.open(
-      nats.nc,
-      "store-handle-wait-abort-test",
-      {
-        ttlMs: 60_000,
-        maxObjectBytes: 1024,
-        maxTotalBytes: 4096,
-      },
-    );
-    opened.match({
-      ok: () => undefined,
-      err: (error) => {
-        throw error;
-      },
-    });
-
-    const handle = new StoreHandle(nats.nc, {
-      name: "store-handle-wait-abort-test",
-      ttlMs: 60_000,
-      maxObjectBytes: 1024,
-      maxTotalBytes: 4096,
-    });
-    const controller = new AbortController();
-
-    const waiting = handle.waitFor("incoming/missing.txt", {
-      signal: controller.signal,
-      pollIntervalMs: 1_000,
-    });
-
-    await delay(20);
-    controller.abort("cancelled");
-
-    const waited = await waiting;
-    assertEquals(waited.isErr(), true);
-    const error = waited.match({
-      ok: () => {
-        throw new Error("waitFor unexpectedly succeeded");
-      },
-      err: (value) => value,
-    });
-    assertEquals(error.operation, "waitFor");
-    assertEquals(error.getContext().reason, "aborted");
-    assertEquals(error.getContext().key, "incoming/missing.txt");
-  },
 });

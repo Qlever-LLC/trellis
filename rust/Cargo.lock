@@ -3711,6 +3711,7 @@ dependencies = [
  "trellis-auth-adapters",
  "trellis-client",
  "trellis-contracts",
+ "trellis-core-bootstrap",
  "trellis-jobs",
  "trellis-local-bootstrap",
  "trellis-sdk-auth",
@@ -3823,7 +3824,6 @@ name = "trellis-service-jobs"
 version = "0.8.2"
 dependencies = [
  "async-nats",
- "bytes",
  "futures-util",
  "rusqlite",
  "serde",

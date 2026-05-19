@@ -40,6 +40,39 @@ function assertFound(value: { found: boolean } | { migrationRequired: true }) {
   }
 }
 
+const userCaller = {
+  type: "user" as const,
+  participantKind: "app" as const,
+  userId: "user-1",
+  identity: {
+    identityId: "idn_github_123",
+    provider: "github",
+    subject: "123",
+  },
+  active: true,
+  name: "Test User",
+  email: "user@example.com",
+  capabilities: [],
+  lastAuth: "2026-01-01T00:00:00.000Z",
+};
+
+const adminCaller = {
+  ...userCaller,
+  capabilities: ["admin"],
+};
+
+const adminContext = { caller: adminCaller };
+
+const deviceCaller = {
+  type: "device" as const,
+  deviceId: "device-1",
+  deviceType: "reader",
+  runtimePublicKey: "A".repeat(43),
+  deploymentId: "reader.default",
+  active: true,
+  capabilities: [],
+};
+
 function assertStateEntry(entry: unknown): asserts entry is {
   key?: string;
   value: unknown;
@@ -243,7 +276,7 @@ Deno.test("State RPC accepts a session resolver without auth session storage met
     await handlers.put(
       { store: "preferences", value: { theme: "dark" } },
       {
-        caller: { type: "user", origin: "github", id: "123" },
+        caller: userCaller,
         sessionKey: "session-one",
       },
     ),
@@ -273,7 +306,7 @@ Deno.test("State RPC maps thrown session-storage failures to UnexpectedError", a
     await handlers.get(
       { store: "preferences" },
       {
-        caller: { type: "user", origin: "github", id: "123" },
+        caller: userCaller,
         sessionKey: "session-one",
       },
     ),
@@ -300,7 +333,7 @@ Deno.test("State RPC keeps missing sessions on the existing auth error path", as
     await handlers.get(
       { store: "preferences" },
       {
-        caller: { type: "user", origin: "github", id: "123" },
+        caller: userCaller,
         sessionKey: "missing-session",
       },
     ),
@@ -334,7 +367,7 @@ Deno.test("State RPC isolates named store state by contract id without caller sc
   await handlers.put(
     { store: "drafts", key: "draft", value: { text: "hello" } },
     {
-      caller: { type: "user", origin: "github", id: "123" },
+      caller: userCaller,
       sessionKey: "session-one",
     },
   );
@@ -343,7 +376,7 @@ Deno.test("State RPC isolates named store state by contract id without caller sc
     await handlers.get(
       { store: "drafts", key: "draft" },
       {
-        caller: { type: "user", origin: "github", id: "123" },
+        caller: userCaller,
         sessionKey: "session-one",
       },
     ),
@@ -354,7 +387,7 @@ Deno.test("State RPC isolates named store state by contract id without caller sc
     await handlers.get(
       { store: "drafts", key: "draft" },
       {
-        caller: { type: "user", origin: "github", id: "123" },
+        caller: userCaller,
         sessionKey: "session-two",
       },
     ),
@@ -395,7 +428,7 @@ Deno.test("State RPC uses contract id lineage and state versions for migration d
     }),
   );
 
-  const caller = { caller: { type: "user", origin: "github", id: "123" } };
+  const caller = { caller: userCaller };
   await handlers.put(
     { store: "drafts", key: "old", value: { title: "legacy" } },
     { ...caller, sessionKey: "old-version-session" },
@@ -456,12 +489,11 @@ Deno.test("State admin RPC schemas accept migration-required entries", async () 
   await handlers.put(
     { store: "drafts", key: "old", value: { title: "legacy" } },
     {
-      caller: { type: "user", origin: "github", id: "123" },
+      caller: userCaller,
       sessionKey: "old-version-session",
     },
   );
 
-  const adminCaller = { caller: { type: "user", capabilities: ["admin"] } };
   const target = {
     scope: "userApp" as const,
     contractId: "acme.notes@v1",
@@ -471,13 +503,13 @@ Deno.test("State admin RPC schemas accept migration-required entries", async () 
   };
 
   const got = unwrapOk(
-    await handlers.adminGet({ ...target, key: "old" }, adminCaller),
+    await handlers.adminGet({ ...target, key: "old" }, adminContext),
   );
   if (!isMigrationRequired(got)) throw new Error("expected migration");
   assertEquals(Value.Check(StateAdminGetResponseSchema, got), true);
 
   const listed = unwrapOk(
-    await handlers.adminList({ ...target, offset: 0, limit: 10 }, adminCaller),
+    await handlers.adminList({ ...target, offset: 0, limit: 10 }, adminContext),
   );
   assertEquals(listed.entries.length, 1);
   if (!isMigrationRequired(listed.entries[0])) {
@@ -511,7 +543,7 @@ Deno.test("State RPC derives store metadata and enforces value versus map key se
         value: { theme: "light" },
       },
       {
-        caller: { type: "user", origin: "github", id: "123" },
+        caller: userCaller,
         sessionKey: "user-session",
       },
     ),
@@ -529,7 +561,7 @@ Deno.test("State RPC derives store metadata and enforces value versus map key se
         value: { theme: "dark" },
       },
       {
-        caller: { type: "user", origin: "github", id: "123" },
+        caller: userCaller,
         sessionKey: "user-session",
       },
     ),
@@ -541,7 +573,7 @@ Deno.test("State RPC derives store metadata and enforces value versus map key se
       await handlers.get(
         { store: "preferences", key: "unexpected" },
         {
-          caller: { type: "user", origin: "github", id: "123" },
+          caller: userCaller,
           sessionKey: "user-session",
         },
       ),
@@ -554,7 +586,7 @@ Deno.test("State RPC derives store metadata and enforces value versus map key se
       await handlers.list(
         { store: "preferences", offset: 0, limit: 10 },
         {
-          caller: { type: "user", origin: "github", id: "123" },
+          caller: userCaller,
           sessionKey: "user-session",
         },
       ),
@@ -567,7 +599,7 @@ Deno.test("State RPC derives store metadata and enforces value versus map key se
       await handlers.get(
         { store: "drafts" },
         {
-          caller: { type: "user", origin: "github", id: "123" },
+          caller: userCaller,
           sessionKey: "user-session",
         },
       ),
@@ -580,7 +612,7 @@ Deno.test("State RPC derives store metadata and enforces value versus map key se
       await handlers.put(
         { store: "preferences", value: { theme: 123 } },
         {
-          caller: { type: "user", origin: "github", id: "123" },
+          caller: userCaller,
           sessionKey: "user-session",
         },
       ),
@@ -614,7 +646,7 @@ Deno.test("State RPC accepts boolean JSON schemas for state stores", async () =>
     await handlers.put(
       { store: "anything", value: { nested: [true, false] } },
       {
-        caller: { type: "user", origin: "github", id: "123" },
+        caller: userCaller,
         sessionKey: "boolean-session",
       },
     ),
@@ -648,7 +680,7 @@ Deno.test("State RPC derives normal caller ownership from the session", async ()
     await handlers.put(
       { store: "preferences", value: { page: 1 } },
       {
-        caller: { type: "device", id: "device-1" },
+        caller: deviceCaller,
         sessionKey: "device-session",
       },
     ),
@@ -659,7 +691,7 @@ Deno.test("State RPC derives normal caller ownership from the session", async ()
     await handlers.get(
       { store: "preferences" },
       {
-        caller: { type: "user", origin: "github", id: "123" },
+        caller: userCaller,
         sessionKey: "user-session",
       },
     ),
@@ -689,7 +721,7 @@ Deno.test("State admin RPCs inspect and delete named stores", async () => {
     await handlers.put(
       { store: "drafts", key: "draft", value: { text: "hello" } },
       {
-        caller: { type: "user", origin: "github", id: "123" },
+        caller: userCaller,
         sessionKey: "session-one",
       },
     ),
@@ -697,7 +729,6 @@ Deno.test("State admin RPCs inspect and delete named stores", async () => {
   if (!put.entry) throw new Error("expected put entry");
   assertStateEntry(put.entry);
 
-  const adminCaller = { caller: { type: "user", capabilities: ["admin"] } };
   const target = {
     scope: "userApp" as const,
     contractId: "acme.notes@v1",
@@ -707,25 +738,25 @@ Deno.test("State admin RPCs inspect and delete named stores", async () => {
   };
 
   const got = unwrapOk(
-    await handlers.adminGet({ ...target, key: "draft" }, adminCaller),
+    await handlers.adminGet({ ...target, key: "draft" }, adminContext),
   );
   assertFound(got);
 
   const listed = unwrapOk(
-    await handlers.adminList({ ...target, offset: 0, limit: 10 }, adminCaller),
+    await handlers.adminList({ ...target, offset: 0, limit: 10 }, adminContext),
   );
   assertEquals(listed.entries.map(listedKey), ["draft"]);
 
   const deleted = unwrapOk(
     await handlers.adminDelete(
       { ...target, key: "draft", expectedRevision: put.entry.revision },
-      adminCaller,
+      adminContext,
     ),
   );
   assertEquals(deleted, { deleted: true });
 
   const missing = unwrapOk(
-    await handlers.adminGet({ ...target, key: "draft" }, adminCaller),
+    await handlers.adminGet({ ...target, key: "draft" }, adminContext),
   );
   assertEquals(missing, { found: false });
 
@@ -733,7 +764,7 @@ Deno.test("State admin RPCs inspect and delete named stores", async () => {
     unwrapErr(
       await handlers.adminGet(
         { ...target, store: "missing", key: "draft" },
-        adminCaller,
+        adminContext,
       ),
     ) instanceof ValidationError,
     true,
@@ -742,7 +773,7 @@ Deno.test("State admin RPCs inspect and delete named stores", async () => {
   assertEquals(
     unwrapErr(
       await handlers.adminGet({ ...target, key: "draft" }, {
-        caller: { type: "user" },
+        caller: userCaller,
       }),
     ) instanceof AuthError,
     true,
@@ -755,7 +786,7 @@ Deno.test("State admin RPCs inspect and delete named stores", async () => {
           ...target,
           contractId: "acme.tasks@v1",
         },
-        adminCaller,
+        adminContext,
       ),
     ) instanceof ValidationError,
     true,

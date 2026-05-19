@@ -1,6 +1,7 @@
 import { assertEquals, assertMatch } from "@std/assert";
+import { lt } from "drizzle-orm";
 
-import { contracts } from "./schema.ts";
+import { contracts, sessions } from "./schema.ts";
 import { initializeTrellisStorageSchema, openTrellisStorageDb } from "./db.ts";
 
 Deno.test("trellis storage opens file-backed SQLite and persists contracts", async () => {
@@ -147,6 +148,76 @@ Deno.test("trellis storage opens file-backed SQLite and persists contracts", asy
       analysisSummary: JSON.stringify(analysisSummary),
       analysis: JSON.stringify(analysis),
     });
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
+Deno.test("trellis storage serializes concurrent local SQLite transactions", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-storage-concurrent-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    await initializeTrellisStorageSchema(storage);
+
+    const contract = {
+      id: "graph@v1",
+      displayName: "Graph",
+      description: "Graph test contract",
+      namespaces: ["graph"],
+    };
+    const analysisSummary = {
+      namespaces: ["graph"],
+      rpcMethods: 0,
+      operations: 0,
+      operationControls: 0,
+      events: 0,
+      natsPublish: 0,
+      natsSubscribe: 0,
+      kvResources: 0,
+      storeResources: 0,
+      jobsQueues: 0,
+    };
+    const analysis = {
+      namespaces: ["graph"],
+      rpc: { methods: [] },
+      operations: { operations: [], control: [] },
+      events: { events: [] },
+      nats: { publish: [], subscribe: [] },
+      resources: { kv: [], store: [], jobs: [] },
+    };
+    const resources = { kv: {} };
+
+    await Promise.all(
+      Array.from(
+        { length: 20 },
+        (_, index) =>
+          storage.db.transaction(async (tx) => {
+            await tx.insert(contracts).values({
+              digest: `sha256-concurrent-${index}`,
+              contractId: contract.id,
+              displayName: contract.displayName,
+              description: contract.description,
+              installedAt: "2026-04-26T00:00:00.000Z",
+              contract: JSON.stringify(contract),
+              analysisSummary: JSON.stringify(analysisSummary),
+              analysis: JSON.stringify(analysis),
+              resources: JSON.stringify(resources),
+            });
+            await tx.delete(sessions).where(
+              lt(sessions.lastAuth, "2026-01-01T00:00:00.000Z"),
+            );
+          }),
+      ),
+    );
+
+    const rows = await storage.db.select().from(contracts);
+    assertEquals(rows.length, 20);
   } finally {
     storage.client.close();
     await Deno.remove(dbPath).catch(() => undefined);

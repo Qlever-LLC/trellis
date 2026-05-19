@@ -4,7 +4,18 @@ use trellis_jobs::events::{
     failed_event, logged_event, progress_event, retried_event, retry_event, started_event,
 };
 use trellis_jobs::subjects::job_event_subject;
-use trellis_jobs::types::{JobEventType, JobLogEntry, JobLogLevel, JobProgress, JobState};
+use trellis_jobs::types::{
+    JobContext, JobEventType, JobLogEntry, JobLogLevel, JobProgress, JobState,
+};
+
+fn sample_context() -> JobContext {
+    JobContext {
+        request_id: "request-1".to_string(),
+        trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+        traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+        tracestate: None,
+    }
+}
 
 #[test]
 fn created_event_sets_event_type_state_payload_and_max_tries() {
@@ -12,6 +23,7 @@ fn created_event_sets_event_type_state_payload_and_max_tries() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         json!({ "documentId": "doc-1" }),
         5,
         "2026-03-28T12:00:00.000Z",
@@ -31,6 +43,7 @@ fn retried_event_sets_pending_state_and_no_payload() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         JobState::Failed,
         "2026-03-28T12:10:00.000Z",
         None,
@@ -50,6 +63,7 @@ fn event_helpers_round_trip_subject_suffix_with_subject_builder() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         json!({ "documentId": "doc-1" }),
         5,
         "2026-03-28T12:00:00.000Z",
@@ -59,6 +73,7 @@ fn event_helpers_round_trip_subject_suffix_with_subject_builder() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         JobState::Failed,
         "2026-03-28T12:10:00.000Z",
         None,
@@ -92,6 +107,7 @@ fn event_helpers_set_expected_event_type_and_state_pairs() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         JobState::Pending,
         1,
         "2026-03-28T12:01:00.000Z",
@@ -103,6 +119,7 @@ fn event_helpers_set_expected_event_type_and_state_pairs() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         JobState::Active,
         1,
         "2026-03-28T12:02:00.000Z",
@@ -115,6 +132,7 @@ fn event_helpers_set_expected_event_type_and_state_pairs() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         1,
         "2026-03-28T12:02:30.000Z",
         JobProgress {
@@ -131,6 +149,7 @@ fn event_helpers_set_expected_event_type_and_state_pairs() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         1,
         "2026-03-28T12:02:45.000Z",
         vec![JobLogEntry {
@@ -146,6 +165,7 @@ fn event_helpers_set_expected_event_type_and_state_pairs() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         1,
         "2026-03-28T12:03:00.000Z",
         json!({ "ok": true }),
@@ -157,6 +177,7 @@ fn event_helpers_set_expected_event_type_and_state_pairs() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         JobState::Active,
         3,
         "2026-03-28T12:03:10.000Z",
@@ -169,6 +190,7 @@ fn event_helpers_set_expected_event_type_and_state_pairs() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         JobState::Retry,
         2,
         "2026-03-28T12:03:20.000Z",
@@ -180,6 +202,7 @@ fn event_helpers_set_expected_event_type_and_state_pairs() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         JobState::Retry,
         2,
         "2026-03-28T12:03:30.000Z",
@@ -192,6 +215,7 @@ fn event_helpers_set_expected_event_type_and_state_pairs() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         JobState::Failed,
         3,
         "2026-03-28T12:03:40.000Z",
@@ -204,6 +228,7 @@ fn event_helpers_set_expected_event_type_and_state_pairs() {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         JobState::Dead,
         3,
         "2026-03-28T12:03:50.000Z",

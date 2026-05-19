@@ -6,7 +6,7 @@ use serde_json::json;
 use trellis_jobs::bindings::{JobsBinding, JobsQueueBinding};
 use trellis_jobs::events::{created_event, retried_event};
 use trellis_jobs::manager::{JobManager, JobMetaSource, JobProcessError, JobProcessOutcome};
-use trellis_jobs::publisher::JobEventPublisher;
+use trellis_jobs::publisher::{JobEventHeaders, JobEventPublisher};
 use trellis_jobs::runtime_worker::{
     process_work_payload, process_work_payload_with_context,
     process_work_payload_with_context_and_heartbeat, JobCancellationToken, NatsJobEventPublisher,
@@ -14,11 +14,11 @@ use trellis_jobs::runtime_worker::{
 
 #[derive(Default)]
 struct RecordingPublisher {
-    calls: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
+    calls: Arc<Mutex<Vec<(String, JobEventHeaders, Vec<u8>)>>>,
 }
 
 impl RecordingPublisher {
-    fn calls(&self) -> Vec<(String, Vec<u8>)> {
+    fn calls(&self) -> Vec<(String, JobEventHeaders, Vec<u8>)> {
         self.calls.lock().expect("lock calls").clone()
     }
 }
@@ -29,12 +29,13 @@ impl JobEventPublisher for RecordingPublisher {
     fn publish(
         &self,
         subject: String,
+        headers: JobEventHeaders,
         payload: Vec<u8>,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
         self.calls
             .lock()
             .expect("lock calls")
-            .push((subject, payload));
+            .push((subject, headers, payload));
         async { Ok(()) }
     }
 }
@@ -88,6 +89,7 @@ fn sample_work_payload() -> Vec<u8> {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         json!({ "documentId": "doc-1" }),
         2,
         "2026-03-28T11:59:00.000Z",
@@ -101,6 +103,7 @@ fn sample_retried_work_payload() -> Vec<u8> {
         "documents",
         "document-process",
         "job-1",
+        &sample_context(),
         trellis_jobs::JobState::Failed,
         "2026-03-28T11:59:00.000Z",
         Some(json!({ "documentId": "doc-1" })),
@@ -108,6 +111,15 @@ fn sample_retried_work_payload() -> Vec<u8> {
         None,
     ))
     .expect("serialize retried work event")
+}
+
+fn sample_context() -> trellis_jobs::JobContext {
+    trellis_jobs::JobContext {
+        request_id: "request-1".to_string(),
+        trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+        traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+        tracestate: None,
+    }
 }
 
 #[tokio::test]

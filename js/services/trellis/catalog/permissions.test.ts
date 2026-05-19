@@ -61,6 +61,17 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
       kind: "service",
       schemas: {
         AuthConnectionsOpenedEvent: { type: "object" },
+        AuthRequestsValidateRequest: { type: "object" },
+        AuthRequestsValidateResponse: { type: "object" },
+      },
+      rpc: {
+        "Auth.Requests.Validate": {
+          version: "v1",
+          subject: "rpc.v1.Auth.Requests.Validate",
+          input: { schema: "AuthRequestsValidateRequest" },
+          output: { schema: "AuthRequestsValidateResponse" },
+          capabilities: { call: ["service"] },
+        },
       },
       events: {
         "Auth.Connections.Opened": {
@@ -665,7 +676,7 @@ Deno.test("user uses resolution allows multiple active compatible digests", () =
     digest: "health-app-digest",
     contract: {
       format: "trellis.contract.v1",
-        id: "health-app@v1",
+      id: "health-app@v1",
       displayName: "Health App",
       description: "Reads Trellis health.",
       kind: "app",

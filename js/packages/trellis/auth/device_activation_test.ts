@@ -11,12 +11,12 @@ import { UnexpectedError } from "../errors/index.ts";
 import {
   type AuthDeviceUserAuthoritiesListInput,
   type AuthDeviceUserAuthoritiesListOutput,
+  type AuthDeviceUserAuthoritiesRevokeInput,
+  type AuthDeviceUserAuthoritiesRevokeResponse,
   type AuthResolveDeviceUserAuthoritiesInput,
   type AuthResolveDeviceUserAuthoritiesOperation,
   type AuthResolveDeviceUserAuthoritiesOutput,
   type AuthResolveDeviceUserAuthoritiesProgress,
-  type AuthDeviceUserAuthoritiesRevokeInput,
-  type AuthDeviceUserAuthoritiesRevokeResponse,
   buildDeviceActivationPayload,
   buildDeviceWaitProofInput,
   createDeviceActivationClient,
@@ -104,6 +104,7 @@ Deno.test("device activation start requests return short flow URLs", async () =>
 Deno.test("device wait helpers sign requests and verify confirmation codes", async () => {
   const identity = await deriveDeviceIdentity(new Uint8Array(32).fill(9));
   const waitRequest = await signDeviceWaitRequest({
+    flowId: "flow_123",
     publicIdentityKey: identity.publicIdentityKey,
     nonce: "nonce_123",
     identitySeed: identity.identitySeed,
@@ -112,11 +113,18 @@ Deno.test("device wait helpers sign requests and verify confirmation codes", asy
   });
 
   assertEquals(waitRequest.publicIdentityKey, identity.publicIdentityKey);
+  assertEquals(waitRequest.flowId, "flow_123");
   assertEquals(waitRequest.nonce, "nonce_123");
   assertEquals(waitRequest.contractDigest, "digest-a");
   assertEquals(waitRequest.iat, 123);
   assert(waitRequest.sig.length > 0);
   assert(await verifyDeviceWaitSignature(waitRequest));
+  assertFalse(
+    await verifyDeviceWaitSignature({
+      ...waitRequest,
+      flowId: "flow_456",
+    }),
+  );
   assertFalse(
     await verifyDeviceWaitSignature({
       ...waitRequest,
@@ -154,6 +162,7 @@ Deno.test("device wait helpers sign requests and verify confirmation codes", asy
 Deno.test("device wait signatures are computed over the hashed proof input", async () => {
   const identity = await deriveDeviceIdentity(new Uint8Array(32).fill(11));
   const waitRequest = await signDeviceWaitRequest({
+    flowId: "flow_456",
     publicIdentityKey: identity.publicIdentityKey,
     nonce: "nonce_456",
     identitySeed: identity.identitySeed,
@@ -167,6 +176,7 @@ Deno.test("device wait signatures are computed over the hashed proof input", asy
     identity.publicIdentityKey,
   );
   const proofInput = buildDeviceWaitProofInput(
+    waitRequest.flowId,
     identity.publicIdentityKey,
     waitRequest.nonce,
     waitRequest.iat,
@@ -233,6 +243,7 @@ Deno.test("device activation wait and connect-info helpers parse responses", asy
 
     const activated = await waitForDeviceActivation({
       trellisUrl: "https://trellis.example.com",
+      flowId: "flow_123",
       publicIdentityKey: identity.publicIdentityKey,
       nonce: "nonce_123",
       identitySeed: identity.identitySeed,
@@ -301,6 +312,7 @@ Deno.test("device activation wait and connect-info helpers parse responses", asy
       () =>
         waitForDeviceActivation({
           trellisUrl: "https://trellis.example.com",
+          flowId: "flow_123",
           publicIdentityKey: identity.publicIdentityKey,
           nonce: "nonce_123",
           identitySeed: identity.identitySeed,
@@ -330,6 +342,7 @@ Deno.test("device activation wait and connect-info helpers parse responses", asy
       () =>
         waitForDeviceActivation({
           trellisUrl: "https://trellis.example.com",
+          flowId: "flow_123",
           publicIdentityKey: identity.publicIdentityKey,
           nonce: "nonce_123",
           identitySeed: identity.identitySeed,
@@ -388,6 +401,7 @@ Deno.test("device activation wait retries transient fetch failures", async () =>
 
     const activated = await waitForDeviceActivation({
       trellisUrl: "https://trellis.example.com",
+      flowId: "flow_123",
       publicIdentityKey: identity.publicIdentityKey,
       nonce: "nonce_123",
       identitySeed: identity.identitySeed,
@@ -448,6 +462,7 @@ Deno.test("device activation wait backs off after rate limiting", async () => {
 
     const activated = await waitForDeviceActivation({
       trellisUrl: "https://trellis.example.com",
+      flowId: "flow_123",
       publicIdentityKey: identity.publicIdentityKey,
       nonce: "nonce_123",
       identitySeed: identity.identitySeed,
@@ -679,7 +694,10 @@ Deno.test("device activation client wrappers hide method strings", async () => {
     deploymentId: "reader.default",
     activatedAt: "2026-04-08T12:00:00Z",
   });
-  assertEquals((await client.listDeviceActivations()).activations, []);
+  assertEquals(
+    (await client.listDeviceActivations({ limit: 50 })).activations,
+    [],
+  );
   assertEquals(
     await client.revokeDeviceActivation({ instanceId: "dev_123" }),
     { success: true },

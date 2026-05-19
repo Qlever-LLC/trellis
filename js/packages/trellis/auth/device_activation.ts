@@ -21,6 +21,7 @@ import {
   AuthResolveDeviceUserAuthoritiesProgressSchema,
   AuthResolveDeviceUserAuthoritiesResponseSchema,
   AuthResolveDeviceUserAuthoritiesSchema,
+  WaitForDeviceActivationRequestSchema,
   WaitForDeviceActivationResponseSchema,
 } from "./protocol.ts";
 import {
@@ -44,15 +45,10 @@ export const DeviceActivationPayloadSchema = Type.Object({
   publicIdentityKey: Type.String({ minLength: 1 }),
   nonce: Type.String({ minLength: 1 }),
   qrMac: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 
-export const DeviceActivationWaitRequestSchema = Type.Object({
-  publicIdentityKey: Type.String({ minLength: 1 }),
-  nonce: Type.String({ minLength: 1 }),
-  contractDigest: Type.Optional(Type.String({ minLength: 1 })),
-  iat: Type.Number(),
-  sig: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+export const DeviceActivationWaitRequestSchema =
+  WaitForDeviceActivationRequestSchema;
 
 export type DeviceActivationPayload = StaticDecode<
   typeof DeviceActivationPayloadSchema
@@ -452,24 +448,31 @@ export async function verifyDeviceConfirmationCode(input: {
 }
 
 export function buildDeviceWaitProofInput(
+  flowId: string,
   publicIdentityKey: string,
   nonce: string,
   iat: number,
-  contractDigest?: string,
+  contractDigest: string,
 ): Uint8Array {
   const enc = new TextEncoder();
+  const flowIdBytes = enc.encode(flowId);
   const publicIdentityKeyBytes = enc.encode(publicIdentityKey);
   const nonceBytes = enc.encode(nonce);
   const iatBytes = enc.encode(String(iat));
-  const contractDigestBytes = enc.encode(contractDigest ?? "");
+  const contractDigestBytes = enc.encode(contractDigest);
   const buf = new Uint8Array(
-    4 + publicIdentityKeyBytes.length +
+    4 + flowIdBytes.length +
+      4 + publicIdentityKeyBytes.length +
       4 + nonceBytes.length +
       4 + iatBytes.length +
       4 + contractDigestBytes.length,
   );
   const view = new DataView(buf.buffer);
   let offset = 0;
+  view.setUint32(offset, flowIdBytes.length);
+  offset += 4;
+  buf.set(flowIdBytes, offset);
+  offset += flowIdBytes.length;
   view.setUint32(offset, publicIdentityKeyBytes.length);
   offset += 4;
   buf.set(publicIdentityKeyBytes, offset);
@@ -489,10 +492,11 @@ export function buildDeviceWaitProofInput(
 }
 
 export async function signDeviceWaitRequest(args: {
+  flowId: string;
   publicIdentityKey: string;
   nonce: string;
   identitySeed: Uint8Array | string;
-  contractDigest?: string;
+  contractDigest: string;
   iat?: number;
 }): Promise<DeviceActivationWaitRequest> {
   const identitySeed = normalizeSecretBytes(args.identitySeed, "identitySeed");
@@ -501,6 +505,7 @@ export async function signDeviceWaitRequest(args: {
   );
   const iat = args.iat ?? Math.floor(Date.now() / 1_000);
   const proofInput = buildDeviceWaitProofInput(
+    args.flowId,
     args.publicIdentityKey,
     args.nonce,
     iat,
@@ -515,9 +520,10 @@ export async function signDeviceWaitRequest(args: {
     ),
   );
   return {
+    flowId: args.flowId,
     publicIdentityKey: args.publicIdentityKey,
     nonce: args.nonce,
-    ...(args.contractDigest ? { contractDigest: args.contractDigest } : {}),
+    contractDigest: args.contractDigest,
     iat,
     sig: base64urlEncode(signature),
   };
@@ -558,6 +564,7 @@ export async function createDeviceNatsAuthToken(args: {
 
 export async function waitForDeviceActivation(args: {
   trellisUrl: string;
+  flowId: string;
   publicIdentityKey: string;
   nonce: string;
   identitySeed: Uint8Array | string;
@@ -631,6 +638,7 @@ export async function getDeviceConnectInfo(args: {
   iat?: number;
 }): Promise<GetDeviceConnectInfoOutput> {
   const request = await signDeviceWaitRequest({
+    flowId: "connect-info",
     publicIdentityKey: args.publicIdentityKey,
     identitySeed: args.identitySeed,
     contractDigest: args.contractDigest,
@@ -691,6 +699,7 @@ export async function verifyDeviceWaitSignature(
   );
   const proofHash = await sha256(
     buildDeviceWaitProofInput(
+      input.flowId,
       input.publicIdentityKey,
       input.nonce,
       input.iat,

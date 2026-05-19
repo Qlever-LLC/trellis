@@ -33,7 +33,7 @@ type RpcUser = {
   capabilities?: string[];
 };
 
-/** Formats a user origin/id pair for approval RPC inputs and audit fields. */
+/** Formats a provider and subject pair for approval RPC inputs. */
 export function formatOriginId(origin: string, id: string): string {
   return `${origin}.${id}`;
 }

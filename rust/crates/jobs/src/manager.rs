@@ -1,4 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
 use std::future::Future;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
@@ -13,9 +15,9 @@ use crate::events::{
     cancelled_event, completed_event, created_event, failed_event, logged_event, progress_event,
     retry_event, started_event,
 };
-use crate::publisher::JobEventPublisher;
+use crate::publisher::{JobEventHeaders, JobEventPublisher};
 use crate::runtime_worker::JobCancellationToken;
-use crate::types::{Job, JobEventType, JobLogEntry, JobProgress, JobState};
+use crate::types::{Job, JobContext, JobEventType, JobLogEntry, JobProgress, JobState};
 
 type HeartbeatHook = Arc<dyn Fn() -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
 
@@ -153,6 +155,7 @@ where
 
         let now = self.inner.meta.now_iso();
         let id = self.inner.meta.next_job_id();
+        let context = new_job_context(self.inner.meta.next_job_id(), &id, &now);
         let payload_value: Value =
             serde_json::to_value(payload.clone()).map_err(JobManagerError::SerializePayload)?;
         let deadline = compute_deadline(&now, queue.default_deadline_ms).map_err(|details| {
@@ -164,6 +167,7 @@ where
 
         let job = Job {
             id: id.clone(),
+            context,
             service: self.inner.bindings.namespace.clone(),
             job_type: queue_type.to_string(),
             state: JobState::Pending,
@@ -185,6 +189,7 @@ where
             &job.service,
             &job.job_type,
             &job.id,
+            &job.context,
             payload_value,
             queue.max_deliver,
             &now,
@@ -241,6 +246,7 @@ where
             &job.service,
             &job.job_type,
             &job.id,
+            &job.context,
             job.state,
             tries,
             &started_at,
@@ -270,6 +276,7 @@ where
                     &job.service,
                     &job.job_type,
                     &job.id,
+                    &job.context,
                     tries,
                     &self.now_iso(),
                     result_value,
@@ -290,6 +297,7 @@ where
                     &job.service,
                     &job.job_type,
                     &job.id,
+                    &job.context,
                     JobState::Active,
                     tries,
                     &self.now_iso(),
@@ -311,6 +319,7 @@ where
                     &job.service,
                     &job.job_type,
                     &job.id,
+                    &job.context,
                     JobState::Active,
                     tries,
                     &self.now_iso(),
@@ -347,6 +356,7 @@ where
             &job.service,
             &job.job_type,
             &job.id,
+            &job.context,
             job.tries,
             &self.now_iso(),
             progress,
@@ -379,6 +389,7 @@ where
             &job.service,
             &job.job_type,
             &job.id,
+            &job.context,
             job.tries,
             &self.now_iso(),
             vec![log],
@@ -404,6 +415,7 @@ where
             &job.service,
             &job.job_type,
             &job.id,
+            &job.context,
             job.state,
             job.tries,
             &self.now_iso(),
@@ -491,10 +503,72 @@ where
             event_type.as_token()
         );
         self.publisher()
-            .publish(subject, payload)
+            .publish(subject, JobEventHeaders::from(&event.context), payload)
             .await
             .map_err(JobManagerError::Publish)
     }
+}
+
+fn new_job_context(request_id: String, job_id: &str, timestamp: &str) -> JobContext {
+    let trace_id = synthesize_trace_id(&request_id, job_id, timestamp);
+    let span_id = synthesize_span_id(&trace_id, &request_id);
+    let traceparent = format!("00-{trace_id}-{span_id}-01");
+    let trace_id = trace_id_from_traceparent(&traceparent)
+        .expect("synthesized traceparent should be valid")
+        .to_string();
+    JobContext {
+        request_id,
+        trace_id,
+        traceparent,
+        tracestate: None,
+    }
+}
+
+fn synthesize_trace_id(request_id: &str, job_id: &str, timestamp: &str) -> String {
+    let left = stable_hash64(&(request_id, job_id, timestamp, "trace-left"));
+    let right = stable_hash64(&(timestamp, job_id, request_id, "trace-right"));
+    let trace_id = format!("{left:016x}{right:016x}");
+    if trace_id == "00000000000000000000000000000000" {
+        "00000000000000000000000000000001".to_string()
+    } else {
+        trace_id
+    }
+}
+
+fn synthesize_span_id(trace_id: &str, request_id: &str) -> String {
+    let value = stable_hash64(&(trace_id, request_id, "span"));
+    if value == 0 {
+        "0000000000000001".to_string()
+    } else {
+        format!("{value:016x}")
+    }
+}
+
+fn stable_hash64(value: &impl Hash) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
+pub(crate) fn trace_id_from_traceparent(traceparent: &str) -> Option<&str> {
+    let mut parts = traceparent.split('-');
+    let version = parts.next()?;
+    let trace_id = parts.next()?;
+    let span_id = parts.next()?;
+    let flags = parts.next()?;
+    if parts.next().is_some()
+        || version.len() != 2
+        || trace_id.len() != 32
+        || span_id.len() != 16
+        || flags.len() != 2
+        || trace_id == "00000000000000000000000000000000"
+        || span_id == "0000000000000000"
+        || !trace_id.chars().all(|value| value.is_ascii_hexdigit())
+        || !span_id.chars().all(|value| value.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    Some(trace_id)
 }
 
 fn compute_deadline(now: &str, default_deadline_ms: Option<u64>) -> Result<Option<String>, String> {

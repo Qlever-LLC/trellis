@@ -93,6 +93,7 @@ where
             });
         }
 
+        let context = self.context_with_required_capabilities(subject, &payload, context)?;
         let validation = self.validator.validate(subject, &payload, &context).await?;
         if !validation.allowed {
             return Err(ServerError::RequestDenied {
@@ -135,6 +136,7 @@ where
             });
         }
 
+        let context = self.context_with_required_capabilities(subject, &payload, context)?;
         let validation = self.validator.validate(subject, &payload, &context).await?;
         if !validation.allowed {
             return Err(ServerError::RequestDenied {
@@ -179,6 +181,7 @@ where
             });
         }
 
+        let context = self.context_with_required_capabilities(subject, &payload, context)?;
         let validation = self.validator.validate(subject, &payload, &context).await?;
         if !validation.allowed {
             return Err(ServerError::RequestDenied {
@@ -196,6 +199,18 @@ where
         self.router
             .handle_request_response(subject, payload, context)
             .await
+    }
+
+    fn context_with_required_capabilities(
+        &self,
+        subject: &str,
+        payload: &[u8],
+        context: RequestContext,
+    ) -> Result<RequestContext, ServerError> {
+        Ok(RequestContext {
+            required_capabilities: self.router.required_capabilities(subject, payload)?,
+            ..context
+        })
     }
 }
 

@@ -13,6 +13,8 @@ import {
   createAuthHttpRouteContext,
 } from "./route_context.ts";
 
+type AuthCorsConfig = AuthHttpRouteOptions["config"]["web"]["cors"];
+
 type RateLimitContext = {
   env?: unknown;
   req?: { header: (name: string) => string | undefined };
@@ -85,12 +87,85 @@ function setCorsHeaders(
   }
 }
 
+function globalAuthCorsOptions(corsConfig: AuthCorsConfig) {
+  if (corsConfig.mode === "public") {
+    return {
+      origin: "*",
+      allowMethods: ["GET", "POST", "OPTIONS"],
+      credentials: false,
+    };
+  }
+  return {
+    origin: (origin: string) => resolveCorsOrigin(origin, corsConfig.origins),
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    credentials: corsConfig.credentials,
+  };
+}
+
+function shouldUseHsts(config: AuthHttpRouteOptions["config"]): boolean {
+  const publicLocation = config.web.publicOrigin ?? config.oauth.redirectBase;
+  try {
+    return new URL(publicLocation).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function setSecurityHeaders(
+  c: { header: (name: string, value: string) => void },
+  config: AuthHttpRouteOptions["config"],
+): void {
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("Referrer-Policy", "no-referrer");
+  c.header("X-Frame-Options", "DENY");
+  c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  c.header(
+    "Content-Security-Policy",
+    [
+      "default-src 'none'",
+      "base-uri 'none'",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      "connect-src 'self'",
+    ].join("; "),
+  );
+  if (shouldUseHsts(config)) {
+    c.header(
+      "Strict-Transport-Security",
+      "max-age=31536000; includeSubDomains",
+    );
+  }
+}
+
+function isRouteScopedBrowserFlowCors(
+  pathname: string,
+  method: string,
+): boolean {
+  if (pathname === "/auth/login/local") return true;
+  return browserFlowPortalEndpointFlowId(pathname, method) !== undefined ||
+    pathname.startsWith("/auth/flow/");
+}
+
 export function registerHttpRoutes(
   app: Hono,
   opts: AuthHttpRouteOptions,
 ): void {
   const { config } = opts;
   const context = createAuthHttpRouteContext(opts);
+
+  const securityHeaders = async (
+    c: { header: (name: string, value: string) => void },
+    next: () => Promise<void>,
+  ) => {
+    setSecurityHeaders(c, config);
+    await next();
+  };
+
+  app.use("/auth/*", securityHeaders);
+  app.use("/bootstrap/*", securityHeaders);
 
   app.use("/auth/login/local", async (c, next) => {
     const origin = c.req.header("origin");
@@ -125,22 +200,23 @@ export function registerHttpRoutes(
     await next();
   });
 
-  if (config.web.origins.length > 0) {
+  {
+    const corsOptions = globalAuthCorsOptions(config.web.cors);
+    const authCors = cors(corsOptions);
     app.use(
       "/auth/*",
-      cors({
-        origin: (origin) => resolveCorsOrigin(origin, config.web.origins),
-        allowMethods: ["GET", "POST", "OPTIONS"],
-        credentials: true,
-      }),
+      async (c, next) => {
+        const url = new URL(c.req.url);
+        if (isRouteScopedBrowserFlowCors(url.pathname, c.req.method)) {
+          await next();
+          return;
+        }
+        return await authCors(c, next);
+      },
     );
     app.use(
       "/bootstrap/*",
-      cors({
-        origin: (origin) => resolveCorsOrigin(origin, config.web.origins),
-        allowMethods: ["GET", "POST", "OPTIONS"],
-        credentials: true,
-      }),
+      cors(corsOptions),
     );
   }
 

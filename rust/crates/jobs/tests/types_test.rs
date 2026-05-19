@@ -1,5 +1,16 @@
 use serde_json::json;
-use trellis_jobs::types::{Job, JobEvent, JobEventType, JobLogLevel, JobState, WorkerHeartbeat};
+use trellis_jobs::types::{
+    Job, JobContext, JobEvent, JobEventType, JobLogLevel, JobState, WorkerHeartbeat,
+};
+
+fn sample_context() -> JobContext {
+    JobContext {
+        request_id: "request-1".to_string(),
+        trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+        traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+        tracestate: Some("vendor=value".to_string()),
+    }
+}
 
 #[test]
 fn job_state_and_event_type_serde_use_lowercase_tokens() {
@@ -25,6 +36,7 @@ fn job_state_and_event_type_serde_use_lowercase_tokens() {
 fn job_and_event_serde_use_expected_wire_keys() {
     let job = Job {
         id: "job-1".to_string(),
+        context: sample_context(),
         service: "documents".to_string(),
         job_type: "document-process".to_string(),
         state: JobState::Pending,
@@ -45,9 +57,16 @@ fn job_and_event_serde_use_expected_wire_keys() {
     assert_eq!(job_json.get("type"), Some(&json!("document-process")));
     assert_eq!(job_json.get("maxTries"), Some(&json!(5)));
     assert!(job_json.get("job_type").is_none());
+    assert_eq!(job_json["context"]["requestId"], json!("request-1"));
+    assert_eq!(
+        job_json["context"]["traceId"],
+        json!("0123456789abcdef0123456789abcdef")
+    );
+    assert_eq!(job_json["context"]["tracestate"], json!("vendor=value"));
 
     let event = JobEvent {
         job_id: "job-1".to_string(),
+        context: sample_context(),
         service: "documents".to_string(),
         job_type: "document-process".to_string(),
         event_type: JobEventType::Created,
@@ -67,6 +86,7 @@ fn job_and_event_serde_use_expected_wire_keys() {
     assert_eq!(event_json.get("jobId"), Some(&json!("job-1")));
     assert_eq!(event_json.get("jobType"), Some(&json!("document-process")));
     assert_eq!(event_json.get("eventType"), Some(&json!("created")));
+    assert_eq!(event_json["context"]["requestId"], json!("request-1"));
 }
 
 #[test]

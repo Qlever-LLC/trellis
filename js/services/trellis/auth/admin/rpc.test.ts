@@ -68,7 +68,7 @@ function serviceAdminDeps(): ServiceAdminRpcDeps {
       get: async () => throwingStoreAccess(),
       put: async () => throwingStoreAccess(),
       delete: async () => throwingStoreAccess(),
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listFiltered: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
@@ -76,7 +76,7 @@ function serviceAdminDeps(): ServiceAdminRpcDeps {
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async () => throwingStoreAccess(),
       delete: async () => throwingStoreAccess(),
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listFiltered: async () => throwingStoreAccess(),
       listByDeployment: async () => throwingStoreAccess(),
     },
@@ -144,8 +144,56 @@ const serviceContract: TrellisContractV1 = {
   kind: "service",
 };
 
-const adminContext = {
-  caller: { type: "user", id: "admin", capabilities: ["admin"] },
+const adminCaller = {
+  type: "user" as const,
+  participantKind: "app" as const,
+  userId: "admin",
+  identity: {
+    identityId: "idn_admin",
+    provider: "github",
+    subject: "admin",
+  },
+  active: true,
+  name: "Admin",
+  email: "admin@example.com",
+  capabilities: ["admin"],
+  lastAuth: new Date().toISOString(),
+};
+
+const nonAdminCaller = {
+  ...adminCaller,
+  userId: "not-admin",
+  identity: {
+    identityId: "idn_not_admin",
+    provider: "github",
+    subject: "not-admin",
+  },
+  capabilities: [],
+};
+
+const adminContext = { caller: adminCaller };
+const adminActivationActor = {
+  participantKind: adminCaller.participantKind,
+  userId: adminCaller.userId,
+  identity: adminCaller.identity,
+};
+const userActivationActor = {
+  participantKind: "app" as const,
+  userId: "user_1",
+  identity: {
+    identityId: "idn_github_user_1",
+    provider: "github",
+    subject: "user_1",
+  },
+};
+const portalActivationActor = {
+  participantKind: "app" as const,
+  userId: "main",
+  identity: {
+    identityId: "idn_portal_main",
+    provider: "portal",
+    subject: "main",
+  },
 };
 
 function kickDeps(serviceDeps: ServiceAdminRpcDeps) {
@@ -186,7 +234,7 @@ type DeviceActivationRecord = Parameters<
 >[0];
 type DeploymentContractEvidenceRecord = Awaited<
   ReturnType<
-    NonNullable<AdminRpcDeps["deploymentContractEvidenceStorage"]>["list"]
+    NonNullable<AdminRpcDeps["deploymentContractEvidenceStorage"]>["listPage"]
   >
 >[number];
 
@@ -263,25 +311,40 @@ Deno.test("auth contract exposes deployment and device admin RPCs", () => {
   assertEquals(operations, ["Auth.DeviceUserAuthorities.Resolve"]);
 });
 
-Deno.test("production auth registration does not configure mutable auth/admin globals", async () => {
-  const [rpcSource, registerSource, deviceSource] = await Promise
-    .all([
-      Deno.readTextFile(new URL("./rpc.ts", import.meta.url)),
-      Deno.readTextFile(new URL("../register.ts", import.meta.url)),
-      Deno.readTextFile(
-        new URL("../registration/device_admin_activation.ts", import.meta.url),
-      ),
-    ]);
+Deno.test({
+  name:
+    "production auth registration does not configure mutable auth/admin globals",
+  permissions: {
+    read: [
+      new URL("./rpc.ts", import.meta.url).pathname,
+      new URL("../register.ts", import.meta.url).pathname,
+      new URL("../registration/device_admin_activation.ts", import.meta.url)
+        .pathname,
+    ],
+  },
+  async fn() {
+    const [rpcSource, registerSource, deviceSource] = await Promise
+      .all([
+        Deno.readTextFile(new URL("./rpc.ts", import.meta.url)),
+        Deno.readTextFile(new URL("../register.ts", import.meta.url)),
+        Deno.readTextFile(
+          new URL(
+            "../registration/device_admin_activation.ts",
+            import.meta.url,
+          ),
+        ),
+      ]);
 
-  assert(!rpcSource.includes("AsyncLocalStorage"));
-  assert(!registerSource.includes("setAuthRuntimeDeps("));
-  assert(!deviceSource.includes("setAdminRpcDeps("));
+    assert(!rpcSource.includes("AsyncLocalStorage"));
+    assert(!registerSource.includes("setAuthRuntimeDeps("));
+    assert(!deviceSource.includes("setAdminRpcDeps("));
+  },
 });
 
 Deno.test("service admin RPC handlers require admin before touching dependencies", async () => {
   const serviceDeps = serviceAdminDeps();
   const runtimeDeps = kickDeps(serviceDeps);
-  const caller = { type: "user", id: "not-admin", capabilities: [] };
+  const caller = nonAdminCaller;
   const context = { caller };
 
   const actions: Array<() => Promise<unknown>> = [
@@ -292,7 +355,7 @@ Deno.test("service admin RPC handlers require admin before touching dependencies
       }),
     () =>
       createAuthDeploymentsServiceListHandler(serviceDeps)({
-        input: {},
+        input: { limit: 10 },
         context,
       }),
     () =>
@@ -317,7 +380,7 @@ Deno.test("service admin RPC handlers require admin before touching dependencies
       }),
     () =>
       createAuthServiceInstancesListHandler(serviceDeps)({
-        input: {},
+        input: { limit: 10 },
         context,
       }),
     () =>
@@ -342,6 +405,24 @@ Deno.test("service admin RPC handlers require admin before touching dependencies
   }
 });
 
+Deno.test("service admin RPC handlers require fresh admin auth", async () => {
+  const result = await createAuthDeploymentsServiceListHandler(
+    serviceAdminDeps(),
+  )({
+    input: { limit: 10 },
+    context: {
+      caller: {
+        ...adminCaller,
+        lastAuth: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
+      },
+    },
+  });
+
+  assert(result.isErr());
+  assert("reason" in result.error);
+  assertEquals(result.error.reason, "reauth_required");
+});
+
 Deno.test("session and connection admin schemas expose explicit participant metadata", () => {
   assert(Value.Check(AuthSessionsListResponseSchema, {
     sessions: [
@@ -351,9 +432,12 @@ Deno.test("session and connection admin schemas expose explicit participant meta
         participantKind: "agent",
         principal: {
           type: "user",
-          origin: "github",
-          id: "123",
-          trellisId: "tid_123",
+          userId: "user_123",
+          identity: {
+            identityId: "idn_github_123",
+            provider: "github",
+            subject: "123",
+          },
           name: "Ada",
         },
         contractId: "trellis.agent@v1",
@@ -373,9 +457,12 @@ Deno.test("session and connection admin schemas expose explicit participant meta
         participantKind: "agent",
         principal: {
           type: "user",
-          origin: "github",
-          id: "123",
-          trellisId: "tid_123",
+          userId: "user_123",
+          identity: {
+            identityId: "idn_github_123",
+            provider: "github",
+            subject: "123",
+          },
           name: "Ada",
         },
         contractId: "trellis.agent@v1",
@@ -455,6 +542,14 @@ Deno.test("Auth.Deployments.Disable service validates staged deployment before p
     namespaces: ["billing"],
     disabled: false,
   };
+  const originalEnvelope: DeploymentEnvelope = {
+    deploymentId: "billing.default",
+    kind: "service",
+    disabled: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    boundary: { contracts: [], surfaces: [], capabilities: [], resources: [] },
+  };
   let stored = original;
   let putCount = 0;
   let refreshCount = 0;
@@ -462,20 +557,22 @@ Deno.test("Auth.Deployments.Disable service validates staged deployment before p
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => stored,
       put: async (deployment) => {
         putCount += 1;
         stored = deployment;
       },
       delete: async () => throwingStoreAccess(),
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async () => throwingStoreAccess(),
       delete: async () => throwingStoreAccess(),
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () => [{
         instanceId: "svc_1",
         deploymentId: "billing.default",
@@ -487,6 +584,10 @@ Deno.test("Auth.Deployments.Disable service validates staged deployment before p
         createdAt: "2026-01-01T00:00:00.000Z",
       }],
     },
+    deploymentEnvelopeStorage: {
+      get: async () => originalEnvelope,
+      put: async () => throwingStoreAccess(),
+    },
   };
 
   const result = await createAuthDeploymentsServiceDisableHandler({
@@ -494,9 +595,15 @@ Deno.test("Auth.Deployments.Disable service validates staged deployment before p
     kick: async (serverId, clientId) => {
       kicked.push({ serverId, clientId });
     },
-    validateActiveCatalog: async ({ stagedServiceDeployments }) => {
+    validateActiveCatalog: async (
+      { stagedServiceDeployments, stagedDeploymentEnvelopes },
+    ) => {
       assertEquals([...stagedServiceDeployments ?? []], [{
         ...original,
+        disabled: true,
+      }]);
+      assertEquals([...stagedDeploymentEnvelopes ?? []], [{
+        ...originalEnvelope,
         disabled: true,
       }]);
       throw new Error("incompatible staged active catalog");
@@ -506,7 +613,7 @@ Deno.test("Auth.Deployments.Disable service validates staged deployment before p
     },
   })({
     input: { deploymentId: "billing.default" },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -578,21 +685,23 @@ Deno.test("Auth.Deployments.Remove service without cascade rejects deployments w
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => original,
       put: async () => throwingStoreAccess(),
       delete: async () => {
         deletedDeployment = true;
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async () => throwingStoreAccess(),
       delete: async (instanceId) => {
         deletedInstances.push(instanceId);
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () => [{
         instanceId: "svc_1",
         deploymentId: "billing.default",
@@ -612,7 +721,7 @@ Deno.test("Auth.Deployments.Remove service without cascade rejects deployments w
     validateActiveCatalog: async () => {},
   })({
     input: { deploymentId: "billing.default" },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -633,19 +742,21 @@ Deno.test("Auth.Deployments.Remove service rejects resource purge without cascad
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => original,
       put: async () => throwingStoreAccess(),
       delete: async () => {
         deletedDeployment = true;
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async () => throwingStoreAccess(),
       delete: async () => throwingStoreAccess(),
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () => [],
     },
   };
@@ -661,7 +772,7 @@ Deno.test("Auth.Deployments.Remove service rejects resource purge without cascad
     validateActiveCatalog: async () => {},
   })({
     input: { deploymentId: "billing.default", purgeResources: true },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -682,19 +793,21 @@ Deno.test("Auth.Deployments.Remove service rejects contract purge without cascad
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => original,
       put: async () => throwingStoreAccess(),
       delete: async () => {
         deletedDeployment = true;
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async () => throwingStoreAccess(),
       delete: async () => throwingStoreAccess(),
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () => [],
     },
   };
@@ -706,18 +819,8 @@ Deno.test("Auth.Deployments.Remove service rejects contract purge without cascad
         deletedContracts.push(digest);
       },
     },
-    deviceDeploymentStorage: { list: async () => [] },
+    deviceDeploymentStorage: {},
     deploymentContractEvidenceStorage: {
-      list: async () => [
-        deploymentEvidence("billing.default", "digest-unused", "billing@v1"),
-        deploymentEvidence(
-          "billing.default",
-          "digest-referenced",
-          "billing@v1",
-        ),
-        deploymentEvidence("billing.default", "digest-builtin", "billing@v1"),
-        deploymentEvidence("billing.other", "digest-referenced", "billing@v1"),
-      ],
       listByDeployment: async () => [
         deploymentEvidence("billing.default", "digest-unused", "billing@v1"),
         deploymentEvidence(
@@ -728,7 +831,7 @@ Deno.test("Auth.Deployments.Remove service rejects contract purge without cascad
         deploymentEvidence("billing.default", "digest-builtin", "billing@v1"),
       ],
     },
-    contractApprovalStorage: { list: async () => [] },
+    contractApprovalStorage: {},
     builtinContractDigests: [],
     refreshActiveContracts: async () => {
       refreshCount += 1;
@@ -736,7 +839,7 @@ Deno.test("Auth.Deployments.Remove service rejects contract purge without cascad
     validateActiveCatalog: async () => {},
   })({
     input: { deploymentId: "billing.default", purgeUnusedContracts: true },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -769,6 +872,7 @@ Deno.test("Auth.Deployments.Remove service preflights contract purge dependencie
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => storedDeployment,
       put: async (deployment) => {
         storedDeployment = deployment;
@@ -776,9 +880,10 @@ Deno.test("Auth.Deployments.Remove service preflights contract purge dependencie
       delete: async () => {
         storedDeployment = undefined;
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async (instance) => {
@@ -787,7 +892,7 @@ Deno.test("Auth.Deployments.Remove service preflights contract purge dependencie
       delete: async () => {
         storedInstances = [];
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () => storedInstances,
     },
   };
@@ -825,7 +930,7 @@ Deno.test("Auth.Deployments.Remove service preflights contract purge dependencie
       cascade: true,
       purgeUnusedContracts: true,
     },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -847,6 +952,7 @@ Deno.test("Auth.Deployments.Remove service purges only unreferenced non-built-in
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => storedDeployment,
       put: async (deployment) => {
         storedDeployment = deployment;
@@ -855,7 +961,7 @@ Deno.test("Auth.Deployments.Remove service purges only unreferenced non-built-in
         calls.push("delete-deployment");
         storedDeployment = undefined;
       },
-      list: async () => [{
+      listPage: async () => [{
         deploymentId: "billing.other",
         namespaces: ["billing"],
         disabled: false,
@@ -863,11 +969,12 @@ Deno.test("Auth.Deployments.Remove service purges only unreferenced non-built-in
       listByDeploymentIds: async () => [],
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async () => throwingStoreAccess(),
       delete: async () => throwingStoreAccess(),
-      list: async () => [{
+      listPage: async () => [{
         instanceId: "svc_other",
         deploymentId: "billing.other",
         instanceKey: "session-key-other",
@@ -905,13 +1012,9 @@ Deno.test("Auth.Deployments.Remove service purges only unreferenced non-built-in
       },
     },
     deviceDeploymentStorage: {
-      list: async () => [],
       listByDeploymentIds: async () => [],
     },
     deploymentContractEvidenceStorage: {
-      list: async () => [
-        deploymentEvidence("billing.default", "digest-unused", "billing@v1"),
-      ],
       listByDigests: async (digests) => {
         const requested = new Set(digests);
         return [
@@ -923,7 +1026,6 @@ Deno.test("Auth.Deployments.Remove service purges only unreferenced non-built-in
       ],
     },
     contractApprovalStorage: {
-      list: async () => [],
       listByApprovalEvidenceContractDigests: async () => [],
     },
     sessionStorage: {
@@ -942,7 +1044,7 @@ Deno.test("Auth.Deployments.Remove service purges only unreferenced non-built-in
       cascade: true,
       purgeUnusedContracts: true,
     },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -966,6 +1068,7 @@ Deno.test("Auth.Deployments.Remove service keeps removal successful when unused 
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => storedDeployment,
       put: async (deployment) => {
         storedDeployment = deployment;
@@ -974,15 +1077,16 @@ Deno.test("Auth.Deployments.Remove service keeps removal successful when unused 
         calls.push("delete-deployment");
         storedDeployment = undefined;
       },
-      list: async () => [],
+      listPage: async () => [],
       listByDeploymentIds: async () => [],
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async () => throwingStoreAccess(),
       delete: async () => throwingStoreAccess(),
-      list: async () => [],
+      listPage: async () => [],
       listByCurrentContractDigests: async () => [],
       listByDeployment: async () => [],
     },
@@ -1002,13 +1106,9 @@ Deno.test("Auth.Deployments.Remove service keeps removal successful when unused 
       },
     },
     deviceDeploymentStorage: {
-      list: async () => [],
       listByDeploymentIds: async () => [],
     },
     deploymentContractEvidenceStorage: {
-      list: async () => [
-        deploymentEvidence("billing.default", "digest-unused", "billing@v1"),
-      ],
       listByDigests: async (digests) => {
         const requested = new Set(digests);
         return [
@@ -1020,7 +1120,6 @@ Deno.test("Auth.Deployments.Remove service keeps removal successful when unused 
       ],
     },
     contractApprovalStorage: {
-      list: async () => [],
       listByApprovalEvidenceContractDigests: async () => [],
     },
     sessionStorage: {
@@ -1039,7 +1138,7 @@ Deno.test("Auth.Deployments.Remove service keeps removal successful when unused 
       cascade: true,
       purgeUnusedContracts: true,
     },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -1089,6 +1188,7 @@ Deno.test("Auth.Deployments.Remove service cascades instances, sessions, and run
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => storedDeployment,
       put: async (deployment) => {
         storedDeployment = deployment;
@@ -1096,9 +1196,10 @@ Deno.test("Auth.Deployments.Remove service cascades instances, sessions, and run
       delete: async () => {
         storedDeployment = undefined;
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async (instance) => {
@@ -1114,7 +1215,7 @@ Deno.test("Auth.Deployments.Remove service cascades instances, sessions, and run
           entry.instanceId !== instanceId
         );
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () =>
         storedInstances.filter((instance) =>
           instance.deploymentId === "billing.default"
@@ -1162,7 +1263,7 @@ Deno.test("Auth.Deployments.Remove service cascades instances, sessions, and run
     },
   })({
     input: { deploymentId: "billing.default", cascade: true },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -1212,6 +1313,7 @@ Deno.test("Auth.Deployments.Remove service purges applied contract resources bef
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => storedDeployment,
       put: async (deployment) => {
         storedDeployment = deployment;
@@ -1220,14 +1322,15 @@ Deno.test("Auth.Deployments.Remove service purges applied contract resources bef
         calls.push("delete-deployment");
         storedDeployment = undefined;
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async () => throwingStoreAccess(),
       delete: async () => throwingStoreAccess(),
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () => [],
     },
   };
@@ -1251,7 +1354,7 @@ Deno.test("Auth.Deployments.Remove service purges applied contract resources bef
       cascade: true,
       purgeResources: true,
     },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -1276,6 +1379,7 @@ Deno.test("Auth.Deployments.Remove service does not delete or refresh when resou
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => storedDeployment,
       put: async (deployment) => {
         storedDeployment = deployment;
@@ -1283,14 +1387,15 @@ Deno.test("Auth.Deployments.Remove service does not delete or refresh when resou
       delete: async () => {
         storedDeployment = undefined;
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async () => throwingStoreAccess(),
       delete: async () => throwingStoreAccess(),
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () => [],
     },
   };
@@ -1321,7 +1426,7 @@ Deno.test("Auth.Deployments.Remove service does not delete or refresh when resou
       cascade: true,
       purgeResources: true,
     },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -1352,6 +1457,7 @@ Deno.test("Auth.Deployments.Remove service does not revoke runtime access when r
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => storedDeployment,
       put: async (deployment) => {
         storedDeployment = deployment;
@@ -1359,9 +1465,10 @@ Deno.test("Auth.Deployments.Remove service does not revoke runtime access when r
       delete: async () => {
         storedDeployment = undefined;
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async (instance) => {
@@ -1370,7 +1477,7 @@ Deno.test("Auth.Deployments.Remove service does not revoke runtime access when r
       delete: async () => {
         storedInstances = [];
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () => storedInstances,
     },
   };
@@ -1422,7 +1529,7 @@ Deno.test("Auth.Deployments.Remove service does not revoke runtime access when r
       cascade: true,
       purgeResources: true,
     },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -1456,6 +1563,7 @@ Deno.test("Auth.Deployments.Remove service does not delete or refresh when casca
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => storedDeployment,
       put: async (deployment) => {
         storedDeployment = deployment;
@@ -1463,9 +1571,10 @@ Deno.test("Auth.Deployments.Remove service does not delete or refresh when casca
       delete: async () => {
         storedDeployment = undefined;
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async (instance) => {
@@ -1481,7 +1590,7 @@ Deno.test("Auth.Deployments.Remove service does not delete or refresh when casca
           entry.instanceId !== instanceId
         );
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () =>
         storedInstances.filter((instance) =>
           instance.deploymentId === "billing.default"
@@ -1513,7 +1622,7 @@ Deno.test("Auth.Deployments.Remove service does not delete or refresh when casca
     validateActiveCatalog: async () => {},
   })({
     input: { deploymentId: "billing.default", cascade: true },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -1545,6 +1654,7 @@ Deno.test("Auth.Deployments.Remove service deletes and refreshes after purge whe
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => storedDeployment,
       put: async (deployment) => {
         storedDeployment = deployment;
@@ -1553,9 +1663,10 @@ Deno.test("Auth.Deployments.Remove service deletes and refreshes after purge whe
         calls.push("delete-deployment");
         storedDeployment = undefined;
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async (instance) => {
@@ -1567,7 +1678,7 @@ Deno.test("Auth.Deployments.Remove service deletes and refreshes after purge whe
           entry.instanceId !== instanceId
         );
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () => storedInstances,
     },
   };
@@ -1620,7 +1731,7 @@ Deno.test("Auth.Deployments.Remove service deletes and refreshes after purge whe
       cascade: true,
       purgeResources: true,
     },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -1671,6 +1782,7 @@ Deno.test("Auth.Deployments.Remove service rolls back cascade deletes when an in
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => storedDeployment,
       put: async (deployment) => {
         storedDeployment = deployment;
@@ -1678,9 +1790,10 @@ Deno.test("Auth.Deployments.Remove service rolls back cascade deletes when an in
       delete: async () => {
         storedDeployment = undefined;
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => throwingStoreAccess(),
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async (instance) => {
@@ -1700,7 +1813,7 @@ Deno.test("Auth.Deployments.Remove service rolls back cascade deletes when an in
           entry.instanceId !== instanceId
         );
       },
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () =>
         storedInstances.filter((instance) =>
           instance.deploymentId === "billing.default"
@@ -1732,7 +1845,7 @@ Deno.test("Auth.Deployments.Remove service rolls back cascade deletes when an in
     validateActiveCatalog: async () => {},
   })({
     input: { deploymentId: "billing.default", cascade: true },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -1764,12 +1877,14 @@ Deno.test("Auth.ServiceInstances.Enable rolls back instance and does not kick wh
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
+      ...serviceAdminDeps().serviceDeploymentStorage,
       get: async () => original,
       put: async () => throwingStoreAccess(),
       delete: async () => throwingStoreAccess(),
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
+      ...serviceAdminDeps().serviceInstanceStorage,
       get: async () => stored,
       getByInstanceKey: async () => throwingStoreAccess(),
       put: async (nextInstance) => {
@@ -1777,7 +1892,7 @@ Deno.test("Auth.ServiceInstances.Enable rolls back instance and does not kick wh
         stored = nextInstance;
       },
       delete: async () => throwingStoreAccess(),
-      list: async () => throwingStoreAccess(),
+      listPage: async () => throwingStoreAccess(),
       listByDeployment: async () => throwingStoreAccess(),
     },
   };
@@ -1798,7 +1913,7 @@ Deno.test("Auth.ServiceInstances.Enable rolls back instance and does not kick wh
     },
   })({
     input: { instanceId: "svc_1" },
-    context: { caller: { type: "user", id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -1914,7 +2029,7 @@ function deviceAdminDeps(args: {
     connectionsKV,
     contractApprovalStorage: {
       get: async () => undefined,
-      list: async () =>
+      listPage: async () =>
         (args.approvalDigests ?? []).map((digest) => ({
           identityEnvelopeId: `env-${digest}`,
           userTrellisId: `user-${digest}`,
@@ -1971,7 +2086,7 @@ function deviceAdminDeps(args: {
           review.reviewId !== reviewId
         );
       },
-      list: async () => activationReviews,
+      listPage: async () => activationReviews,
       listFiltered: async (filters = {}) =>
         activationReviews.filter((review) =>
           (filters.instanceId === undefined ||
@@ -1999,7 +2114,7 @@ function deviceAdminDeps(args: {
           record.instanceId !== instanceId
         );
       },
-      list: async () => activations,
+      listPage: async () => activations,
       listFiltered: async (filters = {}) =>
         activations.filter((activation) =>
           (filters.instanceId === undefined ||
@@ -2018,7 +2133,7 @@ function deviceAdminDeps(args: {
       delete: async () => {
         stored = undefined;
       },
-      list: async () => stored ? [stored] : [],
+      listPage: async () => stored ? [stored] : [],
       listFiltered: async (filters = {}) => (stored &&
           (filters.disabled === undefined ||
             stored.disabled === filters.disabled)
@@ -2041,7 +2156,7 @@ function deviceAdminDeps(args: {
       },
     },
     deploymentContractEvidenceStorage: {
-      list: async () => args.deploymentContractEvidence ?? [],
+      listPage: async () => args.deploymentContractEvidence ?? [],
       listByDigests: async (digests) => {
         const requested = new Set(digests);
         return (args.deploymentContractEvidence ?? []).filter((record) =>
@@ -2071,7 +2186,7 @@ function deviceAdminDeps(args: {
           instance.instanceId !== instanceId
         );
       },
-      list: async () => instances,
+      listPage: async () => instances,
       listByDeployment: async (deploymentId) =>
         instances.filter((instance) => instance.deploymentId === deploymentId),
       listByDeployments: async (deploymentIds) => {
@@ -2123,11 +2238,10 @@ function deviceAdminDeps(args: {
     sessionStorage: {
       deleteByPublicIdentityKey: async () => {},
       deleteBySessionKey: async () => {},
-      listEntries: async () => [],
       listEntriesByContractDigests: async () => [],
     },
     serviceDeploymentStorage: {
-      list: async () => args.serviceDeployments ?? [],
+      listPage: async () => args.serviceDeployments ?? [],
       listByDeploymentIds: async (deploymentIds, filters = {}) => {
         const requested = new Set(deploymentIds);
         return (args.serviceDeployments ?? []).filter((deployment) =>
@@ -2138,7 +2252,7 @@ function deviceAdminDeps(args: {
       },
     },
     serviceInstanceStorage: {
-      list: async () => args.serviceInstances ?? [],
+      listPage: async () => args.serviceInstances ?? [],
       listByCurrentContractDigests: async (digests) => {
         const requested = new Set(digests);
         return (args.serviceInstances ?? []).filter((instance) =>
@@ -2201,7 +2315,7 @@ Deno.test("Auth.Deployments.Enable device validates staged deployment before per
 
   const result = await createDeviceAdminHandlers(deps).enableDeviceDeployment({
     input: { deploymentId: "reader.default" },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -2237,7 +2351,7 @@ Deno.test("Auth.Deployments.Enable device updates the deployment envelope disabl
 
   const result = await createDeviceAdminHandlers(deps).enableDeviceDeployment({
     input: { deploymentId: "reader.default" },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -2263,7 +2377,7 @@ Deno.test("Auth.Deployments.Create device initializes an empty device envelope",
 
   const result = await createDeviceAdminHandlers(deps).createDeviceDeployment({
     input: { deploymentId: "reader.default", reviewMode: "required" },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -2288,7 +2402,7 @@ Deno.test("Auth.Deployments.Create device rolls back deployment when envelope in
 
   const result = await createDeviceAdminHandlers(deps).createDeviceDeployment({
     input: { deploymentId: "reader.default", reviewMode: "required" },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -2327,7 +2441,7 @@ Deno.test("Auth.Deployments.Remove device without cascade rejects deployments wi
 
   const result = await createDeviceAdminHandlers(deps).removeDeviceDeployment({
     input: { deploymentId: "reader.default" },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -2359,7 +2473,7 @@ Deno.test("Auth.Deployments.Remove device rejects contract purge without cascade
 
   const result = await createDeviceAdminHandlers(deps).removeDeviceDeployment({
     input: { deploymentId: "reader.default", purgeUnusedContracts: true },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -2404,7 +2518,7 @@ Deno.test("Auth.Deployments.Remove device preflights contract purge dependencies
       cascade: true,
       purgeUnusedContracts: true,
     },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -2452,7 +2566,7 @@ Deno.test("Auth.Deployments.Remove device purges only unreferenced non-built-in 
       cascade: true,
       purgeUnusedContracts: true,
     },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -2493,7 +2607,7 @@ Deno.test("Auth.Deployments.Remove device keeps removal successful when unused c
       cascade: true,
       purgeUnusedContracts: true,
     },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -2553,7 +2667,7 @@ Deno.test("Auth.Deployments.Remove device cascades instances and deployment-scop
     state: "pending",
     requestedAt: "2026-01-01T00:00:00.000Z",
     decidedAt: null,
-    requestedBy: { origin: "portal", id: "main" },
+    requestedBy: portalActivationActor,
   }];
   const browserFlowDeletes: string[] = [];
   const deletedInstances: string[] = [];
@@ -2597,7 +2711,7 @@ Deno.test("Auth.Deployments.Remove device cascades instances and deployment-scop
 
   const result = await createDeviceAdminHandlers(deps).removeDeviceDeployment({
     input: { deploymentId: "reader.default", cascade: true },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -2661,7 +2775,7 @@ Deno.test("Auth.Deployments.Remove device does not delete auth state or refresh 
     state: "pending",
     requestedAt: "2026-01-01T00:00:00.000Z",
     decidedAt: null,
-    requestedBy: { origin: "portal", id: "main" },
+    requestedBy: portalActivationActor,
   }];
   const browserFlowDeletes: string[] = [];
   const deletedInstances: string[] = [];
@@ -2693,7 +2807,7 @@ Deno.test("Auth.Deployments.Remove device does not delete auth state or refresh 
 
   const result = await createDeviceAdminHandlers(deps).removeDeviceDeployment({
     input: { deploymentId: "reader.default", cascade: true },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -2733,7 +2847,7 @@ Deno.test("Auth.Deployments.Remove device keeps auth state when refresh fails", 
     state: "pending",
     requestedAt: "2026-01-01T00:00:00.000Z",
     decidedAt: null,
-    requestedBy: { origin: "portal", id: "main" },
+    requestedBy: portalActivationActor,
   }];
   const browserFlowDeletes: string[] = [];
   const { deps } = deviceAdminDeps({
@@ -2748,7 +2862,7 @@ Deno.test("Auth.Deployments.Remove device keeps auth state when refresh fails", 
 
   const result = await createDeviceAdminHandlers(deps).removeDeviceDeployment({
     input: { deploymentId: "reader.default", cascade: true },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -2810,7 +2924,7 @@ Deno.test("Auth.Devices.Remove rolls back durable records and does not kick when
 
   const result = await createDeviceAdminHandlers(deps).removeDeviceInstance({
     input: { instanceId: "device_1" },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());
@@ -2848,7 +2962,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide completes approve decision 
     instanceId: "device_1",
     publicIdentityKey: "pub_device_1",
     deploymentId: "reader.default",
-    requestedBy: { origin: "github", id: "user_1" },
+    requestedBy: userActivationActor,
     state: "pending",
     requestedAt: "2026-01-01T00:00:00.000Z",
     decidedAt: null,
@@ -2891,13 +3005,13 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide completes approve decision 
         putReviews.push(record);
       },
       delete: async () => {},
-      list: async () => [review],
+      listPage: async () => [review],
     },
     deviceActivationStorage: {
       get: async () => undefined,
       put: async () => {},
       delete: async () => {},
-      list: async () => [],
+      listPage: async () => [],
     },
     deviceInstanceStorage: {
       ...deps.deviceInstanceStorage,
@@ -2908,7 +3022,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide completes approve decision 
     },
   }).decideDeviceActivationReview({
     input: { reviewId: "dar_1", decision: "approve" },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -2937,8 +3051,8 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide completes approve decision 
         deploymentId: "reader.default",
         requestedAt: "2026-01-01T00:00:00.000Z",
         approvedAt: putReviews[0].decidedAt,
-        requestedBy: { origin: "github", id: "user_1" },
-        approvedBy: { id: "admin" },
+        requestedBy: userActivationActor,
+        approvedBy: adminActivationActor,
       },
     },
     {
@@ -2948,7 +3062,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide completes approve decision 
         publicIdentityKey: "pub_device_1",
         deploymentId: "reader.default",
         resolvedAt: putReviews[0].decidedAt,
-        resolvedBy: { origin: "github", id: "user_1" },
+        resolvedBy: userActivationActor,
         flowId: "flow_1",
         reviewId: "dar_1",
       },
@@ -2964,7 +3078,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide completes reject decision t
     instanceId: "device_1",
     publicIdentityKey: "pub_device_1",
     deploymentId: "reader.default",
-    requestedBy: { origin: "github", id: "user_1" },
+    requestedBy: userActivationActor,
     state: "pending",
     requestedAt: "2026-01-01T00:00:00.000Z",
     decidedAt: null,
@@ -2992,11 +3106,11 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide completes reject decision t
         putReviews.push(record);
       },
       delete: async () => {},
-      list: async () => [review],
+      listPage: async () => [review],
     },
   }).decideDeviceActivationReview({
     input: { reviewId: "dar_1", decision: "reject", reason: "not expected" },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -3015,7 +3129,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide retries completion for alre
     instanceId: "device_1",
     publicIdentityKey: "pub_device_1",
     deploymentId: "reader.default",
-    requestedBy: { origin: "github", id: "user_1" },
+    requestedBy: userActivationActor,
     state: "approved",
     requestedAt: "2026-01-01T00:00:00.000Z",
     decidedAt: "2026-01-01T00:00:01.000Z",
@@ -3024,7 +3138,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide retries completion for alre
     instanceId: "device_1",
     publicIdentityKey: "pub_device_1",
     deploymentId: "reader.default",
-    activatedBy: { origin: "github", id: "user_1" },
+    activatedBy: userActivationActor,
     state: "activated" as const,
     activatedAt: "2026-01-01T00:00:01.000Z",
     revokedAt: null,
@@ -3055,7 +3169,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide retries completion for alre
         putReviews.push(record);
       },
       delete: async () => {},
-      list: async () => [review],
+      listPage: async () => [review],
     },
     deviceActivationStorage: {
       get: async () => activation,
@@ -3063,11 +3177,11 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide retries completion for alre
         putActivations.push(record);
       },
       delete: async () => {},
-      list: async () => [activation],
+      listPage: async () => [activation],
     },
   }).decideDeviceActivationReview({
     input: { reviewId: "dar_1", decision: "approve" },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -3092,7 +3206,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide retries completion for alre
     instanceId: "device_1",
     publicIdentityKey: "pub_device_1",
     deploymentId: "reader.default",
-    requestedBy: { origin: "github", id: "user_1" },
+    requestedBy: userActivationActor,
     state: "rejected",
     requestedAt: "2026-01-01T00:00:00.000Z",
     decidedAt: "2026-01-01T00:00:01.000Z",
@@ -3123,11 +3237,11 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide retries completion for alre
         putReviews.push(record);
       },
       delete: async () => {},
-      list: async () => [review],
+      listPage: async () => [review],
     },
   }).decideDeviceActivationReview({
     input: { reviewId: "dar_1", decision: "reject" },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(!result.isErr());
@@ -3146,7 +3260,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide does not mutate when operat
     instanceId: "device_1",
     publicIdentityKey: "pub_device_1",
     deploymentId: "reader.default",
-    requestedBy: { origin: "github", id: "user_1" },
+    requestedBy: userActivationActor,
     state: "pending",
     requestedAt: "2026-01-01T00:00:00.000Z",
     decidedAt: null,
@@ -3180,7 +3294,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide does not mutate when operat
         putReviews.push(record);
       },
       delete: async () => {},
-      list: async () => [review],
+      listPage: async () => [review],
     },
     deviceActivationStorage: {
       get: async () => undefined,
@@ -3188,7 +3302,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide does not mutate when operat
         putActivations.push(record);
       },
       delete: async () => {},
-      list: async () => [],
+      listPage: async () => [],
     },
     deviceInstanceStorage: {
       ...deps.deviceInstanceStorage,
@@ -3199,7 +3313,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide does not mutate when operat
     },
   }).decideDeviceActivationReview({
     input: { reviewId: "dar_1", decision: "approve" },
-    context: { caller: { id: "admin", capabilities: ["admin"] } },
+    context: adminContext,
   });
 
   assert(result.isErr());

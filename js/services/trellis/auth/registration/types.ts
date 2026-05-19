@@ -46,6 +46,7 @@ export type AuthContractsRuntime = Pick<
   | "getBuiltinDigests"
   | "getContract"
   | "getKnownContract"
+  | "getKnownEntriesByContractId"
   | "getKnownContractsById"
   | "validateContract"
   | "refreshActiveContracts"

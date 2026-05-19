@@ -471,8 +471,8 @@ Rules:
 - dependencies are declared by logical contract `id` plus logical
   operation/RPC/event names, not by raw capability strings
 - dependencies MUST be grouped under `uses.required` or `uses.optional`; aliases
-  directly under `uses` are invalid, and both required and optional uses
-  participate in digest identity
+  directly under `uses` are invalid, must not be accepted as an implied required
+  dependency, and both required and optional uses participate in digest identity
 - if the same alias appears in both `required` and `optional`, the required
   entry wins and the optional duplicate is ignored
 - a service contract MUST NOT receive cross-contract runtime permissions unless
@@ -497,6 +497,9 @@ Rules:
   required referenced contract is not active in the proposed active closure
 - missing optional contracts and missing optional surfaces do not fail
   validation and do not grant transport authority
+- if a missing optional contract or surface later resolves through the active
+  catalog, a fresh envelope expansion and approval is required before reconnects
+  receive that optional authority
 - known optional surfaces may grant transport authority even when no
   implementing service is currently connected; liveness is availability, not
   authorization
@@ -1024,14 +1027,17 @@ Catalog rules:
 
 - the catalog contains only active contracts for the current deployment
 - entries are keyed by digest and include `id`, `displayName`, and `description`
-- a catalog MAY contain multiple digests for the same `id`
-- when multiple digests share one `id`, the catalog still treats each digest as
-  a separate active contract record
+- a catalog MAY contain multiple digests for the same `id` when different enabled
+  deployments contribute different latest evidence rows for that contract id
+- within one deployment and contract id, only the latest evidence row contributes
+  an active digest; older same-id evidence remains historical and must not become
+  active again merely because a stale service reconnects
 - catalog ordering is not semantically significant, but implementations SHOULD
   return a stable order for diffability and testing
 - active catalog refresh is fail-closed: failure to query the bounded set of
-  deployment contract-evidence rows or hydrate required active contract state
-  MUST fail startup or refresh rather than publishing a partial active catalog
+  enabled deployment envelopes, matching deployment contract-evidence rows, or
+  hydrate required active contract state MUST fail startup or refresh rather than
+  publishing a partial active catalog
 - catalog hydration resolves full manifests from built-in Trellis contracts or
   the global `contracts` store; deployment evidence MUST NOT be used as a
   manifest lookup fallback
@@ -1044,13 +1050,18 @@ Catalog rules:
   the previous catalog unavailable rather than falling back to built-in
   manifests or a partial catalog
 - admin envelope expansion and shrink flows MUST use the same validation in
-  dry-run mode against staged deployment records before mutating the durable
-  active set, so incompatible boundaries fail before partial catalog state is
-  persisted or exposed to callers
-- active service boundaries are derived from enabled service deployment
-  envelopes, not from service instances or their current runtime evidence fields
-- active device boundaries are derived from enabled device deployment envelopes,
-  not from per-device current-contract fields
+  dry-run mode against staged deployment-envelope records before mutating the
+  durable active set, so incompatible boundaries fail before partial catalog
+  state is persisted or exposed to callers
+- active service boundaries and digests are derived from enabled service
+  deployment envelopes plus matching latest deployment evidence, not from service
+  deployment rows, service instances, or their current runtime evidence fields
+- active device boundaries and digests are derived from enabled device deployment
+  envelopes plus matching latest deployment evidence, not from device deployment
+  rows or per-device current-contract fields
+- deployment enable/disable validation MUST stage the matching deployment
+  envelope state, because deployment-envelope enabled state determines whether
+  that deployment's evidence can contribute to the active set
 
 Admin contract analysis records SHOULD expose enough derived metadata for CLI
 and console review without reimplementing catalog analysis in each client:
@@ -1130,6 +1141,9 @@ runtime discovery RPC set.
 - when the deployment envelope fits but the required dependency closure is not
   active yet, bootstrap returns `contract_activation_pending`; service runtimes
   wait and retry rather than receiving runtime credentials
+- when the deployment has newer evidence for the same contract id than the
+  presented digest, bootstrap returns `contract_changed`; runtimes must restart
+  with the active digest rather than refreshing stale evidence
 - approving the pending request expands the deployment envelope, persists the
   reviewed evidence and resource bindings. Runtime bootstrap completes only
   after every required dependency in the approved closure is also active.
@@ -1183,6 +1197,8 @@ The `trellis` runtime service MUST:
 - store reviewed deployment evidence by digest; any redundant contract JSON in
   evidence records is historical/review evidence only, not a manifest lookup
   fallback
+- use the latest reviewed evidence row per deployment and contract id when
+  projecting active digests; older rows remain audit history and rollout context
 - maintain durable deployment envelope/evidence rows for the deployment and
   publish an in-memory active catalog only as a fail-closed projection
 - reject active subject collisions across operations, RPCs, and events using the
@@ -1236,11 +1252,14 @@ Operationally, envelope expansion fails if any of these conditions is true:
 
 Rollout rule:
 
-- when a service rolls from one digest to another for the same contract `id`,
-  the `trellis` runtime service MAY keep both digests active during rollout
+- when a deployment rolls from one digest to another for the same contract `id`,
+  the latest evidence row for that deployment and contract id supersedes the old
+  row in the active projection
+- multiple digests for the same contract `id` may still be active across
+  different enabled deployments during a rollout
 - each service instance still presents one exact contract digest at any moment
-- deployments MAY later retire the old digest once no principals still depend on
-  it
+- stale service instances that present an older digest after newer same-id
+  evidence exists for their deployment are rejected with `contract_changed`
 
 Subject collision rule:
 

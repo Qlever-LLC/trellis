@@ -86,6 +86,24 @@ type TestDeviceDeployment = {
   preActivationPolicy: "reject" | "device-owned";
 };
 
+function userCaller(capabilities: string[]) {
+  return {
+    type: "user" as const,
+    participantKind: "app" as const,
+    userId: "user_1",
+    identity: {
+      provider: "github",
+      subject: "ada-oauth",
+      identityId: "idn_github_ada",
+    },
+    active: true,
+    name: "Ada Lovelace",
+    email: "ada@example.com",
+    capabilities,
+    lastAuth: "2026-01-01T00:00:00.000Z",
+  };
+}
+
 type TestDeploymentContractEvidence = {
   deploymentId: string;
   contractId: string;
@@ -581,7 +599,7 @@ Deno.test("Trellis.Surface.Status reports unknown contract", async () => {
     kind: "rpc",
     surface: "Surface.Read",
   }, {
-    caller: { type: "user", capabilities: ["surface.read"] },
+    caller: userCaller(["surface.read"]),
     sessionKey: "sk",
   });
 
@@ -600,7 +618,7 @@ Deno.test("Trellis.Surface.Status reports unknown surface", async () => {
     kind: "rpc",
     surface: "Surface.Missing",
   }, {
-    caller: { type: "user", capabilities: ["surface.read"] },
+    caller: userCaller(["surface.read"]),
     sessionKey: "sk",
   });
 
@@ -637,7 +655,7 @@ Deno.test("Trellis.Surface.Status reports optional missing surface as envelope u
     kind: "rpc",
     surface: "Surface.Read",
   }, {
-    caller: { type: "user", capabilities: ["surface.read"] },
+    caller: userCaller(["surface.read"]),
     sessionKey: "sk",
   });
 
@@ -664,7 +682,7 @@ Deno.test("Trellis.Surface.Status reports unauthorized by envelope", async () =>
     contractId: "surface@v1",
     kind: "rpc",
     surface: "Surface.Read",
-  }, { caller: { type: "user", capabilities: [] }, sessionKey: "sk" });
+  }, { caller: userCaller([]), sessionKey: "sk" });
 
   assertEquals(takeUnknown(result), {
     status: { state: "unauthorized", missingCapabilities: ["surface.read"] },
@@ -703,7 +721,7 @@ Deno.test("Trellis.Surface.Status reports available without live implementer", a
     kind: "rpc",
     surface: "Surface.Read",
   }, {
-    caller: { type: "user", capabilities: ["surface.read"] },
+    caller: userCaller(["surface.read"]),
     sessionKey: "sk",
   });
 
@@ -749,7 +767,7 @@ Deno.test("Trellis.Surface.Status reports available live implementing service", 
     kind: "rpc",
     surface: "Surface.Read",
   }, {
-    caller: { type: "user", capabilities: ["surface.read"] },
+    caller: userCaller(["surface.read"]),
     sessionKey: "sk",
   });
 
@@ -794,7 +812,7 @@ Deno.test("Trellis.Surface.Status ignores live service for another contract", as
     kind: "rpc",
     surface: "Surface.Read",
   }, {
-    caller: { type: "user", capabilities: ["surface.read"] },
+    caller: userCaller(["surface.read"]),
     sessionKey: "sk",
   });
 
@@ -843,7 +861,7 @@ Deno.test("Trellis.Surface.Status ignores live same-lineage digest without the s
     kind: "rpc",
     surface: "Surface.Read",
   }, {
-    caller: { type: "user", capabilities: ["surface.read"] },
+    caller: userCaller(["surface.read"]),
     sessionKey: "sk",
   });
 
@@ -887,7 +905,7 @@ Deno.test("Trellis.Surface.Status reports disabled service instance", async () =
     kind: "rpc",
     surface: "Surface.Read",
   }, {
-    caller: { type: "user", capabilities: ["surface.read"] },
+    caller: userCaller(["surface.read"]),
     sessionKey: "sk",
   });
 
@@ -906,7 +924,7 @@ Deno.test("Trellis.Surface.Status validates event action", async () => {
     kind: "event",
     surface: "Surface.Changed",
   }, {
-    caller: { type: "user", capabilities: ["surface.subscribe"] },
+    caller: userCaller(["surface.subscribe"]),
     sessionKey: "sk",
   });
 
@@ -933,7 +951,7 @@ Deno.test("Trellis.Surface.Status validates action by surface kind", async () =>
     surface: "Surface.Read",
     action: "call",
   }, {
-    caller: { type: "user", capabilities: ["surface.read"] },
+    caller: userCaller(["surface.read"]),
     sessionKey: "sk",
   });
   assertEquals(takeUnknown(rpcCallResult), {
@@ -950,7 +968,7 @@ Deno.test("Trellis.Surface.Status validates action by surface kind", async () =>
     surface: "Surface.Feed",
     action: "read" as never,
   }, {
-    caller: { type: "user", capabilities: ["surface.subscribe"] },
+    caller: userCaller(["surface.subscribe"]),
     sessionKey: "sk",
   });
   assertEquals(takeUnknown(feedReadResult), {
@@ -967,7 +985,7 @@ Deno.test("Trellis.Surface.Status validates action by surface kind", async () =>
     surface: "Surface.Changed",
     action: "publish",
   }, {
-    caller: { type: "user", capabilities: ["surface.publish"] },
+    caller: userCaller(["surface.publish"]),
     sessionKey: "sk",
   });
   assertEquals(takeUnknown(eventPublishResult), {
@@ -984,7 +1002,7 @@ Deno.test("Trellis.Surface.Status validates action by surface kind", async () =>
     surface: "Surface.Feed",
     action: "publish",
   }, {
-    caller: { type: "user", capabilities: ["surface.subscribe"] },
+    caller: userCaller(["surface.subscribe"]),
     sessionKey: "sk",
   });
   assert(feedResult.isErr());
@@ -996,7 +1014,7 @@ Deno.test("Trellis.Surface.Status validates action by surface kind", async () =>
     surface: "Surface.Read",
     action: "subscribe",
   }, {
-    caller: { type: "user", capabilities: ["surface.read"] },
+    caller: userCaller(["surface.read"]),
     sessionKey: "sk",
   });
   assert(rpcResult.isErr());
@@ -1008,7 +1026,7 @@ Deno.test("Trellis.Surface.Status validates action by surface kind", async () =>
     surface: "Surface.Read",
     action: "subscribe",
   }, {
-    caller: { type: "user", capabilities: ["surface.read"] },
+    caller: userCaller(["surface.read"]),
     sessionKey: "sk",
   });
   assert(unknownResult.isErr());

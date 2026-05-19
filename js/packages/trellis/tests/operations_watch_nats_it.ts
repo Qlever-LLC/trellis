@@ -81,21 +81,11 @@ const billingCapabilities = {
 const billing = defineServiceContract(
   {
     schemas: {
-      RefundInput: Type.Object({ chargeId: Type.String() }, {
-        additionalProperties: false,
-      }),
-      RefundProgress: Type.Object({ message: Type.String() }, {
-        additionalProperties: false,
-      }),
-      RefundOutput: Type.Object({ refundId: Type.String() }, {
-        additionalProperties: false,
-      }),
-      SelectWorkspaceSignal: Type.Object({ workspaceId: Type.String() }, {
-        additionalProperties: false,
-      }),
-      ContinueSignal: Type.Object({ confirmed: Type.Boolean() }, {
-        additionalProperties: false,
-      }),
+      RefundInput: Type.Object({ chargeId: Type.String() }),
+      RefundProgress: Type.Object({ message: Type.String() }),
+      RefundOutput: Type.Object({ refundId: Type.String() }),
+      SelectWorkspaceSignal: Type.Object({ workspaceId: Type.String() }),
+      ContinueSignal: Type.Object({ confirmed: Type.Boolean() }),
     },
   },
   (ref) => ({

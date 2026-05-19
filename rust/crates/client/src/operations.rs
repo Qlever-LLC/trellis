@@ -135,6 +135,7 @@ pub trait OperationDescriptor {
     const CALLER_CAPABILITIES: &'static [&'static str];
     const READ_CAPABILITIES: &'static [&'static str];
     const CANCEL_CAPABILITIES: &'static [&'static str];
+    const CONTROL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool;
 }
 
@@ -677,13 +678,14 @@ mod tests {
     use std::sync::Mutex;
 
     use futures_util::stream::{self, BoxStream};
+    use futures_util::StreamExt;
     use serde::{Deserialize, Serialize};
     use serde_json::{json, Value};
 
     use super::{
-        control_subject, FileInfo, OperationDescriptor, OperationInvoker, OperationSignalAccepted,
-        OperationTransferProgress, OperationTransport, TransferOperationDescriptor,
-        UploadTransferGrant,
+        control_subject, FileInfo, OperationDescriptor, OperationEvent, OperationInvoker,
+        OperationSignalAccepted, OperationTransferProgress, OperationTransport,
+        TransferOperationDescriptor, UploadTransferGrant,
     };
     use crate::TrellisClientError;
 
@@ -723,6 +725,7 @@ mod tests {
     struct RecordingTransport {
         requests: Mutex<Vec<(String, Value)>>,
         responses: Mutex<Vec<Value>>,
+        watch_frames: Mutex<Vec<Value>>,
     }
 
     impl RecordingTransport {
@@ -730,6 +733,15 @@ mod tests {
             Self {
                 requests: Mutex::new(Vec::new()),
                 responses: Mutex::new(responses),
+                watch_frames: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn with_watch_frames(watch_frames: Vec<Value>) -> Self {
+            Self {
+                requests: Mutex::new(Vec::new()),
+                responses: Mutex::new(Vec::new()),
+                watch_frames: Mutex::new(watch_frames),
             }
         }
 
@@ -761,7 +773,8 @@ mod tests {
                 .lock()
                 .expect("requests lock")
                 .push((subject, body));
-            Ok(Box::pin(stream::empty()))
+            let frames = std::mem::take(&mut *self.watch_frames.lock().expect("watch lock"));
+            Ok(Box::pin(stream::iter(frames.into_iter().map(Ok))))
         }
 
         async fn put_upload_transfer<'a>(
@@ -934,5 +947,74 @@ mod tests {
                 })
             )]
         );
+    }
+
+    #[tokio::test]
+    async fn watch_uses_control_subject_skips_keepalive_and_stops_after_terminal_event() {
+        let transport = RecordingTransport::with_watch_frames(vec![
+            json!({
+                "kind": "snapshot",
+                "snapshot": {
+                    "revision": 2,
+                    "state": "running",
+                    "progress": { "message": "working" }
+                }
+            }),
+            json!({
+                "kind": "event",
+                "event": {
+                    "type": "progress",
+                    "snapshot": {
+                        "revision": 3,
+                        "state": "running",
+                        "progress": { "message": "almost there" }
+                    }
+                }
+            }),
+            json!({ "kind": "keepalive" }),
+            json!({
+                "kind": "event",
+                "event": {
+                    "type": "completed",
+                    "snapshot": {
+                        "revision": 4,
+                        "state": "completed",
+                        "output": { "refund_id": "rf_123" }
+                    }
+                }
+            }),
+            json!({
+                "kind": "event",
+                "event": {
+                    "type": "progress",
+                    "snapshot": {
+                        "revision": 5,
+                        "state": "running",
+                        "progress": { "message": "ignored" }
+                    }
+                }
+            }),
+        ]);
+        let invoker = OperationInvoker::<_, RefundOperation>::new(&transport);
+
+        let operation = invoker.control("op_123").expect("operation id is valid");
+        let events: Vec<_> = operation
+            .watch()
+            .await
+            .expect("watch succeeds")
+            .collect()
+            .await;
+
+        assert_eq!(
+            transport.requests(),
+            vec![(
+                control_subject(RefundOperation::SUBJECT),
+                json!({ "action": "watch", "operationId": "op_123" })
+            )]
+        );
+        assert_eq!(events.len(), 3);
+        assert!(matches!(events[0], Ok(OperationEvent::Started { .. })));
+        assert!(matches!(events[1], Ok(OperationEvent::Progress { .. })));
+        assert!(matches!(events[2], Ok(OperationEvent::Completed { .. })));
     }
 }

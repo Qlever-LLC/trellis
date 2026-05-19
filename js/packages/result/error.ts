@@ -54,7 +54,7 @@ export abstract class BaseError<
   readonly #context: Record<string, unknown>;
 
   /** Trace ID captured at error creation time */
-  readonly #traceId: string | undefined;
+  #traceId: string | undefined;
 
   constructor(message: string, options?: BaseErrorOptions) {
     const { context, id, traceId, ...errorOptions } = options ?? {};
@@ -109,6 +109,19 @@ export abstract class BaseError<
    */
   protected getTraceId(): string | undefined {
     return this.#traceId;
+  }
+
+  /**
+   * Attach a trace ID if one was not captured when the error was created.
+   *
+   * @param traceId - Trace ID to attach to serialized error data.
+   * @returns This error instance for chaining.
+   */
+  withTraceId(traceId: string | undefined): this {
+    if (this.#traceId === undefined && traceId !== undefined) {
+      this.#traceId = traceId;
+    }
+    return this;
   }
 
   /**

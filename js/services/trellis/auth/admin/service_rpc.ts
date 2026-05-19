@@ -10,6 +10,7 @@ import {
   Result,
 } from "@qlever-llc/result";
 import type { NatsConnection } from "@nats-io/nats-core";
+import { AuthRequestsValidateResponseSchema } from "@qlever-llc/trellis/auth";
 import {
   createNatsResourcePurgeManager,
   type PurgeableContractResourceBindings,
@@ -33,6 +34,8 @@ import {
   purgeUnusedInstalledContracts,
 } from "./contract_gc.ts";
 import {
+  type AdminCaller,
+  requireAdminFreshAuth,
   type ServiceDeployment,
   validateServiceDeploymentRequest,
   validateServiceProvisionRequest,
@@ -40,7 +43,11 @@ import {
 
 type ServiceInstance = StaticDecode<typeof ServiceInstanceSchema>;
 
-type RpcUser = { type: string; id?: string; capabilities?: string[] };
+type RpcUser =
+  & StaticDecode<
+    typeof AuthRequestsValidateResponseSchema
+  >["caller"]
+  & AdminCaller;
 
 const EMPTY_BOUNDARY: EnvelopeBoundary = {
   contracts: [],
@@ -123,6 +130,7 @@ type ActiveCatalogValidator = (validationOpts: {
   extraActiveDigests?: Iterable<string>;
   stagedServiceDeployments?: Iterable<ServiceDeployment>;
   stagedServiceInstances?: Iterable<ServiceInstance>;
+  stagedDeploymentEnvelopes?: Iterable<DeploymentEnvelope>;
 }) => Promise<unknown>;
 type ActiveContractsRefresher = (
   validationOpts?: Parameters<ActiveCatalogValidator>[0],
@@ -168,14 +176,6 @@ function invalid(
       ...(context ? { context } : {}),
     }),
   );
-}
-
-function isAdmin(user: RpcUser): boolean {
-  return user.capabilities?.includes("admin") ?? false;
-}
-
-function insufficientPermissions() {
-  return Result.err(new AuthError({ reason: "insufficient_permissions" }));
 }
 
 async function kickInstanceRuntimeAccess(args: {
@@ -506,7 +506,8 @@ export function createAuthDeploymentsServiceListHandler(
   ): Promise<
     Result<{ deployments: ServiceDeployment[] }, AuthError | UnexpectedError>
   > => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const { logger, serviceDeploymentStorage } = serviceDeps;
     logger.trace(
       { rpc: "Auth.Deployments.List", kind: "service", caller },
@@ -538,7 +539,8 @@ export function createAuthDeploymentsServiceCreateHandler(
       context: { caller: RpcUser };
     },
   ) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const { logger, serviceDeploymentStorage } = serviceDeps;
     logger.trace({
       rpc: "Auth.Deployments.Create",
@@ -602,7 +604,8 @@ export function createAuthDeploymentsServiceDisableHandler(
     input: { deploymentId: string };
     context: { caller: RpcUser };
   }) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const {
       deploymentEnvelopeStorage,
       serviceDeploymentStorage,
@@ -615,8 +618,21 @@ export function createAuthDeploymentsServiceDisableHandler(
       });
     }
     const nextDeployment = { ...deployment, disabled: true };
+    const deploymentEnvelope = await deploymentEnvelopeStorage.get(
+      req.deploymentId,
+    );
+    if (!deploymentEnvelope) {
+      return invalid("/deploymentId", "deployment envelope not found", {
+        deploymentId: req.deploymentId,
+      });
+    }
+    const nextDeploymentEnvelope = {
+      ...deploymentEnvelope,
+      disabled: true,
+    };
     const validated = await validateActiveCatalog(deps.validateActiveCatalog, {
       stagedServiceDeployments: [nextDeployment],
+      stagedDeploymentEnvelopes: [nextDeploymentEnvelope],
     });
     if (isErr(validated)) return validated;
     try {
@@ -680,7 +696,8 @@ export function createAuthDeploymentsServiceEnableHandler(deps: {
       AuthError | ValidationError | UnexpectedError
     >
   > => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const { deploymentEnvelopeStorage, serviceDeploymentStorage } = deps;
     const deployment = await serviceDeploymentStorage.get(req.deploymentId);
     if (!deployment) {
@@ -689,8 +706,21 @@ export function createAuthDeploymentsServiceEnableHandler(deps: {
       });
     }
     const nextDeployment = { ...deployment, disabled: false };
+    const deploymentEnvelope = await deploymentEnvelopeStorage.get(
+      req.deploymentId,
+    );
+    if (!deploymentEnvelope) {
+      return invalid("/deploymentId", "deployment envelope not found", {
+        deploymentId: req.deploymentId,
+      });
+    }
+    const nextDeploymentEnvelope = {
+      ...deploymentEnvelope,
+      disabled: false,
+    };
     const validated = await validateActiveCatalog(deps.validateActiveCatalog, {
       stagedServiceDeployments: [nextDeployment],
+      stagedDeploymentEnvelopes: [nextDeploymentEnvelope],
     });
     if (isErr(validated)) return validated;
     try {
@@ -761,7 +791,8 @@ export function createAuthDeploymentsServiceRemoveHandler(
   ): Promise<
     Result<{ success: boolean }, AuthError | ValidationError | UnexpectedError>
   > => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const { serviceDeploymentStorage, serviceInstanceStorage } = deps;
     if (req.purgeResources === true && req.cascade !== true) {
       return invalid(
@@ -967,7 +998,8 @@ export function createAuthServiceInstancesProvisionHandler(
       context: { caller: RpcUser };
     },
   ) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const { logger, serviceDeploymentStorage, serviceInstanceStorage } =
       serviceDeps;
     logger.trace({
@@ -1018,7 +1050,8 @@ export function createAuthServiceInstancesListHandler(
   ): Promise<
     Result<{ instances: ServiceInstance[] }, AuthError | UnexpectedError>
   > => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const { logger, serviceInstanceStorage } = serviceDeps;
     logger.trace({ rpc: "Auth.ServiceInstances.List", caller }, "RPC request");
     try {
@@ -1097,7 +1130,8 @@ export function createAuthServiceInstancesDisableHandler(
     input: { instanceId: string };
     context: { caller: RpcUser };
   }) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     return await setInstanceDisabled({
       ...req,
       disabled: true,
@@ -1123,7 +1157,8 @@ export function createAuthServiceInstancesEnableHandler(
     input: { instanceId: string };
     context: { caller: RpcUser };
   }) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     return await setInstanceDisabled({
       ...req,
       disabled: false,
@@ -1149,7 +1184,8 @@ export function createAuthServiceInstancesRemoveHandler(
     input: { instanceId: string };
     context: { caller: RpcUser };
   }) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const { serviceInstanceStorage } = deps;
     const instance = await serviceInstanceStorage.get(req.instanceId);
     if (!instance) {

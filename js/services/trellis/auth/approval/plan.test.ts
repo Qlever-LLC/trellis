@@ -253,9 +253,9 @@ Deno.test("planUserContractApproval rejects app contracts with raw subject uses"
             },
           },
         },
-      }),
+    }),
     Error,
-    "does not match any schema",
+    "Contract uses 'audit' declares unsupported subjects",
   );
 });
 

@@ -40,7 +40,12 @@ export type TrellisAuth = {
     contractDigest: string,
   ) => Promise<string>;
 
-  createProof: (subject: string, payloadHash: Uint8Array) => Promise<string>;
+  createProof: (
+    subject: string,
+    payloadHash: Uint8Array,
+    requestId?: string,
+    iat?: number,
+  ) => Promise<string>;
   natsConnectOptions: (
     opts: { contractDigest: string },
   ) => Promise<NatsConnectOptions>;
@@ -138,8 +143,14 @@ export async function createAuth(
         "nats-connect",
         buildNatsConnectSignaturePayload(iat, contractDigest),
       ),
-    createProof: (subject, payloadHash) =>
-      createProof(privateKey, { sessionKey, subject, payloadHash }),
+    createProof: (subject, payloadHash, requestId = crypto.randomUUID(), iat) =>
+      createProof(privateKey, {
+        sessionKey,
+        subject,
+        payloadHash,
+        iat: iat ?? currentIat(),
+        requestId,
+      }),
     natsConnectOptions: async (options) => {
       return {
         authenticator: () => {

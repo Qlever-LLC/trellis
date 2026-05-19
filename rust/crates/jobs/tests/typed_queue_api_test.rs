@@ -5,7 +5,16 @@ use trellis_jobs::api::{
     ActiveJob, JobIdentity, JobRef, JobSnapshot, JobWorkerHost, JobsError, JobsFacade, JobsService,
 };
 use trellis_jobs::runtime_worker::JobCancellationToken;
-use trellis_jobs::{Job, JobLogEntry, JobLogLevel, JobProgress, JobState};
+use trellis_jobs::{Job, JobContext, JobLogEntry, JobLogLevel, JobProgress, JobState};
+
+fn sample_context() -> JobContext {
+    JobContext {
+        request_id: "request-1".to_string(),
+        trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+        traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+        tracestate: None,
+    }
+}
 
 #[test]
 fn job_progress_matches_public_shape() {
@@ -27,6 +36,7 @@ fn job_progress_matches_public_shape() {
 fn snapshot_round_trips_to_typed_payload_and_result() {
     let job = Job {
         id: "job-1".to_string(),
+        context: sample_context(),
         service: "documents".to_string(),
         job_type: "document-process".to_string(),
         state: JobState::Completed,
@@ -47,6 +57,7 @@ fn snapshot_round_trips_to_typed_payload_and_result() {
     let snapshot: JobSnapshot<serde_json::Value, serde_json::Value> =
         job.try_into().expect("convert job");
     assert_eq!(snapshot.id, "job-1");
+    assert_eq!(snapshot.context, sample_context());
     assert_eq!(snapshot.result, Some(json!({"pages": 3})));
     assert!(snapshot.logs.is_empty());
 }
@@ -60,6 +71,7 @@ async fn job_ref_uses_callbacks_for_get_wait_and_cancel() {
     };
     let snapshot: JobSnapshot<serde_json::Value, serde_json::Value> = JobSnapshot {
         id: identity.id.clone(),
+        context: sample_context(),
         service: identity.service.clone(),
         r#type: identity.job_type.clone(),
         state: JobState::Pending,
@@ -134,6 +146,7 @@ async fn active_job_exposes_public_handler_api() {
     cancellation.cancel();
 
     let active: ActiveJob<serde_json::Value, serde_json::Value> = ActiveJob::new(
+        sample_context(),
         json!({"documentId":"doc-1"}),
         JobState::Active,
         2,
@@ -173,6 +186,7 @@ async fn active_job_exposes_public_handler_api() {
     );
 
     assert_eq!(active.payload(), &json!({"documentId":"doc-1"}));
+    assert_eq!(active.context(), &sample_context());
     assert!(active.is_redelivery());
     assert!(active.is_cancelled());
     active.heartbeat().await.expect("heartbeat");

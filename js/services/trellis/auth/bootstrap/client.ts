@@ -42,12 +42,12 @@ type ClientBootstrapContractView = {
 
 const ClientTransportEndpointsSchema = Type.Object({
   natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-}, { additionalProperties: false });
+});
 
 const ClientTransportsSchema = Type.Object({
   native: Type.Optional(ClientTransportEndpointsSchema),
   websocket: Type.Optional(ClientTransportEndpointsSchema),
-}, { additionalProperties: false });
+});
 
 type ClientTransports = StaticDecode<typeof ClientTransportsSchema>;
 

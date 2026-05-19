@@ -92,6 +92,7 @@ async function createApp(args: {
   deployment?: {
     deploymentId: string;
     disabled: boolean;
+    reviewMode?: "none" | "required";
   } | null;
   contracts?: ReturnType<typeof createTestContracts>;
   envelope?: DeploymentEnvelope | null;
@@ -154,6 +155,7 @@ async function createEnvelopeMiss(): Promise<DeploymentEnvelope> {
 async function createSignedRequest(contractDigest: string) {
   const identity = await deriveDeviceIdentity(TEST_ROOT_SECRET);
   const signed = await signDeviceWaitRequest({
+    flowId: "connect-info",
     publicIdentityKey: identity.publicIdentityKey,
     nonce: "connect-info",
     identitySeed: identity.identitySeed,
@@ -293,6 +295,39 @@ Deno.test("POST /auth/devices/connect-info uses envelope fit instead of legacy p
   const body = await response.json();
   assertEquals(body.status, "ready");
   assertEquals(body.connectInfo.auth.authority, "admin_reviewed");
+});
+
+Deno.test("POST /auth/devices/connect-info waits for required review activation", async () => {
+  const request = await createSignedRequest("digest-a");
+  const app = await createApp({
+    instance: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "registered",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      activatedAt: null,
+      revokedAt: null,
+    },
+    activation: null,
+    deployment: {
+      deploymentId: "reader.default",
+      disabled: false,
+      reviewMode: "required",
+    },
+  });
+
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+
+  assertEquals(response.status, 404);
+  assertEquals(await response.json(), { reason: "unknown_device" });
 });
 
 Deno.test("POST /auth/devices/connect-info rejects stale activation deployment", async () => {
@@ -441,6 +476,7 @@ Deno.test("POST /auth/devices/connect-info returns 404 for revoked activations",
 });
 
 Deno.test("POST /auth/devices/connect-info rejects invalid signatures", async () => {
+  const request = await createSignedRequest("digest-a");
   const app = await createApp({
     instance: null,
     activation: null,
@@ -453,10 +489,8 @@ Deno.test("POST /auth/devices/connect-info rejects invalid signatures", async ()
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        publicIdentityKey: TEST_INVALID_PUBLIC_IDENTITY_KEY,
-        contractDigest: "digest-a",
-        iat: TEST_IAT,
-        sig: "A".repeat(86),
+        ...request,
+        contractDigest: "digest-b",
       }),
     },
   );

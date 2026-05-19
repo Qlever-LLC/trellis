@@ -1,4 +1,9 @@
+import { headers as natsHeaders, type MsgHdrs } from "@nats-io/nats-core";
 import { ulid } from "ulid";
+import {
+  createMapCarrier,
+  injectTraceContext,
+} from "../../telemetry/carrier.ts";
 
 import {
   ActiveJob,
@@ -6,10 +11,20 @@ import {
   JobCancellationToken,
 } from "./active-job.ts";
 import type { JobsBinding, JobsQueueBinding } from "./bindings.ts";
-import type { Job, JobEvent, JobLogEntry, JobProgress } from "./types.ts";
+import type {
+  Job,
+  JobContext,
+  JobEvent,
+  JobLogEntry,
+  JobProgress,
+} from "./types.ts";
 
 type Publisher = {
-  publish(subject: string, payload: Uint8Array): void | Promise<void>;
+  publish(
+    subject: string,
+    payload: Uint8Array,
+    opts?: { headers?: MsgHdrs },
+  ): void | Promise<void>;
 };
 
 type JobMetaSource = {
@@ -87,9 +102,11 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
     event: JobEvent<TPayload, TResult>,
   ): Promise<void> {
     const binding = this.#getQueueBinding(type);
+    const headers = headersFromJobContext(event.context);
     await this.#context.nc.publish(
       `${binding.publishPrefix}.${jobId}.${event.eventType}`,
       new TextEncoder().encode(JSON.stringify(event)),
+      { headers },
     );
   }
 
@@ -102,6 +119,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
 
     const now = meta.nowIso();
     const id = meta.nextJobId();
+    const context = createJobContext();
     const namespace = this.#context.jobs!.namespace;
     const deadline = computeDeadline(now, binding.defaultDeadlineMs);
     const job: Job<TPayload, TResult> = {
@@ -109,6 +127,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
       service: namespace,
       type,
       state: "pending",
+      context,
       payload,
       createdAt: now,
       updatedAt: now,
@@ -122,6 +141,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
       jobType: type,
       eventType: "created",
       state: "pending",
+      context,
       tries: 0,
       maxTries: binding.maxDeliver,
       payload,
@@ -171,6 +191,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
       eventType: "started",
       state: "active",
       previousState: job.state,
+      context: job.context,
       tries,
       timestamp: this.#meta().nowIso(),
     });
@@ -209,6 +230,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
         eventType: "completed",
         state: "completed",
         previousState: "active",
+        context: job.context,
         tries,
         result,
         timestamp: this.#meta().nowIso(),
@@ -232,6 +254,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
             eventType: "retry",
             state: "retry",
             previousState: "active",
+            context: job.context,
             tries,
             error: detail,
             timestamp: this.#meta().nowIso(),
@@ -246,6 +269,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
           eventType: "failed",
           state: "failed",
           previousState: "active",
+          context: job.context,
           tries,
           error: detail,
           timestamp: this.#meta().nowIso(),
@@ -280,6 +304,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
       eventType: "progress",
       state: "active",
       previousState: "active",
+      context: job.context,
       tries: job.tries,
       progress,
       timestamp: this.#meta().nowIso(),
@@ -306,6 +331,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
       eventType: "logged",
       state: "active",
       previousState: "active",
+      context: job.context,
       tries: job.tries,
       logs: [log],
       timestamp: this.#meta().nowIso(),
@@ -367,6 +393,63 @@ function computeDeadline(now: string, deadlineMs?: number): string | undefined {
   const timestamp = new Date(now);
   timestamp.setTime(timestamp.getTime() + deadlineMs);
   return timestamp.toISOString();
+}
+
+function createJobContext(): JobContext {
+  const carrier = createMapCarrier();
+  injectTraceContext(carrier);
+  const inheritedTraceparent = carrier.get("traceparent");
+  const traceparent = isValidTraceparent(inheritedTraceparent)
+    ? inheritedTraceparent
+    : synthesizeTraceparent();
+  const tracestate = carrier.get("tracestate");
+
+  return {
+    requestId: ulid(),
+    traceId: traceparent.slice(3, 35),
+    traceparent,
+    ...(tracestate ? { tracestate } : {}),
+  };
+}
+
+function headersFromJobContext(context: JobContext): MsgHdrs {
+  const headers = natsHeaders();
+  headers.set("request-id", context.requestId);
+  headers.set("traceparent", context.traceparent);
+  if (context.tracestate) {
+    headers.set("tracestate", context.tracestate);
+  }
+  return headers;
+}
+
+function isValidTraceparent(value: string | undefined): value is string {
+  if (
+    value === undefined ||
+    !/^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/.test(value)
+  ) {
+    return false;
+  }
+  return !isAllZeroHex(value.slice(3, 35)) &&
+    !isAllZeroHex(value.slice(36, 52));
+}
+
+function synthesizeTraceparent(): string {
+  return `00-${randomNonZeroHex(16)}-${randomNonZeroHex(8)}-01`;
+}
+
+function randomNonZeroHex(byteLength: number): string {
+  let value = "";
+  do {
+    const bytes = new Uint8Array(byteLength);
+    crypto.getRandomValues(bytes);
+    value = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  } while (isAllZeroHex(value));
+  return value;
+}
+
+function isAllZeroHex(value: string): boolean {
+  return /^0+$/.test(value);
 }
 
 export type { JobsBinding, JobsQueueBinding };

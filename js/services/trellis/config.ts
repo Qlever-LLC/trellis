@@ -7,6 +7,19 @@ const DEFAULT_TRELLIS_CONFIG_PATH = "/etc/trellis/config.jsonc";
 const DEFAULT_STORAGE_DB_PATH = "/var/lib/trellis/trellis.sqlite";
 const CANONICAL_LOOPBACK_HOST = "localhost";
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const MIN_LOCAL_PASSWORD_LENGTH = 8;
+const DEFAULT_LOCAL_PASSWORD_LENGTH = 12;
+
+const webCorsSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("public"),
+  }),
+  z.object({
+    mode: z.literal("restricted"),
+    origins: z.array(z.string()).min(1),
+    credentials: z.boolean().default(false),
+  }),
+]);
 
 const githubProviderSchema = z.object({
   type: z.literal("github"),
@@ -47,6 +60,7 @@ const rawSchema = z.object({
   web: z
     .object({
       origins: z.array(z.string()).default(["*"]),
+      cors: webCorsSchema.optional(),
       publicOrigin: z.string().optional(),
       allowInsecureOrigins: z.array(z.string()).default([]),
     })
@@ -66,8 +80,20 @@ const rawSchema = z.object({
   auth: z.object({
     localIdentity: z.object({
       enabled: z.boolean().default(true),
-    }).default({ enabled: true }),
-  }).default({ localIdentity: { enabled: true } }),
+      passwordPolicy: z.object({
+        minLength: z.coerce.number().int().min(MIN_LOCAL_PASSWORD_LENGTH)
+          .default(DEFAULT_LOCAL_PASSWORD_LENGTH),
+      }).default({ minLength: DEFAULT_LOCAL_PASSWORD_LENGTH }),
+    }).default({
+      enabled: true,
+      passwordPolicy: { minLength: DEFAULT_LOCAL_PASSWORD_LENGTH },
+    }),
+  }).default({
+    localIdentity: {
+      enabled: true,
+      passwordPolicy: { minLength: DEFAULT_LOCAL_PASSWORD_LENGTH },
+    },
+  }),
   ttlMs: ttlSchema.default({
     sessions: 24 * 60 * 60_000,
     oauth: 5 * 60_000,
@@ -157,6 +183,9 @@ export type Config = {
   instanceName: string;
   web: {
     origins: string[];
+    cors:
+      | { mode: "public" }
+      | { mode: "restricted"; origins: string[]; credentials: boolean };
     publicOrigin?: string;
     allowInsecureOrigins: string[];
   };
@@ -170,6 +199,9 @@ export type Config = {
   auth: {
     localIdentity: {
       enabled: boolean;
+      passwordPolicy: {
+        minLength: number;
+      };
     };
   };
   ttlMs: {
@@ -240,6 +272,84 @@ function normalizeWebOrigins(origins: string[]): string[] {
   return normalizeOriginList(origins);
 }
 
+function normalizeWebCors(rawWeb: RawConfig["web"]): Config["web"]["cors"] {
+  if (rawWeb.cors?.mode === "restricted") {
+    return {
+      mode: "restricted",
+      origins: normalizeOriginList(rawWeb.cors.origins),
+      credentials: rawWeb.cors.credentials,
+    };
+  }
+  if (rawWeb.cors?.mode === "public") return { mode: "public" };
+  const origins = normalizeWebOrigins(rawWeb.origins);
+  return origins.includes("*")
+    ? { mode: "public" }
+    : { mode: "restricted", origins, credentials: true };
+}
+
+function isLoopbackUrl(url: URL): boolean {
+  return LOOPBACK_HOSTS.has(url.hostname);
+}
+
+function isOriginAllowlisted(origin: string, allowlist: string[]): boolean {
+  const canonicalOrigin = canonicalizeLoopbackUrl(origin) ?? origin;
+  return allowlist.includes(canonicalOrigin);
+}
+
+function assertSecurePublicHttpUrl(
+  label: string,
+  value: string | undefined,
+  allowInsecureOrigins: string[],
+): void {
+  if (!value) return;
+  const url = new URL(value);
+  if (url.protocol === "https:") return;
+  if (url.protocol === "http:" && isLoopbackUrl(url)) return;
+  if (
+    url.protocol === "http:" &&
+    isOriginAllowlisted(url.origin, allowInsecureOrigins)
+  ) {
+    return;
+  }
+  throw new Error(
+    `${label} must use https unless it is loopback or listed in web.allowInsecureOrigins`,
+  );
+}
+
+function assertSecurePublicWebsocketTransport(
+  label: string,
+  value: string,
+  allowInsecureOrigins: string[],
+): void {
+  const url = new URL(value);
+  if (url.protocol !== "ws:") return;
+  if (isLoopbackUrl(url)) return;
+  if (isOriginAllowlisted(url.origin, allowInsecureOrigins)) return;
+  throw new Error(
+    `${label} must use wss unless it is loopback or listed in web.allowInsecureOrigins`,
+  );
+}
+
+function validatePublicTransportConfig(config: Config): void {
+  assertSecurePublicHttpUrl(
+    "web.publicOrigin",
+    config.web.publicOrigin,
+    config.web.allowInsecureOrigins,
+  );
+  assertSecurePublicHttpUrl(
+    "oauth.redirectBase",
+    config.oauth.redirectBase,
+    config.web.allowInsecureOrigins,
+  );
+  config.client.natsServers.forEach((server, index) => {
+    assertSecurePublicWebsocketTransport(
+      `client.natsServers[${index}]`,
+      server,
+      config.web.allowInsecureOrigins,
+    );
+  });
+}
+
 function resolvePath(configPath: string, targetPath: string): string {
   if (isAbsolute(targetPath)) return normalize(targetPath);
   return normalize(join(dirname(configPath), targetPath));
@@ -302,12 +412,13 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
     ]),
   );
 
-  return {
+  const config: Config = {
     logLevel: raw.logLevel,
     port: raw.port,
     instanceName: raw.instanceName,
     web: {
       origins: normalizeWebOrigins(raw.web.origins),
+      cors: normalizeWebCors(raw.web),
       publicOrigin: canonicalizeLoopbackUrl(raw.web.publicOrigin),
       allowInsecureOrigins: normalizeOriginList(raw.web.allowInsecureOrigins),
     },
@@ -374,6 +485,8 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
       providers,
     },
   };
+  validatePublicTransportConfig(config);
+  return config;
 }
 
 export function parseAuthConfig(configPath: string, text: string): Config {

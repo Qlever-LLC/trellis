@@ -183,11 +183,21 @@ mod tests {
 
     use super::{apply_lifecycle_event, terminal_job_from_event};
     use crate::events::{completed_event, started_event};
-    use crate::types::{Job, JobState};
+    use crate::types::{Job, JobContext, JobState};
+
+    fn sample_context() -> JobContext {
+        JobContext {
+            request_id: "request-1".to_string(),
+            trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+            traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+            tracestate: None,
+        }
+    }
 
     fn sample_job() -> Job {
         Job {
             id: "job-1".to_string(),
+            context: sample_context(),
             service: "svc".to_string(),
             job_type: "refresh".to_string(),
             state: JobState::Pending,
@@ -213,6 +223,7 @@ mod tests {
             &job.service,
             &job.job_type,
             &job.id,
+            &job.context,
             JobState::Pending,
             1,
             "2026-05-03T00:00:01.000Z",
@@ -231,6 +242,7 @@ mod tests {
             &job.service,
             &job.job_type,
             &job.id,
+            &job.context,
             1,
             "2026-05-03T00:00:02.000Z",
             json!({ "ok": true }),

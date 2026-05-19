@@ -19,11 +19,11 @@ import { isDeviceProofIatFresh } from "../device_activation/shared.ts";
 const DigestSchema = Type.String({ pattern: "^[A-Za-z0-9_-]+$" });
 const ClientTransportEndpointsSchema = Type.Object({
   natsServers: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-}, { additionalProperties: false });
+});
 const ClientTransportsSchema = Type.Object({
   native: Type.Optional(ClientTransportEndpointsSchema),
   websocket: Type.Optional(ClientTransportEndpointsSchema),
-}, { additionalProperties: false });
+});
 
 export const DeviceConnectInfoRequestSchema = Type.Object({
   publicIdentityKey: Type.String({ minLength: 1 }),
@@ -236,6 +236,9 @@ export async function resolveDeviceConnectInfo(
     if (!deployment || deployment.disabled) {
       return { status: "not_ready", reason: "device_deployment_not_found" };
     }
+    if (deployment.reviewMode === "required") {
+      return { status: "activation_required" };
+    }
     const contractResult = await resolveDeviceEnvelopeContract({
       deps,
       deploymentId: deployment.deploymentId,
@@ -346,6 +349,7 @@ export async function verifyDeviceConnectInfoIdentityProof(input: {
   sig: string;
 }): Promise<boolean> {
   return await verifyDeviceWaitSignature({
+    flowId: "connect-info",
     publicIdentityKey: input.publicIdentityKey,
     nonce: "connect-info",
     contractDigest: input.contractDigest,

@@ -29,6 +29,8 @@ type Fixture = {
   rpcProof: {
     subject: string;
     payload: string;
+    iat: number;
+    requestId: string;
     payloadHashBase64url: string;
     proofInputHex: string;
     proofDigestBase64url: string;
@@ -83,6 +85,8 @@ Deno.test("shared auth-proof vectors match JS implementation", async () => {
       fixture.sessionKey,
       fixture.rpcProof.subject,
       payloadHash,
+      fixture.rpcProof.iat,
+      fixture.rpcProof.requestId,
     );
     assertEquals(toHex(proofInput), fixture.rpcProof.proofInputHex);
 
@@ -93,7 +97,12 @@ Deno.test("shared auth-proof vectors match JS implementation", async () => {
     );
 
     assertEquals(
-      await auth.createProof(fixture.rpcProof.subject, payloadHash),
+      await auth.createProof(
+        fixture.rpcProof.subject,
+        payloadHash,
+        fixture.rpcProof.requestId,
+        fixture.rpcProof.iat,
+      ),
       fixture.rpcProof.proof,
     );
 
@@ -104,6 +113,8 @@ Deno.test("shared auth-proof vectors match JS implementation", async () => {
           sessionKey: fixture.sessionKey,
           subject: fixture.rpcProof.subject,
           payloadHash,
+          iat: fixture.rpcProof.iat,
+          requestId: fixture.rpcProof.requestId,
         },
         fixture.rpcProof.proof,
       ),

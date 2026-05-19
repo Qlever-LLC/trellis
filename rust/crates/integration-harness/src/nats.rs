@@ -274,21 +274,40 @@ pub(crate) async fn assert_jobs_shared_streams(servers: &str, trellis_creds: &Pa
         .await
         .into_diagnostic()?;
     let js = jetstream::new(client);
-    assert_stream_subjects(&js, "JOBS", &["trellis.jobs.>"]).await?;
-    assert_stream_subjects(&js, "JOBS_WORK", &["trellis.work.>"]).await?;
-    assert_stream_subjects(
+    assert_stream_config(
+        &js,
+        "JOBS",
+        &["trellis.jobs.>"],
+        stream::RetentionPolicy::Limits,
+        true,
+    )
+    .await?;
+    assert_stream_config(
+        &js,
+        "JOBS_WORK",
+        &["trellis.work.>"],
+        stream::RetentionPolicy::WorkQueue,
+        false,
+    )
+    .await?;
+    assert_stream_config(
         &js,
         "JOBS_ADVISORIES",
         &["$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.JOBS_WORK.>"],
+        stream::RetentionPolicy::Limits,
+        false,
     )
     .await?;
+    assert_jobs_work_sources(&js).await?;
     Ok(())
 }
 
-async fn assert_stream_subjects(
+async fn assert_stream_config(
     js: &jetstream::Context,
     name: &str,
     expected_subjects: &[&str],
+    expected_retention: stream::RetentionPolicy,
+    expected_allow_direct: bool,
 ) -> Result<()> {
     let mut stream = js
         .get_stream(name)
@@ -310,6 +329,59 @@ async fn assert_stream_subjects(
             info.config.subjects,
             expected_subjects
         ));
+    }
+    if info.config.retention != expected_retention {
+        return Err(miette!(
+            "shared Jobs stream `{name}` retention {:?} did not match {:?}",
+            info.config.retention,
+            expected_retention
+        ));
+    }
+    if info.config.allow_direct != expected_allow_direct {
+        return Err(miette!(
+            "shared Jobs stream `{name}` allow_direct {} did not match {}",
+            info.config.allow_direct,
+            expected_allow_direct
+        ));
+    }
+    Ok(())
+}
+
+async fn assert_jobs_work_sources(js: &jetstream::Context) -> Result<()> {
+    let mut stream = js
+        .get_stream("JOBS_WORK")
+        .await
+        .into_diagnostic()
+        .map_err(|error| miette!("expected shared Jobs stream `JOBS_WORK` to exist: {error}"))?;
+    let info =
+        stream.info().await.into_diagnostic().map_err(|error| {
+            miette!("failed to inspect shared Jobs stream `JOBS_WORK`: {error}")
+        })?;
+    let sources = info.config.sources.as_deref().unwrap_or(&[]);
+    let expected = [
+        ("trellis.jobs.*.*.*.created", "trellis.work.$1.$2"),
+        ("trellis.jobs.*.*.*.retried", "trellis.work.$1.$2"),
+    ];
+    if sources.len() != expected.len() {
+        return Err(miette!(
+            "shared Jobs stream `JOBS_WORK` sources {:?} did not match expected transforms",
+            sources
+        ));
+    }
+    for (expected_source, expected_destination) in expected {
+        let found = sources.iter().any(|source| {
+            source.name == "JOBS"
+                && source.subject_transforms.iter().any(|transform| {
+                    transform.source == expected_source
+                        && transform.destination == expected_destination
+                })
+        });
+        if !found {
+            return Err(miette!(
+                "shared Jobs stream `JOBS_WORK` sources {:?} did not include expected transform ({expected_source}, {expected_destination})",
+                sources
+            ));
+        }
     }
     Ok(())
 }

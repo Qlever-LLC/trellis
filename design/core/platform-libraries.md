@@ -230,9 +230,10 @@ Rules:
   facade
 - `onAuthRequired` remains available for apps that need custom routing or side
   effects when the client requires auth
-- browser clients should route revoked or missing sessions (`session_not_found`)
-  through the same auth-required path so Svelte apps can redirect to their login
-  route and preserve the current return URL
+- browser clients should route revoked, missing, or stale-for-admin sessions
+  (`session_not_found` or `reauth_required`) through the same auth-required path
+  so Svelte apps can redirect to their login route and preserve the current
+  return URL
 - app-local helper modules should usually export the contract, the fixed
   `trellisUrl` when callers need it outside provider setup, and local
   `getTrellis()` / `getConnection()` wrappers around an app-owned `trellisApp`

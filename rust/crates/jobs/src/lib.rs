@@ -33,5 +33,6 @@ pub use runtime_ref::NatsJobWaiter;
 pub use runtime_worker::{start_worker_host_from_binding, WorkerHostHandle, WorkerHostOptions};
 pub use subjects::{job_event_subject, worker_heartbeat_subject, WORKER_HEARTBEATS_WILDCARD};
 pub use types::{
-    Job, JobEvent, JobEventType, JobLogEntry, JobLogLevel, JobProgress, JobState, WorkerHeartbeat,
+    Job, JobContext, JobEvent, JobEventType, JobLogEntry, JobLogLevel, JobProgress, JobState,
+    WorkerHeartbeat,
 };

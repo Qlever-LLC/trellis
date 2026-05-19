@@ -17,7 +17,7 @@ Rust services in Trellis use a **generated local participant facade** as the pri
 - `uses` aliases for calling peer services
 - typed resource binding handles (KV, stores, jobs)
 
-You do not depend on `trellis-client` or `trellis-server` directly in your service crate — those are generator targets. The facade brings them in transitively.
+You do not depend on `trellis-client` or `trellis-service` directly in your service crate — those are generator targets. The facade brings them in transitively.
 
 See `design/contracts/trellis-rust-contract-libraries.md` for full crate responsibility details.
 
@@ -123,7 +123,7 @@ orders-participant = { path = "./generated/facade/rust" }
 tokio = { version = "1", features = ["full"] }
 ```
 
-Do not add `trellis-server` or `trellis-client` directly — the facade brings them in.
+Do not add `trellis-service` or `trellis-client` directly — the facade brings them in.
 
 ## 5. Connect the service
 

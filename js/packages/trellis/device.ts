@@ -172,6 +172,7 @@ export type TrellisDevicePendingActivationState = {
   publicIdentityKey: string;
   instanceId: string;
   deploymentId: string;
+  flowId: string;
   nonce: string;
   activationUrl: string;
 };
@@ -182,6 +183,7 @@ export type TrellisDeviceActivatedActivationState = {
   publicIdentityKey: string;
   instanceId: string;
   deploymentId: string;
+  flowId: string;
   nonce: string;
   activationUrl: string;
 };
@@ -563,6 +565,7 @@ async function createActivationSession<
 
       await waitForDeviceActivation({
         trellisUrl: args.trellisUrl,
+        flowId: args.localState.flowId,
         publicIdentityKey: args.identity.publicIdentityKey,
         nonce: args.localState.nonce,
         identitySeed: args.identity.identitySeed,
@@ -605,6 +608,7 @@ async function fetchDeviceBootstrap(args: {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const requestStartedAtMs = args.now();
     const request = await signDeviceWaitRequest({
+      flowId: "connect-info",
       publicIdentityKey: args.publicIdentityKey,
       nonce: "connect-info",
       identitySeed: args.identitySeed,
@@ -745,6 +749,7 @@ export async function startDeviceActivationWithDeps<
       publicIdentityKey: identity.publicIdentityKey,
       instanceId: activation.instanceId,
       deploymentId: activation.deploymentId,
+      flowId: activation.flowId,
       nonce,
       activationUrl: activation.activationUrl,
     },

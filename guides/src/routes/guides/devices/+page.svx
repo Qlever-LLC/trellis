@@ -114,6 +114,12 @@ For Deno devices, the activation helper hides local activation-state persistence
 internally so the same activation attempt can survive restart without the
 application managing pending activation details directly.
 
+Online waiting is tied to the activation flow id that Trellis returned with the
+activation URL. The wait request signs that `flowId` along with the device
+identity, nonce, timestamp, and contract evidence, and Trellis loads the browser
+flow directly by id before checking that it matches the device. The QR payload
+and MAC remain the bearer setup artifact for handing the flow to a browser.
+
 ## 4. Create the device deployment
 
 Once the code shape is clear, create the server-side device deployment and expand its envelope with the device contract.

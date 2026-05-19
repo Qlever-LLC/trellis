@@ -233,9 +233,9 @@ Rules:
 - service-local transportable RPC errors should be declared in the contract's
   top-level `errors` map through `defineError(...)` generated classes rather
   than by overloading shared built-in errors for domain-specific failures
-- if the service later needs remote APIs, add them under `uses` through SDK
-  `use(...)` helpers rather than by hand-writing remote contract ids or raw
-  method strings
+- if the service later needs remote APIs, add SDK `use(...)` helper results under
+  `uses.required` or `uses.optional`; aliases directly under `uses` are invalid,
+  and services must not hand-write remote contract ids or raw method strings
 
 Behavior:
 
@@ -248,6 +248,10 @@ Behavior:
   envelope decision; invalid manifests fail immediately, while unknown required
   `uses` dependencies can still produce a pending expansion request that records
   the unresolved contract id as an activation blocker
+- optional `uses` dependencies that are missing or whose requested surfaces are
+  missing do not fail bootstrap planning and do not grant runtime authority;
+  when they later resolve as active, they require normal envelope expansion and
+  approval before a fresh reconnect receives that authority
 - expansion planning resolves dependency surfaces from known inactive manifests
   when available, so services in a dependency cycle can each submit reviewable
   contract evidence before either one receives runtime credentials
@@ -259,6 +263,10 @@ Behavior:
   dependencies resolve against the active catalog. If the approved dependency
   closure is still incomplete, bootstrap returns `contract_activation_pending`
   and the service runtime keeps waiting.
+- if a service presents an older digest for the same contract id after newer
+  deployment evidence exists for that deployment, bootstrap returns
+  `contract_changed` rather than refreshing the old evidence row or issuing
+  credentials for the stale digest
 - after the dependency closure is active, bootstrap resolves or provisions
   required resource bindings, persists instance runtime state, and returns
   transport and binding details to the service runtime

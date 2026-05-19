@@ -83,6 +83,7 @@ type DeploymentContractEvidenceStorage = {
     contractDigest: string,
   ): Promise<DeploymentContractEvidence | undefined>;
   put(record: DeploymentContractEvidence): Promise<void>;
+  listByDeployment(deploymentId: string): Promise<DeploymentContractEvidence[]>;
 };
 
 type EnvelopeExpansionRequestStorage = {
@@ -224,6 +225,24 @@ function sameJsonRecord(left: unknown, right: unknown): boolean {
 
 function emptyBoundary(): EnvelopeBoundary {
   return { contracts: [], surfaces: [], capabilities: [], resources: [] };
+}
+
+function latestEvidenceForContract(
+  evidence: Iterable<DeploymentContractEvidence>,
+  contractId: string,
+): DeploymentContractEvidence | undefined {
+  let latest: DeploymentContractEvidence | undefined;
+  for (const record of evidence) {
+    if (record.contractId !== contractId) continue;
+    if (
+      !latest || record.lastSeenAt > latest.lastSeenAt ||
+      (record.lastSeenAt === latest.lastSeenAt &&
+        record.firstSeenAt > latest.firstSeenAt)
+    ) {
+      latest = record;
+    }
+  }
+  return latest;
 }
 
 function mergeBoundaries(...boundaries: EnvelopeBoundary[]): EnvelopeBoundary {
@@ -585,6 +604,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
 
     const requestedBoundary = mergeBoundaries(
       analysis.required,
+      analysis.optional,
       analysis.contributedAvailability,
     );
     const fit = evaluateEnvelopeFit(
@@ -641,6 +661,34 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         ),
         202,
       );
+    }
+
+    if (existingEvidence) {
+      const latestEvidence = latestEvidenceForContract(
+        await deps.deploymentContractEvidenceStorage.listByDeployment(
+          service.deploymentId,
+        ),
+        contract.id,
+      );
+      if (
+        latestEvidence &&
+        latestEvidence.contractDigest !== request.contractDigest
+      ) {
+        return c.json(
+          bootstrapFailure(
+            "contract_changed",
+            `Service deployment '${service.deploymentId}' has newer evidence for contract '${request.contractId}'. Restart with the active contract digest.`,
+            {
+              instanceId: service.instanceId,
+              deploymentId: service.deploymentId,
+              contractId: request.contractId,
+              contractDigest: request.contractDigest,
+              activeContractDigest: latestEvidence.contractDigest,
+            },
+          ),
+          409,
+        );
+      }
     }
 
     let capabilities: string[];

@@ -417,11 +417,11 @@ This makes imported SDK modules the source of truth for remote dependency names
 in TypeScript authoring.
 
 Contracts must place SDK-backed uses either in `uses.required` or
-`uses.optional`; aliases directly under `uses` are invalid. Required uses fail
-closed during active-catalog validation. Optional uses are included in digest
-identity, but missing optional contracts or surfaces are skipped and grant no
-transport authority. If an alias appears in both groups, the required
-declaration wins.
+`uses.optional`; aliases directly under `uses` are invalid and are not treated as
+implied required uses. Required uses fail closed during active-catalog validation.
+Optional uses are included in digest identity, but missing optional contracts or
+surfaces are skipped and grant no transport authority. If an alias appears in
+both groups, the required declaration wins.
 
 Some Trellis-owned surfaces are derived from the participant kind or local
 contract features. App, agent, and device contracts receive baseline auth RPCs

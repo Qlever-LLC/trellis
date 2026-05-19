@@ -37,6 +37,7 @@ function seedJobFromEvent<TPayload = unknown, TResult = unknown>(
     service: event.service,
     type: event.jobType,
     state: event.state,
+    context: event.context,
     payload: event.payload,
     createdAt: event.timestamp,
     updatedAt: event.timestamp,

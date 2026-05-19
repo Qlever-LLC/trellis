@@ -1,10 +1,11 @@
 use serde_json::json;
-use trellis_jobs::{Job, JobEventType, JobState};
+use trellis_jobs::{Job, JobContext, JobEventType, JobState};
 use trellis_service_jobs::{map_dead_event_from_advisory_job, MaxDeliveriesAdvisory};
 
 fn sample_job(id: &str, state: JobState, tries: u64) -> Job {
     Job {
         id: id.to_string(),
+        context: context(id),
         service: "documents".to_string(),
         job_type: "document-process".to_string(),
         state,
@@ -20,6 +21,15 @@ fn sample_job(id: &str, state: JobState, tries: u64) -> Job {
         deadline: None,
         progress: None,
         logs: None,
+    }
+}
+
+fn context(id: &str) -> JobContext {
+    JobContext {
+        request_id: format!("request-{id}"),
+        trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+        traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+        tracestate: None,
     }
 }
 

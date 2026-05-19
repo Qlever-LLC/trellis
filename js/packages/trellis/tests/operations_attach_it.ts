@@ -71,15 +71,9 @@ async function createTestAuth(): Promise<
 const billing = defineServiceContract(
   {
     schemas: {
-      RefundInput: Type.Object({ chargeId: Type.String() }, {
-        additionalProperties: false,
-      }),
-      RefundProgress: Type.Object({ message: Type.String() }, {
-        additionalProperties: false,
-      }),
-      RefundOutput: Type.Object({ refundId: Type.String() }, {
-        additionalProperties: false,
-      }),
+      RefundInput: Type.Object({ chargeId: Type.String() }),
+      RefundProgress: Type.Object({ message: Type.String() }),
+      RefundOutput: Type.Object({ refundId: Type.String() }),
     },
   },
   (ref) => ({

@@ -172,6 +172,16 @@ pub fn decode_nats_request(message: &async_nats::Message) -> InboundRequest {
         .as_ref()
         .and_then(|headers| headers.get("proof"))
         .map(|value| value.as_str().to_string());
+    let iat = message
+        .headers
+        .as_ref()
+        .and_then(|headers| headers.get("iat"))
+        .and_then(|value| value.as_str().parse::<i64>().ok());
+    let request_id = message
+        .headers
+        .as_ref()
+        .and_then(|headers| headers.get("request-id"))
+        .map(|value| value.as_str().to_string());
     let traceparent = message
         .headers
         .as_ref()
@@ -191,6 +201,9 @@ pub fn decode_nats_request(message: &async_nats::Message) -> InboundRequest {
             subject,
             session_key,
             proof,
+            iat,
+            request_id,
+            required_capabilities: None,
             reply_to: reply_to.clone(),
             caller: None,
             traceparent,

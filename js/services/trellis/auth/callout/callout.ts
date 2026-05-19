@@ -73,11 +73,7 @@ import type {
   SqlUserProjectionRepository,
 } from "../storage.ts";
 
-type DeviceActivationRecord =
-  & StaticDecode<typeof DeviceActivationRecordSchema>
-  & {
-    activatedBy?: { origin: string; id: string };
-  };
+type DeviceActivationRecord = StaticDecode<typeof DeviceActivationRecordSchema>;
 type DeviceDeployment = StaticDecode<typeof DeviceDeploymentSchema>;
 type DeviceInstance = StaticDecode<typeof DeviceSchema>;
 type ParsedNatsAuthToken = StaticDecode<typeof NatsAuthTokenV1Schema>;
@@ -234,7 +230,7 @@ type DeviceRuntimeGrant = DeviceRuntimeAccess & {
     instanceId: string;
     publicIdentityKey: string;
     deploymentId: string;
-    activatedBy?: { origin: string; id: string };
+    activatedBy?: NonNullable<DeviceActivationRecord["activatedBy"]>;
     state: "activated" | "revoked";
     activatedAt: string | null;
     revokedAt: string | null;

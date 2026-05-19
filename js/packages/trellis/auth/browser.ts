@@ -38,6 +38,8 @@ export {
   loadSessionKey,
   natsConnectSigForIat,
   type SessionKeyHandle,
+  type SessionKeyOptions,
+  type SessionKeyPersistenceMode,
   signBytes,
 } from "./browser/session.ts";
 export { deleteKeyPair, hasKeyPair } from "./browser/storage.ts";

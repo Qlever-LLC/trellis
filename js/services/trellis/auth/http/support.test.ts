@@ -925,12 +925,246 @@ Deno.test("getApprovalResolution applies matching deployment grant overrides as 
 
   assertEquals(resolution.effectiveCapabilities, ["audit"]);
   assertEquals(resolution.missingCapabilities, []);
+  assertEquals(resolution.effectiveApproval, {
+    kind: "deployment_grant",
+    answer: "approved",
+  });
   assertEquals(resolution.systemAvailabilityEnvelope, {
     contracts: [],
     surfaces: [],
     capabilities: [],
     resources: [],
   });
+});
+
+Deno.test("getApprovalResolution treats full matching grant overrides as approved when availability exists", async () => {
+  const contracts = createTestContracts();
+  const now = new Date().toISOString();
+  const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "https://app.example.com/callback",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.console@v1",
+      displayName: "Console",
+      description: "Admin",
+      kind: "app",
+      capabilities: approvalCapabilities(["audit"]),
+      schemas: { Empty: { type: "object" } },
+      rpc: {
+        Audit: {
+          version: "v1",
+          subject: "rpc.v1.audit",
+          input: { schema: "Empty" },
+          output: { schema: "Empty" },
+          capabilities: { call: ["audit"] },
+        },
+      },
+    },
+    createdAt: new Date(),
+  };
+
+  const resolution = await getApprovalResolution(contracts, pending, {
+    loadUserProjection: async () => ({
+      origin: "github",
+      id: "123",
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: [],
+      capabilityGroups: [],
+    }),
+    loadDeploymentEnvelopes: async () => [{
+      deploymentId: "app.enabled",
+      kind: "app",
+      disabled: false,
+      createdAt: now,
+      updatedAt: now,
+      boundary: {
+        contracts: [{ contractId: "trellis.console@v1", required: true }],
+        surfaces: [{
+          contractId: "trellis.console@v1",
+          kind: "rpc",
+          name: "Audit",
+          action: "call",
+          required: true,
+        }],
+        capabilities: [],
+        resources: [],
+      },
+    }],
+    loadDeploymentGrantOverrides: async (deploymentId) => [{
+      deploymentId,
+      identityKind: "web",
+      contractId: "trellis.console@v1",
+      origin: "https://app.example.com",
+      sessionPublicKey: null,
+      devicePublicKey: null,
+      capability: "audit",
+    }],
+  });
+
+  assertEquals(resolution.missingCapabilities, []);
+  assertEquals(resolution.effectiveApproval, {
+    kind: "deployment_grant",
+    answer: "approved",
+  });
+});
+
+Deno.test("getApprovalResolution does not approve partial or unrelated grant overrides", async () => {
+  const contracts = createTestContracts();
+  const now = new Date().toISOString();
+  const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "https://app.example.com/callback",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.console@v1",
+      displayName: "Console",
+      description: "Admin",
+      kind: "app",
+      schemas: { AuditEvent: { type: "object" } },
+      events: {
+        "Audit.Recorded": {
+          version: "v1",
+          subject: "trellis.console.audit",
+          event: { schema: "AuditEvent" },
+          capabilities: { publish: ["admin"] },
+        },
+      },
+    },
+    createdAt: new Date(),
+  };
+
+  const resolution = await getApprovalResolution(contracts, pending, {
+    loadUserProjection: async () => ({
+      origin: "github",
+      id: "123",
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: [],
+      capabilityGroups: [],
+    }),
+    loadDeploymentEnvelopes: async () => [{
+      deploymentId: "app.enabled",
+      kind: "app",
+      disabled: false,
+      createdAt: now,
+      updatedAt: now,
+      boundary: {
+        contracts: [{ contractId: "trellis.console@v1", required: true }],
+        surfaces: [{
+          contractId: "trellis.console@v1",
+          kind: "event",
+          name: "Audit.Recorded",
+          action: "publish",
+          required: true,
+        }],
+        capabilities: [],
+        resources: [],
+      },
+    }],
+    loadDeploymentGrantOverrides: async (deploymentId) => [
+      {
+        deploymentId,
+        identityKind: "web",
+        contractId: "trellis.console@v1",
+        origin: "https://other.example.com",
+        sessionPublicKey: null,
+        devicePublicKey: null,
+        capability: "admin",
+      },
+    ],
+  });
+
+  assertEquals(resolution.missingCapabilities, ["admin"]);
+  assertEquals(resolution.effectiveApproval, { answer: "none", kind: "none" });
+});
+
+Deno.test("getApprovalResolution does not treat user capabilities as deployment grant approval", async () => {
+  const contracts = createTestContracts();
+  const now = new Date().toISOString();
+  const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "https://app.example.com/callback",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.console@v1",
+      displayName: "Console",
+      description: "Admin",
+      kind: "app",
+      schemas: { AuditEvent: { type: "object" } },
+      events: {
+        "Audit.Recorded": {
+          version: "v1",
+          subject: "trellis.console.audit",
+          event: { schema: "AuditEvent" },
+          capabilities: { publish: ["admin"] },
+        },
+      },
+    },
+    createdAt: new Date(),
+  };
+
+  const resolution = await getApprovalResolution(contracts, pending, {
+    loadUserProjection: async () => ({
+      origin: "github",
+      id: "123",
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: ["admin"],
+      capabilityGroups: [],
+    }),
+    loadDeploymentEnvelopes: async () => [{
+      deploymentId: "app.enabled",
+      kind: "app",
+      disabled: false,
+      createdAt: now,
+      updatedAt: now,
+      boundary: {
+        contracts: [{ contractId: "trellis.console@v1", required: true }],
+        surfaces: [{
+          contractId: "trellis.console@v1",
+          kind: "event",
+          name: "Audit.Recorded",
+          action: "publish",
+          required: true,
+        }],
+        capabilities: [],
+        resources: [],
+      },
+    }],
+    loadDeploymentGrantOverrides: async () => [],
+  });
+
+  assertEquals(resolution.missingCapabilities, []);
+  assertEquals(resolution.effectiveApproval, { answer: "none", kind: "none" });
 });
 
 Deno.test("getApprovalResolution does not treat deployment envelope capabilities as user capabilities", async () => {
@@ -1150,38 +1384,11 @@ Deno.test("shouldUseSecureOauthCookie logs through injected logger", () => {
 
   const secure = shouldUseSecureOauthCookie(
     {
-      logLevel: "info",
-      port: 3000,
-      instanceName: "Trellis Test",
       web: {
         origins: ["http://localhost:3000"],
         publicOrigin: "://bad-origin",
         allowInsecureOrigins: [],
       },
-      httpRateLimit: { windowMs: 60_000, max: 60 },
-      ttlMs: {
-        sessions: 1,
-        oauth: 1,
-        deviceFlow: 1,
-        pendingAuth: 1,
-        connections: 1,
-        natsJwt: 1,
-      },
-      nats: {
-        servers: "nats://localhost:4222",
-        jetstream: { replicas: 1 },
-        trellis: { credsPath: "/tmp/trellis.creds" },
-        auth: { credsPath: "/tmp/auth.creds" },
-        system: { credsPath: "/tmp/system.creds" },
-        sentinelCredsPath: "/tmp/sentinel.creds",
-        authCallout: {
-          issuer: { nkey: "issuer", signing: "signing" },
-          target: { nkey: "target", signing: "signing" },
-          sxSeed: "seed",
-        },
-      },
-      sessionKeySeed: "seed",
-      client: { natsServers: ["nats://localhost:4222"] },
       oauth: {
         redirectBase: "http://localhost:3000",
         alwaysShowProviderChooser: false,
@@ -1207,38 +1414,11 @@ Deno.test("shouldUseSecureOauthCookie logs through injected logger", () => {
 Deno.test("shouldUseSecureOauthCookie allows insecure cookies on plain-http loopback origins", () => {
   const secure = shouldUseSecureOauthCookie(
     {
-      logLevel: "info",
-      port: 3000,
-      instanceName: "Trellis Test",
       web: {
         origins: ["http://localhost:3000"],
         publicOrigin: "http://localhost:3000",
         allowInsecureOrigins: [],
       },
-      httpRateLimit: { windowMs: 60_000, max: 60 },
-      ttlMs: {
-        sessions: 1,
-        oauth: 1,
-        deviceFlow: 1,
-        pendingAuth: 1,
-        connections: 1,
-        natsJwt: 1,
-      },
-      nats: {
-        servers: "nats://localhost:4222",
-        jetstream: { replicas: 1 },
-        trellis: { credsPath: "/tmp/trellis.creds" },
-        auth: { credsPath: "/tmp/auth.creds" },
-        system: { credsPath: "/tmp/system.creds" },
-        sentinelCredsPath: "/tmp/sentinel.creds",
-        authCallout: {
-          issuer: { nkey: "issuer", signing: "signing" },
-          target: { nkey: "target", signing: "signing" },
-          sxSeed: "seed",
-        },
-      },
-      sessionKeySeed: "seed",
-      client: { natsServers: ["nats://localhost:4222"] },
       oauth: {
         redirectBase: "http://localhost:3000",
         alwaysShowProviderChooser: false,
@@ -1253,38 +1433,11 @@ Deno.test("shouldUseSecureOauthCookie allows insecure cookies on plain-http loop
 Deno.test("shouldUseSecureOauthCookie keeps plain-http non-loopback OAuth cookies secure by default", () => {
   const secure = shouldUseSecureOauthCookie(
     {
-      logLevel: "info",
-      port: 3000,
-      instanceName: "Trellis Test",
       web: {
         origins: ["http://private.example:3000"],
         publicOrigin: "http://private.example:3000",
         allowInsecureOrigins: [],
       },
-      httpRateLimit: { windowMs: 60_000, max: 60 },
-      ttlMs: {
-        sessions: 1,
-        oauth: 1,
-        deviceFlow: 1,
-        pendingAuth: 1,
-        connections: 1,
-        natsJwt: 1,
-      },
-      nats: {
-        servers: "nats://localhost:4222",
-        jetstream: { replicas: 1 },
-        trellis: { credsPath: "/tmp/trellis.creds" },
-        auth: { credsPath: "/tmp/auth.creds" },
-        system: { credsPath: "/tmp/system.creds" },
-        sentinelCredsPath: "/tmp/sentinel.creds",
-        authCallout: {
-          issuer: { nkey: "issuer", signing: "signing" },
-          target: { nkey: "target", signing: "signing" },
-          sxSeed: "seed",
-        },
-      },
-      sessionKeySeed: "seed",
-      client: { natsServers: ["nats://localhost:4222"] },
       oauth: {
         redirectBase: "http://private.example:3000",
         alwaysShowProviderChooser: false,
@@ -1299,38 +1452,11 @@ Deno.test("shouldUseSecureOauthCookie keeps plain-http non-loopback OAuth cookie
 Deno.test("shouldUseSecureOauthCookie honors exact insecure cookie origin allowlist", () => {
   const secure = shouldUseSecureOauthCookie(
     {
-      logLevel: "info",
-      port: 3000,
-      instanceName: "Trellis Test",
       web: {
         origins: ["http://private.example:3000"],
         publicOrigin: "http://private.example:3000",
         allowInsecureOrigins: ["http://private.example:3000"],
       },
-      httpRateLimit: { windowMs: 60_000, max: 60 },
-      ttlMs: {
-        sessions: 1,
-        oauth: 1,
-        deviceFlow: 1,
-        pendingAuth: 1,
-        connections: 1,
-        natsJwt: 1,
-      },
-      nats: {
-        servers: "nats://localhost:4222",
-        jetstream: { replicas: 1 },
-        trellis: { credsPath: "/tmp/trellis.creds" },
-        auth: { credsPath: "/tmp/auth.creds" },
-        system: { credsPath: "/tmp/system.creds" },
-        sentinelCredsPath: "/tmp/sentinel.creds",
-        authCallout: {
-          issuer: { nkey: "issuer", signing: "signing" },
-          target: { nkey: "target", signing: "signing" },
-          sxSeed: "seed",
-        },
-      },
-      sessionKeySeed: "seed",
-      client: { natsServers: ["nats://localhost:4222"] },
       oauth: {
         redirectBase: "http://private.example:3000",
         alwaysShowProviderChooser: false,
@@ -1345,38 +1471,11 @@ Deno.test("shouldUseSecureOauthCookie honors exact insecure cookie origin allowl
 Deno.test("shouldUseSecureOauthCookie keeps non-loopback plain-http cookies secure when allowlist does not exactly match", () => {
   const secure = shouldUseSecureOauthCookie(
     {
-      logLevel: "info",
-      port: 3000,
-      instanceName: "Trellis Test",
       web: {
         origins: ["http://private.example:3000"],
         publicOrigin: "http://private.example:3000",
         allowInsecureOrigins: ["http://private.example:4000"],
       },
-      httpRateLimit: { windowMs: 60_000, max: 60 },
-      ttlMs: {
-        sessions: 1,
-        oauth: 1,
-        deviceFlow: 1,
-        pendingAuth: 1,
-        connections: 1,
-        natsJwt: 1,
-      },
-      nats: {
-        servers: "nats://localhost:4222",
-        jetstream: { replicas: 1 },
-        trellis: { credsPath: "/tmp/trellis.creds" },
-        auth: { credsPath: "/tmp/auth.creds" },
-        system: { credsPath: "/tmp/system.creds" },
-        sentinelCredsPath: "/tmp/sentinel.creds",
-        authCallout: {
-          issuer: { nkey: "issuer", signing: "signing" },
-          target: { nkey: "target", signing: "signing" },
-          sxSeed: "seed",
-        },
-      },
-      sessionKeySeed: "seed",
-      client: { natsServers: ["nats://localhost:4222"] },
       oauth: {
         redirectBase: "http://private.example:3000",
         alwaysShowProviderChooser: false,
@@ -1391,38 +1490,11 @@ Deno.test("shouldUseSecureOauthCookie keeps non-loopback plain-http cookies secu
 Deno.test("shouldUseSecureOauthCookie keeps https OAuth cookies secure", () => {
   const secure = shouldUseSecureOauthCookie(
     {
-      logLevel: "info",
-      port: 3000,
-      instanceName: "Trellis Test",
       web: {
         origins: ["https://phi.oats"],
         publicOrigin: "https://phi.oats",
         allowInsecureOrigins: [],
       },
-      httpRateLimit: { windowMs: 60_000, max: 60 },
-      ttlMs: {
-        sessions: 1,
-        oauth: 1,
-        deviceFlow: 1,
-        pendingAuth: 1,
-        connections: 1,
-        natsJwt: 1,
-      },
-      nats: {
-        servers: "nats://localhost:4222",
-        jetstream: { replicas: 1 },
-        trellis: { credsPath: "/tmp/trellis.creds" },
-        auth: { credsPath: "/tmp/auth.creds" },
-        system: { credsPath: "/tmp/system.creds" },
-        sentinelCredsPath: "/tmp/sentinel.creds",
-        authCallout: {
-          issuer: { nkey: "issuer", signing: "signing" },
-          target: { nkey: "target", signing: "signing" },
-          sxSeed: "seed",
-        },
-      },
-      sessionKeySeed: "seed",
-      client: { natsServers: ["nats://localhost:4222"] },
       oauth: {
         redirectBase: "https://phi.oats",
         alwaysShowProviderChooser: false,

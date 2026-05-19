@@ -348,9 +348,9 @@ export const apiReferenceDocs: DocEntry[] = [
     section: "Rustdoc",
   },
   {
-    title: "trellis-server",
-    description: "Rust server runtime API on docs.rs.",
-    href: "https://docs.rs/trellis-server/latest/trellis_server/",
+    title: "trellis-service",
+    description: "Rust service runtime API on docs.rs.",
+    href: "https://docs.rs/trellis-service/latest/trellis_service/",
     section: "Rustdoc",
   },
   {

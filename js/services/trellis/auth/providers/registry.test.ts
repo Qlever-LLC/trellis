@@ -12,12 +12,19 @@ function createConfig(): Config {
     instanceName: "Trellis Auth",
     web: {
       origins: ["http://localhost:5173"],
+      cors: { mode: "restricted", origins: ["http://localhost:5173"], credentials: true },
       publicOrigin: "http://localhost:3000",
       allowInsecureOrigins: [],
     },
     httpRateLimit: {
       windowMs: 60_000,
       max: 60,
+    },
+    auth: {
+      localIdentity: {
+        enabled: true,
+        passwordPolicy: { minLength: 12 },
+      },
     },
     storage: {
       dbPath: "/tmp/trellis.sqlite",

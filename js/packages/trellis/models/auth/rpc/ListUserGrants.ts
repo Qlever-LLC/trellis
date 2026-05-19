@@ -36,7 +36,7 @@ const ContractEvidenceSchema = Type.Object({
 export const AuthIdentitiesGrantsListSchema = Type.Object({
   offset: Type.Optional(Type.Integer({ minimum: 0 })),
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
-}, { additionalProperties: false });
+});
 export type AuthIdentitiesGrantsListInput = Static<
   typeof AuthIdentitiesGrantsListSchema
 >;

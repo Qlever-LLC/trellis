@@ -6,16 +6,16 @@ use trellis_jobs::bindings::{JobsBinding, JobsQueueBinding};
 use trellis_jobs::manager::{
     JobManager, JobManagerError, JobMetaSource, JobProcessError, JobProcessOutcome,
 };
-use trellis_jobs::publisher::JobEventPublisher;
-use trellis_jobs::types::{Job, JobEvent, JobEventType, JobState};
+use trellis_jobs::publisher::{JobEventHeaders, JobEventPublisher};
+use trellis_jobs::types::{Job, JobContext, JobEvent, JobEventType, JobState};
 
 #[derive(Default)]
 struct RecordingPublisher {
-    calls: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
+    calls: Arc<Mutex<Vec<(String, JobEventHeaders, Vec<u8>)>>>,
 }
 
 impl RecordingPublisher {
-    fn calls(&self) -> Vec<(String, Vec<u8>)> {
+    fn calls(&self) -> Vec<(String, JobEventHeaders, Vec<u8>)> {
         self.calls.lock().expect("lock calls").clone()
     }
 }
@@ -26,12 +26,13 @@ impl JobEventPublisher for RecordingPublisher {
     fn publish(
         &self,
         subject: String,
+        headers: JobEventHeaders,
         payload: Vec<u8>,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
         self.calls
             .lock()
             .expect("lock calls")
-            .push((subject, payload));
+            .push((subject, headers, payload));
         async { Ok(()) }
     }
 }
@@ -44,6 +45,7 @@ impl JobEventPublisher for FailingPublisher {
     fn publish(
         &self,
         _subject: String,
+        _headers: JobEventHeaders,
         _payload: Vec<u8>,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
         async { Err("publish failed") }
@@ -99,6 +101,7 @@ fn sample_bindings() -> JobsBinding {
 fn sample_job(tries: u64, max_tries: u64) -> Job {
     Job {
         id: "job-1".to_string(),
+        context: sample_context(),
         service: "documents".to_string(),
         job_type: "document-process".to_string(),
         state: JobState::Pending,
@@ -114,6 +117,15 @@ fn sample_job(tries: u64, max_tries: u64) -> Job {
         deadline: None,
         progress: None,
         logs: None,
+    }
+}
+
+fn sample_context() -> JobContext {
+    JobContext {
+        request_id: "request-1".to_string(),
+        trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+        traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+        tracestate: None,
     }
 }
 
@@ -180,10 +192,10 @@ async fn process_success_publishes_started_then_completed_and_returns_completed(
         "trellis.jobs.documents.document-process.job-1.completed"
     );
 
-    let started: JobEvent = serde_json::from_slice(&calls[0].1).expect("decode started event");
+    let started: JobEvent = serde_json::from_slice(&calls[0].2).expect("decode started event");
     assert_eq!(started.event_type, JobEventType::Started);
     assert_eq!(started.tries, 1);
-    let completed: JobEvent = serde_json::from_slice(&calls[1].1).expect("decode completed event");
+    let completed: JobEvent = serde_json::from_slice(&calls[1].2).expect("decode completed event");
     assert_eq!(completed.event_type, JobEventType::Completed);
     assert_eq!(completed.tries, 1);
     assert_eq!(completed.result, Some(json!({ "pages": 3 })));
@@ -226,7 +238,7 @@ async fn process_failure_below_max_publishes_started_then_retry_and_returns_retr
         calls[1].0,
         "trellis.jobs.documents.document-process.job-1.retry"
     );
-    let retry: JobEvent = serde_json::from_slice(&calls[1].1).expect("decode retry event");
+    let retry: JobEvent = serde_json::from_slice(&calls[1].2).expect("decode retry event");
     assert_eq!(retry.event_type, JobEventType::Retry);
     assert_eq!(retry.tries, 1);
     assert_eq!(retry.error.as_deref(), Some("transient failure"));
@@ -267,7 +279,7 @@ async fn process_failure_publishes_started_then_failed_and_returns_failed() {
         calls[1].0,
         "trellis.jobs.documents.document-process.job-1.failed"
     );
-    let failed: JobEvent = serde_json::from_slice(&calls[1].1).expect("decode failed event");
+    let failed: JobEvent = serde_json::from_slice(&calls[1].2).expect("decode failed event");
     assert_eq!(failed.event_type, JobEventType::Failed);
     assert_eq!(failed.tries, 2);
     assert_eq!(failed.error.as_deref(), Some("final failure"));

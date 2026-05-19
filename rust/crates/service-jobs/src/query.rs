@@ -171,6 +171,7 @@ impl JobsQuery {
                             &job.service,
                             &job.job_type,
                             &job.id,
+                            &job.context,
                             job.state,
                             job.tries,
                             now,
@@ -197,6 +198,7 @@ impl JobsQuery {
                     &job.service,
                     &job.job_type,
                     &job.id,
+                    &job.context,
                     job.state,
                     now,
                     Some(job.payload.clone()),
@@ -248,6 +250,7 @@ impl JobsQuery {
                     &job.service,
                     &job.job_type,
                     &job.id,
+                    &job.context,
                     job.state,
                     now,
                     Some(job.payload.clone()),
@@ -274,6 +277,7 @@ impl JobsQuery {
                     &job.service,
                     &job.job_type,
                     &job.id,
+                    &job.context,
                     JobState::Dead,
                     job.tries,
                     now,
@@ -318,7 +322,7 @@ impl JobsQuery {
         })?;
 
         self.nats
-            .publish(subject.clone(), payload.into())
+            .publish_with_headers(subject.clone(), job_event_headers(&event), payload.into())
             .await
             .map_err(|error| JobsQueryError::PublishEvent {
                 subject,
@@ -354,6 +358,16 @@ impl JobsQuery {
             key: key.to_string(),
         })
     }
+}
+
+fn job_event_headers(event: &JobEvent) -> async_nats::header::HeaderMap {
+    let mut headers = async_nats::header::HeaderMap::new();
+    headers.insert("request-id", event.context.request_id.as_str());
+    headers.insert("traceparent", event.context.traceparent.as_str());
+    if let Some(tracestate) = event.context.tracestate.as_deref() {
+        headers.insert("tracestate", tracestate);
+    }
+    headers
 }
 
 impl From<SqliteJobsStoreError> for JobsQueryError {

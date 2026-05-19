@@ -22,6 +22,17 @@ export const JobProgressSchema = Type.Object({
 export type JobProgress = StaticDecode<typeof JobProgressSchema>;
 export type JobLogEntry = StaticDecode<typeof JobLogEntrySchema>;
 
+export const JobContextSchema = Type.Object({
+  requestId: Type.String({ minLength: 1 }),
+  traceId: Type.String({ pattern: "^[0-9a-f]{32}$" }),
+  traceparent: Type.String({
+    pattern: "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+  }),
+  tracestate: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export type JobContext = StaticDecode<typeof JobContextSchema>;
+
 export type JobState =
   | "pending"
   | "active"
@@ -44,6 +55,7 @@ export type JobSnapshot<TPayload, TResult> = {
   service: string;
   type: string;
   state: JobState;
+  context: JobContext;
   payload: TPayload;
   result?: TResult;
   createdAt: string;
@@ -175,6 +187,7 @@ export class JobRef<TPayload, TResult> {
 export class ActiveJob<TPayload, TResult> {
   readonly ref: JobRef<TPayload, TResult>;
   readonly payload: TPayload;
+  readonly context: Readonly<JobContext>;
 
   readonly #cancelled: () => boolean;
   readonly #heartbeat: () => AsyncResult<void, BaseError>;
@@ -185,6 +198,7 @@ export class ActiveJob<TPayload, TResult> {
   constructor(
     ref: JobRef<TPayload, TResult>,
     payload: TPayload,
+    context: JobContext,
     cancelled: boolean | (() => boolean),
     impl: {
       heartbeat: () => AsyncResult<void, BaseError>;
@@ -195,6 +209,7 @@ export class ActiveJob<TPayload, TResult> {
   ) {
     this.ref = ref;
     this.payload = payload;
+    this.context = Object.freeze({ ...context });
     this.#cancelled = typeof cancelled === "function"
       ? cancelled
       : () => cancelled;

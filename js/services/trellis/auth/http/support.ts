@@ -3,7 +3,10 @@ import type { AsyncResult, BaseError } from "@qlever-llc/result";
 
 import { planUserContractApproval } from "../approval/plan.ts";
 import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
-import { applyGrantOverrideCapabilities } from "../envelope_decision.ts";
+import {
+  applyGrantOverrideCapabilities,
+  evaluateEnvelopeFit,
+} from "../envelope_decision.ts";
 import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolveCapabilities } from "../capability_groups.ts";
 export { identityIdForProviderSubject } from "../identity.ts";
@@ -412,22 +415,34 @@ export async function getApprovalResolution(
         sameIdentityAnchor(approval.identityAnchor, requestedIdentityAnchor)
       ) ?? null;
   const matchedPolicies: [] = [];
+  const grantOverrideCapabilities = matchingGrantOverrideCapabilities({
+    overrides: deploymentGrantOverrides,
+    identity: requestedIdentity,
+  });
   const resolvedCapabilities = [
     ...new Set([
       ...existingResolvedCapabilities,
-      ...matchingGrantOverrideCapabilities({
-        overrides: deploymentGrantOverrides,
-        identity: requestedIdentity,
-      }),
+      ...grantOverrideCapabilities,
     ]),
   ].sort();
-  const resolvedApproval = effectiveApproval({
-    storedApproval,
-    matchedPolicies: [],
+  const unresolvedGrantCapabilities = missingCapabilities({
+    requiredCapabilities: approvalCapabilityKeys(plan.approval),
+    effectiveCapabilities: grantOverrideCapabilities,
   });
   const unresolvedCapabilities = missingCapabilities({
     requiredCapabilities: approvalCapabilityKeys(plan.approval),
     effectiveCapabilities: resolvedCapabilities,
+  });
+  const resolvedApproval = effectiveApproval({
+    storedApproval,
+    deploymentGrantApproved: storedApproval === null &&
+      unresolvedGrantCapabilities.length === 0 &&
+      enabledDeploymentEnvelopes.length > 0 &&
+      evaluateEnvelopeFit(systemAvailabilityEnvelope, {
+        ...requestedBoundary,
+        capabilities: [],
+      }).fits,
+    matchedPolicies: [],
   });
 
   return {
@@ -496,7 +511,18 @@ export function setCookie(
 }
 
 export function shouldUseSecureOauthCookie(
-  currentConfig: Pick<Config, "oauth" | "web"> & Partial<Config>,
+  currentConfig:
+    & {
+      oauth:
+        & Pick<Config["oauth"], "redirectBase">
+        & Partial<
+          Pick<Config["oauth"], "alwaysShowProviderChooser" | "providers">
+        >;
+      web:
+        & Pick<Config["web"], "publicOrigin" | "allowInsecureOrigins">
+        & Partial<Pick<Config["web"], "origins">>;
+    }
+    & Record<string, unknown>,
   deps: { logger?: WarnLogger } = {},
 ): boolean {
   const configuredLocation = currentConfig.web.publicOrigin ??

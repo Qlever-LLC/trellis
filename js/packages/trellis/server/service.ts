@@ -1,5 +1,7 @@
 import {
+  headers as natsHeaders,
   jwtAuthenticator,
+  type MsgHdrs,
   type NatsConnection,
   type Subscription,
 } from "@nats-io/nats-core";
@@ -97,6 +99,7 @@ import { startNatsWorkerHostFromBinding } from "./internal_jobs/runtime-worker.t
 import type { ActiveJob as InternalActiveJob } from "./internal_jobs/active-job.ts";
 import {
   type Job as InternalJob,
+  type JobContext as InternalJobContext,
   type JobEvent as InternalJobEvent,
   JobEventSchema,
 } from "./internal_jobs/types.ts";
@@ -1508,6 +1511,16 @@ function snapshotFromLifecycleEvent<TPayload, TResult>(
   return base;
 }
 
+function headersFromJobContext(context: InternalJobContext): MsgHdrs {
+  const headers = natsHeaders();
+  headers.set("request-id", context.requestId);
+  headers.set("traceparent", context.traceparent);
+  if (context.tracestate) {
+    headers.set("tracestate", context.tracestate);
+  }
+  return headers;
+}
+
 type JobLifecycleWaiter<TPayload, TResult> = {
   resolve(snapshot: TerminalJob<TPayload, TResult>): void;
   reject(cause: BaseError): void;
@@ -1692,6 +1705,7 @@ function createJobRef<TPayload, TResult>(args: {
             eventType: "cancelled",
             state: "cancelled",
             previousState: current.state,
+            context: current.context,
             tries: current.tries,
             error: "cancelled",
             timestamp: new Date().toISOString(),
@@ -1701,6 +1715,7 @@ function createJobRef<TPayload, TResult>(args: {
             args.nc.publish(
               `${args.queueBinding.publishPrefix}.${args.seed.id}.cancelled`,
               new TextEncoder().encode(JSON.stringify(event)),
+              { headers: headersFromJobContext(event.context) },
             );
           } catch (cause) {
             return Result.err(toUnexpectedError(cause));
@@ -1890,6 +1905,7 @@ function createJobsFacade<
                     lifecycle,
                   }),
                   job.job().payload,
+                  job.context(),
                   () => job.isCancelled(),
                   {
                     heartbeat: () => wrapVoidTask(() => job.heartbeat()),

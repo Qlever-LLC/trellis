@@ -19,6 +19,7 @@ import type { ContractRecord } from "../../catalog/schemas.ts";
 import type {
   DeploymentContractEvidence,
   DeploymentEnvelope,
+  DeploymentGrantOverride,
   DeploymentResourceBinding,
   EnvelopeBoundary,
   EnvelopeExpansionRequest,
@@ -32,12 +33,28 @@ import {
   createAuthEnvelopesChangesPreviewHandler,
   createAuthEnvelopesExpandHandler,
   createAuthEnvelopesGetHandler,
+  createAuthEnvelopesGrantOverridesPutHandler,
+  createAuthEnvelopesGrantOverridesRemoveHandler,
   createAuthEnvelopesListHandler,
   createAuthEnvelopesShrinkHandler,
 } from "./envelopes_rpc.ts";
 
 const adminContext = {
-  caller: { type: "user", id: "admin", capabilities: ["admin"] },
+  caller: {
+    type: "user" as const,
+    participantKind: "app" as const,
+    userId: "admin",
+    identity: {
+      identityId: "idn_admin",
+      provider: "github",
+      subject: "admin",
+    },
+    active: true,
+    name: "Admin",
+    email: "admin@example.com",
+    capabilities: ["admin"],
+    lastAuth: new Date().toISOString(),
+  },
 };
 
 const EMPTY_BOUNDARY: EnvelopeBoundary = {
@@ -201,21 +218,22 @@ class InMemoryDeploymentPortalRouteStorage {
   }
 }
 
-type TestDeploymentGrantOverride = {
-  deploymentId: string;
-  identityKind: "web" | "cli" | "native" | "device-user" | "any";
-  contractId: string | null;
-  origin: string | null;
-  sessionPublicKey: string | null;
-  devicePublicKey: string | null;
-  capability: string;
-};
-
 class InMemoryDeploymentGrantOverrideStorage {
-  #records: TestDeploymentGrantOverride[] = [];
+  #records: DeploymentGrantOverride[] = [];
 
-  seed(record: TestDeploymentGrantOverride): void {
+  seed(record: DeploymentGrantOverride): void {
     this.#records.push(record);
+  }
+
+  async replaceForDeployment(
+    deploymentId: string,
+    records: DeploymentGrantOverride[],
+  ): Promise<void> {
+    await Promise.resolve();
+    this.#records = [
+      ...this.#records.filter((record) => record.deploymentId !== deploymentId),
+      ...records,
+    ];
   }
 
   async listByDeployment(deploymentId: string) {
@@ -705,6 +723,83 @@ Deno.test("Auth.Envelopes.Get returns envelope detail for Console review", async
   assertEquals(value.portalRoute?.portalId, "ops");
   assertEquals(value.grantOverrides.map((override) => override.capability), [
     "billing.call",
+  ]);
+});
+
+Deno.test("Auth.Envelopes.GrantOverrides.Put replaces deployment override rows", async () => {
+  const envelopes = new InMemoryDeploymentEnvelopeStorage();
+  const grantOverrides = new InMemoryDeploymentGrantOverrideStorage();
+  envelopes.seed(makeEnvelope());
+  grantOverrides.seed({
+    deploymentId: "billing.default",
+    identityKind: "any",
+    contractId: null,
+    origin: null,
+    sessionPublicKey: null,
+    devicePublicKey: null,
+    capability: "old.capability",
+  });
+  const override: DeploymentGrantOverride = {
+    deploymentId: "billing.default",
+    identityKind: "web",
+    contractId: "acme.billing@v1",
+    origin: "https://app.example.com",
+    sessionPublicKey: null,
+    devicePublicKey: null,
+    capability: "billing.call",
+  };
+  const handler = createAuthEnvelopesGrantOverridesPutHandler({
+    deploymentEnvelopeStorage: envelopes,
+    deploymentGrantOverrideStorage: grantOverrides,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { deploymentId: "billing.default", overrides: [override] },
+    context: adminContext,
+  });
+  const value = result.take() as { grantOverrides: DeploymentGrantOverride[] };
+
+  assertEquals(value.grantOverrides, [override]);
+  assertEquals(await grantOverrides.listByDeployment("billing.default"), [
+    override,
+  ]);
+});
+
+Deno.test("Auth.Envelopes.GrantOverrides.Remove removes exact matching rows", async () => {
+  const envelopes = new InMemoryDeploymentEnvelopeStorage();
+  const grantOverrides = new InMemoryDeploymentGrantOverrideStorage();
+  envelopes.seed(makeEnvelope());
+  const removed: DeploymentGrantOverride = {
+    deploymentId: "billing.default",
+    identityKind: "web",
+    contractId: "acme.billing@v1",
+    origin: "https://app.example.com",
+    sessionPublicKey: null,
+    devicePublicKey: null,
+    capability: "billing.call",
+  };
+  const retained: DeploymentGrantOverride = {
+    ...removed,
+    capability: "billing.read",
+  };
+  grantOverrides.seed(removed);
+  grantOverrides.seed(retained);
+  const handler = createAuthEnvelopesGrantOverridesRemoveHandler({
+    deploymentEnvelopeStorage: envelopes,
+    deploymentGrantOverrideStorage: grantOverrides,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { deploymentId: "billing.default", overrides: [removed] },
+    context: adminContext,
+  });
+  const value = result.take() as { grantOverrides: DeploymentGrantOverride[] };
+
+  assertEquals(value.grantOverrides, [retained]);
+  assertEquals(await grantOverrides.listByDeployment("billing.default"), [
+    retained,
   ]);
 });
 

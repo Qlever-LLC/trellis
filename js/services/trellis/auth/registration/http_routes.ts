@@ -41,6 +41,7 @@ export function registerAuthHttpRoutes(
         | "getActiveContractsById"
         | "getContract"
         | "getKnownContract"
+        | "getKnownEntriesByContractId"
         | "getKnownContractsById"
         | "refreshActiveContracts"
         | "validateActiveCatalog"

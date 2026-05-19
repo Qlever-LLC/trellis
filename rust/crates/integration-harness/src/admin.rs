@@ -1,21 +1,28 @@
 use std::collections::BTreeMap;
 
+use bytes::Bytes;
 use miette::{miette, IntoDiagnostic, Result};
 use serde_json::{json, to_string, Value};
 use trellis_auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
 use trellis_contracts::{digest_contract_json, ContractKind, ContractManifestBuilder};
 use trellis_sdk_auth::{
-    AuthClient as SdkAuthClient, AuthDeploymentsCreateRequest, AuthDeploymentsListRequest,
+    AuthCapabilitiesListRequest, AuthCapabilityGroupsDeleteRequest, AuthCapabilityGroupsGetRequest,
+    AuthCapabilityGroupsListRequest, AuthCapabilityGroupsPutRequest, AuthClient as SdkAuthClient,
+    AuthConnectionsListRequest, AuthDeploymentsCreateRequest, AuthDeploymentsListRequest,
     AuthDevicesListRequest, AuthDevicesProvisionRequest, AuthEnvelopesExpandRequest,
-    AuthEnvelopesGetRequest, AuthEnvelopesListRequest, AuthServiceInstancesListRequest,
-    AuthServiceInstancesProvisionRequest, AuthSessionsMeRequest,
+    AuthEnvelopesGetRequest, AuthEnvelopesListRequest, AuthIdentitiesGrantsListRequest,
+    AuthIdentitiesListRequest, AuthPortalsLoginSettingsGetRequest, AuthServiceInstancesListRequest,
+    AuthServiceInstancesProvisionRequest, AuthSessionsListRequest, AuthUserIdentitiesListRequest,
+    AuthUsersGetRequest, AuthUsersListRequest, AuthUsersUpdateRequest,
 };
-use trellis_sdk_core::{CoreClient, TrellisCatalogRequest, TrellisContractGetRequest};
+use trellis_sdk_core::{CoreClient, TrellisContractGetRequest, TrellisSurfaceStatusRequest};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 
-const ADMIN_API_PASSING_CASES: usize = 13;
+const ADMIN_API_PASSING_CASES: usize = 32;
+const AUTH_ADMIN_TRACE_ID: &str = "4bf92f3577b34da6a3ce929d0e0e4736";
+const AUTH_ADMIN_TRACEPARENT: &str = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
 pub(crate) async fn run_admin_api_fixture(
     _trellis_url: &str,
@@ -29,10 +36,7 @@ pub(crate) async fn run_admin_api_fixture(
     let auth_client = SdkAuthClient::new(&admin_client);
     let core_client = CoreClient::new(&admin_client);
 
-    let me = auth_client
-        .auth_sessions_me(&AuthSessionsMeRequest(BTreeMap::new()))
-        .await
-        .into_diagnostic()?;
+    let me = auth_client.auth_sessions_me().await.into_diagnostic()?;
     let user_id = value_string(&me.user, "userId")?;
     if user_id != setup_login.user.user_id {
         return Err(miette!(
@@ -46,8 +50,196 @@ pub(crate) async fn run_admin_api_fixture(
             me.participant_kind
         ));
     }
+    assert_traced_auth_sessions_me(&admin_client, &setup_login.user.user_id).await?;
 
     let suffix = unique_suffix();
+    assert_traced_auth_users_get_error(&admin_client, &format!("missing-user-{suffix}")).await?;
+
+    let health = auth_client.auth_health().await.into_diagnostic()?;
+    if health.service != "trellis-auth" && health.service != "trellis" {
+        return Err(miette!(
+            "Auth.Health returned unexpected service `{}`",
+            health.service
+        ));
+    }
+
+    let capabilities = auth_client
+        .auth_capabilities_list(&AuthCapabilitiesListRequest {
+            limit: 100,
+            offset: None,
+        })
+        .await
+        .into_diagnostic()?;
+    if !capabilities
+        .capabilities
+        .iter()
+        .any(|capability| capability.key == "admin")
+    {
+        return Err(miette!("Auth.Capabilities.List did not include `admin`"));
+    }
+
+    let group_key = format!("harness.builtin-rpc.{suffix}");
+    let put_group = auth_client
+        .auth_capability_groups_put(&AuthCapabilityGroupsPutRequest {
+            group_key: group_key.clone(),
+            display_name: "Harness Built-In RPC Group".to_string(),
+            description: "Created by live built-in RPC matrix coverage.".to_string(),
+            capabilities: Some(vec!["admin".to_string()]),
+            included_groups: None,
+        })
+        .await
+        .into_diagnostic()?;
+    if put_group.group.group_key != group_key || put_group.group.capabilities != ["admin"] {
+        return Err(miette!(
+            "Auth.CapabilityGroups.Put returned unexpected group"
+        ));
+    }
+    let got_group = auth_client
+        .auth_capability_groups_get(&AuthCapabilityGroupsGetRequest {
+            group_key: group_key.clone(),
+        })
+        .await
+        .into_diagnostic()?;
+    if got_group.group.group_key != group_key {
+        return Err(miette!("Auth.CapabilityGroups.Get returned wrong group"));
+    }
+    let groups = auth_client
+        .auth_capability_groups_list(&AuthCapabilityGroupsListRequest {
+            limit: 100,
+            offset: None,
+        })
+        .await
+        .into_diagnostic()?;
+    if !groups
+        .groups
+        .iter()
+        .any(|group| group.group_key == group_key)
+    {
+        return Err(miette!(
+            "Auth.CapabilityGroups.List did not include created group"
+        ));
+    }
+    let deleted_group = auth_client
+        .auth_capability_groups_delete(&AuthCapabilityGroupsDeleteRequest {
+            group_key: group_key.clone(),
+        })
+        .await
+        .into_diagnostic()?;
+    if !deleted_group.success {
+        return Err(miette!("Auth.CapabilityGroups.Delete did not succeed"));
+    }
+
+    let users = auth_client
+        .auth_users_list(&AuthUsersListRequest {
+            limit: 100,
+            offset: None,
+        })
+        .await
+        .into_diagnostic()?;
+    if !users.users.iter().any(|user| user.user_id == user_id) {
+        return Err(miette!("Auth.Users.List did not include admin user"));
+    }
+    let user = auth_client
+        .auth_users_get(&AuthUsersGetRequest {
+            user_id: user_id.clone(),
+        })
+        .await
+        .into_diagnostic()?;
+    if user.user.user_id != user_id {
+        return Err(miette!("Auth.Users.Get returned wrong user"));
+    }
+    let updated_user = auth_client
+        .auth_users_update(&AuthUsersUpdateRequest {
+            user_id: user_id.clone(),
+            active: None,
+            capabilities: None,
+            capability_groups: None,
+            email: None,
+            name: Some(setup_login.user.name.clone()),
+        })
+        .await
+        .into_diagnostic()?;
+    if !updated_user.success {
+        return Err(miette!("Auth.Users.Update did not succeed"));
+    }
+
+    let identities = auth_client
+        .auth_user_identities_list(&AuthUserIdentitiesListRequest {
+            user_id: user_id.clone(),
+        })
+        .await
+        .into_diagnostic()?;
+    if !identities
+        .identities
+        .iter()
+        .any(|identity| identity.subject == "admin")
+    {
+        return Err(miette!(
+            "Auth.UserIdentities.List did not include admin identity"
+        ));
+    }
+    auth_client
+        .auth_identities_list(&AuthIdentitiesListRequest {
+            user: Some(user_id.clone()),
+            limit: 100,
+            offset: None,
+        })
+        .await
+        .into_diagnostic()?;
+    auth_client
+        .auth_identities_grants_list(&AuthIdentitiesGrantsListRequest {
+            limit: 100,
+            offset: None,
+        })
+        .await
+        .into_diagnostic()?;
+
+    let sessions = auth_client
+        .auth_sessions_list(&AuthSessionsListRequest {
+            user: Some(user_id.clone()),
+            limit: 100,
+            offset: None,
+        })
+        .await
+        .into_diagnostic()?;
+    if !sessions.sessions.iter().any(|session| {
+        matches!(
+            value_string(session, "sessionKey"),
+            Ok(session_key) if session_key == setup_login.state.session_key
+        )
+    }) {
+        return Err(miette!("Auth.Sessions.List did not include admin session"));
+    }
+    auth_client
+        .auth_connections_list(&AuthConnectionsListRequest {
+            user: Some(user_id.clone()),
+            session_key: None,
+        })
+        .await
+        .into_diagnostic()?;
+
+    let portals = auth_client.auth_portals_list().await.into_diagnostic()?;
+    let default_portal = portals
+        .portals
+        .iter()
+        .find(|portal| portal.built_in)
+        .ok_or_else(|| miette!("Auth.Portals.List did not include built-in portal"))?;
+    let settings = auth_client
+        .auth_portals_login_settings_get(&AuthPortalsLoginSettingsGetRequest {
+            portal_id: default_portal.portal_id.clone(),
+        })
+        .await
+        .into_diagnostic()?;
+    if settings.portal.portal_id != default_portal.portal_id {
+        return Err(miette!(
+            "Auth.Portals.LoginSettings.Get returned wrong portal"
+        ));
+    }
+    auth_client
+        .auth_portals_login_routes_list()
+        .await
+        .into_diagnostic()?;
+
     let service_deployment_id = format!("harness-admin-service-{suffix}");
     let device_deployment_id = format!("harness-admin-device-{suffix}");
     auth_client
@@ -189,10 +381,7 @@ pub(crate) async fn run_admin_api_fixture(
         ));
     }
 
-    let catalog = core_client
-        .trellis_catalog(&TrellisCatalogRequest(BTreeMap::new()))
-        .await
-        .into_diagnostic()?;
+    let catalog = core_client.trellis_catalog().await.into_diagnostic()?;
     if !catalog.catalog.contracts.iter().any(|contract| {
         contract.id == service_contract_id && contract.digest == service_contract_digest
     }) {
@@ -210,6 +399,23 @@ pub(crate) async fn run_admin_api_fixture(
         return Err(miette!(
             "Trellis.Contract.Get returned `{}` instead of `{service_contract_id}`",
             contract.contract.id
+        ));
+    }
+    let surface_status = core_client
+        .trellis_surface_status(&TrellisSurfaceStatusRequest {
+            contract_id: "trellis.core@v1".to_string(),
+            kind: json!("rpc"),
+            surface: "Trellis.Catalog".to_string(),
+            action: Some(json!("call")),
+        })
+        .await
+        .into_diagnostic()?;
+    if surface_status.status.get("state") != Some(&json!("unavailable"))
+        || surface_status.status.get("reason") != Some(&json!("envelope_unavailable"))
+    {
+        return Err(miette!(
+            "Trellis.Surface.Status returned unexpected status {}",
+            surface_status.status
         ));
     }
 
@@ -280,6 +486,92 @@ fn value_string(value: &Value, key: &str) -> Result<String> {
         .and_then(Value::as_str)
         .map(ToOwned::to_owned)
         .ok_or_else(|| miette!("expected object field `{key}` to be a string in {value}"))
+}
+
+async fn assert_traced_auth_sessions_me(
+    client: &trellis_client::TrellisClient,
+    expected_user_id: &str,
+) -> Result<()> {
+    let response = raw_traced_admin_rpc(client, "rpc.v1.Auth.Sessions.Me", json!({})).await?;
+    if response
+        .headers
+        .as_ref()
+        .and_then(|headers| headers.get("status"))
+        .is_some_and(|status| status.as_str() == "error")
+    {
+        return Err(miette!(
+            "traced Auth.Sessions.Me returned error: {}",
+            String::from_utf8_lossy(&response.payload)
+        ));
+    }
+
+    let body: Value = serde_json::from_slice(&response.payload)
+        .map_err(|error| miette!("failed to decode traced Auth.Sessions.Me response: {error}"))?;
+    let user = body
+        .get("user")
+        .ok_or_else(|| miette!("traced Auth.Sessions.Me response missing user: {body}"))?;
+    let user_id = value_string(user, "userId")?;
+    if user_id != expected_user_id || body.get("participantKind") != Some(&json!("agent")) {
+        return Err(miette!(
+            "traced Auth.Sessions.Me returned unexpected body {body}"
+        ));
+    }
+    Ok(())
+}
+
+async fn assert_traced_auth_users_get_error(
+    client: &trellis_client::TrellisClient,
+    missing_user_id: &str,
+) -> Result<()> {
+    let response = raw_traced_admin_rpc(
+        client,
+        "rpc.v1.Auth.Users.Get",
+        json!({ "userId": missing_user_id }),
+    )
+    .await?;
+    let status = response
+        .headers
+        .as_ref()
+        .and_then(|headers| headers.get("status"))
+        .map(async_nats::HeaderValue::as_str);
+    if status != Some("error") {
+        return Err(miette!(
+            "traced Auth.Users.Get missing-user request returned status {:?} and payload {}",
+            status,
+            String::from_utf8_lossy(&response.payload)
+        ));
+    }
+
+    let error: Value = serde_json::from_slice(&response.payload)
+        .map_err(|error| miette!("failed to decode traced Auth.Users.Get error: {error}"))?;
+    if error.get("type") != Some(&json!("AuthError"))
+        || error.get("reason") != Some(&json!("user_not_found"))
+        || error.get("traceId") != Some(&json!(AUTH_ADMIN_TRACE_ID))
+    {
+        return Err(miette!(
+            "traced Auth.Users.Get returned unexpected error payload {error}"
+        ));
+    }
+    Ok(())
+}
+
+async fn raw_traced_admin_rpc(
+    client: &trellis_client::TrellisClient,
+    subject: &str,
+    body: Value,
+) -> Result<async_nats::Message> {
+    let payload = Bytes::from(serde_json::to_vec(&body).into_diagnostic()?);
+    let proof = client.auth().create_proof(subject, &payload);
+    let mut headers = async_nats::HeaderMap::new();
+    headers.insert("session-key", client.auth().session_key.as_str());
+    headers.insert("proof", proof.as_str());
+    headers.insert("traceparent", AUTH_ADMIN_TRACEPARENT);
+    headers.insert("tracestate", "harness=auth-admin");
+    client
+        .nats()
+        .request_with_headers(subject.to_string(), headers, payload)
+        .await
+        .into_diagnostic()
 }
 
 fn unique_suffix() -> u128 {

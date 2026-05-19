@@ -288,6 +288,8 @@ async function createApp(args: {
         put: async (record) => {
           evidence.push(record);
         },
+        listByDeployment: async (deploymentId) =>
+          evidence.filter((record) => record.deploymentId === deploymentId),
       },
       envelopeExpansionRequestStorage: {
         putPending: async (request) => {
@@ -413,6 +415,44 @@ Deno.test("POST /bootstrap/service accepts new contract within envelope", async 
       secondary: { bucket: "bucket_secondary", history: 1, ttlMs: 0 },
     },
   });
+});
+
+Deno.test("POST /bootstrap/service rejects stale same-contract digest", async () => {
+  const oldContract = await validatedContract(baseContract());
+  const newContract = await validatedContract(expandedContract());
+  const setup = await createApp({
+    initialEvidence: [
+      {
+        deploymentId: "deployment_1",
+        contractId: oldContract.contract.id,
+        contractDigest: oldContract.digest,
+        contract: oldContract.contract,
+        firstSeenAt: "2026-01-01T00:00:00.000Z",
+        lastSeenAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        deploymentId: "deployment_1",
+        contractId: newContract.contract.id,
+        contractDigest: newContract.digest,
+        contract: newContract.contract,
+        firstSeenAt: "2026-01-01T00:00:01.000Z",
+        lastSeenAt: "2026-01-01T00:00:01.000Z",
+      },
+    ],
+  });
+
+  const response = await setup.bootstrap({
+    contractId: oldContract.contract.id,
+    contractDigest: oldContract.digest,
+    contract: oldContract.contract,
+  });
+
+  assertEquals(response.status, 409);
+  const body = await response.json();
+  assertEquals(body.reason, "contract_changed");
+  assertEquals(body.activeContractDigest, newContract.digest);
+  assertEquals(setup.services, []);
+  assertEquals(setup.evidence.length, 2);
 });
 
 Deno.test("POST /bootstrap/service creates pending request when envelope does not fit", async () => {

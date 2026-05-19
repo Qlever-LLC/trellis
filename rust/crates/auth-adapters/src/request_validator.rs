@@ -154,9 +154,11 @@ pub fn make_validate_request(
         })?;
 
     Ok(AuthRequestsValidateRequest {
-        capabilities: None,
+        capabilities: context.required_capabilities.clone(),
+        iat: context.iat.unwrap_or_default(),
         payload_hash: payload_hash_base64url(payload),
         proof,
+        request_id: context.request_id.clone().unwrap_or_default(),
         session_key,
         subject: subject.to_string(),
     })

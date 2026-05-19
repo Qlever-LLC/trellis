@@ -5,7 +5,9 @@ use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_nats::HeaderMap;
 use bytes::Bytes;
+use futures_util::StreamExt;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -41,13 +43,11 @@ const HARNESS_TRACEPARENT: &str = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0
 pub(crate) fn harness_service_contract_json() -> Result<String> {
     let ping_schema = json!({
         "type": "object",
-        "additionalProperties": false,
         "properties": { "message": { "type": "string" } },
         "required": ["message"]
     });
     let caller_context_schema = json!({
         "type": "object",
-        "additionalProperties": false,
         "properties": {
             "provider": { "type": "string" },
             "callerType": { "type": "string" },
@@ -58,7 +58,6 @@ pub(crate) fn harness_service_contract_json() -> Result<String> {
     });
     let trace_context_schema = json!({
         "type": "object",
-        "additionalProperties": false,
         "properties": {
             "provider": { "type": "string" },
             "traceId": { "type": "string" },
@@ -221,19 +220,19 @@ new NodeTracerProvider({
 }).register();
 
 const schemas = {
-  PingRequest: Type.Object({ message: Type.String() }, { additionalProperties: false }),
-  PingResponse: Type.Object({ message: Type.String() }, { additionalProperties: false }),
+  PingRequest: Type.Object({ message: Type.String() }),
+  PingResponse: Type.Object({ message: Type.String() }),
   CallerContextResponse: Type.Object({
     provider: Type.String(),
     callerType: Type.String(),
     participantKind: Type.String(),
     userId: Type.String(),
-  }, { additionalProperties: false }),
+  }),
   TraceContextResponse: Type.Object({
     provider: Type.String(),
     traceId: Type.String(),
     traceparent: Type.String(),
-  }, { additionalProperties: false }),
+  }),
 } as const;
 
 const NotFoundError = defineError({
@@ -247,7 +246,9 @@ const contract = defineServiceContract({ schemas, errors: { NotFoundError } }, (
   displayName: "Trellis Integration Harness RPC",
   description: "Harness-owned service contract for full-stack Rust/TypeScript RPC verification.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+    },
   },
   rpc: {
     "Harness.Rust.Ping": {
@@ -361,19 +362,19 @@ new NodeTracerProvider({
 }).register();
 
 const schemas = {
-  PingRequest: Type.Object({ message: Type.String() }, { additionalProperties: false }),
-  PingResponse: Type.Object({ message: Type.String() }, { additionalProperties: false }),
+  PingRequest: Type.Object({ message: Type.String() }),
+  PingResponse: Type.Object({ message: Type.String() }),
   CallerContextResponse: Type.Object({
     provider: Type.String(),
     callerType: Type.String(),
     participantKind: Type.String(),
     userId: Type.String(),
-  }, { additionalProperties: false }),
+  }),
   TraceContextResponse: Type.Object({
     provider: Type.String(),
     traceId: Type.String(),
     traceparent: Type.String(),
-  }, { additionalProperties: false }),
+  }),
 } as const;
 
 const NotFoundError = defineError({
@@ -387,7 +388,9 @@ const harness = defineServiceContract({ schemas, errors: { NotFoundError } }, (r
   displayName: "Trellis Integration Harness RPC",
   description: "Harness-owned service contract for full-stack Rust/TypeScript RPC verification.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+    },
   },
   rpc: {
     "Harness.Rust.Ping": {
@@ -446,8 +449,10 @@ const contract = defineAgentContract(() => ({
   displayName: "Trellis Integration Agent",
   description: "Verify delegated Rust agent login and harness RPC calls.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-    harness: harness.use({ rpc: { call: ["Harness.Rust.Ping", "Harness.Ts.Ping", "Harness.Rust.CallerContext", "Harness.Ts.CallerContext", "Harness.Rust.TraceContext", "Harness.Ts.TraceContext"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
+      harness: harness.use({ rpc: { call: ["Harness.Rust.Ping", "Harness.Ts.Ping", "Harness.Rust.CallerContext", "Harness.Ts.CallerContext", "Harness.Rust.TraceContext", "Harness.Ts.TraceContext"] } }),
+    },
   },
 }));
 
@@ -634,8 +639,8 @@ import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 import { Type } from "typebox";
 
 const schemas = {
-  PingRequest: Type.Object({ message: Type.String() }, { additionalProperties: false }),
-  PingResponse: Type.Object({ message: Type.String() }, { additionalProperties: false }),
+  PingRequest: Type.Object({ message: Type.String() }),
+  PingResponse: Type.Object({ message: Type.String() }),
 } as const;
 
 const NotFoundError = defineError({
@@ -649,7 +654,9 @@ const harness = defineServiceContract({ schemas, errors: { NotFoundError } }, (r
   displayName: "Trellis Integration Harness RPC",
   description: "Harness-owned service contract for full-stack Rust/TypeScript RPC verification.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+    },
   },
   rpc: {
     "Harness.Rust.Ping": {
@@ -676,8 +683,10 @@ const contract = defineAgentContract(() => ({
   displayName: "Trellis Integration Agent",
   description: "Verify delegated Rust agent login and harness RPC calls.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-    harness: harness.use({ rpc: { call: ["Harness.Rust.Ping"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
+      harness: harness.use({ rpc: { call: ["Harness.Rust.Ping"] } }),
+    },
   },
 }));
 
@@ -963,6 +972,7 @@ pub(crate) async fn run_rpc_fixture(
             &caller_login.user.user_id,
         )
         .await?;
+        assert_auth_protocol_matrix(service_client.as_ref(), &caller_client).await?;
         assert_rust_client_ping::<HarnessRustPingRpc>(&caller_client, "rust-client-rust-service")
             .await?;
         assert_rust_client_ping::<HarnessTsPingRpc>(&caller_client, "rust-client-ts-service")
@@ -1018,7 +1028,7 @@ pub(crate) async fn run_rpc_fixture(
         )
         .await?;
 
-        Ok(35)
+        Ok(41)
     }
     .await;
     service_task.abort();
@@ -1118,8 +1128,10 @@ async fn assert_auth_requests_validate_round_trip(
     let response = trellis_auth::AuthClient::new(validator_client)
         .validate_request(&AuthRequestsValidateRequest {
             capabilities: Some(Vec::new()),
+            iat: 0,
             payload_hash: payload_hash_base64url(&payload),
             proof,
+            request_id: "integration-request-approved".to_string(),
             session_key: caller_client.auth().session_key.clone(),
             subject: HARNESS_RUST_PING_SUBJECT.to_string(),
         })
@@ -1142,6 +1154,227 @@ async fn assert_auth_requests_validate_round_trip(
     assert_json_string(&response.caller, "participantKind", "agent")?;
     assert_json_string(&response.caller, "userId", expected_user_id)?;
     Ok(())
+}
+
+async fn assert_auth_protocol_matrix(
+    validator_client: &TrellisClient,
+    caller_client: &TrellisClient,
+) -> Result<()> {
+    let input = HarnessPingRequest {
+        message: "auth-protocol-matrix".to_string(),
+    };
+    let payload = serde_json::to_vec(&input)
+        .into_diagnostic()
+        .map_err(|error| miette!("failed to encode auth protocol matrix payload: {error}"))?;
+    let auth_client = trellis_auth::AuthClient::new(validator_client);
+
+    let (_unknown_seed, unknown_session_key) = generate_session_keypair();
+    let unknown_auth = trellis_client::SessionAuth::from_seed_base64url(&_unknown_seed)
+        .into_diagnostic()
+        .map_err(|error| miette!("failed to build unknown session auth: {error}"))?;
+    let unknown_proof = unknown_auth.create_proof(HARNESS_RUST_PING_SUBJECT, &payload);
+    expect_validate_rpc_error(
+        auth_client
+            .validate_request(&AuthRequestsValidateRequest {
+                capabilities: Some(Vec::new()),
+                iat: 0,
+                payload_hash: payload_hash_base64url(&payload),
+                proof: unknown_proof,
+                request_id: "integration-request-unknown-session".to_string(),
+                session_key: unknown_session_key,
+                subject: HARNESS_RUST_PING_SUBJECT.to_string(),
+            })
+            .await,
+        "session_not_found",
+        "unknown session",
+    )?;
+
+    let (_wrong_seed, wrong_session_key) = generate_session_keypair();
+    expect_validate_rpc_error(
+        auth_client
+            .validate_request(&AuthRequestsValidateRequest {
+                capabilities: Some(Vec::new()),
+                iat: 0,
+                payload_hash: payload_hash_base64url(&payload),
+                proof: caller_client
+                    .auth()
+                    .create_proof(HARNESS_RUST_PING_SUBJECT, &payload),
+                request_id: "integration-request-wrong-proof".to_string(),
+                session_key: wrong_session_key,
+                subject: HARNESS_RUST_PING_SUBJECT.to_string(),
+            })
+            .await,
+        "invalid_signature",
+        "wrong session proof",
+    )?;
+
+    let unauthorized_subject = "rpc.v1.Harness.Undeclared";
+    let unauthorized = auth_client
+        .validate_request(&AuthRequestsValidateRequest {
+            capabilities: Some(Vec::new()),
+            iat: 0,
+            payload_hash: payload_hash_base64url(&payload),
+            proof: caller_client
+                .auth()
+                .create_proof(unauthorized_subject, &payload),
+            request_id: "integration-request-undeclared".to_string(),
+            session_key: caller_client.auth().session_key.clone(),
+            subject: unauthorized_subject.to_string(),
+        })
+        .await
+        .into_diagnostic()?;
+    if unauthorized.allowed {
+        return Err(miette!(
+            "Auth.Requests.Validate allowed undeclared subject `{unauthorized_subject}`"
+        ));
+    }
+
+    let missing_capability = auth_client
+        .validate_request(&AuthRequestsValidateRequest {
+            capabilities: Some(vec!["harness.missing.capability".to_string()]),
+            iat: 0,
+            payload_hash: payload_hash_base64url(&payload),
+            proof: caller_client
+                .auth()
+                .create_proof(HARNESS_RUST_PING_SUBJECT, &payload),
+            request_id: "integration-request-missing-capability".to_string(),
+            session_key: caller_client.auth().session_key.clone(),
+            subject: HARNESS_RUST_PING_SUBJECT.to_string(),
+        })
+        .await
+        .into_diagnostic()?;
+    if missing_capability.allowed {
+        return Err(miette!(
+            "Auth.Requests.Validate allowed missing required capability"
+        ));
+    }
+
+    assert_raw_rpc_denial(
+        caller_client,
+        validator_client,
+        &payload,
+        RawRpcDenial::MissingProof,
+    )
+    .await?;
+    assert_raw_rpc_denial(
+        caller_client,
+        validator_client,
+        &payload,
+        RawRpcDenial::ReplyInboxMismatch,
+    )
+    .await?;
+
+    Ok(())
+}
+
+enum RawRpcDenial {
+    MissingProof,
+    ReplyInboxMismatch,
+}
+
+async fn assert_raw_rpc_denial(
+    caller_client: &TrellisClient,
+    observer_client: &TrellisClient,
+    payload: &[u8],
+    case: RawRpcDenial,
+) -> Result<()> {
+    let reply_inbox = match case {
+        RawRpcDenial::MissingProof => format!(
+            "{}.auth-protocol-missing-proof-{}",
+            caller_client.auth().inbox_prefix(),
+            unique_suffix()
+        ),
+        RawRpcDenial::ReplyInboxMismatch => format!(
+            "{}.auth-protocol-reply-mismatch-{}",
+            observer_client.auth().inbox_prefix(),
+            unique_suffix()
+        ),
+    };
+    let subscriber_client = match case {
+        RawRpcDenial::MissingProof => caller_client,
+        RawRpcDenial::ReplyInboxMismatch => observer_client,
+    };
+    let mut subscriber = subscriber_client
+        .nats()
+        .subscribe(reply_inbox.clone())
+        .await
+        .into_diagnostic()?;
+    let mut headers = HeaderMap::new();
+    headers.insert("session-key", caller_client.auth().session_key.as_str());
+    if matches!(case, RawRpcDenial::ReplyInboxMismatch) {
+        let proof = caller_client
+            .auth()
+            .create_proof(HARNESS_RUST_PING_SUBJECT, payload);
+        headers.insert("proof", proof.as_str());
+    }
+
+    caller_client
+        .nats()
+        .publish_with_reply_and_headers(
+            HARNESS_RUST_PING_SUBJECT.to_string(),
+            reply_inbox,
+            headers,
+            Bytes::copy_from_slice(payload),
+        )
+        .await
+        .into_diagnostic()?;
+    caller_client.nats().flush().await.into_diagnostic()?;
+
+    let denial = tokio::time::timeout(Duration::from_secs(10), subscriber.next())
+        .await
+        .map_err(|_| miette!("raw auth protocol denial timed out"))?
+        .ok_or_else(|| miette!("raw auth protocol denial subscriber ended"))?;
+    let status = denial
+        .headers
+        .as_ref()
+        .and_then(|headers| headers.get("status"))
+        .map(|value| value.as_str());
+    if status != Some("error") {
+        return Err(miette!(
+            "raw auth protocol denial did not return error status: {denial:?}"
+        ));
+    }
+    let body = String::from_utf8_lossy(&denial.payload);
+    let expected = match case {
+        RawRpcDenial::MissingProof => "missing proof",
+        RawRpcDenial::ReplyInboxMismatch => "not valid for session",
+    };
+    if !body.contains(expected) {
+        return Err(miette!(
+            "raw auth protocol denial body did not contain `{expected}`: {body}"
+        ));
+    }
+    Ok(())
+}
+
+fn expect_validate_rpc_error(
+    result: std::result::Result<
+        trellis_auth::AuthRequestsValidateResponse,
+        trellis_auth::TrellisAuthError,
+    >,
+    expected_reason: &str,
+    label: &str,
+) -> Result<()> {
+    match result {
+        Ok(response) => Err(miette!(
+            "Auth.Requests.Validate {label} unexpectedly succeeded: {response:?}"
+        )),
+        Err(trellis_auth::TrellisAuthError::TrellisClient(TrellisClientError::RpcError(
+            payload,
+        ))) => {
+            if payload.raw().contains(expected_reason) {
+                Ok(())
+            } else {
+                Err(miette!(
+                    "Auth.Requests.Validate {label} returned unexpected error payload: {}",
+                    payload.raw()
+                ))
+            }
+        }
+        Err(error) => Err(miette!(
+            "Auth.Requests.Validate {label} returned unexpected error: {error}"
+        )),
+    }
 }
 
 fn assert_json_string(value: &Value, key: &str, expected: &str) -> Result<()> {

@@ -16,7 +16,8 @@ mod transfer;
 
 pub use auth::SessionAuth;
 pub use client::{
-    DeviceConnectOptions, ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient,
+    DeviceConnectOptions, EventMessage, EventReplayPolicy, EventSubscribeOptions,
+    EventSubscriptionMode, ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient,
     UserConnectOptions,
 };
 pub use descriptor::{EventDescriptor, FeedDescriptor, RpcDescriptor};

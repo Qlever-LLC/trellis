@@ -1,4 +1,9 @@
-import { assertEquals, assertFalse, assertNotEquals } from "@std/assert";
+import {
+  assertEquals,
+  assertFalse,
+  assertNotEquals,
+  assertRejects,
+} from "@std/assert";
 
 import {
   createLocalCredentialPassword,
@@ -32,12 +37,14 @@ Deno.test("local credential password verifies successfully", async () => {
     now: new Date("2026-05-09T00:00:00.000Z"),
   });
 
-  assertEquals(credential.passwordAlgorithm, "pbkdf2-sha256");
+  assertEquals(credential.passwordAlgorithm, "argon2id");
   assertEquals(credential.passwordParams, {
     v: 1,
     salt: "AAECAwQFBgcICQoLDA0ODw",
-    iterations: 310000,
-    hashBits: 256,
+    memoryKiB: 19456,
+    iterations: 2,
+    parallelism: 1,
+    hashBytes: 32,
   });
   assertEquals(credential.failedLoginCount, 0);
   assertEquals(credential.lockedUntil, null);
@@ -86,8 +93,19 @@ Deno.test("local credential password rejects unsupported algorithm", async () =>
   assertFalse(
     await verifyLocalCredentialPassword({
       ...credential,
-      passwordAlgorithm: "argon2id",
+      passwordAlgorithm: "pbkdf2-sha256",
     }, "correct horse battery staple"),
+  );
+});
+
+Deno.test("local credential password rejects passwords below configured policy", async () => {
+  await assertRejects(() =>
+    createLocalCredentialPassword({
+      identityId: "idn_local_alice",
+      password: "short",
+      minLength: 8,
+      salt: testSalt,
+    })
   );
 });
 
@@ -105,7 +123,9 @@ Deno.test("local credential password rejects malformed params", async () => {
         v: 1,
         salt: credential.passwordParams.salt,
         iterations: "1",
-        hashBits: 256,
+        memoryKiB: 19456,
+        parallelism: 1,
+        hashBytes: 32,
       },
     }, "correct horse battery staple"),
   );
@@ -115,8 +135,10 @@ Deno.test("local credential password rejects malformed params", async () => {
       passwordParams: {
         v: 2,
         salt: credential.passwordParams.salt,
-        iterations: 1,
-        hashBits: 256,
+        memoryKiB: 19456,
+        iterations: 2,
+        parallelism: 1,
+        hashBytes: 32,
       },
     }, "correct horse battery staple"),
   );
@@ -134,7 +156,7 @@ Deno.test("local credential password rejects weak or excessive params", async ()
       ...credential,
       passwordParams: {
         ...credential.passwordParams,
-        iterations: 1,
+        memoryKiB: 1,
       },
     }, "correct horse battery staple"),
   );
@@ -143,7 +165,7 @@ Deno.test("local credential password rejects weak or excessive params", async ()
       ...credential,
       passwordParams: {
         ...credential.passwordParams,
-        iterations: 2_000_001,
+        iterations: 11,
       },
     }, "correct horse battery staple"),
   );
@@ -152,7 +174,7 @@ Deno.test("local credential password rejects weak or excessive params", async ()
       ...credential,
       passwordParams: {
         ...credential.passwordParams,
-        hashBits: 8,
+        hashBytes: 8,
       },
     }, "correct horse battery staple"),
   );

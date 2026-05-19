@@ -40,9 +40,14 @@ const job = await jobs.get({
   jobType: "charge-payment",
   id: "job_abc123",
 });
+
+console.log(job.context.requestId, job.context.traceId);
 ```
 
 `JobFilter` fields are all optional — omit any to widen the query.
+Projected job records include `context.requestId`, `context.traceId`,
+`context.traceparent`, and optional `context.tracestate` so operators can pivot
+from a job to related RPC, event, operation, and service logs.
 
 ## Cancelling a job
 

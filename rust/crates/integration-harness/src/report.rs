@@ -59,6 +59,11 @@ pub(crate) fn required_integration_coverage() -> Vec<RequiredCoverage> {
             expectation: "Both runtimes must pass request/reply stream setup, ready frames, typed feed events, disconnect handling, and authorization checks.",
         },
         RequiredCoverage {
+            id: "resources-service-bound-parity",
+            title: "Service-bound store and KV resource parity across TS and Rust",
+            expectation: "Rust and TypeScript service providers must exercise live service-bound store and KV handles after public/admin provisioning, and Rust plus TypeScript clients must call both providers.",
+        },
+        RequiredCoverage {
             id: "jobs-public-api",
             title: "Jobs public API coverage against real service",
             expectation: "The suite must start the Rust trellis-service-jobs host against live harness NATS and exercise every generated trellis-sdk-jobs public RPC with positive, denied, and invalid-state cases.",
@@ -74,9 +79,39 @@ pub(crate) fn required_integration_coverage() -> Vec<RequiredCoverage> {
             expectation: "The suite must drive public/admin APIs for bootstrap, login/session setup, deployment creation, envelope expansion, service provisioning, and real authenticated calls without direct database seeding.",
         },
         RequiredCoverage {
+            id: "built-in-rpc-matrix",
+            title: "Built-in Trellis RPC matrix",
+            expectation: "The suite must exercise built-in Trellis auth and core RPCs through generated SDK clients against the live runtime, including health, capabilities, users, identities, sessions, connections, portals, deployments, envelopes, provisioning, catalog, contract, and surface-status calls.",
+        },
+        RequiredCoverage {
+            id: "auth-protocol-matrix",
+            title: "Auth protocol validation matrix",
+            expectation: "The suite must exercise Auth.Requests.Validate and end-to-end authenticated NATS request handling for valid proofs, unknown sessions, invalid signatures, undeclared subjects, missing capabilities, missing proofs, reply-inbox mismatch, stale transport after rebind, service availability failures, and transfer-subject denials.",
+        },
+        RequiredCoverage {
+            id: "device-activation-end-to-end",
+            title: "Known-device activation end-to-end flow",
+            expectation: "The suite must provision a known device, resolve activation through public/admin APIs, wait for signed activation connect info, connect as the device, and prove undeclared access is denied.",
+        },
+        RequiredCoverage {
             id: "service-envelope-approval-flow",
             title: "Service startup envelope approval flow",
             expectation: "The suite must start Rust and TypeScript services before envelope coverage exists, verify pending expansion requests through public/admin APIs, approve them, and then prove all four Rust/TypeScript RPC caller/provider combinations connect through the approved envelope.",
+        },
+        RequiredCoverage {
+            id: "optional-uses-dependency-closure",
+            title: "Optional uses and dependency closure",
+            expectation: "The suite must prove optional uses grant no authority while missing, required dependencies fail closed while unknown, known inactive required closure waits for activation, inactive digests do not become active after same-id updates, and cyclic required closures can be approved once known.",
+        },
+        RequiredCoverage {
+            id: "capability-permission-matrix",
+            title: "Capability and permission derivation matrix",
+            expectation: "The suite must prove live auth-callout permission derivation for caller-visible capabilities, including operation call/read/cancel access and stale grant denial after capability changes.",
+        },
+        RequiredCoverage {
+            id: "observability-trace-matrix",
+            title: "Observability and trace propagation matrix",
+            expectation: "The suite must prove request correlation and trace propagation across RPC, operations, events, feeds, transfer, jobs, and auth/admin control-plane calls through live NATS/auth-callout.",
         },
     ]
 }
@@ -125,10 +160,17 @@ mod tests {
         assert!(ids.contains(&"state-parity"));
         assert!(ids.contains(&"transfer-parity"));
         assert!(ids.contains(&"feeds-parity"));
+        assert!(ids.contains(&"resources-service-bound-parity"));
         assert!(ids.contains(&"jobs-public-api"));
         assert!(ids.contains(&"jobs-service-local-parity"));
         assert!(ids.contains(&"primary-admin-public-api-flow"));
+        assert!(ids.contains(&"built-in-rpc-matrix"));
+        assert!(ids.contains(&"auth-protocol-matrix"));
+        assert!(ids.contains(&"device-activation-end-to-end"));
         assert!(ids.contains(&"service-envelope-approval-flow"));
+        assert!(ids.contains(&"optional-uses-dependency-closure"));
+        assert!(ids.contains(&"capability-permission-matrix"));
+        assert!(ids.contains(&"observability-trace-matrix"));
     }
 
     #[test]

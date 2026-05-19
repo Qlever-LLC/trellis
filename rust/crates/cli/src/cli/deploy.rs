@@ -68,6 +68,29 @@ pub enum EnvelopeExpansionRequestState {
     Rejected,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
+/// Identity kinds supported by deployment grant overrides.
+pub enum DeploymentGrantOverrideIdentityKind {
+    Web,
+    Cli,
+    Native,
+    #[value(name = "device-user")]
+    DeviceUser,
+    Any,
+}
+
+impl DeploymentGrantOverrideIdentityKind {
+    pub fn as_wire_value(self) -> &'static str {
+        match self {
+            Self::Web => "web",
+            Self::Cli => "cli",
+            Self::Native => "native",
+            Self::DeviceUser => "device-user",
+            Self::Any => "any",
+        }
+    }
+}
+
 impl EnvelopeExpansionRequestState {
     pub fn as_wire_value(self) -> &'static str {
         match self {
@@ -184,6 +207,9 @@ pub enum SvcResourceAction {
     #[command(override_usage = "trellis svc <ID> expansions <COMMAND>")]
     #[command(subcommand)]
     Expansions(SvcExpansionsCommand),
+    #[command(override_usage = "trellis svc <ID> grants <COMMAND>")]
+    #[command(subcommand)]
+    Grants(DeploymentGrantsCommand),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -223,6 +249,9 @@ pub enum DevResourceAction {
     #[command(override_usage = "trellis dev <ID> reviews <COMMAND>")]
     #[command(subcommand)]
     Reviews(DevReviewsCommand),
+    #[command(override_usage = "trellis dev <ID> grants <COMMAND>")]
+    #[command(subcommand)]
+    Grants(DeploymentGrantsCommand),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Args)]
@@ -331,6 +360,36 @@ pub struct SvcExpansionDecisionArgs {
 
     #[arg(long)]
     pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
+/// Manage deployment grant overrides.
+pub enum DeploymentGrantsCommand {
+    List,
+    Add(DeploymentGrantMutationArgs),
+    Remove(DeploymentGrantMutationArgs),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Add or remove deployment grant overrides.
+pub struct DeploymentGrantMutationArgs {
+    #[arg(long = "identity-kind")]
+    pub identity_kind: DeploymentGrantOverrideIdentityKind,
+
+    #[arg(long = "contract")]
+    pub contract_id: Option<String>,
+
+    #[arg(long)]
+    pub origin: Option<String>,
+
+    #[arg(long = "session-public-key")]
+    pub session_public_key: Option<String>,
+
+    #[arg(long = "device-public-key")]
+    pub device_public_key: Option<String>,
+
+    #[arg(long = "capability", required = true)]
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Args)]

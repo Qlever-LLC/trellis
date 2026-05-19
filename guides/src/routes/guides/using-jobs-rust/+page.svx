@@ -74,6 +74,11 @@ service
     .jobs()
     .reserve_inventory()
     .handle(|job: ActiveJob<ReserveInventoryPayload, ReserveInventoryResult>| async move {
+        tracing::info!(
+            request_id = %job.context().request_id,
+            trace_id = %job.context().trace_id,
+            "reserve inventory job started",
+        );
         job.progress(JobProgress {
             step: Some("reserving".into()),
             message: Some("Checking inventory".into()),
@@ -159,6 +164,12 @@ service
     })
     .await?;
 ```
+
+Every active job exposes immutable `job.context()` with `request_id`, `trace_id`,
+`traceparent`, and optional `tracestate`. The runtime copies this context to all
+job lifecycle events and NATS headers, so include `request_id` or `trace_id` in
+service logs when you need to follow work across RPCs, events, operations, and
+jobs.
 
 ## 4. Start workers
 

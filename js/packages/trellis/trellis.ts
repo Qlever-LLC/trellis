@@ -85,6 +85,7 @@ import {
   type OperationRefData,
   type OperationTransport,
 } from "./operations.ts";
+import type { Span } from "./telemetry/mod.ts";
 import type { StateDeleteResponse } from "./models/trellis/rpc/StateDelete.ts";
 import {
   StateDeleteResponseSchema,
@@ -292,10 +293,14 @@ export function buildProofInput(
   sessionKey: string,
   subject: string,
   payloadHash: Uint8Array,
+  iat: number,
+  requestId: string,
 ): Uint8Array {
   const enc = new TextEncoder();
   const sessionKeyBytes = enc.encode(sessionKey);
   const subjectBytes = enc.encode(subject);
+  const iatBytes = enc.encode(String(iat));
+  const requestIdBytes = enc.encode(requestId);
 
   const buf = new Uint8Array(
     4 +
@@ -303,7 +308,11 @@ export function buildProofInput(
       4 +
       subjectBytes.length +
       4 +
-      payloadHash.length,
+      payloadHash.length +
+      4 +
+      iatBytes.length +
+      4 +
+      requestIdBytes.length,
   );
   const view = new DataView(buf.buffer);
 
@@ -321,6 +330,16 @@ export function buildProofInput(
   view.setUint32(offset, payloadHash.length);
   offset += 4;
   buf.set(payloadHash, offset);
+  offset += payloadHash.length;
+
+  view.setUint32(offset, iatBytes.length);
+  offset += 4;
+  buf.set(iatBytes, offset);
+  offset += iatBytes.length;
+
+  view.setUint32(offset, requestIdBytes.length);
+  offset += 4;
+  buf.set(requestIdBytes, offset);
 
   return buf;
 }
@@ -332,6 +351,7 @@ export type TrellisSigner = (
 export type TrellisAuth = {
   sessionKey: string;
   sign: TrellisSigner;
+  currentIat?: () => number;
 };
 
 export type AnyTrellisAPI = TrellisAPI;
@@ -958,7 +978,6 @@ export type TrellisOpts<TA extends AnyTrellisAPI> = {
   api?: TA;
   state?: RuntimeStateStores;
   connection?: TrellisConnection;
-  authBypassMethods?: string[];
   onSessionNotFound?: () => MaybePromise<void>;
 };
 
@@ -1487,6 +1506,31 @@ const DEFAULT_NO_RESPONDER_RETRY_MS = 200;
 const DEFAULT_AUTH_VALIDATE_SESSION_RETRY_ATTEMPTS = 3;
 const DEFAULT_AUTH_VALIDATE_SESSION_RETRY_MS = 25;
 
+function activeTraceId(span: Span): string | undefined {
+  const traceId = span.spanContext().traceId;
+  return traceId === "00000000000000000000000000000000" ? undefined : traceId;
+}
+
+function traceIdFromTraceparent(
+  traceparent: string | undefined,
+): string | undefined {
+  const [version, traceId, parentId, flags, extra] = traceparent?.split("-") ??
+    [];
+  if (
+    extra !== undefined ||
+    !/^[0-9a-f]{2}$/u.test(version ?? "") ||
+    version === "ff" ||
+    !/^[0-9a-f]{32}$/u.test(traceId ?? "") ||
+    traceId === "00000000000000000000000000000000" ||
+    !/^[0-9a-f]{16}$/u.test(parentId ?? "") ||
+    parentId === "0000000000000000" ||
+    !/^[0-9a-f]{2}$/u.test(flags ?? "")
+  ) {
+    return undefined;
+  }
+  return traceId;
+}
+
 const EMPTY_TRELLIS_API: TrellisAPI = {
   rpc: {},
   operations: {},
@@ -1500,6 +1544,25 @@ type AuthCacheEntry = {
   expires: number;
 };
 
+function isBrowserAuthRequiredError(error: unknown): boolean {
+  const isAuthRequiredReason = (reason: unknown): boolean =>
+    reason === "session_not_found" || reason === "reauth_required";
+
+  if (error instanceof AuthError) {
+    return isAuthRequiredReason(error.reason);
+  }
+
+  if (
+    error instanceof RemoteError &&
+    error.remoteError.type === "AuthError"
+  ) {
+    const reason = Reflect.get(error.remoteError, "reason");
+    return isAuthRequiredReason(reason);
+  }
+
+  return false;
+}
+
 function isTransientAuthValidateSessionError(error: unknown): boolean {
   if (error instanceof AuthError) {
     return error.reason === "session_not_found";
@@ -1510,7 +1573,7 @@ function isTransientAuthValidateSessionError(error: unknown): boolean {
     error.remoteError.type === "AuthError"
   ) {
     const reason = Reflect.get(error.remoteError, "reason");
-    return typeof reason === "string" && reason === "session_not_found";
+    return reason === "session_not_found";
   }
 
   return false;
@@ -1596,7 +1659,6 @@ export class Trellis<
   #hasExplicitApi: boolean;
   #noResponderMaxRetries: number;
   #noResponderRetryMs: number;
-  #authBypassMethods: Set<string>;
   #onSessionNotFound?: () => MaybePromise<void>;
   #operationStore?: Promise<TypedKV<typeof DurableOperationRecordSchema>>;
 
@@ -1621,7 +1683,6 @@ export class Trellis<
       DEFAULT_NO_RESPONDER_MAX_RETRIES;
     this.#noResponderRetryMs = opts?.noResponderRetry?.baseDelayMs ??
       DEFAULT_NO_RESPONDER_RETRY_MS;
-    this.#authBypassMethods = new Set(opts?.authBypassMethods ?? []);
     this.#onSessionNotFound = opts?.onSessionNotFound;
     this.connection = opts?.connection ??
       new TrellisConnection({ kind: "client" });
@@ -1933,11 +1994,13 @@ export class Trellis<
 
       const span = startClientSpan(method, subject);
       const attempt = async (): Promise<Result<TOutput, BaseError>> => {
-        const proof = await this.#createProof(subject, msg);
+        const authHeaders = await this.#createProof(subject, msg);
 
         const headers = natsHeaders();
         headers.set("session-key", this.auth.sessionKey);
-        headers.set("proof", proof);
+        headers.set("proof", authHeaders.proof);
+        headers.set("iat", String(authHeaders.iat));
+        headers.set("request-id", authHeaders.requestId);
         injectTraceContext(createNatsHeaderCarrier(headers), span);
 
         const msgResult = await this.#requestMessageWithRetry({
@@ -1995,12 +2058,12 @@ export class Trellis<
             json,
           );
           if (reconstructed) {
-            await this.#handleSessionNotFound(reconstructed);
+            await this.#handleBrowserAuthRequired(reconstructed);
             return err(reconstructed);
           }
 
           const remoteError = new RemoteError({ error: errorData });
-          await this.#handleSessionNotFound(remoteError);
+          await this.#handleBrowserAuthRequired(remoteError);
           return err(remoteError);
         }
 
@@ -2055,9 +2118,9 @@ export class Trellis<
     })());
   }
 
-  async #handleSessionNotFound(error: unknown): Promise<void> {
+  async #handleBrowserAuthRequired(error: unknown): Promise<void> {
     if (
-      !this.#onSessionNotFound || !isTransientAuthValidateSessionError(error)
+      !this.#onSessionNotFound || !isBrowserAuthRequiredError(error)
     ) {
       return;
     }
@@ -2074,15 +2137,23 @@ export class Trellis<
   }): Promise<Result<SessionCaller, BaseError>> {
     const sessionKey = args.msg.headers?.get("session-key");
     const proof = args.msg.headers?.get("proof");
+    const iatHeader = args.msg.headers?.get("iat");
+    const requestId = args.msg.headers?.get("request-id");
     if (!sessionKey) {
       return err(new AuthError({ reason: "missing_session_key" }));
     }
     if (!proof) return err(new AuthError({ reason: "missing_proof" }));
+    const iat = Number(iatHeader);
+    if (!Number.isSafeInteger(iat) || !requestId) {
+      return err(new AuthError({ reason: "invalid_signature" }));
+    }
 
     const proofInput = buildProofInput(
       sessionKey,
       args.subject,
       args.payloadHash,
+      iat,
+      requestId,
     );
     const digest = await sha256(proofInput);
     const verifyResult = await AsyncResult.try(async () => {
@@ -2112,6 +2183,8 @@ export class Trellis<
       proof,
       subject: args.subject,
       payloadHash: base64urlEncode(args.payloadHash),
+      iat,
+      requestId,
       capabilities: [...args.requiredCapabilities],
     }).take();
     if (isErr(auth)) return err(auth.error);
@@ -2193,10 +2266,13 @@ export class Trellis<
       ).take();
       if (isErr(subject)) return subject;
 
-      const proof = await this.#createProof(subject, payload);
+      const authHeaders = await this.#createProof(subject, payload);
       const headers = natsHeaders();
       headers.set("session-key", this.auth.sessionKey);
-      headers.set("proof", proof);
+      headers.set("proof", authHeaders.proof);
+      headers.set("iat", String(authHeaders.iat));
+      headers.set("request-id", authHeaders.requestId);
+      injectTraceContext(createNatsHeaderCarrier(headers));
 
       const inbox = createInbox(`_INBOX.${this.auth.sessionKey.slice(0, 16)}`);
       const sub = this.nats.subscribe(inbox);
@@ -2569,6 +2645,9 @@ export class Trellis<
 
     // Start a server span for this RPC handler
     const span = startServerSpan(method, msg.subject, parentContext);
+    const incomingTraceId = traceIdFromTraceparent(
+      msg.headers?.get("traceparent"),
+    );
 
     // Execute the handler within the span's context
     return withSpanAsync(span, async () => {
@@ -2599,7 +2678,7 @@ export class Trellis<
         const callerSessionKey = msg.headers?.get("session-key") ?? "";
 
         const authRequired = ctx.authRequired ?? true;
-        if (!authRequired || this.#authBypassMethods.has(method)) {
+        if (!authRequired) {
           caller = {
             type: "service",
             id: "system",
@@ -2610,6 +2689,8 @@ export class Trellis<
         } else {
           const sessionKey = msg.headers?.get("session-key");
           const proof = msg.headers?.get("proof");
+          const iatHeader = msg.headers?.get("iat");
+          const requestId = msg.headers?.get("request-id");
           if (!sessionKey) {
             this.#log.warn({ method }, "Missing session-key header");
             span.setStatus({
@@ -2626,6 +2707,10 @@ export class Trellis<
             });
             return err(new AuthError({ reason: "missing_proof" }));
           }
+          const iat = Number(iatHeader);
+          if (!Number.isSafeInteger(iat) || !requestId) {
+            return err(new AuthError({ reason: "invalid_signature" }));
+          }
 
           // Verify proof signature locally using the raw request bytes we received.
           const payloadBytes = msg.data ?? new Uint8Array();
@@ -2634,6 +2719,8 @@ export class Trellis<
             sessionKey,
             msg.subject,
             payloadHash,
+            iat,
+            requestId,
           );
           const digest = await sha256(proofInput);
 
@@ -2687,6 +2774,8 @@ export class Trellis<
               proof,
               subject: msg.subject,
               payloadHash: base64urlEncode(payloadHash),
+              iat,
+              requestId,
               capabilities: [...ctx.callerCapabilities],
             }).take();
             if (!isErr(authValue)) {
@@ -2781,7 +2870,8 @@ export class Trellis<
           span.setAttribute("user.identity.subject", caller.identity.subject);
         }
         if (caller.type === "service") {
-          span.setAttribute("service.id", caller.id);
+          const { id } = caller;
+          span.setAttribute("service.id", id);
         }
         if (caller.type === "device") {
           span.setAttribute("device.id", caller.deviceId);
@@ -2872,6 +2962,9 @@ export class Trellis<
       };
 
       const result = await execute();
+      if (isErr(result)) {
+        result.error.withTraceId(activeTraceId(span) ?? incomingTraceId);
+      }
       span.end();
       return result;
     });
@@ -2934,12 +3027,13 @@ export class Trellis<
           return subject;
         }
 
+        const header = {
+          id: ulid(),
+          time: new Date().toISOString(),
+        };
         const payload: Record<string, unknown> = {
           ...data,
-          header: {
-            id: ulid(),
-            time: new Date().toISOString(),
-          },
+          header,
         };
         const msg = encodeSchema(ctx.event, payload).take();
         if (isErr(msg)) {
@@ -2947,8 +3041,12 @@ export class Trellis<
           return err(new UnexpectedError({ cause: msg.error }));
         }
 
+        const headers = natsHeaders();
+        headers.set("Nats-Msg-Id", header.id);
+        injectTraceContext(createNatsHeaderCarrier(headers));
+
         logger.trace({ subject }, `Publishing ${event.toString()} event.`);
-        await this.js.publish(subject, msg);
+        await this.js.publish(subject, msg, { headers });
         return ok(undefined);
       } catch (cause) {
         return err(
@@ -3198,13 +3296,28 @@ export class Trellis<
     return out;
   }
 
-  async #createProof(subject: string, payload: string): Promise<string> {
+  #currentIat(): number {
+    return this.auth.currentIat?.() ?? Math.floor(Date.now() / 1000);
+  }
+
+  async #createProof(
+    subject: string,
+    payload: string,
+  ): Promise<{ proof: string; iat: number; requestId: string }> {
     const payloadBytes = new TextEncoder().encode(payload);
     const payloadHash = await sha256(payloadBytes);
-    const input = buildProofInput(this.auth.sessionKey, subject, payloadHash);
+    const iat = this.#currentIat();
+    const requestId = ulid();
+    const input = buildProofInput(
+      this.auth.sessionKey,
+      subject,
+      payloadHash,
+      iat,
+      requestId,
+    );
     const digest = await sha256(input);
     const sigBytes = await this.auth.sign(digest);
-    return base64urlEncode(sigBytes);
+    return { proof: base64urlEncode(sigBytes), iat, requestId };
   }
 
   async #requestMessageWithRetry(args: {
@@ -3272,36 +3385,64 @@ export class Trellis<
     body: JsonValue,
   ): AsyncResult<JsonValue, TransportError | UnexpectedError> {
     return AsyncResult.from((async () => {
-      const payload = JSON.stringify(body);
-      const proof = await this.#createProof(subject, payload);
+      const span = startClientSpan(subject, subject);
+      return await withSpanAsync(span, async () => {
+        try {
+          const payload = JSON.stringify(body);
+          const authHeaders = await this.#createProof(subject, payload);
 
-      const headers = natsHeaders();
-      headers.set("session-key", this.auth.sessionKey);
-      headers.set("proof", proof);
+          const headers = natsHeaders();
+          headers.set("session-key", this.auth.sessionKey);
+          headers.set("proof", authHeaders.proof);
+          headers.set("iat", String(authHeaders.iat));
+          headers.set("request-id", authHeaders.requestId);
+          injectTraceContext(createNatsHeaderCarrier(headers), span);
 
-      const response = (await this.#requestMessageWithRetry({
-        subject,
-        payload,
-        headers,
-        timeout: this.timeout,
-      })).take();
-      if (isErr(response)) {
-        return response;
-      }
+          const response = (await this.#requestMessageWithRetry({
+            subject,
+            payload,
+            headers,
+            timeout: this.timeout,
+          })).take();
+          if (isErr(response)) {
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: response.error.message,
+            });
+            return response;
+          }
 
-      const json = safeJson(response).take();
-      if (isErr(json)) {
-        return err(createTransportError({
-          code: "trellis.request.invalid_response",
-          message: "Trellis returned an invalid response.",
-          hint:
-            "Retry the request. If it keeps happening, reconnect to Trellis and try again.",
-          cause: json.error.cause,
-          context: { subject },
-        }));
-      }
+          const json = safeJson(response).take();
+          if (isErr(json)) {
+            const error = createTransportError({
+              code: "trellis.request.invalid_response",
+              message: "Trellis returned an invalid response.",
+              hint:
+                "Retry the request. If it keeps happening, reconnect to Trellis and try again.",
+              cause: json.error.cause,
+              context: { subject },
+            });
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: error.message,
+            });
+            return err(error);
+          }
 
-      return ok(json);
+          span.setStatus({ code: SpanStatusCode.OK });
+          return ok(json);
+        } catch (cause) {
+          const error = new UnexpectedError({ cause });
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: error.message,
+          });
+          span.recordException(error);
+          return err(error);
+        } finally {
+          span.end();
+        }
+      });
     })());
   }
 
@@ -3314,11 +3455,13 @@ export class Trellis<
   > {
     return AsyncResult.from((async () => {
       const payload = JSON.stringify(body);
-      const proof = await this.#createProof(subject, payload);
+      const authHeaders = await this.#createProof(subject, payload);
 
       const headers = natsHeaders();
       headers.set("session-key", this.auth.sessionKey);
-      headers.set("proof", proof);
+      headers.set("proof", authHeaders.proof);
+      headers.set("iat", String(authHeaders.iat));
+      headers.set("request-id", authHeaders.requestId);
 
       const inbox = createInbox(`_INBOX.${this.auth.sessionKey.slice(0, 16)}`);
       const sub = this.nats.subscribe(inbox);

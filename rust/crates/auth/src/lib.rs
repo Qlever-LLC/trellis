@@ -66,11 +66,10 @@ pub use trellis_sdk_auth::types::{
     AuthServiceInstancesListRequest, AuthServiceInstancesListResponse,
     AuthServiceInstancesProvisionRequest, AuthServiceInstancesProvisionResponse,
     AuthServiceInstancesRemoveRequest, AuthServiceInstancesRemoveResponse, AuthSessionsListRequest,
-    AuthSessionsListResponse, AuthSessionsMeRequest, AuthSessionsMeResponse,
-    AuthUsersCreateRequest, AuthUsersCreateResponse, AuthUsersCreateResponseUser,
-    AuthUsersGetRequest, AuthUsersGetResponse, AuthUsersGetResponseUser, AuthUsersListRequest,
-    AuthUsersListResponse, AuthUsersListResponseUsersItem, AuthUsersUpdateRequest,
-    AuthUsersUpdateResponse,
+    AuthSessionsListResponse, AuthSessionsMeResponse, AuthUsersCreateRequest,
+    AuthUsersCreateResponse, AuthUsersCreateResponseUser, AuthUsersGetRequest,
+    AuthUsersGetResponse, AuthUsersGetResponseUser, AuthUsersListRequest, AuthUsersListResponse,
+    AuthUsersListResponseUsersItem, AuthUsersUpdateRequest, AuthUsersUpdateResponse,
 };
 
 #[cfg(test)]

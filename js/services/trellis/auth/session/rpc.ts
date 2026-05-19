@@ -63,6 +63,18 @@ type AuthSessionsMeResponse = {
   service: AuthenticatedService | null;
 };
 
+type AuthHealthResponse = {
+  status: "healthy";
+  service: "trellis";
+  timestamp: string;
+  checks: Array<{
+    name: string;
+    status: "ok";
+    summary: string;
+    latencyMs: number;
+  }>;
+};
+
 type UserProjectionStorage = Pick<SqlUserProjectionRepository, "get">;
 type CapabilityGroupStorage = CapabilityGroupLoader;
 type DeviceActivationStorage = Pick<SqlDeviceActivationRepository, "get">;
@@ -100,8 +112,9 @@ type DeviceActivationRecord = {
   publicIdentityKey: string;
   deploymentId: string;
   activatedBy?: {
-    origin: string;
-    id: string;
+    participantKind: "app" | "agent";
+    userId: string;
+    identity: AuthenticatedUser["identity"];
   };
   state: "activated" | "revoked";
   activatedAt: string | Date;
@@ -135,6 +148,7 @@ type SessionContext = {
     active?: boolean;
     capabilities?: string[];
     image?: string;
+    lastAuth?: string;
     lastLogin?: string;
     deviceId?: string;
     runtimePublicKey?: string;
@@ -143,13 +157,44 @@ type SessionContext = {
   sessionKey: string;
 };
 
+/** Creates the Auth.Health RPC handler for the auth control plane. */
+export function createAuthHealthHandler(deps: {
+  logger: Pick<SessionRpcLogger, "trace">;
+  now?: () => Date;
+}) {
+  return async ({ context }: { context?: Partial<SessionContext> }) => {
+    deps.logger.trace(
+      { rpc: "Auth.Health", sessionKey: context?.sessionKey },
+      "RPC request",
+    );
+    const now = deps.now ?? (() => new Date());
+    return Result.ok<AuthHealthResponse>({
+      status: "healthy",
+      service: "trellis",
+      timestamp: now().toISOString(),
+      checks: [
+        {
+          name: "auth-rpc",
+          status: "ok",
+          summary: "Auth RPC handlers are mounted.",
+          latencyMs: 0,
+        },
+      ],
+    });
+  };
+}
+
 type ValidateRequestInput = {
   sessionKey: string;
   subject: string;
   payloadHash: string;
   proof: string;
+  iat: number;
+  requestId: string;
   capabilities?: string[];
 };
+
+const DEFAULT_REQUEST_IAT_SKEW_SECONDS = 30;
 
 type UserRefFilter = { user?: string; offset?: number; limit?: number };
 type SessionFilter = {
@@ -403,6 +448,7 @@ function formatCaller(
     email: session.email,
     image: session.image,
     capabilities: principal.capabilities,
+    lastAuth: iso(session.lastAuth),
   };
 }
 
@@ -615,15 +661,12 @@ async function loadAuthenticatedDevice(args: {
     ? await loadAuthenticatedUser({
       userStorage: args.userStorage,
       capabilityGroupStorage: args.capabilityGroupStorage,
-      userId: activation.activatedBy.id,
-      identity: {
-        identityId: activation.activatedBy.id,
-        provider: activation.activatedBy.origin,
-        subject: activation.activatedBy.id,
-      },
+      userId: activation.activatedBy.userId,
+      identity: activation.activatedBy.identity,
       fallback: {
-        name: activation.activatedBy.id,
-        email: `${activation.activatedBy.origin}:${activation.activatedBy.id}`,
+        name: activation.activatedBy.userId,
+        email:
+          `${activation.activatedBy.identity.provider}:${activation.activatedBy.identity.subject}`,
         capabilities: [],
         active: true,
       },
@@ -764,7 +807,16 @@ export function createAuthRequestsValidateHandler(deps: {
   loadServiceDeployment: Parameters<typeof resolveSessionPrincipal>[2][
     "loadServiceDeployment"
   ];
+  nowSeconds?: () => number;
 }) {
+  const replayCache = new Map<string, number>();
+
+  const pruneReplayCache = (nowSeconds: number) => {
+    for (const [key, expiresAt] of replayCache) {
+      if (expiresAt <= nowSeconds) replayCache.delete(key);
+    }
+  };
+
   return async ({ input: req }: { input: ValidateRequestInput }) => {
     deps.logger.trace({
       rpc: "Auth.Requests.Validate",
@@ -779,18 +831,35 @@ export function createAuthRequestsValidateHandler(deps: {
       return Result.err(new AuthError({ reason: "invalid_signature" }));
     }
 
+    const nowSeconds = deps.nowSeconds?.() ?? Math.floor(Date.now() / 1000);
+    pruneReplayCache(nowSeconds);
+    if (
+      !Number.isSafeInteger(req.iat) ||
+      Math.abs(nowSeconds - req.iat) > DEFAULT_REQUEST_IAT_SKEW_SECONDS
+    ) {
+      return Result.err(new AuthError({ reason: "iat_out_of_range" }));
+    }
+
     const proofOk = await verifyProof(
       req.sessionKey,
       {
         sessionKey: req.sessionKey,
         subject: req.subject,
         payloadHash: payloadHashBytes,
+        iat: req.iat,
+        requestId: req.requestId,
       },
       req.proof,
     );
     if (!proofOk) {
       return Result.err(new AuthError({ reason: "invalid_signature" }));
     }
+
+    const replayKey = `${req.sessionKey}:${req.requestId}`;
+    if (replayCache.has(replayKey)) {
+      return Result.err(new AuthError({ reason: "invalid_signature" }));
+    }
+    replayCache.set(replayKey, nowSeconds + DEFAULT_REQUEST_IAT_SKEW_SECONDS);
 
     let session: Session | undefined;
     try {

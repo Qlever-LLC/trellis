@@ -27,6 +27,9 @@ fn make_validate_request_maps_subject_session_proof_and_hash() {
         subject: "rpc.v1.Ignored".to_string(),
         session_key: Some("svc_session".to_string()),
         proof: Some("proof_b64url".to_string()),
+        iat: Some(123),
+        request_id: Some("request-1".to_string()),
+        required_capabilities: Some(vec!["jobs.read".to_string()]),
         reply_to: None,
         caller: None,
         traceparent: None,
@@ -43,7 +46,9 @@ fn make_validate_request_maps_subject_session_proof_and_hash() {
         request.payload_hash,
         "40ZDICGwQXlRjZYU81YMzXE1Sk7hAd3LiT1pWanWMBw"
     );
-    assert_eq!(request.capabilities, None);
+    assert_eq!(request.capabilities, Some(vec!["jobs.read".to_string()]));
+    assert_eq!(request.iat, 123);
+    assert_eq!(request.request_id, "request-1");
 }
 
 struct FakeAuthValidateClient {
@@ -114,6 +119,9 @@ async fn adapter_validate_calls_auth_and_returns_allowed() {
         subject: "rpc.v1.Ignored".to_string(),
         session_key: Some("svc_session".to_string()),
         proof: Some("proof_b64url".to_string()),
+        iat: Some(123),
+        request_id: Some("request-1".to_string()),
+        required_capabilities: None,
         reply_to: None,
         caller: None,
         traceparent: None,
@@ -133,6 +141,9 @@ async fn adapter_validate_calls_auth_and_returns_allowed() {
     assert_eq!(seen[0].subject, "rpc.v1.Ping");
     assert_eq!(seen[0].session_key, "svc_session");
     assert_eq!(seen[0].proof, "proof_b64url");
+    assert_eq!(seen[0].capabilities, None);
+    assert_eq!(seen[0].iat, 123);
+    assert_eq!(seen[0].request_id, "request-1");
 }
 
 #[tokio::test]
@@ -145,6 +156,9 @@ async fn adapter_validate_maps_client_error_to_server_error() {
         subject: "rpc.v1.Ignored".to_string(),
         session_key: Some("svc_session".to_string()),
         proof: Some("proof_b64url".to_string()),
+        iat: None,
+        request_id: None,
+        required_capabilities: None,
         reply_to: None,
         caller: None,
         traceparent: None,
@@ -175,6 +189,9 @@ async fn adapter_validate_retries_transient_session_not_found_once_then_succeeds
         subject: "rpc.v1.Ignored".to_string(),
         session_key: Some("svc_session".to_string()),
         proof: Some("proof_b64url".to_string()),
+        iat: None,
+        request_id: None,
+        required_capabilities: None,
         reply_to: None,
         caller: None,
         traceparent: None,
@@ -204,6 +221,9 @@ async fn adapter_validate_does_not_retry_non_transient_auth_error() {
         subject: "rpc.v1.Ignored".to_string(),
         session_key: Some("svc_session".to_string()),
         proof: Some("proof_b64url".to_string()),
+        iat: None,
+        request_id: None,
+        required_capabilities: None,
         reply_to: None,
         caller: None,
         traceparent: None,

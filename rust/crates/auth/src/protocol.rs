@@ -122,27 +122,11 @@ pub type ApprovalEntryRecord = trellis_sdk_auth::types::AuthIdentitiesListRespon
 /// Request payload for `Auth.IdentityEnvelopes.Revoke`.
 pub type RevokeApprovalRequest = trellis_sdk_auth::types::AuthIdentityEnvelopesRevokeRequest;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 /// Request payload for `Auth.Requests.Validate`.
-pub struct AuthRequestsValidateRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<Vec<String>>,
-    #[serde(rename = "payloadHash")]
-    pub payload_hash: String,
-    pub proof: String,
-    #[serde(rename = "sessionKey")]
-    pub session_key: String,
-    pub subject: String,
-}
+pub type AuthRequestsValidateRequest = trellis_sdk_auth::types::AuthRequestsValidateRequest;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 /// Response payload returned by `Auth.Requests.Validate`.
-pub struct AuthRequestsValidateResponse {
-    pub allowed: bool,
-    pub caller: Value,
-    #[serde(rename = "inboxPrefix")]
-    pub inbox_prefix: String,
-}
+pub type AuthRequestsValidateResponse = trellis_sdk_auth::types::AuthRequestsValidateResponse;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct LogoutResponse {

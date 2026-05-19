@@ -36,6 +36,7 @@ pub fn reduce_job_event(current: Option<&Job>, event: &JobEvent) -> Option<Job> 
 
     let mut next = Job {
         id: current.id.clone(),
+        context: current.context.clone(),
         service: current.service.clone(),
         job_type: current.job_type.clone(),
         state: event.state,
@@ -151,6 +152,7 @@ fn seed_job_from_event(event: &JobEvent) -> Option<Job> {
     let payload = event.payload.clone()?;
     Some(Job {
         id: event.job_id.clone(),
+        context: event.context.clone(),
         service: event.service.clone(),
         job_type: event.job_type.clone(),
         state: event.state,

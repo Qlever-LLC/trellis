@@ -16,5 +16,3 @@ thiserror.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = ["io-util", "sync"] }
 tracing.workspace = true
-
-[dev-dependencies]

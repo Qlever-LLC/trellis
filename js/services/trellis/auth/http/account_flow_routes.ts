@@ -27,7 +27,7 @@ const AdminBootstrapLocalPasswordRequestSchema = Type.Object({
   password: Type.String({ minLength: 1 }),
   name: Type.Optional(Type.String({ minLength: 1 })),
   email: Type.Optional(Type.String({ minLength: 1 })),
-}, { additionalProperties: false });
+});
 
 function completionErrorStatus(
   error: CompleteAdminBootstrapLocalPasswordError,
@@ -177,6 +177,7 @@ export function registerAccountFlowRoutes(
       flowId: c.req.param("flowId"),
       username: request.username,
       password: request.password,
+      passwordMinLength: config.auth.localIdentity.passwordPolicy.minLength,
       ...(request.name ? { name: request.name } : {}),
       ...(request.email ? { email: request.email } : {}),
       accountFlowStorage: opts.accountFlowStorage,

@@ -121,7 +121,7 @@ pub fn project_job_event(
 mod tests {
     use serde_json::json;
     use trellis_jobs::events::created_event;
-    use trellis_jobs::types::JobState;
+    use trellis_jobs::types::{JobContext, JobState};
 
     use super::*;
 
@@ -132,6 +132,7 @@ mod tests {
             "documents",
             "document-process",
             "job-1",
+            &context(),
             json!({ "documentId": "doc-1" }),
             3,
             "2026-03-28T12:00:00.000Z",
@@ -149,5 +150,14 @@ mod tests {
             .expect("job should be stored");
         assert_eq!(stored.id, "job-1");
         assert_eq!(stored.payload, json!({ "documentId": "doc-1" }));
+    }
+
+    fn context() -> JobContext {
+        JobContext {
+            request_id: "request-job-1".to_string(),
+            trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+            traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+            tracestate: None,
+        }
     }
 }

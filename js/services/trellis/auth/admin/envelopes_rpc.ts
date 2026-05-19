@@ -6,13 +6,19 @@ import {
 import { Result } from "@qlever-llc/result";
 import type { NatsConnection } from "@nats-io/nats-core";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import { AuthRequestsValidateResponseSchema } from "@qlever-llc/trellis/auth";
+import type { StaticDecode } from "typebox";
 
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import { analyzeContract } from "../../catalog/analysis.ts";
 import {
   type ContractResourceBindings,
+  getKvResourceRequests,
+  getStoreResourceRequests,
+  type KvResourceRequest,
   provisionContractResourceBindings,
   type ResourceProvisioningOptions,
+  type StoreResourceRequest,
 } from "../../catalog/resources.ts";
 import type { ContractRecord } from "../../catalog/schemas.ts";
 import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
@@ -36,8 +42,22 @@ import type {
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
 import type { BoundedListQuery } from "../storage.ts";
 import { MAX_STORAGE_LIST_LIMIT } from "../storage.ts";
+import { type AdminCaller, requireAdminFreshAuth } from "./shared.ts";
 
-type RpcUser = { type: string; id?: string; capabilities?: string[] };
+type RpcUser =
+  & StaticDecode<
+    typeof AuthRequestsValidateResponseSchema
+  >["caller"]
+  & AdminCaller;
+
+function actorId(caller: RpcUser): string | null {
+  if (caller.type === "user") return caller.userId;
+  if (caller.type === "service") {
+    const { id } = caller;
+    return id;
+  }
+  return caller.deviceId;
+}
 
 type EnvelopeContractDeps = Pick<
   ContractsModule,
@@ -83,6 +103,10 @@ type DeploymentPortalRouteStorage = {
 
 type DeploymentGrantOverrideStorage = {
   listByDeployment(deploymentId: string): Promise<DeploymentGrantOverride[]>;
+  replaceForDeployment(
+    deploymentId: string,
+    records: DeploymentGrantOverride[],
+  ): Promise<void>;
 };
 
 type DeploymentResourceBindingStorage = {
@@ -196,14 +220,6 @@ function invalid(
   );
 }
 
-function isAdmin(user: RpcUser): boolean {
-  return user.capabilities?.includes("admin") ?? false;
-}
-
-function insufficientPermissions() {
-  return Result.err(new AuthError({ reason: "insufficient_permissions" }));
-}
-
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -269,22 +285,107 @@ function resourceKey(kind: string, alias: string): string {
   return `${kind}\u001f${alias}`;
 }
 
-async function missingStoredResourceKeys(input: {
+function numberField(
+  record: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const value = record[key];
+  return typeof value === "number" ? value : undefined;
+}
+
+function kvBindingMatchesRequest(
+  binding: Record<string, unknown>,
+  request: Pick<KvResourceRequest, "history" | "ttlMs" | "maxValueBytes">,
+): boolean {
+  return numberField(binding, "history") === request.history &&
+    numberField(binding, "ttlMs") === request.ttlMs &&
+    numberField(binding, "maxValueBytes") === request.maxValueBytes;
+}
+
+function storeBindingMatchesRequest(
+  binding: Record<string, unknown>,
+  request: Pick<StoreResourceRequest, "ttlMs" | "maxTotalBytes">,
+): boolean {
+  return numberField(binding, "ttlMs") === request.ttlMs &&
+    numberField(binding, "maxTotalBytes") === request.maxTotalBytes;
+}
+
+function grantOverrideKey(record: DeploymentGrantOverride): string {
+  return JSON.stringify([
+    record.deploymentId,
+    record.identityKind,
+    record.contractId,
+    record.origin,
+    record.sessionPublicKey,
+    record.devicePublicKey,
+    record.capability,
+  ]);
+}
+
+function grantOverrideDeploymentIdError(input: {
   deploymentId: string;
+  overrides: DeploymentGrantOverride[];
+}): ValidationError | null {
+  const mismatch = input.overrides.find((override) =>
+    override.deploymentId !== input.deploymentId
+  );
+  if (!mismatch) return null;
+  return new ValidationError({
+    errors: [{
+      path: "/overrides",
+      message: "grant override deployment id mismatch",
+    }],
+    context: {
+      deploymentId: input.deploymentId,
+      overrideDeploymentId: mismatch.deploymentId,
+    },
+  });
+}
+
+async function storedResourceKeysNeedingProvisioning(input: {
+  deploymentId: string;
+  contract: TrellisContractV1;
   requested: EnvelopeBoundary;
   storage: Pick<DeploymentResourceBindingStorage, "get">;
 }): Promise<Set<string>> {
-  const missing = new Set<string>();
+  const kvRequests = new Map(
+    getKvResourceRequests(input.contract).map((
+      request,
+    ) => [request.alias, request]),
+  );
+  const storeRequests = new Map(
+    getStoreResourceRequests(input.contract).map((request) => [
+      request.alias,
+      request,
+    ]),
+  );
+  const needsProvisioning = new Set<string>();
   for (const resource of input.requested.resources) {
     if (resource.kind === "transfer") continue;
+    const key = resourceKey(resource.kind, resource.alias);
     const stored = await input.storage.get(
       input.deploymentId,
       resource.kind,
       resource.alias,
     );
-    if (!stored) missing.add(resourceKey(resource.kind, resource.alias));
+    if (!stored) {
+      needsProvisioning.add(key);
+      continue;
+    }
+    if (resource.kind === "kv") {
+      const request = kvRequests.get(resource.alias);
+      if (request && !kvBindingMatchesRequest(stored.binding, request)) {
+        needsProvisioning.add(key);
+      }
+    }
+    if (resource.kind === "store") {
+      const request = storeRequests.get(resource.alias);
+      if (request && !storeBindingMatchesRequest(stored.binding, request)) {
+        needsProvisioning.add(key);
+      }
+    }
   }
-  return missing;
+  return needsProvisioning;
 }
 
 async function missingResourceBindingKeys(input: {
@@ -427,7 +528,8 @@ export function createAuthEnvelopesListHandler(deps: {
   ): Promise<
     Result<{ envelopes: DeploymentEnvelope[] }, AuthError | UnexpectedError>
   > => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     deps.logger.trace({ rpc: "Auth.Envelopes.List", caller }, "RPC request");
     try {
       const envelopes = await deps.deploymentEnvelopeStorage.listFiltered({
@@ -471,7 +573,8 @@ export function createAuthEnvelopesGetHandler(deps: {
       grantOverrides: DeploymentGrantOverride[];
     }, AuthError | ValidationError | UnexpectedError>
   > => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     deps.logger.trace(
       { rpc: "Auth.Envelopes.Get", caller, deploymentId: req.deploymentId },
       "RPC request",
@@ -510,6 +613,108 @@ export function createAuthEnvelopesGetHandler(deps: {
         portalRoute: portalRoute ?? null,
         grantOverrides,
       });
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+  };
+}
+
+/** Creates the deployment grant override replacement RPC handler. */
+export function createAuthEnvelopesGrantOverridesPutHandler(deps: {
+  deploymentEnvelopeStorage: Pick<DeploymentEnvelopeStorage, "get">;
+  deploymentGrantOverrideStorage: DeploymentGrantOverrideStorage;
+  logger: Pick<AuthRuntimeDeps["logger"], "trace">;
+}) {
+  return async (args: {
+    input: { deploymentId: string; overrides: DeploymentGrantOverride[] };
+    context: { caller: RpcUser };
+  }): Promise<
+    Result<
+      { grantOverrides: DeploymentGrantOverride[] },
+      AuthError | ValidationError | UnexpectedError
+    >
+  > => {
+    const { input: req, context: { caller } } = args;
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
+    deps.logger.trace({
+      rpc: "Auth.Envelopes.GrantOverrides.Put",
+      caller,
+      deploymentId: req.deploymentId,
+    }, "RPC request");
+
+    const invalidOverrides = grantOverrideDeploymentIdError(req);
+    if (invalidOverrides) return Result.err(invalidOverrides);
+
+    try {
+      const envelope = await deps.deploymentEnvelopeStorage.get(
+        req.deploymentId,
+      );
+      if (!envelope) {
+        return invalid("/deploymentId", "deployment envelope does not exist", {
+          deploymentId: req.deploymentId,
+        });
+      }
+      await deps.deploymentGrantOverrideStorage.replaceForDeployment(
+        req.deploymentId,
+        req.overrides,
+      );
+      const grantOverrides = await deps.deploymentGrantOverrideStorage
+        .listByDeployment(req.deploymentId);
+      return Result.ok({ grantOverrides });
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+  };
+}
+
+/** Creates the deployment grant override exact-row removal RPC handler. */
+export function createAuthEnvelopesGrantOverridesRemoveHandler(deps: {
+  deploymentEnvelopeStorage: Pick<DeploymentEnvelopeStorage, "get">;
+  deploymentGrantOverrideStorage: DeploymentGrantOverrideStorage;
+  logger: Pick<AuthRuntimeDeps["logger"], "trace">;
+}) {
+  return async (args: {
+    input: { deploymentId: string; overrides: DeploymentGrantOverride[] };
+    context: { caller: RpcUser };
+  }): Promise<
+    Result<
+      { grantOverrides: DeploymentGrantOverride[] },
+      AuthError | ValidationError | UnexpectedError
+    >
+  > => {
+    const { input: req, context: { caller } } = args;
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
+    deps.logger.trace({
+      rpc: "Auth.Envelopes.GrantOverrides.Remove",
+      caller,
+      deploymentId: req.deploymentId,
+    }, "RPC request");
+
+    const invalidOverrides = grantOverrideDeploymentIdError(req);
+    if (invalidOverrides) return Result.err(invalidOverrides);
+
+    try {
+      const envelope = await deps.deploymentEnvelopeStorage.get(
+        req.deploymentId,
+      );
+      if (!envelope) {
+        return invalid("/deploymentId", "deployment envelope does not exist", {
+          deploymentId: req.deploymentId,
+        });
+      }
+      const removeKeys = new Set(
+        req.overrides.map((override) => grantOverrideKey(override)),
+      );
+      const grantOverrides = (await deps.deploymentGrantOverrideStorage
+        .listByDeployment(req.deploymentId))
+        .filter((override) => !removeKeys.has(grantOverrideKey(override)));
+      await deps.deploymentGrantOverrideStorage.replaceForDeployment(
+        req.deploymentId,
+        grantOverrides,
+      );
+      return Result.ok({ grantOverrides });
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
@@ -779,7 +984,8 @@ export function createAuthEnvelopesExpandHandler(deps: {
     }, AuthError | ValidationError | UnexpectedError>
   > => {
     const { input: req, context: { caller } } = args;
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.Envelopes.Expand",
       caller,
@@ -818,18 +1024,21 @@ export function createAuthEnvelopesExpandHandler(deps: {
 
       const requested = mergeBoundaries(
         analysis.required,
+        analysis.optional,
         analysis.contributedAvailability,
       );
       const delta = computeEnvelopeDelta(current.boundary, requested);
       const now = (deps.now?.() ?? new Date()).toISOString();
       let resourceBindings: DeploymentResourceBinding[] = [];
-      const missingStoredResources = await missingStoredResourceKeys({
-        deploymentId: req.deploymentId,
-        requested,
-        storage: deps.deploymentResourceBindingStorage,
-      });
+      const resourcesNeedingProvisioning =
+        await storedResourceKeysNeedingProvisioning({
+          deploymentId: req.deploymentId,
+          contract: validated.contract,
+          requested,
+          storage: deps.deploymentResourceBindingStorage,
+        });
 
-      if (missingStoredResources.size > 0) {
+      if (resourcesNeedingProvisioning.size > 0) {
         const bindings = await (deps.provisionResourceBindings ??
           provisionContractResourceBindings)(
             deps.nats,
@@ -840,7 +1049,7 @@ export function createAuthEnvelopesExpandHandler(deps: {
         resourceBindings = await buildResourceBindingRecords({
           deploymentId: req.deploymentId,
           bindings,
-          missingKeys: missingStoredResources,
+          missingKeys: resourcesNeedingProvisioning,
           now,
           storage: deps.deploymentResourceBindingStorage,
         });
@@ -954,7 +1163,8 @@ export function createAuthEnvelopesApproveRequestHandler(deps: {
     }, AuthError | ValidationError | UnexpectedError>
   > => {
     const { input: req, context: { caller } } = args;
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.EnvelopeExpansions.Approve",
       caller,
@@ -994,7 +1204,7 @@ export function createAuthEnvelopesApproveRequestHandler(deps: {
       if (Result.isErr(value)) return value;
 
       const decidedAt = (deps.now?.() ?? new Date()).toISOString();
-      const decidedBy = { type: caller.type, id: caller.id ?? null };
+      const decidedBy = { type: caller.type, id: actorId(caller) };
       const approvedRequest: EnvelopeExpansionRequest = {
         ...request,
         state: "approved",
@@ -1064,7 +1274,8 @@ export function createAuthEnvelopeExpansionsListHandler(deps: {
     >
   > => {
     const { input: req, context: { caller } } = args;
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.EnvelopeExpansions.List",
       caller,
@@ -1100,7 +1311,8 @@ export function createAuthEnvelopeExpansionsRejectHandler(deps: {
     >
   > => {
     const { input: req, context: { caller } } = args;
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.EnvelopeExpansions.Reject",
       caller,
@@ -1128,7 +1340,7 @@ export function createAuthEnvelopeExpansionsRejectHandler(deps: {
       }
 
       const decidedAt = (deps.now?.() ?? new Date()).toISOString();
-      const decidedBy = { type: caller.type, id: caller.id ?? null };
+      const decidedBy = { type: caller.type, id: actorId(caller) };
       const rejectedRequest: EnvelopeExpansionRequest = {
         ...request,
         state: "rejected",
@@ -1182,7 +1394,8 @@ export function createAuthEnvelopesChangesPreviewHandler(deps: {
     }, AuthError | ValidationError | UnexpectedError>
   > => {
     const { input: req, context: { caller } } = args;
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.Envelopes.Changes.Preview",
       caller,
@@ -1258,7 +1471,8 @@ export function createAuthEnvelopesShrinkHandler(deps: {
     }, AuthError | ValidationError | UnexpectedError>
   > => {
     const { input: req, context: { caller } } = args;
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.Envelopes.Shrink",
       caller,

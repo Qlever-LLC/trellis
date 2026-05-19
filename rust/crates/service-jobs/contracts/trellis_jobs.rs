@@ -48,6 +48,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
     )
     .schema("Empty", empty_schema())
     .schema("JobState", job_state_schema())
+    .schema("JobContext", job_context_schema())
     .schema("JobLogEntry", job_log_entry_schema())
     .schema("JobProgress", job_progress_schema())
     .schema("Job", job_schema())
@@ -226,11 +227,28 @@ fn job_progress_schema() -> Value {
     })
 }
 
+fn job_context_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["requestId", "traceId", "traceparent"],
+        "properties": {
+            "requestId": { "type": "string", "minLength": 1 },
+            "traceId": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+            "traceparent": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"
+            },
+            "tracestate": { "type": "string", "minLength": 1 }
+        }
+    })
+}
+
 fn job_schema() -> Value {
     json!({
         "type": "object",
         "required": [
             "id",
+            "context",
             "service",
             "type",
             "state",
@@ -242,6 +260,7 @@ fn job_schema() -> Value {
         ],
         "properties": {
             "id": { "type": "string", "minLength": 1 },
+            "context": job_context_schema(),
             "service": { "type": "string", "minLength": 1 },
             "type": { "type": "string", "minLength": 1 },
             "state": job_state_schema(),

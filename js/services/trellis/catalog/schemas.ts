@@ -24,7 +24,7 @@ export const ContractRecordSchema = Type.Object({
     kvResources: Type.Number({ default: 0 }),
     storeResources: Type.Number({ default: 0 }),
     jobsQueues: Type.Number({ default: 0 }),
-  }, { additionalProperties: false })),
+  })),
   analysis: Type.Optional(Type.Object({
     namespaces: Type.Array(Type.String()),
     rpc: Type.Object({
@@ -33,8 +33,8 @@ export const ContractRecordSchema = Type.Object({
         subject: Type.String(),
         wildcardSubject: Type.String(),
         callerCapabilities: Type.Array(Type.String()),
-      }, { additionalProperties: false })),
-    }, { additionalProperties: false }),
+      })),
+    }),
     operations: Type.Object({
       operations: Type.Array(Type.Object({
         key: Type.String(),
@@ -46,7 +46,7 @@ export const ContractRecordSchema = Type.Object({
         readCapabilities: Type.Array(Type.String()),
         cancelCapabilities: Type.Array(Type.String()),
         cancel: Type.Boolean(),
-      }, { additionalProperties: false })),
+      })),
       control: Type.Array(Type.Object({
         key: Type.String(),
         action: Type.Union([
@@ -58,8 +58,8 @@ export const ContractRecordSchema = Type.Object({
         subject: Type.String(),
         wildcardSubject: Type.String(),
         requiredCapabilities: Type.Array(Type.String()),
-      }, { additionalProperties: false })),
-    }, { additionalProperties: false }),
+      })),
+    }),
     events: Type.Object({
       events: Type.Array(Type.Object({
         key: Type.String(),
@@ -67,22 +67,22 @@ export const ContractRecordSchema = Type.Object({
         wildcardSubject: Type.String(),
         publishCapabilities: Type.Array(Type.String()),
         subscribeCapabilities: Type.Array(Type.String()),
-      }, { additionalProperties: false })),
-    }, { additionalProperties: false }),
+      })),
+    }),
     nats: Type.Object({
       publish: Type.Array(Type.Object({
         kind: Type.String(),
         subject: Type.String(),
         wildcardSubject: Type.String(),
         requiredCapabilities: Type.Array(Type.String()),
-      }, { additionalProperties: false })),
+      })),
       subscribe: Type.Array(Type.Object({
         kind: Type.String(),
         subject: Type.String(),
         wildcardSubject: Type.String(),
         requiredCapabilities: Type.Array(Type.String()),
-      }, { additionalProperties: false })),
-    }, { additionalProperties: false }),
+      })),
+    }),
     resources: Type.Object({
       kv: Type.Array(
         Type.Object({
@@ -92,7 +92,7 @@ export const ContractRecordSchema = Type.Object({
           history: Type.Number(),
           ttlMs: Type.Number(),
           maxValueBytes: Type.Optional(Type.Number()),
-        }, { additionalProperties: false }),
+        }),
         { default: [] },
       ),
       store: Type.Array(
@@ -102,19 +102,15 @@ export const ContractRecordSchema = Type.Object({
           required: Type.Boolean(),
           ttlMs: Type.Number(),
           maxTotalBytes: Type.Optional(Type.Number()),
-        }, { additionalProperties: false }),
+        }),
         { default: [] },
       ),
       jobs: Type.Array(
         Type.Object({
           queueType: Type.String({ minLength: 1 }),
-          payload: Type.Object({ schema: Type.String({ minLength: 1 }) }, {
-            additionalProperties: false,
-          }),
+          payload: Type.Object({ schema: Type.String({ minLength: 1 }) }),
           result: Type.Optional(
-            Type.Object({ schema: Type.String({ minLength: 1 }) }, {
-              additionalProperties: false,
-            }),
+            Type.Object({ schema: Type.String({ minLength: 1 }) }),
           ),
           maxDeliver: Type.Number(),
           backoffMs: Type.Array(Type.Number()),
@@ -124,14 +120,11 @@ export const ContractRecordSchema = Type.Object({
           logs: Type.Boolean(),
           dlq: Type.Boolean(),
           concurrency: Type.Number(),
-        }, { additionalProperties: false }),
+        }),
         { default: [] },
       ),
-    }, {
-      additionalProperties: false,
-      default: { kv: [], store: [], jobs: [] },
-    }),
-  }, { additionalProperties: false })),
+    }, { default: { kv: [], store: [], jobs: [] } }),
+  })),
   resources: Type.Optional(ContractResourcesSchema),
-}, { additionalProperties: false });
+});
 export type ContractRecord = StaticDecode<typeof ContractRecordSchema>;

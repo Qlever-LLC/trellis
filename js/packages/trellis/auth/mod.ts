@@ -58,6 +58,8 @@ export {
   portalProviderLoginUrl,
   portalRedirectLocation,
   type SessionKeyHandle,
+  type SessionKeyOptions,
+  type SessionKeyPersistenceMode,
   signBytes,
   startAuthRequest,
   submitPortalApproval,
@@ -138,6 +140,10 @@ export {
   type AuthEnvelopesGetResponse,
   AuthEnvelopesGetResponseSchema,
   AuthEnvelopesGetSchema,
+  AuthEnvelopesGrantOverridesPutSchema,
+  AuthEnvelopesGrantOverridesRemoveSchema,
+  type AuthEnvelopesGrantOverridesResponse,
+  AuthEnvelopesGrantOverridesResponseSchema,
   type AuthEnvelopesListResponse,
   AuthEnvelopesListResponseSchema,
   AuthEnvelopesListSchema,
@@ -236,6 +242,7 @@ export {
   ServiceInstanceSchema,
   UserGrantViewSchema,
   UserViewSchema,
+  WaitForDeviceActivationRequestSchema,
   WaitForDeviceActivationResponseSchema,
 } from "./protocol.ts";
 export {

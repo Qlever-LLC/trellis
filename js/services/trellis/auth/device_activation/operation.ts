@@ -1,10 +1,12 @@
 import { AuthError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
+import type { StaticDecode } from "typebox";
 
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import { type AuthLogger, type AuthRuntimeDeps } from "../runtime_deps.ts";
 import { randomToken } from "../crypto.ts";
 import {
+  AuthRequestsValidateResponseSchema,
   deriveDeviceConfirmationCode,
   verifyDeviceWaitSignature,
 } from "@qlever-llc/trellis/auth";
@@ -14,16 +16,28 @@ import { isDeviceProofIatFresh } from "./shared.ts";
 import { resolveDeviceConnectInfo } from "../bootstrap/device.ts";
 import type { SqlDeploymentEnvelopeRepository } from "../storage.ts";
 
-type Caller = {
-  type: string;
-  origin?: string;
-  id?: string;
+type DeviceActivationActor = {
+  participantKind: "app" | "agent";
+  userId: string;
+  identity: {
+    identityId: string;
+    provider: string;
+    subject: string;
+  };
 };
 
-type DeviceActivationActor = {
-  origin: string;
-  id: string;
-};
+type Caller = StaticDecode<typeof AuthRequestsValidateResponseSchema>["caller"];
+
+function actorFromCaller(caller: Caller): DeviceActivationActor | null {
+  if (caller.type !== "user") {
+    return null;
+  }
+  return {
+    participantKind: caller.participantKind,
+    userId: caller.userId,
+    identity: caller.identity,
+  };
+}
 
 type DeviceActivationFlow = {
   flowId: string;
@@ -76,10 +90,7 @@ type DeviceActivationReviewRecord = {
   instanceId: string;
   publicIdentityKey: string;
   deploymentId: string;
-  requestedBy: {
-    origin: string;
-    id: string;
-  };
+  requestedBy: DeviceActivationActor;
   state: "pending" | "approved" | "rejected";
   requestedAt: string | Date;
   decidedAt: string | Date | null;
@@ -434,7 +445,8 @@ export function createResolveDeviceUserAuthoritiesHandler(
       { operation: "Auth.DeviceUserAuthorities.Resolve", flowId: input.flowId },
       "Operation request",
     );
-    if (caller.type !== "user" || !caller.origin || !caller.id) {
+    const activationActor = actorFromCaller(caller);
+    if (!activationActor) {
       return activationFailure(logger, "insufficient_permissions");
     }
     const flow = await loadDeviceActivationFlow(deps, input.flowId);
@@ -504,7 +516,7 @@ export function createResolveDeviceUserAuthoritiesHandler(
         flow,
         instance,
         deployment,
-        requestedBy: { origin: caller.origin, id: caller.id },
+        requestedBy: activationActor,
         requestedAt,
       });
       const review: DeviceActivationReviewRecord = {
@@ -514,10 +526,7 @@ export function createResolveDeviceUserAuthoritiesHandler(
         instanceId: instance.instanceId,
         publicIdentityKey: instance.publicIdentityKey,
         deploymentId: deployment.deploymentId,
-        requestedBy: {
-          origin: caller.origin,
-          id: caller.id,
-        },
+        requestedBy: activationActor,
         state: "pending",
         requestedAt,
         decidedAt: null,
@@ -541,7 +550,7 @@ export function createResolveDeviceUserAuthoritiesHandler(
       flow,
       instance,
       deployment,
-      requestedBy: { origin: caller.origin, id: caller.id },
+      requestedBy: activationActor,
       requestedAt,
     });
     return Result.ok({
@@ -551,10 +560,7 @@ export function createResolveDeviceUserAuthoritiesHandler(
         flow,
         instance,
         deployment,
-        activatedBy: {
-          origin: caller.origin,
-          id: caller.id,
-        },
+        activatedBy: activationActor,
       })),
     });
   };
@@ -584,6 +590,7 @@ export function createGetDeviceConnectInfoHandler(
     }
 
     const proofOk = await verifyDeviceWaitSignature({
+      flowId: "connect-info",
       publicIdentityKey: req.publicIdentityKey,
       nonce: "connect-info",
       contractDigest: req.contractDigest,

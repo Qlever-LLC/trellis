@@ -7,7 +7,7 @@ use futures_util::future::BoxFuture;
 use crate::manager::{JobManager, JobManagerError, JobMetaSource};
 use crate::publisher::JobEventPublisher;
 use crate::runtime_worker::JobCancellationToken;
-use crate::types::{Job, JobLogEntry, JobLogLevel, JobProgress};
+use crate::types::{Job, JobContext, JobLogEntry, JobLogLevel, JobProgress};
 
 type HeartbeatHook = Arc<dyn Fn() -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
 
@@ -48,6 +48,11 @@ impl<P, M> ActiveJob<P, M> {
     /// Return the current in-memory job snapshot for this handler invocation.
     pub fn job(&self) -> &Job {
         &self.job
+    }
+
+    /// Return the request and trace context carried by this job.
+    pub fn context(&self) -> &JobContext {
+        &self.job.context
     }
 
     /// Return whether cooperative cancellation has been requested.

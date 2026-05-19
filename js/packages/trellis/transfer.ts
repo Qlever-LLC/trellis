@@ -13,9 +13,10 @@ import {
   type Subscription,
 } from "@nats-io/nats-core";
 import Type, { type Static } from "typebox";
-import { verifyProof } from "./auth/proof.ts";
+import { buildProofInput, verifyProof } from "./auth/proof.ts";
 import { base64urlEncode, sha256 } from "./auth/utils.ts";
 import { TransferError } from "./errors/TransferError.ts";
+import { createNatsHeaderCarrier, injectTraceContext } from "./tracing.ts";
 
 const TRANSFER_SEQUENCE_HEADER = "trellis-transfer-seq";
 const TRANSFER_EOF_HEADER = "trellis-transfer-eof";
@@ -27,7 +28,7 @@ export const FileInfoSchema = Type.Object({
   digest: Type.Optional(Type.String({ minLength: 1 })),
   contentType: Type.Optional(Type.String({ minLength: 1 })),
   metadata: Type.Record(Type.String({ minLength: 1 }), Type.String()),
-}, { additionalProperties: false });
+});
 
 export type FileInfo = Static<typeof FileInfoSchema>;
 
@@ -39,7 +40,7 @@ const TransferGrantBaseSchema = Type.Object({
   subject: Type.String({ minLength: 1 }),
   expiresAt: Type.String({ minLength: 1 }),
   chunkBytes: Type.Integer({ minimum: 1 }),
-}, { additionalProperties: false });
+});
 
 export const SendTransferGrantSchema = Type.Object({
   ...TransferGrantBaseSchema.properties,
@@ -49,13 +50,13 @@ export const SendTransferGrantSchema = Type.Object({
   metadata: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), Type.String()),
   ),
-}, { additionalProperties: false });
+});
 
 export const ReceiveTransferGrantSchema = Type.Object({
   ...TransferGrantBaseSchema.properties,
   direction: Type.Literal("receive"),
   info: FileInfoSchema,
-}, { additionalProperties: false });
+});
 
 export const TransferGrantSchema = Type.Union([
   SendTransferGrantSchema,
@@ -75,6 +76,7 @@ export type TransferBody =
 type TrellisTransferAuth = {
   sessionKey: string;
   sign(data: Uint8Array): Promise<Uint8Array> | Uint8Array;
+  currentIat?: () => number;
 };
 
 type TransferAck =
@@ -85,43 +87,16 @@ async function createTransferProof(
   auth: TrellisTransferAuth,
   subject: string,
   payload: Uint8Array,
-): Promise<string> {
+): Promise<{ proof: string; iat: number; requestId: string }> {
   const payloadHash = await sha256(payload);
+  const iat = auth.currentIat?.() ?? Math.floor(Date.now() / 1000);
+  const requestId = crypto.randomUUID();
   const proofOk = await auth.sign(
     await sha256(
-      buildTransferProofInput(auth.sessionKey, subject, payloadHash),
+      buildProofInput(auth.sessionKey, subject, payloadHash, iat, requestId),
     ),
   );
-  return base64urlEncode(proofOk);
-}
-
-function buildTransferProofInput(
-  sessionKey: string,
-  subject: string,
-  payloadHash: Uint8Array,
-): Uint8Array {
-  const enc = new TextEncoder();
-  const sessionKeyBytes = enc.encode(sessionKey);
-  const subjectBytes = enc.encode(subject);
-  const buf = new Uint8Array(
-    4 + sessionKeyBytes.length + 4 + subjectBytes.length + 4 +
-      payloadHash.length,
-  );
-  const view = new DataView(buf.buffer);
-
-  let offset = 0;
-  view.setUint32(offset, sessionKeyBytes.length);
-  offset += 4;
-  buf.set(sessionKeyBytes, offset);
-  offset += sessionKeyBytes.length;
-  view.setUint32(offset, subjectBytes.length);
-  offset += 4;
-  buf.set(subjectBytes, offset);
-  offset += subjectBytes.length;
-  view.setUint32(offset, payloadHash.length);
-  offset += 4;
-  buf.set(payloadHash, offset);
-  return buf;
+  return { proof: base64urlEncode(proofOk), iat, requestId };
 }
 
 function expired(expiresAt: string): boolean {
@@ -383,17 +358,18 @@ class BaseTransferHandle {
     eof?: boolean,
   ): Promise<MsgHdrs> {
     const headers = natsHeaders();
+    const authHeaders = await createTransferProof(this.#auth, subject, payload);
     headers.set("session-key", this.#auth.sessionKey);
-    headers.set(
-      "proof",
-      await createTransferProof(this.#auth, subject, payload),
-    );
+    headers.set("proof", authHeaders.proof);
+    headers.set("iat", String(authHeaders.iat));
+    headers.set("request-id", authHeaders.requestId);
     if (seq !== undefined) {
       headers.set(TRANSFER_SEQUENCE_HEADER, String(seq));
     }
     if (eof) {
       headers.set(TRANSFER_EOF_HEADER, "true");
     }
+    injectTraceContext(createNatsHeaderCarrier(headers));
     return headers;
   }
 }
@@ -604,10 +580,14 @@ export async function verifyTransferMessage(args: {
   payload: Uint8Array;
   proof?: string | null;
   sessionKey?: string | null;
+  iat?: string | number | null;
+  requestId?: string | null;
 }): Promise<boolean> {
+  const iat = typeof args.iat === "number" ? args.iat : Number(args.iat);
   if (
     !args.proof || !args.sessionKey ||
-    args.sessionKey !== args.expectedSessionKey
+    args.sessionKey !== args.expectedSessionKey ||
+    !Number.isSafeInteger(iat) || !args.requestId
   ) {
     return false;
   }
@@ -616,5 +596,7 @@ export async function verifyTransferMessage(args: {
     sessionKey: args.sessionKey,
     subject: args.subject,
     payloadHash: await sha256(args.payload),
+    iat,
+    requestId: args.requestId,
   }, args.proof);
 }

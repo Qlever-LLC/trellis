@@ -800,14 +800,26 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
 
     const sessionKey = msg.headers?.get("session-key");
     const proof = msg.headers?.get("proof");
+    const iatHeader = msg.headers?.get("iat");
+    const requestId = msg.headers?.get("request-id");
     if (!sessionKey) {
       return err(new AuthError({ reason: "missing_session_key" }));
     }
     if (!proof) return err(new AuthError({ reason: "missing_proof" }));
+    const iat = Number(iatHeader);
+    if (!Number.isSafeInteger(iat) || !requestId) {
+      return err(new AuthError({ reason: "invalid_signature" }));
+    }
 
     const payloadBytes = msg.data ?? new Uint8Array();
     const payloadHash = await sha256(payloadBytes);
-    const proofInput = buildProofInput(sessionKey, msg.subject, payloadHash);
+    const proofInput = buildProofInput(
+      sessionKey,
+      msg.subject,
+      payloadHash,
+      iat,
+      requestId,
+    );
     const digest = await sha256(proofInput);
 
     const verifyResult = await AsyncResult.try(async () => {
@@ -842,6 +854,8 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
       proof,
       subject: msg.subject,
       payloadHash: base64urlEncode(payloadHash),
+      iat,
+      requestId,
       capabilities: ctx.callerCapabilities
         ? [...ctx.callerCapabilities]
         : undefined,
@@ -1389,10 +1403,16 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
 
           const sessionKey = msg.headers?.get("session-key");
           const proof = msg.headers?.get("proof");
+          const iatHeader = msg.headers?.get("iat");
+          const requestId = msg.headers?.get("request-id");
           if (!sessionKey) {
             return err(new AuthError({ reason: "missing_session_key" }));
           }
           if (!proof) return err(new AuthError({ reason: "missing_proof" }));
+          const iat = Number(iatHeader);
+          if (!Number.isSafeInteger(iat) || !requestId) {
+            return err(new AuthError({ reason: "invalid_signature" }));
+          }
 
           const payloadBytes = msg.data ?? new Uint8Array();
           const payloadHash = await sha256(payloadBytes);
@@ -1400,6 +1420,8 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
             sessionKey,
             msg.subject,
             payloadHash,
+            iat,
+            requestId,
           );
           const digest = await sha256(proofInput);
 
@@ -1435,6 +1457,8 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
             proof,
             subject: msg.subject,
             payloadHash: base64urlEncode(payloadHash),
+            iat,
+            requestId,
             capabilities: ctx.callerCapabilities
               ? [...ctx.callerCapabilities]
               : undefined,

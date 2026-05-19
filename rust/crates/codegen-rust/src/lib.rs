@@ -1445,6 +1445,10 @@ fn render_rpc_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             "    const SUBJECT: &'static str = {};",
             string_literal(&rpc.subject)
         ));
+        lines.push(format!(
+            "    const CALLER_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&capabilities)
+        ));
         lines.push("}".to_string());
         lines.push(String::new());
     }
@@ -1580,6 +1584,10 @@ fn render_feeds_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             "    const SUBJECT: &'static str = {};",
             string_literal(&feed.subject)
         ));
+        lines.push(format!(
+            "    const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&subscribe)
+        ));
         lines.push("}".to_string());
         lines.push(String::new());
     }
@@ -1648,11 +1656,17 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             .as_ref()
             .and_then(|caps| caps.read.as_ref())
             .cloned()
-            .unwrap_or_default();
+            .unwrap_or_else(|| caller.clone());
         let cancel = operation
             .capabilities
             .as_ref()
             .and_then(|caps| caps.cancel.as_ref())
+            .cloned()
+            .unwrap_or_default();
+        let control = operation
+            .capabilities
+            .as_ref()
+            .and_then(|caps| caps.control.as_ref())
             .cloned()
             .unwrap_or_default();
 
@@ -1684,6 +1698,10 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             join_string_literals(&cancel)
         ));
         lines.push(format!(
+            "    const CONTROL_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&control)
+        ));
+        lines.push(format!(
             "    const CANCELABLE: bool = {};",
             operation.cancel.unwrap_or(false)
         ));
@@ -1708,6 +1726,22 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         lines.push(format!(
             "    const SUBJECT: &'static str = {};",
             string_literal(&operation.subject)
+        ));
+        lines.push(format!(
+            "    const CALLER_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&caller)
+        ));
+        lines.push(format!(
+            "    const READ_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&read)
+        ));
+        lines.push(format!(
+            "    const CANCEL_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&cancel)
+        ));
+        lines.push(format!(
+            "    const CONTROL_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&control)
         ));
         lines.push(format!(
             "    const CANCELABLE: bool = {};",

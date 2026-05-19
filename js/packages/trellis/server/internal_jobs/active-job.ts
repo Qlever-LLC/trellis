@@ -1,4 +1,4 @@
-import type { Job, JobLogEntry, JobProgress } from "./types.ts";
+import type { Job, JobContext, JobLogEntry, JobProgress } from "./types.ts";
 
 export class ActiveJobRuntimeError extends Error {
   constructor(message: string) {
@@ -71,6 +71,10 @@ export class ActiveJob<TPayload = unknown, TResult = unknown> {
 
   job(): Readonly<Job<TPayload, TResult>> {
     return this.#job;
+  }
+
+  context(): Readonly<JobContext> {
+    return this.#job.context;
   }
 
   get signal(): AbortSignal {

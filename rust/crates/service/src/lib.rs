@@ -44,8 +44,9 @@ pub use request_loop::{
     ResponseStream,
 };
 pub use resources::{
-    KvResourceClient, KvResourceHandle, NatsKvResourceClient, NatsStoreResourceClient,
-    ResourceRuntimeClient, StoreResourceClient, StoreResourceHandle,
+    KvResourceClient, KvResourceEntry, KvResourceHandle, KvResourceOperation, NatsKvResourceClient,
+    NatsKvWatch, NatsStoreResourceClient, ResourceRuntimeClient, StoreResourceClient,
+    StoreResourceHandle, StoreWaitOptions,
 };
 pub use router::{RequestContext, Router};
 pub use runtime::{
@@ -59,8 +60,10 @@ pub use transfer::{
     plan_download_transfer_grant, plan_upload_transfer_grant, run_download_transfer_endpoint,
     run_upload_transfer_endpoint, run_upload_transfer_endpoint_with_progress,
     spawn_download_transfer_endpoint, spawn_upload_transfer_endpoint,
-    spawn_upload_transfer_endpoint_with_progress, DownloadTransferChunk, DownloadTransferGrant,
-    DownloadTransferGrantPlan, FileTransferInfo, TransferDownloadGrantArgs,
-    TransferUploadGrantArgs, UploadTransferAck, UploadTransferChunk, UploadTransferGrant,
-    UploadTransferGrantPlan, UploadTransferSession, TRANSFER_EOF_HEADER, TRANSFER_SEQUENCE_HEADER,
+    spawn_upload_transfer_endpoint_with_completion, spawn_upload_transfer_endpoint_with_progress,
+    spawn_upload_transfer_endpoint_with_progress_and_completion, DownloadTransferChunk,
+    DownloadTransferGrant, DownloadTransferGrantPlan, FileTransferInfo, TransferDownloadGrantArgs,
+    TransferUploadGrantArgs, UploadTransferAck, UploadTransferChunk, UploadTransferCompletion,
+    UploadTransferGrant, UploadTransferGrantPlan, UploadTransferSession, TRANSFER_EOF_HEADER,
+    TRANSFER_SEQUENCE_HEADER,
 };

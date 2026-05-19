@@ -6,13 +6,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use futures_util::future::BoxFuture;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use trellis_auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
 use trellis_auth_adapters::AuthRequestValidatorAdapter;
-use trellis_client::{OperationState, ServiceConnectOptions, TrellisClient};
+use trellis_client::{OperationState, ServiceConnectOptions, TrellisClient, TrellisClientError};
 use trellis_contracts::{
     digest_contract_json, operation, rpc, store, use_contract, ContractKind,
     ContractManifestBuilder,
@@ -21,10 +22,11 @@ use trellis_sdk_auth::client::AuthClient as SdkAuthClient;
 use trellis_sdk_auth::types::AuthEnvelopesExpandRequest;
 use trellis_service::{
     bootstrap_service_host, plan_download_transfer_grant, plan_upload_transfer_grant,
-    spawn_download_transfer_endpoint, spawn_upload_transfer_endpoint, BootstrapBinding,
-    FileTransferInfo, InMemoryOperationRuntime, Router, ServerError, ServiceResourceBindings,
+    spawn_download_transfer_endpoint, spawn_upload_transfer_endpoint_with_completion,
+    BootstrapBinding, FileTransferInfo, InMemoryOperationRuntime, OperationFailure, RequestContext,
+    RequestValidation, RequestValidator, Router, ServerError, ServiceResourceBindings,
     StoreResourceBinding, StoreResourceClient, TransferDownloadGrantArgs, TransferUploadGrantArgs,
-    UploadTransferSession,
+    UploadTransferCompletion, UploadTransferSession,
 };
 
 use crate::app::admin_setup_contract_json;
@@ -40,7 +42,8 @@ const HARNESS_RUST_UPLOAD_SUBJECT: &str = "operations.v1.Harness.Rust.TransferUp
 const HARNESS_TS_UPLOAD_SUBJECT: &str = "operations.v1.Harness.Ts.TransferUpload";
 const HARNESS_RUST_DOWNLOAD_SUBJECT: &str = "rpc.v1.Harness.Rust.TransferDownload";
 const HARNESS_TS_DOWNLOAD_SUBJECT: &str = "rpc.v1.Harness.Ts.TransferDownload";
-const PASSING_CASES: usize = 9;
+const TRACE_UPLOAD_KEY: &str = "ts-client/rust-transfer-trace.txt";
+const PASSING_CASES: usize = 15;
 
 fn harness_service_contract_json() -> Result<String> {
     let manifest = ContractManifestBuilder::new(
@@ -186,7 +189,6 @@ fn harness_denied_contract_json() -> Result<String> {
 fn upload_input_schema() -> Value {
     json!({
         "type": "object",
-        "additionalProperties": false,
         "properties": {
             "key": { "type": "string" },
             "contentType": { "type": "string" }
@@ -198,11 +200,12 @@ fn upload_input_schema() -> Value {
 fn upload_output_schema() -> Value {
     json!({
         "type": "object",
-        "additionalProperties": false,
         "properties": {
             "key": { "type": "string" },
             "size": { "type": "integer" },
-            "contentType": { "type": "string" }
+            "contentType": { "type": "string" },
+            "traceparent": { "type": "string" },
+            "chunkTraceparent": { "type": "string" }
         },
         "required": ["key", "size"]
     })
@@ -211,7 +214,6 @@ fn upload_output_schema() -> Value {
 fn download_input_schema() -> Value {
     json!({
         "type": "object",
-        "additionalProperties": false,
         "properties": {
             "key": { "type": "string" }
         },
@@ -254,9 +256,9 @@ import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { Type } from "typebox";
 
 const schemas = {
-  UploadInput: Type.Object({ key: Type.String(), contentType: Type.Optional(Type.String()) }, { additionalProperties: false }),
-  UploadOutput: Type.Object({ key: Type.String(), size: Type.Integer(), contentType: Type.Optional(Type.String()) }, { additionalProperties: false }),
-  DownloadInput: Type.Object({ key: Type.String() }, { additionalProperties: false }),
+  UploadInput: Type.Object({ key: Type.String(), contentType: Type.Optional(Type.String()) }),
+  UploadOutput: Type.Object({ key: Type.String(), size: Type.Integer(), contentType: Type.Optional(Type.String()), traceparent: Type.Optional(Type.String()), chunkTraceparent: Type.Optional(Type.String()) }),
+  DownloadInput: Type.Object({ key: Type.String() }),
   DownloadGrant: Type.Object({
     type: Type.Literal("TransferGrant"),
     direction: Type.Literal("receive"),
@@ -280,8 +282,10 @@ const contract = defineServiceContract({ schemas }, (ref) => ({
     },
   },
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
-    health: health.use({ events: { publish: ["Health.Heartbeat"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+      health: health.use({ events: { publish: ["Health.Heartbeat"] } }),
+    },
   },
   operations: {
     "Harness.Rust.TransferUpload": {
@@ -323,6 +327,10 @@ const service = await TrellisService.connect({
 }).orThrow();
 
 await service.operation("Harness.Ts.TransferUpload").handle(async ({ input, op, transfer }) => {
+  if (input.key.includes("oversized")) {
+    await op.started().orThrow();
+    return ok({ key: input.key, size: 0, ...(input.contentType ? { contentType: input.contentType } : {}) });
+  }
   const transferred = await transfer.completed().orThrow();
   await op.started().orThrow();
   return ok({ key: input.key, size: transferred.size, ...(input.contentType ? { contentType: input.contentType } : {}) });
@@ -341,14 +349,21 @@ await new Promise<void>(() => {});
 "#;
 
 const TS_CLIENT_SCRIPT: &str = r#"import { defineAgentContract, defineServiceContract, TrellisClient } from "@qlever-llc/trellis";
+import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 import { sdk as health } from "@qlever-llc/trellis/sdk/health";
+import { trace } from "@qlever-llc/trellis/tracing";
 import { Type } from "typebox";
 
+new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
+}).register();
+
 const schemas = {
-  UploadInput: Type.Object({ key: Type.String(), contentType: Type.Optional(Type.String()) }, { additionalProperties: false }),
-  UploadOutput: Type.Object({ key: Type.String(), size: Type.Integer(), contentType: Type.Optional(Type.String()) }, { additionalProperties: false }),
-  DownloadInput: Type.Object({ key: Type.String() }, { additionalProperties: false }),
+  UploadInput: Type.Object({ key: Type.String(), contentType: Type.Optional(Type.String()) }),
+  UploadOutput: Type.Object({ key: Type.String(), size: Type.Integer(), contentType: Type.Optional(Type.String()), traceparent: Type.Optional(Type.String()), chunkTraceparent: Type.Optional(Type.String()) }),
+  DownloadInput: Type.Object({ key: Type.String() }),
   DownloadGrant: Type.Object({
     type: Type.Literal("TransferGrant"), direction: Type.Literal("receive"), service: Type.String(), sessionKey: Type.String(), transferId: Type.String(), subject: Type.String(), expiresAt: Type.String(), chunkBytes: Type.Integer(),
     info: Type.Object({ key: Type.String(), size: Type.Integer(), updatedAt: Type.String() }, { additionalProperties: true }),
@@ -361,8 +376,10 @@ const harness = defineServiceContract({ schemas }, (ref) => ({
   description: "Harness-owned service contract for full-stack Rust/TypeScript transfer verification.",
   resources: { store: { uploads: { purpose: "Temporary transfer uploads", required: true, ttlMs: 0, maxObjectBytes: 1048576, maxTotalBytes: 4194304 } } },
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
-    health: health.use({ events: { publish: ["Health.Heartbeat"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+      health: health.use({ events: { publish: ["Health.Heartbeat"] } }),
+    },
   },
   operations: {
     "Harness.Rust.TransferUpload": { version: "v1", subject: "operations.v1.Harness.Rust.TransferUpload", input: ref.schema("UploadInput"), output: ref.schema("UploadOutput"), transfer: { direction: "send", store: "uploads", key: "/key", contentType: "/contentType", expiresInMs: 60000, maxBytes: 1024 }, capabilities: { call: [], read: [], cancel: [] }, cancel: false },
@@ -379,8 +396,10 @@ const contract = defineAgentContract(() => ({
   displayName: "Trellis Integration Transfer Agent",
   description: "Verify delegated Rust agent login and harness transfer calls.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-    harness: harness.use({ operations: { call: ["Harness.Rust.TransferUpload", "Harness.Ts.TransferUpload"] }, rpc: { call: ["Harness.Rust.TransferDownload", "Harness.Ts.TransferDownload"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
+      harness: harness.use({ operations: { call: ["Harness.Rust.TransferUpload", "Harness.Ts.TransferUpload"] }, rpc: { call: ["Harness.Rust.TransferDownload", "Harness.Ts.TransferDownload"] } }),
+    },
   },
 }));
 
@@ -402,6 +421,51 @@ async function assertUpload(method: "Harness.Rust.TransferUpload" | "Harness.Ts.
   if (terminal.terminal.state !== "completed" || terminal.terminal.output.size !== text.length || terminal.transferred.size !== text.length) {
     throw new Error(`${method} returned ${JSON.stringify(terminal)}`);
   }
+  if (terminal.terminal.output.traceparent !== undefined || terminal.terminal.output.chunkTraceparent !== undefined) {
+    throw new Error(`${method} unexpectedly returned traceparent ${terminal.terminal.output.traceparent}`);
+  }
+}
+
+async function assertTracedRustTransferUpload() {
+  let expectedTraceId = "";
+  await trace.getTracer("trellis-integration-transfer").startActiveSpan("upload traced rust transfer", async (span) => {
+    expectedTraceId = span.spanContext().traceId;
+    try {
+      const text = "ts to rust traced upload";
+      const upload = await client.operation("Harness.Rust.TransferUpload").input({ key: "ts-client/rust-transfer-trace.txt", contentType: "text/plain" }).transfer(new TextEncoder().encode(text)).start().orThrow();
+      const terminal = await upload.wait().orThrow();
+      const output = terminal.terminal.output;
+      if (terminal.terminal.state !== "completed" || output.size !== text.length || terminal.transferred.size !== text.length) {
+        throw new Error(`Harness.Rust.TransferUpload traced transfer returned ${JSON.stringify(terminal)}`);
+      }
+      if (output.traceparent === undefined || !output.traceparent.includes(expectedTraceId)) {
+        throw new Error(`Harness.Rust.TransferUpload traceparent ${output.traceparent} did not include ${expectedTraceId}`);
+      }
+      if (output.chunkTraceparent === undefined || !output.chunkTraceparent.includes(expectedTraceId)) {
+        throw new Error(`Harness.Rust.TransferUpload chunk traceparent ${output.chunkTraceparent} did not include ${expectedTraceId}`);
+      }
+    } finally {
+      span.end();
+    }
+  });
+}
+
+async function assertOversizedUpload(method: "Harness.Rust.TransferUpload" | "Harness.Ts.TransferUpload", key: string) {
+  const oversized = new Uint8Array(1025);
+  const result = await client.operation(method).input({ key, contentType: "application/octet-stream" }).transfer(oversized).start();
+  if (result.isErr()) {
+    return;
+  }
+  const upload = await result.match({
+    ok: (value) => value,
+    err: (error) => {
+      throw error;
+    },
+  });
+  const waited = await upload.wait();
+  if (!waited.isErr()) {
+    throw new Error(`${method} unexpectedly completed oversized upload`);
+  }
 }
 
 async function assertDownload(method: "Harness.Rust.TransferDownload" | "Harness.Ts.TransferDownload", key: string, expected: string) {
@@ -413,6 +477,9 @@ async function assertDownload(method: "Harness.Rust.TransferDownload" | "Harness
 
 await assertUpload("Harness.Rust.TransferUpload", "ts-client/rust-upload.txt", "ts to rust upload");
 await assertUpload("Harness.Ts.TransferUpload", "ts-client/ts-upload.txt", "ts to ts upload");
+await assertTracedRustTransferUpload();
+await assertOversizedUpload("Harness.Rust.TransferUpload", "ts-client/rust-oversized.bin");
+await assertOversizedUpload("Harness.Ts.TransferUpload", "ts-client/ts-oversized.bin");
 await assertDownload("Harness.Rust.TransferDownload", "ts-client/rust-download.txt", "rust-download:ts-client/rust-download.txt");
 await assertDownload("Harness.Ts.TransferDownload", "ts-client/ts-download.txt", "ts-download:ts-client/ts-download.txt");
 await client.natsConnection.drain();
@@ -434,6 +501,41 @@ struct UploadOutput {
     size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    traceparent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chunk_traceparent: Option<String>,
+}
+
+#[derive(Debug)]
+struct RecordingTransferValidator<V> {
+    inner: V,
+    traceparent: Arc<Mutex<Option<String>>>,
+}
+
+impl<V> RecordingTransferValidator<V> {
+    fn new(inner: V, traceparent: Arc<Mutex<Option<String>>>) -> Self {
+        Self { inner, traceparent }
+    }
+}
+
+impl<V> RequestValidator for RecordingTransferValidator<V>
+where
+    V: RequestValidator,
+{
+    fn validate<'a>(
+        &'a self,
+        subject: &'a str,
+        payload: &'a Bytes,
+        context: &'a RequestContext,
+    ) -> BoxFuture<'a, std::result::Result<RequestValidation, ServerError>> {
+        Box::pin(async move {
+            if let Some(traceparent) = context.traceparent.as_ref() {
+                *self.traceparent.lock().await = Some(traceparent.clone());
+            }
+            self.inner.validate(subject, payload, context).await
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -608,19 +710,68 @@ pub(crate) async fn run_transfer_fixture(
                         content_type: input.content_type.as_deref(),
                         metadata: BTreeMap::new(),
                     })?;
+                    let traced_transfer = input.key == TRACE_UPLOAD_KEY;
+                    let chunk_traceparent = Arc::new(Mutex::new(None));
                     let grant = plan.grant.clone();
                     accepted.transfer = Some(grant);
-                    spawn_upload_transfer_endpoint(
-                        service_client.nats().clone(),
-                        UploadTransferSession::new(plan, "2026-05-11T00:00:00.000Z"),
-                        rust_store.clone(),
-                        AuthRequestValidatorAdapter::new(Arc::clone(&service_client)),
-                    )
-                    .await?;
+                    let completion = if traced_transfer {
+                        spawn_upload_transfer_endpoint_with_completion(
+                            service_client.nats().clone(),
+                            UploadTransferSession::new(plan, "2026-05-11T00:00:00.000Z"),
+                            rust_store.clone(),
+                            RecordingTransferValidator::new(
+                                AuthRequestValidatorAdapter::new(Arc::clone(&service_client)),
+                                Arc::clone(&chunk_traceparent),
+                            ),
+                        )
+                        .await?
+                    } else {
+                        spawn_upload_transfer_endpoint_with_completion(
+                            service_client.nats().clone(),
+                            UploadTransferSession::new(plan, "2026-05-11T00:00:00.000Z"),
+                            rust_store.clone(),
+                            AuthRequestValidatorAdapter::new(Arc::clone(&service_client)),
+                        )
+                        .await?
+                    };
                     let control = operations.control(operation_id).await?;
+                    let traceparent = if traced_transfer {
+                        Some(ctx.traceparent.ok_or_else(|| {
+                            ServerError::Nats("missing transfer upload traceparent".to_string())
+                        })?)
+                    } else {
+                        None
+                    };
+                    if input.key.contains("oversized") {
+                        tokio::spawn(async move {
+                            if let Err(error) = async {
+                                control.started().await?;
+                                control
+                                    .fail(OperationFailure {
+                                        message: "oversized upload rejected".to_string(),
+                                    })
+                                    .await?;
+                                Ok::<(), ServerError>(())
+                            }
+                            .await
+                            {
+                                eprintln!(
+                                    "warning: failed to fail oversized Rust transfer operation: {error}"
+                                );
+                            }
+                        });
+                        return Ok(accepted);
+                    }
                     tokio::spawn(async move {
-                        if let Err(error) =
-                            complete_uploaded_operation(control, rust_store, input).await
+                        if let Err(error) = complete_uploaded_operation(
+                            control,
+                            rust_store,
+                            input,
+                            completion,
+                            traceparent,
+                            traced_transfer.then_some(chunk_traceparent),
+                        )
+                        .await
                         {
                             eprintln!(
                                 "warning: failed to complete Rust transfer operation: {error}"
@@ -744,6 +895,16 @@ pub(crate) async fn run_transfer_fixture(
             b"rust to ts upload",
         )
         .await?;
+        assert_rust_oversized_upload::<HarnessRustUploadOperation>(
+            &caller_client,
+            "rust-client/rust-oversized.bin",
+        )
+        .await?;
+        assert_rust_oversized_upload::<HarnessTsUploadOperation>(
+            &caller_client,
+            "rust-client/ts-oversized.bin",
+        )
+        .await?;
         assert_rust_download::<HarnessRustDownloadRpc>(
             &caller_client,
             "rust-client/rust-download.txt",
@@ -770,27 +931,130 @@ async fn complete_uploaded_operation(
     control: trellis_service::OperationControl<HarnessRustUploadOperation>,
     store: InMemoryStore,
     input: UploadInput,
+    completion: UploadTransferCompletion,
+    traceparent: Option<String>,
+    chunk_traceparent: Option<Arc<Mutex<Option<String>>>>,
 ) -> Result<(), ServerError> {
     control.started().await?;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        if let Some(bytes) = store.read(&input.key).await? {
+    let info = match tokio::time::timeout(Duration::from_secs(10), completion.completed()).await {
+        Err(_) => {
+            let error = ServerError::Nats("timed out waiting for upload completion".to_string());
             control
-                .complete(UploadOutput {
-                    key: input.key,
-                    size: bytes.len() as u64,
-                    content_type: input.content_type,
+                .fail(OperationFailure {
+                    message: error.to_string(),
                 })
                 .await?;
-            return Ok(());
+            return Err(error);
         }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(ServerError::Nats(
-                "timed out waiting for uploaded object".to_string(),
+        Ok(info) => info,
+    };
+    let info = match info {
+        Ok(info) => info,
+        Err(error) => {
+            control
+                .fail(OperationFailure {
+                    message: error.to_string(),
+                })
+                .await?;
+            return Err(error);
+        }
+    };
+    let bytes = match store.read(&input.key).await {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => {
+            let error = ServerError::Nats(format!(
+                "upload completion reported '{}', but the object was not readable",
+                input.key
             ));
+            control
+                .fail(OperationFailure {
+                    message: error.to_string(),
+                })
+                .await?;
+            return Err(error);
         }
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        Err(error) => {
+            control
+                .fail(OperationFailure {
+                    message: error.to_string(),
+                })
+                .await?;
+            return Err(error);
+        }
+    };
+    if info.key != input.key || info.size != bytes.len() as u64 {
+        let error = ServerError::Nats(format!(
+            "upload completion info mismatch for '{}': {:?}",
+            input.key, info
+        ));
+        control
+            .fail(OperationFailure {
+                message: error.to_string(),
+            })
+            .await?;
+        return Err(error);
     }
+    let chunk_traceparent = if let Some(recorded) = chunk_traceparent {
+        let Some(chunk_traceparent) = recorded.lock().await.clone() else {
+            let error = ServerError::Nats("missing transfer chunk traceparent".to_string());
+            control
+                .fail(OperationFailure {
+                    message: error.to_string(),
+                })
+                .await?;
+            return Err(error);
+        };
+        let Some(operation_trace_id) = traceparent.as_deref().and_then(trace_id_from_traceparent)
+        else {
+            let error = ServerError::Nats("invalid operation traceparent".to_string());
+            control
+                .fail(OperationFailure {
+                    message: error.to_string(),
+                })
+                .await?;
+            return Err(error);
+        };
+        let Some(chunk_trace_id) = trace_id_from_traceparent(&chunk_traceparent) else {
+            let error = ServerError::Nats("invalid transfer chunk traceparent".to_string());
+            control
+                .fail(OperationFailure {
+                    message: error.to_string(),
+                })
+                .await?;
+            return Err(error);
+        };
+        if chunk_trace_id != operation_trace_id {
+            let error = ServerError::Nats(format!(
+                "transfer chunk trace id {chunk_trace_id} did not match operation trace id {operation_trace_id}"
+            ));
+            control
+                .fail(OperationFailure {
+                    message: error.to_string(),
+                })
+                .await?;
+            return Err(error);
+        }
+        Some(chunk_traceparent)
+    } else {
+        None
+    };
+    control
+        .complete(UploadOutput {
+            key: input.key,
+            size: info.size,
+            content_type: input.content_type,
+            traceparent,
+            chunk_traceparent,
+        })
+        .await?;
+    Ok(())
+}
+
+fn trace_id_from_traceparent(traceparent: &str) -> Option<&str> {
+    traceparent
+        .split('-')
+        .nth(1)
+        .filter(|trace_id| trace_id.len() == 32)
 }
 
 async fn assert_rust_upload<O>(client: &TrellisClient, key: &str, bytes: &[u8]) -> Result<()>
@@ -825,7 +1089,59 @@ where
     if output.key != key || output.size != bytes.len() as u64 {
         return Err(miette!("{} output mismatch: {output:?}", O::KEY));
     }
+    if output.traceparent.is_some() {
+        return Err(miette!(
+            "{} unexpectedly returned traceparent {:?}",
+            O::KEY,
+            output.traceparent
+        ));
+    }
     Ok(())
+}
+
+async fn assert_rust_oversized_upload<O>(client: &TrellisClient, key: &str) -> Result<()>
+where
+    O: trellis_client::TransferOperationDescriptor<
+        Input = UploadInput,
+        Progress = Value,
+        Output = UploadOutput,
+    >,
+{
+    let input = UploadInput {
+        key: key.to_string(),
+        content_type: Some("application/octet-stream".to_string()),
+    };
+    let oversized = vec![b'x'; 1_025];
+    match client
+        .operation::<O>()
+        .input(&input)
+        .transfer(&oversized)
+        .start()
+        .await
+    {
+        Ok(started) => Err(miette!(
+            "{} unexpectedly accepted oversized upload with file info {:?}",
+            O::KEY,
+            started.file_info()
+        )),
+        Err(error) if matches!(error.source(), TrellisClientError::TransferProtocol(_)) => {
+            let TrellisClientError::TransferProtocol(message) = error.source() else {
+                unreachable!("matches! checked transfer protocol error")
+            };
+            if !message.contains("max") {
+                return Err(miette!(
+                    "{} oversized upload returned unexpected transfer error `{message}`",
+                    O::KEY
+                ));
+            }
+            Ok(())
+        }
+        Err(error) => Err(miette!(
+            "{} oversized upload returned unexpected error: {:?}",
+            O::KEY,
+            error
+        )),
+    }
 }
 
 async fn assert_rust_download<R>(

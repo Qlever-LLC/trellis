@@ -1,5 +1,6 @@
+use serde::de::DeserializeOwned;
 use serde_json::Value;
-use trellis_jobs::types::{Job, JobLogEntry, JobProgress};
+use trellis_jobs::types::{Job, JobContext, JobLogEntry, JobProgress};
 use trellis_sdk_jobs::types::{
     JobsCancelResponseJob, JobsCancelResponseJobLogsItem, JobsCancelResponseJobProgress,
     JobsDismissDLQResponseJob, JobsDismissDLQResponseJobLogsItem,
@@ -34,6 +35,7 @@ macro_rules! impl_job_to_wire {
         pub(super) fn $fn_name(job: &Job) -> Result<$job_type, JobsQueryError> {
             Ok($job_type {
                 completed_at: job.completed_at.clone(),
+                context: map_context(&job.context, "job context")?,
                 created_at: job.created_at.clone(),
                 deadline: job.deadline.clone(),
                 id: job.id.clone(),
@@ -52,6 +54,18 @@ macro_rules! impl_job_to_wire {
             })
         }
     };
+}
+
+fn map_context<T>(context: &JobContext, model: &'static str) -> Result<T, JobsQueryError>
+where
+    T: DeserializeOwned,
+{
+    serde_json::from_value(map_json_value(context, model)?).map_err(|error| {
+        JobsQueryError::ConvertWireModel {
+            model,
+            details: error.to_string(),
+        }
+    })
 }
 
 impl_job_to_wire!(
@@ -235,13 +249,14 @@ where
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use trellis_jobs::types::{JobProgress, JobState};
+    use trellis_jobs::types::{JobContext, JobProgress, JobState};
 
     use super::*;
 
     fn job_with_progress(progress: JobProgress) -> Job {
         Job {
             id: "job-1".to_string(),
+            context: context(),
             service: "documents".to_string(),
             job_type: "document-process".to_string(),
             state: JobState::Active,
@@ -257,6 +272,15 @@ mod tests {
             deadline: None,
             progress: Some(progress),
             logs: None,
+        }
+    }
+
+    fn context() -> JobContext {
+        JobContext {
+            request_id: "request-job-1".to_string(),
+            trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+            traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+            tracestate: None,
         }
     }
 

@@ -1,8 +1,17 @@
 use serde_json::json;
 use trellis_jobs::projection::{job_from_work_event, reduce_job_event};
 use trellis_jobs::types::{
-    Job, JobEvent, JobEventType, JobLogEntry, JobLogLevel, JobProgress, JobState,
+    Job, JobContext, JobEvent, JobEventType, JobLogEntry, JobLogLevel, JobProgress, JobState,
 };
+
+fn sample_context() -> JobContext {
+    JobContext {
+        request_id: "request-1".to_string(),
+        trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+        traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+        tracestate: None,
+    }
+}
 
 fn event(
     event_type: JobEventType,
@@ -11,6 +20,7 @@ fn event(
 ) -> JobEvent {
     let mut value = JobEvent {
         job_id: "job-1".to_string(),
+        context: sample_context(),
         service: "documents".to_string(),
         job_type: "document-process".to_string(),
         event_type,
@@ -59,6 +69,7 @@ fn reduce_job_event_creates_job_from_created_event() {
     assert_eq!(job.tries, 0);
     assert_eq!(job.max_tries, 5);
     assert_eq!(job.deadline.as_deref(), Some("2026-03-28T12:30:00.000Z"));
+    assert_eq!(job.context, sample_context());
     assert_eq!(job.created_at, "2026-03-28T12:00:00.000Z");
     assert_eq!(job.updated_at, "2026-03-28T12:00:00.000Z");
 }
@@ -197,6 +208,7 @@ fn reduce_job_event_rejects_progress_from_pending() {
 fn reduce_job_event_rejects_started_when_previous_state_does_not_match_current() {
     let current = Job {
         id: "job-1".to_string(),
+        context: sample_context(),
         service: "documents".to_string(),
         job_type: "document-process".to_string(),
         state: JobState::Active,
@@ -338,6 +350,7 @@ fn reduce_job_event_sets_completed_at_for_terminal_events() {
 fn reduce_job_event_preserves_terminal_state_for_non_retried_event() {
     let terminal = Job {
         id: "job-1".to_string(),
+        context: sample_context(),
         service: "documents".to_string(),
         job_type: "document-process".to_string(),
         state: JobState::Completed,
@@ -370,6 +383,7 @@ fn reduce_job_event_preserves_terminal_state_for_non_retried_event() {
 fn reduce_job_event_allows_retried_from_terminal_and_clears_runtime_fields() {
     let terminal = Job {
         id: "job-1".to_string(),
+        context: sample_context(),
         service: "documents".to_string(),
         job_type: "document-process".to_string(),
         state: JobState::Failed,
@@ -521,6 +535,7 @@ fn reduce_job_event_rejects_non_retried_transitions_from_all_terminal_states() {
     ] {
         let current = Job {
             id: "job-1".to_string(),
+            context: sample_context(),
             service: "documents".to_string(),
             job_type: "document-process".to_string(),
             state: terminal_state,

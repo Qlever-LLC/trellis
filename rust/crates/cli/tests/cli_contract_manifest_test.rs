@@ -44,7 +44,10 @@ fn agent_contract_manifest_validates_and_declares_expected_auth_and_core_surface
         "Auth.EnvelopeExpansions.Approve",
         "Auth.EnvelopeExpansions.List",
         "Auth.EnvelopeExpansions.Reject",
+        "Auth.Envelopes.Get",
         "Auth.Envelopes.Expand",
+        "Auth.Envelopes.GrantOverrides.Put",
+        "Auth.Envelopes.GrantOverrides.Remove",
     ] {
         assert!(
             calls.iter().any(|value| value == expected),
@@ -52,7 +55,6 @@ fn agent_contract_manifest_validates_and_declares_expected_auth_and_core_surface
         );
     }
     assert!(!calls.iter().any(|value| value == "Auth.Envelopes.List"));
-    assert!(!calls.iter().any(|value| value == "Auth.Envelopes.Get"));
     assert!(!calls
         .iter()
         .any(|value| value == "Auth.Envelopes.Changes.Preview"));
@@ -118,6 +120,6 @@ fn agent_contract_digest_matches_js_projection() {
     assert_eq!(
         trellis_auth::contract_digest(trellis_cli::agent_contract::agent_contract_json())
             .expect("agent contract digest"),
-        "Zm18na0dcuHAnHrfch0_QylYsa1DTA2Hn4oSBLIhPnI"
+        "40Lcb4475smgyr4HbwiHnPTMOcK4JfTqjfEd9bu1PNM"
     );
 }

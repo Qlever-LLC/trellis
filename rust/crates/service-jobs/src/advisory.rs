@@ -82,6 +82,7 @@ pub fn map_dead_event_from_advisory_job(
         &work_job.service,
         &work_job.job_type,
         &work_job.id,
+        &work_job.context,
         previous_state,
         tries,
         &advisory.timestamp,
@@ -193,19 +194,33 @@ pub async fn start_advisory_loop(
                 let _ = message.ack().await;
                 continue;
             };
-            nats.publish(mapped.subject, payload.into())
-                .await
-                .map_err(|error| {
-                    ServerError::Nats(format!(
-                        "jobs advisory loop failed to publish dead event: {error}"
-                    ))
-                })?;
+            nats.publish_with_headers(
+                mapped.subject,
+                job_event_headers(&mapped.event),
+                payload.into(),
+            )
+            .await
+            .map_err(|error| {
+                ServerError::Nats(format!(
+                    "jobs advisory loop failed to publish dead event: {error}"
+                ))
+            })?;
             let _ = message.ack().await;
         }
         Ok(())
     });
 
     Ok(AdvisoryHandle { task: Some(task) })
+}
+
+fn job_event_headers(event: &JobEvent) -> async_nats::header::HeaderMap {
+    let mut headers = async_nats::header::HeaderMap::new();
+    headers.insert("request-id", event.context.request_id.as_str());
+    headers.insert("traceparent", event.context.traceparent.as_str());
+    if let Some(tracestate) = event.context.tracestate.as_deref() {
+        headers.insert("tracestate", tracestate);
+    }
+    headers
 }
 
 fn map_dead_event_from_store(
@@ -224,13 +239,14 @@ fn map_dead_event_from_store(
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use trellis_jobs::types::JobState;
+    use trellis_jobs::types::{JobContext, JobState};
 
     use super::*;
 
     fn job(id: &str, state: JobState) -> Job {
         Job {
             id: id.to_string(),
+            context: context(id),
             service: "documents".to_string(),
             job_type: "document-process".to_string(),
             state,
@@ -246,6 +262,15 @@ mod tests {
             deadline: None,
             progress: None,
             logs: None,
+        }
+    }
+
+    fn context(id: &str) -> JobContext {
+        JobContext {
+            request_id: format!("request-{id}"),
+            trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+            traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+            tracestate: None,
         }
     }
 

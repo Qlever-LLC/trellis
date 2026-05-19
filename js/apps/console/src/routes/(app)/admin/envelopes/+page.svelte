@@ -6,7 +6,9 @@
     AuthEnvelopesListResponse,
     DeploymentEnvelope,
   } from "@qlever-llc/trellis/auth";
+  import type { AuthCapabilitiesListOutput } from "@qlever-llc/trellis/sdk/auth";
   import { afterNavigate, goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { onMount } from "svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
@@ -35,11 +37,32 @@
   import { errorMessage, formatDate } from "$lib/format";
   import { getTrellis } from "$lib/trellis";
 
-  type DetailTab = "liveness" | "requests" | "resources" | "manual";
+  type DetailTab = "liveness" | "requests" | "resources" | "grants" | "manual";
+  type DeploymentGrantOverride = AuthEnvelopesGetResponse["grantOverrides"][number];
+  type GrantIdentityKind = DeploymentGrantOverride["identityKind"];
+  type CapabilityView = AuthCapabilitiesListOutput["capabilities"][number];
+  type CapabilitySection = {
+    key: string;
+    title: string;
+    subtitle: string | null;
+    capabilities: CapabilityView[];
+  };
+  type GrantOverrideMutationInput = {
+    deploymentId: string;
+    overrides: DeploymentGrantOverride[];
+  };
+  type GrantOverrideRpcClient = {
+    request(
+      subject: "Auth.Envelopes.GrantOverrides.Put" | "Auth.Envelopes.GrantOverrides.Remove",
+      input: GrantOverrideMutationInput,
+    ): { take(): Promise<unknown> };
+  };
 
-  const detailTabs: DetailTab[] = ["liveness", "requests", "resources", "manual"];
+  const detailTabs: DetailTab[] = ["liveness", "requests", "resources", "grants", "manual"];
+  const grantIdentityKinds: GrantIdentityKind[] = ["web", "cli", "native", "device-user", "any"];
 
   const trellis = getTrellis();
+  const grantOverrideRpc = trellis as GrantOverrideRpcClient;
 
   let loading = $state(true);
   let detailLoading = $state(false);
@@ -50,15 +73,28 @@
   let livenessError = $state<string | null>(null);
   let expandError = $state<string | null>(null);
   let expandResult = $state<string | null>(null);
+  let grantError = $state<string | null>(null);
+  let grantResult = $state<string | null>(null);
+  let grantSaving = $state(false);
+  let removingGrantKey = $state<string | null>(null);
+  let capabilitiesError = $state<string | null>(null);
   let search = $state("");
   let reviewSearch = $state("");
   let rejectionReason = $state("");
   let activeDetailTab = $state<DetailTab>("liveness");
   let contractJson = $state("");
   let expectedDigest = $state("");
+  let grantIdentityKind = $state<GrantIdentityKind>("any");
+  let grantContractId = $state("");
+  let grantOrigin = $state("");
+  let grantSessionPublicKey = $state("");
+  let grantDevicePublicKey = $state("");
+  let manualGrantCapability = $state("");
+  let selectedGrantCapabilities = $state<string[]>([]);
   let envelopes = $state.raw<DeploymentEnvelope[]>([]);
   let expansionRequests = $state.raw<AuthEnvelopeExpansionsListResponse["requests"]>([]);
   let runtimeDeployments = $state.raw<RuntimeDeployment[]>([]);
+  let capabilities = $state<CapabilityView[]>([]);
   let selectedDeploymentId = $state<string | null>(null);
   let selectedRequestId = $state<string | null>(null);
   let detail = $state<AuthEnvelopesGetResponse | null>(null);
@@ -94,6 +130,36 @@
   const selectedDeltaResources = $derived(selectedRequest ? deltaResourceRows(selectedRequest.delta) : []);
   const selectedDeltaCapabilities = $derived(selectedRequest ? deltaCapabilityRows(selectedRequest.delta) : []);
   const requestRows = $derived(detail ? expansionRequestRows(detail.expansionRequests) : []);
+  const grantOverrides = $derived(detail?.grantOverrides ?? []);
+  const capabilitySections = $derived.by(() => {
+    const sections: CapabilitySection[] = [];
+    for (const capability of capabilities) {
+      const key = capabilitySectionKey(capability);
+      const existing = sections.find((section) => section.key === key);
+      if (existing) {
+        existing.capabilities.push(capability);
+      } else {
+        sections.push({
+          key,
+          title: capabilitySectionTitle(capability),
+          subtitle: capabilitySectionSubtitle(capability),
+          capabilities: [capability],
+        });
+      }
+    }
+    return sections
+      .map((section) => ({
+        ...section,
+        capabilities: section.capabilities.slice().sort((left, right) =>
+          localCapabilityKey(left.key).localeCompare(localCapabilityKey(right.key))
+        ),
+      }))
+      .sort((left, right) => {
+        if (left.key === "platform") return -1;
+        if (right.key === "platform") return 1;
+        return left.title.localeCompare(right.title) || left.key.localeCompare(right.key);
+      });
+  });
   const liveRows = $derived(
     selectedEnvelope
       ? livenessRows(selectedEnvelope.boundary, runtimeDeployments, selectedEnvelope.deploymentId)
@@ -150,10 +216,80 @@
     return status === "Active" ? "healthy" : "offline";
   }
 
+  function capabilitySectionKey(capability: CapabilityView): string {
+    if (capability.source === "platform") return "platform";
+    return capability.contractId ?? capability.contractDisplayName ?? "contract";
+  }
+
+  function capabilitySectionTitle(capability: CapabilityView): string {
+    if (capability.source === "platform") return "Platform";
+    return capability.contractDisplayName ?? capability.contractId ?? "Contract";
+  }
+
+  function capabilitySectionSubtitle(capability: CapabilityView): string | null {
+    if (capability.source === "platform") return null;
+    return capability.contractId ?? null;
+  }
+
+  function localCapabilityKey(key: string): string {
+    return key.includes("::") ? key.split("::").slice(1).join("::") : key;
+  }
+
+  function trimmedOptional(value: string): string | null {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  function uniqueCapabilities(values: string[]): string[] {
+    return Array.from(new Set(values.map((value) => value.trim()).filter((value) => value.length > 0)));
+  }
+
+  function grantOverrideKey(override: DeploymentGrantOverride): string {
+    return [
+      override.identityKind,
+      override.contractId ?? "*",
+      override.origin ?? "*",
+      override.sessionPublicKey ?? "*",
+      override.devicePublicKey ?? "*",
+      override.capability,
+    ].join("|");
+  }
+
+  function sameGrantOverride(left: DeploymentGrantOverride, right: DeploymentGrantOverride): boolean {
+    return grantOverrideKey(left) === grantOverrideKey(right);
+  }
+
+  function buildGrantOverrides(): DeploymentGrantOverride[] {
+    const deploymentId = selectedDeploymentId;
+    if (!deploymentId) return [];
+    const capabilities = uniqueCapabilities([...selectedGrantCapabilities, manualGrantCapability]);
+    return capabilities.map((capability) => ({
+      deploymentId,
+      identityKind: grantIdentityKind,
+      contractId: trimmedOptional(grantContractId),
+      origin: trimmedOptional(grantOrigin),
+      sessionPublicKey: trimmedOptional(grantSessionPublicKey),
+      devicePublicKey: trimmedOptional(grantDevicePublicKey),
+      capability,
+    }));
+  }
+
+  function resetGrantForm(): void {
+    grantIdentityKind = "any";
+    grantContractId = "";
+    grantOrigin = "";
+    grantSessionPublicKey = "";
+    grantDevicePublicKey = "";
+    manualGrantCapability = "";
+    selectedGrantCapabilities = [];
+  }
+
   async function updateDeploymentUrl(deploymentId: string, replaceState = false): Promise<void> {
-    const url = new URL(page.url);
-    url.searchParams.set("deployment", deploymentId);
-    await goto(url, { keepFocus: true, noScroll: true, replaceState });
+    await goto(resolve(`/admin/envelopes?deployment=${encodeURIComponent(deploymentId)}`), {
+      keepFocus: true,
+      noScroll: true,
+      replaceState,
+    });
   }
 
   async function selectDeploymentFromUrl(replaceInvalidSelection = false, forceReload = false): Promise<void> {
@@ -181,12 +317,19 @@
     loading = true;
     error = null;
     try {
-      const [envelopeResponse, expansionResponse] = await Promise.all([
+      const [envelopeResponse, expansionResponse, capabilitiesResponse] = await Promise.all([
         trellis.request("Auth.Envelopes.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.EnvelopeExpansions.List", { state: "pending", limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.Capabilities.List", { limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(envelopeResponse)) { error = errorMessage(envelopeResponse); detail = null; runtimeDeployments = []; return; }
       if (isErr(expansionResponse)) { error = errorMessage(expansionResponse); detail = null; runtimeDeployments = []; return; }
+      if (isErr(capabilitiesResponse)) {
+        capabilitiesError = errorMessage(capabilitiesResponse);
+      } else {
+        capabilitiesError = null;
+        capabilities = (capabilitiesResponse.capabilities ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
+      }
       const envelopeValue = envelopeResponse as AuthEnvelopesListResponse;
       const expansionValue = expansionResponse as AuthEnvelopeExpansionsListResponse;
       envelopes = envelopeValue.envelopes;
@@ -292,6 +435,8 @@
     if (!selectedDeploymentId) return;
     expandError = null;
     expandResult = null;
+    grantError = null;
+    grantResult = null;
     expanding = true;
     try {
       const contract = JSON.parse(contractJson) as Record<string, unknown>;
@@ -354,6 +499,59 @@
       expandError = errorMessage(e);
     } finally {
       rejectingRequestId = null;
+    }
+  }
+
+  async function saveGrantOverrides() {
+    if (!selectedDeploymentId || !detail) return;
+    const newOverrides = buildGrantOverrides();
+    if (newOverrides.length === 0) {
+      grantError = "Select or enter at least one capability.";
+      return;
+    }
+
+    const overrides = [...detail.grantOverrides];
+    for (const override of newOverrides) {
+      if (!overrides.some((existing) => sameGrantOverride(existing, override))) overrides.push(override);
+    }
+
+    grantSaving = true;
+    grantError = null;
+    grantResult = null;
+    try {
+      const response = await grantOverrideRpc.request("Auth.Envelopes.GrantOverrides.Put", {
+        deploymentId: selectedDeploymentId,
+        overrides,
+      }).take();
+      if (isErr(response)) { grantError = errorMessage(response); return; }
+      grantResult = `Saved ${newOverrides.length} grant override${newOverrides.length === 1 ? "" : "s"}.`;
+      resetGrantForm();
+      await selectEnvelope(selectedDeploymentId);
+    } catch (e) {
+      grantError = errorMessage(e);
+    } finally {
+      grantSaving = false;
+    }
+  }
+
+  async function removeGrantOverride(override: DeploymentGrantOverride) {
+    if (!selectedDeploymentId) return;
+    const key = grantOverrideKey(override);
+    removingGrantKey = key;
+    grantError = null;
+    grantResult = null;
+    try {
+      const response = await grantOverrideRpc.request("Auth.Envelopes.GrantOverrides.Remove", {
+        deploymentId: selectedDeploymentId,
+        overrides: [override],
+      }).take();
+      if (isErr(response)) { grantError = errorMessage(response); return; }
+      grantResult = "Removed grant override.";
+      await selectEnvelope(selectedDeploymentId);
+    } catch (e) {
+      grantError = errorMessage(e);
+    } finally {
+      removingGrantKey = null;
     }
   }
 
@@ -621,7 +819,99 @@
                 {/if}
                 </div>
                 <p class="text-sm text-base-content/65">Portal route: {detail?.portalRoute?.portalId ?? "No route"} {detail?.portalRoute?.entryUrl ? `· ${detail.portalRoute.entryUrl}` : ""}</p>
-                <p class="text-sm text-base-content/65">Grant overrides: {detail?.grantOverrides.length ?? 0}</p>
+                <p class="text-sm text-base-content/65">Grant overrides: {grantOverrides.length}</p>
+              </div>
+            {:else if activeDetailTab === "grants"}
+              <div id={tabPanelId("grants")} class="space-y-3 text-sm" role="tabpanel" aria-labelledby={tabButtonId("grants")} tabindex="0">
+                {#if grantError}<div class="alert alert-error text-sm"><span>{grantError}</span></div>{/if}
+                {#if grantResult}<div class="alert alert-success text-sm"><span>{grantResult}</span></div>{/if}
+
+                <div class="overflow-x-auto">
+                  <table class="table table-xs trellis-table min-w-[820px] table-fixed">
+                    <colgroup><col class="w-[11%]" /><col class="w-[18%]" /><col class="w-[15%]" /><col class="w-[15%]" /><col class="w-[15%]" /><col class="w-[18%]" /><col class="w-[8%]" /></colgroup>
+                    <thead><tr><th>Identity</th><th>Contract</th><th>Origin</th><th>Session key</th><th>Device key</th><th>Capability</th><th></th></tr></thead>
+                    <tbody>
+                      {#each grantOverrides as override (grantOverrideKey(override))}
+                        <tr>
+                          <td><span class="badge badge-outline badge-xs">{override.identityKind}</span></td>
+                          <td class="trellis-identifier truncate" title={override.contractId ?? "Any"}>{override.contractId ?? "Any"}</td>
+                          <td class="trellis-identifier truncate" title={override.origin ?? "Any"}>{override.origin ?? "Any"}</td>
+                          <td class="trellis-identifier truncate" title={override.sessionPublicKey ?? "Any"}>{override.sessionPublicKey ?? "Any"}</td>
+                          <td class="trellis-identifier truncate" title={override.devicePublicKey ?? "Any"}>{override.devicePublicKey ?? "Any"}</td>
+                          <td class="trellis-identifier truncate" title={override.capability}>{override.capability}</td>
+                          <td><button class="btn btn-ghost btn-xs" onclick={() => removeGrantOverride(override)} disabled={removingGrantKey === grantOverrideKey(override)} aria-label={`Remove grant override for ${override.capability}`}>{removingGrantKey === grantOverrideKey(override) ? "..." : "Remove"}</button></td>
+                        </tr>
+                      {:else}
+                        <tr><td colspan="7" class="text-base-content/55">No grant overrides configured.</td></tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="rounded-box border border-base-300 p-3">
+                  <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60">Add grant overrides</div>
+                  <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    <label class="form-control">
+                      <span class="label-text text-xs">Identity kind</span>
+                      <select class="select select-bordered select-sm" bind:value={grantIdentityKind}>
+                        {#each grantIdentityKinds as kind (kind)}<option value={kind}>{kind}</option>{/each}
+                      </select>
+                    </label>
+                    <label class="form-control">
+                      <span class="label-text text-xs">Contract id</span>
+                      <input class="input input-bordered input-sm trellis-identifier" placeholder="Any contract" bind:value={grantContractId} />
+                    </label>
+                    <label class="form-control">
+                      <span class="label-text text-xs">Origin</span>
+                      <input class="input input-bordered input-sm trellis-identifier" placeholder="Any origin" bind:value={grantOrigin} />
+                    </label>
+                    <label class="form-control">
+                      <span class="label-text text-xs">Session public key</span>
+                      <input class="input input-bordered input-sm trellis-identifier" placeholder="Any session key" bind:value={grantSessionPublicKey} />
+                    </label>
+                    <label class="form-control">
+                      <span class="label-text text-xs">Device public key</span>
+                      <input class="input input-bordered input-sm trellis-identifier" placeholder="Any device key" bind:value={grantDevicePublicKey} />
+                    </label>
+                    <label class="form-control">
+                      <span class="label-text text-xs">Manual capability</span>
+                      <input class="input input-bordered input-sm trellis-identifier" placeholder="capability.key" bind:value={manualGrantCapability} />
+                    </label>
+                  </div>
+
+                  <div class="mt-3 max-h-64 overflow-auto rounded-box border border-base-300">
+                    {#if capabilitiesError}
+                      <div class="p-2 text-xs text-base-content/65">Capability catalog unavailable: {capabilitiesError}</div>
+                    {:else if capabilitySections.length === 0}
+                      <div class="p-2 text-xs text-base-content/65">No catalog capabilities returned. Use manual capability text.</div>
+                    {:else}
+                      {#each capabilitySections as section (section.key)}
+                        <div class="border-b border-base-300 p-2 last:border-b-0">
+                          <div class="mb-1 flex items-baseline gap-2">
+                            <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">{section.title}</span>
+                            {#if section.subtitle}<span class="trellis-identifier text-xs text-base-content/50">{section.subtitle}</span>{/if}
+                          </div>
+                          <div class="grid gap-1 md:grid-cols-2">
+                            {#each section.capabilities as capability (capability.key)}
+                              <label class="flex min-w-0 items-start gap-2 rounded-box px-2 py-1 hover:bg-base-200/60">
+                                <input class="checkbox checkbox-xs mt-1" type="checkbox" bind:group={selectedGrantCapabilities} value={capability.key} />
+                                <span class="min-w-0">
+                                  <span class="block truncate text-xs font-medium" title={capability.description}>{capability.description}</span>
+                                  <span class="trellis-identifier block break-all text-xs text-base-content/50">{localCapabilityKey(capability.key)}</span>
+                                </span>
+                              </label>
+                            {/each}
+                          </div>
+                        </div>
+                      {/each}
+                    {/if}
+                  </div>
+
+                  <div class="mt-3 flex items-center justify-between gap-2">
+                    <span class="text-xs text-base-content/55">Selected capabilities: {uniqueCapabilities([...selectedGrantCapabilities, manualGrantCapability]).length}</span>
+                    <button class="btn btn-primary btn-sm" onclick={saveGrantOverrides} disabled={!selectedDeploymentId || grantSaving || uniqueCapabilities([...selectedGrantCapabilities, manualGrantCapability]).length === 0}>{grantSaving ? "Saving..." : "Save grant overrides"}</button>
+                  </div>
+                </div>
               </div>
             {:else}
               <div id={tabPanelId("manual")} class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_16rem]" role="tabpanel" aria-labelledby={tabButtonId("manual")} tabindex="0">

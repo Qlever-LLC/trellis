@@ -44,12 +44,14 @@ const selectionContract = defineServiceContract(
 );
 
 const appUses = {
-  jobs: jobs.use({
-    rpc: { call: ["Jobs.List", "Jobs.ListServices"] },
-  }),
-  selection: selectionContract.use({
-    rpc: { call: ["Selection.Selected"] },
-  }),
+  required: {
+    jobs: jobs.use({
+      rpc: { call: ["Jobs.List", "Jobs.ListServices"] },
+    }),
+    selection: selectionContract.use({
+      rpc: { call: ["Selection.Selected"] },
+    }),
+  },
 } as const;
 
 const appContract = defineAppContract(

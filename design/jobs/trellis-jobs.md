@@ -185,7 +185,8 @@ remain raw pub/sub subjects rather than `events.v1.*` contract events.
 
 Job state changes and worker heartbeats are published to this stream. The stream
 is append-only and replayable. The `.created` event contains the full job
-payload, enabling stream replay to reconstruct job state.
+payload and Trellis-owned job context, enabling stream replay to reconstruct job
+state and preserve request/trace correlation.
 
 **Work Queue: JetStream Stream (`JOBS_WORK`)**
 
@@ -202,6 +203,12 @@ When a service calls `service.jobs.<queue>.create()`, the runtime publishes a
 `.created` and `.retried` events from `JOBS` with a subject transform,
 automatically populating the work queue. This keeps initial enqueue and manual
 retry stream-first and replayable.
+
+Every lifecycle event includes `context` with `requestId`, `traceId`,
+`traceparent`, and optional `tracestate`. Job creation inherits active trace
+context when one exists and otherwise creates a fresh W3C `traceparent`; jobs are
+never created without trace context. Lifecycle publishes also set matching NATS
+headers: `request-id`, `traceparent`, and `tracestate` when present.
 
 **Consumer configuration (per job-type):**
 
@@ -550,6 +557,12 @@ Job state changes are published to the `JOBS` stream:
 ```typescript
 type JobEventWire = {
   jobId: string;
+  context: {
+    requestId: string;
+    traceId: string;
+    traceparent: string;
+    tracestate?: string;
+  };
   service: string;
   jobType: string;
   eventType: string;
@@ -572,7 +585,9 @@ type JobEventWire = {
 
 The `payload` field is **required** on `.created` events and enables full job
 reconstruction from stream replay. It may be omitted on subsequent events to
-reduce message size.
+reduce message size. The `context` field is required on all lifecycle events and
+remains stable for the job across `created`, worker transitions, admin
+mutations, janitor expiry, advisory dead-letter mapping, and replay/dismissal.
 
 Worker heartbeat subjects are part of the jobs subsystem subject space but are
 not job lifecycle events. They use the
@@ -645,6 +660,9 @@ Public runtime rules:
 - active job handles expose typed payloads plus service-private execution
   controls such as heartbeat/in-progress acknowledgement, progress publication,
   log publication, cooperative cancellation checks, and redelivery metadata
+- active job handles expose immutable job context so handlers can include
+  `requestId` and trace identifiers in logs, child work, and domain outputs when
+  appropriate
 - duplicate handler registration for the same service-local job type is a
   bootstrap-time programming error; runtimes SHOULD fail fast rather than racing
   multiple handlers on one queue

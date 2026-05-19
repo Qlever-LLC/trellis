@@ -41,8 +41,10 @@ fn env_lock() -> std::sync::MutexGuard<'static, ()> {
 fn auth_validate_request_omits_absent_capabilities() {
     let request = AuthRequestsValidateRequest {
         capabilities: None,
+        iat: 123,
         payload_hash: "hash".to_string(),
         proof: "proof".to_string(),
+        request_id: "request-1".to_string(),
         session_key: "session".to_string(),
         subject: "rpc.v1.Jobs.ListServices".to_string(),
     };

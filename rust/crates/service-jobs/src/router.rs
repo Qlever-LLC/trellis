@@ -2,13 +2,12 @@
 
 use serde_json::Value;
 use trellis_sdk_jobs::rpc::{
-    JobsCancelRpc, JobsDismissDLQRpc, JobsGetRpc, JobsHealthRpc, JobsListDLQRpc, JobsListRpc,
-    JobsListServicesRpc, JobsReplayDLQRpc, JobsRetryRpc,
+    Empty, JobsCancelRpc, JobsDismissDLQRpc, JobsGetRpc, JobsHealthRpc, JobsListDLQRpc,
+    JobsListRpc, JobsListServicesRpc, JobsReplayDLQRpc, JobsRetryRpc,
 };
 use trellis_sdk_jobs::types::{
-    JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsHealthRequest,
-    JobsHealthResponse, JobsListDLQRequest, JobsListRequest, JobsListServicesRequest,
-    JobsReplayDLQRequest, JobsRetryRequest,
+    JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsHealthResponse,
+    JobsListDLQRequest, JobsListRequest, JobsReplayDLQRequest, JobsRetryRequest,
 };
 use trellis_service::Router;
 
@@ -18,7 +17,7 @@ use crate::query::JobsQuery;
 /// Build the Jobs admin RPC router backed by a SQL projection query adapter.
 pub fn build_router_with_query(query: JobsQuery) -> Router {
     let mut router = Router::new();
-    router.register_rpc::<JobsHealthRpc, _, _>(|_ctx, _input: JobsHealthRequest| async move {
+    router.register_rpc::<JobsHealthRpc, _, _>(|_ctx, _input: Empty| async move {
         Ok(JobsHealthResponse {
             checks: Vec::new(),
             service: SERVICE_NAME.to_string(),
@@ -28,7 +27,7 @@ pub fn build_router_with_query(query: JobsQuery) -> Router {
     });
     router.register_rpc::<JobsListServicesRpc, _, _>({
         let query = query.clone();
-        move |_ctx, _input: JobsListServicesRequest| {
+        move |_ctx, _input: Empty| {
             let query = query.clone();
             async move { query.list_services().await.map_err(map_query_error) }
         }

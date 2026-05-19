@@ -424,82 +424,41 @@ Deno.test("active compatible projection allows different schema ref names with i
   assert(lookup.has("graph@v1"));
 });
 
-Deno.test("active compatible projection rejects optional additive field when old schema is closed", () => {
-  assertThrows(
-    () =>
-      createActiveContractLookup([
-        {
-          digest: "graph-a",
-          contract: makeSchemaRpcContract({
-            schemas: {
-              Input: {
-                type: "object",
-                properties: { id: { type: "string" } },
-                required: ["id"],
-                additionalProperties: false,
-              },
-              Output: { type: "object" },
-            },
-          }),
+Deno.test("active compatible projection allows optional additive object fields", () => {
+  const lookup = createActiveContractLookup([
+    {
+      digest: "graph-a",
+      contract: makeSchemaRpcContract({
+        schemas: {
+          Input: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            required: ["id"],
+          },
+          Output: { type: "object" },
         },
-        {
-          digest: "graph-b",
-          contract: makeSchemaRpcContract({
-            schemas: {
-              Input: {
-                type: "object",
-                properties: {
-                  id: { type: "string" },
-                  displayName: { type: "string" },
-                },
-                required: ["id"],
-              },
-              Output: { type: "object" },
+      }),
+    },
+    {
+      digest: "graph-b",
+      contract: makeSchemaRpcContract({
+        schemas: {
+          Input: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              displayName: { type: "string" },
             },
-          }),
+            required: ["id"],
+          },
+          Output: { type: "object" },
         },
-      ]),
-    Error,
-  );
-});
+      }),
+    },
+  ]);
 
-Deno.test("active compatible projection rejects property-set divergence when either schema is closed", () => {
-  assertThrows(
-    () =>
-      createActiveContractLookup([
-        {
-          digest: "graph-a",
-          contract: makeSchemaRpcContract({
-            schemas: {
-              Input: {
-                type: "object",
-                properties: { id: { type: "string" } },
-                required: ["id"],
-              },
-              Output: { type: "object" },
-            },
-          }),
-        },
-        {
-          digest: "graph-b",
-          contract: makeSchemaRpcContract({
-            schemas: {
-              Input: {
-                type: "object",
-                properties: {
-                  id: { type: "string" },
-                  displayName: { type: "string" },
-                },
-                required: ["id"],
-                additionalProperties: false,
-              },
-              Output: { type: "object" },
-            },
-          }),
-        },
-      ]),
-    Error,
-  );
+  assertEquals(lookup.size, 1);
+  assert(lookup.has("graph@v1"));
 });
 
 Deno.test("active compatible projection rejects enum narrowing", () => {

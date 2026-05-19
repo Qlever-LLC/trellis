@@ -1,6 +1,16 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobContext {
+    pub request_id: String,
+    pub trace_id: String,
+    pub traceparent: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tracestate: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum JobState {
@@ -82,6 +92,7 @@ pub struct JobProgress {
 #[serde(rename_all = "camelCase")]
 pub struct Job {
     pub id: String,
+    pub context: JobContext,
     pub service: String,
     #[serde(rename = "type")]
     pub job_type: String,
@@ -111,6 +122,7 @@ pub struct Job {
 #[serde(rename_all = "camelCase")]
 pub struct JobEvent {
     pub job_id: String,
+    pub context: JobContext,
     pub service: String,
     pub job_type: String,
     pub event_type: JobEventType,

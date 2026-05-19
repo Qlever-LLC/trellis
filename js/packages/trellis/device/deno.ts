@@ -24,6 +24,7 @@ const PendingActivationStateSchema = Type.Object({
   publicIdentityKey: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   deploymentId: Type.String({ minLength: 1 }),
+  flowId: Type.String({ minLength: 1 }),
   nonce: Type.String({ minLength: 1 }),
   activationUrl: Type.String({ minLength: 1 }),
 });
@@ -34,6 +35,7 @@ const ActivatedActivationStateSchema = Type.Object({
   publicIdentityKey: Type.String({ minLength: 1 }),
   instanceId: Type.String({ minLength: 1 }),
   deploymentId: Type.String({ minLength: 1 }),
+  flowId: Type.String({ minLength: 1 }),
   nonce: Type.String({ minLength: 1 }),
   activationUrl: Type.String({ minLength: 1 }),
 });
@@ -483,6 +485,7 @@ async function fetchDeviceBootstrap(args: {
   let iat = args.iat;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const request = await signDeviceWaitRequest({
+      flowId: "connect-info",
       publicIdentityKey: args.publicIdentityKey,
       nonce: "connect-info",
       identitySeed: args.identitySeed,
@@ -553,6 +556,7 @@ async function fetchDeviceBootstrap(args: {
 
 async function fetchDeviceActivationWaitStatus(args: {
   trellisUrl: string;
+  flowId: string;
   publicIdentityKey: string;
   identitySeed: Uint8Array | string;
   contractDigest: string;
@@ -563,6 +567,7 @@ async function fetchDeviceActivationWaitStatus(args: {
   let iat = args.iat;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const request = await signDeviceWaitRequest({
+      flowId: args.flowId,
       publicIdentityKey: args.publicIdentityKey,
       nonce: args.nonce,
       identitySeed: args.identitySeed,
@@ -708,6 +713,7 @@ async function waitForActivationCompletion(args: {
       publicIdentityKey: identity.publicIdentityKey,
       identitySeed: identity.identitySeed,
       contractDigest: args.contractDigest,
+      flowId: args.localState.flowId,
       nonce: args.localState.nonce,
       signal: args.signal,
     });
@@ -828,6 +834,7 @@ async function resolvePendingActivation(args: {
     publicIdentityKey: args.publicIdentityKey,
     identitySeed: args.identitySeed,
     contractDigest: args.contractDigest,
+    flowId: args.localState.flowId,
     nonce: args.localState.nonce,
   });
 

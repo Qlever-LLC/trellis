@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use async_nats::header::HeaderMap;
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use tokio::sync::oneshot;
 
 use crate::{
     encode_error_reply, OperationTransferProgress, RequestContext, RequestValidator, ServerError,
@@ -196,6 +198,21 @@ pub enum UploadTransferAck {
     },
 }
 
+/// Awaitable provider-side notification that an upload transfer reached durable storage.
+#[derive(Debug)]
+pub struct UploadTransferCompletion {
+    receiver: oneshot::Receiver<Result<FileTransferInfo, ServerError>>,
+}
+
+impl UploadTransferCompletion {
+    /// Wait until the upload endpoint has durably stored the object or observed a transfer error.
+    pub async fn completed(self) -> Result<FileTransferInfo, ServerError> {
+        self.receiver.await.map_err(|_| {
+            ServerError::Nats("upload transfer completion channel closed".to_string())
+        })?
+    }
+}
+
 /// Store-backed upload transfer executor for a single planned grant.
 #[derive(Debug, Clone)]
 pub struct UploadTransferSession {
@@ -375,7 +392,7 @@ where
 pub async fn run_upload_transfer_endpoint_with_progress<C, V, F>(
     client: async_nats::Client,
     subscriber: impl futures_util::Stream<Item = async_nats::Message>,
-    mut session: UploadTransferSession,
+    session: UploadTransferSession,
     store: C,
     validator: V,
     on_progress: F,
@@ -385,28 +402,204 @@ where
     V: RequestValidator + 'static,
     F: Fn(OperationTransferProgress) + Send + Sync + 'static,
 {
+    run_upload_transfer_endpoint_inner(
+        client,
+        subscriber,
+        session,
+        store,
+        validator,
+        on_progress,
+        None,
+    )
+    .await
+}
+
+async fn run_upload_transfer_endpoint_inner<C, V, F>(
+    client: async_nats::Client,
+    subscriber: impl futures_util::Stream<Item = async_nats::Message>,
+    mut session: UploadTransferSession,
+    store: C,
+    validator: V,
+    on_progress: F,
+    mut completion: Option<oneshot::Sender<Result<FileTransferInfo, ServerError>>>,
+) -> Result<(), ServerError>
+where
+    C: StoreResourceClient,
+    V: RequestValidator + 'static,
+    F: Fn(OperationTransferProgress) + Send + Sync + 'static,
+{
     let mut subscriber = Box::pin(subscriber);
-    while let Some(message) = subscriber.next().await {
-        let reply_to = message.reply.as_ref().map(ToString::to_string);
-        let result =
-            handle_upload_transfer_message(&mut session, &store, &validator, &message).await;
-        if let Some(reply_to) = reply_to {
-            match result {
-                Ok((ack, progress)) => {
-                    if matches!(ack, UploadTransferAck::Continue) && progress.chunk_bytes > 0 {
-                        on_progress(progress);
-                    }
-                    client
-                        .publish(reply_to, Bytes::from(serde_json::to_vec(&ack)?))
-                        .await
-                        .map_err(|error| ServerError::Nats(error.to_string()))?;
+    let expiry = tokio::time::sleep(transfer_expiry_delay(&session.plan.grant.expires_at)?);
+    tokio::pin!(expiry);
+    loop {
+        tokio::select! {
+            _ = &mut expiry => {
+                if let Some(sender) = completion.take() {
+                    let _ = sender.send(Err(ServerError::TransferExpired {
+                        transfer_id: session.plan.grant.transfer_id.clone(),
+                        expires_at: session.plan.grant.expires_at.clone(),
+                    }));
                 }
-                Err(error) => publish_error_reply(&client, reply_to, &error).await?,
+                return Ok(());
+            }
+            maybe_message = subscriber.next() => {
+                let Some(message) = maybe_message else {
+                    break;
+                };
+                let reply_to = message.reply.as_ref().map(ToString::to_string);
+                let result = handle_upload_transfer_message(&mut session, &store, &validator, &message).await;
+                match result {
+                    Ok((ack, progress)) => {
+                        match &ack {
+                            UploadTransferAck::Continue if progress.chunk_bytes > 0 => {
+                                on_progress(progress);
+                            }
+                            UploadTransferAck::Complete { info } => {
+                                if let Some(sender) = completion.take() {
+                                    let _ = sender.send(Ok(info.clone()));
+                                }
+                            }
+                            UploadTransferAck::Continue => {}
+                        }
+                        if let Some(reply_to) = reply_to {
+                            client
+                                .publish(reply_to, Bytes::from(serde_json::to_vec(&ack)?))
+                                .await
+                                .map_err(|error| ServerError::Nats(error.to_string()))?;
+                        }
+                    }
+                    Err(error) => {
+                        if let Some(sender) = completion.take() {
+                            let _ = sender.send(Err(transfer_completion_error(&error)));
+                        }
+                        if let Some(reply_to) = reply_to {
+                            publish_error_reply(&client, reply_to, &error).await?;
+                        }
+                        return Ok(());
+                    }
+                }
             }
         }
     }
 
+    if let Some(sender) = completion.take() {
+        let _ = sender.send(Err(ServerError::TransferMissingEof {
+            transfer_id: session.plan.grant.transfer_id.clone(),
+        }));
+    }
+
     Ok(())
+}
+
+fn transfer_completion_error(error: &ServerError) -> ServerError {
+    match error {
+        ServerError::TransferSessionMismatch {
+            subject,
+            actual_session_key,
+        } => ServerError::TransferSessionMismatch {
+            subject: subject.clone(),
+            actual_session_key: actual_session_key.clone(),
+        },
+        ServerError::MissingSessionKey { subject } => ServerError::MissingSessionKey {
+            subject: subject.clone(),
+        },
+        ServerError::MissingProof { subject } => ServerError::MissingProof {
+            subject: subject.clone(),
+        },
+        ServerError::RequestDenied {
+            subject,
+            session_key,
+        } => ServerError::RequestDenied {
+            subject: subject.clone(),
+            session_key: session_key.clone(),
+        },
+        ServerError::ReplyInboxMismatch {
+            subject,
+            session_key,
+            reply_to,
+        } => ServerError::ReplyInboxMismatch {
+            subject: subject.clone(),
+            session_key: session_key.clone(),
+            reply_to: reply_to.clone(),
+        },
+        ServerError::TransferObjectTooLarge {
+            service_name,
+            store,
+            key,
+            size,
+            max_bytes,
+        } => ServerError::TransferObjectTooLarge {
+            service_name: service_name.clone(),
+            store: store.clone(),
+            key: key.clone(),
+            size: *size,
+            max_bytes: *max_bytes,
+        },
+        ServerError::TransferSequenceOutOfOrder {
+            transfer_id,
+            expected_seq,
+            actual_seq,
+        } => ServerError::TransferSequenceOutOfOrder {
+            transfer_id: transfer_id.clone(),
+            expected_seq: *expected_seq,
+            actual_seq: *actual_seq,
+        },
+        ServerError::TransferMissingEof { transfer_id } => ServerError::TransferMissingEof {
+            transfer_id: transfer_id.clone(),
+        },
+        ServerError::TransferAlreadyComplete { transfer_id } => {
+            ServerError::TransferAlreadyComplete {
+                transfer_id: transfer_id.clone(),
+            }
+        }
+        ServerError::InvalidTransferId { value } => ServerError::InvalidTransferId {
+            value: value.clone(),
+        },
+        ServerError::TransferExpired {
+            transfer_id,
+            expires_at,
+        } => ServerError::TransferExpired {
+            transfer_id: transfer_id.clone(),
+            expires_at: expires_at.clone(),
+        },
+        ServerError::InvalidTransferExpiry {
+            expires_at,
+            details,
+        } => ServerError::InvalidTransferExpiry {
+            expires_at: expires_at.clone(),
+            details: details.clone(),
+        },
+        ServerError::TransferObjectMissing { store, key } => ServerError::TransferObjectMissing {
+            store: store.clone(),
+            key: key.clone(),
+        },
+        ServerError::InvalidTransferChunkSize { chunk_bytes } => {
+            ServerError::InvalidTransferChunkSize {
+                chunk_bytes: *chunk_bytes,
+            }
+        }
+        ServerError::MissingTransferHeader { header } => {
+            ServerError::MissingTransferHeader { header }
+        }
+        ServerError::InvalidTransferHeader { header, value } => {
+            ServerError::InvalidTransferHeader {
+                header,
+                value: value.clone(),
+            }
+        }
+        ServerError::TransferObjectSizeMismatch {
+            store,
+            key,
+            expected_size,
+            actual_size,
+        } => ServerError::TransferObjectSizeMismatch {
+            store: store.clone(),
+            key: key.clone(),
+            expected_size: *expected_size,
+            actual_size: *actual_size,
+        },
+        _ => ServerError::Nats(error.to_string()),
+    }
 }
 
 /// Run a NATS download transfer endpoint for a single planned grant until its subscriber closes.
@@ -493,6 +686,74 @@ where
         tracing::debug!(subject = %subject, "upload transfer endpoint task ended");
     });
     Ok(())
+}
+
+/// Subscribe and run an upload transfer endpoint that can be awaited until durable storage.
+pub async fn spawn_upload_transfer_endpoint_with_completion<C, V>(
+    client: async_nats::Client,
+    session: UploadTransferSession,
+    store: C,
+    validator: V,
+) -> Result<UploadTransferCompletion, ServerError>
+where
+    C: StoreResourceClient,
+    V: RequestValidator + 'static,
+{
+    spawn_upload_transfer_endpoint_with_progress_and_completion(
+        client,
+        session,
+        store,
+        validator,
+        |_| {},
+    )
+    .await
+}
+
+/// Subscribe and run an upload transfer endpoint with progress and durable completion reporting.
+pub async fn spawn_upload_transfer_endpoint_with_progress_and_completion<C, V, F>(
+    client: async_nats::Client,
+    session: UploadTransferSession,
+    store: C,
+    validator: V,
+    on_progress: F,
+) -> Result<UploadTransferCompletion, ServerError>
+where
+    C: StoreResourceClient,
+    V: RequestValidator + 'static,
+    F: Fn(OperationTransferProgress) + Send + Sync + 'static,
+{
+    let subject = session.subject().to_string();
+    tracing::info!(subject = %subject, "subscribing upload transfer endpoint");
+    let subscriber = client.subscribe(subject.clone()).await.map_err(|error| {
+        ServerError::Nats(format!(
+            "failed to subscribe to upload transfer subject '{subject}': {error}"
+        ))
+    })?;
+    client.flush().await.map_err(|error| {
+        ServerError::Nats(format!(
+            "failed to flush upload transfer subscription '{subject}': {error}"
+        ))
+    })?;
+    let (sender, receiver) = oneshot::channel();
+    tracing::debug!(subject = %subject, "upload transfer subscription flushed");
+    tokio::spawn(async move {
+        tracing::debug!(subject = %subject, "upload transfer endpoint task started");
+        if let Err(error) = run_upload_transfer_endpoint_inner(
+            client,
+            subscriber,
+            session,
+            store,
+            validator,
+            on_progress,
+            Some(sender),
+        )
+        .await
+        {
+            tracing::error!(subject = %subject, error = %error, "upload transfer endpoint failed");
+        }
+        tracing::debug!(subject = %subject, "upload transfer endpoint task ended");
+    });
+    Ok(UploadTransferCompletion { receiver })
 }
 
 /// Subscribe and run one planned download transfer endpoint in the background.
@@ -593,6 +854,10 @@ fn transfer_request_context(message: &async_nats::Message) -> RequestContext {
         session_key: optional_header(message.headers.as_ref(), "session-key")
             .map(ToString::to_string),
         proof: optional_header(message.headers.as_ref(), "proof").map(ToString::to_string),
+        iat: optional_header(message.headers.as_ref(), "iat").and_then(|value| value.parse().ok()),
+        request_id: optional_header(message.headers.as_ref(), "request-id")
+            .map(ToString::to_string),
+        required_capabilities: None,
         reply_to: message.reply.as_ref().map(ToString::to_string),
         caller: None,
         traceparent: optional_header(message.headers.as_ref(), "traceparent")
@@ -946,6 +1211,16 @@ fn enforce_transfer_not_expired(
     Ok(())
 }
 
+fn transfer_expiry_delay(expires_at: &str) -> Result<Duration, ServerError> {
+    let expires_at_time = parse_transfer_time(expires_at)?;
+    let remaining = expires_at_time - OffsetDateTime::now_utc();
+    let millis = remaining.whole_milliseconds();
+    if millis <= 0 {
+        return Ok(Duration::ZERO);
+    }
+    Ok(Duration::from_millis(millis.min(u64::MAX as i128) as u64))
+}
+
 fn parse_transfer_time(value: &str) -> Result<OffsetDateTime, ServerError> {
     OffsetDateTime::parse(value, &Rfc3339).map_err(|error| ServerError::InvalidTransferExpiry {
         expires_at: value.to_string(),
@@ -1021,6 +1296,9 @@ mod tests {
             subject: "transfer.v1.upload.session.transfer-1".to_string(),
             session_key: Some("wrong-session".to_string()),
             proof: Some("proof".to_string()),
+            iat: None,
+            request_id: None,
+            required_capabilities: None,
             reply_to: None,
             caller: None,
             traceparent: None,
@@ -1056,6 +1334,9 @@ mod tests {
             subject: "transfer.v1.upload.session.transfer-1".to_string(),
             session_key: Some("wrong-session".to_string()),
             proof: None,
+            iat: None,
+            request_id: None,
+            required_capabilities: None,
             reply_to: None,
             caller: None,
             traceparent: None,
@@ -1087,6 +1368,9 @@ mod tests {
             subject: "transfer.v1.download.session.transfer-1".to_string(),
             session_key: Some("expected-session".to_string()),
             proof: Some("proof".to_string()),
+            iat: None,
+            request_id: None,
+            required_capabilities: None,
             reply_to: None,
             caller: None,
             traceparent: None,

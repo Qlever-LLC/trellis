@@ -25,11 +25,18 @@ export type StoredKeyPair = {
   publicKey: CryptoKey;
   publicKeyRaw: Uint8Array;
   createdAt: number;
+  persistence?: "remembered";
+  expiresAt?: number;
+};
+
+export type StoredKeyPairOptions = {
+  expiresAt?: number;
 };
 
 export async function storeKeyPair(
   keyPair: CryptoKeyPair,
   publicKeyRaw: Uint8Array,
+  options: StoredKeyPairOptions = {},
 ): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -42,6 +49,10 @@ export async function storeKeyPair(
       publicKey: keyPair.publicKey,
       publicKeyRaw,
       createdAt: Date.now(),
+      persistence: "remembered",
+      ...(options.expiresAt === undefined
+        ? {}
+        : { expiresAt: options.expiresAt }),
     };
 
     const request = store.put(record);
@@ -55,12 +66,20 @@ export async function storeKeyPair(
 export async function loadKeyPair(): Promise<StoredKeyPair | null> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readonly");
+    const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
 
     const request = store.get(KEY_ID);
     request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result ?? null);
+    request.onsuccess = () => {
+      const result = request.result as StoredKeyPair | undefined;
+      if (result?.expiresAt !== undefined && result.expiresAt <= Date.now()) {
+        store.delete(KEY_ID);
+        resolve(null);
+        return;
+      }
+      resolve(result ?? null);
+    };
 
     tx.oncomplete = () => db.close();
   });

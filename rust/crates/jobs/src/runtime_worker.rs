@@ -15,11 +15,12 @@ use crate::bindings::{JobsQueueBinding, JobsRuntimeBinding};
 use crate::job_key;
 use crate::manager::{JobManager, JobMetaSource, JobProcessError, JobProcessOutcome};
 use crate::projection::job_from_work_event;
-use crate::publisher::JobEventPublisher;
+use crate::publisher::{JobEventHeaders, JobEventPublisher};
 use crate::registry::{
     start_worker_heartbeat_loop, ActiveJobCancellationRegistry, ServiceRegistryError,
     WorkerHeartbeatHandle,
 };
+use crate::subjects::job_event_subject;
 use crate::types::{Job, JobEvent, JobEventType};
 
 const JOBS_STREAM: &str = "JOBS";
@@ -123,11 +124,18 @@ impl JobEventPublisher for NatsJobEventPublisher {
     fn publish(
         &self,
         subject: String,
+        headers: JobEventHeaders,
         payload: Vec<u8>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         let nats = self.nats.clone();
         async move {
-            nats.publish(subject, payload.into())
+            let mut nats_headers = async_nats::HeaderMap::new();
+            nats_headers.insert("request-id", headers.request_id.as_str());
+            nats_headers.insert("traceparent", headers.traceparent.as_str());
+            if let Some(tracestate) = headers.tracestate.as_deref() {
+                nats_headers.insert("tracestate", tracestate);
+            }
+            nats.publish_with_headers(subject, nats_headers, payload.into())
                 .await
                 .map_err(|error| error.to_string())
         }
@@ -900,6 +908,10 @@ async fn stream_work_decision(
     publish_prefix: &str,
     work: &Job,
 ) -> Result<ProjectedWorkDecision, RuntimeWorkerError> {
+    if exact_terminal_lifecycle_event_exists(lifecycle_stream, publish_prefix, work).await? {
+        return Ok(ProjectedWorkDecision::SkipAck);
+    }
+
     let subject = format!("{publish_prefix}.{}.*", work.id);
     let latest = match latest_lifecycle_message(lifecycle_stream, &subject).await {
         Ok(Some(message)) => message,
@@ -922,6 +934,51 @@ async fn stream_work_decision(
     })?;
 
     Ok(lifecycle_work_decision(Some(&latest), work))
+}
+
+async fn exact_terminal_lifecycle_event_exists(
+    lifecycle_stream: &stream::Stream<()>,
+    publish_prefix: &str,
+    work: &Job,
+) -> Result<bool, RuntimeWorkerError> {
+    for event_type in [
+        JobEventType::Completed,
+        JobEventType::Failed,
+        JobEventType::Cancelled,
+        JobEventType::Expired,
+        JobEventType::Dead,
+        JobEventType::Dismissed,
+    ] {
+        let bound_subject = format!("{publish_prefix}.{}.{}", work.id, event_type.as_token());
+        let canonical_subject =
+            job_event_subject(&work.service, &work.job_type, &work.id, event_type);
+        for subject in [bound_subject, canonical_subject] {
+            let Some(message) = latest_lifecycle_message(lifecycle_stream, &subject)
+                .await
+                .map_err(|error| RuntimeWorkerError::LifecycleRead {
+                    stream: JOBS_STREAM.to_string(),
+                    subject: subject.clone(),
+                    details: error,
+                })?
+            else {
+                continue;
+            };
+            let event = serde_json::from_slice::<JobEvent>(&message.payload).map_err(|error| {
+                RuntimeWorkerError::LifecycleDecode {
+                    stream: JOBS_STREAM.to_string(),
+                    subject: subject.clone(),
+                    details: error.to_string(),
+                }
+            })?;
+            if event.service == work.service
+                && event.job_type == work.job_type
+                && event.job_id == work.id
+            {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 fn lifecycle_work_decision(latest: Option<&JobEvent>, work: &Job) -> ProjectedWorkDecision {
@@ -1022,11 +1079,21 @@ mod tests {
     };
     use crate::events::{cancelled_event, completed_event, started_event};
     use crate::manager::JobProcessOutcome;
-    use crate::types::{Job, JobState};
+    use crate::types::{Job, JobContext, JobState};
+
+    fn sample_context() -> JobContext {
+        JobContext {
+            request_id: "request-1".to_string(),
+            trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+            traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+            tracestate: None,
+        }
+    }
 
     fn sample_job(state: JobState, tries: u64) -> Job {
         Job {
             id: "job-1".to_string(),
+            context: sample_context(),
             service: "documents".to_string(),
             job_type: "document-process".to_string(),
             state,
@@ -1060,6 +1127,7 @@ mod tests {
             &work.service,
             &work.job_type,
             &work.id,
+            &work.context,
             work.payload.clone(),
             work.max_tries,
             &work.created_at,
@@ -1079,6 +1147,7 @@ mod tests {
             &work.service,
             &work.job_type,
             &work.id,
+            &work.context,
             JobState::Pending,
             work.tries,
             &work.updated_at,
@@ -1097,6 +1166,7 @@ mod tests {
             &work.service,
             &work.job_type,
             &work.id,
+            &work.context,
             JobState::Pending,
             1,
             &work.updated_at,
@@ -1115,6 +1185,7 @@ mod tests {
             &work.service,
             &work.job_type,
             &work.id,
+            &work.context,
             1,
             &work.updated_at,
             serde_json::json!({ "ok": true }),

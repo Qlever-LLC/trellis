@@ -4,17 +4,17 @@ use std::sync::{Arc, Mutex};
 use trellis_jobs::active_job::ActiveJobRuntimeError;
 use trellis_jobs::bindings::{JobsBinding, JobsQueueBinding};
 use trellis_jobs::manager::{JobManager, JobManagerError, JobMetaSource};
-use trellis_jobs::publisher::JobEventPublisher;
+use trellis_jobs::publisher::{JobEventHeaders, JobEventPublisher};
 use trellis_jobs::runtime_worker::JobCancellationToken;
-use trellis_jobs::{Job, JobEvent, JobEventType, JobLogLevel, JobState};
+use trellis_jobs::{Job, JobContext, JobEvent, JobEventType, JobLogLevel, JobState};
 
 #[derive(Default)]
 struct RecordingPublisher {
-    calls: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
+    calls: Arc<Mutex<Vec<(String, JobEventHeaders, Vec<u8>)>>>,
 }
 
 impl RecordingPublisher {
-    fn calls(&self) -> Vec<(String, Vec<u8>)> {
+    fn calls(&self) -> Vec<(String, JobEventHeaders, Vec<u8>)> {
         self.calls.lock().expect("lock calls").clone()
     }
 }
@@ -25,12 +25,13 @@ impl JobEventPublisher for RecordingPublisher {
     fn publish(
         &self,
         subject: String,
+        headers: JobEventHeaders,
         payload: Vec<u8>,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
         self.calls
             .lock()
             .expect("lock calls")
-            .push((subject, payload));
+            .push((subject, headers, payload));
         async { Ok(()) }
     }
 }
@@ -72,6 +73,7 @@ fn sample_bindings() -> JobsBinding {
 fn sample_job(state: JobState) -> Job {
     Job {
         id: "job-1".to_string(),
+        context: sample_context(),
         service: "documents".to_string(),
         job_type: "document-process".to_string(),
         state,
@@ -87,6 +89,15 @@ fn sample_job(state: JobState) -> Job {
         deadline: None,
         progress: None,
         logs: None,
+    }
+}
+
+fn sample_context() -> JobContext {
+    JobContext {
+        request_id: "request-1".to_string(),
+        trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+        traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+        tracestate: None,
     }
 }
 
@@ -107,7 +118,7 @@ async fn active_job_update_progress_publishes_progress_event() {
     let calls = manager.publisher().calls();
     assert_eq!(calls.len(), 1);
     assert!(calls[0].0.ends_with(".progress"));
-    let event: JobEvent = serde_json::from_slice(&calls[0].1).expect("decode progress event");
+    let event: JobEvent = serde_json::from_slice(&calls[0].2).expect("decode progress event");
     assert_eq!(event.event_type, JobEventType::Progress);
     assert_eq!(event.state, JobState::Active);
 }
@@ -129,7 +140,7 @@ async fn active_job_log_publishes_logged_event() {
     let calls = manager.publisher().calls();
     assert_eq!(calls.len(), 1);
     assert!(calls[0].0.ends_with(".logged"));
-    let event: JobEvent = serde_json::from_slice(&calls[0].1).expect("decode logged event");
+    let event: JobEvent = serde_json::from_slice(&calls[0].2).expect("decode logged event");
     assert_eq!(event.event_type, JobEventType::Logged);
     assert_eq!(event.state, JobState::Active);
 }

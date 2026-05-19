@@ -13,6 +13,9 @@ pub trait RpcDescriptor {
 
     /// Concrete NATS subject for the RPC.
     const SUBJECT: &'static str;
+
+    /// Capability requirements declared for callers.
+    const CALLER_CAPABILITIES: &'static [&'static str] = &[];
 }
 
 /// Metadata required to publish one typed Trellis event.
@@ -40,4 +43,7 @@ pub trait FeedDescriptor {
 
     /// Concrete NATS subject for the feed.
     const SUBJECT: &'static str;
+
+    /// Capability requirements declared for subscribers.
+    const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[];
 }

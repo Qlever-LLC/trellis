@@ -59,6 +59,14 @@ pub enum ServerError {
     #[error("nats error: {0}")]
     Nats(String),
 
+    /// A KV revision check failed because the key is no longer at the expected revision.
+    #[error("kv key '{key}' revision mismatch: expected {expected}, actual {actual:?}")]
+    KvRevisionMismatch {
+        key: String,
+        expected: u64,
+        actual: Option<u64>,
+    },
+
     #[error("missing handler for subject '{0}'")]
     MissingHandler(String),
 
@@ -186,6 +194,25 @@ pub enum ServerError {
         resource_kind: String,
         resource_name: String,
         reason: String,
+    },
+
+    /// Waiting for an object-store key exceeded the configured timeout.
+    #[error(
+        "service '{service_name}' timed out waiting {timeout_ms}ms for store '{store}' object '{key}'"
+    )]
+    StoreWaitTimeout {
+        service_name: String,
+        store: String,
+        key: String,
+        timeout_ms: u128,
+    },
+
+    /// Waiting for an object-store key was canceled by the caller.
+    #[error("service '{service_name}' canceled waiting for store '{store}' object '{key}'")]
+    StoreWaitCanceled {
+        service_name: String,
+        store: String,
+        key: String,
     },
 
     #[error(

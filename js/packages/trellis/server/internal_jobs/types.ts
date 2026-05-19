@@ -1,5 +1,16 @@
 import { type StaticDecode, Type } from "typebox";
 
+export const JobContextSchema = Type.Object({
+  requestId: Type.String({ minLength: 1 }),
+  traceId: Type.String({ pattern: "^[0-9a-f]{32}$" }),
+  traceparent: Type.String({
+    pattern: "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+  }),
+  tracestate: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+export type JobContext = StaticDecode<typeof JobContextSchema>;
+
 export const JobStateSchema = Type.Union([
   Type.Literal("pending"),
   Type.Literal("active"),
@@ -40,6 +51,7 @@ export const JobSchema = Type.Object({
   service: Type.String({ minLength: 1 }),
   type: Type.String({ minLength: 1 }),
   state: JobStateSchema,
+  context: JobContextSchema,
   payload: Type.Unknown(),
   result: Type.Optional(Type.Unknown()),
   createdAt: Type.String({ format: "date-time" }),
@@ -81,6 +93,7 @@ export const JobEventSchema = Type.Object({
   ]),
   state: JobStateSchema,
   previousState: Type.Optional(JobStateSchema),
+  context: JobContextSchema,
   tries: Type.Integer({ minimum: 0 }),
   maxTries: Type.Optional(Type.Integer({ minimum: 1 })),
   error: Type.Optional(Type.String()),

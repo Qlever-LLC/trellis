@@ -443,6 +443,28 @@ Deno.test({
 });
 
 Deno.test({
+  name: "auth HTTP routes set browser security headers",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes();
+
+    const response = await app.request("http://trellis/auth/requests", {
+      method: "POST",
+      body: "not-json",
+    });
+
+    assertEquals(response.headers.get("x-content-type-options"), "nosniff");
+    assertEquals(response.headers.get("referrer-policy"), "no-referrer");
+    assertEquals(response.headers.get("x-frame-options"), "DENY");
+    assertStringIncludes(
+      response.headers.get("content-security-policy") ?? "",
+      "frame-ancestors 'none'",
+    );
+    assertEquals(response.headers.get("strict-transport-security"), null);
+  },
+});
+
+Deno.test({
   name: "auth HTTP routes register account-flow local-password endpoint",
   sanitizeResources: false,
   fn: async () => {

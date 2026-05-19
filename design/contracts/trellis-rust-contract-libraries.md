@@ -241,6 +241,10 @@ Required descriptor semantics:
 - event descriptors expose logical key, event type, subject template metadata,
   wildcard subscribe subject metadata, and enough logic to derive a concrete
   publish subject from an event value when the subject is templated
+- generated server descriptors and authenticated routers must propagate the
+  required caller capabilities for the matched RPC or operation-control action
+  into `Auth.Requests.Validate`; the auth validator, not only local Rust routing,
+  enforces those capabilities against the caller session
 
 Generated participant facades expose contract-driven connection helpers that
 wrap stable `trellis-client` and `trellis-service` runtime primitives.

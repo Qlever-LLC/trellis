@@ -63,6 +63,7 @@ async fn run_svc_resource(format: OutputFormat, command: SvcResourceCommand) -> 
         SvcResourceAction::Expansions(expansions) => {
             service_expansions(format, &command.id, expansions).await
         }
+        SvcResourceAction::Grants(grants) => deployment_grants(format, &command.id, grants).await,
     }
 }
 
@@ -81,6 +82,7 @@ async fn run_dev_resource(format: OutputFormat, command: DevResourceCommand) -> 
         DevResourceAction::Provision(args) => provision_device(format, &id, &args).await,
         DevResourceAction::Activations(command) => dev_activations(format, &id, command).await,
         DevResourceAction::Reviews(command) => dev_reviews(format, &id, command).await,
+        DevResourceAction::Grants(command) => deployment_grants(format, &id, command).await,
     }
 }
 
@@ -523,6 +525,78 @@ async fn expansion_decide(
     Ok(())
 }
 
+async fn deployment_grants(
+    format: OutputFormat,
+    deployment_id: &str,
+    command: DeploymentGrantsCommand,
+) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    match command {
+        DeploymentGrantsCommand::List => {
+            let response = connected
+                .request_json_value(
+                    "rpc.v1.Auth.Envelopes.Get",
+                    &json!({ "deploymentId": deployment_id }),
+                )
+                .await
+                .into_diagnostic()?;
+            print_deployment_grants_result(format, deployment_id, &response)
+        }
+        DeploymentGrantsCommand::Add(args) => {
+            deployment_grants_mutate(format, &connected, deployment_id, &args, true).await
+        }
+        DeploymentGrantsCommand::Remove(args) => {
+            deployment_grants_mutate(format, &connected, deployment_id, &args, false).await
+        }
+    }
+}
+
+async fn deployment_grants_mutate(
+    format: OutputFormat,
+    connected: &trellis_client::TrellisClient,
+    deployment_id: &str,
+    args: &DeploymentGrantMutationArgs,
+    add: bool,
+) -> miette::Result<()> {
+    let grant_overrides = args
+        .capabilities
+        .iter()
+        .map(|capability| {
+            json!({
+                "deploymentId": deployment_id,
+                "identityKind": args.identity_kind.as_wire_value(),
+                "contractId": args.contract_id.as_deref(),
+                "origin": args.origin.as_deref(),
+                "sessionPublicKey": args.session_public_key.as_deref(),
+                "devicePublicKey": args.device_public_key.as_deref(),
+                "capability": capability,
+            })
+        })
+        .collect::<Vec<_>>();
+    let subject = if add {
+        "rpc.v1.Auth.Envelopes.GrantOverrides.Put"
+    } else {
+        "rpc.v1.Auth.Envelopes.GrantOverrides.Remove"
+    };
+    let response = connected
+        .request_json_value(
+            subject,
+            &json!({
+                "deploymentId": deployment_id,
+                "grantOverrides": grant_overrides,
+            }),
+        )
+        .await
+        .into_diagnostic()?;
+    print_deployment_grant_mutation_result(
+        format,
+        deployment_id,
+        &response,
+        add,
+        args.capabilities.len(),
+    )
+}
+
 fn print_deployment_show_result<T: serde::Serialize>(
     format: OutputFormat,
     kind: DeploymentKind,
@@ -765,6 +839,60 @@ fn print_expansion_requests_result(format: OutputFormat, response: Value) -> mie
             "createdAt",
         ],
     )
+}
+
+fn print_deployment_grants_result(
+    format: OutputFormat,
+    deployment_id: &str,
+    response: &Value,
+) -> miette::Result<()> {
+    let grant_overrides = response.get("grantOverrides").unwrap_or(&Value::Null);
+    if output::is_json(format) {
+        output::print_json(&json!({
+            "deploymentId": deployment_id,
+            "grantOverrides": grant_overrides,
+        }))?;
+        return Ok(());
+    }
+
+    print_value_table(
+        grant_overrides,
+        &[
+            "identityKind",
+            "contractId",
+            "origin",
+            "sessionPublicKey",
+            "devicePublicKey",
+            "capability",
+        ],
+    )
+}
+
+fn print_deployment_grant_mutation_result(
+    format: OutputFormat,
+    deployment_id: &str,
+    response: &Value,
+    add: bool,
+    count: usize,
+) -> miette::Result<()> {
+    let grant_overrides = response.get("grantOverrides").unwrap_or(&Value::Null);
+    if output::is_json(format) {
+        output::print_json(&json!({
+            "deploymentId": deployment_id,
+            "grantOverrides": grant_overrides,
+        }))?;
+        return Ok(());
+    }
+
+    let message = if add {
+        "added deployment grant overrides"
+    } else {
+        "removed deployment grant overrides"
+    };
+    output::print_success(message);
+    output::print_info(&format!("deploymentId={deployment_id}"));
+    output::print_info(&format!("count={count}"));
+    Ok(())
 }
 
 fn print_value_table(value: &Value, columns: &[&str]) -> miette::Result<()> {

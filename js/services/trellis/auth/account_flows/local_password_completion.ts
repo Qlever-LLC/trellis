@@ -93,6 +93,7 @@ export type CompleteAdminBootstrapLocalPasswordOptions = {
   flowId: string;
   username: string;
   password: string;
+  passwordMinLength?: number;
   name?: string;
   email?: string;
   now?: Date;
@@ -220,6 +221,7 @@ async function completeTargetAccountLocalPassword(
     identityId,
     password: options.password,
     now,
+    minLength: options.passwordMinLength,
   });
 
   if (
@@ -300,6 +302,7 @@ export async function completeAdminBootstrapLocalPassword(
     identityId,
     password: options.password,
     now,
+    minLength: options.passwordMinLength,
   });
 
   if (options.accountFlowStorage.completeAdminBootstrapLocalPassword) {

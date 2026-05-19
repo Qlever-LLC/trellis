@@ -19,9 +19,35 @@ export type SessionKeyHandle = {
   publicKey: CryptoKey;
   publicKeyRaw: Uint8Array;
   sessionKey: string;
+  persistence?: SessionKeyPersistenceMode;
+  expiresAt?: number;
 };
 
-export async function generateSessionKey(): Promise<SessionKeyHandle> {
+export type SessionKeyPersistenceMode = "temporary" | "remembered";
+
+export type SessionKeyOptions = {
+  /** Defaults to remembered IndexedDB storage. */
+  persistence?: SessionKeyPersistenceMode;
+  /** Expiry for remembered keys, as epoch milliseconds or a Date. */
+  expiresAt?: number | Date;
+  /** Relative expiry for remembered keys. Ignored when expiresAt is set. */
+  ttlMs?: number;
+};
+
+let temporarySessionKey: SessionKeyHandle | null = null;
+
+function resolveExpiresAt(options: SessionKeyOptions): number | undefined {
+  if (options.expiresAt instanceof Date) return options.expiresAt.getTime();
+  if (typeof options.expiresAt === "number") return options.expiresAt;
+  if (typeof options.ttlMs === "number") return Date.now() + options.ttlMs;
+  return undefined;
+}
+
+export async function generateSessionKey(
+  options: SessionKeyOptions = {},
+): Promise<SessionKeyHandle> {
+  const persistence = options.persistence ?? "remembered";
+  const expiresAt = resolveExpiresAt(options);
   const keyPair = await crypto.subtle.generateKey(
     { name: "Ed25519" },
     false,
@@ -33,17 +59,29 @@ export async function generateSessionKey(): Promise<SessionKeyHandle> {
   );
   const sessionKey = base64urlEncode(publicKeyRaw);
 
-  await storeKeyPair(keyPair, publicKeyRaw);
-
-  return {
+  const handle: SessionKeyHandle = {
     privateKey: keyPair.privateKey,
     publicKey: keyPair.publicKey,
     publicKeyRaw,
     sessionKey,
+    persistence,
+    ...(expiresAt === undefined ? {} : { expiresAt }),
   };
+
+  if (persistence === "temporary") {
+    temporarySessionKey = handle;
+  } else {
+    await storeKeyPair(keyPair, publicKeyRaw, { expiresAt });
+  }
+
+  return handle;
 }
 
-export async function loadSessionKey(): Promise<SessionKeyHandle | null> {
+export async function loadSessionKey(
+  options: Pick<SessionKeyOptions, "persistence"> = {},
+): Promise<SessionKeyHandle | null> {
+  const persistence = options.persistence ?? "remembered";
+  if (persistence === "temporary") return temporarySessionKey;
   const stored = await loadKeyPair();
   if (!stored) return null;
   return {
@@ -51,13 +89,17 @@ export async function loadSessionKey(): Promise<SessionKeyHandle | null> {
     publicKey: stored.publicKey,
     publicKeyRaw: stored.publicKeyRaw,
     sessionKey: base64urlEncode(stored.publicKeyRaw),
+    persistence: "remembered",
+    ...(stored.expiresAt === undefined ? {} : { expiresAt: stored.expiresAt }),
   };
 }
 
-export async function getOrCreateSessionKey(): Promise<SessionKeyHandle> {
-  const existing = await loadSessionKey();
+export async function getOrCreateSessionKey(
+  options: SessionKeyOptions = {},
+): Promise<SessionKeyHandle> {
+  const existing = await loadSessionKey(options);
   if (existing) return existing;
-  return await generateSessionKey();
+  return await generateSessionKey(options);
 }
 
 export async function signBytes(
@@ -121,19 +163,35 @@ export async function createRpcProof(
   handle: SessionKeyHandle,
   subject: string,
   payload: Uint8Array,
+  requestId: string,
+  iat: number,
 ): Promise<string> {
   const payloadHash = await sha256(payload);
   return await createProof(handle.privateKey, {
     sessionKey: handle.sessionKey,
     subject,
     payloadHash,
+    iat,
+    requestId,
   });
 }
 
-export async function clearSessionKey(): Promise<void> {
-  await deleteKeyPair();
+export async function clearSessionKey(
+  options: Pick<SessionKeyOptions, "persistence"> = {},
+): Promise<void> {
+  const persistence = options.persistence;
+  if (persistence === undefined || persistence === "temporary") {
+    temporarySessionKey = null;
+  }
+  if (persistence === undefined || persistence === "remembered") {
+    await deleteKeyPair();
+  }
 }
 
-export async function hasSessionKey(): Promise<boolean> {
+export async function hasSessionKey(
+  options: Pick<SessionKeyOptions, "persistence"> = {},
+): Promise<boolean> {
+  const persistence = options.persistence ?? "remembered";
+  if (persistence === "temporary") return temporarySessionKey !== null;
   return await hasKeyPair();
 }

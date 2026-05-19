@@ -4,16 +4,16 @@ use std::sync::{Arc, Mutex};
 use serde_json::json;
 use trellis_jobs::bindings::{JobsBinding, JobsQueueBinding};
 use trellis_jobs::manager::{JobManager, JobManagerError, JobMetaSource};
-use trellis_jobs::publisher::JobEventPublisher;
+use trellis_jobs::publisher::{JobEventHeaders, JobEventPublisher};
 use trellis_jobs::types::{JobEvent, JobEventType, JobState};
 
 #[derive(Default)]
 struct RecordingPublisher {
-    calls: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
+    calls: Arc<Mutex<Vec<(String, JobEventHeaders, Vec<u8>)>>>,
 }
 
 impl RecordingPublisher {
-    fn calls(&self) -> Vec<(String, Vec<u8>)> {
+    fn calls(&self) -> Vec<(String, JobEventHeaders, Vec<u8>)> {
         self.calls.lock().expect("lock calls").clone()
     }
 }
@@ -24,12 +24,13 @@ impl JobEventPublisher for RecordingPublisher {
     fn publish(
         &self,
         subject: String,
+        headers: JobEventHeaders,
         payload: Vec<u8>,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
         self.calls
             .lock()
             .expect("lock calls")
-            .push((subject, payload));
+            .push((subject, headers, payload));
         async { Ok(()) }
     }
 }
@@ -42,6 +43,7 @@ impl JobEventPublisher for FailingPublisher {
     fn publish(
         &self,
         _subject: String,
+        _headers: JobEventHeaders,
         _payload: Vec<u8>,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
         async { Err("publish failed") }
@@ -141,6 +143,8 @@ async fn create_publishes_created_event_to_publish_prefix_jobid_created_subject(
         calls[0].0,
         format!("trellis.jobs.documents.document-process.{}.created", job.id)
     );
+    assert_eq!(calls[0].1.request_id, job.context.request_id);
+    assert_eq!(calls[0].1.traceparent, job.context.traceparent);
 }
 
 #[tokio::test]
@@ -154,9 +158,11 @@ async fn create_publishes_created_event_payload_with_expected_fields() {
         .expect("create should succeed");
 
     let calls = manager.publisher().calls();
-    let event: JobEvent = serde_json::from_slice(&calls[0].1).expect("decode created event");
+    let event: JobEvent = serde_json::from_slice(&calls[0].2).expect("decode created event");
     assert_eq!(event.event_type, JobEventType::Created);
     assert_eq!(event.state, JobState::Pending);
+    assert_eq!(event.context.request_id, calls[0].1.request_id);
+    assert_eq!(event.context.traceparent, calls[0].1.traceparent);
     assert_eq!(event.max_tries, Some(5));
     assert_eq!(event.payload, Some(json!({ "documentId": "doc-1" })));
 }
@@ -191,6 +197,6 @@ async fn create_applies_default_deadline_from_queue_binding() {
 
     assert_eq!(job.deadline.as_deref(), Some("2026-03-28T12:02:00Z"));
     let calls = manager.publisher().calls();
-    let event: JobEvent = serde_json::from_slice(&calls[0].1).expect("decode created event");
+    let event: JobEvent = serde_json::from_slice(&calls[0].2).expect("decode created event");
     assert_eq!(event.deadline.as_deref(), Some("2026-03-28T12:02:00Z"));
 }

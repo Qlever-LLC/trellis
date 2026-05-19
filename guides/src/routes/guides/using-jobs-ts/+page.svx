@@ -130,6 +130,9 @@ Register workers for each job type before calling `service.wait()`. Handler regi
 
 ```ts
 service.jobs.reserveInventory.handle(async ({ job }) => {
+  console.info(
+    `reserveInventory job ${job.ref.id} request=${job.context.requestId} trace=${job.context.traceId}`,
+  );
   await job.progress({ step: "reserving", message: "Checking inventory" });
 
   if (job.cancelled) {
@@ -190,6 +193,12 @@ service.jobs.notifyWarehouse.handle(async ({ job }) => {
   return Result.ok({ notified: true });
 });
 ```
+
+Every active job exposes immutable `job.context` with `requestId`, `traceId`,
+`traceparent`, and optional `tracestate`. The runtime copies this context to all
+job lifecycle events and NATS headers, so include `requestId` or `traceId` in
+service logs when you need to follow work across RPCs, events, operations, and
+jobs.
 
 ## 5. Run the service
 

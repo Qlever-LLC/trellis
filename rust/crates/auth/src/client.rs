@@ -23,9 +23,9 @@ use trellis_sdk_auth::{
         AuthCapabilityGroupsListRequest, AuthCapabilityGroupsListResponseGroupsItem,
         AuthDeploymentsCreateRequest, AuthDeploymentsDisableRequest, AuthDeploymentsEnableRequest,
         AuthDeploymentsListRequest, AuthDeploymentsRemoveRequest, AuthSessionsListRequest,
-        AuthSessionsMeRequest, AuthUsersCreateRequest, AuthUsersCreateResponseUser,
-        AuthUsersGetRequest, AuthUsersGetResponseUser, AuthUsersListRequest,
-        AuthUsersListResponseUsersItem, AuthUsersUpdateRequest,
+        AuthUsersCreateRequest, AuthUsersCreateResponseUser, AuthUsersGetRequest,
+        AuthUsersGetResponseUser, AuthUsersListRequest, AuthUsersListResponseUsersItem,
+        AuthUsersUpdateRequest,
     },
 };
 
@@ -126,9 +126,7 @@ impl<'a> AuthClient<'a> {
 
     /// Return the currently authenticated user.
     pub async fn me(&self) -> Result<AuthenticatedUser, TrellisAuthError> {
-        let response = self
-            .call_rpc::<AuthSessionsMeRpc>(&AuthSessionsMeRequest(BTreeMap::new()))
-            .await?;
+        let response = self.call_rpc::<AuthSessionsMeRpc>(&Empty {}).await?;
         let participant_kind = response
             .participant_kind
             .as_str()

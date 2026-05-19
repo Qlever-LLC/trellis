@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
-import type { NatsConnection } from "@nats-io/nats-core";
+import { headers, type Msg, type NatsConnection } from "@nats-io/nats-core";
 import { createUser } from "@nats-io/nkeys";
+import { Type } from "typebox";
 
 import { base64urlEncode, createAuth } from "./auth/mod.ts";
 import type { SessionKeyHandle } from "./auth/browser.ts";
@@ -9,7 +10,7 @@ import {
   connectClientWithDeps,
 } from "./client_connect.ts";
 import type { TrellisAPI } from "./contracts.ts";
-import { TransportError } from "./errors/index.ts";
+import { AuthError, TransportError } from "./errors/index.ts";
 
 const emptyApi = {
   rpc: {},
@@ -29,6 +30,27 @@ const testContract = {
   CONTRACT_DIGEST: "digest-a",
   API: {
     trellis: emptyApi,
+  },
+} as const;
+
+const reauthRpcContract = {
+  CONTRACT: testContract.CONTRACT,
+  CONTRACT_DIGEST: testContract.CONTRACT_DIGEST,
+  API: {
+    trellis: {
+      rpc: {
+        "Admin.RequireFreshAuth": {
+          subject: "rpc.v1.Admin.RequireFreshAuth",
+          input: Type.Object({}),
+          output: Type.Object({}),
+          callerCapabilities: ["admin:write"],
+          errors: ["AuthError"],
+        },
+      },
+      operations: {},
+      events: {},
+      subjects: {},
+    },
   },
 } as const;
 
@@ -104,7 +126,7 @@ async function waitFor(condition: () => boolean, attempts = 50): Promise<void> {
   throw new Error("Timed out waiting for condition");
 }
 
-function createControllableNatsConnection(): {
+function createControllableNatsConnection(authErrorReason?: string): {
   connection: NatsConnection;
   close(): Promise<void>;
 } {
@@ -125,6 +147,24 @@ function createControllableNatsConnection(): {
       throw new Error("subscribe should not be called in this test");
     },
     request: async () => {
+      if (authErrorReason) {
+        const responseHeaders = headers();
+        responseHeaders.set("status", "error");
+        return {
+          subject: "rpc.v1.Admin.RequireFreshAuth",
+          sid: 1,
+          data: new Uint8Array(),
+          headers: responseHeaders,
+          json: () => ({
+            id: "err_01",
+            type: "AuthError",
+            message: `Auth failed: ${authErrorReason}`,
+            reason: authErrorReason,
+          }),
+          string: () => "",
+          respond: () => false,
+        } as Msg;
+      }
       throw new Error("request should not be called in this test");
     },
     requestMany: async () => {
@@ -2401,6 +2441,201 @@ Deno.test("connectClientWithDeps reauths when bootstrap reports contract_not_act
     assertEquals(error.code, "trellis.runtime.connect_failed");
     assertEquals(fetchUrls.some((url) => url.endsWith("/auth/requests")), true);
   } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("browser clients start auth flow when RPC returns reauth_required", async () => {
+  const originalFetch = globalThis.fetch;
+  const handle = await createBrowserHandle();
+  const nats = createControllableNatsConnection("reauth_required");
+  const fetchUrls: string[] = [];
+  const loginUrls: string[] = [];
+
+  try {
+    globalThis.fetch = ((input: URL | Request | string) => {
+      const url = String(input);
+      fetchUrls.push(url);
+
+      if (url.endsWith("/bootstrap/client")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "ready",
+              serverNow: 1_700_000_000,
+              connectInfo: {
+                sessionKey: handle.sessionKey,
+                contractId: reauthRpcContract.CONTRACT.id,
+                contractDigest: reauthRpcContract.CONTRACT_DIGEST,
+                transports: {
+                  native: { natsServers: ["nats://127.0.0.1:4222"] },
+                  websocket: { natsServers: ["ws://localhost:8080"] },
+                },
+                transport: {
+                  inboxPrefix: "_INBOX.session-key",
+                  sentinel: { jwt: "jwt", seed: "seed" },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      if (url.endsWith("/auth/requests")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "flow_started",
+              flowId: "flow-reauth",
+              loginUrl:
+                "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-reauth",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const trellis = await connectClientWithDeps({
+      trellisUrl: "https://trellis.example.com",
+      contract: reauthRpcContract,
+      auth: {
+        mode: "browser",
+        handle,
+        redirectTo: "https://console.example.com/admin/users?action=delete",
+        currentUrl: "https://console.example.com/admin/users?action=delete",
+      },
+      onAuthRequired: ({ loginUrl }) => {
+        loginUrls.push(loginUrl);
+        return { status: "handled" };
+      },
+    }, {
+      loadTransport: async () => ({
+        connect: async () => nats.connection,
+      }),
+      now: () => 1_700_000_000_000,
+    });
+
+    const error = await assertRejects(
+      () =>
+        trellis.request(
+          "Admin.RequireFreshAuth",
+          {},
+        ).orThrow(),
+      AuthError,
+    );
+
+    assertEquals(error.reason, "reauth_required");
+    assertEquals(loginUrls, [
+      "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-reauth",
+    ]);
+    assertEquals(fetchUrls.some((url) => url.endsWith("/auth/requests")), true);
+  } finally {
+    await nats.close();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("browser clients preserve session_not_found auth-required behavior", async () => {
+  const originalFetch = globalThis.fetch;
+  const handle = await createBrowserHandle();
+  const nats = createControllableNatsConnection("session_not_found");
+  let authRequiredCalls = 0;
+
+  try {
+    globalThis.fetch = ((input: URL | Request | string) => {
+      const url = String(input);
+
+      if (url.endsWith("/bootstrap/client")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "ready",
+              serverNow: 1_700_000_000,
+              connectInfo: {
+                sessionKey: handle.sessionKey,
+                contractId: reauthRpcContract.CONTRACT.id,
+                contractDigest: reauthRpcContract.CONTRACT_DIGEST,
+                transports: {
+                  native: { natsServers: ["nats://127.0.0.1:4222"] },
+                  websocket: { natsServers: ["ws://localhost:8080"] },
+                },
+                transport: {
+                  inboxPrefix: "_INBOX.session-key",
+                  sentinel: { jwt: "jwt", seed: "seed" },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      if (url.endsWith("/auth/requests")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "flow_started",
+              flowId: "flow-session-missing",
+              loginUrl:
+                "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-session-missing",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const trellis = await connectClientWithDeps({
+      trellisUrl: "https://trellis.example.com",
+      contract: reauthRpcContract,
+      auth: {
+        mode: "browser",
+        handle,
+        redirectTo: "https://console.example.com/admin/users",
+        currentUrl: "https://console.example.com/admin/users",
+      },
+      onAuthRequired: () => {
+        authRequiredCalls += 1;
+        return { status: "handled" };
+      },
+    }, {
+      loadTransport: async () => ({
+        connect: async () => nats.connection,
+      }),
+      now: () => 1_700_000_000_000,
+    });
+
+    const error = await assertRejects(
+      () =>
+        trellis.request(
+          "Admin.RequireFreshAuth",
+          {},
+        ).orThrow(),
+      AuthError,
+    );
+
+    assertEquals(error.reason, "session_not_found");
+    assertEquals(authRequiredCalls, 1);
+  } finally {
+    await nats.close();
     globalThis.fetch = originalFetch;
   }
 });

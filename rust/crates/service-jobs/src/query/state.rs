@@ -178,12 +178,14 @@ fn decode_cursor(cursor: &str) -> Result<JobsCursor, JobsQueryError> {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use trellis_jobs::types::JobContext;
 
     use super::*;
 
     fn job(id: &str, service: &str, job_type: &str, updated_at: &str, state: JobState) -> Job {
         Job {
             id: id.to_string(),
+            context: context(id),
             service: service.to_string(),
             job_type: job_type.to_string(),
             state,
@@ -199,6 +201,15 @@ mod tests {
             deadline: None,
             progress: None,
             logs: None,
+        }
+    }
+
+    fn context(id: &str) -> JobContext {
+        JobContext {
+            request_id: format!("request-{id}"),
+            trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+            traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
+            tracestate: None,
         }
     }
 

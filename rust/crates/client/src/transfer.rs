@@ -6,7 +6,7 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use crate::{TrellisClient, TrellisClientError};
+use crate::{SessionAuth, TrellisClient, TrellisClientError};
 
 const TRANSFER_SEQUENCE_HEADER: &str = "trellis-transfer-seq";
 const TRANSFER_EOF_HEADER: &str = "trellis-transfer-eof";
@@ -69,23 +69,24 @@ enum UploadAck {
 }
 
 fn upload_headers(
-    client: &TrellisClient,
-    grant: &UploadTransferGrant,
+    auth: &SessionAuth,
+    subject: &str,
     payload: &[u8],
     seq: u64,
     eof: bool,
 ) -> HeaderMap {
     let mut headers = HeaderMap::new();
-    headers.insert("session-key", client.auth().session_key.as_str());
-    headers.insert(
-        "proof",
-        client.auth().create_proof(&grant.subject, payload).as_str(),
-    );
+    headers.insert("session-key", auth.session_key.as_str());
+    headers.insert("proof", auth.create_proof(subject, payload).as_str());
     headers.insert(TRANSFER_SEQUENCE_HEADER, seq.to_string().as_str());
     if eof {
         headers.insert(TRANSFER_EOF_HEADER, "true");
     }
     headers
+}
+
+fn upload_chunk_size(chunk_bytes: u64) -> usize {
+    (chunk_bytes as usize).max(1)
 }
 
 pub(crate) async fn put_upload_grant(
@@ -96,11 +97,19 @@ pub(crate) async fn put_upload_grant(
     validate_grant(&grant.session_key, client)?;
 
     let bytes = body.as_ref();
-    let max_chunk = grant.chunk_bytes as usize;
+    if let Some(max_bytes) = grant.max_bytes {
+        let attempted_bytes = bytes.len() as u64;
+        if attempted_bytes > max_bytes {
+            return Err(TrellisClientError::TransferProtocol(format!(
+                "upload exceeds max bytes: attempted {attempted_bytes}, max {max_bytes}"
+            )));
+        }
+    }
+    let max_chunk = upload_chunk_size(grant.chunk_bytes);
     let mut seq: u64 = 0;
 
-    for chunk in bytes.chunks(max_chunk.max(1)) {
-        let headers = upload_headers(client, grant, chunk, seq, false);
+    for chunk in bytes.chunks(max_chunk) {
+        let headers = upload_headers(client.auth(), &grant.subject, chunk, seq, false);
         let response = tokio::time::timeout(
             Duration::from_millis(client.timeout_ms()),
             client.nats().request_with_headers(
@@ -122,7 +131,7 @@ pub(crate) async fn put_upload_grant(
         seq += 1;
     }
 
-    let headers = upload_headers(client, grant, &[], seq, true);
+    let headers = upload_headers(client.auth(), &grant.subject, &[], seq, true);
     let response = tokio::time::timeout(
         Duration::from_millis(client.timeout_ms()),
         client
@@ -243,4 +252,87 @@ fn parse_upload_ack(message: async_nats::Message) -> Result<UploadAck, TrellisCl
     }
 
     Ok(serde_json::from_slice(&message.payload)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::verify_proof;
+
+    use super::*;
+
+    fn test_auth() -> SessionAuth {
+        SessionAuth::from_seed_base64url("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+            .expect("session auth")
+    }
+
+    #[test]
+    fn upload_chunk_size_never_returns_zero() {
+        assert_eq!(upload_chunk_size(0), 1);
+        assert_eq!(upload_chunk_size(6), 6);
+    }
+
+    #[test]
+    fn upload_chunks_match_raw_transfer_sequence() {
+        let body = b"hello world";
+        let chunks: Vec<&[u8]> = body.chunks(upload_chunk_size(6)).collect();
+
+        assert_eq!(chunks, vec![b"hello ".as_slice(), b"world".as_slice()]);
+        assert_eq!(chunks.len() as u64, 2);
+    }
+
+    #[test]
+    fn upload_headers_include_session_proof_sequence_and_eof_marker() {
+        let auth = test_auth();
+        let subject = "transfer.v1.upload.test.tx1";
+        let payload = b"hello ";
+
+        let chunk_headers = upload_headers(&auth, subject, payload, 0, false);
+
+        assert_eq!(
+            chunk_headers
+                .get("session-key")
+                .expect("session-key")
+                .as_str(),
+            auth.session_key
+        );
+        assert!(verify_proof(
+            &auth.session_key,
+            subject,
+            payload,
+            chunk_headers.get("proof").expect("proof").as_str()
+        )
+        .expect("proof verifies"));
+        assert_eq!(
+            chunk_headers
+                .get(TRANSFER_SEQUENCE_HEADER)
+                .expect("sequence")
+                .as_str(),
+            "0"
+        );
+        assert!(chunk_headers.get(TRANSFER_EOF_HEADER).is_none());
+
+        let eof_headers = upload_headers(&auth, subject, &[], 2, true);
+
+        assert_eq!(
+            eof_headers
+                .get(TRANSFER_SEQUENCE_HEADER)
+                .expect("eof sequence")
+                .as_str(),
+            "2"
+        );
+        assert_eq!(
+            eof_headers
+                .get(TRANSFER_EOF_HEADER)
+                .expect("eof marker")
+                .as_str(),
+            "true"
+        );
+        assert!(verify_proof(
+            &auth.session_key,
+            subject,
+            &[],
+            eof_headers.get("proof").expect("eof proof").as_str()
+        )
+        .expect("eof proof verifies"));
+    }
 }

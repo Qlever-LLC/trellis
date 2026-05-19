@@ -19,6 +19,7 @@ trellis-auth = { path = "../auth" }
 trellis-auth-adapters = { path = "../auth-adapters" }
 trellis-client = { path = "../client" }
 trellis-contracts = { path = "../contracts" }
+trellis-core-bootstrap = { path = "../core-bootstrap" }
 trellis-jobs = { path = "../jobs" }
 trellis-local-bootstrap = { path = "../local-bootstrap" }
 trellis-sdk-auth.workspace = true

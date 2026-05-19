@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -171,6 +172,10 @@ pub trait OperationDescriptor {
 
     const KEY: &'static str;
     const SUBJECT: &'static str;
+    const CALLER_CAPABILITIES: &'static [&'static str] = &[];
+    const READ_CAPABILITIES: &'static [&'static str] = Self::CALLER_CAPABILITIES;
+    const CANCEL_CAPABILITIES: &'static [&'static str] = &[];
+    const CONTROL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool;
 }
 
@@ -415,6 +420,71 @@ where
         typed_snapshot(stored.snapshot.clone())
     }
 
+    /// Restore a previously persisted snapshot into this runtime.
+    ///
+    /// This is intended for host-backed operation stores that reload durable records after a
+    /// service reconnect. The restored record is available to `get`, `wait`, and follow-up control
+    /// calls, but active signal waiters are not restored.
+    pub async fn restore_snapshot(
+        &self,
+        snapshot: OperationSnapshot<Value, Value>,
+    ) -> Result<(), ServerError> {
+        let operation_id = snapshot
+            .id
+            .as_ref()
+            .filter(|id| !id.trim().is_empty())
+            .cloned()
+            .ok_or_else(|| ServerError::OperationInvalidId {
+                operation_id: String::new(),
+            })?;
+        let service = snapshot
+            .service
+            .as_ref()
+            .ok_or_else(|| ServerError::OperationMismatch {
+                operation_id: operation_id.clone(),
+                expected_service: self.service.clone(),
+                expected_operation: D::KEY.to_string(),
+                actual_service: String::new(),
+                actual_operation: snapshot.operation.clone().unwrap_or_default(),
+            })?;
+        let operation =
+            snapshot
+                .operation
+                .as_ref()
+                .ok_or_else(|| ServerError::OperationMismatch {
+                    operation_id: operation_id.clone(),
+                    expected_service: self.service.clone(),
+                    expected_operation: D::KEY.to_string(),
+                    actual_service: service.clone(),
+                    actual_operation: String::new(),
+                })?;
+        if service != &self.service || operation != D::KEY {
+            return Err(ServerError::OperationMismatch {
+                operation_id: operation_id.clone(),
+                expected_service: self.service.clone(),
+                expected_operation: D::KEY.to_string(),
+                actual_service: service.clone(),
+                actual_operation: operation.clone(),
+            });
+        }
+
+        let (updates, _receiver) = watch::channel(snapshot.clone());
+        let (signal_updates, _receiver) = watch::channel(0);
+        let mut operations = self.inner.operations.lock().await;
+        operations.insert(
+            operation_id,
+            StoredOperation {
+                service: service.clone(),
+                operation: operation.clone(),
+                snapshot,
+                updates,
+                signals: Vec::new(),
+                signal_updates,
+            },
+        );
+        Ok(())
+    }
+
     /// Wait for the current or next terminal snapshot for an operation id.
     pub async fn wait(
         &self,
@@ -636,6 +706,32 @@ where
             }),
         )
         .await
+    }
+
+    /// Attach operation completion to a service-owned async task.
+    ///
+    /// The attached task is expected to drive operation lifecycle updates through
+    /// this control handle or another service-owned control path. After the task
+    /// returns, the operation must have a terminal snapshot.
+    pub async fn attach<Fut, E>(
+        &self,
+        task: Fut,
+    ) -> Result<OperationSnapshot<D::Progress, D::Output>, ServerError>
+    where
+        Fut: Future<Output = Result<(), E>>,
+        E: std::fmt::Display,
+    {
+        task.await.map_err(|error| {
+            ServerError::Nats(format!("attached operation task failed: {error}"))
+        })?;
+        let snapshot = self.operation.get(self.operation_ref.id.clone()).await?;
+        if snapshot.state.is_terminal() {
+            Ok(snapshot)
+        } else {
+            Err(ServerError::Nats(
+                "attached operation task completed without terminal operation state".to_string(),
+            ))
+        }
     }
 
     /// Cancel the operation.

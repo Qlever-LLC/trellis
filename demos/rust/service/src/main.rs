@@ -15,13 +15,13 @@ use trellis_client::{ServiceConnectOptions, TrellisClient};
 use trellis_core_bootstrap::CoreBootstrapBinding;
 use trellis_sdk_core::types::TrellisBindingsGetResponseBinding;
 use trellis_sdk_demo_service::types::{
-    ActivityLiveEvent, AuditRecordedEvent, AssignmentsListRequest, AssignmentsListResponse,
-    AssignmentsListResponseAssignmentsItem, EvidenceDeleteRequest, EvidenceDeleteResponse,
-    EvidenceDownloadRequest, EvidenceDownloadResponse, EvidenceDownloadResponseTransfer,
-    EvidenceDownloadResponseTransferInfo, EvidenceListRequest, EvidenceListResponse,
-    EvidenceListResponseEvidenceItem, EvidenceUploadInput, EvidenceUploadOutput,
-    EvidenceUploadProgress, EvidenceUploadedEvent, ReportsGenerateInput, ReportsGenerateOutput,
-    ReportsGenerateProgress, ReportsListRequest, ReportsListResponse,
+    ActivityLiveEvent, AssignmentsListRequest, AssignmentsListResponse,
+    AssignmentsListResponseAssignmentsItem, AuditRecordedEvent, EvidenceDeleteRequest,
+    EvidenceDeleteResponse, EvidenceDownloadRequest, EvidenceDownloadResponse,
+    EvidenceDownloadResponseTransfer, EvidenceDownloadResponseTransferInfo, EvidenceListRequest,
+    EvidenceListResponse, EvidenceListResponseEvidenceItem, EvidenceUploadInput,
+    EvidenceUploadOutput, EvidenceUploadProgress, EvidenceUploadedEvent, ReportsGenerateInput,
+    ReportsGenerateOutput, ReportsGenerateProgress, ReportsListRequest, ReportsListResponse,
     ReportsListResponseReportsItem, ReportsPublishedEvent, SitesGetRequest, SitesGetResponse,
     SitesGetResponseSite, SitesListRequest, SitesListResponse, SitesListResponseSitesItem,
     SitesRefreshInput, SitesRefreshOutput, SitesRefreshOutputSite, SitesRefreshProgress,
@@ -207,6 +207,7 @@ impl trellis_jobs::publisher::JobEventPublisher for DemoJobPublisher {
     fn publish(
         &self,
         subject: String,
+        headers: trellis_jobs::publisher::JobEventHeaders,
         payload: Vec<u8>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         let nats = self.nats.clone();
@@ -224,7 +225,13 @@ impl trellis_jobs::publisher::JobEventPublisher for DemoJobPublisher {
                     });
             }
             if let Some(nats) = nats {
-                nats.publish(subject, Bytes::from(payload))
+                let mut nats_headers = async_nats::header::HeaderMap::new();
+                nats_headers.insert("request-id", headers.request_id.as_str());
+                nats_headers.insert("traceparent", headers.traceparent.as_str());
+                if let Some(tracestate) = headers.tracestate.as_deref() {
+                    nats_headers.insert("tracestate", tracestate);
+                }
+                nats.publish_with_headers(subject, nats_headers, Bytes::from(payload))
                     .await
                     .map_err(|error| error.to_string())?;
             }
@@ -1124,7 +1131,13 @@ async fn process_refresh_site_summary_job(
 ) -> Result<serde_json::Value, trellis_jobs::manager::JobProcessError<String>> {
     let input: SitesRefreshInput = serde_json::from_value(active_job.job().payload.clone())
         .map_err(|error| trellis_jobs::manager::JobProcessError::failed(error.to_string()))?;
-    tracing::info!(job_id = %active_job.job().id, site_id = %input.site_id, "refreshSiteSummary job started");
+    tracing::info!(
+        job_id = %active_job.job().id,
+        request_id = %active_job.context().request_id,
+        trace_id = %active_job.context().trace_id,
+        site_id = %input.site_id,
+        "refreshSiteSummary job started",
+    );
     active_job
         .update_progress(
             1,
@@ -1154,7 +1167,13 @@ async fn process_refresh_site_summary_job(
         .await
         .map_err(|error| trellis_jobs::manager::JobProcessError::failed(error.to_string()))?;
     demo_pause(REFRESH_JOB_PROGRESS_PAUSE_MS).await;
-    tracing::info!(job_id = %active_job.job().id, site_id = %output.site.site_id, "refreshSiteSummary job completed");
+    tracing::info!(
+        job_id = %active_job.job().id,
+        request_id = %active_job.context().request_id,
+        trace_id = %active_job.context().trace_id,
+        site_id = %output.site.site_id,
+        "refreshSiteSummary job completed",
+    );
     serde_json::to_value(output)
         .map_err(|error| trellis_jobs::manager::JobProcessError::failed(error.to_string()))
 }

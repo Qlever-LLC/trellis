@@ -31,21 +31,21 @@ const HARNESS_CONTRACT_ID: &str = "trellis.integration-harness.feeds@v1";
 const HARNESS_CALLER_CONTRACT_ID: &str = "trellis.integration-feeds-agent@v1";
 const HARNESS_RUST_FEED_SUBJECT: &str = "feeds.v1.Harness.Rust.Feed";
 const HARNESS_TS_FEED_SUBJECT: &str = "feeds.v1.Harness.Ts.Feed";
-const PASSING_CASES: usize = 11;
+const TRACE_FEED_TOPIC: &str = "ts-client-rust-feed-trace";
+const PASSING_CASES: usize = 12;
 
 fn harness_service_contract_json() -> Result<String> {
     let input_schema = json!({
         "type": "object",
-        "additionalProperties": false,
         "properties": { "topic": { "type": "string" } },
         "required": ["topic"]
     });
     let event_schema = json!({
         "type": "object",
-        "additionalProperties": false,
         "properties": {
             "message": { "type": "string" },
-            "topic": { "type": "string" }
+            "topic": { "type": "string" },
+            "traceparent": { "type": "string" }
         },
         "required": ["message", "topic"]
     });
@@ -107,8 +107,8 @@ import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { Type } from "typebox";
 
 const schemas = {
-  FeedInput: Type.Object({ topic: Type.String() }, { additionalProperties: false }),
-  FeedEvent: Type.Object({ message: Type.String(), topic: Type.String() }, { additionalProperties: false }),
+  FeedInput: Type.Object({ topic: Type.String() }),
+  FeedEvent: Type.Object({ message: Type.String(), topic: Type.String(), traceparent: Type.Optional(Type.String()) }),
 } as const;
 
 const contract = defineServiceContract({ schemas }, (ref) => ({
@@ -116,7 +116,9 @@ const contract = defineServiceContract({ schemas }, (ref) => ({
   displayName: "Trellis Integration Harness Feeds",
   description: "Harness-owned service contract for full-stack Rust/TypeScript feed verification.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+    },
   },
   feeds: {
     "Harness.Rust.Feed": { version: "v1", subject: "feeds.v1.Harness.Rust.Feed", input: ref.schema("FeedInput"), event: ref.schema("FeedEvent"), capabilities: { subscribe: [] } },
@@ -151,12 +153,19 @@ await new Promise<void>(() => {});
 "#;
 
 const TS_CLIENT_SCRIPT: &str = r#"import { defineAgentContract, defineServiceContract, TrellisClient } from "@qlever-llc/trellis";
+import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
+import { trace } from "@qlever-llc/trellis/tracing";
 import { Type } from "typebox";
 
+new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
+}).register();
+
 const schemas = {
-  FeedInput: Type.Object({ topic: Type.String() }, { additionalProperties: false }),
-  FeedEvent: Type.Object({ message: Type.String(), topic: Type.String() }, { additionalProperties: false }),
+  FeedInput: Type.Object({ topic: Type.String() }),
+  FeedEvent: Type.Object({ message: Type.String(), topic: Type.String(), traceparent: Type.Optional(Type.String()) }),
 } as const;
 
 const harness = defineServiceContract({ schemas }, (ref) => ({
@@ -164,7 +173,9 @@ const harness = defineServiceContract({ schemas }, (ref) => ({
   displayName: "Trellis Integration Harness Feeds",
   description: "Harness-owned service contract for full-stack Rust/TypeScript feed verification.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
+    },
   },
   feeds: {
     "Harness.Rust.Feed": { version: "v1", subject: "feeds.v1.Harness.Rust.Feed", input: ref.schema("FeedInput"), event: ref.schema("FeedEvent"), capabilities: { subscribe: [] } },
@@ -177,8 +188,10 @@ const contract = defineAgentContract(() => ({
   displayName: "Trellis Integration Feeds Agent",
   description: "Verify delegated Rust agent login and harness feed subscriptions.",
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-    harness: harness.use({ feeds: { subscribe: ["Harness.Rust.Feed", "Harness.Ts.Feed"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
+      harness: harness.use({ feeds: { subscribe: ["Harness.Rust.Feed", "Harness.Ts.Feed"] } }),
+    },
   },
 }));
 
@@ -240,10 +253,35 @@ async function assertConcurrentFeeds(feed: FeedName, prefix: string, expectedPre
   }
 }
 
+async function assertTraceFeed() {
+  let expectedTraceId = "";
+  await trace.getTracer("trellis-integration-feeds").startActiveSpan("subscribe traced feed", async (span) => {
+    expectedTraceId = span.spanContext().traceId;
+    try {
+      const controller = new AbortController();
+      try {
+        const stream = await client.feed("Harness.Rust.Feed").input({ topic: "ts-client-rust-feed-trace" }).subscribe({ signal: controller.signal }).orThrow();
+        const event = await withTimeout(firstAsyncIterableValue(stream), "Harness.Rust.Feed trace first event") as { message?: string; topic?: string; traceparent?: string };
+        if (event.message !== "rust-feed:ts-client-rust-feed-trace" || event.topic !== "ts-client-rust-feed-trace") {
+          throw new Error(`Harness.Rust.Feed trace returned ${JSON.stringify(event)}`);
+        }
+        if (event.traceparent === undefined || !event.traceparent.includes(expectedTraceId)) {
+          throw new Error(`Harness.Rust.Feed traceparent ${event.traceparent} did not include ${expectedTraceId}`);
+        }
+      } finally {
+        controller.abort();
+      }
+    } finally {
+      span.end();
+    }
+  });
+}
+
 await assertFeed("Harness.Rust.Feed", "ts-client-rust-feed", "rust-feed:ts-client-rust-feed");
 await assertFeed("Harness.Ts.Feed", "ts-client-ts-feed", "ts-feed:ts-client-ts-feed");
 await assertConcurrentFeeds("Harness.Rust.Feed", "ts-client-rust-feed", "rust-feed");
 await assertConcurrentFeeds("Harness.Ts.Feed", "ts-client-ts-feed", "ts-feed");
+await assertTraceFeed();
 await client.natsConnection.drain();
 console.log("TS_FEEDS_CLIENT_OK");
 "#;
@@ -257,6 +295,8 @@ struct HarnessFeedInput {
 struct HarnessFeedEvent {
     message: String,
     topic: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    traceparent: Option<String>,
 }
 
 struct HarnessRustFeed;
@@ -339,14 +379,22 @@ pub(crate) async fn run_feeds_fixture(
     );
 
     let mut router = Router::new();
-    router.register_feed::<HarnessRustFeed, _, _>(|_ctx, input| {
+    router.register_feed::<HarnessRustFeed, _, _>(|ctx, input| {
         stream::once(async move {
             if input.topic.starts_with("slow-") {
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
+            let traceparent = if input.topic == TRACE_FEED_TOPIC {
+                Some(ctx.traceparent.ok_or_else(|| {
+                    trellis_service::ServerError::Nats("missing feed traceparent".to_string())
+                })?)
+            } else {
+                None
+            };
             Ok(HarnessFeedEvent {
                 message: format!("rust-feed:{}", input.topic),
                 topic: input.topic,
+                traceparent,
             })
         })
     });
@@ -477,6 +525,7 @@ where
         != (HarnessFeedEvent {
             message: expected_message.to_string(),
             topic: topic.to_string(),
+            traceparent: None,
         })
     {
         return Err(miette!("{} event mismatch: {event:?}", F::KEY));
@@ -541,6 +590,7 @@ where
         != (HarnessFeedEvent {
             message: expected_message.to_string(),
             topic: topic.to_string(),
+            traceparent: None,
         })
     {
         return Err(miette!("{} raw event mismatch: {event:?}", F::KEY));

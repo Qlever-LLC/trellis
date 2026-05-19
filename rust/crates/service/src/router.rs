@@ -24,6 +24,12 @@ pub struct RequestContext {
     pub session_key: Option<String>,
     /// Proof signature from the authenticated request headers.
     pub proof: Option<String>,
+    /// Proof issued-at timestamp from the authenticated request headers.
+    pub iat: Option<i64>,
+    /// Unique request id from the authenticated request headers.
+    pub request_id: Option<String>,
+    /// Capability requirements for this exact routed request.
+    pub required_capabilities: Option<Vec<String>>,
     /// NATS reply inbox used for request/reply responses.
     pub reply_to: Option<String>,
     /// Validated caller metadata returned by `Auth.Requests.Validate`.
@@ -40,13 +46,56 @@ type BoxedHandler = Box<
         + Sync,
 >;
 
+struct Route {
+    handler: BoxedHandler,
+    capabilities: RouteCapabilities,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RouteCapabilities {
+    Static(&'static [&'static str]),
+    OperationControl {
+        read: &'static [&'static str],
+        cancel: &'static [&'static str],
+        control: &'static [&'static str],
+    },
+}
+
+impl RouteCapabilities {
+    fn required_for_payload(self, payload: &[u8]) -> Option<Vec<String>> {
+        let capabilities = match self {
+            Self::Static(capabilities) => capabilities,
+            Self::OperationControl {
+                read,
+                cancel,
+                control,
+            } => match serde_json::from_slice::<OperationControlRequest>(payload) {
+                Ok(request) => match request.action.as_str() {
+                    "get" | "wait" | "watch" => read,
+                    "cancel" => cancel,
+                    "signal" => control,
+                    _ => &[],
+                },
+                Err(_) => &[],
+            },
+        };
+
+        Some(
+            capabilities
+                .iter()
+                .map(|capability| (*capability).to_string())
+                .collect(),
+        )
+    }
+}
+
 type OperationWatch<TProgress, TOutput> =
     Pin<Box<dyn Stream<Item = Result<OperationSnapshot<TProgress, TOutput>, ServerError>> + Send>>;
 
 /// An in-memory subject router for descriptor-backed RPC handlers.
 #[derive(Default)]
 pub struct Router {
-    handlers: HashMap<String, BoxedHandler>,
+    handlers: HashMap<String, Route>,
 }
 
 impl Router {
@@ -65,7 +114,9 @@ impl Router {
         let handler = Arc::new(handler);
         self.handlers.insert(
             D::SUBJECT.to_string(),
-            Box::new(
+            Route {
+                capabilities: RouteCapabilities::Static(D::CALLER_CAPABILITIES),
+                handler: Box::new(
                 move |ctx, payload| -> BoxFuture<'static, Result<HandlerResponse, ServerError>> {
                     let handler = Arc::clone(&handler);
                     let input =
@@ -79,6 +130,7 @@ impl Router {
                     })
                 },
             ),
+            },
         );
     }
 
@@ -92,7 +144,9 @@ impl Router {
         let handler = Arc::new(handler);
         self.handlers.insert(
             D::SUBJECT.to_string(),
-            Box::new(
+            Route {
+                capabilities: RouteCapabilities::Static(D::SUBSCRIBE_CAPABILITIES),
+                handler: Box::new(
                 move |ctx, payload| -> BoxFuture<'static, Result<HandlerResponse, ServerError>> {
                     let handler = Arc::clone(&handler);
                     let input =
@@ -105,6 +159,7 @@ impl Router {
                     })
                 },
             ),
+            },
         );
     }
 
@@ -271,7 +326,9 @@ impl Router {
 
         self.handlers.insert(
             D::SUBJECT.to_string(),
-            Box::new(
+            Route {
+                capabilities: RouteCapabilities::Static(D::CALLER_CAPABILITIES),
+                handler: Box::new(
                 move |ctx, payload| -> BoxFuture<'static, Result<HandlerResponse, ServerError>> {
                     let start = Arc::clone(&start);
                     let input =
@@ -285,11 +342,18 @@ impl Router {
                     })
                 },
             ),
+            },
         );
 
         self.handlers.insert(
             control_subject(D::SUBJECT),
-            Box::new(
+            Route {
+                capabilities: RouteCapabilities::OperationControl {
+                    read: D::READ_CAPABILITIES,
+                    cancel: D::CANCEL_CAPABILITIES,
+                    control: D::CONTROL_CAPABILITIES,
+                },
+                handler: Box::new(
                 move |ctx, payload| -> BoxFuture<'static, Result<HandlerResponse, ServerError>> {
                     let get = Arc::clone(&get);
                     let watch = Arc::clone(&watch);
@@ -359,6 +423,7 @@ impl Router {
                     })
                 },
             ),
+            },
         );
     }
 
@@ -402,6 +467,19 @@ impl Router {
         Ok(first)
     }
 
+    /// Return declared capabilities required for the routed request payload.
+    pub fn required_capabilities(
+        &self,
+        subject: &str,
+        payload: &[u8],
+    ) -> Result<Option<Vec<String>>, ServerError> {
+        let route = self
+            .handlers
+            .get(subject)
+            .ok_or_else(|| ServerError::MissingHandler(subject.to_string()))?;
+        Ok(route.capabilities.required_for_payload(payload))
+    }
+
     /// Dispatch one request to the registered handler for its subject.
     pub async fn handle_request_frames(
         &self,
@@ -439,11 +517,11 @@ impl Router {
         payload: Bytes,
         context: RequestContext,
     ) -> Result<HandlerResponse, ServerError> {
-        let handler = self
+        let route = self
             .handlers
             .get(subject)
             .ok_or_else(|| ServerError::MissingHandler(subject.to_string()))?;
-        handler(context, payload).await
+        (route.handler)(context, payload).await
     }
 }
 

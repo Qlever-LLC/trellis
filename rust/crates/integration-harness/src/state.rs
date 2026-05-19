@@ -96,7 +96,6 @@ fn harness_denied_contract_json() -> Result<String> {
 fn preferences_schema() -> Value {
     json!({
         "type": "object",
-        "additionalProperties": false,
         "properties": {
             "theme": { "type": "string" },
             "density": { "type": "string" }
@@ -108,7 +107,6 @@ fn preferences_schema() -> Value {
 fn draft_schema() -> Value {
     json!({
         "type": "object",
-        "additionalProperties": false,
         "properties": {
             "title": { "type": "string" },
             "body": { "type": "string" }
@@ -123,8 +121,8 @@ import { sdk as state } from "@qlever-llc/trellis/sdk/state";
 import { Type } from "typebox";
 
 const schemas = {
-  Preferences: Type.Object({ theme: Type.String(), density: Type.String() }, { additionalProperties: false }),
-  Draft: Type.Object({ title: Type.String(), body: Type.String() }, { additionalProperties: false }),
+  Preferences: Type.Object({ theme: Type.String(), density: Type.String() }),
+  Draft: Type.Object({ title: Type.String(), body: Type.String() }),
 } as const;
 
 const contract = defineAgentContract({ schemas }, (ref) => ({
@@ -136,8 +134,10 @@ const contract = defineAgentContract({ schemas }, (ref) => ({
     drafts: { kind: "map", schema: ref.schema("Draft"), stateVersion: "drafts.v1" },
   },
   uses: {
-    auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-    state: state.use({ rpc: { call: ["State.Get", "State.Put", "State.Delete", "State.List", "State.Admin.Get", "State.Admin.List", "State.Admin.Delete"] } }),
+    required: {
+      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
+      state: state.use({ rpc: { call: ["State.Get", "State.Put", "State.Delete", "State.List", "State.Admin.Get", "State.Admin.List", "State.Admin.Delete"] } }),
+    },
   },
 }));
 

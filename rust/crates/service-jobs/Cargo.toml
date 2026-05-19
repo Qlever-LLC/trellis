@@ -25,7 +25,3 @@ trellis-sdk-jobs.workspace = true
 trellis-service = { path = "../service", version = "0.8.2" }
 trellis-contracts = { path = "../contracts", version = "0.8.2" }
 trellis-jobs = { path = "../jobs", version = "0.8.2" }
-
-[dev-dependencies]
-bytes.workspace = true
-futures-util.workspace = true

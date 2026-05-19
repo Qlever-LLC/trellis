@@ -7,7 +7,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
 use crate::runtime_worker::JobCancellationToken;
-use crate::types::{Job, JobLogEntry, JobProgress, JobState};
+use crate::types::{Job, JobContext, JobLogEntry, JobProgress, JobState};
 
 type HeartbeatFn = Arc<dyn Fn() -> BoxFuture<'static, Result<(), JobsError>> + Send + Sync>;
 type ProgressFn =
@@ -136,6 +136,7 @@ where
 #[derive(Debug, Clone, PartialEq)]
 pub struct JobSnapshot<TPayload, TResult> {
     pub id: String,
+    pub context: JobContext,
     pub service: String,
     pub r#type: String,
     pub state: JobState,
@@ -168,6 +169,7 @@ where
 
         Ok(Self {
             id: job.id,
+            context: job.context,
             service: job.service,
             r#type: job.job_type,
             state: job.state,
@@ -191,6 +193,7 @@ pub type TerminalJob<TPayload, TResult> = JobSnapshot<TPayload, TResult>;
 
 /// Typed active-job handle.
 pub struct ActiveJob<TPayload, TResult> {
+    context: JobContext,
     payload: TPayload,
     state: JobState,
     tries: u64,
@@ -207,6 +210,7 @@ where
     TResult: Send + Sync + 'static,
 {
     pub fn new(
+        context: JobContext,
         payload: TPayload,
         state: JobState,
         tries: u64,
@@ -219,6 +223,7 @@ where
         log: impl Fn(JobLogEntry) -> BoxFuture<'static, Result<(), JobsError>> + Send + Sync + 'static,
     ) -> Self {
         Self {
+            context,
             payload,
             state,
             tries,
@@ -232,6 +237,10 @@ where
 
     pub fn payload(&self) -> &TPayload {
         &self.payload
+    }
+
+    pub fn context(&self) -> &JobContext {
+        &self.context
     }
 
     pub fn state(&self) -> JobState {

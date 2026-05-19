@@ -5,18 +5,24 @@ import {
   isErr,
   Result,
 } from "@qlever-llc/result";
+import type { StaticDecode } from "typebox";
 
 import type { AuthLogger, RuntimeKV } from "../runtime_deps.ts";
 import {
+  type AdminCaller,
   type DeviceActivationReview,
   type DeviceDeployment,
   type DeviceInstance,
   type DeviceProvisioningSecret,
   type ProvisionDeviceInstanceRequest,
+  requireAdminFreshAuth,
   validateDeviceDeploymentRequest,
   validateDeviceProvisionRequest,
 } from "./shared.ts";
-import { deriveDeviceConfirmationCode } from "@qlever-llc/trellis/auth";
+import {
+  AuthRequestsValidateResponseSchema,
+  deriveDeviceConfirmationCode,
+} from "@qlever-llc/trellis/auth";
 import type { Connection } from "../schemas.ts";
 import type { DeploymentEnvelope, EnvelopeBoundary } from "../schemas.ts";
 import type {
@@ -33,7 +39,11 @@ import {
   collectDeploymentContractEvidenceDigests,
   purgeUnusedInstalledContracts,
 } from "./contract_gc.ts";
-type RpcUser = { capabilities?: string[]; origin?: string; id?: string };
+type RpcUser =
+  & StaticDecode<
+    typeof AuthRequestsValidateResponseSchema
+  >["caller"]
+  & AdminCaller;
 const EMPTY_BOUNDARY: EnvelopeBoundary = {
   contracts: [],
   surfaces: [],
@@ -45,14 +55,32 @@ type DeviceActivation = {
   instanceId: string;
   publicIdentityKey: string;
   deploymentId: string;
-  activatedBy?: {
-    origin: string;
-    id: string;
-  };
+  activatedBy?: DeviceActivationActor;
   state: "activated" | "revoked";
   activatedAt: string;
   revokedAt: string | null;
 };
+
+type DeviceActivationActor = {
+  participantKind: "app" | "agent";
+  userId: string;
+  identity: {
+    identityId: string;
+    provider: string;
+    subject: string;
+  };
+};
+
+function deviceActivationActorFromCaller(
+  caller: RpcUser,
+): DeviceActivationActor | null {
+  if (caller.type !== "user") return null;
+  return {
+    participantKind: caller.participantKind,
+    userId: caller.userId,
+    identity: caller.identity,
+  };
+}
 
 type DeviceActivationFlow = {
   flowId: string;
@@ -76,10 +104,7 @@ type DeviceActivationReviewRecord = {
   requestedAt: string | Date;
   decidedAt: string | Date | null;
   reason?: string;
-  requestedBy: {
-    origin: string;
-    id: string;
-  };
+  requestedBy: DeviceActivationActor;
 };
 type DeviceActivationOperationOutput =
   | {
@@ -848,7 +873,8 @@ export function createAuthDeploymentsDeviceCreateHandler() {
     },
     ctx: DeviceDeploymentRpcContext,
   ) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const validation = validateDeviceDeploymentRequest(req);
     if (validation.isErr()) return validation;
     const { deployment } = validation.take() as {
@@ -894,7 +920,8 @@ export const authListDeviceDeploymentsHandler = async (
   },
   ctx: DeviceDeploymentRpcContext,
 ) => {
-  if (!isAdmin(caller)) return insufficientPermissions();
+  const authorized = requireAdminFreshAuth(caller);
+  if (authorized.isErr()) return authorized;
   const deployments = await listDeviceDeployments(ctx, {
     disabled: req.disabled,
   }, req);
@@ -908,7 +935,8 @@ export function createAuthDeploymentsDeviceDisableHandler(
     input: { deploymentId: string };
     context: { caller: RpcUser };
   }, ctx: DeviceDeploymentRpcContext) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
     if (!deployment) {
       return invalidRequest({
@@ -967,7 +995,8 @@ export function createAuthDeploymentsDeviceEnableHandler(
     input: { deploymentId: string };
     context: { caller: RpcUser };
   }, ctx: DeviceDeploymentRpcContext) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
     if (!deployment) {
       return invalidRequest({
@@ -1022,7 +1051,8 @@ export function createAuthDeploymentsDeviceRemoveHandler(
     };
     context: { caller: RpcUser };
   }, ctx: DeviceDeploymentRpcContext) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     if (req.purgeUnusedContracts === true && req.cascade !== true) {
       return invalidRequest({
         deploymentId: req.deploymentId,
@@ -1203,7 +1233,8 @@ export function createAuthDevicesProvisionHandler() {
     },
     ctx: AdminRpcContext,
   ) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const validation = validateDeviceProvisionRequest(req);
     if (validation.isErr()) return validation;
     const { instance, provisioningSecret } = validation.take() as {
@@ -1235,7 +1266,8 @@ export const authListDeviceInstancesHandler = async (
   },
   ctx: AdminRpcContext,
 ) => {
-  if (!isAdmin(caller)) return insufficientPermissions();
+  const authorized = requireAdminFreshAuth(caller);
+  if (authorized.isErr()) return authorized;
   const instances = await listDeviceInstancesFiltered(ctx, req, req);
   return Result.ok({ instances });
 };
@@ -1247,7 +1279,8 @@ export function createAuthDevicesDisableHandler(
     input: { instanceId: string };
     context: { caller: RpcUser };
   }, ctx: AdminRpcContext) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const instance = await loadDeviceInstance(ctx, req.instanceId);
     if (!instance) {
       return invalidRequest({
@@ -1280,7 +1313,8 @@ export function createAuthDevicesEnableHandler(
     input: { instanceId: string };
     context: { caller: RpcUser };
   }, ctx: AdminRpcContext) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const instance = await loadDeviceInstance(ctx, req.instanceId);
     if (!instance) {
       return invalidRequest({
@@ -1318,7 +1352,8 @@ export function createAuthDevicesRemoveHandler(
     input: { instanceId: string };
     context: { caller: RpcUser };
   }, ctx: AdminRpcContext) => {
-    if (!isAdmin(caller)) return insufficientPermissions();
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
     const instance = await loadDeviceInstance(ctx, req.instanceId);
     if (!instance) {
       return invalidRequest({
@@ -1372,7 +1407,8 @@ export const authListDeviceActivationsHandler = async (
   },
   ctx: AdminRpcContext,
 ) => {
-  if (!isAdmin(caller)) return insufficientPermissions();
+  const authorized = requireAdminFreshAuth(caller);
+  if (authorized.isErr()) return authorized;
   const activations = await listDeviceActivations(ctx, req, req);
   return Result.ok({ activations });
 };
@@ -1384,7 +1420,8 @@ export const authRevokeDeviceActivationHandler = async (
   },
   ctx: AdminRpcContext,
 ) => {
-  if (!isAdmin(caller)) return insufficientPermissions();
+  const authorized = requireAdminFreshAuth(caller);
+  if (authorized.isErr()) return authorized;
   const activation = await ctx.deviceActivationStorage.get(req.instanceId);
   if (!activation) return Result.ok({ success: false });
   const nextActivation = {
@@ -1449,6 +1486,10 @@ export const authDecideDeviceActivationReviewHandler = async (
     });
   }
   if (!canReviewDeployment(caller, review.deploymentId)) {
+    return insufficientPermissions();
+  }
+  const approvalActor = deviceActivationActorFromCaller(caller);
+  if (req.decision === "approve" && !approvalActor) {
     return insufficientPermissions();
   }
 
@@ -1541,10 +1582,7 @@ export const authDecideDeviceActivationReviewHandler = async (
       : updatedReview.requestedAt,
     approvedAt: decidedAt,
     requestedBy: updatedReview.requestedBy,
-    approvedBy: {
-      id: caller.id ?? "unknown",
-      ...(caller.origin ? { origin: caller.origin } : {}),
-    },
+    approvedBy: approvalActor,
   }))?.inspectErr((error: unknown) =>
     ctx.logger.warn(
       { error, reviewId: updatedReview.reviewId },

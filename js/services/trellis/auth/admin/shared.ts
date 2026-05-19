@@ -67,8 +67,13 @@ export type CreateServiceDeploymentRequest = {
 };
 
 export type DeviceActivationActor = {
-  origin: string;
-  id: string;
+  participantKind: "app" | "agent";
+  userId: string;
+  identity: {
+    identityId: string;
+    provider: string;
+    subject: string;
+  };
 };
 
 export type DeviceActivationRecord = {
@@ -80,6 +85,35 @@ export type DeviceActivationRecord = {
   activatedAt: string;
   revokedAt: string | null;
 };
+
+export const DEFAULT_ADMIN_REAUTH_MAX_AGE_MS = 10 * 60 * 1000;
+
+export type AdminCaller = {
+  type?: string;
+  capabilities?: string[];
+  lastAuth?: string;
+};
+
+/** Requires an admin caller whose primary authentication is still fresh. */
+export function requireAdminFreshAuth(
+  caller: AdminCaller,
+  options: { now?: Date; maxAgeMs?: number } = {},
+) {
+  if (caller.type !== "user" || !caller.capabilities?.includes("admin")) {
+    return Result.err(new AuthError({ reason: "insufficient_permissions" }));
+  }
+
+  const maxAgeMs = options.maxAgeMs ?? DEFAULT_ADMIN_REAUTH_MAX_AGE_MS;
+  const authenticatedAt = caller.lastAuth ? Date.parse(caller.lastAuth) : NaN;
+  const nowMs = (options.now ?? new Date()).getTime();
+  if (!Number.isFinite(authenticatedAt) || nowMs - authenticatedAt > maxAgeMs) {
+    return Result.err(
+      new AuthError({ reason: "reauth_required", context: { maxAgeMs } }),
+    );
+  }
+
+  return Result.ok(undefined);
+}
 
 export type ProvisionDeviceInstanceRequest = {
   deploymentId: string;

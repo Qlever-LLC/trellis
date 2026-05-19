@@ -14,7 +14,7 @@ export const StoredStateEntrySchema = Type.Object({
   expiresAt: Type.Optional(IsoDateSchema),
   stateVersion: Type.String({ minLength: 1 }),
   writerContractDigest: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export type StoredStateEntry = {
   value: JsonValue;
   updatedAt: Date;

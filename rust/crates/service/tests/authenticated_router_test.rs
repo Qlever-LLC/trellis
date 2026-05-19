@@ -1,12 +1,12 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use futures_util::future::{ready, BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use trellis_service::{
-    AuthenticatedRouter, RequestContext, RequestValidation, RequestValidator, Router,
-    RpcDescriptor, ServerError,
+    AuthenticatedRouter, OperationDescriptor, RequestContext, RequestValidation, RequestValidator,
+    Router, RpcDescriptor, ServerError,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +26,32 @@ impl RpcDescriptor for PingRpc {
     type Output = PingOutput;
     const KEY: &'static str = "Ping";
     const SUBJECT: &'static str = "rpc.v1.Ping";
+}
+
+struct CapRpc;
+
+impl RpcDescriptor for CapRpc {
+    type Input = PingInput;
+    type Output = PingOutput;
+    const KEY: &'static str = "Cap.Ping";
+    const SUBJECT: &'static str = "rpc.v1.Cap.Ping";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["rpc.call"];
+}
+
+struct CapOperation;
+
+impl OperationDescriptor for CapOperation {
+    type Input = PingInput;
+    type Progress = PingOutput;
+    type Output = PingOutput;
+
+    const KEY: &'static str = "Cap.Operation";
+    const SUBJECT: &'static str = "operations.v1.Cap.Operation";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["operation.call"];
+    const READ_CAPABILITIES: &'static [&'static str] = &["operation.read"];
+    const CANCEL_CAPABILITIES: &'static [&'static str] = &["operation.cancel"];
+    const CONTROL_CAPABILITIES: &'static [&'static str] = &["operation.control"];
+    const CANCELABLE: bool = true;
 }
 
 #[derive(Clone)]
@@ -61,6 +87,41 @@ impl RequestValidator for StubValidator {
             RequestValidation::denied()
         }))
         .boxed()
+    }
+}
+
+#[derive(Clone, Default)]
+struct RecordingValidator {
+    capabilities: Arc<Mutex<Vec<Option<Vec<String>>>>>,
+}
+
+impl RequestValidator for RecordingValidator {
+    fn validate<'a>(
+        &'a self,
+        _subject: &'a str,
+        _payload: &'a Bytes,
+        context: &'a RequestContext,
+    ) -> BoxFuture<'a, Result<RequestValidation, ServerError>> {
+        self.capabilities
+            .lock()
+            .expect("lock recorded capabilities")
+            .push(context.required_capabilities.clone());
+        ready(Ok(RequestValidation::allowed())).boxed()
+    }
+}
+
+fn auth_context(subject: &str) -> RequestContext {
+    RequestContext {
+        subject: subject.to_string(),
+        session_key: Some("abcdefghijklmnop-session".to_string()),
+        proof: Some("proof".to_string()),
+        iat: None,
+        request_id: None,
+        required_capabilities: None,
+        reply_to: None,
+        caller: None,
+        traceparent: None,
+        tracestate: None,
     }
 }
 
@@ -102,6 +163,9 @@ async fn authenticated_router_rejects_missing_session_key_before_validation() {
                 subject: PingRpc::SUBJECT.to_string(),
                 session_key: None,
                 proof: Some("proof".to_string()),
+                iat: None,
+                request_id: None,
+                required_capabilities: None,
                 reply_to: None,
                 caller: None,
                 traceparent: None,
@@ -133,6 +197,9 @@ async fn authenticated_router_rejects_request_when_validator_denies() {
                 subject: PingRpc::SUBJECT.to_string(),
                 session_key: Some("svc_session".to_string()),
                 proof: Some("proof".to_string()),
+                iat: None,
+                request_id: None,
+                required_capabilities: None,
                 reply_to: None,
                 caller: None,
                 traceparent: None,
@@ -153,6 +220,85 @@ async fn authenticated_router_rejects_request_when_validator_denies() {
 }
 
 #[tokio::test]
+async fn authenticated_router_forwards_descriptor_capabilities_to_validator() {
+    let mut router = Router::new();
+    router.register_rpc::<CapRpc, _, _>(|_ctx, input| async move {
+        Ok(PingOutput {
+            echoed: input.value,
+        })
+    });
+    let validator = RecordingValidator::default();
+    let recorded = Arc::clone(&validator.capabilities);
+    let auth_router = AuthenticatedRouter::new(router, validator);
+
+    auth_router
+        .handle_request(
+            CapRpc::SUBJECT,
+            ping_payload("hello"),
+            auth_context(CapRpc::SUBJECT),
+        )
+        .await
+        .expect("request should pass auth");
+
+    assert_eq!(
+        *recorded.lock().expect("lock recorded capabilities"),
+        vec![Some(vec!["rpc.call".to_string()])]
+    );
+}
+
+#[tokio::test]
+async fn authenticated_router_uses_action_specific_operation_control_capabilities() {
+    let mut router = Router::new();
+    router.register_operation::<CapOperation, _, _, _, _, _, _, _, _>(
+        |_ctx, _input| async move {
+            Ok(trellis_service::AcceptedOperation {
+                kind: "accepted".to_string(),
+                operation_ref: trellis_service::OperationRefData {
+                    id: "op_1".to_string(),
+                    service: "cap".to_string(),
+                    operation: CapOperation::KEY.to_string(),
+                },
+                snapshot: trellis_service::OperationSnapshot::default(),
+                transfer: None,
+            })
+        },
+        |_ctx, _operation_id| async move { Ok(trellis_service::OperationSnapshot::default()) },
+        |_ctx, _operation_id| async move {
+            Ok(trellis_service::OperationSnapshot {
+                state: trellis_service::OperationState::Completed,
+                ..trellis_service::OperationSnapshot::default()
+            })
+        },
+        |_ctx, _operation_id| async move { Ok(trellis_service::OperationSnapshot::default()) },
+    );
+    let validator = RecordingValidator::default();
+    let recorded = Arc::clone(&validator.capabilities);
+    let auth_router = AuthenticatedRouter::new(router, validator);
+    let control_subject = trellis_service::control_subject(CapOperation::SUBJECT);
+
+    for action in ["get", "wait", "watch", "cancel"] {
+        let payload = Bytes::from(
+            serde_json::to_vec(&serde_json::json!({ "action": action, "operationId": "op_1" }))
+                .expect("serialize operation control request"),
+        );
+        auth_router
+            .handle_request_response(&control_subject, payload, auth_context(&control_subject))
+            .await
+            .expect("operation control should pass auth");
+    }
+
+    assert_eq!(
+        *recorded.lock().expect("lock recorded capabilities"),
+        vec![
+            Some(vec!["operation.read".to_string()]),
+            Some(vec!["operation.read".to_string()]),
+            Some(vec!["operation.read".to_string()]),
+            Some(vec!["operation.cancel".to_string()]),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn authenticated_router_dispatches_to_inner_router_when_validator_allows() {
     let handler_called = Arc::new(AtomicBool::new(false));
     let validator = StubValidator::new(true);
@@ -167,6 +313,9 @@ async fn authenticated_router_dispatches_to_inner_router_when_validator_allows()
                 subject: PingRpc::SUBJECT.to_string(),
                 session_key: Some("svc_session".to_string()),
                 proof: Some("proof".to_string()),
+                iat: None,
+                request_id: None,
+                required_capabilities: None,
                 reply_to: None,
                 caller: None,
                 traceparent: None,
@@ -204,6 +353,9 @@ async fn authenticated_router_rejects_mismatched_reply_inbox() {
                 subject: PingRpc::SUBJECT.to_string(),
                 session_key: Some(session_key.to_string()),
                 proof: Some("proof".to_string()),
+                iat: None,
+                request_id: None,
+                required_capabilities: None,
                 reply_to: Some("_INBOX.someone_else.1".to_string()),
                 caller: None,
                 traceparent: None,

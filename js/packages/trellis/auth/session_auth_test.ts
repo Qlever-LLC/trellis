@@ -76,11 +76,13 @@ Deno.test("proof creation and verification match ADR format", async () => {
   const payloadHash = await sha256(
     utf8(JSON.stringify({ userId: { origin: "github", id: "1" } })),
   );
-  const proof = await auth.createProof(subject, payloadHash);
+  const iat = 1_700_000_000;
+  const requestId = "req_123";
+  const proof = await auth.createProof(subject, payloadHash, requestId, iat);
 
   const ok = await verifyProof(
     auth.sessionKey,
-    { sessionKey: auth.sessionKey, subject, payloadHash },
+    { sessionKey: auth.sessionKey, subject, payloadHash, iat, requestId },
     proof,
   );
   assert(ok);
@@ -91,6 +93,8 @@ Deno.test("proof creation and verification match ADR format", async () => {
       sessionKey: auth.sessionKey,
       subject,
       payloadHash: await sha256(utf8("different")),
+      iat,
+      requestId,
     },
     proof,
   );

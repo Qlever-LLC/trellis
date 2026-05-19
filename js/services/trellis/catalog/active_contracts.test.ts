@@ -55,6 +55,32 @@ Deno.test("addDeploymentEvidenceDigests includes every active deployment evidenc
   assertEquals([...active].sort(), ["builtin", "digest-a", "digest-b"]);
 });
 
+Deno.test("addDeploymentEvidenceDigests includes concurrent digests for each deployment contract", () => {
+  const active = new Set<string>();
+
+  addDeploymentEvidenceDigests(
+    active,
+    [envelope("service.enabled", ["service@v1"])],
+    [
+      {
+        deploymentId: "service.enabled",
+        contractId: "service@v1",
+        contractDigest: "old-digest",
+        lastSeenAt: "2026-05-01T00:00:00.000Z",
+      },
+      {
+        deploymentId: "service.enabled",
+        contractId: "service@v1",
+        contractDigest: "new-digest",
+        lastSeenAt: "2026-05-02T00:00:00.000Z",
+      },
+    ],
+    (deployment) => !deployment.disabled,
+  );
+
+  assertEquals([...active].sort(), ["new-digest", "old-digest"]);
+});
+
 Deno.test("overlayStagedRecords replaces persisted records by key", () => {
   const records = overlayStagedRecords(
     [

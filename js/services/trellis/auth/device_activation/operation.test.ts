@@ -19,15 +19,24 @@ type ActivationRecord = Parameters<
 >[0];
 
 const baseTimeMs = Date.parse("2026-01-01T00:00:00.000Z");
+const testActor = {
+  participantKind: "app" as const,
+  userId: "user_1",
+  identity: {
+    identityId: "idn_github_ada",
+    provider: "github",
+    subject: "ada-oauth",
+  },
+};
 
 const config: Config = {
   logLevel: "info",
   port: 3000,
   instanceName: "Trellis",
-  web: { origins: [], allowInsecureOrigins: [] },
+  web: { origins: [], cors: { mode: "public" }, allowInsecureOrigins: [] },
   httpRateLimit: { windowMs: 60_000, max: 0 },
   storage: { dbPath: ":memory:" },
-  auth: { localIdentity: { enabled: true } },
+  auth: { localIdentity: { enabled: true, passwordPolicy: { minLength: 8 } } },
   ttlMs: {
     sessions: 1,
     oauth: 1,
@@ -154,7 +163,21 @@ function operationContext(
 ): ResolveDeviceUserAuthoritiesContext {
   return {
     input: { flowId: "flow_1" },
-    caller: { type: "user", origin: "github", id: "user_1" },
+    caller: {
+      type: "user",
+      participantKind: "app",
+      userId: "user_1",
+      identity: {
+        provider: "github",
+        subject: "ada-oauth",
+        identityId: "idn_github_ada",
+      },
+      active: true,
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      capabilities: ["Auth.DeviceUserAuthorities.Resolve"],
+      lastAuth: new Date(baseTimeMs).toISOString(),
+    },
     op: {
       id: "op_activate_1",
       started: async () => {},
@@ -209,7 +232,7 @@ Deno.test("Auth.DeviceUserAuthorities.Resolve publishes requested before review 
     publicIdentityKey: "pub_1",
     deploymentId: "reader.default",
     requestedAt: new Date(baseTimeMs).toISOString(),
-    requestedBy: { origin: "github", id: "user_1" },
+    requestedBy: testActor,
   });
 });
 
@@ -241,7 +264,7 @@ Deno.test("Auth.DeviceUserAuthorities.Resolve existing pending review records pr
     instanceId: "dev_1",
     publicIdentityKey: "pub_1",
     deploymentId: "reader.default",
-    requestedBy: { origin: "github", id: "user_1" },
+    requestedBy: testActor,
     state: "pending",
     requestedAt: new Date(baseTimeMs).toISOString(),
     decidedAt: null,
@@ -301,7 +324,7 @@ Deno.test("Auth.DeviceUserAuthorities.Resolve activates immediately when review 
     publicIdentityKey: "pub_1",
     deploymentId: "reader.default",
     resolvedAt: value.activatedAt,
-    resolvedBy: { origin: "github", id: "user_1" },
+    resolvedBy: testActor,
     flowId: "flow_1",
   });
 });
@@ -319,7 +342,7 @@ Deno.test("Auth.DeviceUserAuthorities.Resolve publishes activation for already-a
       instanceId: "dev_1",
       publicIdentityKey: "pub_1",
       deploymentId: "reader.default",
-      requestedBy: { origin: "github", id: "user_1" },
+      requestedBy: testActor,
       state: "approved",
       requestedAt: new Date(baseTimeMs).toISOString(),
       decidedAt: new Date(baseTimeMs + 1_000).toISOString(),
@@ -343,7 +366,7 @@ Deno.test("Auth.DeviceUserAuthorities.Resolve publishes activation for already-a
     publicIdentityKey: "pub_1",
     deploymentId: "reader.default",
     resolvedAt: value.activatedAt,
-    resolvedBy: { origin: "github", id: "user_1" },
+    resolvedBy: testActor,
     flowId: "flow_1",
     reviewId: "dar_1",
   });
@@ -362,7 +385,7 @@ Deno.test("Auth.DeviceUserAuthorities.Resolve returns already-terminal rejected 
       instanceId: "dev_1",
       publicIdentityKey: "pub_1",
       deploymentId: "reader.default",
-      requestedBy: { origin: "github", id: "user_1" },
+      requestedBy: testActor,
       state: "rejected",
       requestedAt: new Date(baseTimeMs).toISOString(),
       decidedAt: new Date(baseTimeMs + 1_000).toISOString(),

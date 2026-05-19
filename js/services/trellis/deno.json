@@ -11,6 +11,7 @@
   },
   "imports": {
     "@libsql/client": "npm:@libsql/client@0.15.15",
+    "@noble/hashes/argon2": "npm:@noble/hashes@1.8.0/argon2",
     "drizzle-orm": "npm:drizzle-orm@0.44.7",
     "drizzle-orm/libsql": "npm:drizzle-orm@0.44.7/libsql",
     "drizzle-orm/libsql/migrator": "npm:drizzle-orm@0.44.7/libsql/migrator",

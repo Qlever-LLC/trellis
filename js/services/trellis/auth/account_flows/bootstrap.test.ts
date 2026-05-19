@@ -329,7 +329,7 @@ Deno.test("completeAdminBootstrapLocalPassword rejects expired and consumed boot
       ...state.deps,
       flowId,
       username: "ada",
-      password: "password",
+      password: "long-password",
       now: new Date("2026-05-09T00:00:00.000Z"),
     });
 
@@ -349,7 +349,7 @@ Deno.test("completeAdminBootstrapLocalPassword rejects when an active admin exis
     ...state.deps,
     flowId,
     username: "ada",
-    password: "password",
+    password: "long-password",
     now: new Date("2026-05-09T00:00:00.000Z"),
   });
 
@@ -378,7 +378,7 @@ Deno.test("completeAdminBootstrapLocalPassword rejects duplicate local usernames
     ...state.deps,
     flowId,
     username: "ada",
-    password: "password",
+    password: "long-password",
     now: new Date("2026-05-09T00:00:00.000Z"),
   });
 
@@ -397,7 +397,7 @@ Deno.test("completeAdminBootstrapLocalPassword rejects a double-consume race wit
     ...state.deps,
     flowId,
     username: "ada",
-    password: "password",
+    password: "long-password",
     now: new Date("2026-05-09T00:00:00.000Z"),
   });
 
@@ -616,7 +616,7 @@ Deno.test("completeAdminBootstrapLocalPassword rejects invalid target account fl
       ...state.deps,
       flowId,
       username: "ada",
-      password: "password",
+      password: "long-password",
       now: new Date("2026-05-09T00:00:00.000Z"),
     });
 

@@ -1,6 +1,8 @@
 import { UnexpectedError, ValidationError } from "@qlever-llc/trellis";
+import { AuthRequestsValidateResponseSchema } from "@qlever-llc/trellis/auth";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { isErr, Result } from "@qlever-llc/result";
+import type { StaticDecode } from "typebox";
 import { Value } from "typebox/value";
 import type { TrellisCatalog } from "../../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
 import { TrellisCatalogSchema } from "../../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
@@ -75,18 +77,15 @@ function toRpcContract(
   };
 }
 
+type Caller = StaticDecode<typeof AuthRequestsValidateResponseSchema>["caller"];
+
 type ServiceContext = {
-  caller: { type: string; origin?: string; id?: string };
+  caller: Caller;
   sessionKey: string;
 };
 
 type SurfaceStatusContext = {
-  caller: {
-    type: string;
-    origin?: string;
-    id?: string;
-    capabilities: string[];
-  };
+  caller: Caller;
   sessionKey: string;
 };
 

@@ -277,8 +277,7 @@ Admin inspection is separate from the normal runtime API.
 - admin callers use dedicated `State.Admin.*` RPCs
 - admin APIs still target an explicit namespace and may distinguish
   `scope: "userApp" | "deviceApp"`
-- user-app admin targets may include the exact Trellis `userId`; when omitted,
-  the runtime preserves the origin/id-derived legacy lookup
+- user-app admin targets use the exact Trellis `userId`
 - admin APIs are for inspection and mutation by administrators, not for normal
   app/device runtime access
 

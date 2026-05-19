@@ -8,6 +8,7 @@ import {
 } from "@qlever-llc/trellis/auth";
 import {
   createAuthConnectionsListHandler,
+  createAuthHealthHandler,
   createAuthRequestsValidateHandler,
   createAuthSessionsListHandler,
   createAuthSessionsMeHandler,
@@ -29,6 +30,8 @@ import {
   SqlIdentityEnvelopeRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
+
+const TEST_IAT = 1_700_000_000;
 
 function matchFilter(filter: string, key: string): boolean {
   const filterParts = filter.split(".");
@@ -98,6 +101,30 @@ function createTestLogger(logs: CapturedLog[] = []) {
     },
   };
 }
+
+Deno.test("Auth.Health returns the auth control-plane health response", async () => {
+  const handler = createAuthHealthHandler({
+    logger: createTestLogger(),
+    now: () => new Date("2026-01-01T00:00:00.000Z"),
+  });
+
+  const value = (await handler({ context: { sessionKey: "sk_health" } }))
+    .take();
+
+  assertEquals(value, {
+    status: "healthy",
+    service: "trellis",
+    timestamp: "2026-01-01T00:00:00.000Z",
+    checks: [
+      {
+        name: "auth-rpc",
+        status: "ok",
+        summary: "Auth RPC handlers are mounted.",
+        latencyMs: 0,
+      },
+    ],
+  });
+});
 
 function sessionStorageFromKV(kv: InMemoryKV<Session>) {
   async function entries(filter: string) {
@@ -232,6 +259,16 @@ const TEST_IDENTITY = {
   provider: "github",
   subject: "123",
 };
+type TestDeviceActivationActor = {
+  participantKind: "app" | "agent";
+  userId: string;
+  identity: typeof TEST_IDENTITY;
+};
+const TEST_ACTIVATION_ACTOR: TestDeviceActivationActor = {
+  participantKind: "app",
+  userId: TEST_USER_ID,
+  identity: TEST_IDENTITY,
+};
 
 function testUserProjection(
   overrides: Partial<UserProjectionEntry> = {},
@@ -275,7 +312,7 @@ Deno.test("Auth.Sessions.Me returns user, device, and service envelopes", async 
     instanceId: string;
     publicIdentityKey: string;
     deploymentId: string;
-    activatedBy?: { origin: string; id: string };
+    activatedBy?: TestDeviceActivationActor;
     state: "activated" | "revoked";
     activatedAt: string;
     revokedAt: string | null;
@@ -371,7 +408,7 @@ Deno.test("Auth.Sessions.Me returns user, device, and service envelopes", async 
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
     deploymentId: "reader.default",
-    activatedBy: { origin: "account", id: TEST_USER_ID },
+    activatedBy: TEST_ACTIVATION_ACTOR,
     state: "activated",
     activatedAt: "2026-04-10T00:00:00.000Z",
     revokedAt: null,
@@ -399,11 +436,7 @@ Deno.test("Auth.Sessions.Me returns user, device, and service envelopes", async 
       active: true,
       name: "Ada",
       email: "ada@example.com",
-      identity: {
-        identityId: TEST_USER_ID,
-        provider: "account",
-        subject: TEST_USER_ID,
-      },
+      identity: TEST_IDENTITY,
       capabilities: ["users.read"],
     },
     device: {
@@ -482,7 +515,7 @@ Deno.test("Auth.Sessions.Me validates services with the durable instance deploym
         instanceId: string;
         publicIdentityKey: string;
         deploymentId: string;
-        activatedBy?: { origin: string; id: string };
+        activatedBy?: TestDeviceActivationActor;
         state: "activated" | "revoked";
         activatedAt: string;
         revokedAt: string | null;
@@ -540,7 +573,7 @@ Deno.test("Auth.Sessions.Me rejects deleted user sessions despite caller context
         instanceId: string;
         publicIdentityKey: string;
         deploymentId: string;
-        activatedBy?: { origin: string; id: string };
+        activatedBy?: TestDeviceActivationActor;
         state: "activated" | "revoked";
         activatedAt: string;
         revokedAt: string | null;
@@ -577,7 +610,7 @@ Deno.test("Auth.Sessions.Me reflects SQL user active and capability changes", as
       instanceId: string;
       publicIdentityKey: string;
       deploymentId: string;
-      activatedBy?: { origin: string; id: string };
+      activatedBy?: TestDeviceActivationActor;
       state: "activated" | "revoked";
       activatedAt: string;
       revokedAt: string | null;
@@ -666,7 +699,7 @@ Deno.test("Auth.Sessions.Me rejects user sessions when the durable projection is
         instanceId: string;
         publicIdentityKey: string;
         deploymentId: string;
-        activatedBy?: { origin: string; id: string };
+        activatedBy?: TestDeviceActivationActor;
         state: "activated" | "revoked";
         activatedAt: string;
         revokedAt: string | null;
@@ -705,7 +738,7 @@ Deno.test("Auth.Sessions.Me rejects missing device sessions despite caller conte
     instanceId: string;
     publicIdentityKey: string;
     deploymentId: string;
-    activatedBy?: { origin: string; id: string };
+    activatedBy?: TestDeviceActivationActor;
     state: "activated" | "revoked";
     activatedAt: string;
     revokedAt: string | null;
@@ -737,7 +770,7 @@ Deno.test("Auth.Sessions.Me rejects missing device sessions despite caller conte
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
     deploymentId: "reader.default",
-    activatedBy: { origin: "github", id: "123" },
+    activatedBy: TEST_ACTIVATION_ACTOR,
     state: "activated",
     activatedAt: "2026-04-10T00:00:00.000Z",
     revokedAt: null,
@@ -929,6 +962,8 @@ Deno.test("Auth.Requests.Validate returns invalid_signature for malformed payloa
       proof: "not-a-proof",
       subject: "rpc.v1.Auth.Sessions.Me",
       payloadHash: "!!!!",
+      iat: TEST_IAT,
+      requestId: "req_malformed",
     },
   });
 
@@ -960,15 +995,25 @@ Deno.test("Auth.Requests.Validate uses current delegated publish subjects", asyn
     deviceInstanceStorage: { get: () => Promise.resolve(undefined) },
     loadServiceInstance: () => Promise.resolve(null),
     loadServiceDeployment: () => Promise.resolve(null),
+    nowSeconds: () => TEST_IAT,
   });
 
+  let requestSequence = 0;
   async function validate(subject: string) {
+    const requestId = `req_${requestSequence++}`;
     return await handler({
       input: {
         sessionKey: auth.sessionKey,
-        proof: await auth.createProof(subject, payloadHash),
+        proof: await auth.createProof(
+          subject,
+          payloadHash,
+          requestId,
+          TEST_IAT,
+        ),
         subject,
         payloadHash: base64urlEncode(payloadHash),
+        iat: TEST_IAT,
+        requestId,
       },
     });
   }
@@ -976,10 +1021,118 @@ Deno.test("Auth.Requests.Validate uses current delegated publish subjects", asyn
   const allowed = (await validate("rpc.v1.Allowed.Ping")).take();
   if (isErr(allowed)) throw allowed.error;
   assertEquals(allowed.allowed, true);
+  assertEquals(allowed.caller, {
+    type: "user",
+    participantKind: "app",
+    userId: TEST_USER_ID,
+    identity: TEST_IDENTITY,
+    active: true,
+    name: "Ada",
+    email: "ada@example.com",
+    image: undefined,
+    capabilities: ["users.read"],
+    lastAuth: "2026-04-10T00:00:00.000Z",
+  });
 
   const denied = (await validate("rpc.v1.Removed.Ping")).take();
   if (isErr(denied)) throw denied.error;
   assertEquals(denied.allowed, false);
+});
+
+Deno.test("Auth.Requests.Validate rejects stale request proofs", async () => {
+  const auth = await createAuth({
+    sessionKeySeed: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  });
+  const subject = "rpc.v1.Allowed.Ping";
+  const payloadHash = await sha256(utf8("{}"));
+  const requestId = "req_stale";
+  const handler = createAuthRequestsValidateHandler({
+    logger: createTestLogger(),
+    sessionStorage: { getOneBySessionKey: () => Promise.resolve(undefined) },
+    userStorage: new InMemoryUserStorage(),
+    deviceActivationStorage: { get: () => Promise.resolve(undefined) },
+    deviceDeploymentStorage: { get: () => Promise.resolve(undefined) },
+    deviceInstanceStorage: { get: () => Promise.resolve(undefined) },
+    loadServiceInstance: () => Promise.resolve(null),
+    loadServiceDeployment: () => Promise.resolve(null),
+    nowSeconds: () => TEST_IAT + 31,
+  });
+
+  const result = await handler({
+    input: {
+      sessionKey: auth.sessionKey,
+      proof: await auth.createProof(subject, payloadHash, requestId, TEST_IAT),
+      subject,
+      payloadHash: base64urlEncode(payloadHash),
+      iat: TEST_IAT,
+      requestId,
+    },
+  });
+
+  assert(result.isErr());
+  assertEquals(result.error.reason, "iat_out_of_range");
+});
+
+Deno.test("Auth.Requests.Validate rejects replayed request ids", async () => {
+  const auth = await createAuth({
+    sessionKeySeed: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  });
+  const subject = "rpc.v1.Allowed.Ping";
+  const payloadHash = await sha256(utf8("{}"));
+  const requestId = "req_replay";
+  const sessionKV = new InMemoryKV<Session>();
+  sessionKV.seed(auth.sessionKey, {
+    type: "service",
+    trellisId: "service-trellis-id",
+    origin: "service",
+    id: auth.sessionKey,
+    email: "worker@trellis.internal",
+    name: "Worker",
+    instanceId: "instance-1",
+    deploymentId: "worker.default",
+    instanceKey: auth.sessionKey,
+    currentContractId: "worker.current@v1",
+    currentContractDigest: "digest-current",
+    createdAt: baseSessionFields().createdAt,
+    lastAuth: baseSessionFields().lastAuth,
+  });
+  const handler = createAuthRequestsValidateHandler({
+    logger: createTestLogger(),
+    sessionStorage: sessionStorageFromKV(sessionKV),
+    userStorage: new InMemoryUserStorage(),
+    deviceActivationStorage: { get: () => Promise.resolve(undefined) },
+    deviceDeploymentStorage: { get: () => Promise.resolve(undefined) },
+    deviceInstanceStorage: { get: () => Promise.resolve(undefined) },
+    loadServiceInstance: () =>
+      Promise.resolve({
+        instanceId: "instance-1",
+        deploymentId: "worker.default",
+        instanceKey: auth.sessionKey,
+        disabled: false,
+        currentContractId: "worker.current@v1",
+        currentContractDigest: "digest-current",
+        capabilities: ["service", "worker.run"],
+      }),
+    loadServiceDeployment: () =>
+      Promise.resolve({ deploymentId: "worker.default", disabled: false }),
+    nowSeconds: () => TEST_IAT,
+  });
+  const input = {
+    sessionKey: auth.sessionKey,
+    proof: await auth.createProof(subject, payloadHash, requestId, TEST_IAT),
+    subject,
+    payloadHash: base64urlEncode(payloadHash),
+    iat: TEST_IAT,
+    requestId,
+  };
+
+  const first = (await handler({ input })).take();
+  if (isErr(first)) throw first.error;
+  assertEquals(first.allowed, true);
+
+  const second = await handler({ input });
+  assert(second.isErr());
+  assertEquals(second.error.reason, "invalid_signature");
 });
 
 Deno.test("Auth.Requests.Validate uses current service instance permissions", async () => {
@@ -1023,14 +1176,18 @@ Deno.test("Auth.Requests.Validate uses current service instance permissions", as
       }),
     loadServiceDeployment: () =>
       Promise.resolve({ deploymentId: "worker.default", disabled: false }),
+    nowSeconds: () => TEST_IAT,
   });
+  const requestId = "req_service_permissions";
 
   const result = await handler({
     input: {
       sessionKey: auth.sessionKey,
-      proof: await auth.createProof(subject, payloadHash),
+      proof: await auth.createProof(subject, payloadHash, requestId, TEST_IAT),
       subject,
       payloadHash: base64urlEncode(payloadHash),
+      iat: TEST_IAT,
+      requestId,
       capabilities: ["worker.run"],
     },
   });

@@ -2,6 +2,7 @@ import type { IdentityEnvelopeRecord } from "../schemas.ts";
 
 export type EffectiveApproval =
   | { kind: "stored_approval"; answer: "approved" | "denied" }
+  | { kind: "deployment_grant"; answer: "approved" }
   | { kind: "none"; answer: "none" };
 
 export function getAppOrigin(redirectTo: string): string | undefined {
@@ -14,6 +15,7 @@ export function getAppOrigin(redirectTo: string): string | undefined {
 
 export function effectiveApproval(args: {
   storedApproval: IdentityEnvelopeRecord | null;
+  deploymentGrantApproved?: boolean;
   matchedPolicies: [];
 }): EffectiveApproval {
   if (args.storedApproval) {
@@ -21,6 +23,9 @@ export function effectiveApproval(args: {
       kind: "stored_approval",
       answer: args.storedApproval.answer,
     };
+  }
+  if (args.deploymentGrantApproved) {
+    return { kind: "deployment_grant", answer: "approved" };
   }
   return { kind: "none", answer: "none" };
 }

@@ -27,9 +27,10 @@ Every service exposes:
 - structured logging
 
 Activated devices publish `Health.Heartbeat` through the same shared contract.
-The required `uses.health` permission is a Trellis baseline manifest surface for
-connected service and device participants, not something every contract author
-must manually repeat.
+Connected service and device participants receive a Trellis-defined baseline
+health use for `trellis.health@v1`; it is modeled as the grouped
+`uses.required.health` dependency in emitted manifests, not as a flat health
+alias, and contract authors do not manually repeat it.
 
 Health example:
 
@@ -110,6 +111,7 @@ Span naming:
 - RPC server: `rpc.server.<MethodName>`
 - Event publish: `event.publish.<Domain>.<Action>`
 - Event handle: `event.handle.<Domain>.<Action>`
+- Job handle: `job.handle.<service>.<queue>`
 
 Required attributes:
 
@@ -121,15 +123,21 @@ Library support rule:
 
 - libraries performing I/O must accept trace context, create child spans, and propagate context
 - `TrellisError` subclasses should include `traceId` when tracing is active
+- if a runtime has not installed an OpenTelemetry tracer provider, RPC error
+  responses should still attach `traceId` from a valid inbound `traceparent`
+  header before the error leaves the server span boundary
 
 ## Request Correlation
 
-Every RPC and event includes a `requestId` for correlation and audit.
+Every RPC, event, and job includes a `requestId` for correlation and audit.
 
 Rules:
 
-- the server generates a new ULID for each incoming RPC
-- client-supplied `request-id` headers are ignored for authority
+- the client supplies a unique `request-id` for signed RPCs; auth includes it in
+  the RPC proof and replay-cache key
+- after auth validation, the server may use the request id as correlation
+  context but must still treat logs/traces as observability data, not as a source
+  of authorization policy
 - request IDs propagate across downstream RPC and event flows
 - logs and traces include `requestId`
 
@@ -141,7 +149,29 @@ Propagation:
 | RPC response | echoed from handler |
 | Event from RPC | inherited from triggering RPC |
 | Event from event handler | inherited from triggering event |
+| Job created from RPC/event/job | inherited when available; otherwise new ULID |
+| Job lifecycle event | copied from `job.context.requestId` |
 | Scheduled or cron event | new ULID |
+
+Job correlation:
+
+- job creation records `job.context.requestId`, `job.context.traceId`,
+  `job.context.traceparent`, and optional `job.context.tracestate`
+- if no active trace exists when a job is created, the runtime creates a fresh
+  W3C trace context rather than leaving the job untraced
+- every job lifecycle publish includes matching `request-id`, `traceparent`, and
+  `tracestate` NATS headers when present
+- workers expose immutable job context to handlers and create job handling spans
+  from that context where the language runtime supports tracing
+
+Auth/admin control-plane correlation:
+
+- built-in auth/admin RPCs follow the same inbound `traceparent` extraction as
+  application RPCs
+- traced admin errors include the request trace ID in serialized Trellis error
+  data so operators can correlate failed control-plane calls with logs and spans
+- the integration harness covers both a successful traced `Auth.Sessions.Me`
+  call and a traced failing `Auth.Users.Get` call through live NATS/auth-callout
 
 Event deduplication:
 

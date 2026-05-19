@@ -186,8 +186,9 @@ Owning-service surface:
   `service.operation(key).handle(handler)`
 - generated service surfaces expose typed input, caller identity, and an active
   operation handle to handlers
-- transfer-capable handlers receive provider-side `transfer.updates()` and
-  `transfer.completed()` helpers
+- transfer-capable handlers receive provider-side transfer progress and durable
+  completion helpers, such as TypeScript `transfer.updates()` /
+  `transfer.completed()` or Rust `UploadTransferCompletion::completed()`
 - handlers may complete operations directly or attach local jobs to them
 - handler-visible active operation handles are the normal in-handler path for
   publishing lifecycle changes, progress, terminal success, terminal failure,

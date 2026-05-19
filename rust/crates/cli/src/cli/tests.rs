@@ -182,6 +182,7 @@ fn service_and_device_help_shows_native_target_first_usage() {
     assert!(!svc_help.contains("[ID]"));
     assert!(svc_help.contains("apply"));
     assert!(svc_help.contains("expansions"));
+    assert!(svc_help.contains("grants"));
 
     let dev_error = Cli::try_parse_from(["trellis", "dev", "--help"])
         .expect_err("dev help should render as a clap error");
@@ -192,6 +193,7 @@ fn service_and_device_help_shows_native_target_first_usage() {
     assert!(!dev_help.contains("[ID]"));
     assert!(dev_help.contains("activations"));
     assert!(dev_help.contains("reviews"));
+    assert!(dev_help.contains("grants"));
 
     let apply_error = Cli::try_parse_from(["trellis", "svc", "api", "apply", "--help"])
         .expect_err("svc action help should render as a clap error");
@@ -270,6 +272,101 @@ fn parses_target_first_service_and_device_resource_tokens() {
                     assert_eq!(args.reason.as_deref(), Some("approved_by_operator"));
                 }
                 other => panic!("unexpected svc command: {other:?}"),
+            }
+        }
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+
+    let cli = Cli::parse_from(["trellis", "svc", "billing", "grants", "list"]);
+    match cli.command {
+        TopLevelCommand::Svc(command) => {
+            assert_eq!(command.id.as_deref(), Some("billing"));
+            match command.command {
+                SvcSubcommand::Resource(SvcResourceAction::Grants(
+                    DeploymentGrantsCommand::List,
+                )) => {}
+                other => panic!("unexpected svc command: {other:?}"),
+            }
+        }
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+
+    let cli = Cli::parse_from([
+        "trellis",
+        "svc",
+        "billing",
+        "grants",
+        "add",
+        "--identity-kind",
+        "web",
+        "--contract",
+        "trellis.billing@v1",
+        "--origin",
+        "https://billing.example.com",
+        "--session-public-key",
+        "session_key",
+        "--device-public-key",
+        "device_key",
+        "--capability",
+        "trellis.billing::invoice.read",
+        "--capability",
+        "trellis.billing::invoice.write",
+    ]);
+    match cli.command {
+        TopLevelCommand::Svc(command) => {
+            assert_eq!(command.id.as_deref(), Some("billing"));
+            match command.command {
+                SvcSubcommand::Resource(SvcResourceAction::Grants(
+                    DeploymentGrantsCommand::Add(args),
+                )) => {
+                    assert_eq!(args.identity_kind, DeploymentGrantOverrideIdentityKind::Web);
+                    assert_eq!(args.contract_id.as_deref(), Some("trellis.billing@v1"));
+                    assert_eq!(args.origin.as_deref(), Some("https://billing.example.com"));
+                    assert_eq!(args.session_public_key.as_deref(), Some("session_key"));
+                    assert_eq!(args.device_public_key.as_deref(), Some("device_key"));
+                    assert_eq!(
+                        args.capabilities,
+                        vec![
+                            "trellis.billing::invoice.read".to_string(),
+                            "trellis.billing::invoice.write".to_string(),
+                        ]
+                    );
+                }
+                other => panic!("unexpected svc command: {other:?}"),
+            }
+        }
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+
+    let cli = Cli::parse_from([
+        "trellis",
+        "dev",
+        "reader",
+        "grants",
+        "remove",
+        "--identity-kind",
+        "device-user",
+        "--capability",
+        "trellis.reader::scan",
+    ]);
+    match cli.command {
+        TopLevelCommand::Dev(command) => {
+            assert_eq!(command.id.as_deref(), Some("reader"));
+            match command.command {
+                DevSubcommand::Resource(DevResourceAction::Grants(
+                    DeploymentGrantsCommand::Remove(args),
+                )) => {
+                    assert_eq!(
+                        args.identity_kind,
+                        DeploymentGrantOverrideIdentityKind::DeviceUser
+                    );
+                    assert_eq!(args.capabilities, vec!["trellis.reader::scan".to_string()]);
+                    assert!(args.contract_id.is_none());
+                    assert!(args.origin.is_none());
+                    assert!(args.session_public_key.is_none());
+                    assert!(args.device_public_key.is_none());
+                }
+                other => panic!("unexpected dev command: {other:?}"),
             }
         }
         other => panic!("unexpected top-level command: {other:?}"),

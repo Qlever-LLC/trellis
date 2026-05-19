@@ -14,6 +14,7 @@ import {
   getOrCreateSessionKey,
   getPublicSessionKey,
   natsConnectSigForIat,
+  type SessionKeyOptions,
   startAuthRequest,
 } from "./auth/browser.ts";
 import {
@@ -131,6 +132,7 @@ type BrowserClientAuthOptions = {
   context?: unknown;
   currentUrl?: URL | string | (() => URL | string);
   flowId?: string;
+  sessionKey?: SessionKeyOptions;
 };
 
 type SessionKeyClientAuthOptions = {
@@ -463,7 +465,7 @@ async function resolveClientIdentity(
     return await createSessionKeyRuntimeIdentity(auth.sessionKeySeed);
   }
 
-  const handle = auth?.handle ?? await getOrCreateSessionKey();
+  const handle = auth?.handle ?? await getOrCreateSessionKey(auth?.sessionKey);
   return {
     mode: "browser",
     sessionKey: getPublicSessionKey(handle),
@@ -1245,7 +1247,9 @@ async function resolveAuthRequired<
     : await startAuthRequest({
       authUrl: normalizeTrellisUrl(args.trellisUrl),
       redirectTo,
-      handle: browserAuth.handle ?? await getOrCreateSessionKey(),
+      handle: browserAuth.handle ?? await getOrCreateSessionKey(
+        browserAuth.sessionKey,
+      ),
       provider: browserAuth.provider,
       contract: args.contract.CONTRACT,
       context: browserAuth.context,

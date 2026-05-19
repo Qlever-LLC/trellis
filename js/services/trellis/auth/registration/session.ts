@@ -3,6 +3,7 @@ import { createServiceLookup } from "../admin/service_lookup.ts";
 import {
   createAuthConnectionsKickHandler,
   createAuthConnectionsListHandler,
+  createAuthHealthHandler,
   createAuthRequestsValidateHandler,
   createAuthSessionsListHandler,
   createAuthSessionsLogoutHandler,
@@ -66,6 +67,10 @@ export async function registerSessionRpcs(deps: {
     },
   });
 
+  await deps.trellis.mount(
+    "Auth.Health",
+    createAuthHealthHandler({ logger: deps.logger }),
+  );
   await deps.trellis.mount(
     "Auth.Sessions.Me",
     createAuthSessionsMeHandler({

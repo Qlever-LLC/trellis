@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 
 import {
   loadAuthConfigFromFile,
@@ -110,7 +110,13 @@ Deno.test("auth config loads structured provider map from file", async () => {
         "http://localhost:5173",
         "https://app.example.com",
       ]);
+      assertEquals(cfg.web.cors, {
+        mode: "restricted",
+        origins: ["http://localhost:5173", "https://app.example.com"],
+        credentials: true,
+      });
       assertEquals(cfg.web.publicOrigin, "http://localhost:3000");
+      assertEquals(cfg.auth.localIdentity.passwordPolicy.minLength, 12);
       assertEquals(cfg.httpRateLimit.windowMs, 1234);
       assertEquals(cfg.httpRateLimit.max, 55);
       assertEquals(cfg.storage.dbPath, "/var/lib/trellis/trellis.sqlite");
@@ -299,6 +305,7 @@ Deno.test("auth config parses direct JSONC text without env cache mutation", asy
         const cfg = parseAuthConfig(configPath, text);
 
         assertEquals(cfg.web.origins, ["*"]);
+        assertEquals(cfg.web.cors, { mode: "public" });
         assertEquals(
           cfg.oauth.redirectBase,
           "http://localhost:3000/auth/callback",
@@ -440,6 +447,7 @@ Deno.test("auth config defaults web origins to wildcard", async () => {
     async (configPath) => {
       const cfg = await loadAuthConfigFromFile(configPath);
       assertEquals(cfg.web.origins, ["*"]);
+      assertEquals(cfg.web.cors, { mode: "public" });
       assertEquals(cfg.web.allowInsecureOrigins, []);
     },
   );
@@ -562,7 +570,127 @@ Deno.test("auth config preserves explicit wildcard web origins", async () => {
     async (configPath) => {
       const cfg = await loadAuthConfigFromFile(configPath);
       assertEquals(cfg.web.origins, ["*"]);
+      assertEquals(cfg.web.cors, { mode: "public" });
     },
+  );
+});
+
+Deno.test("auth config loads explicit restricted credentialed CORS", async () => {
+  await withTempConfig(
+    `{
+      "web": {
+        "cors": {
+          "mode": "restricted",
+          "origins": ["http://127.0.0.1:5173", "https://app.example.com"],
+          "credentials": true
+        }
+      },
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": { "natsServers": ["ws://localhost:8080"] },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": {
+          "github": {
+            "type": "github",
+            "clientId": "github-client",
+            "clientSecretFile": "./github.secret"
+          }
+        }
+      }
+    }`,
+    async (configPath) => {
+      const cfg = await loadAuthConfigFromFile(configPath);
+      assertEquals(cfg.web.cors, {
+        mode: "restricted",
+        origins: ["http://localhost:5173", "https://app.example.com"],
+        credentials: true,
+      });
+    },
+  );
+});
+
+Deno.test("auth config enforces password policy hard floor", async () => {
+  await withTempConfig(
+    `{
+      "auth": { "localIdentity": { "passwordPolicy": { "minLength": 7 } } },
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": { "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER", "signingSeedFile": "./issuer.seed" },
+          "target": { "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY", "signingSeedFile": "./target.seed" },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": { "natsServers": ["ws://localhost:8080"] },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": { "github": { "type": "github", "clientId": "github-client", "clientSecretFile": "./github.secret" } }
+      }
+    }`,
+    async (configPath) => {
+      assertThrows(() => loadAuthConfigFromFile(configPath));
+    },
+  );
+});
+
+Deno.test("auth config rejects insecure public URLs and websocket transports", () => {
+  const base = `{
+    "web": { "publicOrigin": "http://private.example:3000" },
+    "nats": {
+      "servers": "localhost",
+      "auth": { "credsPath": "/tmp/auth.creds" },
+      "system": { "credsPath": "/tmp/system.creds" },
+      "trellis": { "credsPath": "/tmp/trellis.creds" },
+      "sentinelCredsPath": "/tmp/sentinel.creds",
+      "authCallout": {
+        "issuer": { "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER", "signing": "issuer" },
+        "target": { "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY", "signing": "target" },
+        "sxSeed": "sx"
+      }
+    },
+    "sessionKeySeed": "session",
+    "client": { "natsServers": ["wss://nats.example.com"] },
+    "oauth": {
+      "redirectBase": "https://private.example/auth/callback",
+      "providers": { "github": { "type": "github", "clientId": "github-client", "clientSecret": "secret" } }
+    }
+  }`;
+  assertThrows(() => parseAuthConfig("/tmp/config.jsonc", base));
+
+  assertThrows(() =>
+    parseAuthConfig(
+      "/tmp/config.jsonc",
+      base.replace(
+        '"publicOrigin": "http://private.example:3000"',
+        '"publicOrigin": "https://private.example"',
+      ).replace(
+        '"natsServers": ["wss://nats.example.com"]',
+        '"natsServers": ["ws://nats.example.com"]',
+      ),
+    )
   );
 });
 

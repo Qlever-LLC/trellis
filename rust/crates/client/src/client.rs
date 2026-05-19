@@ -1,5 +1,5 @@
 use async_nats::header::HeaderMap;
-use async_nats::jetstream::{self, consumer};
+use async_nats::jetstream::{self, consumer, AckKind};
 use async_nats::ConnectOptions;
 use bytes::Bytes;
 use futures_util::stream::{self, BoxStream};
@@ -7,6 +7,7 @@ use futures_util::StreamExt;
 use nkeys::KeyPair;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -57,6 +58,88 @@ pub struct DeviceConnectOptions<'a> {
     pub public_identity_key: &'a str,
     pub identity_seed_base64url: &'a str,
     pub timeout_ms: u64,
+}
+
+/// Whether an event subscription uses a durable or ephemeral JetStream consumer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EventSubscriptionMode {
+    /// Reuse a named durable consumer and retain delivery state across reconnects.
+    #[default]
+    Durable,
+    /// Create an unnamed consumer that ends when the subscription is dropped.
+    Ephemeral,
+}
+
+/// Initial delivery position for a descriptor-backed event subscription.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EventReplayPolicy {
+    /// Deliver all retained events visible to the consumer.
+    #[default]
+    All,
+    /// Deliver only events published after the consumer is created.
+    New,
+}
+
+/// Options for descriptor-backed event subscriptions.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EventSubscribeOptions {
+    /// Durable or ephemeral consumer mode.
+    pub mode: EventSubscriptionMode,
+    /// Initial delivery position for a newly created consumer.
+    pub replay: EventReplayPolicy,
+    /// Optional durable name. Ignored for ephemeral subscriptions.
+    pub durable_name: Option<String>,
+}
+
+/// One descriptor-backed event message with explicit JetStream acknowledgement controls.
+#[derive(Debug)]
+pub struct EventMessage<T> {
+    message: jetstream::Message,
+    _event: PhantomData<fn() -> T>,
+}
+
+impl<T> EventMessage<T> {
+    /// Return the raw NATS headers delivered with the event message, if present.
+    pub fn headers(&self) -> Option<&HeaderMap> {
+        self.message.headers.as_ref()
+    }
+
+    /// Return the raw JSON payload bytes.
+    pub fn payload(&self) -> &[u8] {
+        &self.message.payload
+    }
+
+    /// Decode the message payload as the descriptor's typed event payload.
+    pub fn decode(&self) -> Result<T, TrellisClientError>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
+        Ok(serde_json::from_slice(&self.message.payload)?)
+    }
+
+    /// Acknowledge successful handling of the message.
+    pub async fn ack(&self) -> Result<(), TrellisClientError> {
+        self.message
+            .ack()
+            .await
+            .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))
+    }
+
+    /// Negatively acknowledge the message so JetStream may redeliver it.
+    pub async fn nak(&self) -> Result<(), TrellisClientError> {
+        self.message
+            .ack_with(AckKind::Nak(None))
+            .await
+            .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))
+    }
+
+    /// Terminate the message without successful acknowledgement or redelivery.
+    pub async fn term(&self) -> Result<(), TrellisClientError> {
+        self.message
+            .ack_with(AckKind::Term)
+            .await
+            .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -411,6 +494,22 @@ async fn fetch_service_bootstrap_inner(
                         return Err(TrellisClientError::Bootstrap(
                             "timed out waiting for service bootstrap envelope expansion approval"
                                 .into(),
+                        ));
+                    }
+                    tokio::time::sleep(retry_delay.min(deadline.saturating_duration_since(now)))
+                        .await;
+                } else {
+                    tokio::time::sleep(retry_delay).await;
+                }
+                continue;
+            } else if failure.reason == "contract_activation_pending" && opts.contract.is_some() {
+                let retry_delay =
+                    std::time::Duration::from_millis(opts.retry_delay_ms.unwrap_or(1_000).max(1));
+                if let Some(deadline) = approval_deadline {
+                    let now = tokio::time::Instant::now();
+                    if now >= deadline {
+                        return Err(TrellisClientError::Bootstrap(
+                            "timed out waiting for service contract activation".into(),
                         ));
                     }
                     tokio::time::sleep(retry_delay.min(deadline.saturating_duration_since(now)))
@@ -1039,15 +1138,29 @@ impl TrellisClient {
     where
         D: EventDescriptor,
     {
-        let payload = Bytes::from(serde_json::to_vec(event)?);
+        let value = serde_json::to_value(event)?;
+        let message_id = value
+            .get("header")
+            .and_then(|header| header.get("id"))
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+        let payload = Bytes::from(serde_json::to_vec(&value)?);
         let jetstream = jetstream::new(self.nats.clone());
-        let ack = timeout(
-            std::time::Duration::from_millis(self.timeout_ms),
-            jetstream.publish(D::SUBJECT.to_string(), payload),
-        )
-        .await
-        .map_err(|_| TrellisClientError::Timeout)?
-        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+        let publish = async {
+            if let Some(message_id) = message_id {
+                let mut headers = HeaderMap::new();
+                headers.insert("Nats-Msg-Id", message_id.as_str());
+                jetstream
+                    .publish_with_headers(D::SUBJECT.to_string(), headers, payload)
+                    .await
+            } else {
+                jetstream.publish(D::SUBJECT.to_string(), payload).await
+            }
+        };
+        let ack = timeout(std::time::Duration::from_millis(self.timeout_ms), publish)
+            .await
+            .map_err(|_| TrellisClientError::Timeout)?
+            .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
 
         timeout(std::time::Duration::from_millis(self.timeout_ms), ack)
             .await
@@ -1064,6 +1177,36 @@ impl TrellisClient {
         D: EventDescriptor,
         D::Event: Send + 'static,
     {
+        let messages = self
+            .subscribe_messages::<D>(EventSubscribeOptions::default())
+            .await?;
+        let stream = stream::try_unfold(messages, |mut messages| async move {
+            match messages.next().await {
+                Some(Ok(event_message)) => {
+                    let event = event_message.decode()?;
+                    event_message.ack().await?;
+                    Ok(Some((event, messages)))
+                }
+                Some(Err(error)) => Err(error),
+                None => Ok(None),
+            }
+        });
+
+        Ok(Box::pin(stream) as BoxStream<'static, Result<D::Event, TrellisClientError>>)
+    }
+
+    /// Subscribe to descriptor-backed event messages with explicit ack/nak/term control.
+    pub async fn subscribe_messages<D>(
+        &self,
+        options: EventSubscribeOptions,
+    ) -> Result<
+        BoxStream<'static, Result<EventMessage<D::Event>, TrellisClientError>>,
+        TrellisClientError,
+    >
+    where
+        D: EventDescriptor,
+        D::Event: Send + 'static,
+    {
         let jetstream = jetstream::new(self.nats.clone());
         let event_stream = timeout(
             std::time::Duration::from_millis(self.timeout_ms),
@@ -1073,13 +1216,24 @@ impl TrellisClient {
         .map_err(|_| TrellisClientError::Timeout)?
         .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
 
-        let consumer = timeout(
-            std::time::Duration::from_millis(self.timeout_ms),
-            event_stream.create_consumer(event_consumer_config::<D>(&self.auth.session_key)),
-        )
-        .await
-        .map_err(|_| TrellisClientError::Timeout)?
-        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+        let config = event_consumer_config::<D>(&self.auth.session_key, &options);
+        let durable_name = config.durable_name.clone();
+        let consumer = match durable_name.as_deref() {
+            Some(name) => timeout(
+                std::time::Duration::from_millis(self.timeout_ms),
+                event_stream.get_or_create_consumer(name, config),
+            )
+            .await
+            .map_err(|_| TrellisClientError::Timeout)?
+            .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?,
+            None => timeout(
+                std::time::Duration::from_millis(self.timeout_ms),
+                event_stream.create_consumer(config),
+            )
+            .await
+            .map_err(|_| TrellisClientError::Timeout)?
+            .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?,
+        };
 
         let messages = timeout(
             std::time::Duration::from_millis(self.timeout_ms),
@@ -1092,19 +1246,22 @@ impl TrellisClient {
         let stream = stream::try_unfold(messages, |mut messages| async move {
             match messages.next().await {
                 Some(Ok(message)) => {
-                    let event: D::Event = serde_json::from_slice(&message.payload)?;
-                    message
-                        .ack()
-                        .await
-                        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
-                    Ok(Some((event, messages)))
+                    let event_message = EventMessage {
+                        message,
+                        _event: PhantomData,
+                    };
+                    Ok(Some((event_message, messages)))
                 }
                 Some(Err(error)) => Err(TrellisClientError::NatsRequest(error.to_string())),
                 None => Ok(None),
             }
         });
 
-        Ok(Box::pin(stream) as BoxStream<'static, Result<D::Event, TrellisClientError>>)
+        Ok(Box::pin(stream)
+            as BoxStream<
+                'static,
+                Result<EventMessage<D::Event>, TrellisClientError>,
+            >)
     }
 
     /// Subscribe to one descriptor-backed feed and decode event payloads.
@@ -1343,13 +1500,27 @@ fn is_terminal_event(event: &Value) -> bool {
     )
 }
 
-fn event_consumer_config<D>(session_key: &str) -> consumer::pull::Config
+fn event_consumer_config<D>(
+    session_key: &str,
+    options: &EventSubscribeOptions,
+) -> consumer::pull::Config
 where
     D: EventDescriptor,
 {
     consumer::pull::Config {
-        durable_name: Some(event_consumer_name::<D>(session_key)),
-        deliver_policy: consumer::DeliverPolicy::All,
+        durable_name: match options.mode {
+            EventSubscriptionMode::Durable => Some(
+                options
+                    .durable_name
+                    .clone()
+                    .unwrap_or_else(|| event_consumer_name::<D>(session_key)),
+            ),
+            EventSubscriptionMode::Ephemeral => None,
+        },
+        deliver_policy: match options.replay {
+            EventReplayPolicy::All => consumer::DeliverPolicy::All,
+            EventReplayPolicy::New => consumer::DeliverPolicy::New,
+        },
         ack_policy: consumer::AckPolicy::Explicit,
         filter_subject: D::SUBJECT.to_string(),
         ..Default::default()
@@ -1373,26 +1544,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
-    use futures_util::StreamExt;
     use serde::{Deserialize, Serialize};
     use serde_json::{json, Value};
-    use std::process::Command;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
-
-    use crate::control_subject;
-    use crate::operations::OperationEvent;
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     struct RefundInput {
         charge_id: String,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-    struct RefundProgress {
-        message: String,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1429,7 +1588,10 @@ mod tests {
 
     #[test]
     fn event_consumer_config_uses_durable_filtered_consumer() {
-        let config = event_consumer_config::<PaymentCapturedEvent>("session_key_1234567890");
+        let config = event_consumer_config::<PaymentCapturedEvent>(
+            "session_key_1234567890",
+            &EventSubscribeOptions::default(),
+        );
 
         assert_eq!(config.filter_subject, PaymentCapturedEvent::SUBJECT);
         assert_eq!(config.deliver_policy, consumer::DeliverPolicy::All);
@@ -1438,6 +1600,23 @@ mod tests {
             config.durable_name.as_deref(),
             Some("trellis_rust_session_key_1234Payment_Captured")
         );
+    }
+
+    #[test]
+    fn event_consumer_config_supports_ephemeral_new_events() {
+        let config = event_consumer_config::<PaymentCapturedEvent>(
+            "session_key_1234567890",
+            &EventSubscribeOptions {
+                mode: EventSubscriptionMode::Ephemeral,
+                replay: EventReplayPolicy::New,
+                durable_name: Some("ignored".to_string()),
+            },
+        );
+
+        assert_eq!(config.filter_subject, PaymentCapturedEvent::SUBJECT);
+        assert_eq!(config.deliver_policy, consumer::DeliverPolicy::New);
+        assert_eq!(config.ack_policy, consumer::AckPolicy::Explicit);
+        assert_eq!(config.durable_name, None);
     }
 
     fn ready_device_connect_info(contract_digest: &str) -> DeviceConnectInfo {
@@ -1715,128 +1894,6 @@ mod tests {
         let clock = IatClock::from_offset_seconds(30);
 
         assert_eq!(clock.iat_at(1_701_000_000), 1_701_000_030);
-    }
-
-    struct RefundOperation;
-
-    impl OperationDescriptor for RefundOperation {
-        type Input = RefundInput;
-        type Progress = RefundProgress;
-        type Output = RefundOutput;
-
-        const KEY: &'static str = "Billing.Refund";
-        const SUBJECT: &'static str = "operations.v1.Billing.Refund";
-        const CALLER_CAPABILITIES: &'static [&'static str] = &["billing.refund"];
-        const READ_CAPABILITIES: &'static [&'static str] = &["billing.read"];
-        const CANCEL_CAPABILITIES: &'static [&'static str] = &["billing.cancel"];
-        const CANCELABLE: bool = true;
-    }
-
-    struct RuntimeContainer {
-        runtime: String,
-        name: String,
-    }
-
-    impl Drop for RuntimeContainer {
-        fn drop(&mut self) {
-            let _ = Command::new(&self.runtime)
-                .args(["rm", "-f", &self.name])
-                .output();
-        }
-    }
-
-    fn detect_runtime() -> Option<&'static str> {
-        for runtime in ["podman", "docker"] {
-            let status = Command::new(runtime).arg("--version").status().ok()?;
-            if status.success() {
-                return Some(runtime);
-            }
-        }
-        None
-    }
-
-    fn run_command(runtime: &str, args: &[&str]) -> String {
-        let output = Command::new(runtime)
-            .args(args)
-            .output()
-            .expect("runtime command should execute");
-        if !output.status.success() {
-            panic!(
-                "runtime command failed: {} {}\nstdout: {}\nstderr: {}",
-                runtime,
-                args.join(" "),
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr),
-            );
-        }
-        String::from_utf8(output.stdout)
-            .expect("stdout should be utf-8")
-            .trim()
-            .to_string()
-    }
-
-    fn start_nats_container() -> (RuntimeContainer, String) {
-        let runtime = detect_runtime().expect("podman or docker runtime is required");
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should be after unix epoch")
-            .as_nanos();
-        let name = format!("trellis-client-watch-it-{}-{}", std::process::id(), now);
-
-        run_command(
-            runtime,
-            &[
-                "run",
-                "-d",
-                "--rm",
-                "--name",
-                &name,
-                "-p",
-                "127.0.0.1::4222",
-                "docker.io/library/nats:2.10-alpine",
-            ],
-        );
-
-        let mapping = run_command(runtime, &["port", &name, "4222/tcp"]);
-        let host_port = mapping
-            .split(':')
-            .next_back()
-            .expect("port mapping should include ':'")
-            .trim()
-            .to_string();
-        let server = format!("127.0.0.1:{}", host_port);
-
-        (
-            RuntimeContainer {
-                runtime: runtime.to_string(),
-                name,
-            },
-            server,
-        )
-    }
-
-    async fn connect_with_retry(server: &str) -> async_nats::Client {
-        let mut last_error = None;
-        for _ in 0..30 {
-            match async_nats::connect(server).await {
-                Ok(client) => return client,
-                Err(error) => {
-                    last_error = Some(error.to_string());
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-            }
-        }
-
-        panic!(
-            "failed to connect to nats server {}: {}",
-            server,
-            last_error.unwrap_or_else(|| "unknown error".to_string())
-        );
-    }
-
-    fn test_auth() -> SessionAuth {
-        SessionAuth::from_seed_base64url(&crate::proof::base64url_encode(&[7u8; 32]))
-            .expect("session auth")
     }
 
     fn http_header_end(bytes: &[u8]) -> Option<usize> {
@@ -2235,147 +2292,5 @@ mod tests {
             other => panic!("unexpected error: {other}"),
         }
         assert!(request_count >= 1);
-    }
-
-    #[tokio::test]
-    #[ignore = "needs podman/docker runtime"]
-    async fn watch_stream_uses_reply_subject_and_stops_after_terminal_event() {
-        let (_container, server) = start_nats_container();
-
-        let service_client = connect_with_retry(&server).await;
-        let requester_client = connect_with_retry(&server).await;
-        let auth = test_auth();
-        let client = TrellisClient::from_native(requester_client, auth, 2_000);
-
-        let mut start_sub = service_client
-            .subscribe(RefundOperation::SUBJECT.to_string())
-            .await
-            .expect("subscribe start subject");
-        let mut control_sub = service_client
-            .subscribe(control_subject(RefundOperation::SUBJECT))
-            .await
-            .expect("subscribe control subject");
-
-        let service_for_start = service_client.clone();
-        let start_task = tokio::spawn(async move {
-            if let Some(msg) = start_sub.next().await {
-                let body: Value = serde_json::from_slice(&msg.payload).expect("start request json");
-                assert_eq!(body["charge_id"], "ch_123");
-                let accepted = json!({
-                    "kind": "accepted",
-                    "ref": {
-                        "id": "op_123",
-                        "service": "billing",
-                        "operation": "Billing.Refund"
-                    },
-                    "snapshot": {
-                        "revision": 1,
-                        "state": "pending"
-                    }
-                });
-                let reply = msg.reply.as_ref().expect("start reply subject").clone();
-                service_for_start
-                    .publish(
-                        reply,
-                        Bytes::from(serde_json::to_vec(&accepted).expect("serialize accepted")),
-                    )
-                    .await
-                    .expect("publish accepted reply");
-            }
-        });
-
-        let service_for_control = service_client.clone();
-        let control_task = tokio::spawn(async move {
-            if let Some(msg) = control_sub.next().await {
-                let body: Value =
-                    serde_json::from_slice(&msg.payload).expect("control request json");
-                assert_eq!(body["action"], "watch");
-                assert_eq!(body["operationId"], "op_123");
-
-                let reply = msg.reply.as_ref().expect("watch reply subject").clone();
-                let frames = [
-                    json!({
-                        "kind": "snapshot",
-                        "snapshot": {
-                            "revision": 2,
-                            "state": "running",
-                            "progress": {
-                                "message": "working"
-                            }
-                        }
-                    }),
-                    json!({
-                        "kind": "event",
-                        "event": {
-                            "type": "progress",
-                            "snapshot": {
-                                "revision": 3,
-                                "state": "running",
-                                "progress": {
-                                    "message": "almost there"
-                                }
-                            }
-                        }
-                    }),
-                    json!({"kind": "keepalive"}),
-                    json!({
-                        "kind": "event",
-                        "event": {
-                            "type": "completed",
-                            "snapshot": {
-                                "revision": 4,
-                                "state": "completed",
-                                "output": {
-                                    "refund_id": "rf_123"
-                                }
-                            }
-                        }
-                    }),
-                    json!({
-                        "kind": "event",
-                        "event": {
-                            "type": "progress",
-                            "snapshot": {
-                                "revision": 5,
-                                "state": "running",
-                                "progress": {
-                                    "message": "ignored"
-                                }
-                            }
-                        }
-                    }),
-                ];
-
-                for frame in frames {
-                    service_for_control
-                        .publish(
-                            reply.clone(),
-                            Bytes::from(serde_json::to_vec(&frame).expect("serialize frame")),
-                        )
-                        .await
-                        .expect("publish watch frame");
-                }
-            }
-        });
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let operation = client
-            .operation::<RefundOperation>()
-            .start(&RefundInput {
-                charge_id: "ch_123".to_string(),
-            })
-            .await
-            .expect("start should succeed");
-        let stream = operation.watch().await.expect("watch should succeed");
-        let events: Vec<_> = stream.collect().await;
-
-        assert_eq!(events.len(), 3);
-        assert!(matches!(events[0], Ok(OperationEvent::Started { .. })));
-        assert!(matches!(events[1], Ok(OperationEvent::Progress { .. })));
-        assert!(matches!(events[2], Ok(OperationEvent::Completed { .. })));
-
-        start_task.await.expect("start task should complete");
-        control_task.await.expect("control task should complete");
     }
 }

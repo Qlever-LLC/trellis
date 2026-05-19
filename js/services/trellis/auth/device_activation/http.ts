@@ -180,40 +180,27 @@ function toDeviceActivationFlow(value: {
   };
 }
 
-async function findDeviceActivationFlow(input: {
-  deps: DeviceActivationHttpDeps;
-  publicIdentityKey: string;
-  nonce: string;
-}): Promise<DeviceActivationFlow | null> {
-  const iter = await input.deps.browserFlowsKV.keys(">").take();
-  if (isErr(iter)) return null;
-  for await (const key of iter) {
-    const entry = await input.deps.browserFlowsKV.get(key).take();
-    if (isErr(entry)) continue;
-    const flow = toDeviceActivationFlow(
-      entry.value as {
-        flowId?: string;
-        kind?: string;
-        deviceActivation?: {
-          instanceId: string;
-          deploymentId: string;
-          publicIdentityKey: string;
-          nonce: string;
-          qrMac: string;
-        };
-        createdAt?: string | Date;
-        expiresAt?: string | Date;
-      },
-    );
-    if (!flow) continue;
-    if (
-      flow.publicIdentityKey === input.publicIdentityKey &&
-      flow.nonce === input.nonce
-    ) {
-      return flow;
-    }
-  }
-  return null;
+async function loadDeviceActivationFlow(
+  deps: DeviceActivationHttpDeps,
+  flowId: string,
+): Promise<DeviceActivationFlow | null> {
+  const entry = await deps.browserFlowsKV.get(flowId).take();
+  if (isErr(entry)) return null;
+  return toDeviceActivationFlow(
+    entry.value as {
+      flowId?: string;
+      kind?: string;
+      deviceActivation?: {
+        instanceId: string;
+        deploymentId: string;
+        publicIdentityKey: string;
+        nonce: string;
+        qrMac: string;
+      };
+      createdAt?: string | Date;
+      expiresAt?: string | Date;
+    },
+  );
 }
 
 function deviceBootstrapDeps(deps: DeviceActivationHttpDeps) {
@@ -359,6 +346,7 @@ export function registerDeviceActivationHttpRoutes(
     const bodyResult = await AsyncResult.try(() => c.req.json());
     if (bodyResult.isErr()) return c.json({ error: "Invalid JSON body" }, 400);
     const body = bodyResult.take() as Partial<Record<string, unknown>>;
+    const flowId = typeof body.flowId === "string" ? body.flowId : null;
     const publicIdentityKey = typeof body.publicIdentityKey === "string"
       ? body.publicIdentityKey
       : null;
@@ -370,7 +358,8 @@ export function registerDeviceActivationHttpRoutes(
     const sig = typeof body.sig === "string" ? body.sig : null;
     const nowSeconds = Math.floor(Date.now() / 1_000);
     if (
-      !publicIdentityKey || !nonce || !contractDigest || iat === null || !sig
+      !flowId || !publicIdentityKey || !nonce || !contractDigest ||
+      iat === null || !sig
     ) {
       return c.json({ reason: "invalid_request" }, 400);
     }
@@ -378,6 +367,7 @@ export function registerDeviceActivationHttpRoutes(
       return c.json({ reason: "iat_out_of_range", serverNow: nowSeconds }, 400);
     }
     const proofOk = await verifyDeviceWaitSignature({
+      flowId,
       publicIdentityKey,
       nonce,
       contractDigest,
@@ -387,16 +377,15 @@ export function registerDeviceActivationHttpRoutes(
     if (!proofOk) {
       return c.json({ reason: "invalid_signature" }, 400);
     }
-    const flow = await findDeviceActivationFlow({
-      deps,
-      publicIdentityKey,
-      nonce,
-    });
+    const flow = await loadDeviceActivationFlow(deps, flowId);
     if (!flow) {
       return c.json({
         status: "rejected",
         reason: "device_activation_flow_not_found",
       });
+    }
+    if (flow.publicIdentityKey !== publicIdentityKey || flow.nonce !== nonce) {
+      return c.json({ reason: "invalid_request" }, 400);
     }
     if (new Date(flow.expiresAt).getTime() <= Date.now()) {
       return c.json({ status: "rejected", reason: "device_flow_expired" });

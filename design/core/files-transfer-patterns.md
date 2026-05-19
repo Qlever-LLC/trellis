@@ -81,7 +81,10 @@ model:
    higher-level `operation(...).input(input).transfer(body).start()` helper
 3. callers do not start the same send-transfer operation first and attach bytes
    later
-4. the provider awaits `transfer.completed()` and continues with service-owned processing
+4. the provider awaits the runtime's durable transfer completion signal, such as
+   TypeScript `transfer.completed()` or Rust
+   `UploadTransferCompletion::completed()`, and continues with service-owned
+   processing
 
 Example:
 
@@ -226,6 +229,13 @@ Rules:
 
 - Rust transfer execution should hang off typed operation refs rather than a standalone `client.transfer(grant)` helper
 - Rust should preserve the same chunk-progress semantics and Result-based failure model as TypeScript
+- Rust service providers that expose send-transfer operations should await the
+  provider-side upload completion primitive, such as
+  `UploadTransferCompletion::completed()`, before treating bytes as durably
+  available. The completion result is the Rust equivalent of TypeScript
+  provider `transfer.completed()` and resolves only after the transfer endpoint
+  has accepted EOF and written the object to the configured service-owned store,
+  or with a transfer error if durable storage was not reached.
 
 ### Wire Behavior
 
@@ -259,12 +269,18 @@ For caller-visible file-processing workflows, the recommended pattern is:
 1. a contract-owned operation declares transfer support
 2. the caller starts the operation and begins watching it, either directly or through the fluent transfer builder
 3. the caller sends bytes with `input(input).transfer(body).start()`
-4. the provider awaits `transfer.completed()` and updates business progress or enqueues follow-up work
+4. the provider awaits the runtime's durable transfer completion signal, such as
+   TypeScript `transfer.completed()` or Rust
+   `UploadTransferCompletion::completed()`, and updates business progress or
+   enqueues follow-up work
 5. the operation completes when the service-owned workflow completes
 
 Rules:
 
 - transfer success means `bytes stored`, not `workflow finished`
+- a durable transfer completion signal means all chunks were accepted, EOF was
+  received, and the configured service-owned store write completed; service code
+  can then read the object through normal store APIs
 - use runtime-owned transfer events or fluent transfer builder callbacks for progress bars and service-authored `progress(...)` calls for domain milestones
 - use operations for caller-visible progress and final results
 - use jobs for service-private execution, retries, and background processing after the bytes are stored
