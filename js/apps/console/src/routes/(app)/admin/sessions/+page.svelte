@@ -41,7 +41,7 @@
         offset: 0,
       }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
-      sessions = response.sessions ?? [];
+      sessions = response.entries ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -55,10 +55,12 @@
     try {
       const response = await trellis.request("Auth.Connections.List", {
         user: connFilterUser.trim() || undefined,
-        sessionKey: connFilterSessionKey.trim() || undefined
+        sessionKey: connFilterSessionKey.trim() || undefined,
+        limit: 500,
+        offset: 0,
       }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
-      connections = response.connections ?? [];
+      connections = response.entries ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {

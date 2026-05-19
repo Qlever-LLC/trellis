@@ -12,6 +12,7 @@ import {
   type Result as ResultType,
 } from "@qlever-llc/result";
 import { StoreError } from "./errors/index.ts";
+import type { PageResponse } from "./models/trellis/Page.ts";
 
 const INTERNAL_CONTENT_TYPE_METADATA_KEY = "__trellis_content_type";
 const DEFAULT_STORE_WAIT_POLL_INTERVAL_MS = 250;
@@ -445,7 +446,9 @@ export class TypedStore {
     })());
   }
 
-  list(opts: StoreListOptions): AsyncResult<StoreInfo[], StoreError> {
+  list(
+    opts: StoreListOptions,
+  ): AsyncResult<PageResponse<StoreInfo>, StoreError> {
     return AsyncResult.from((async () => {
       const query = validateStoreListOptions(opts);
       if (query.isErr()) return Result.err(query.error);
@@ -455,13 +458,21 @@ export class TypedStore {
       });
       try {
         const objects = await this.#store.list();
-        const listed = objects
+        const filtered = objects
           .filter((info) => !info.deleted && info.name.startsWith(prefix))
           .map(storeInfoFromObjectInfo)
-          .sort((left, right) => left.key.localeCompare(right.key))
-          .slice(offset, offset + limit);
+          .sort((left, right) => left.key.localeCompare(right.key));
+        const entries = filtered.slice(offset, offset + limit);
 
-        return Result.ok(listed);
+        return Result.ok({
+          entries,
+          count: filtered.length,
+          offset,
+          limit,
+          nextOffset: limit <= 0 || offset + limit >= filtered.length
+            ? undefined
+            : offset + limit,
+        });
       } catch (cause) {
         return Result.err(
           new StoreError({ operation: "list", cause, context: { prefix } }),

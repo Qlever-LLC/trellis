@@ -83,10 +83,10 @@
     try {
       const response = await trellis.request("Assignments.List", listPage).orThrow();
       if (!mounted || requestId !== assignmentRequestId) return;
-      assignments = response.assignments;
-      selectedInspectionId = response.assignments.some((assignment) => assignment.inspectionId === preferredInspectionId)
+      assignments = response.entries;
+      selectedInspectionId = response.entries.some((assignment) => assignment.inspectionId === preferredInspectionId)
         ? preferredInspectionId ?? ""
-        : response.assignments[0]?.inspectionId ?? "";
+        : response.entries[0]?.inspectionId ?? "";
     } catch (cause) {
       if (!mounted || requestId !== assignmentRequestId) return;
       error = cause instanceof Error ? cause.message : String(cause);

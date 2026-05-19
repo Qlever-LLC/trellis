@@ -14,9 +14,10 @@ use trellis_sdk_auth::{
     AuthConnectionsListRequest, AuthDeploymentsCreateRequest, AuthDeploymentsListRequest,
     AuthDevicesListRequest, AuthDevicesProvisionRequest, AuthEnvelopesExpandRequest,
     AuthEnvelopesGetRequest, AuthEnvelopesListRequest, AuthIdentitiesGrantsListRequest,
-    AuthIdentitiesListRequest, AuthPortalsLoginRoutesPutRequest,
-    AuthPortalsLoginRoutesRemoveRequest, AuthPortalsLoginSettingsGetRequest, AuthPortalsPutRequest,
-    AuthPortalsRemoveRequest, AuthServiceInstancesListRequest,
+    AuthIdentitiesListRequest, AuthPortalsListRequest, AuthPortalsLoginRoutesListRequest,
+    AuthPortalsLoginRoutesPutRequest, AuthPortalsLoginRoutesRemoveRequest,
+    AuthPortalsLoginSettingsGetRequest, AuthPortalsPutRequest, AuthPortalsRemoveRequest,
+    AuthServiceInstancesListRequest,
     AuthServiceInstancesProvisionRequest, AuthSessionsListRequest, AuthUserIdentitiesListRequest,
     AuthUsersGetRequest, AuthUsersListRequest, AuthUsersUpdateRequest,
 };
@@ -78,7 +79,7 @@ pub(crate) async fn run_admin_api_fixture(
         .await
         .into_diagnostic()?;
     if !capabilities
-        .capabilities
+        .entries
         .iter()
         .any(|capability| capability.key == "admin")
     {
@@ -118,7 +119,7 @@ pub(crate) async fn run_admin_api_fixture(
         .await
         .into_diagnostic()?;
     if !groups
-        .groups
+        .entries
         .iter()
         .any(|group| group.group_key == group_key)
     {
@@ -143,7 +144,7 @@ pub(crate) async fn run_admin_api_fixture(
         })
         .await
         .into_diagnostic()?;
-    if !users.users.iter().any(|user| user.user_id == user_id) {
+    if !users.entries.iter().any(|user| user.user_id == user_id) {
         return Err(miette!("Auth.Users.List did not include admin user"));
     }
     let user = auth_client
@@ -172,12 +173,14 @@ pub(crate) async fn run_admin_api_fixture(
 
     let identities = auth_client
         .auth_user_identities_list(&AuthUserIdentitiesListRequest {
+            limit: 100,
+            offset: None,
             user_id: user_id.clone(),
         })
         .await
         .into_diagnostic()?;
     if !identities
-        .identities
+        .entries
         .iter()
         .any(|identity| identity.subject == "admin")
     {
@@ -209,7 +212,7 @@ pub(crate) async fn run_admin_api_fixture(
         })
         .await
         .into_diagnostic()?;
-    if !sessions.sessions.iter().any(|session| {
+    if !sessions.entries.iter().any(|session| {
         matches!(
             value_string(session, "sessionKey"),
             Ok(session_key) if session_key == setup_login.state.session_key
@@ -219,15 +222,23 @@ pub(crate) async fn run_admin_api_fixture(
     }
     auth_client
         .auth_connections_list(&AuthConnectionsListRequest {
-            user: Some(user_id.clone()),
+            limit: 100,
+            offset: None,
             session_key: None,
+            user: Some(user_id.clone()),
         })
         .await
         .into_diagnostic()?;
 
-    let portals = auth_client.auth_portals_list().await.into_diagnostic()?;
+    let portals = auth_client
+        .auth_portals_list(&AuthPortalsListRequest {
+            limit: 100,
+            offset: None,
+        })
+        .await
+        .into_diagnostic()?;
     let default_portal = portals
-        .portals
+        .entries
         .iter()
         .find(|portal| portal.built_in)
         .ok_or_else(|| miette!("Auth.Portals.List did not include built-in portal"))?;
@@ -243,7 +254,10 @@ pub(crate) async fn run_admin_api_fixture(
         ));
     }
     auth_client
-        .auth_portals_login_routes_list()
+        .auth_portals_login_routes_list(&AuthPortalsLoginRoutesListRequest {
+            limit: 100,
+            offset: None,
+        })
         .await
         .into_diagnostic()?;
     assert_external_portal_origin_hardening(trellis_url, &auth_client, suffix).await?;
@@ -275,8 +289,8 @@ pub(crate) async fn run_admin_api_fixture(
         })
         .await
         .into_diagnostic()?;
-    assert_value_list_has_deployment(&deployments.deployments, &service_deployment_id)?;
-    assert_value_list_has_deployment(&deployments.deployments, &device_deployment_id)?;
+    assert_value_list_has_deployment(&deployments.entries, &service_deployment_id)?;
+    assert_value_list_has_deployment(&deployments.entries, &device_deployment_id)?;
 
     let service_contract_id = format!("trellis.integration-admin-service-{suffix}@v1");
     let service_contract_json = service_contract_json(&service_contract_id)?;
@@ -319,7 +333,7 @@ pub(crate) async fn run_admin_api_fixture(
         .await
         .into_diagnostic()?;
     if !envelopes
-        .envelopes
+        .entries
         .iter()
         .any(|envelope| envelope.deployment_id == service_deployment_id)
     {
@@ -362,7 +376,7 @@ pub(crate) async fn run_admin_api_fixture(
         })
         .await
         .into_diagnostic()?;
-    if !service_instances.instances.iter().any(|instance| {
+    if !service_instances.entries.iter().any(|instance| {
         instance.instance_id == service_instance.instance_id && instance.instance_key == service_key
     }) {
         return Err(miette!(
@@ -398,7 +412,7 @@ pub(crate) async fn run_admin_api_fixture(
         })
         .await
         .into_diagnostic()?;
-    if !device_instances.instances.iter().any(|instance| {
+    if !device_instances.entries.iter().any(|instance| {
         instance.instance_id == device_instance.instance_id
             && instance.public_identity_key == device_public_identity_key
     }) {

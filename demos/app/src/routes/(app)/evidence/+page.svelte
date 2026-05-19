@@ -194,7 +194,7 @@
     try {
       const list = await trellis.request("Evidence.List", { ...listPage, prefix: "evidence/" }).orThrow();
       if (!mounted || requestId !== galleryRequestId) return;
-      gallery = list.evidence
+      gallery = list.entries
         .slice()
         .sort((left: EvidenceRecord, right: EvidenceRecord) => Date.parse(right.uploadedAt) - Date.parse(left.uploadedAt));
       evidencePage = 0;

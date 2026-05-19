@@ -1,4 +1,4 @@
-import { and, eq, inArray, type SQL } from "drizzle-orm";
+import { and, count, eq, inArray, type SQL } from "drizzle-orm";
 import Value from "typebox/value";
 
 import type { TrellisStorageDb } from "../../storage/db.ts";
@@ -39,6 +39,8 @@ import {
 import {
   type BoundedListQuery,
   boundedListQuery,
+  type ListPage,
+  listPage,
   parseJsonField,
 } from "./shared.ts";
 
@@ -726,6 +728,32 @@ export class SqlDeploymentEnvelopeRepository {
       and(...conditions),
     ).orderBy(deploymentEnvelopes.deploymentId).limit(limit).offset(offset);
     return await this.#decodeEnvelopeRows(rows);
+  }
+
+  /** Returns a counted page of deployment envelopes matching indexed header filters. */
+  async listFilteredPage(filters: {
+    kind?: string;
+    disabled?: boolean;
+  }, query: BoundedListQuery): Promise<ListPage<DeploymentEnvelope>> {
+    const conditions: SQL[] = [];
+    if (filters.kind !== undefined) {
+      conditions.push(eq(deploymentEnvelopes.kind, filters.kind));
+    }
+    if (filters.disabled !== undefined) {
+      conditions.push(eq(deploymentEnvelopes.disabled, filters.disabled));
+    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      deploymentEnvelopes,
+    ).where(where);
+    const rows = await this.#db.select().from(deploymentEnvelopes).where(where)
+      .orderBy(deploymentEnvelopes.deploymentId).limit(limit).offset(offset);
+    return listPage(
+      await this.#decodeEnvelopeRows(rows),
+      countRow?.count ?? 0,
+      query,
+    );
   }
 
   /** Returns enabled envelopes where the boundary references a contract id. */
@@ -1527,6 +1555,36 @@ export class SqlEnvelopeExpansionRequestRepository {
       );
     }
     return requests;
+  }
+
+  /** Returns a counted page of expansion requests matching indexed filters. */
+  async listFilteredPage(filters: {
+    deploymentId?: string;
+    state?: string;
+  }, query: BoundedListQuery): Promise<ListPage<EnvelopeExpansionRequest>> {
+    const conditions: SQL[] = [];
+    if (filters.deploymentId !== undefined) {
+      conditions.push(eq(envelopeExpansionRequests.deploymentId, filters.deploymentId));
+    }
+    if (filters.state !== undefined) {
+      conditions.push(eq(envelopeExpansionRequests.state, filters.state));
+    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      envelopeExpansionRequests,
+    ).where(where);
+    const rows = await this.#db.select().from(envelopeExpansionRequests).where(where)
+      .orderBy(
+        envelopeExpansionRequests.deploymentId,
+        envelopeExpansionRequests.createdAt,
+        envelopeExpansionRequests.requestId,
+      ).limit(limit).offset(offset);
+    const requests: EnvelopeExpansionRequest[] = [];
+    for (const row of rows) {
+      requests.push(decodeExpansionRequest(row, await this.#deltaForRequest(row.requestId)));
+    }
+    return listPage(requests, countRow?.count ?? 0, query);
   }
 
   /** Returns a bounded page of expansion requests ordered by deployment, creation time, and id. */

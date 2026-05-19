@@ -15,7 +15,7 @@
   import { getNotifications } from "$lib/notifications.svelte";
   import { getTrellis } from "$lib/trellis";
 
-  type Activation = AuthDeviceUserAuthoritiesListOutput["activations"][number];
+  type Activation = AuthDeviceUserAuthoritiesListOutput["entries"][number];
 
   const trellis = getTrellis();
   const notifications = getNotifications();
@@ -39,7 +39,7 @@
     try {
       const response = await trellis.request("Auth.DeviceUserAuthorities.List", { state: "activated", limit: 500, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
-      const loadedActivations = response.activations ?? [];
+      const loadedActivations = response.entries ?? [];
       const loadedActiveActivations = loadedActivations.filter((activation) => activation.state === "activated");
       activations = loadedActivations;
       if (selectedInstanceId && !loadedActiveActivations.some((activation) => activation.instanceId === selectedInstanceId)) {

@@ -37,8 +37,8 @@
     type: string;
   };
 
-  type CapabilityView = AuthCapabilitiesListOutput["capabilities"][number];
-  type CapabilityGroupView = AuthCapabilityGroupsListOutput["groups"][number];
+  type CapabilityView = AuthCapabilitiesListOutput["entries"][number];
+  type CapabilityGroupView = AuthCapabilityGroupsListOutput["entries"][number];
 
   const CATALOG_PAGE_SIZE = 500;
 
@@ -167,7 +167,7 @@
     for (let offset = 0; ; offset += CATALOG_PAGE_SIZE) {
       const response = await trellis.request("Auth.Capabilities.List", { limit: CATALOG_PAGE_SIZE, offset }).take();
       if (isErr(response)) throw new Error(errorMessage(response));
-      const page = response.capabilities ?? [];
+      const page = response.entries ?? [];
       loaded.push(...page);
       if (page.length < CATALOG_PAGE_SIZE) return loaded.sort((left, right) => left.key.localeCompare(right.key));
     }
@@ -178,7 +178,7 @@
     for (let offset = 0; ; offset += CATALOG_PAGE_SIZE) {
       const response = await trellis.request("Auth.CapabilityGroups.List", { limit: CATALOG_PAGE_SIZE, offset }).take();
       if (isErr(response)) throw new Error(errorMessage(response));
-      const page = response.groups ?? [];
+      const page = response.entries ?? [];
       loaded.push(...page);
       if (page.length < CATALOG_PAGE_SIZE) return loaded;
     }

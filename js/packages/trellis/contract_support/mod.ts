@@ -84,8 +84,10 @@ export {
   JobsResourceBindingSchema,
   type KvResourceBinding,
   KvResourceBindingSchema,
-  type Paginated,
-  PaginatedSchema,
+  type PageRequest,
+  PageRequestSchema,
+  type PageResponse,
+  PageResponseSchema,
   type StoreResourceBinding,
   StoreResourceBindingSchema,
 } from "./protocol.ts";

@@ -741,7 +741,7 @@ async fn wait_for_pending_resource_expansion_requests(
             .await
             .into_diagnostic()?;
         let request_ids: Vec<_> = response
-            .requests
+            .entries
             .into_iter()
             .filter(|request| {
                 request.contract_id == HARNESS_CONTRACT_ID

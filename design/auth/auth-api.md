@@ -489,27 +489,33 @@ Request:
 Response:
 
 ```ts
+type AuthIdentityGrantRow = {
+  user: string;
+  answer: "approved" | "denied";
+  answeredAt: string;
+  updatedAt: string;
+  identityEnvelopeId: string;
+  identityAnchor:
+    | { kind: "web"; contractId: string; origin: string }
+    | { kind: "cli"; contractId: string; sessionPublicKey: string }
+    | { kind: "native"; contractId: string; sessionPublicKey: string }
+    | { kind: "device-user"; contractId: string; devicePublicKey: string };
+  contractEvidence: {
+    contractDigest: string;
+    contractId: string;
+  };
+  displayName: string;
+  description: string;
+  capabilities: Record<string, ContractApprovalCapability>;
+  participantKind: "app" | "agent";
+};
+
 {
-  approvals: Array<{
-    user: string;
-    answer: "approved" | "denied";
-    answeredAt: string;
-    updatedAt: string;
-    identityEnvelopeId: string;
-    identityAnchor:
-      | { kind: "web"; contractId: string; origin: string }
-      | { kind: "cli"; contractId: string; sessionPublicKey: string }
-      | { kind: "native"; contractId: string; sessionPublicKey: string }
-      | { kind: "device-user"; contractId: string; devicePublicKey: string };
-    contractEvidence: {
-      contractDigest: string;
-      contractId: string;
-    };
-    displayName: string;
-    description: string;
-    capabilities: Record<string, ContractApprovalCapability>;
-    participantKind: "app" | "agent";
-  }>;
+  entries: AuthIdentityGrantRow[];
+  count: number;
+  offset: number;
+  limit: number;
+  nextOffset?: number;
 }
 ```
 
@@ -520,9 +526,13 @@ the same Trellis user account see and reuse the same grants for the same app
 identity anchor. `contractDigest` and the provider identity that created the
 grant are evidence metadata, not reuse keys.
 
-List RPCs are bounded. `limit` is required, `offset` is optional and defaults to
-the first row, and implementations MUST apply any filters in the database query
-before applying the bound.
+List RPCs use the standard live offset page shape. Requests are
+`{ offset?: number; limit: number }` plus documented filters. Responses are
+`{ entries, count, offset, limit, nextOffset? }`. This is live offset
+pagination, not snapshot or cursor pagination: concurrent inserts or deletes can
+change which rows appear at later offsets. `limit` is required, `offset` is
+optional and defaults to the first row, and implementations MUST apply any
+filters in the database query before applying the bound.
 
 ### rpc.Auth.IdentityEnvelopes.Revoke
 
@@ -844,7 +854,7 @@ type ListDeploymentsRequest = {
   offset?: number;
   limit: number;
 };
-type ListDeploymentsResponse = { deployments: AuthDeployment[] };
+type ListDeploymentsResponse = PageResponse<AuthDeployment>;
 
 type ListEnvelopesRequest = {
   kind?: "service" | "device" | "app" | "cli" | "native" | "device-user";
@@ -852,7 +862,7 @@ type ListEnvelopesRequest = {
   offset?: number;
   limit: number;
 };
-type ListEnvelopesResponse = { envelopes: DeploymentEnvelope[] };
+type ListEnvelopesResponse = PageResponse<DeploymentEnvelope>;
 
 type GetEnvelopeRequest = { deploymentId: string };
 type GetEnvelopeResponse = {
@@ -992,7 +1002,7 @@ type ListServiceInstancesRequest = {
   offset?: number;
   limit: number;
 };
-type ListServiceInstancesResponse = { instances: ServiceInstance[] };
+type ListServiceInstancesResponse = PageResponse<ServiceInstance>;
 type DisableServiceInstanceRequest = { instanceId: string };
 type EnableServiceInstanceRequest = { instanceId: string };
 type RemoveServiceInstanceRequest = { instanceId: string };
@@ -1139,7 +1149,7 @@ type ListDeviceInstancesRequest = {
   offset?: number;
   limit: number;
 };
-type ListDeviceInstancesResponse = { instances: DeviceInstance[] };
+type ListDeviceInstancesResponse = PageResponse<DeviceInstance>;
 type DisableDeviceInstanceRequest = { instanceId: string };
 type EnableDeviceInstanceRequest = { instanceId: string };
 type RemoveDeviceInstanceRequest = { instanceId: string };
@@ -1152,7 +1162,7 @@ type ListDeviceActivationsRequest = {
   offset?: number;
   limit: number;
 };
-type ListDeviceActivationsResponse = { activations: DeviceActivationRecord[] };
+type ListDeviceActivationsResponse = PageResponse<DeviceActivationRecord>;
 type RevokeDeviceActivationRequest = { instanceId: string };
 
 type ListDeviceActivationReviewsRequest = {
@@ -1162,9 +1172,7 @@ type ListDeviceActivationReviewsRequest = {
   offset?: number;
   limit: number;
 };
-type ListDeviceActivationReviewsResponse = {
-  reviews: DeviceActivationReview[];
-};
+type ListDeviceActivationReviewsResponse = PageResponse<DeviceActivationReview>;
 
 type DecideDeviceActivationReviewRequest = {
   reviewId: string;
@@ -1346,9 +1354,12 @@ window is 10 minutes from the session's `lastAuth`; stale admin sessions fail
 with `reauth_required` so browser, CLI, and Rust admin clients can send the user
 through the normal reauth flow before retrying the admin action.
 
-Admin list RPCs are bounded production queries. They require `limit`, may accept
-`offset` and documented filters, and MUST NOT expose an unbounded "list all"
-mode.
+Admin list RPCs are bounded production queries using the standard live offset
+page shape. Requests are `{ offset?: number; limit: number }` plus documented
+filters. Responses are `{ entries, count, offset, limit, nextOffset? }`. This is
+live offset pagination, not snapshot or cursor pagination: concurrent inserts or
+deletes can change which rows appear at later offsets. Admin list RPCs MUST NOT
+expose an unbounded "list all" mode.
 
 ### rpc.Auth.Sessions.List
 
@@ -1413,7 +1424,11 @@ type AuthSessionRow =
     };
 
 {
-  sessions: AuthSessionRow[];
+  entries: AuthSessionRow[];
+  count: number;
+  offset: number;
+  limit: number;
+  nextOffset?: number;
 }
 ```
 
@@ -1431,25 +1446,31 @@ Request:
 Response:
 
 ```ts
-{
-  users: Array<{
-    userId: string;
-    name?: string;
-    email?: string;
-    active: boolean;
-    capabilities: string[];
-    capabilityGroups: string[];
-    identities: Array<{
-      identityId: string;
-      provider: string;
-      subject: string;
-      displayName: string | null;
-      email: string | null;
-      emailVerified: boolean;
-      linkedAt: string;
-      lastLoginAt: string | null;
-    }>;
+type AuthUserRow = {
+  userId: string;
+  name?: string;
+  email?: string;
+  active: boolean;
+  capabilities: string[];
+  capabilityGroups: string[];
+  identities: Array<{
+    identityId: string;
+    provider: string;
+    subject: string;
+    displayName: string | null;
+    email: string | null;
+    emailVerified: boolean;
+    linkedAt: string;
+    lastLoginAt: string | null;
   }>;
+};
+
+{
+  entries: AuthUserRow[];
+  count: number;
+  offset: number;
+  limit: number;
+  nextOffset?: number;
 }
 ```
 
@@ -1482,17 +1503,23 @@ Request:
 Response:
 
 ```ts
+type AuthCapabilityRow = {
+  key: string;
+  displayName: string;
+  description: string;
+  consequence?: string;
+  source: "contract" | "platform";
+  contractId?: string;
+  contractDigest?: string;
+  contractDisplayName?: string;
+};
+
 {
-  capabilities: Array<{
-    key: string;
-    displayName: string;
-    description: string;
-    consequence?: string;
-    source: "contract" | "platform";
-    contractId?: string;
-    contractDigest?: string;
-    contractDisplayName?: string;
-  }>;
+  entries: AuthCapabilityRow[];
+  count: number;
+  offset: number;
+  limit: number;
+  nextOffset?: number;
 }
 ```
 

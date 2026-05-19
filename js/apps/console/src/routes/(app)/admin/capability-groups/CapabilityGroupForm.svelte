@@ -13,8 +13,8 @@
   import { errorMessage, formatDate } from "$lib/format";
   import { getTrellis } from "$lib/trellis";
 
-  type CapabilityView = AuthCapabilitiesListOutput["capabilities"][number];
-  type CapabilityGroupView = AuthCapabilityGroupsListOutput["groups"][number];
+  type CapabilityView = AuthCapabilitiesListOutput["entries"][number];
+  type CapabilityGroupView = AuthCapabilityGroupsListOutput["entries"][number];
   type CapabilitySection = {
     key: string;
     title: string;
@@ -133,8 +133,8 @@
         error = errorMessage(capabilitiesResponse);
         return;
       }
-      groups = groupsResponse.groups ?? [];
-      capabilities = (capabilitiesResponse.capabilities ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
+      groups = groupsResponse.entries ?? [];
+      capabilities = (capabilitiesResponse.entries ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
 
       if (!editingExisting) return;
       if (!targetGroupKey) {

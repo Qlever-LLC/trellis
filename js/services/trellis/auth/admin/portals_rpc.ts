@@ -11,6 +11,7 @@ import type {
   LoginPortalSettings,
 } from "../schemas.ts";
 import type {
+  BoundedListQuery,
   SelectedLoginPortal,
   SqlLoginPortalRepository,
 } from "../storage.ts";
@@ -90,12 +91,14 @@ function routeIdFor(input: LoginRoutePutInput): string {
 export function createAuthPortalsListHandler(
   storage: SqlLoginPortalRepository,
 ) {
-  return async ({ context: { caller } }: { context: { caller: RpcUser } }) => {
+  return async ({ input, context: { caller } }: {
+    input: BoundedListQuery;
+    context: { caller: RpcUser };
+  }) => {
     const authorized = requireAdminFreshAuth(caller);
     if (authorized.isErr()) return authorized;
     try {
-      const portals = await storage.listPortals();
-      return Result.ok({ portals });
+      return Result.ok(await storage.listPortalsPage(input));
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
@@ -280,12 +283,14 @@ export function createAuthPortalsLoginSettingsUpdateHandler(
 export function createAuthPortalsLoginRoutesListHandler(
   storage: SqlLoginPortalRepository,
 ) {
-  return async ({ context: { caller } }: { context: { caller: RpcUser } }) => {
+  return async ({ input, context: { caller } }: {
+    input: BoundedListQuery;
+    context: { caller: RpcUser };
+  }) => {
     const authorized = requireAdminFreshAuth(caller);
     if (authorized.isErr()) return authorized;
     try {
-      const routes = await storage.listRoutes();
-      return Result.ok({ routes });
+      return Result.ok(await storage.listRoutesPage(input));
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }

@@ -737,17 +737,23 @@ derived SQL projections for job state and worker presence, then publishes
 administrative events or commands to the appropriate jobs subjects. It does not
 mutate projected job state directly.
 
-| RPC                 | Input                      | Output          | Description                                |
-| ------------------- | -------------------------- | --------------- | ------------------------------------------ |
-| `Jobs.Health`       | `{}`                       | health payload  | Check jobs admin service health            |
-| `Jobs.ListServices` | `{}`                       | `ServiceInfo[]` | List services and observed worker presence |
-| `Jobs.List`         | `JobFilter`                | `Job[]`         | List jobs (filterable)                     |
-| `Jobs.Get`          | `{ service, jobType, id }` | `Job`           | Get single job                             |
-| `Jobs.Retry`        | `{ service, jobType, id }` | `Job`           | Manually retry an eligible job             |
-| `Jobs.Cancel`       | `{ service, jobType, id }` | `Job`           | Cancel an eligible job                     |
-| `Jobs.ListDLQ`      | `JobFilter`                | `Job[]`         | List dead letter jobs (`dead` only)        |
-| `Jobs.ReplayDLQ`    | `{ service, jobType, id }` | `Job`           | Replay job from DLQ                        |
-| `Jobs.DismissDLQ`   | `{ service, jobType, id }` | `Job`           | Dismiss dead-letter job                    |
+| RPC                 | Input                                  | Output              | Description                                |
+| ------------------- | -------------------------------------- | ------------------- | ------------------------------------------ |
+| `Jobs.Health`       | `{}`                                   | health payload      | Check jobs admin service health            |
+| `Jobs.ListServices` | `{ offset?: number; limit: number }`   | `PageResponse<ServiceInfo>` | List services and observed worker presence |
+| `Jobs.List`         | `JobFilter & { offset?: number; limit: number }` | `PageResponse<Job>` | List jobs (filterable)                     |
+| `Jobs.Get`          | `{ service, jobType, id }`             | `Job`               | Get single job                             |
+| `Jobs.Retry`        | `{ service, jobType, id }`             | `Job`               | Manually retry an eligible job             |
+| `Jobs.Cancel`       | `{ service, jobType, id }`             | `Job`               | Cancel an eligible job                     |
+| `Jobs.ListDLQ`      | `JobFilter & { offset?: number; limit: number }` | `PageResponse<Job>` | List dead letter jobs (`dead` only)        |
+| `Jobs.ReplayDLQ`    | `{ service, jobType, id }`             | `Job`               | Replay job from DLQ                        |
+| `Jobs.DismissDLQ`   | `{ service, jobType, id }`             | `Job`               | Dismiss dead-letter job                    |
+
+List RPCs use the standard live offset page shape. Requests are
+`{ offset?: number; limit: number }` plus documented filters. Responses are
+`{ entries, count, offset, limit, nextOffset? }`. This is live offset
+pagination, not snapshot or cursor pagination: concurrent job updates can change
+which rows appear at later offsets.
 
 `Jobs.ReplayDLQ` and `Jobs.DismissDLQ` are explicit admin actions valid only for
 jobs currently in `dead`. `Jobs.ListDLQ` returns jobs still awaiting admin

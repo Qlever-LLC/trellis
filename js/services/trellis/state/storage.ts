@@ -68,17 +68,18 @@ type StoreValueValidation = {
   value: JsonValue;
 };
 
-function makePaginated(
+function makePageMetadata(
   offset: number,
   limit: number,
   count: number,
-): Pick<StateListResponse, "count" | "offset" | "limit" | "next" | "prev"> {
+): { count: number; offset: number; limit: number; nextOffset?: number } {
   return {
     count,
     offset,
     limit,
-    next: limit <= 0 || offset + limit >= count ? undefined : offset + limit,
-    prev: offset > 0 ? Math.max(0, offset - limit) : undefined,
+    nextOffset: limit <= 0 || offset + limit >= count
+      ? undefined
+      : offset + limit,
   };
 }
 
@@ -383,7 +384,7 @@ export class StateStore {
       (this.#entrySortKey(left)).localeCompare(this.#entrySortKey(right))
     );
     return Result.ok({
-      ...makePaginated(opts.offset, opts.limit, entries.length),
+      ...makePageMetadata(opts.offset, opts.limit, entries.length),
       entries: entries.slice(opts.offset, opts.offset + opts.limit),
     });
   }

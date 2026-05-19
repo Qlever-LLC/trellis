@@ -7,6 +7,15 @@ export type BoundedListQuery = {
   limit: number;
 };
 
+/** Counted bounded list page. */
+export type ListPage<T> = {
+  entries: T[];
+  count: number;
+  offset: number;
+  limit: number;
+  nextOffset?: number;
+};
+
 /** Validates and normalizes a bounded list query. */
 export function boundedListQuery(
   query: BoundedListQuery,
@@ -22,4 +31,20 @@ export function boundedListQuery(
     throw new RangeError("list offset must be a non-negative integer");
   }
   return { offset, limit: query.limit };
+}
+
+/** Builds a standard counted page response from validated query metadata. */
+export function listPage<T>(
+  entries: T[],
+  count: number,
+  query: BoundedListQuery,
+): ListPage<T> {
+  const { offset, limit } = boundedListQuery(query);
+  return {
+    entries,
+    count,
+    offset,
+    limit,
+    nextOffset: limit <= 0 || offset + limit >= count ? undefined : offset + limit,
+  };
 }

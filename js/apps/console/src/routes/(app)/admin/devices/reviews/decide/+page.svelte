@@ -18,8 +18,8 @@
   import { getNotifications } from "$lib/notifications.svelte";
   import { getTrellis } from "$lib/trellis";
 
-  type Review = AuthDeviceUserAuthoritiesReviewsListOutput["reviews"][number];
-  type DeviceInstance = AuthDevicesListOutput["instances"][number] & { metadata?: Record<string, string> };
+  type Review = AuthDeviceUserAuthoritiesReviewsListOutput["entries"][number];
+  type DeviceInstance = AuthDevicesListOutput["entries"][number] & { metadata?: Record<string, string> };
 
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
   const trellis = getTrellis();
@@ -63,10 +63,10 @@
       ]);
       if (isErr(reviewsResponse)) { error = errorMessage(reviewsResponse); return; }
       if (isErr(instancesResponse)) { error = errorMessage(instancesResponse); return; }
-      const loadedReviews = reviewsResponse.reviews ?? [];
+      const loadedReviews = reviewsResponse.entries ?? [];
       const loadedPendingReviews = loadedReviews.filter((review) => review.state === "pending");
       reviews = loadedReviews;
-      deviceInstances = instancesResponse.instances ?? [];
+      deviceInstances = instancesResponse.entries ?? [];
       if (selectedReviewId && !loadedPendingReviews.some((review) => review.reviewId === selectedReviewId)) {
         selectedReviewId = "";
       }

@@ -40,7 +40,7 @@
   type DetailTab = "liveness" | "requests" | "resources" | "grants" | "manual";
   type DeploymentGrantOverride = AuthEnvelopesGetResponse["grantOverrides"][number];
   type GrantIdentityKind = DeploymentGrantOverride["identityKind"];
-  type CapabilityView = AuthCapabilitiesListOutput["capabilities"][number];
+  type CapabilityView = AuthCapabilitiesListOutput["entries"][number];
   type CapabilitySection = {
     key: string;
     title: string;
@@ -92,7 +92,7 @@
   let manualGrantCapability = $state("");
   let selectedGrantCapabilities = $state<string[]>([]);
   let envelopes = $state.raw<DeploymentEnvelope[]>([]);
-  let expansionRequests = $state.raw<AuthEnvelopeExpansionsListResponse["requests"]>([]);
+  let expansionRequests = $state.raw<AuthEnvelopeExpansionsListResponse["entries"]>([]);
   let runtimeDeployments = $state.raw<RuntimeDeployment[]>([]);
   let capabilities = $state<CapabilityView[]>([]);
   let selectedDeploymentId = $state<string | null>(null);
@@ -328,12 +328,12 @@
         capabilitiesError = errorMessage(capabilitiesResponse);
       } else {
         capabilitiesError = null;
-        capabilities = (capabilitiesResponse.capabilities ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
+        capabilities = (capabilitiesResponse.entries ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
       }
       const envelopeValue = envelopeResponse as AuthEnvelopesListResponse;
       const expansionValue = expansionResponse as AuthEnvelopeExpansionsListResponse;
-      envelopes = envelopeValue.envelopes;
-      expansionRequests = expansionValue.requests;
+      envelopes = envelopeValue.entries;
+      expansionRequests = expansionValue.entries;
       selectedRequestId = chooseSelectedExpansionRequest(expansionRequests, selectedRequestId);
       loading = false;
       await selectDeploymentFromUrl(true, true);
@@ -388,21 +388,21 @@
       if (envelope.kind === "service") {
         const response = await trellis.request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take();
         if (isErr(response)) return { deployments: [], error: errorMessage(response) };
-        const value = response as { instances: Array<{ deploymentId: string; disabled: boolean }> };
-        return { deployments: serviceRuntimeDeployments(value.instances), error: null };
+        const value = response as { entries: Array<{ deploymentId: string; disabled: boolean }> };
+        return { deployments: serviceRuntimeDeployments(value.entries), error: null };
       }
       if (envelope.kind === "device") {
         const response = await trellis.request("Auth.Devices.List", { limit: 500, offset: 0 }).take();
         if (isErr(response)) return { deployments: [], error: errorMessage(response) };
         const value = response as {
-          instances: Array<{
+          entries: Array<{
             deploymentId: string;
             state: "registered" | "activated" | "revoked" | "disabled";
             currentContractId?: string;
             currentContractDigest?: string;
           }>;
         };
-        return { deployments: deviceRuntimeDeployments(value.instances), error: null };
+        return { deployments: deviceRuntimeDeployments(value.entries), error: null };
       }
     } catch (e) {
       return { deployments: [], error: errorMessage(e) };

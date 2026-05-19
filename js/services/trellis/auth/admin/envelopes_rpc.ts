@@ -40,7 +40,7 @@ import type {
   Session,
 } from "../schemas.ts";
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
-import type { BoundedListQuery } from "../storage.ts";
+import type { BoundedListQuery, ListPage } from "../storage.ts";
 import { MAX_STORAGE_LIST_LIMIT } from "../storage.ts";
 import { type AdminCaller, requireAdminFreshAuth } from "./shared.ts";
 
@@ -76,6 +76,10 @@ type DeploymentEnvelopeStorage = {
     kind?: string;
     disabled?: boolean;
   }, query: BoundedListQuery): Promise<DeploymentEnvelope[]>;
+  listFilteredPage?(filters: {
+    kind?: string;
+    disabled?: boolean;
+  }, query: BoundedListQuery): Promise<ListPage<DeploymentEnvelope>>;
   putExpansion?(record: {
     envelope: DeploymentEnvelope;
     delta: EnvelopeBoundary;
@@ -142,6 +146,10 @@ type EnvelopeExpansionRequestStorage = {
     deploymentId?: string;
     state?: string;
   }, query: BoundedListQuery): Promise<EnvelopeExpansionRequest[]>;
+  listFilteredPage?(filters: {
+    deploymentId?: string;
+    state?: string;
+  }, query: BoundedListQuery): Promise<ListPage<EnvelopeExpansionRequest>>;
   updateState?(record: {
     requestId: string;
     state: "pending" | "approved" | "rejected";
@@ -526,17 +534,29 @@ export function createAuthEnvelopesListHandler(deps: {
       context: { caller: RpcUser };
     },
   ): Promise<
-    Result<{ envelopes: DeploymentEnvelope[] }, AuthError | UnexpectedError>
+    Result<ListPage<DeploymentEnvelope>, AuthError | UnexpectedError>
   > => {
     const authorized = requireAdminFreshAuth(caller);
     if (authorized.isErr()) return authorized;
     deps.logger.trace({ rpc: "Auth.Envelopes.List", caller }, "RPC request");
     try {
-      const envelopes = await deps.deploymentEnvelopeStorage.listFiltered({
-        kind: req.kind,
-        disabled: req.disabled,
-      }, req);
-      return Result.ok({ envelopes });
+      const filters = { kind: req.kind, disabled: req.disabled };
+      if (deps.deploymentEnvelopeStorage.listFilteredPage) {
+        return Result.ok(
+          await deps.deploymentEnvelopeStorage.listFilteredPage(filters, req),
+        );
+      }
+      const entries = await deps.deploymentEnvelopeStorage.listFiltered(
+        filters,
+        req,
+      );
+      const envelopes = {
+        entries,
+        count: entries.length,
+        offset: req.offset ?? 0,
+        limit: req.limit,
+      };
+      return Result.ok(envelopes);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
@@ -1269,7 +1289,7 @@ export function createAuthEnvelopeExpansionsListHandler(deps: {
     context: { caller: RpcUser };
   }): Promise<
     Result<
-      { requests: EnvelopeExpansionRequest[] },
+      ListPage<EnvelopeExpansionRequest>,
       AuthError | UnexpectedError
     >
   > => {
@@ -1284,11 +1304,23 @@ export function createAuthEnvelopeExpansionsListHandler(deps: {
     }, "RPC request");
 
     try {
-      const requests = await deps.envelopeExpansionRequestStorage.listFiltered({
-        deploymentId: req.deploymentId,
-        state: req.state,
-      }, req);
-      return Result.ok({ requests });
+      const filters = { deploymentId: req.deploymentId, state: req.state };
+      if (deps.envelopeExpansionRequestStorage.listFilteredPage) {
+        return Result.ok(
+          await deps.envelopeExpansionRequestStorage.listFilteredPage(filters, req),
+        );
+      }
+      const entries = await deps.envelopeExpansionRequestStorage.listFiltered(
+        filters,
+        req,
+      );
+      const requests = {
+        entries,
+        count: entries.length,
+        offset: req.offset ?? 0,
+        limit: req.limit,
+      };
+      return Result.ok(requests);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }

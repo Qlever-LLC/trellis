@@ -14,10 +14,24 @@ fn empty_object_schema() -> Value {
 fn bounded_list_request_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["limit", "offset"],
+        "required": ["limit"],
         "properties": {
             "limit": {"type": "integer", "minimum": 0, "maximum": 500},
             "offset": {"type": "integer", "minimum": 0}
+        }
+    })
+}
+
+fn page_response_schema(entry: Value) -> Value {
+    json!({
+        "type": "object",
+        "required": ["entries", "count", "offset", "limit"],
+        "properties": {
+            "entries": {"type": "array", "items": entry},
+            "count": {"type": "integer", "minimum": 0},
+            "offset": {"type": "integer", "minimum": 0},
+            "limit": {"type": "integer", "minimum": 0},
+            "nextOffset": {"type": "integer", "minimum": 0}
         }
     })
 }
@@ -259,28 +273,13 @@ fn with_schemas(builder: ContractManifestBuilder) -> ContractManifestBuilder {
         .schema("AssignmentsListRequest", bounded_list_request_schema())
         .schema(
             "AssignmentsListResponse",
-            json!({
-                "type": "object",
-                "required": ["assignments"],
-                "properties": {
-                    "assignments": {
-                        "type": "array",
-                        "items": inspection_assignment_schema()
-                    }
-                }
-            }),
+            page_response_schema(inspection_assignment_schema()),
         )
         .schema("SiteSummary", site_summary_schema())
         .schema("SitesListRequest", bounded_list_request_schema())
         .schema(
             "SitesListResponse",
-            json!({
-                "type": "object",
-                "required": ["sites"],
-                "properties": {
-                    "sites": {"type": "array", "items": site_summary_schema()}
-                }
-            }),
+            page_response_schema(site_summary_schema()),
         )
         .schema(
             "SitesGetRequest",
@@ -384,7 +383,7 @@ fn with_schemas(builder: ContractManifestBuilder) -> ContractManifestBuilder {
             "EvidenceListRequest",
             json!({
                 "type": "object",
-                "required": ["limit", "offset"],
+                "required": ["limit"],
                 "properties": {
                     "limit": {"type": "integer", "minimum": 0, "maximum": 500},
                     "offset": {"type": "integer", "minimum": 0},
@@ -394,13 +393,7 @@ fn with_schemas(builder: ContractManifestBuilder) -> ContractManifestBuilder {
         )
         .schema(
             "EvidenceListResponse",
-            json!({
-                "type": "object",
-                "required": ["evidence"],
-                "properties": {
-                    "evidence": {"type": "array", "items": evidence_record_schema()}
-                }
-            }),
+            page_response_schema(evidence_record_schema()),
         )
         .schema(
             "EvidenceDownloadRequest",
@@ -468,13 +461,7 @@ fn with_schemas(builder: ContractManifestBuilder) -> ContractManifestBuilder {
         .schema("ReportsListRequest", bounded_list_request_schema())
         .schema(
             "ReportsListResponse",
-            json!({
-                "type": "object",
-                "required": ["reports"],
-                "properties": {
-                    "reports": {"type": "array", "items": report_record_schema()}
-                }
-            }),
+            page_response_schema(report_record_schema()),
         )
         .schema(
             "ReportsPublishedEvent",

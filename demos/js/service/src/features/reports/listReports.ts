@@ -8,5 +8,15 @@ type Result = RpcResult<typeof contract, "Reports.List">;
 /** Lists completed closeout reports generated during this demo service run. */
 export function listReports({ input }: Args): Result {
   const reports = listReportRecords();
-  return ok({ reports: reports.slice(input.offset, input.offset + input.limit) });
+  const offset = input.offset ?? 0;
+  const count = reports.length;
+  return ok({
+    entries: reports.slice(offset, offset + input.limit),
+    count,
+    offset,
+    limit: input.limit,
+    ...(input.limit > 0 && offset + input.limit < count
+      ? { nextOffset: offset + input.limit }
+      : {}),
+  });
 }

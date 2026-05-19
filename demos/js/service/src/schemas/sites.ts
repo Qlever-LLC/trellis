@@ -11,10 +11,14 @@ export const SiteSummary = Type.Object({
 
 export const SitesListRequest = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
-  offset: Type.Integer({ minimum: 0 }),
+  offset: Type.Optional(Type.Integer({ minimum: 0 })),
 });
 export const SitesListResponse = Type.Object({
-  sites: Type.Array(SiteSummary),
+  entries: Type.Array(SiteSummary),
+  count: Type.Integer({ minimum: 0 }),
+  offset: Type.Integer({ minimum: 0 }),
+  limit: Type.Integer({ minimum: 0 }),
+  nextOffset: Type.Optional(Type.Integer({ minimum: 0 })),
 });
 
 export const SitesGetRequest = Type.Object({

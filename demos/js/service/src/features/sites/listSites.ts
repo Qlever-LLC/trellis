@@ -17,6 +17,16 @@ export async function listSites({ input, trellis }: Args): Promise<Result> {
   }
 
   sites.sort((left, right) => left.siteName.localeCompare(right.siteName));
+  const offset = input.offset ?? 0;
+  const count = sites.length;
 
-  return ok({ sites: sites.slice(input.offset, input.offset + input.limit) });
+  return ok({
+    entries: sites.slice(offset, offset + input.limit),
+    count,
+    offset,
+    limit: input.limit,
+    ...(input.limit > 0 && offset + input.limit < count
+      ? { nextOffset: offset + input.limit }
+      : {}),
+  });
 }

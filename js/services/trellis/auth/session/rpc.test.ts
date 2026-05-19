@@ -1289,11 +1289,15 @@ Deno.test("Auth.Sessions.List returns explicit participant metadata for app, age
       participantKind: string;
     } & Record<string, unknown>
   >(
-    value.sessions.map((session: { key: string; participantKind: string }) => [
+    value.entries.map((session: { key: string; participantKind: string }) => [
       session.key,
       session,
     ]),
   );
+  assertEquals(value.count, 4);
+  assertEquals(value.offset, 0);
+  assertEquals(value.limit, 500);
+  assertEquals(value.nextOffset, undefined);
   assertEquals(
     new Set(sessionsByKey.keys()),
     new Set([
@@ -1373,7 +1377,8 @@ Deno.test("Auth.Connections.List returns explicit participant metadata for user 
   const value = result.take();
   if (isErr(value)) throw value.error;
 
-  assertEquals(value.connections, [
+  assertEquals(value, {
+    entries: [
     {
       key: "usr_github_123.sk_agent.user_nkey",
       userNkey: "user_nkey",
@@ -1391,7 +1396,12 @@ Deno.test("Auth.Connections.List returns explicit participant metadata for user 
       clientId: 7,
       connectedAt: "2026-04-10T00:00:00.000Z",
     },
-  ]);
+    ],
+    count: 1,
+    offset: 0,
+    limit: 500,
+    nextOffset: undefined,
+  });
 });
 
 Deno.test("Auth.Connections.List skips malformed connection entries", async () => {
@@ -1434,11 +1444,18 @@ Deno.test("Auth.Connections.List skips malformed connection entries", async () =
   const value = result.take();
   if (isErr(value)) throw value.error;
 
-  assertEquals(value.connections.map((connection) => connection.userNkey), [
+  assertEquals(
+    value.entries.map((connection: { userNkey: string }) => connection.userNkey),
+    [
     "user_nkey_2",
-  ]);
-  assertEquals(value.connections[0]?.serverId, "n2");
-  assertEquals(value.connections[0]?.clientId, 8);
+    ],
+  );
+  assertEquals(value.count, 1);
+  assertEquals(value.offset, 0);
+  assertEquals(value.limit, 500);
+  assertEquals(value.nextOffset, undefined);
+  assertEquals(value.entries[0]?.serverId, "n2");
+  assertEquals(value.entries[0]?.clientId, 8);
 });
 
 Deno.test("Auth.Sessions.Revoke cascades agent revocation to the grant and sibling agent sessions", async () => {

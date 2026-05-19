@@ -5,6 +5,7 @@ import type { AuthLogger } from "../runtime_deps.ts";
 import type { IdentityEnvelopeRecord } from "../schemas.ts";
 import type {
   BoundedListQuery,
+  ListPage,
   SqlIdentityEnvelopeRepository,
 } from "../storage.ts";
 import {
@@ -109,7 +110,7 @@ export function createAuthIdentitiesListHandler(deps: {
         query: req,
       });
 
-      for (const envelope of storedApprovals) {
+      for (const envelope of storedApprovals.entries) {
         if (
           !target && callerUserId &&
           envelope.userTrellisId !== callerUserId
@@ -146,7 +147,10 @@ export function createAuthIdentitiesListHandler(deps: {
         return left.displayName.localeCompare(right.displayName);
       });
 
-      return Result.ok({ approvals });
+      return Result.ok({
+        ...storedApprovals,
+        entries: approvals,
+      });
     } catch (error) {
       if (error instanceof AuthError) {
         return Result.err(error);
@@ -160,14 +164,14 @@ async function listApprovalsForRequest(args: {
   contractApprovalStorage: SqlIdentityEnvelopeRepository;
   targetUserId?: string;
   query: BoundedListQuery;
-}): Promise<IdentityEnvelopeRecord[]> {
+}): Promise<ListPage<IdentityEnvelopeRecord>> {
   if (args.targetUserId) {
-    return await args.contractApprovalStorage.listPageByUser(
+    return await args.contractApprovalStorage.listCountedPageByUser(
       args.targetUserId,
       args.query,
     );
   }
-  return await args.contractApprovalStorage.listPage(args.query);
+  return await args.contractApprovalStorage.listCountedPage(args.query);
 }
 
 /** Creates the Auth.IdentityEnvelopes.Revoke RPC handler backed by SQL approval storage. */

@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{Map, Value};
+use trellis_contracts::PageResponse;
 
 use crate::{TrellisClient, TrellisClientError};
 
@@ -147,18 +148,8 @@ pub struct StateDeleteResult<TEntry, TMigrationEntry = StateEntry<Value>> {
 }
 
 /// Result returned by map state list requests.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct MapStateListResult<TValue> {
-    pub entries: Vec<StateValue<MapStateEntry<TValue>, MapStateEntry<Value>>>,
-    pub count: u64,
-    pub offset: u64,
-    pub limit: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prev: Option<u64>,
-}
+pub type MapStateListResult<TValue> =
+    PageResponse<StateValue<MapStateEntry<TValue>, MapStateEntry<Value>>>;
 
 /// Typed client for a contract-declared value state store.
 #[derive(Debug)]

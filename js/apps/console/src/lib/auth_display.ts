@@ -16,9 +16,9 @@ type UserPrincipal = {
   };
 };
 
-export type SessionRecord = AuthSessionsListOutput["sessions"][number];
+export type SessionRecord = AuthSessionsListOutput["entries"][number];
 
-export type ConnectionRecord = AuthConnectionsListOutput["connections"][number];
+export type ConnectionRecord = AuthConnectionsListOutput["entries"][number];
 
 export type UserGrantRecord = {
   identityEnvelopeId: string;

@@ -32,11 +32,15 @@ export const ReportRecord = Type.Object({
 
 export const ReportsListRequest = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
-  offset: Type.Integer({ minimum: 0 }),
+  offset: Type.Optional(Type.Integer({ minimum: 0 })),
 });
 
 export const ReportsListResponse = Type.Object({
-  reports: Type.Array(ReportRecord),
+  entries: Type.Array(ReportRecord),
+  count: Type.Integer({ minimum: 0 }),
+  offset: Type.Integer({ minimum: 0 }),
+  limit: Type.Integer({ minimum: 0 }),
+  nextOffset: Type.Optional(Type.Integer({ minimum: 0 })),
 });
 
 export const ReportsPublishedEvent = Type.Object({

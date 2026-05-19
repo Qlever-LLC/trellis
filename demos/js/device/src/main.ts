@@ -117,7 +117,7 @@ async function runGuidedInspectionWizard(device: Device): Promise<void> {
   console.log(chalk.green.bold("== Guided Inspection Wizard"));
   console.info("Step 1: choose an assigned inspection.");
   const assignments =
-    (await device.request("Assignments.List", LIST_PAGE).orThrow()).assignments;
+    (await device.request("Assignments.List", LIST_PAGE).orThrow()).entries;
   if (assignments.length === 0) {
     console.info("No assignments are available for the guided workflow.");
     return;
@@ -186,12 +186,12 @@ async function listAssignments(device: Device): Promise<void> {
   console.log(chalk.green.bold("== Assigned Inspections"));
   const result = await device.request("Assignments.List", LIST_PAGE).orThrow();
 
-  if (result.assignments.length === 0) {
+  if (result.entries.length === 0) {
     console.info("No assigned inspections.");
     return;
   }
 
-  for (const item of result.assignments) {
+  for (const item of result.entries) {
     console.info(
       `- ${item.inspectionId}: [${item.priority.toUpperCase()}] ${item.siteName} / ${item.assetName} (${item.checklistName}) at ${item.scheduledFor}`,
     );
@@ -363,12 +363,12 @@ async function listAndDownloadEvidence(device: Device): Promise<void> {
     ...LIST_PAGE,
     prefix: "evidence/",
   }).orThrow();
-  if (result.evidence.length === 0) {
+  if (result.entries.length === 0) {
     console.info("No evidence files found.");
     return;
   }
 
-  result.evidence.forEach((item, index) => {
+  result.entries.forEach((item, index) => {
     console.info(
       `${index + 1}. ${item.fileName ?? item.key} (${item.size} bytes, ${
         item.contentType ?? "unknown"
@@ -383,7 +383,7 @@ async function listAndDownloadEvidence(device: Device): Promise<void> {
 
   const choice = Number(rawChoice);
   const selected = Number.isInteger(choice)
-    ? result.evidence[choice - 1]
+    ? result.entries[choice - 1]
     : undefined;
   if (!selected) {
     console.info("No evidence file selected.");
@@ -444,7 +444,7 @@ async function watchActivity(device: Device): Promise<void> {
 async function saveAndListDraftState(device: Device): Promise<void> {
   console.log(chalk.green.bold("== Draft State"));
   const assignments =
-    (await device.request("Assignments.List", LIST_PAGE).orThrow()).assignments;
+    (await device.request("Assignments.List", LIST_PAGE).orThrow()).entries;
   const selected = assignments[0];
   if (!selected) {
     console.info("No assignments available for sample state.");

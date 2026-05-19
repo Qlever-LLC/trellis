@@ -16,7 +16,7 @@ use trellis_participant_demo_device::contract as device_contract;
 use trellis_participant_demo_device::state::{DraftInspectionState, SelectedSiteState};
 use trellis_sdk_demo_service::types::{
     AssignmentsListRequest, EvidenceDownloadRequest, EvidenceListRequest, EvidenceUploadInput,
-    ReportsGenerateInput, SitesListRequest, SitesListResponseSitesItem,
+    ReportsGenerateInput, SitesListRequest, SitesListResponseEntriesItem,
 };
 
 const DEMO_TIMESTAMP: &str = "2026-04-30T16:00:00.000Z";
@@ -324,10 +324,10 @@ async fn list_sites(client: Option<&TrellisClient>) -> anyhow::Result<()> {
             .field_ops()
             .sites_list(&SitesListRequest {
                 limit: LIST_LIMIT,
-                offset: LIST_OFFSET,
+                offset: Some(LIST_OFFSET),
             })
             .await?
-            .sites
+            .entries
     } else {
         offline_sites()
     };
@@ -347,7 +347,7 @@ async fn list_sites(client: Option<&TrellisClient>) -> anyhow::Result<()> {
 
 async fn save_selected_site(
     client: Option<&TrellisClient>,
-    sites: &[SitesListResponseSitesItem],
+    sites: &[SitesListResponseEntriesItem],
 ) -> anyhow::Result<()> {
     if sites.is_empty() {
         return Ok(());
@@ -393,10 +393,10 @@ async fn list_assignments(client: Option<&TrellisClient>) -> anyhow::Result<()> 
             .field_ops()
             .assignments_list(&AssignmentsListRequest {
                 limit: LIST_LIMIT,
-                offset: LIST_OFFSET,
+                offset: Some(LIST_OFFSET),
             })
             .await?;
-        for assignment in response.assignments {
+        for assignment in response.entries {
             println!(
                 "{} - {} / {} ({})",
                 assignment.inspection_id,
@@ -417,11 +417,11 @@ async fn list_evidence(client: Option<&TrellisClient>) -> anyhow::Result<()> {
             .field_ops()
             .evidence_list(&EvidenceListRequest {
                 limit: LIST_LIMIT,
-                offset: LIST_OFFSET,
+                offset: Some(LIST_OFFSET),
                 prefix: None,
             })
             .await?;
-        for evidence in response.evidence {
+        for evidence in response.entries {
             println!("{} - {} bytes", evidence.key, evidence.size);
         }
     } else {
@@ -558,8 +558,8 @@ fn prompt(label: &str) -> anyhow::Result<String> {
     Ok(input.trim().to_string())
 }
 
-fn offline_sites() -> Vec<SitesListResponseSitesItem> {
-    vec![SitesListResponseSitesItem {
+fn offline_sites() -> Vec<SitesListResponseEntriesItem> {
+    vec![SitesListResponseEntriesItem {
         site_id: "site-north".to_string(),
         site_name: "North Ridge Substation".to_string(),
         open_inspections: 2,

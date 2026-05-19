@@ -69,6 +69,12 @@ import {
 } from "./mod.ts";
 
 const now = new Date().toISOString();
+const page = <T>(entries: T[], limit = 10) => ({
+  entries,
+  count: entries.length,
+  offset: 0,
+  limit,
+});
 const deviceActivationActor = {
   participantKind: "app" as const,
   userId: "usr_123",
@@ -177,7 +183,7 @@ Deno.test("admin portal RPC schemas expose projected portal fields", () => {
     updatedAt: now,
   };
 
-  assert(Value.Check(AuthPortalsListResponseSchema, { portals: [portal] }));
+  assert(Value.Check(AuthPortalsListResponseSchema, page([portal])));
   assert(Value.Check(AuthPortalsLoginSettingsResponseSchema, {
     portal,
     settings,
@@ -208,7 +214,7 @@ Deno.test("admin portal RPC schemas expose projected portal fields", () => {
     defaultCapabilityGroups: [],
   }));
   assert(Value.Check(AuthPortalsLoginRoutesListResponseSchema, {
-    routes: [route],
+    ...page([route]),
   }));
   assert(Value.Check(AuthPortalsLoginRoutesPutResponseSchema, { route }));
   assert(Value.Check(AuthPortalsLoginSettingsResponseSchema, {
@@ -466,7 +472,7 @@ Deno.test("deployment and device admin schemas validate", () => {
     Value.Check(AuthDeploymentsListSchema, { kind: "service", limit: 10 }),
   );
   assert(
-    Value.Check(AuthDeploymentsListResponseSchema, { deployments: [] }),
+    Value.Check(AuthDeploymentsListResponseSchema, page([])),
   );
   assert(Value.Check(AuthEnvelopeExpansionsListSchema, { limit: 10 }));
   assert(Value.Check(AuthEnvelopeExpansionsListSchema, {
@@ -475,7 +481,7 @@ Deno.test("deployment and device admin schemas validate", () => {
     state: "pending",
   }));
   assert(Value.Check(AuthEnvelopeExpansionsListResponseSchema, {
-    requests: [],
+    ...page([]),
   }));
   assert(
     Value.Check(AuthDeploymentsDisableSchema, {
@@ -523,7 +529,7 @@ Deno.test("deployment and device admin schemas validate", () => {
     },
   }));
   assert(Value.Check(AuthDevicesListSchema, { limit: 10 }));
-  assert(Value.Check(AuthDevicesListResponseSchema, { instances: [] }));
+  assert(Value.Check(AuthDevicesListResponseSchema, page([])));
   assert(Value.Check(AuthDevicesDisableSchema, { instanceId: "dev_1" }));
   assert(
     Value.Check(AuthDevicesDisableResponseSchema, {
@@ -650,7 +656,7 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
   assertFalse(Value.Check(AuthIdentitiesGrantsListSchema, {}));
   assertFalse(Value.Check(GeneratedAuthIdentitiesGrantsListSchema, {}));
   assert(Value.Check(AuthIdentitiesGrantsListResponseSchema, {
-    grants: [
+    ...page([
       {
         identityEnvelopeId: "env_123",
         identityAnchor: {
@@ -669,10 +675,10 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
         grantedAt: now,
         updatedAt: now,
       },
-    ],
+    ]),
   }));
   assert(Value.Check(GeneratedAuthIdentitiesGrantsListResponseSchema, {
-    grants: [
+    ...page([
       {
         identityEnvelopeId: "env_123",
         identityAnchor: {
@@ -691,7 +697,7 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
         grantedAt: now,
         updatedAt: now,
       },
-    ],
+    ]),
   }));
   assert(Value.Check(AuthIdentityEnvelopesRevokeSchema, {
     identityEnvelopeId: "env_123",
@@ -710,7 +716,7 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
   }));
 
   assertFalse(Value.Check(GeneratedAuthIdentitiesGrantsListResponseSchema, {
-    grants: [{
+    ...page([{
       identityEnvelopeId: "env_123",
       identityAnchor: {
         kind: "cli",
@@ -727,10 +733,10 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
       capabilities: ["jobs.read"],
       grantedAt: now,
       updatedAt: now,
-    }],
+    }]),
   }));
   assertFalse(Value.Check(GeneratedAuthIdentitiesGrantsListResponseSchema, {
-    grants: [{
+    ...page([{
       identityEnvelopeId: "env_123",
       identityAnchor: {
         kind: "cli",
@@ -747,10 +753,10 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
       capabilities: ["jobs.read"],
       grantedAt: now,
       updatedAt: now,
-    }],
+    }]),
   }));
   assertFalse(Value.Check(GeneratedAuthIdentitiesGrantsListResponseSchema, {
-    grants: [{
+    ...page([{
       contractDigest: "digest_123",
       contractId: "trellis.agent@v1",
       displayName: "Trellis Agent",
@@ -759,7 +765,7 @@ Deno.test("user grant schemas validate self-service grant rows", () => {
       capabilities: ["jobs.read"],
       grantedAt: "not-a-date",
       updatedAt: now,
-    }],
+    }]),
   }));
   assertFalse(Value.Check(GeneratedAuthIdentityEnvelopesRevokeSchema, {
     contractDigest: "digest with spaces",
@@ -933,7 +939,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
   }));
   assert(
     Value.Check(AuthDeviceUserAuthoritiesListResponseSchema, {
-      activations: [],
+      ...page([]),
     }),
   );
   assert(
@@ -950,7 +956,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     state: "pending",
   }));
   assert(Value.Check(AuthDeviceUserAuthoritiesReviewsListResponseSchema, {
-    reviews: [],
+    ...page([]),
   }));
   assert(Value.Check(AuthDeviceUserAuthoritiesReviewsDecideSchema, {
     reviewId: "dar_1",

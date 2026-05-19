@@ -26,7 +26,11 @@ import {
   type IdentityEnvelopeRecord,
   ServiceInstanceSchema,
 } from "../schemas.ts";
-import type { BoundedListQuery, SqlSessionRepository } from "../storage.ts";
+import type {
+  BoundedListQuery,
+  ListPage,
+  SqlSessionRepository,
+} from "../storage.ts";
 import type { StaticDecode } from "typebox";
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
 import {
@@ -65,6 +69,10 @@ type ServiceDeploymentStorage = {
     filters: { disabled?: boolean },
     query: BoundedListQuery,
   ): Promise<ServiceDeployment[]>;
+  listFilteredPage(
+    filters: { disabled?: boolean },
+    query: BoundedListQuery,
+  ): Promise<ListPage<ServiceDeployment>>;
   listByDeploymentIds?(
     deploymentIds: Iterable<string>,
     filters?: { disabled?: boolean },
@@ -80,6 +88,10 @@ type ServiceInstanceStorage = {
     filters: { disabled?: boolean },
     query: BoundedListQuery,
   ): Promise<ServiceInstance[]>;
+  listFilteredPage(
+    filters: { deploymentId?: string; disabled?: boolean },
+    query: BoundedListQuery,
+  ): Promise<ListPage<ServiceInstance>>;
   listByCurrentContractDigests?(
     contractDigests: Iterable<string>,
   ): Promise<ServiceInstance[]>;
@@ -504,7 +516,7 @@ export function createAuthDeploymentsServiceListHandler(
       context: { caller: RpcUser };
     },
   ): Promise<
-    Result<{ deployments: ServiceDeployment[] }, AuthError | UnexpectedError>
+    Result<ListPage<ServiceDeployment>, AuthError | UnexpectedError>
   > => {
     const authorized = requireAdminFreshAuth(caller);
     if (authorized.isErr()) return authorized;
@@ -514,10 +526,10 @@ export function createAuthDeploymentsServiceListHandler(
       "RPC request",
     );
     try {
-      const deployments = await serviceDeploymentStorage.listFiltered!({
+      const deployments = await serviceDeploymentStorage.listFilteredPage({
         disabled: req.disabled,
       }, req);
-      return Result.ok({ deployments });
+      return Result.ok(deployments);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
@@ -1048,22 +1060,18 @@ export function createAuthServiceInstancesListHandler(
       context: { caller: RpcUser };
     },
   ): Promise<
-    Result<{ instances: ServiceInstance[] }, AuthError | UnexpectedError>
+    Result<ListPage<ServiceInstance>, AuthError | UnexpectedError>
   > => {
     const authorized = requireAdminFreshAuth(caller);
     if (authorized.isErr()) return authorized;
     const { logger, serviceInstanceStorage } = serviceDeps;
     logger.trace({ rpc: "Auth.ServiceInstances.List", caller }, "RPC request");
     try {
-      const instances = req.deploymentId === undefined
-        ? await serviceInstanceStorage.listFiltered(
-          { disabled: req.disabled },
-          req,
-        )
-        : await serviceInstanceStorage.listByDeployment(req.deploymentId, {
-          disabled: req.disabled,
-        });
-      return Result.ok({ instances });
+      const instances = await serviceInstanceStorage.listFilteredPage({
+        deploymentId: req.deploymentId,
+        disabled: req.disabled,
+      }, req);
+      return Result.ok(instances);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }

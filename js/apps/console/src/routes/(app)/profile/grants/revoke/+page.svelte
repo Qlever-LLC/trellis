@@ -29,7 +29,7 @@
     try {
       const response = await trellis.request("Auth.Identities.Grants.List", { limit: 100, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
-      grants = response.grants ?? [];
+      grants = response.entries ?? [];
       const requestedGrant = page.url.searchParams.get("grant");
       selectedIdentityEnvelopeId = requestedGrant && grants.some((grant) => grant.identityEnvelopeId === requestedGrant) ? requestedGrant : (grants[0]?.identityEnvelopeId ?? "");
     } catch (e) {

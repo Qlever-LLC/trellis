@@ -128,7 +128,10 @@ const created = await trellis.state.preferences.put(
 );
 
 const activeDrafts = trellis.state.drafts.prefix("inspection/active");
-const listed = await activeDrafts.list({ limit: 20 });
+const page = await activeDrafts.list({ limit: 20 });
+for (const draft of page.entries) {
+  console.log(draft.key, draft.value.title);
+}
 ```
 
 Rules:
@@ -224,7 +227,11 @@ Map-store entry shape:
 `list(...)` applies only to map stores.
 
 - results are lexicographic by key
-- pagination uses optional `offset` and required `limit`
+- pagination uses the standard live offset page request
+  `{ offset?: number; limit: number }` and response
+  `{ entries, count, offset, limit, nextOffset? }`
+- this is live offset pagination, not snapshot or cursor pagination; concurrent
+  writes or deletes can change what appears at later offsets
 - public map-store listing has no unbounded mode; callers must choose a bounded
   page size
 - `prefix(path)` composes path prefixes on the client and keeps the same typed
@@ -243,7 +250,10 @@ const drafts = trellis.state.drafts.prefix("inspection/active");
 
 await drafts.put("open", { title: "Draft" });
 await drafts.get("open");
-await drafts.list({ limit: 10 });
+const page = await drafts.list({ limit: 10 });
+for (const draft of page.entries) {
+  console.log(draft.key, draft.value.title);
+}
 ```
 
 ## Validation

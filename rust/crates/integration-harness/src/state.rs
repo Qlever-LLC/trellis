@@ -533,18 +533,18 @@ async fn assert_generated_state_sdk(
     let draft_revision = current_revision(&draft.0, "generated State.Put draft")?;
 
     let listed = sdk
-        .state_list(&StateListRequest(json!({
-            "store": "drafts",
-            "prefix": "sdk",
-            "offset": 0,
-            "limit": 10
-        })))
+        .state_list(&StateListRequest {
+            store: "drafts".to_string(),
+            prefix: Some("sdk".to_string()),
+            offset: Some(0),
+            limit: 10,
+        })
         .await
         .into_diagnostic()?;
-    if !entries_include_key(&listed.0, "sdk/draft") {
+    if !entries_include_key(&listed.entries, "sdk/draft") {
         return Err(miette!(
-            "generated State.List did not include draft: {}",
-            listed.0
+            "generated State.List did not include draft: {:?}",
+            listed.entries
         ));
     }
 
@@ -580,10 +580,10 @@ async fn assert_generated_state_sdk(
         })))
         .await
         .into_diagnostic()?;
-    if !entries_include_key(&admin_listed.0, "sdk/draft") {
+    if !entries_include_key(&admin_listed.entries, "sdk/draft") {
         return Err(miette!(
-            "generated State.Admin.List did not include draft: {}",
-            admin_listed.0
+            "generated State.Admin.List did not include draft: {:?}",
+            admin_listed.entries
         ));
     }
 
@@ -646,15 +646,10 @@ fn current_revision(value: &Value, label: &str) -> Result<String> {
         .ok_or_else(|| miette!("{label} did not include current entry revision: {value}"))
 }
 
-fn entries_include_key(value: &Value, key: &str) -> bool {
-    value
-        .pointer("/entries")
-        .and_then(Value::as_array)
-        .is_some_and(|entries| {
-            entries
-                .iter()
-                .any(|entry| entry.get("key") == Some(&json!(key)))
-        })
+fn entries_include_key(entries: &[Value], key: &str) -> bool {
+    entries
+        .iter()
+        .any(|entry| entry.get("key") == Some(&json!(key)))
 }
 
 fn admin_user_target(login: &AdminLoginOutcome) -> Value {

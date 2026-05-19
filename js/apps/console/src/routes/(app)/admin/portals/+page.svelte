@@ -86,8 +86,8 @@
     error = null;
     try {
       const [portalsResponse, routesResponse] = await Promise.all([
-        trellis.request("Auth.Portals.List", {}).take(),
-        trellis.request("Auth.Portals.LoginRoutes.List", {}).take(),
+        trellis.request("Auth.Portals.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.Portals.LoginRoutes.List", { limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(portalsResponse)) {
         error = errorMessage(portalsResponse);
@@ -97,8 +97,8 @@
         error = errorMessage(routesResponse);
         return;
       }
-      portals = portalsResponse.portals;
-      routes = routesResponse.routes;
+      portals = portalsResponse.entries;
+      routes = routesResponse.entries;
     } catch (e) {
       error = errorMessage(e);
     } finally {

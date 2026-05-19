@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, lt, or, type SQL } from "drizzle-orm";
 import Value from "typebox/value";
 
 import type { TrellisStorageDb } from "../../storage/db.ts";
@@ -45,6 +45,8 @@ import {
   type BoundedListQuery,
   boundedListQuery,
   isoString,
+  type ListPage,
+  listPage,
   parseJsonField,
 } from "./shared.ts";
 
@@ -460,6 +462,19 @@ export class SqlUserAccountRepository {
       .limit(limit).offset(offset);
     return rows.map((row: UserRow) => decodeUserAccountRow(row));
   }
+
+  /** Returns a counted page of user accounts ordered by canonical user id. */
+  async listCountedPage(query: BoundedListQuery): Promise<ListPage<UserAccount>> {
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(users);
+    const rows = await this.#db.select().from(users).orderBy(users.userId)
+      .limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: UserRow) => decodeUserAccountRow(row)),
+      countRow?.count ?? 0,
+      query,
+    );
+  }
 }
 
 /** Stores durable links from sign-in identities to user accounts in SQL. */
@@ -516,6 +531,25 @@ export class SqlUserIdentityRepository {
       eq(userIdentities.userId, userId),
     ).orderBy(userIdentities.identityId);
     return rows.map((row: UserIdentityRow) => decodeUserIdentityRow(row));
+  }
+
+  /** Returns a counted page of identity links for one user ordered by identity id. */
+  async listPageByUser(
+    userId: string,
+    query: BoundedListQuery,
+  ): Promise<ListPage<UserIdentity>> {
+    const { offset, limit } = boundedListQuery(query);
+    const where = eq(userIdentities.userId, userId);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      userIdentities,
+    ).where(where);
+    const rows = await this.#db.select().from(userIdentities).where(where)
+      .orderBy(userIdentities.identityId).limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: UserIdentityRow) => decodeUserIdentityRow(row)),
+      countRow?.count ?? 0,
+      query,
+    );
   }
 
   /** Removes one identity link from a user account. */
@@ -1056,6 +1090,24 @@ export class SqlCapabilityGroupRepository {
     return rows.map((row: CapabilityGroupRow) => decodeCapabilityGroupRow(row));
   }
 
+  /** Returns a counted page of capability groups ordered by group key. */
+  async listCountedPage(
+    query: BoundedListQuery,
+  ): Promise<ListPage<CapabilityGroup>> {
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      capabilityGroups,
+    );
+    const rows = await this.#db.select().from(capabilityGroups).orderBy(
+      capabilityGroups.groupKey,
+    ).limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: CapabilityGroupRow) => decodeCapabilityGroupRow(row)),
+      countRow?.count ?? 0,
+      query,
+    );
+  }
+
   /** Inserts or replaces a capability group keyed by group key. */
   async put(record: CapabilityGroup): Promise<void> {
     const row = encodeCapabilityGroup(record);
@@ -1157,6 +1209,25 @@ export class SqlIdentityEnvelopeRepository {
     );
   }
 
+  /** Returns a counted page of identity envelopes for one user ordered by envelope id. */
+  async listCountedPageByUser(
+    userTrellisId: string,
+    query: BoundedListQuery,
+  ): Promise<ListPage<IdentityEnvelopeRecord>> {
+    const where = eq(identityEnvelopes.userTrellisId, userTrellisId);
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      identityEnvelopes,
+    ).where(where);
+    const rows = await this.#db.select().from(identityEnvelopes).where(where)
+      .orderBy(identityEnvelopes.identityEnvelopeId).limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: IdentityEnvelopeRow) => decodeIdentityEnvelopeRow(row)),
+      countRow?.count ?? 0,
+      query,
+    );
+  }
+
   /** Returns a bounded page of approved identity envelopes for one user ordered by envelope id. */
   async listApprovedPageByUser(
     userTrellisId: string,
@@ -1174,6 +1245,28 @@ export class SqlIdentityEnvelopeRepository {
     );
   }
 
+  /** Returns a counted page of approved identity envelopes for one user. */
+  async listApprovedCountedPageByUser(
+    userTrellisId: string,
+    query: BoundedListQuery,
+  ): Promise<ListPage<IdentityEnvelopeRecord>> {
+    const where = and(
+      eq(identityEnvelopes.userTrellisId, userTrellisId),
+      eq(identityEnvelopes.answer, "approved"),
+    );
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      identityEnvelopes,
+    ).where(where);
+    const rows = await this.#db.select().from(identityEnvelopes).where(where)
+      .orderBy(identityEnvelopes.identityEnvelopeId).limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: IdentityEnvelopeRow) => decodeIdentityEnvelopeRow(row)),
+      countRow?.count ?? 0,
+      query,
+    );
+  }
+
   /** Returns a bounded page of identity envelopes ordered by user Trellis id and envelope id. */
   async listPage(query: BoundedListQuery): Promise<IdentityEnvelopeRecord[]> {
     const { offset, limit } = boundedListQuery(query);
@@ -1183,6 +1276,52 @@ export class SqlIdentityEnvelopeRepository {
     ).limit(limit).offset(offset);
     return rows.map((row: IdentityEnvelopeRow) =>
       decodeIdentityEnvelopeRow(row)
+    );
+  }
+
+  /** Returns a counted page of identity envelopes ordered by user and envelope id. */
+  async listCountedPage(
+    query: BoundedListQuery,
+  ): Promise<ListPage<IdentityEnvelopeRecord>> {
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      identityEnvelopes,
+    );
+    const rows = await this.#db.select().from(identityEnvelopes).orderBy(
+      identityEnvelopes.userTrellisId,
+      identityEnvelopes.identityEnvelopeId,
+    ).limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: IdentityEnvelopeRow) => decodeIdentityEnvelopeRow(row)),
+      countRow?.count ?? 0,
+      query,
+    );
+  }
+
+  /** Returns a counted page of identity envelopes matching simple indexed filters. */
+  async listFilteredPage(
+    filters: { userTrellisId?: string; answer?: "approved" | "denied" },
+    query: BoundedListQuery,
+  ): Promise<ListPage<IdentityEnvelopeRecord>> {
+    const conditions: SQL[] = [];
+    if (filters.userTrellisId !== undefined) {
+      conditions.push(eq(identityEnvelopes.userTrellisId, filters.userTrellisId));
+    }
+    if (filters.answer !== undefined) {
+      conditions.push(eq(identityEnvelopes.answer, filters.answer));
+    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      identityEnvelopes,
+    ).where(where);
+    const rows = await this.#db.select().from(identityEnvelopes).where(where)
+      .orderBy(identityEnvelopes.userTrellisId, identityEnvelopes.identityEnvelopeId)
+      .limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: IdentityEnvelopeRow) => decodeIdentityEnvelopeRow(row)),
+      countRow?.count ?? 0,
+      query,
     );
   }
 
@@ -1327,6 +1466,24 @@ export class SqlSessionRepository {
     return rows.map((row: SessionRow) => decodeSessionEntry(row));
   }
 
+  /** Returns a counted page of session entries ordered by session key and principal id. */
+  async listEntriesPage(
+    query: BoundedListQuery,
+  ): Promise<ListPage<SessionStorageEntry>> {
+    await this.#deleteExpiredSessions();
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(sessions);
+    const rows = await this.#db.select().from(sessions).orderBy(
+      sessions.sessionKey,
+      sessions.trellisId,
+    ).limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: SessionRow) => decodeSessionEntry(row)),
+      countRow?.count ?? 0,
+      query,
+    );
+  }
+
   /** Returns sessions affected by previewing one deployment envelope change. */
   async listEntriesForDeploymentEnvelopePreview(
     deploymentId: string,
@@ -1354,6 +1511,27 @@ export class SqlSessionRepository {
       eq(sessions.trellisId, userId),
     ).orderBy(sessions.sessionKey);
     return rows.map((row: SessionRow) => decodeSessionEntry(row));
+  }
+
+  /** Returns a counted page of session entries for one canonical user id. */
+  async listEntriesPageByUser(
+    userId: string,
+    query: BoundedListQuery,
+  ): Promise<ListPage<SessionStorageEntry>> {
+    await this.#deleteExpiredSessions();
+    const where = eq(sessions.trellisId, userId);
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(sessions)
+      .where(where);
+    const rows = await this.#db.select().from(sessions).where(where).orderBy(
+      sessions.sessionKey,
+      sessions.trellisId,
+    ).limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: SessionRow) => decodeSessionEntry(row)),
+      countRow?.count ?? 0,
+      query,
+    );
   }
 
   /** Returns sessions for one service instance key ordered by session key. */

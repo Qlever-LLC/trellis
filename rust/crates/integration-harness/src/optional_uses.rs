@@ -13,7 +13,7 @@ use trellis_contracts::{
 use trellis_sdk_auth::client::AuthClient as SdkAuthClient;
 use trellis_sdk_auth::types::{
     AuthEnvelopeExpansionsApproveRequest, AuthEnvelopeExpansionsListRequest,
-    AuthEnvelopeExpansionsListResponseRequestsItem, AuthEnvelopesExpandRequest,
+    AuthEnvelopeExpansionsListResponseEntriesItem, AuthEnvelopesExpandRequest,
     AuthEnvelopesGetRequest,
 };
 use trellis_service::{bootstrap_service_host, BootstrapBinding, HandlerResult, Router};
@@ -783,7 +783,7 @@ async fn wait_for_pending_delta(
     deployment_id: &str,
     contract_id: &str,
     contract_digest: &str,
-) -> Result<Vec<AuthEnvelopeExpansionsListResponseRequestsItem>> {
+) -> Result<Vec<AuthEnvelopeExpansionsListResponseEntriesItem>> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         let response = auth_client
@@ -796,7 +796,7 @@ async fn wait_for_pending_delta(
             .await
             .into_diagnostic()?;
         let requests: Vec<_> = response
-            .requests
+            .entries
             .into_iter()
             .filter(|request| {
                 request.contract_id == contract_id && request.contract_digest == contract_digest
@@ -816,7 +816,7 @@ async fn wait_for_pending_delta(
 
 async fn approve_requests(
     auth_client: &SdkAuthClient<'_>,
-    requests: Vec<AuthEnvelopeExpansionsListResponseRequestsItem>,
+    requests: Vec<AuthEnvelopeExpansionsListResponseEntriesItem>,
     reason: &str,
 ) -> Result<()> {
     for request in requests {
@@ -832,7 +832,7 @@ async fn approve_requests(
 }
 
 fn assert_required_unknown_delta_fails_closed(
-    requests: &[AuthEnvelopeExpansionsListResponseRequestsItem],
+    requests: &[AuthEnvelopeExpansionsListResponseEntriesItem],
 ) -> Result<()> {
     for request in requests {
         let has_unknown_contract = request.delta.contracts.iter().any(|contract| {
@@ -868,7 +868,7 @@ fn assert_required_unknown_delta_fails_closed(
 }
 
 fn assert_required_dependency_delta(
-    requests: &[AuthEnvelopeExpansionsListResponseRequestsItem],
+    requests: &[AuthEnvelopeExpansionsListResponseEntriesItem],
     rpc_name: &str,
     capability: &str,
 ) -> Result<()> {
@@ -1080,7 +1080,7 @@ async fn wait_for_consumer_pending_optional_delta(
             .await
             .into_diagnostic()?;
         let requests: Vec<_> = response
-            .requests
+            .entries
             .iter()
             .filter(|request| {
                 request.contract_id == CONSUMER_CONTRACT_ID

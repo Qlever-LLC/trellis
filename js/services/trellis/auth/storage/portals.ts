@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, count, eq, isNull } from "drizzle-orm";
 import Value from "typebox/value";
 
 import type { TrellisStorageDb } from "../../storage/db.ts";
@@ -25,7 +25,14 @@ import {
   type UserAccount,
   type UserIdentity,
 } from "../schemas.ts";
-import { decodeStringArrayField, parseJsonField } from "./shared.ts";
+import {
+  type BoundedListQuery,
+  boundedListQuery,
+  decodeStringArrayField,
+  type ListPage,
+  listPage,
+  parseJsonField,
+} from "./shared.ts";
 
 export const BUILTIN_LOGIN_PORTAL_ID = "trellis.builtin.login";
 
@@ -275,6 +282,21 @@ export class SqlLoginPortalRepository {
     return rows.map(decodePortalRow);
   }
 
+  /** Returns a counted page of visible login portals. */
+  async listPortalsPage(
+    query: BoundedListQuery,
+  ): Promise<ListPage<LoginPortalRecord>> {
+    await this.ensureBuiltinPortal();
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      authPortals,
+    );
+    const rows = await this.#db.select().from(authPortals).orderBy(
+      authPortals.portalId,
+    ).limit(limit).offset(offset);
+    return listPage(rows.map(decodePortalRow), countRow?.count ?? 0, query);
+  }
+
   /** Deletes a non-built-in portal. */
   async deletePortal(portalId: string): Promise<boolean> {
     if (portalId === BUILTIN_LOGIN_PORTAL_ID) return false;
@@ -386,6 +408,20 @@ export class SqlLoginPortalRepository {
       authLoginPortalRoutes.routeId,
     );
     return rows.map(decodeRouteRow);
+  }
+
+  /** Returns a counted page of login portal routes. */
+  async listRoutesPage(
+    query: BoundedListQuery,
+  ): Promise<ListPage<LoginPortalRoute>> {
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      authLoginPortalRoutes,
+    );
+    const rows = await this.#db.select().from(authLoginPortalRoutes).orderBy(
+      authLoginPortalRoutes.routeId,
+    ).limit(limit).offset(offset);
+    return listPage(rows.map(decodeRouteRow), countRow?.count ?? 0, query);
   }
 
   /** Returns one login portal route by id. */

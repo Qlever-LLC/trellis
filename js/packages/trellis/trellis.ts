@@ -655,8 +655,7 @@ export type MapStateStoreClient<TValue> = {
     count: number;
     offset: number;
     limit: number;
-    next?: number;
-    prev?: number;
+    nextOffset?: number;
   }, BaseError>;
   prefix(path: string): MapStateStoreClient<TValue>;
 };
@@ -1406,8 +1405,7 @@ function validateStateListResult(
     count: number;
     offset: number;
     limit: number;
-    next?: number;
-    prev?: number;
+    nextOffset?: number;
   },
 ): Result<typeof result, ValidationError | UnexpectedError> {
   const entries: typeof result.entries = [];
@@ -1809,8 +1807,7 @@ export class Trellis<
                 count: number;
                 offset: number;
                 limit: number;
-                next?: number;
-                prev?: number;
+                nextOffset?: number;
               }>(
                 "State.List",
                 {

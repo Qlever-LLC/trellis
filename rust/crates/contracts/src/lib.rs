@@ -10,6 +10,7 @@ mod catalog;
 mod error;
 mod manifest;
 mod model;
+mod pagination;
 mod schema;
 
 pub use builder::{
@@ -39,6 +40,7 @@ pub use model::{
     OperationCapabilities, PubSubCapabilities, RpcCapabilities, CATALOG_FORMAT_V1,
     CONTRACT_FORMAT_V1,
 };
+pub use pagination::{PageRequest, PageResponse};
 pub use schema::{validate_catalog, validate_manifest};
 
 #[cfg(test)]

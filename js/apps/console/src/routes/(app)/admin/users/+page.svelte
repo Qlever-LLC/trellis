@@ -12,7 +12,7 @@
 
   const trellis = getTrellis();
 
-  type UserView = AuthUsersListOutput["users"][number];
+  type UserView = AuthUsersListOutput["entries"][number];
   type IdentityView = UserView["identities"][number];
 
   function identityLabel(user: UserView) {
@@ -49,7 +49,7 @@
     try {
       const usersResponse = await trellis.request("Auth.Users.List", { limit: 500, offset: 0 }).take();
       if (isErr(usersResponse)) { error = errorMessage(usersResponse); return; }
-      users = usersResponse.users ?? [];
+      users = usersResponse.entries ?? [];
 
       const sessionsResponse = await trellis.request("Auth.Sessions.List", { limit: 500, offset: 0 }).take();
       if (isErr(sessionsResponse)) {
@@ -59,7 +59,7 @@
       }
 
       const lastAuthByUser: Record<string, string> = {};
-      for (const session of sessionsResponse.sessions ?? []) {
+      for (const session of sessionsResponse.entries ?? []) {
         if (session.principal.type !== "user") continue;
         const key = session.principal.userId;
         if (!lastAuthByUser[key] || session.lastAuth > lastAuthByUser[key]) {

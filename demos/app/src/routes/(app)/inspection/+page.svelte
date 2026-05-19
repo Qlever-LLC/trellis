@@ -134,9 +134,9 @@
       ]);
       if (!mounted || requestId !== loadRequestId) return;
 
-      assignments = assignmentResponse.assignments;
-      sites = siteResponse.sites;
-      const siteIdToLoad = preferredSiteId ?? selectedSiteId ?? assignmentResponse.assignments[0]?.siteId ?? siteResponse.sites[0]?.siteId;
+      assignments = assignmentResponse.entries;
+      sites = siteResponse.entries;
+      const siteIdToLoad = preferredSiteId ?? selectedSiteId ?? assignmentResponse.entries[0]?.siteId ?? siteResponse.entries[0]?.siteId;
 
       if (siteIdToLoad) {
         if (selectedSiteId !== siteIdToLoad) resetRefreshTrace();

@@ -114,10 +114,10 @@ pub type ListApprovalsRequest = trellis_sdk_auth::types::AuthIdentitiesListReque
 
 /// Approval scope returned by `Auth.Identities.List`.
 pub type ApprovalScopeRecord =
-    trellis_sdk_auth::types::AuthIdentitiesListResponseApprovalsItemContractEvidence;
+    trellis_sdk_auth::types::AuthIdentitiesListResponseEntriesItemContractEvidence;
 
 /// Stored approval decision returned by `Auth.Identities.List`.
-pub type ApprovalEntryRecord = trellis_sdk_auth::types::AuthIdentitiesListResponseApprovalsItem;
+pub type ApprovalEntryRecord = trellis_sdk_auth::types::AuthIdentitiesListResponseEntriesItem;
 
 /// Request payload for `Auth.IdentityEnvelopes.Revoke`.
 pub type RevokeApprovalRequest = trellis_sdk_auth::types::AuthIdentityEnvelopesRevokeRequest;

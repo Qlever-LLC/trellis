@@ -38,5 +38,7 @@ export function isoString(value: string | Date): string {
 export {
   type BoundedListQuery,
   boundedListQuery,
+  type ListPage,
+  listPage,
   MAX_STORAGE_LIST_LIMIT,
 } from "../../storage/list_query.ts";

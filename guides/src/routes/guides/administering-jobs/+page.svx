@@ -29,7 +29,12 @@ const pending = await jobs.list({
   service: "orders-service",
   jobType: "reserve-inventory",
   state: "pending",
+  limit: 50,
 });
+
+for (const job of pending.entries) {
+  console.log(job.id, job.state);
+}
 ```
 
 **Get a specific job:**

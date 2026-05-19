@@ -7,6 +7,7 @@ import {
   type StoreStatus,
   type StoreWaitOptions,
 } from "./store.ts";
+import type { PageResponse } from "./models/trellis/Page.ts";
 
 Deno.test("Store public types compile", () => {
   const _putOptions: StorePutOptions = {
@@ -41,6 +42,13 @@ Deno.test("Store public types compile", () => {
     prefix: "incoming/",
     offset: 0,
     limit: 10,
+  };
+  const _listPage: PageResponse<StoreInfo> = {
+    entries: [_info],
+    count: 1,
+    offset: 0,
+    limit: 10,
+    nextOffset: 10,
   };
 
   assertEquals(true, true);

@@ -16,11 +16,11 @@
   import { errorMessage, formatDate } from "../../../../../lib/format";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type Activation = AuthDeviceUserAuthoritiesListOutput["activations"][number];
-  type DeviceInstance = AuthDevicesListOutput["instances"][number] & {
+  type Activation = AuthDeviceUserAuthoritiesListOutput["entries"][number];
+  type DeviceInstance = AuthDevicesListOutput["entries"][number] & {
     metadata?: Record<string, string>;
   };
-  type Deployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "device" }>;
+  type Deployment = Extract<AuthDeploymentsListOutput["entries"][number], { kind: "device" }>;
   type ActivationState = NonNullable<AuthDeviceUserAuthoritiesListInput["state"]> | "all";
 
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
@@ -64,9 +64,9 @@
       if (isErr(instancesResponse)) { error = errorMessage(instancesResponse); return; }
       if (isErr(deploymentsResponse)) { error = errorMessage(deploymentsResponse); return; }
 
-      activations = activationsResponse.activations ?? [];
-      deviceInstances = instancesResponse.instances ?? [];
-      deployments = (deploymentsResponse.deployments ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
+      activations = activationsResponse.entries ?? [];
+      deviceInstances = instancesResponse.entries ?? [];
+      deployments = (deploymentsResponse.entries ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
     } catch (e) {
       error = errorMessage(e);
     } finally {

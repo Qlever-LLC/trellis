@@ -27,6 +27,7 @@ import type { Connection } from "../schemas.ts";
 import type { DeploymentEnvelope, EnvelopeBoundary } from "../schemas.ts";
 import type {
   BoundedListQuery,
+  ListPage,
   SqlDeploymentContractEvidenceRepository,
   SqlDeviceProvisioningSecretRepository,
   SqlIdentityEnvelopeRepository,
@@ -170,6 +171,12 @@ export type AdminRpcDeps = {
       state?: string;
       deploymentIds?: Iterable<string>;
     }, query: BoundedListQuery): Promise<DeviceActivationReviewRecord[]>;
+    listFilteredPage(filters: {
+      instanceId?: string;
+      deploymentId?: string;
+      state?: string;
+      deploymentIds?: Iterable<string>;
+    }, query: BoundedListQuery): Promise<ListPage<DeviceActivationReviewRecord>>;
   };
   deviceActivationStorage: {
     get(instanceId: string): Promise<DeviceActivation | undefined>;
@@ -181,6 +188,11 @@ export type AdminRpcDeps = {
       deploymentId?: string;
       state?: string;
     }, query: BoundedListQuery): Promise<DeviceActivation[]>;
+    listFilteredPage(filters: {
+      instanceId?: string;
+      deploymentId?: string;
+      state?: string;
+    }, query: BoundedListQuery): Promise<ListPage<DeviceActivation>>;
   };
   deviceDeploymentStorage: {
     get(deploymentId: string): Promise<DeviceDeployment | undefined>;
@@ -191,6 +203,10 @@ export type AdminRpcDeps = {
       filters: { disabled?: boolean },
       query: BoundedListQuery,
     ): Promise<DeviceDeployment[]>;
+    listFilteredPage(
+      filters: { disabled?: boolean },
+      query: BoundedListQuery,
+    ): Promise<ListPage<DeviceDeployment>>;
     listByDeploymentIds?(
       deploymentIds: Iterable<string>,
       filters?: { disabled?: boolean },
@@ -220,6 +236,10 @@ export type AdminRpcDeps = {
       states: Iterable<string>,
     ): Promise<DeviceInstance[]>;
     listByStates?(states: Iterable<string>): Promise<DeviceInstance[]>;
+    listFilteredPage(
+      filters: { deploymentId?: string; state?: string },
+      query: BoundedListQuery,
+    ): Promise<ListPage<DeviceInstance>>;
   };
   deviceProvisioningSecretStorage: Pick<
     SqlDeviceProvisioningSecretRepository,
@@ -655,8 +675,8 @@ async function listDeviceDeployments(
   ctx: DeviceDeploymentRpcContext,
   filters: { disabled?: boolean },
   query: BoundedListQuery,
-): Promise<DeviceDeployment[]> {
-  return await ctx.deviceDeploymentStorage.listFiltered!(filters, query);
+): Promise<ListPage<DeviceDeployment>> {
+  return await ctx.deviceDeploymentStorage.listFilteredPage(filters, query);
 }
 
 async function listDeviceInstances(
@@ -677,30 +697,16 @@ async function listDeviceInstancesFiltered(
   ctx: DeviceDeploymentRpcContext,
   filters: { deploymentId?: string; state?: string },
   query: BoundedListQuery,
-): Promise<DeviceInstance[]> {
-  if (filters.deploymentId && filters.state) {
-    return await ctx.deviceInstanceStorage.listByDeploymentsAndStates!(
-      [filters.deploymentId],
-      [filters.state],
-    );
-  }
-  if (filters.deploymentId) {
-    return await ctx.deviceInstanceStorage.listByDeployment!(
-      filters.deploymentId,
-    );
-  }
-  if (filters.state) {
-    return await ctx.deviceInstanceStorage.listByStates!([filters.state]);
-  }
-  return await listDeviceInstances(ctx, query);
+): Promise<ListPage<DeviceInstance>> {
+  return await ctx.deviceInstanceStorage.listFilteredPage(filters, query);
 }
 
 async function listDeviceActivations(
   ctx: AdminRpcContext,
   filters: { instanceId?: string; deploymentId?: string; state?: string },
   query: BoundedListQuery,
-): Promise<DeviceActivation[]> {
-  return await ctx.deviceActivationStorage.listFiltered!(filters, query);
+): Promise<ListPage<DeviceActivation>> {
+  return await ctx.deviceActivationStorage.listFilteredPage(filters, query);
 }
 
 async function listDeviceActivationReviews(
@@ -712,8 +718,8 @@ async function listDeviceActivationReviews(
     deploymentIds?: Iterable<string>;
   },
   query: BoundedListQuery,
-): Promise<DeviceActivationReviewRecord[]> {
-  return await ctx.deviceActivationReviewStorage.listFiltered!(filters, query);
+): Promise<ListPage<DeviceActivationReviewRecord>> {
+  return await ctx.deviceActivationReviewStorage.listFilteredPage(filters, query);
 }
 
 async function listDeviceActivationReviewsForDeploymentRemoval(
@@ -723,15 +729,15 @@ async function listDeviceActivationReviewsForDeploymentRemoval(
 ): Promise<DeviceActivationReviewRecord[]> {
   const reviews = new Map<string, DeviceActivationReviewRecord>();
   for (
-    const review of await listDeviceActivationReviews(ctx, { deploymentId }, {
-      limit: MAX_STORAGE_LIST_LIMIT,
-    })
+    const review of await ctx.deviceActivationReviewStorage.listFiltered!({
+      deploymentId,
+    }, { limit: MAX_STORAGE_LIST_LIMIT })
   ) {
     reviews.set(review.reviewId, review);
   }
   for (const instance of instances) {
     for (
-      const review of await listDeviceActivationReviews(ctx, {
+      const review of await ctx.deviceActivationReviewStorage.listFiltered!({
         instanceId: instance.instanceId,
       }, { limit: MAX_STORAGE_LIST_LIMIT })
     ) {
@@ -925,7 +931,7 @@ export const authListDeviceDeploymentsHandler = async (
   const deployments = await listDeviceDeployments(ctx, {
     disabled: req.disabled,
   }, req);
-  return Result.ok({ deployments });
+  return Result.ok(deployments);
 };
 
 export function createAuthDeploymentsDeviceDisableHandler(
@@ -1269,7 +1275,7 @@ export const authListDeviceInstancesHandler = async (
   const authorized = requireAdminFreshAuth(caller);
   if (authorized.isErr()) return authorized;
   const instances = await listDeviceInstancesFiltered(ctx, req, req);
-  return Result.ok({ instances });
+  return Result.ok(instances);
 };
 
 export function createAuthDevicesDisableHandler(
@@ -1410,7 +1416,7 @@ export const authListDeviceActivationsHandler = async (
   const authorized = requireAdminFreshAuth(caller);
   if (authorized.isErr()) return authorized;
   const activations = await listDeviceActivations(ctx, req, req);
-  return Result.ok({ activations });
+  return Result.ok(activations);
 };
 
 export const authRevokeDeviceActivationHandler = async (
@@ -1461,7 +1467,10 @@ export const authListDeviceActivationReviewsHandler = async (
       ? { deploymentIds: allowedDeployments }
       : {}),
   }, req);
-  return Result.ok({ reviews: reviews.map(toPublicReview) });
+  return Result.ok({
+    ...reviews,
+    entries: reviews.entries.map(toPublicReview),
+  });
 };
 
 export const authDecideDeviceActivationReviewHandler = async (

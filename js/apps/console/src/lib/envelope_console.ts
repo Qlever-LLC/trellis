@@ -9,7 +9,7 @@ type DeploymentResourceBinding =
   AuthEnvelopesGetResponse["resourceBindings"][number];
 type EnvelopeBoundarySurface = EnvelopeBoundary["surfaces"][number];
 type EnvelopeExpansionRequest =
-  AuthEnvelopeExpansionsListResponse["requests"][number];
+  AuthEnvelopeExpansionsListResponse["entries"][number];
 
 export type DeltaContractRow = {
   id: string;

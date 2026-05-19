@@ -166,8 +166,9 @@ export async function registerDeviceAdminAndActivation(
   await deps.trellis.mount("Auth.Deployments.List", async (args) => {
     if (args.input.kind === "service") {
       const result = await listServiceDeployments(args);
-      return result.map(({ deployments }) => ({
-        deployments: deployments.map((deployment) => ({
+      return result.map((page) => ({
+        ...page,
+        entries: page.entries.map((deployment) => ({
           kind: "service" as const,
           ...deployment,
         })),
@@ -175,8 +176,9 @@ export async function registerDeviceAdminAndActivation(
     }
     if (args.input.kind === "device") {
       const result = await handlers.listDeviceDeployments(args);
-      return result.map(({ deployments }) => ({
-        deployments: deployments.map((deployment) => ({
+      return result.map((page) => ({
+        ...page,
+        entries: page.entries.map((deployment) => ({
           kind: "device" as const,
           ...deployment,
         })),
@@ -188,25 +190,30 @@ export async function registerDeviceAdminAndActivation(
     ]);
     if (serviceResult.isErr()) return serviceResult;
     if (deviceResult.isErr()) return deviceResult;
-    const deviceDeployments = (deviceResult.take() as {
-      deployments: Array<{
-        deploymentId: string;
-        reviewMode?: "none" | "required";
-        disabled: boolean;
-      }>;
-    }).deployments;
-    return serviceResult.map(({ deployments }) => ({
-      deployments: [
-        ...deployments.map((deployment) => ({
+    const devicePage = deviceResult.take();
+    if (!("entries" in devicePage)) return devicePage;
+    return serviceResult.map((servicePage) => {
+      const nextOffset = servicePage.nextOffset !== undefined ||
+          devicePage.nextOffset !== undefined
+        ? (args.input.offset ?? 0) + args.input.limit
+        : undefined;
+      return {
+        entries: [
+          ...servicePage.entries.map((deployment) => ({
           kind: "service" as const,
           ...deployment,
-        })),
-        ...deviceDeployments.map((deployment) => ({
+          })),
+          ...devicePage.entries.map((deployment) => ({
           kind: "device" as const,
           ...deployment,
-        })),
-      ],
-    }));
+          })),
+        ],
+        count: servicePage.count + devicePage.count,
+        offset: args.input.offset ?? 0,
+        limit: args.input.limit,
+        ...(nextOffset !== undefined ? { nextOffset } : {}),
+      };
+    });
   });
   await deps.trellis.mount("Auth.Deployments.Disable", async (args) => {
     if (args.input.kind === "service") {

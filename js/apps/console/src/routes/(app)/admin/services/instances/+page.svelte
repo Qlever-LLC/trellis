@@ -15,8 +15,8 @@
   import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type ServiceInstance = AuthServiceInstancesListOutput["instances"][number];
-  type ServiceDeployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "service" }>;
+  type ServiceInstance = AuthServiceInstancesListOutput["entries"][number];
+  type ServiceDeployment = Extract<AuthDeploymentsListOutput["entries"][number], { kind: "service" }>;
   type DisabledFilter = "all" | "active" | "disabled";
 
   const trellis = getTrellis();
@@ -58,8 +58,8 @@
       ]);
       if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
       if (isErr(deploymentsRes)) { error = errorMessage(deploymentsRes); return; }
-      instances = instancesRes.instances ?? [];
-      deployments = (deploymentsRes.deployments ?? []).filter((deployment): deployment is ServiceDeployment => deployment.kind === "service");
+      instances = instancesRes.entries ?? [];
+      deployments = (deploymentsRes.entries ?? []).filter((deployment): deployment is ServiceDeployment => deployment.kind === "service");
       if (!provisionDeploymentId || !provisionDeployments.some((deployment) => deployment.deploymentId === provisionDeploymentId)) {
         provisionDeploymentId = provisionDeployments[0]?.deploymentId ?? "";
       }

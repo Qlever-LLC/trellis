@@ -6,7 +6,15 @@ type Args = RpcArgs<typeof contract, "Assignments.List">;
 type Result = RpcResult<typeof contract, "Assignments.List">;
 
 export function listAssignments({ input }: Args): Result {
+  const offset = input.offset ?? 0;
+  const count = ASSIGNED_INSPECTIONS.length;
   return ok({
-    assignments: ASSIGNED_INSPECTIONS.slice(input.offset, input.offset + input.limit),
+    entries: ASSIGNED_INSPECTIONS.slice(offset, offset + input.limit),
+    count,
+    offset,
+    limit: input.limit,
+    ...(input.limit > 0 && offset + input.limit < count
+      ? { nextOffset: offset + input.limit }
+      : {}),
   });
 }

@@ -618,7 +618,12 @@ Deno.test("device activation client wrappers hide method strings", async () => {
     calls.push({ kind: "request", method, input });
     switch (method) {
       case "Auth.DeviceUserAuthorities.List":
-        return AsyncResult.ok({ activations: [] });
+        return AsyncResult.ok({
+          entries: [],
+          count: 0,
+          offset: 0,
+          limit: 50,
+        });
       case "Auth.DeviceUserAuthorities.Revoke":
         return AsyncResult.ok({ success: true });
       case "Auth.Devices.ConnectInfo.Get":
@@ -695,8 +700,8 @@ Deno.test("device activation client wrappers hide method strings", async () => {
     activatedAt: "2026-04-08T12:00:00Z",
   });
   assertEquals(
-    (await client.listDeviceActivations({ limit: 50 })).activations,
-    [],
+    await client.listDeviceActivations({ limit: 50 }),
+    { entries: [], count: 0, offset: 0, limit: 50 },
   );
   assertEquals(
     await client.revokeDeviceActivation({ instanceId: "dev_123" }),

@@ -19,6 +19,7 @@ import type {
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
+import { listPage } from "../../storage/list_query.ts";
 import type { AuthLogger, AuthRuntimeDeps } from "../runtime_deps.ts";
 
 type SessionRpcLogger = Pick<AuthLogger, "trace" | "warn">;
@@ -103,7 +104,9 @@ type SessionStorage = Pick<
   SqlSessionRepository,
   | "getOneBySessionKey"
   | "listEntries"
+  | "listEntriesPage"
   | "listEntriesByUser"
+  | "listEntriesPageByUser"
   | "deleteBySessionKey"
 >;
 
@@ -954,7 +957,7 @@ export function createAuthSessionsListHandler(deps: {
   sessionStorage: Pick<
     SessionStorage,
     "listEntries" | "listEntriesByUser"
-  >;
+  > & Partial<Pick<SessionStorage, "listEntriesPage" | "listEntriesPageByUser">>;
 }) {
   return async ({ input: req = {} }: { input?: UserRefFilter }) => {
     deps.logger.trace(
@@ -962,20 +965,48 @@ export function createAuthSessionsListHandler(deps: {
       "RPC request",
     );
     const userFilter = typeof req.user === "string" ? req.user : undefined;
-    let sessions: SessionListRow[];
+    let page;
     if (userFilter) {
-      sessions = (await deps.sessionStorage.listEntriesByUser(userFilter)).map(
-        (entry) => buildSessionRow(entry.session, entry.sessionKey),
-      );
-    } else {
-      sessions = (await deps.sessionStorage.listEntries({
+      const query = {
         offset: req.offset,
         limit: req.limit ?? 500,
-      })).map((entry) => buildSessionRow(entry.session, entry.sessionKey));
+      };
+      page = deps.sessionStorage.listEntriesPageByUser
+        ? await deps.sessionStorage.listEntriesPageByUser(userFilter, query)
+        : await (() => {
+          const entries = deps.sessionStorage.listEntriesByUser(userFilter);
+          return entries.then((all) =>
+            listPage(
+              all.slice(query.offset ?? 0, (query.offset ?? 0) + query.limit),
+              all.length,
+              query,
+            )
+          );
+        })();
+    } else {
+      const query = {
+        offset: req.offset,
+        limit: req.limit ?? 500,
+      };
+      page = deps.sessionStorage.listEntriesPage
+        ? await deps.sessionStorage.listEntriesPage(query)
+        : await (() => {
+          const entries = deps.sessionStorage.listEntries(query);
+          return entries.then((all) =>
+            listPage(
+              all.slice(query.offset ?? 0, (query.offset ?? 0) + query.limit),
+              all.length,
+              query,
+            )
+          );
+        })();
     }
+    const sessions = page.entries.map((entry) =>
+      buildSessionRow(entry.session, entry.sessionKey)
+    );
 
     sessions.sort((left, right) => left.key.localeCompare(right.key));
-    return Result.ok({ sessions });
+    return Result.ok({ ...page, entries: sessions });
   };
 }
 
@@ -1018,9 +1049,10 @@ export function createAuthConnectionsListHandler(deps: {
       filter = ">";
     }
 
+    const query = { offset: req.offset, limit: req.limit ?? 500 };
     const iter = await deps.connectionsKV.keys(filter).take();
     if (isErr(iter)) {
-      return Result.ok({ connections: [] });
+      return Result.ok(listPage([], 0, query));
     }
 
     const connections: ConnectionRow[] = [];
@@ -1055,7 +1087,11 @@ export function createAuthConnectionsListHandler(deps: {
     }
 
     connections.sort((left, right) => left.key.localeCompare(right.key));
-    return Result.ok({ connections });
+    return Result.ok(listPage(
+      connections.slice(query.offset ?? 0, (query.offset ?? 0) + query.limit),
+      connections.length,
+      query,
+    ));
   };
 }
 

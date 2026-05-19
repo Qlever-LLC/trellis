@@ -1,4 +1,5 @@
 import Type, { type Static } from "typebox";
+import { PageResponseSchema } from "../../../contract_support/protocol.ts";
 
 const UserPrincipalSchema = Type.Object({
   type: Type.Literal("user"),
@@ -39,6 +40,8 @@ const ConnectionRowBaseSchema = {
 export const AuthConnectionsListSchema = Type.Object({
   user: Type.Optional(Type.String()),
   sessionKey: Type.Optional(Type.String()),
+  offset: Type.Optional(Type.Integer({ minimum: 0 })),
+  limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export type AuthConnectionsListInput = Static<typeof AuthConnectionsListSchema>;
 
@@ -73,7 +76,7 @@ export const AuthConnectionRowSchema = Type.Union([
 export type AuthConnectionRow = Static<typeof AuthConnectionRowSchema>;
 
 export const AuthConnectionsListResponseSchema = Type.Object({
-  connections: Type.Array(AuthConnectionRowSchema),
+  ...PageResponseSchema(AuthConnectionRowSchema).properties,
 });
 export type AuthConnectionsListResponse = Static<
   typeof AuthConnectionsListResponseSchema

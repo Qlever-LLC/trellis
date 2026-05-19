@@ -16,8 +16,12 @@ export const InspectionAssignment = Type.Object({
 
 export const AssignmentsListRequest = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
-  offset: Type.Integer({ minimum: 0 }),
+  offset: Type.Optional(Type.Integer({ minimum: 0 })),
 });
 export const AssignmentsListResponse = Type.Object({
-  assignments: Type.Array(InspectionAssignment),
+  entries: Type.Array(InspectionAssignment),
+  count: Type.Integer({ minimum: 0 }),
+  offset: Type.Integer({ minimum: 0 }),
+  limit: Type.Integer({ minimum: 0 }),
+  nextOffset: Type.Optional(Type.Integer({ minimum: 0 })),
 });

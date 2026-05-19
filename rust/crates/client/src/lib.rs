@@ -37,6 +37,7 @@ pub use state::{
 pub use transfer::{
     download_transfer_grant_from_value, DownloadTransferGrant, FileInfo, UploadTransferGrant,
 };
+pub use trellis_contracts::{PageRequest, PageResponse};
 
 #[cfg(test)]
 mod tests;

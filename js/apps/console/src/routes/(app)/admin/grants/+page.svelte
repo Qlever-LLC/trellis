@@ -154,7 +154,7 @@
         return;
       }
 
-      deployments = listResponse.envelopes;
+      deployments = listResponse.entries;
       selectedDeploymentId = selectedDeploymentId || deployments[0]?.deploymentId || "";
 
       const details = await Promise.all(deployments.map((deployment) => loadDeploymentGrantOverrides(deployment)));

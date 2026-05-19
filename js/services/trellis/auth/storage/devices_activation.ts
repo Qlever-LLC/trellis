@@ -1,4 +1,4 @@
-import { and, eq, inArray, type SQL } from "drizzle-orm";
+import { and, count, eq, inArray, type SQL } from "drizzle-orm";
 import type { StaticDecode } from "typebox";
 import Value from "typebox/value";
 
@@ -23,6 +23,8 @@ import {
   type BoundedListQuery,
   boundedListQuery,
   isoString,
+  type ListPage,
+  listPage,
   parseJsonField,
 } from "./shared.ts";
 
@@ -271,6 +273,29 @@ export class SqlDeviceDeploymentRepository {
       decodeDeviceDeploymentRow(row)
     );
   }
+
+  /** Returns a counted page of device deployments matching simple indexed filters. */
+  async listFilteredPage(
+    filters: DisabledFilter,
+    query: BoundedListQuery,
+  ): Promise<ListPage<DeviceDeployment>> {
+    const conditions: SQL[] = [];
+    if (filters.disabled !== undefined) {
+      conditions.push(eq(deviceDeployments.disabled, filters.disabled));
+    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      deviceDeployments,
+    ).where(where);
+    const rows = await this.#db.select().from(deviceDeployments).where(where)
+      .orderBy(deviceDeployments.deploymentId).limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: DeviceDeploymentRow) => decodeDeviceDeploymentRow(row)),
+      countRow?.count ?? 0,
+      query,
+    );
+  }
 }
 
 /** Stores durable device instance records in SQL. */
@@ -375,6 +400,32 @@ export class SqlDeviceInstanceRepository {
       deviceInstances.instanceId,
     );
     return rows.map((row: DeviceInstanceRow) => decodeDeviceInstanceRow(row));
+  }
+
+  /** Returns a counted page of device instances matching simple indexed filters. */
+  async listFilteredPage(
+    filters: { deploymentId?: string; state?: string },
+    query: BoundedListQuery,
+  ): Promise<ListPage<DeviceInstance>> {
+    const conditions: SQL[] = [];
+    if (filters.deploymentId !== undefined) {
+      conditions.push(eq(deviceInstances.deploymentId, filters.deploymentId));
+    }
+    if (filters.state !== undefined) {
+      conditions.push(eq(deviceInstances.state, filters.state));
+    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      deviceInstances,
+    ).where(where);
+    const rows = await this.#db.select().from(deviceInstances).where(where)
+      .orderBy(deviceInstances.instanceId).limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: DeviceInstanceRow) => decodeDeviceInstanceRow(row)),
+      countRow?.count ?? 0,
+      query,
+    );
   }
 }
 
@@ -496,6 +547,36 @@ export class SqlDeviceActivationRepository {
       decodeDeviceActivationRow(row)
     );
   }
+
+  /** Returns a counted page of device activations matching simple indexed filters. */
+  async listFilteredPage(filters: {
+    instanceId?: string;
+    deploymentId?: string;
+    state?: string;
+  }, query: BoundedListQuery): Promise<ListPage<DeviceActivation>> {
+    const conditions: SQL[] = [];
+    if (filters.instanceId !== undefined) {
+      conditions.push(eq(deviceActivations.instanceId, filters.instanceId));
+    }
+    if (filters.deploymentId !== undefined) {
+      conditions.push(eq(deviceActivations.deploymentId, filters.deploymentId));
+    }
+    if (filters.state !== undefined) {
+      conditions.push(eq(deviceActivations.state, filters.state));
+    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      deviceActivations,
+    ).where(where);
+    const rows = await this.#db.select().from(deviceActivations).where(where)
+      .orderBy(deviceActivations.instanceId).limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: DeviceActivationRow) => decodeDeviceActivationRow(row)),
+      countRow?.count ?? 0,
+      query,
+    );
+  }
 }
 
 /** Stores durable device activation review records in SQL. */
@@ -606,6 +687,43 @@ export class SqlDeviceActivationReviewRepository {
     ).limit(limit).offset(offset);
     return rows.map((row: DeviceActivationReviewRow) =>
       decodeDeviceActivationReviewRow(row)
+    );
+  }
+
+  /** Returns a counted page of device activation reviews matching simple indexed filters. */
+  async listFilteredPage(filters: {
+    instanceId?: string;
+    deploymentId?: string;
+    state?: string;
+    deploymentIds?: Iterable<string>;
+  }, query: BoundedListQuery): Promise<ListPage<DeviceActivationReviewRecord>> {
+    const conditions: SQL[] = [];
+    if (filters.instanceId !== undefined) {
+      conditions.push(eq(deviceActivationReviews.instanceId, filters.instanceId));
+    }
+    if (filters.deploymentId !== undefined) {
+      conditions.push(eq(deviceActivationReviews.deploymentId, filters.deploymentId));
+    }
+    if (filters.deploymentIds !== undefined) {
+      const requested = [...new Set(filters.deploymentIds)];
+      if (requested.length === 0) return listPage([], 0, query);
+      conditions.push(inArray(deviceActivationReviews.deploymentId, requested));
+    }
+    if (filters.state !== undefined) {
+      conditions.push(eq(deviceActivationReviews.state, filters.state));
+    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      deviceActivationReviews,
+    ).where(where);
+    const rows = await this.#db.select().from(deviceActivationReviews).where(where)
+      .orderBy(deviceActivationReviews.requestedAt, deviceActivationReviews.reviewId)
+      .limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: DeviceActivationReviewRow) => decodeDeviceActivationReviewRow(row)),
+      countRow?.count ?? 0,
+      query,
     );
   }
 }

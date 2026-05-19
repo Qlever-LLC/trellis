@@ -206,13 +206,13 @@ async fn map_store_decodes_list_pagination_and_sends_default_pagination() {
         "count": 42,
         "offset": 0,
         "limit": 100,
-        "next": 100
+        "nextOffset": 100
     }));
     let store = MapStateStore::<_, Value>::new(&transport, "draftInspections");
     let result: MapStateListResult<Value> = store.list(&ListStateOptions::default()).await.unwrap();
 
     assert_eq!(result.count, 42);
-    assert_eq!(result.next, Some(100));
+    assert_eq!(result.next_offset, Some(100));
     assert_eq!(
         transport.calls(),
         vec![(

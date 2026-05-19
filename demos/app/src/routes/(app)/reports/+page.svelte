@@ -57,7 +57,7 @@
     try {
       const response = await trellis.request("Reports.List", listPage).orThrow();
       if (!mounted || runId !== requestId) return;
-      const loadedReports: ReportRecord[] = response.reports;
+      const loadedReports: ReportRecord[] = response.entries;
       reports = loadedReports;
       selectReportFromUrl(loadedReports);
     } catch (cause) {

@@ -14,7 +14,7 @@
   import { errorMessage } from "../../../../../lib/format";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type Deployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "device" }>;
+  type Deployment = Extract<AuthDeploymentsListOutput["entries"][number], { kind: "device" }>;
   type DisabledFilter = "all" | "active" | "disabled";
 
   const trellis = getTrellis();
@@ -53,7 +53,7 @@
       const deploymentsResponse = await trellis.request("Auth.Deployments.List", deploymentQuery()).take();
       if (isErr(deploymentsResponse)) { error = errorMessage(deploymentsResponse); return; }
 
-      deployments = (deploymentsResponse.deployments ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
+      deployments = (deploymentsResponse.entries ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
     } catch (e) {
       error = errorMessage(e);
     } finally {

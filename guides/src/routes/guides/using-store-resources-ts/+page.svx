@@ -141,21 +141,32 @@ Use `stream()` for larger values. Use `bytes()` when the object is small enough 
 
 ## 5. List and delete by prefix
 
-The v1 listing model is prefix-based and owner-only.
+The v1 listing model is prefix-based, owner-only, and uses live offset pages.
+Pass `{ prefix, offset?, limit }` and read objects from `.entries`.
 
 ```ts
-const listed = await uploads.list("incoming/");
+const listed = await uploads.list({ prefix: "incoming/", limit: 50 });
 if (isErr(listed)) throw listed.error;
 
-for await (const info of listed.value) {
+for (const info of listed.value.entries) {
   console.info(info.key, info.size, info.updatedAt);
+}
+
+if (listed.value.nextOffset !== undefined) {
+  const next = await uploads.list({
+    prefix: "incoming/",
+    offset: listed.value.nextOffset,
+    limit: listed.value.limit,
+  });
+  if (isErr(next)) throw next.error;
 }
 
 const deleted = await uploads.delete("incoming/claim-1234.pdf");
 if (isErr(deleted)) throw deleted.error;
 ```
 
-This guide does not cover pagination or watch semantics.
+This is live offset pagination, not snapshot or cursor pagination. Concurrent
+object writes or deletes can change what appears at later offsets.
 
 ## 6. Metadata model
 

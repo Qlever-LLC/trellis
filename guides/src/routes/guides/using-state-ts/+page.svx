@@ -160,14 +160,28 @@ To create only if absent, pass `expectedRevision: null`.
 
 ## 6. List and delete map keys
 
-Map store `list(...)` returns keys in lexicographic order and supports `offset`
-and `limit` pagination. Value stores do not expose `list(...)`.
+Map store `list(...)` returns a live offset page in lexicographic key order. Pass
+`{ offset?: number; limit: number }` and read items from `.entries`; use
+`.nextOffset` when you want to request the next page. Value stores do not expose
+`list(...)`.
 
 ```ts
 const page = await trellis.state.drafts
   .prefix("reports/")
   .list({ offset: 0, limit: 20 })
   .orThrow();
+
+for (const draft of page.entries) {
+  console.info(draft.key, draft.value.title);
+}
+
+if (page.nextOffset !== undefined) {
+  const nextPage = await trellis.state.drafts
+    .prefix("reports/")
+    .list({ offset: page.nextOffset, limit: page.limit })
+    .orThrow();
+  console.info(`loaded ${nextPage.entries.length} more drafts`);
+}
 
 await trellis.state.drafts.delete("old").orThrow();
 ```

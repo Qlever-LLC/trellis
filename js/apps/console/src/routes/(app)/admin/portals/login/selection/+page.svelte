@@ -70,13 +70,13 @@
     saved = null;
     try {
       const [portalsResponse, routesResponse] = await Promise.all([
-        trellis.request("Auth.Portals.List", {}).take(),
-        trellis.request("Auth.Portals.LoginRoutes.List", {}).take(),
+        trellis.request("Auth.Portals.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.Portals.LoginRoutes.List", { limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(portalsResponse)) { error = errorMessage(portalsResponse); return; }
       if (isErr(routesResponse)) { error = errorMessage(routesResponse); return; }
-      portals = portalsResponse.portals;
-      routes = routesResponse.routes;
+      portals = portalsResponse.entries;
+      routes = routesResponse.entries;
       const routeId = page.url.searchParams.get("routeId");
       const route = routeId ? routes.find((candidate) => candidate.routeId === routeId) : null;
       if (route) edit(route);

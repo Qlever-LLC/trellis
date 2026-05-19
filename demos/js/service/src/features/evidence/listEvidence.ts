@@ -14,14 +14,14 @@ function evidenceIdForKey(
 /** Lists image evidence staged in the demo object store. */
 export async function listEvidence({ input, trellis }: Args): Promise<Result> {
   const uploads = await trellis.store.uploads.open().orThrow();
-  const entries = await uploads.list({
+  const page = await uploads.list({
     prefix: input.prefix ?? "evidence/",
     offset: input.offset,
     limit: input.limit,
   }).orThrow();
   const evidence = [];
 
-  for (const info of entries) {
+  for (const info of page.entries) {
     evidence.push({
       evidenceId: evidenceIdForKey(info.key, info.metadata),
       key: info.key,
@@ -37,5 +37,5 @@ export async function listEvidence({ input, trellis }: Args): Promise<Result> {
     right.uploadedAt.localeCompare(left.uploadedAt)
   );
 
-  return ok({ evidence });
+  return ok({ ...page, entries: evidence });
 }

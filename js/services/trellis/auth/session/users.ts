@@ -8,19 +8,21 @@ import type { CapabilityGroup, UserAccount, UserIdentity } from "../schemas.ts";
 import {
   getBuiltinCapabilityGroup,
   isBuiltinCapabilityGroup,
-  listCapabilityGroups,
   resolvesActiveAdmin,
 } from "../capability_groups.ts";
 import type {
   BoundedListQuery,
+  ListPage,
   SqlUserAccountRepository,
   SqlUserIdentityRepository,
 } from "../storage.ts";
+import { listPage } from "../../storage/list_query.ts";
 
 type RpcUser = { userId: string; capabilities?: string[] };
 type UserReadAccountStorage = Pick<SqlUserAccountRepository, "get">;
 type UserCreateAccountStorage = Pick<SqlUserAccountRepository, "create">;
-type UserListAccountStorage = Pick<SqlUserAccountRepository, "listPage">;
+type UserListAccountStorage = Pick<SqlUserAccountRepository, "listPage"> &
+  Partial<Pick<SqlUserAccountRepository, "listCountedPage">>;
 type UserUpdateAccountStorage = Pick<
   SqlUserAccountRepository,
   "get" | "put" | "listPage"
@@ -29,7 +31,8 @@ type ActiveAdminAccountStorage = Pick<
   SqlUserAccountRepository,
   "listPage"
 >;
-type UserListIdentityStorage = Pick<SqlUserIdentityRepository, "listByUser">;
+type UserListIdentityStorage = Pick<SqlUserIdentityRepository, "listByUser"> &
+  Partial<Pick<SqlUserIdentityRepository, "listPageByUser">>;
 type UserUnlinkIdentityStorage = Pick<
   SqlUserIdentityRepository,
   "listByUser" | "unlink"
@@ -37,6 +40,7 @@ type UserUnlinkIdentityStorage = Pick<
 type CapabilityGroupStorage = {
   get(groupKey: string): Promise<CapabilityGroup | undefined>;
   listPage(query: BoundedListQuery): Promise<CapabilityGroup[]>;
+  listCountedPage?: (query: BoundedListQuery) => Promise<ListPage<CapabilityGroup>>;
   put(record: CapabilityGroup): Promise<void>;
   delete(groupKey: string): Promise<void>;
 };
@@ -153,15 +157,18 @@ export function createAuthUsersListHandler(
       "RPC request",
     );
 
+    const page = accountStorage.listCountedPage
+      ? await accountStorage.listCountedPage(input)
+      : listPage(await accountStorage.listPage(input), 0, input);
     const users = await Promise.all(
-      (await accountStorage.listPage(input)).map(async (entry) => {
+      page.entries.map(async (entry) => {
         const identities = await identityStorage.listByUser(entry.userId);
         return userView(entry, identities);
       }),
     );
 
     users.sort((a, b) => a.userId.localeCompare(b.userId));
-    return Result.ok({ users });
+    return Result.ok({ ...page, entries: users });
   };
 }
 
@@ -305,9 +312,11 @@ export function createAuthCapabilitiesListHandler(
     ].sort((left, right) => left.key.localeCompare(right.key));
 
     const offset = input.offset ?? 0;
-    return Result.ok({
-      capabilities: capabilities.slice(offset, offset + input.limit),
-    });
+    return Result.ok(listPage(
+      capabilities.slice(offset, offset + input.limit),
+      capabilities.length,
+      input,
+    ));
   };
 }
 
@@ -325,7 +334,7 @@ function capabilityGroupView(group: CapabilityGroup) {
 
 /** Creates the Auth.CapabilityGroups.List RPC handler backed by SQL storage. */
 export function createAuthCapabilityGroupsListHandler(
-  storage: Pick<CapabilityGroupStorage, "listPage">,
+  storage: Pick<CapabilityGroupStorage, "listPage" | "listCountedPage">,
   logger: Pick<AuthLogger, "trace">,
 ) {
   return async (
@@ -339,8 +348,13 @@ export function createAuthCapabilityGroupsListHandler(
       { rpc: "Auth.CapabilityGroups.List", caller: user.userId },
       "RPC request",
     );
-    const groups = await listCapabilityGroups(storage, input);
-    return Result.ok({ groups: groups.map(capabilityGroupView) });
+    const groups = storage.listCountedPage
+      ? await storage.listCountedPage(input)
+      : listPage(await storage.listPage(input), 0, input);
+    return Result.ok({
+      ...groups,
+      entries: groups.entries.map(capabilityGroupView),
+    });
   };
 }
 
@@ -542,7 +556,7 @@ export function createAuthUserIdentitiesListHandler(
       input: req,
       context: { caller },
     }: {
-      input: { userId: string };
+      input: { userId: string; offset?: number; limit?: number };
       context: {
         caller: {
           type: string;
@@ -569,7 +583,11 @@ export function createAuthUserIdentitiesListHandler(
       );
     }
 
-    const identities = (await identityStorage.listByUser(req.userId)).map(
+    const query = { offset: req.offset, limit: req.limit ?? 500 };
+    const page = identityStorage.listPageByUser
+      ? await identityStorage.listPageByUser(req.userId, query)
+      : listPage(await identityStorage.listByUser(req.userId), 0, query);
+    const identities = page.entries.map(
       (identity) => ({
         identityId: identity.identityId,
         provider: identity.provider,
@@ -582,7 +600,7 @@ export function createAuthUserIdentitiesListHandler(
       }),
     ).sort((left, right) => left.identityId.localeCompare(right.identityId));
 
-    return Result.ok({ identities });
+    return Result.ok({ ...page, entries: identities });
   };
 }
 

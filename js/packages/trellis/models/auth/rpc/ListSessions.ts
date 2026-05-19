@@ -1,4 +1,5 @@
 import Type, { type Static } from "typebox";
+import { PageResponseSchema } from "../../../contract_support/protocol.ts";
 
 const UserPrincipalSchema = Type.Object({
   type: Type.Literal("user"),
@@ -72,7 +73,7 @@ export const AuthSessionRowSchema = Type.Union([
 export type AuthSessionRow = Static<typeof AuthSessionRowSchema>;
 
 export const AuthSessionsListResponseSchema = Type.Object({
-  sessions: Type.Array(AuthSessionRowSchema),
+  ...PageResponseSchema(AuthSessionRowSchema).properties,
 });
 export type AuthSessionsListResponse = Static<
   typeof AuthSessionsListResponseSchema

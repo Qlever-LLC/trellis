@@ -156,16 +156,16 @@ export function createAuthIdentitiesGrantsListHandler(deps: {
     },
   ) => {
     const user = requireUserCaller(caller);
-    const grants = (await deps.contractApprovalStorage.listApprovedPageByUser(
+    const page = await deps.contractApprovalStorage.listApprovedCountedPageByUser(
       user.userId,
       input,
-    ))
-      .map((envelope) => toUserGrant(envelope));
+    );
+    const grants = page.entries.map((envelope) => toUserGrant(envelope));
 
     grants.sort((left, right) =>
       left.displayName.localeCompare(right.displayName)
     );
-    return Result.ok({ grants });
+    return Result.ok({ ...page, entries: grants });
   };
 }
 

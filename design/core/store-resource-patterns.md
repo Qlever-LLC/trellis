@@ -143,6 +143,14 @@ semantics allow.
 TypeScript expectations:
 
 ```ts
+type PageResponse<T> = {
+  entries: T[];
+  count: number;
+  offset: number;
+  limit: number;
+  nextOffset?: number;
+};
+
 class StoreHandle {
   open(): AsyncResult<TypedStore, StoreError>;
   waitFor(
@@ -171,7 +179,7 @@ class TypedStore {
   ): AsyncResult<TypedStoreEntry, StoreError>;
   delete(key: string): AsyncResult<void, StoreError>;
   list(opts: { prefix?: string; offset?: number; limit: number }): AsyncResult<
-    StoreInfo[],
+    PageResponse<StoreInfo>,
     StoreError
   >;
   status(): AsyncResult<StoreStatus, StoreError>;
@@ -216,6 +224,10 @@ Rules:
   not read, stream, move, or delete bytes on the caller's behalf
 - `list(...)` is prefix-based in v1 and requires a `limit`; it may accept
   `offset` and MUST NOT expose an unbounded list mode
+- store listing uses the standard live offset page response:
+  `{ entries, count, offset, limit, nextOffset? }`; this is live offset
+  pagination, not snapshot or cursor pagination, so concurrent writes or deletes
+  can change what appears at later offsets
 - `stream()` is the primary body-access path for large values; `bytes()` is a
   convenience helper
 

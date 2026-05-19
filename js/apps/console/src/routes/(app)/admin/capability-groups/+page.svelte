@@ -10,7 +10,7 @@
   import { errorMessage, formatDate } from "$lib/format";
   import { getTrellis } from "$lib/trellis";
 
-  type CapabilityGroupView = AuthCapabilityGroupsListOutput["groups"][number];
+  type CapabilityGroupView = AuthCapabilityGroupsListOutput["entries"][number];
 
   const trellis = getTrellis();
 
@@ -45,7 +45,7 @@
         error = errorMessage(response);
         return;
       }
-      groups = response.groups ?? [];
+      groups = response.entries ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {

@@ -19,12 +19,12 @@ use trellis_sdk_auth::{
     },
     types::{
         AuthAccountFlowsCreatePasswordSetupRequest, AuthAccountFlowsCreatePasswordSetupResponse,
-        AuthCapabilitiesListRequest, AuthCapabilitiesListResponseCapabilitiesItem,
-        AuthCapabilityGroupsListRequest, AuthCapabilityGroupsListResponseGroupsItem,
+        AuthCapabilitiesListRequest, AuthCapabilitiesListResponseEntriesItem,
+        AuthCapabilityGroupsListRequest, AuthCapabilityGroupsListResponseEntriesItem,
         AuthDeploymentsCreateRequest, AuthDeploymentsDisableRequest, AuthDeploymentsEnableRequest,
         AuthDeploymentsListRequest, AuthDeploymentsRemoveRequest, AuthSessionsListRequest,
         AuthUsersCreateRequest, AuthUsersCreateResponseUser, AuthUsersGetRequest,
-        AuthUsersGetResponseUser, AuthUsersListRequest, AuthUsersListResponseUsersItem,
+        AuthUsersGetResponseUser, AuthUsersListRequest, AuthUsersListResponseEntriesItem,
         AuthUsersUpdateRequest,
     },
 };
@@ -155,7 +155,7 @@ impl<'a> AuthClient<'a> {
         let approvals = self
             .call_rpc::<AuthIdentitiesListRpc>(&request)
             .await?
-            .approvals;
+            .entries;
         Ok(match digest {
             Some(digest) => approvals
                 .into_iter()
@@ -186,11 +186,11 @@ impl<'a> AuthClient<'a> {
         &self,
         limit: i64,
         offset: Option<i64>,
-    ) -> Result<Vec<AuthUsersListResponseUsersItem>, TrellisAuthError> {
+    ) -> Result<Vec<AuthUsersListResponseEntriesItem>, TrellisAuthError> {
         Ok(self
             .call_rpc::<AuthUsersListRpc>(&AuthUsersListRequest { limit, offset })
             .await?
-            .users)
+            .entries)
     }
 
     /// Get one Trellis user by user ID.
@@ -236,7 +236,7 @@ impl<'a> AuthClient<'a> {
                 user: user.map(ToOwned::to_owned),
             })
             .await?
-            .sessions)
+            .entries)
     }
 
     /// List available auth capabilities.
@@ -244,11 +244,11 @@ impl<'a> AuthClient<'a> {
         &self,
         limit: i64,
         offset: Option<i64>,
-    ) -> Result<Vec<AuthCapabilitiesListResponseCapabilitiesItem>, TrellisAuthError> {
+    ) -> Result<Vec<AuthCapabilitiesListResponseEntriesItem>, TrellisAuthError> {
         Ok(self
             .call_rpc::<AuthCapabilitiesListRpc>(&AuthCapabilitiesListRequest { limit, offset })
             .await?
-            .capabilities)
+            .entries)
     }
 
     /// List auth capability groups.
@@ -256,14 +256,14 @@ impl<'a> AuthClient<'a> {
         &self,
         limit: i64,
         offset: Option<i64>,
-    ) -> Result<Vec<AuthCapabilityGroupsListResponseGroupsItem>, TrellisAuthError> {
+    ) -> Result<Vec<AuthCapabilityGroupsListResponseEntriesItem>, TrellisAuthError> {
         Ok(self
             .call_rpc::<AuthCapabilityGroupsListRpc>(&AuthCapabilityGroupsListRequest {
                 limit,
                 offset,
             })
             .await?
-            .groups)
+            .entries)
     }
 
     /// Create a local password setup flow for one Trellis user.
@@ -288,7 +288,7 @@ impl<'a> AuthClient<'a> {
                 offset: None,
             })
             .await?
-            .deployments;
+            .entries;
 
         deployments
             .into_iter()
@@ -415,7 +415,7 @@ impl<'a> AuthClient<'a> {
         &self,
         deployment_id: Option<&str>,
         state: Option<&str>,
-    ) -> Result<Vec<trellis_sdk_auth::AuthDevicesListResponseInstancesItem>, TrellisAuthError> {
+    ) -> Result<Vec<trellis_sdk_auth::AuthDevicesListResponseEntriesItem>, TrellisAuthError> {
         Ok(self
             .call::<_, trellis_sdk_auth::AuthDevicesListResponse>(
                 "rpc.v1.Auth.Devices.List",
@@ -427,7 +427,7 @@ impl<'a> AuthClient<'a> {
                 },
             )
             .await?
-            .instances)
+            .entries)
     }
 
     /// Disable a device instance.
@@ -485,7 +485,7 @@ impl<'a> AuthClient<'a> {
         deployment_id: Option<&str>,
         state: Option<&str>,
     ) -> Result<
-        Vec<trellis_sdk_auth::AuthDeviceUserAuthoritiesListResponseActivationsItem>,
+        Vec<trellis_sdk_auth::AuthDeviceUserAuthoritiesListResponseEntriesItem>,
         TrellisAuthError,
     > {
         Ok(self
@@ -500,7 +500,7 @@ impl<'a> AuthClient<'a> {
                 },
             )
             .await?
-            .activations)
+            .entries)
     }
 
     /// Revoke a device activation.
@@ -526,7 +526,7 @@ impl<'a> AuthClient<'a> {
         deployment_id: Option<&str>,
         state: Option<&str>,
     ) -> Result<
-        Vec<trellis_sdk_auth::AuthDeviceUserAuthoritiesReviewsListResponseReviewsItem>,
+        Vec<trellis_sdk_auth::AuthDeviceUserAuthoritiesReviewsListResponseEntriesItem>,
         TrellisAuthError,
     > {
         Ok(self
@@ -541,7 +541,7 @@ impl<'a> AuthClient<'a> {
                 },
             )
             .await?
-            .reviews)
+            .entries)
     }
 
     /// Decide one device activation review.
@@ -593,7 +593,7 @@ impl<'a> AuthClient<'a> {
             offset: None,
         })
         .await?
-        .deployments
+        .entries
         .into_iter()
         .map(serde_json::from_value)
         .collect::<Result<Vec<_>, _>>()
@@ -691,7 +691,7 @@ impl<'a> AuthClient<'a> {
         deployment_id: Option<&str>,
         disabled: Option<bool>,
     ) -> Result<
-        Vec<trellis_sdk_auth::AuthServiceInstancesListResponseInstancesItem>,
+        Vec<trellis_sdk_auth::AuthServiceInstancesListResponseEntriesItem>,
         TrellisAuthError,
     > {
         Ok(self
@@ -705,7 +705,7 @@ impl<'a> AuthClient<'a> {
                 },
             )
             .await?
-            .instances)
+            .entries)
     }
 
     /// Disable one service instance.

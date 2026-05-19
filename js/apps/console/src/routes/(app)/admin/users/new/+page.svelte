@@ -13,8 +13,8 @@
   import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type CapabilityView = AuthCapabilitiesListOutput["capabilities"][number];
-  type AssignableCapabilityGroup = AuthCapabilityGroupsListOutput["groups"][number];
+  type CapabilityView = AuthCapabilitiesListOutput["entries"][number];
+  type AssignableCapabilityGroup = AuthCapabilityGroupsListOutput["entries"][number];
   type CreatedResult = {
     userId: string;
     setupUrl: string;
@@ -134,8 +134,8 @@
       ]);
       if (isErr(capabilitiesResponse)) { error = errorMessage(capabilitiesResponse); return; }
       if (isErr(groupsResponse)) { error = errorMessage(groupsResponse); return; }
-      capabilities = (capabilitiesResponse.capabilities ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
-      assignableCapabilityGroups = groupsResponse.groups ?? [];
+      capabilities = (capabilitiesResponse.entries ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
+      assignableCapabilityGroups = groupsResponse.entries ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {

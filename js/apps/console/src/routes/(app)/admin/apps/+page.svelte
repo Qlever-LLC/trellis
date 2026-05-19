@@ -16,7 +16,7 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let filterUser = $state("");
-  let approvals = $state<AuthIdentitiesListOutput["approvals"]>([]);
+  let approvals = $state<AuthIdentitiesListOutput["entries"]>([]);
 
   async function load() {
     loading = true;
@@ -30,7 +30,7 @@
       return;
     }
 
-    approvals = res.approvals;
+    approvals = res.entries;
   }
 
   onMount(load);

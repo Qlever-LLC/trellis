@@ -16,14 +16,14 @@ use trellis_core_bootstrap::CoreBootstrapBinding;
 use trellis_sdk_core::types::TrellisBindingsGetResponseBinding;
 use trellis_sdk_demo_service::types::{
     ActivityLiveEvent, AssignmentsListRequest, AssignmentsListResponse,
-    AssignmentsListResponseAssignmentsItem, AuditRecordedEvent, EvidenceDeleteRequest,
+    AssignmentsListResponseEntriesItem, AuditRecordedEvent, EvidenceDeleteRequest,
     EvidenceDeleteResponse, EvidenceDownloadRequest, EvidenceDownloadResponse,
     EvidenceDownloadResponseTransfer, EvidenceDownloadResponseTransferInfo, EvidenceListRequest,
-    EvidenceListResponse, EvidenceListResponseEvidenceItem, EvidenceUploadInput,
+    EvidenceListResponse, EvidenceListResponseEntriesItem, EvidenceUploadInput,
     EvidenceUploadOutput, EvidenceUploadProgress, EvidenceUploadedEvent, ReportsGenerateInput,
     ReportsGenerateOutput, ReportsGenerateProgress, ReportsListRequest, ReportsListResponse,
-    ReportsListResponseReportsItem, ReportsPublishedEvent, SitesGetRequest, SitesGetResponse,
-    SitesGetResponseSite, SitesListRequest, SitesListResponse, SitesListResponseSitesItem,
+    ReportsListResponseEntriesItem, ReportsPublishedEvent, SitesGetRequest, SitesGetResponse,
+    SitesGetResponseSite, SitesListRequest, SitesListResponse, SitesListResponseEntriesItem,
     SitesRefreshInput, SitesRefreshOutput, SitesRefreshOutputSite, SitesRefreshProgress,
     SitesRefreshedEvent,
 };
@@ -137,7 +137,7 @@ struct AppState {
     sites: Vec<Site>,
     assignments: Vec<Assignment>,
     evidence: Vec<Evidence>,
-    reports: Vec<ReportsListResponseReportsItem>,
+    reports: Vec<ReportsListResponseEntriesItem>,
     operations: BTreeMap<String, serde_json::Value>,
     operation_history: BTreeMap<String, Vec<serde_json::Value>>,
     pending_uploads: BTreeMap<String, PendingUpload>,
@@ -1205,14 +1205,22 @@ async fn assignments_list(
     input: AssignmentsListRequest,
 ) -> Result<AssignmentsListResponse, ServerError> {
     let state = state.lock().expect("demo state lock");
+    let offset = input.offset.unwrap_or(0);
+    let count = state.assignments.len() as i64;
+    let next_offset = (input.limit > 0 && offset + input.limit < count)
+        .then_some(offset + input.limit);
     Ok(AssignmentsListResponse {
-        assignments: state
+        entries: state
             .assignments
             .iter()
-            .skip(input.offset as usize)
+            .skip(offset as usize)
             .take(input.limit as usize)
             .map(assignment_to_response)
             .collect(),
+        count,
+        offset,
+        limit: input.limit,
+        next_offset,
     })
 }
 
@@ -1220,15 +1228,22 @@ async fn sites_list(
     site_summaries: SiteSummaryStore,
     input: SitesListRequest,
 ) -> Result<SitesListResponse, ServerError> {
+    let offset = input.offset.unwrap_or(0);
+    let sites = site_summaries.list().await?;
+    let count = sites.len() as i64;
+    let next_offset = (input.limit > 0 && offset + input.limit < count)
+        .then_some(offset + input.limit);
     Ok(SitesListResponse {
-        sites: site_summaries
-            .list()
-            .await?
+        entries: sites
             .iter()
-            .skip(input.offset as usize)
+            .skip(offset as usize)
             .take(input.limit as usize)
             .map(site_to_list_response)
             .collect(),
+        count,
+        offset,
+        limit: input.limit,
+        next_offset,
     })
 }
 
@@ -1250,20 +1265,31 @@ async fn evidence_list(
     input: EvidenceListRequest,
 ) -> Result<EvidenceListResponse, ServerError> {
     let state = state.lock().expect("demo state lock");
+    let offset = input.offset.unwrap_or(0);
+    let filtered: Vec<_> = state
+        .evidence
+        .iter()
+        .filter(|evidence| {
+            input
+                .prefix
+                .as_ref()
+                .is_none_or(|prefix| evidence.key.starts_with(prefix))
+        })
+        .collect();
+    let count = filtered.len() as i64;
+    let next_offset = (input.limit > 0 && offset + input.limit < count)
+        .then_some(offset + input.limit);
     Ok(EvidenceListResponse {
-        evidence: state
-            .evidence
-            .iter()
-            .filter(|evidence| {
-                input
-                    .prefix
-                    .as_ref()
-                    .is_none_or(|prefix| evidence.key.starts_with(prefix))
-            })
-            .skip(input.offset as usize)
+        entries: filtered
+            .into_iter()
+            .skip(offset as usize)
             .take(input.limit as usize)
             .map(evidence_to_response)
             .collect(),
+        count,
+        offset,
+        limit: input.limit,
+        next_offset,
     })
 }
 
@@ -1354,14 +1380,22 @@ async fn reports_list(
     input: ReportsListRequest,
 ) -> Result<ReportsListResponse, ServerError> {
     let state = state.lock().expect("demo state lock");
+    let offset = input.offset.unwrap_or(0);
+    let count = state.reports.len() as i64;
+    let next_offset = (input.limit > 0 && offset + input.limit < count)
+        .then_some(offset + input.limit);
     Ok(ReportsListResponse {
-        reports: state
+        entries: state
             .reports
             .iter()
-            .skip(input.offset as usize)
+            .skip(offset as usize)
             .take(input.limit as usize)
             .cloned()
             .collect(),
+        count,
+        offset,
+        limit: input.limit,
+        next_offset,
     })
 }
 
@@ -1705,7 +1739,7 @@ async fn reports_generate_start(
                 )
             },
         );
-        state.reports.push(ReportsListResponseReportsItem {
+        state.reports.push(ReportsListResponseEntriesItem {
             report_id: report_id.clone(),
             inspection_id: input.inspection_id.clone(),
             site_id,
@@ -2476,8 +2510,8 @@ fn sample_store_objects() -> BTreeMap<String, Bytes> {
     )])
 }
 
-fn assignment_to_response(assignment: &Assignment) -> AssignmentsListResponseAssignmentsItem {
-    AssignmentsListResponseAssignmentsItem {
+fn assignment_to_response(assignment: &Assignment) -> AssignmentsListResponseEntriesItem {
+    AssignmentsListResponseEntriesItem {
         inspection_id: assignment.inspection_id.clone(),
         site_id: assignment.site_id.clone(),
         site_name: assignment.site_name.clone(),
@@ -2488,8 +2522,8 @@ fn assignment_to_response(assignment: &Assignment) -> AssignmentsListResponseAss
     }
 }
 
-fn site_to_list_response(site: &Site) -> SitesListResponseSitesItem {
-    SitesListResponseSitesItem {
+fn site_to_list_response(site: &Site) -> SitesListResponseEntriesItem {
+    SitesListResponseEntriesItem {
         site_id: site.site_id.clone(),
         site_name: site.site_name.clone(),
         open_inspections: site.open_inspections,
@@ -2521,8 +2555,8 @@ fn site_to_refresh_output(site: &Site) -> SitesRefreshOutputSite {
     }
 }
 
-fn evidence_to_response(evidence: &Evidence) -> EvidenceListResponseEvidenceItem {
-    EvidenceListResponseEvidenceItem {
+fn evidence_to_response(evidence: &Evidence) -> EvidenceListResponseEntriesItem {
+    EvidenceListResponseEntriesItem {
         evidence_id: evidence.evidence_id.clone(),
         key: evidence.key.clone(),
         size: evidence.size,
@@ -2766,12 +2800,12 @@ mod tests {
             &router,
             SitesListRequest {
                 limit: LIST_LIMIT,
-                offset: LIST_OFFSET,
+                offset: Some(LIST_OFFSET),
             },
         )
         .await;
 
-        assert_eq!(response.sites[0].site_id, "site-west-yard");
+        assert_eq!(response.entries[0].site_id, "site-west-yard");
     }
 
     #[tokio::test]
@@ -3001,13 +3035,13 @@ mod tests {
             &router,
             EvidenceListRequest {
                 limit: LIST_LIMIT,
-                offset: LIST_OFFSET,
+                offset: Some(LIST_OFFSET),
                 prefix: Some("site-north/transformer-a/photo.txt".to_string()),
             },
         )
         .await;
-        assert_eq!(evidence.evidence.len(), 1);
-        assert_eq!(evidence.evidence[0].evidence_id, "ev-1001");
+        assert_eq!(evidence.entries.len(), 1);
+        assert_eq!(evidence.entries[0].evidence_id, "ev-1001");
     }
 
     #[tokio::test]
@@ -3138,11 +3172,11 @@ mod tests {
             &router,
             SitesListRequest {
                 limit: LIST_LIMIT,
-                offset: LIST_OFFSET,
+                offset: Some(LIST_OFFSET),
             },
         )
         .await;
-        assert_eq!(listed.sites[0].last_report_at, FIXED_NOW);
+        assert_eq!(listed.entries[0].last_report_at, FIXED_NOW);
 
         let fetched: SitesGetResponse = call::<rpc::SitesGetRpc>(
             &router,

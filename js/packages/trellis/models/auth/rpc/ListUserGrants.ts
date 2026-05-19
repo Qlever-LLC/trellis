@@ -1,4 +1,5 @@
 import Type, { type Static } from "typebox";
+import { PageResponseSchema } from "../../../contract_support/protocol.ts";
 
 const DigestSchema = Type.String({ pattern: "^[A-Za-z0-9_-]+$" });
 const IsoDateStringSchema = Type.String({ format: "date-time" });
@@ -55,7 +56,7 @@ export const AuthUserGrantRowSchema = Type.Object({
 export type AuthUserGrantRow = Static<typeof AuthUserGrantRowSchema>;
 
 export const AuthIdentitiesGrantsListResponseSchema = Type.Object({
-  grants: Type.Array(AuthUserGrantRowSchema),
+  ...PageResponseSchema(AuthUserGrantRowSchema).properties,
 });
 export type AuthIdentitiesGrantsListResponse = Static<
   typeof AuthIdentitiesGrantsListResponseSchema

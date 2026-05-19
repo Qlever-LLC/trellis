@@ -47,6 +47,29 @@ import type {
   DeploymentResourceBinding,
 } from "../schemas.ts";
 
+const page = <T>(entries: T[], limit = 10) => ({
+  entries,
+  count: entries.length,
+  offset: 0,
+  limit,
+});
+
+const pageFromQuery = <T>(
+  entries: T[],
+  query: { offset?: number; limit: number },
+) => {
+  const offset = query.offset ?? 0;
+  return {
+    entries: entries.slice(offset, offset + query.limit),
+    count: entries.length,
+    offset,
+    limit: query.limit,
+    nextOffset: query.limit <= 0 || offset + query.limit >= entries.length
+      ? undefined
+      : offset + query.limit,
+  };
+};
+
 async function* emptyKeys(): AsyncIterable<string> {}
 
 async function* oneConnectionKey(): AsyncIterable<string> {
@@ -70,6 +93,7 @@ function serviceAdminDeps(): ServiceAdminRpcDeps {
       delete: async () => throwingStoreAccess(),
       listPage: async () => throwingStoreAccess(),
       listFiltered: async () => throwingStoreAccess(),
+      listFilteredPage: async () => throwingStoreAccess(),
     },
     serviceInstanceStorage: {
       get: async () => throwingStoreAccess(),
@@ -78,6 +102,7 @@ function serviceAdminDeps(): ServiceAdminRpcDeps {
       delete: async () => throwingStoreAccess(),
       listPage: async () => throwingStoreAccess(),
       listFiltered: async () => throwingStoreAccess(),
+      listFilteredPage: async () => throwingStoreAccess(),
       listByDeployment: async () => throwingStoreAccess(),
     },
     deploymentEnvelopeStorage: {
@@ -129,10 +154,17 @@ class InMemoryServiceDeploymentStorage {
     filters: { disabled?: boolean },
     query: { offset?: number; limit: number },
   ): Promise<ServiceDeployment[]> {
-    const deployments = await this.listPage(query);
-    return deployments.filter((deployment) =>
+    await Promise.resolve();
+    return [...this.#deployments.values()].filter((deployment) =>
       filters.disabled === undefined || deployment.disabled === filters.disabled
     );
+  }
+
+  async listFilteredPage(
+    filters: { disabled?: boolean },
+    query: { offset?: number; limit: number },
+  ) {
+    return pageFromQuery(await this.listFiltered(filters, query), query);
   }
 }
 
@@ -425,7 +457,7 @@ Deno.test("service admin RPC handlers require fresh admin auth", async () => {
 
 Deno.test("session and connection admin schemas expose explicit participant metadata", () => {
   assert(Value.Check(AuthSessionsListResponseSchema, {
-    sessions: [
+    ...page([
       {
         key: "github.123.sk_agent",
         sessionKey: "sk_agent",
@@ -445,11 +477,11 @@ Deno.test("session and connection admin schemas expose explicit participant meta
         createdAt: new Date().toISOString(),
         lastAuth: new Date().toISOString(),
       },
-    ],
+    ]),
   }));
 
   assert(Value.Check(AuthConnectionsListResponseSchema, {
-    connections: [
+    ...page([
       {
         key: "github.123.sk_agent.user_nkey",
         userNkey: "user_nkey",
@@ -471,7 +503,7 @@ Deno.test("session and connection admin schemas expose explicit participant meta
         clientId: 7,
         connectedAt: new Date().toISOString(),
       },
-    ],
+    ]),
   }));
 });
 
@@ -2097,6 +2129,19 @@ function deviceAdminDeps(args: {
           (filters.deploymentIds === undefined ||
             new Set(filters.deploymentIds).has(review.deploymentId))
         ),
+      listFilteredPage: async (filters = {}, query) =>
+        pageFromQuery(
+          activationReviews.filter((review) =>
+            (filters.instanceId === undefined ||
+              review.instanceId === filters.instanceId) &&
+            (filters.deploymentId === undefined ||
+              review.deploymentId === filters.deploymentId) &&
+            (filters.state === undefined || review.state === filters.state) &&
+            (filters.deploymentIds === undefined ||
+              new Set(filters.deploymentIds).has(review.deploymentId))
+          ),
+          query,
+        ),
     },
     deviceActivationStorage: {
       get: async (instanceId) =>
@@ -2123,6 +2168,17 @@ function deviceAdminDeps(args: {
             activation.deploymentId === filters.deploymentId) &&
           (filters.state === undefined || activation.state === filters.state)
         ),
+      listFilteredPage: async (filters = {}, query) =>
+        pageFromQuery(
+          activations.filter((activation) =>
+            (filters.instanceId === undefined ||
+              activation.instanceId === filters.instanceId) &&
+            (filters.deploymentId === undefined ||
+              activation.deploymentId === filters.deploymentId) &&
+            (filters.state === undefined || activation.state === filters.state)
+          ),
+          query,
+        ),
     },
     deviceDeploymentStorage: {
       get: async () => stored,
@@ -2139,6 +2195,15 @@ function deviceAdminDeps(args: {
             stored.disabled === filters.disabled)
         ? [stored]
         : []),
+      listFilteredPage: async (filters = {}, query) =>
+        pageFromQuery(
+          stored &&
+              (filters.disabled === undefined ||
+                stored.disabled === filters.disabled)
+            ? [stored]
+            : [],
+          query,
+        ),
       listByDeploymentIds: async (deploymentIds, filters = {}) => {
         const requested = new Set(deploymentIds);
         return stored && requested.has(stored.deploymentId) &&
@@ -2207,6 +2272,15 @@ function deviceAdminDeps(args: {
         const requested = new Set(states);
         return instances.filter((instance) => requested.has(instance.state));
       },
+      listFilteredPage: async (filters = {}, query) =>
+        pageFromQuery(
+          instances.filter((instance) =>
+            (filters.deploymentId === undefined ||
+              instance.deploymentId === filters.deploymentId) &&
+            (filters.state === undefined || instance.state === filters.state)
+          ),
+          query,
+        ),
     },
     deviceProvisioningSecretStorage: {
       get: async (instanceId) =>
@@ -3006,12 +3080,14 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide completes approve decision 
       },
       delete: async () => {},
       listPage: async () => [review],
+      listFilteredPage: async (_filters, query) => pageFromQuery([review], query),
     },
     deviceActivationStorage: {
       get: async () => undefined,
       put: async () => {},
       delete: async () => {},
       listPage: async () => [],
+      listFilteredPage: async (_filters, query) => pageFromQuery([], query),
     },
     deviceInstanceStorage: {
       ...deps.deviceInstanceStorage,
@@ -3107,6 +3183,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide completes reject decision t
       },
       delete: async () => {},
       listPage: async () => [review],
+      listFilteredPage: async (_filters, query) => pageFromQuery([review], query),
     },
   }).decideDeviceActivationReview({
     input: { reviewId: "dar_1", decision: "reject", reason: "not expected" },
@@ -3170,6 +3247,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide retries completion for alre
       },
       delete: async () => {},
       listPage: async () => [review],
+      listFilteredPage: async (_filters, query) => pageFromQuery([review], query),
     },
     deviceActivationStorage: {
       get: async () => activation,
@@ -3178,6 +3256,8 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide retries completion for alre
       },
       delete: async () => {},
       listPage: async () => [activation],
+      listFilteredPage: async (_filters, query) =>
+        pageFromQuery([activation], query),
     },
   }).decideDeviceActivationReview({
     input: { reviewId: "dar_1", decision: "approve" },
@@ -3238,6 +3318,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide retries completion for alre
       },
       delete: async () => {},
       listPage: async () => [review],
+      listFilteredPage: async (_filters, query) => pageFromQuery([review], query),
     },
   }).decideDeviceActivationReview({
     input: { reviewId: "dar_1", decision: "reject" },
@@ -3295,6 +3376,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide does not mutate when operat
       },
       delete: async () => {},
       listPage: async () => [review],
+      listFilteredPage: async (_filters, query) => pageFromQuery([review], query),
     },
     deviceActivationStorage: {
       get: async () => undefined,
@@ -3303,6 +3385,7 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide does not mutate when operat
       },
       delete: async () => {},
       listPage: async () => [],
+      listFilteredPage: async (_filters, query) => pageFromQuery([], query),
     },
     deviceInstanceStorage: {
       ...deps.deviceInstanceStorage,

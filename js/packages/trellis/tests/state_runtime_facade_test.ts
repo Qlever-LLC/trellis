@@ -128,6 +128,10 @@ Deno.test("connected runtime exposes typed named state stores", async () => {
   if (!listedEntry || "migrationRequired" in listedEntry) {
     throw new Error("expected listed state entry");
   }
+  assertEquals(listed.count, 1);
+  assertEquals(listed.offset, 0);
+  assertEquals(listed.limit, 100);
+  assertEquals(listed.nextOffset, undefined);
   assertEquals(listedEntry.value.title, "Draft");
 
   await trellis.state.preferences.delete();

@@ -1,4 +1,4 @@
-import { and, eq, inArray, type SQL } from "drizzle-orm";
+import { and, count, eq, inArray, type SQL } from "drizzle-orm";
 import type { StaticDecode } from "typebox";
 import Value from "typebox/value";
 
@@ -8,6 +8,8 @@ import { ServiceDeploymentSchema, ServiceInstanceSchema } from "../schemas.ts";
 import {
   type BoundedListQuery,
   boundedListQuery,
+  type ListPage,
+  listPage,
   parseJsonField,
 } from "./shared.ts";
 
@@ -164,6 +166,29 @@ export class SqlServiceDeploymentRepository {
       decodeServiceDeploymentRow(row)
     );
   }
+
+  /** Returns a counted page of service deployments matching simple indexed filters. */
+  async listFilteredPage(
+    filters: DisabledFilter,
+    query: BoundedListQuery,
+  ): Promise<ListPage<ServiceDeployment>> {
+    const conditions: SQL[] = [];
+    if (filters.disabled !== undefined) {
+      conditions.push(eq(serviceDeployments.disabled, filters.disabled));
+    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      serviceDeployments,
+    ).where(where);
+    const rows = await this.#db.select().from(serviceDeployments).where(where)
+      .orderBy(serviceDeployments.deploymentId).limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: ServiceDeploymentRow) => decodeServiceDeploymentRow(row)),
+      countRow?.count ?? 0,
+      query,
+    );
+  }
 }
 
 /** Stores durable service instance records in SQL. */
@@ -240,6 +265,32 @@ export class SqlServiceInstanceRepository {
       eq(serviceInstances.disabled, filters.disabled),
     ).orderBy(serviceInstances.instanceId).limit(limit).offset(offset);
     return rows.map((row: ServiceInstanceRow) => decodeServiceInstanceRow(row));
+  }
+
+  /** Returns a counted page of service instances matching simple indexed filters. */
+  async listFilteredPage(
+    filters: DisabledFilter & { deploymentId?: string },
+    query: BoundedListQuery,
+  ): Promise<ListPage<ServiceInstance>> {
+    const conditions: SQL[] = [];
+    if (filters.deploymentId !== undefined) {
+      conditions.push(eq(serviceInstances.deploymentId, filters.deploymentId));
+    }
+    if (filters.disabled !== undefined) {
+      conditions.push(eq(serviceInstances.disabled, filters.disabled));
+    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const { offset, limit } = boundedListQuery(query);
+    const [countRow] = await this.#db.select({ count: count() }).from(
+      serviceInstances,
+    ).where(where);
+    const rows = await this.#db.select().from(serviceInstances).where(where)
+      .orderBy(serviceInstances.instanceId).limit(limit).offset(offset);
+    return listPage(
+      rows.map((row: ServiceInstanceRow) => decodeServiceInstanceRow(row)),
+      countRow?.count ?? 0,
+      query,
+    );
   }
 
   /** Returns instances running one of the requested current contract digests. */

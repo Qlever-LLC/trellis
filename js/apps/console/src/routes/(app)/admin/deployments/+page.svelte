@@ -18,15 +18,15 @@
   import { errorMessage, formatDate } from "../../../../lib/format";
   import { getTrellis } from "../../../../lib/trellis";
 
-  type Deployment = AuthDeploymentsListOutput["deployments"][number];
+  type Deployment = AuthDeploymentsListOutput["entries"][number];
   type ServiceDeployment = Extract<Deployment, { kind: "service" }>;
-  type ServiceInstance = AuthServiceInstancesListOutput["instances"][number];
+  type ServiceInstance = AuthServiceInstancesListOutput["entries"][number];
   type DeviceDeployment = Extract<Deployment, { kind: "device" }>;
-  type DeviceInstance = AuthDevicesListOutput["instances"][number] & {
+  type DeviceInstance = AuthDevicesListOutput["entries"][number] & {
     metadata?: Record<string, string>;
   };
-  type DeviceActivation = AuthDeviceUserAuthoritiesListOutput["activations"][number];
-  type DeviceReview = AuthDeviceUserAuthoritiesReviewsListOutput["reviews"][number];
+  type DeviceActivation = AuthDeviceUserAuthoritiesListOutput["entries"][number];
+  type DeviceReview = AuthDeviceUserAuthoritiesReviewsListOutput["entries"][number];
   type DeploymentKind = "service" | "device";
   type KindFilter = "all" | DeploymentKind;
   type StatusFilter = "all" | "active" | "disabled";
@@ -244,12 +244,12 @@
       if (isErr(deviceActivationsResponse)) { error = errorMessage(deviceActivationsResponse); return; }
       if (isErr(deviceReviewsResponse)) { error = errorMessage(deviceReviewsResponse); return; }
 
-      serviceDeployments = (serviceDeploymentsResponse.deployments ?? []).filter((deployment): deployment is ServiceDeployment => deployment.kind === "service");
-      serviceInstances = serviceInstancesResponse.instances ?? [];
-      deviceDeployments = (deviceDeploymentsResponse.deployments ?? []).filter((deployment): deployment is DeviceDeployment => deployment.kind === "device");
-      deviceInstances = deviceInstancesResponse.instances ?? [];
-      deviceActivations = deviceActivationsResponse.activations ?? [];
-      deviceReviews = deviceReviewsResponse.reviews ?? [];
+      serviceDeployments = (serviceDeploymentsResponse.entries ?? []).filter((deployment): deployment is ServiceDeployment => deployment.kind === "service");
+      serviceInstances = serviceInstancesResponse.entries ?? [];
+      deviceDeployments = (deviceDeploymentsResponse.entries ?? []).filter((deployment): deployment is DeviceDeployment => deployment.kind === "device");
+      deviceInstances = deviceInstancesResponse.entries ?? [];
+      deviceActivations = deviceActivationsResponse.entries ?? [];
+      deviceReviews = deviceReviewsResponse.entries ?? [];
       syncSelectedDeployment();
     } catch (e) {
       error = errorMessage(e);

@@ -30,7 +30,7 @@
     try {
       const response = await trellis.request("Auth.Sessions.List", { limit: 500, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
-      sessions = response.sessions ?? [];
+      sessions = response.entries ?? [];
       const requestedSessionKey = page.url.searchParams.get("sessionKey");
       selectedSessionKey = requestedSessionKey && sessions.some((session) => session.sessionKey === requestedSessionKey) ? requestedSessionKey : (sessions[0]?.sessionKey ?? "");
     } catch (e) {

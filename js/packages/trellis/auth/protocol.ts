@@ -1,6 +1,7 @@
 import { ContractResourceBindingsSchema } from "@qlever-llc/trellis/contracts";
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
+import { PageResponseSchema } from "../contract_support/protocol.ts";
 import {
   ClientTransportsSchema,
   ContractApprovalCapabilitySchema,
@@ -296,7 +297,7 @@ export type AuthEnvelopesListInput = StaticDecode<
 >;
 
 export const AuthEnvelopesListResponseSchema = Type.Object({
-  envelopes: Type.Array(DeploymentEnvelopeSchema),
+  ...PageResponseSchema(DeploymentEnvelopeSchema).properties,
 });
 export type AuthEnvelopesListResponse = StaticDecode<
   typeof AuthEnvelopesListResponseSchema
@@ -395,7 +396,7 @@ export type AuthEnvelopeExpansionsListInput = StaticDecode<
 >;
 
 export const AuthEnvelopeExpansionsListResponseSchema = Type.Object({
-  requests: Type.Array(EnvelopeExpansionRequestSchema),
+  ...PageResponseSchema(EnvelopeExpansionRequestSchema).properties,
 });
 export type AuthEnvelopeExpansionsListResponse = StaticDecode<
   typeof AuthEnvelopeExpansionsListResponseSchema
@@ -509,7 +510,7 @@ export const AuthServiceInstancesListSchema = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export const AuthServiceInstancesListResponseSchema = Type.Object({
-  instances: Type.Array(ServiceInstanceSchema),
+  ...PageResponseSchema(ServiceInstanceSchema).properties,
 });
 
 export const AuthServiceInstancesDisableSchema = Type.Object({
@@ -765,7 +766,7 @@ export const AuthIdentitiesListSchema = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export const AuthIdentitiesListResponseSchema = Type.Object({
-  approvals: Type.Array(ApprovalRecordViewSchema),
+  ...PageResponseSchema(ApprovalRecordViewSchema).properties,
 });
 
 export const AuthIdentityEnvelopesRevokeSchema = Type.Object({
@@ -794,7 +795,7 @@ export const AuthIdentitiesGrantsListSchema = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export const AuthIdentitiesGrantsListResponseSchema = Type.Object({
-  grants: Type.Array(UserGrantViewSchema),
+  ...PageResponseSchema(UserGrantViewSchema).properties,
 });
 
 export const LoginPortalRecordSchema = Type.Object({
@@ -839,9 +840,12 @@ export const LoginPortalRouteSchema = Type.Object({
 });
 export type LoginPortalRoute = StaticDecode<typeof LoginPortalRouteSchema>;
 
-export const AuthPortalsListSchema = Type.Object({});
+export const AuthPortalsListSchema = Type.Object({
+  offset: Type.Optional(Type.Integer({ minimum: 0 })),
+  limit: Type.Integer({ minimum: 0, maximum: 500 }),
+});
 export const AuthPortalsListResponseSchema = Type.Object({
-  portals: Type.Array(LoginPortalRecordSchema),
+  ...PageResponseSchema(LoginPortalRecordSchema).properties,
 });
 export const AuthPortalsPutSchema = Type.Object({
   portalId: Type.String({ minLength: 1 }),
@@ -882,9 +886,12 @@ export const AuthPortalsLoginSettingsUpdateSchema = Type.Object({
   defaultCapabilityGroups: Type.Array(Type.String({ minLength: 1 })),
 });
 
-export const AuthPortalsLoginRoutesListSchema = Type.Object({});
+export const AuthPortalsLoginRoutesListSchema = Type.Object({
+  offset: Type.Optional(Type.Integer({ minimum: 0 })),
+  limit: Type.Integer({ minimum: 0, maximum: 500 }),
+});
 export const AuthPortalsLoginRoutesListResponseSchema = Type.Object({
-  routes: Type.Array(LoginPortalRouteSchema),
+  ...PageResponseSchema(LoginPortalRouteSchema).properties,
 });
 export const AuthPortalsLoginRoutesPutSchema = Type.Object({
   routeId: Type.Optional(Type.String({ minLength: 1 })),
@@ -1073,7 +1080,7 @@ export const AuthDeploymentsListSchema = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export const AuthDeploymentsListResponseSchema = Type.Object({
-  deployments: Type.Array(AuthDeploymentSchema),
+  ...PageResponseSchema(AuthDeploymentSchema).properties,
 });
 
 export const AuthDeploymentsDisableSchema = Type.Object({
@@ -1247,7 +1254,7 @@ export const AuthDevicesListSchema = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export const AuthDevicesListResponseSchema = Type.Object({
-  instances: Type.Array(DeviceSchema),
+  ...PageResponseSchema(DeviceSchema).properties,
 });
 export const AuthDevicesDisableSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
@@ -1336,7 +1343,7 @@ export const AuthDeviceUserAuthoritiesListSchema = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export const AuthDeviceUserAuthoritiesListResponseSchema = Type.Object({
-  activations: Type.Array(DeviceActivationRecordSchema),
+  ...PageResponseSchema(DeviceActivationRecordSchema).properties,
 });
 export const AuthDeviceUserAuthoritiesRevokeSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
@@ -1356,7 +1363,7 @@ export const AuthDeviceUserAuthoritiesReviewsListSchema = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export const AuthDeviceUserAuthoritiesReviewsListResponseSchema = Type.Object({
-  reviews: Type.Array(DeviceActivationReviewSchema),
+  ...PageResponseSchema(DeviceActivationReviewSchema).properties,
 });
 export const AuthDeviceUserAuthoritiesReviewsDecideSchema = Type.Object({
   reviewId: Type.String({ minLength: 1 }),
@@ -1397,7 +1404,7 @@ export const AuthUsersListSchema = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export const AuthUsersListResponseSchema = Type.Object({
-  users: Type.Array(UserViewSchema),
+  ...PageResponseSchema(UserViewSchema).properties,
 });
 
 export const AuthUsersGetSchema = Type.Object({
@@ -1461,7 +1468,7 @@ export const AuthCapabilitiesListSchema = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export const AuthCapabilitiesListResponseSchema = Type.Object({
-  capabilities: Type.Array(CapabilityDefinitionSchema),
+  ...PageResponseSchema(CapabilityDefinitionSchema).properties,
 });
 
 export const CapabilityGroupSchema = Type.Object({
@@ -1479,7 +1486,7 @@ export const AuthCapabilityGroupsListSchema = Type.Object({
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export const AuthCapabilityGroupsListResponseSchema = Type.Object({
-  groups: Type.Array(CapabilityGroupSchema),
+  ...PageResponseSchema(CapabilityGroupSchema).properties,
 });
 
 export const AuthCapabilityGroupsGetSchema = Type.Object({
@@ -1521,9 +1528,11 @@ export const AuthUsersUpdateResponseSchema = Type.Object({
 
 export const AuthUserIdentitiesListSchema = Type.Object({
   userId: Type.String({ minLength: 1 }),
+  offset: Type.Optional(Type.Integer({ minimum: 0 })),
+  limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export const AuthUserIdentitiesListResponseSchema = Type.Object({
-  identities: Type.Array(UserIdentityViewSchema),
+  ...PageResponseSchema(UserIdentityViewSchema).properties,
 });
 
 export const AuthUserIdentitiesUnlinkSchema = Type.Object({

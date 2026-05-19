@@ -2225,6 +2225,7 @@
       "jsr:@qlever-llc/trellis-service-trellis@0.8.2": {
         "dependencies": [
           "npm:@libsql/client@0.15.15",
+          "npm:@noble/hashes@1.8.0",
           "npm:drizzle-orm@0.44.7",
           "npm:set-cookie-parser@^3.1.0",
           "npm:ulid@^3.0.2"

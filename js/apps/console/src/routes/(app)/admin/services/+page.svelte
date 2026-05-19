@@ -30,8 +30,8 @@
   import { loadJobsPageData } from "../../../../lib/jobs_page.ts";
   import { getTrellis } from "../../../../lib/trellis";
 
-  type Deployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "service" }>;
-  type ServiceInstance = AuthServiceInstancesListOutput["instances"][number];
+  type Deployment = Extract<AuthDeploymentsListOutput["entries"][number], { kind: "service" }>;
+  type ServiceInstance = AuthServiceInstancesListOutput["entries"][number];
   type Job = JobsListOutput["jobs"][number];
   type Tab = "instances" | "jobs" | "contracts" | "events";
 
@@ -151,8 +151,8 @@
       ]);
       if (isErr(deploymentsRes)) { error = errorMessage(deploymentsRes); return; }
       if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
-      deployments = (deploymentsRes.deployments ?? []).filter((deployment): deployment is Deployment => deployment.kind === "service");
-      instances = instancesRes.instances ?? [];
+      deployments = (deploymentsRes.entries ?? []).filter((deployment): deployment is Deployment => deployment.kind === "service");
+      instances = instancesRes.entries ?? [];
 
       const jobsData = await loadJobsPageData({
         listServices: () => trellis.request("Jobs.ListServices", {}),

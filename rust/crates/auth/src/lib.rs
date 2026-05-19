@@ -45,8 +45,8 @@ pub use session_store::{clear_admin_session, load_admin_session, save_admin_sess
 pub use trellis_sdk_auth::types::{
     AuthAccountFlowsCreatePasswordSetupRequest, AuthAccountFlowsCreatePasswordSetupResponse,
     AuthCapabilitiesListRequest, AuthCapabilitiesListResponse,
-    AuthCapabilitiesListResponseCapabilitiesItem, AuthCapabilityGroupsListRequest,
-    AuthCapabilityGroupsListResponse, AuthCapabilityGroupsListResponseGroupsItem,
+    AuthCapabilitiesListResponseEntriesItem, AuthCapabilityGroupsListRequest,
+    AuthCapabilityGroupsListResponse, AuthCapabilityGroupsListResponseEntriesItem,
     AuthDeploymentsCreateRequest, AuthDeploymentsCreateResponse, AuthDeploymentsDisableRequest,
     AuthDeploymentsDisableResponse, AuthDeploymentsEnableRequest, AuthDeploymentsEnableResponse,
     AuthDeploymentsListRequest, AuthDeploymentsListResponse, AuthDeploymentsRemoveRequest,
@@ -59,7 +59,7 @@ pub use trellis_sdk_auth::types::{
     AuthEnvelopesChangesPreviewResponse, AuthEnvelopesExpandRequest, AuthEnvelopesExpandResponse,
     AuthEnvelopesGetRequest, AuthEnvelopesGetResponse, AuthEnvelopesListRequest,
     AuthEnvelopesListResponse, AuthEnvelopesShrinkRequest, AuthEnvelopesShrinkResponse,
-    AuthIdentitiesListRequest, AuthIdentitiesListResponse, AuthIdentitiesListResponseApprovalsItem,
+    AuthIdentitiesListRequest, AuthIdentitiesListResponse, AuthIdentitiesListResponseEntriesItem,
     AuthIdentityEnvelopesRevokeRequest, AuthIdentityEnvelopesRevokeResponse,
     AuthServiceInstancesDisableRequest, AuthServiceInstancesDisableResponse,
     AuthServiceInstancesEnableRequest, AuthServiceInstancesEnableResponse,
@@ -69,7 +69,7 @@ pub use trellis_sdk_auth::types::{
     AuthSessionsListResponse, AuthSessionsMeResponse, AuthUsersCreateRequest,
     AuthUsersCreateResponse, AuthUsersCreateResponseUser, AuthUsersGetRequest,
     AuthUsersGetResponse, AuthUsersGetResponseUser, AuthUsersListRequest, AuthUsersListResponse,
-    AuthUsersListResponseUsersItem, AuthUsersUpdateRequest, AuthUsersUpdateResponse,
+    AuthUsersListResponseEntriesItem, AuthUsersUpdateRequest, AuthUsersUpdateResponse,
 };
 
 #[cfg(test)]

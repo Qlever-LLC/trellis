@@ -1,4 +1,4 @@
-import Type, { type Static } from "typebox";
+import Type, { type Static, type TSchema } from "typebox";
 
 function parseIsoDate(value: string): Date {
   const parsed = new Date(value);
@@ -183,12 +183,31 @@ export const EventHeaderSchema = Type.Object({
 
 export type EventHeader = Static<typeof EventHeaderSchema>;
 
-export const PaginatedSchema = Type.Object({
-  count: Type.Integer({ minimum: 0 }),
-  offset: Type.Integer({ minimum: 0 }),
+/** Schema for a bounded pagination request. */
+export const PageRequestSchema = Type.Object({
+  offset: Type.Optional(Type.Integer({ minimum: 0 })),
   limit: Type.Integer({ minimum: 0 }),
-  next: Type.Optional(Type.Integer({ minimum: 0 })),
-  prev: Type.Optional(Type.Integer({ minimum: 0 })),
 });
 
-export type Paginated = Static<typeof PaginatedSchema>;
+/** Bounded pagination request. */
+export type PageRequest = Static<typeof PageRequestSchema>;
+
+/** Create a schema for a bounded page response with typed entries. */
+export function PageResponseSchema<TEntry extends TSchema>(entry: TEntry) {
+  return Type.Object({
+    entries: Type.Array(entry, { default: [] }),
+    count: Type.Integer({ minimum: 0 }),
+    offset: Type.Integer({ minimum: 0 }),
+    limit: Type.Integer({ minimum: 0 }),
+    nextOffset: Type.Optional(Type.Integer({ minimum: 0 })),
+  });
+}
+
+/** Bounded pagination response with typed entries. */
+export type PageResponse<TEntry> = {
+  entries: TEntry[];
+  count: number;
+  offset: number;
+  limit: number;
+  nextOffset?: number;
+};

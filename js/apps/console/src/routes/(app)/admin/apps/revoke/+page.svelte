@@ -12,7 +12,7 @@
   import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type ApprovalEntry = AuthIdentitiesListOutput["approvals"][number];
+  type ApprovalEntry = AuthIdentitiesListOutput["entries"][number];
 
   const trellis = getTrellis();
   const notifications = getNotifications();
@@ -33,7 +33,7 @@
       const requestedGrant = page.url.searchParams.get("grant");
       const response = await trellis.request("Auth.Identities.List", { user: requestedUser, limit: 500, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
-      approvals = response.approvals ?? [];
+      approvals = response.entries ?? [];
       const match = approvals.find((entry) => entry.user === requestedUser && entry.identityEnvelopeId === requestedGrant) ?? approvals[0] ?? null;
       selectedKey = match?.identityEnvelopeId ?? "";
     } catch (e) {

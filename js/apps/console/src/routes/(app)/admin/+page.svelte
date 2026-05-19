@@ -19,7 +19,7 @@
     JobsListOutput,
   } from "@qlever-llc/trellis/sdk/jobs";
 
-  type ServiceInstance = AuthServiceInstancesListOutput["instances"][number];
+  type ServiceInstance = AuthServiceInstancesListOutput["entries"][number];
   type Job = JobsListOutput["jobs"][number];
   type OverviewInstance = {
     service: string;
@@ -147,15 +147,15 @@
     try {
       const [sessionsRes, connectionsRes, instancesRes] = await Promise.all([
         trellis.request("Auth.Sessions.List", { limit: 500, offset: 0 }).take(),
-        trellis.request("Auth.Connections.List", {}).take(),
+        trellis.request("Auth.Connections.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(sessionsRes)) { error = errorMessage(sessionsRes); return; }
       if (isErr(connectionsRes)) { error = errorMessage(connectionsRes); return; }
       if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
-      sessionCount = sessionsRes.sessions?.length ?? 0;
-      connectionCount = connectionsRes.connections?.length ?? 0;
-      instances = instancesRes.instances ?? [];
+      sessionCount = sessionsRes.entries?.length ?? 0;
+      connectionCount = connectionsRes.entries?.length ?? 0;
+      instances = instancesRes.entries ?? [];
 
       const jobsData = await loadJobsPageData({
         listServices: () => trellis.request("Jobs.ListServices", {}),

@@ -369,7 +369,7 @@ export function createStateListHandler(deps: RpcDeps) {
     if (isErr(target)) return target;
     return await deps.state.list(target.orThrow(), {
       prefix: req.prefix,
-      offset: req.offset,
+      offset: req.offset ?? 0,
       limit: req.limit,
     });
   };
@@ -399,7 +399,7 @@ export function createStateAdminListHandler(deps: RpcDeps) {
     if (isErr(target)) return target;
     return await deps.state.list(target.orThrow(), {
       prefix: req.prefix,
-      offset: req.offset,
+      offset: req.offset ?? 0,
       limit: req.limit,
     });
   };

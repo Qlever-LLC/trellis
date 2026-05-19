@@ -28,9 +28,9 @@
     loading = true;
     error = null;
     try {
-      const response = await trellis.request("Auth.Connections.List", {}).take();
+      const response = await trellis.request("Auth.Connections.List", { limit: 500, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
-      connections = response.connections ?? [];
+      connections = response.entries ?? [];
       const requestedUserNkey = page.url.searchParams.get("userNkey");
       selectedUserNkey = requestedUserNkey && connections.some((connection) => connection.userNkey === requestedUserNkey) ? requestedUserNkey : (connections[0]?.userNkey ?? "");
     } catch (e) {

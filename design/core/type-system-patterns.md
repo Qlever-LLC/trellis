@@ -130,6 +130,44 @@ Rules:
 - operation schemas typically split input, progress, and output
 - service-specific schemas stay with the owning service
 
+## List Pagination Schemas
+
+Trellis list RPCs use a clean-break, standard page shape unless a design doc
+explicitly excludes an endpoint from normal list semantics.
+
+Request:
+
+```ts
+{
+  offset?: number;
+  limit: number;
+}
+```
+
+Response:
+
+```ts
+{
+  entries: T[];
+  count: number;
+  offset: number;
+  limit: number;
+  nextOffset?: number;
+}
+```
+
+Rules:
+
+- `limit` is required; `offset` is optional and defaults to `0`
+- responses use `entries` for the returned page, not domain-specific array names
+  such as `users`, `sessions`, or `reports`
+- `count` is the current matching-row count after filters and before the page
+  bound
+- `nextOffset` is present only when another bounded request can ask for the next
+  live offset
+- this is live offset pagination, not snapshot or cursor pagination; concurrent
+  inserts, updates, or deletes can change what appears at later offsets
+
 ## Schema Validation
 
 Use TypeBox and Zod for different strengths:

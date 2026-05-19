@@ -15,7 +15,7 @@
   import { getNotifications } from "$lib/notifications.svelte";
   import { getTrellis } from "$lib/trellis";
 
-  type Deployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "device" }>;
+  type Deployment = Extract<AuthDeploymentsListOutput["entries"][number], { kind: "device" }>;
 
   const trellis = getTrellis();
   const notifications = getNotifications();
@@ -35,7 +35,7 @@
     try {
       const response = await trellis.request("Auth.Deployments.List", { kind: "device", disabled: false, limit: 500, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
-      const loadedDeployments = (response.deployments ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
+      const loadedDeployments = (response.entries ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
       const loadedActiveDeployments = loadedDeployments.filter((deployment) => !deployment.disabled);
       deployments = loadedDeployments;
       if (selectedDeploymentId && !loadedActiveDeployments.some((deployment) => deployment.deploymentId === selectedDeploymentId)) {

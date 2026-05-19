@@ -5,11 +5,9 @@ import {
   type TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
 import type {
-  AuthEnvelopeExpansionsListResponse,
   AuthEnvelopesChangesPreviewResponse,
   AuthEnvelopesExpandResponse,
   AuthEnvelopesGetResponse,
-  AuthEnvelopesListResponse,
   AuthEnvelopesShrinkResponse,
 } from "../../../../packages/trellis/auth/protocol.ts";
 
@@ -634,12 +632,21 @@ Deno.test("Auth.Envelopes.List returns admin-visible envelope authority rows", a
     input: { disabled: false, limit: 100 },
     context: adminContext,
   });
-  const value = result.take() as AuthEnvelopesListResponse;
+  if (result.isErr()) throw result.error;
+  const value = result.take();
+  if (!("entries" in value)) throw new Error("expected page response");
 
-  assertEquals(value.envelopes.map((envelope) => envelope.deploymentId), [
+  assertEquals(
+    value.entries.map((envelope: DeploymentEnvelope) => envelope.deploymentId),
+    [
     "billing.default",
-  ]);
-  assertEquals(value.envelopes[0]?.boundary.capabilities, ["billing.call"]);
+    ],
+  );
+  assertEquals(value.count, 1);
+  assertEquals(value.offset, 0);
+  assertEquals(value.limit, 100);
+  assertEquals(value.nextOffset, undefined);
+  assertEquals(value.entries[0]?.boundary.capabilities, ["billing.call"]);
 });
 
 Deno.test("Auth.Envelopes.Get returns envelope detail for Console review", async () => {
@@ -862,11 +869,19 @@ Deno.test("Auth.EnvelopeExpansions.List returns filtered expansion requests", as
   });
 
   if (result.isErr()) throw result.error;
-  const value = result.take() as AuthEnvelopeExpansionsListResponse;
-  assertEquals(value.requests.map((request) => request.requestId), [
+  const value = result.take();
+  if (!("entries" in value)) throw new Error("expected page response");
+  assertEquals(
+    value.entries.map((request: EnvelopeExpansionRequest) => request.requestId),
+    [
     "request-1",
-  ]);
-  assertEquals(value.requests[0]?.delta, expandedBoundary());
+    ],
+  );
+  assertEquals(value.count, 1);
+  assertEquals(value.offset, 0);
+  assertEquals(value.limit, 100);
+  assertEquals(value.nextOffset, undefined);
+  assertEquals(value.entries[0]?.delta, expandedBoundary());
 });
 
 Deno.test("Auth.Envelopes.Expand expands modeled rows and stores evidence", async () => {

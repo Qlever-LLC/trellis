@@ -20,7 +20,7 @@
   import Panel from "$lib/components/Panel.svelte";
   import { getAuthenticatedUser, getConnection, getTrellis } from "../../../lib/trellis";
 
-  type IdentityRecord = AuthUserIdentitiesListOutput["identities"][number];
+  type IdentityRecord = AuthUserIdentitiesListOutput["entries"][number];
 
   const trellis = getTrellis();
   const connection = getConnection();
@@ -162,7 +162,7 @@
 
       const [grantsResponse, identitiesResponse] = await Promise.all([
         trellis.request("Auth.Identities.Grants.List", { limit: 100, offset: 0 }).take(),
-        trellis.request("Auth.UserIdentities.List", { userId: me.user.userId }).take(),
+        trellis.request("Auth.UserIdentities.List", { userId: me.user.userId, limit: 100, offset: 0 }).take(),
       ]);
       if (isErr(grantsResponse)) {
         error = errorMessage(grantsResponse);
@@ -172,8 +172,8 @@
         error = errorMessage(identitiesResponse);
         return;
       }
-      grants = grantsResponse.grants ?? [];
-      identities = identitiesResponse.identities ?? [];
+      grants = grantsResponse.entries ?? [];
+      identities = identitiesResponse.entries ?? [];
     } catch (e) {
       error = errorMessage(e);
     } finally {

@@ -407,7 +407,7 @@ async fn users_edit_command(format: OutputFormat, args: &UserEditArgs) -> miette
 
 fn capabilities_provided_by_groups(
     selected_groups: &BTreeSet<String>,
-    groups: &[authlib::AuthCapabilityGroupsListResponseGroupsItem],
+    groups: &[authlib::AuthCapabilityGroupsListResponseEntriesItem],
 ) -> BTreeSet<String> {
     let groups_by_key = groups
         .iter()
@@ -423,7 +423,7 @@ fn capabilities_provided_by_groups(
 
 fn collect_group_capabilities(
     group_key: &str,
-    groups_by_key: &BTreeMap<&str, &authlib::AuthCapabilityGroupsListResponseGroupsItem>,
+    groups_by_key: &BTreeMap<&str, &authlib::AuthCapabilityGroupsListResponseEntriesItem>,
     visited: &mut BTreeSet<String>,
     capabilities: &mut BTreeSet<String>,
 ) {

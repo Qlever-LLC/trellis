@@ -16,10 +16,10 @@
   import { getNotifications } from "../../../../../lib/notifications.svelte";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type UserView = AuthUsersListOutput["users"][number];
+  type UserView = AuthUsersListOutput["entries"][number];
   type IdentityView = UserView["identities"][number];
-  type CapabilityView = AuthCapabilitiesListOutput["capabilities"][number];
-  type AssignableCapabilityGroup = AuthCapabilityGroupsListOutput["groups"][number];
+  type CapabilityView = AuthCapabilitiesListOutput["entries"][number];
+  type AssignableCapabilityGroup = AuthCapabilityGroupsListOutput["entries"][number];
   type CapabilitySection = {
     key: string;
     title: string;
@@ -208,9 +208,9 @@
       if (isErr(usersResponse)) { error = errorMessage(usersResponse); return; }
       if (isErr(capabilitiesResponse)) { error = errorMessage(capabilitiesResponse); return; }
       if (isErr(groupsResponse)) { error = errorMessage(groupsResponse); return; }
-      capabilities = (capabilitiesResponse.capabilities ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
-      assignableCapabilityGroups = groupsResponse.groups ?? [];
-      const users = usersResponse.users ?? [];
+      capabilities = (capabilitiesResponse.entries ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
+      assignableCapabilityGroups = groupsResponse.entries ?? [];
+      const users = usersResponse.entries ?? [];
       const match = users.find((user) => user.userId === requestedUserId) ?? null;
       targetUser = match;
       loadUserIntoForm(match);

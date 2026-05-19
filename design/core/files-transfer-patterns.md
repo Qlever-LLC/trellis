@@ -68,7 +68,12 @@ Rules:
 
 - these methods use normal Trellis RPC auth and capability checks
 - they return JSON payloads and `Result`-modeled failures
-- `list` is prefix/cursor/limit-oriented in v1 rather than arbitrary metadata query language
+- `list` is prefix plus standard page request oriented in v1 rather than an
+  arbitrary metadata query language: callers send `{ offset?: number; limit:
+  number }` plus file-domain filters such as `prefix`, and services return
+  `{ entries, count, offset, limit, nextOffset? }`
+- file listing is live offset pagination, not snapshot or cursor pagination;
+  concurrent file writes or deletes can change what appears at later offsets
 
 #### Send transfer operations
 

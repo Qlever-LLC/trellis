@@ -15,10 +15,10 @@
   import { errorMessage, formatDate } from "../../../../../lib/format";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type Instance = AuthDevicesListOutput["instances"][number] & {
+  type Instance = AuthDevicesListOutput["entries"][number] & {
     metadata?: Record<string, string>;
   };
-  type Deployment = Extract<AuthDeploymentsListOutput["deployments"][number], { kind: "device" }>;
+  type Deployment = Extract<AuthDeploymentsListOutput["entries"][number], { kind: "device" }>;
   type InstanceState = NonNullable<AuthDevicesListInput["state"]> | "all";
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
 
@@ -55,8 +55,8 @@
       if (isErr(instancesResponse)) { error = errorMessage(instancesResponse); return; }
       if (isErr(deploymentsResponse)) { error = errorMessage(deploymentsResponse); return; }
 
-      instances = instancesResponse.instances ?? [];
-      deployments = (deploymentsResponse.deployments ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
+      instances = instancesResponse.entries ?? [];
+      deployments = (deploymentsResponse.entries ?? []).filter((deployment): deployment is Deployment => deployment.kind === "device");
     } catch (e) {
       error = errorMessage(e);
     } finally {

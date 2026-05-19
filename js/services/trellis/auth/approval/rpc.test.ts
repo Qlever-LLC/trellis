@@ -210,7 +210,7 @@ Deno.test("Auth.Identities.Grants.List returns the caller's approved app and age
     if (isErr(value)) throw value.error;
 
     assertEquals(value, {
-      grants: [
+      entries: [
         {
           identityEnvelopeId: "env-agent",
           identityAnchor: {
@@ -230,6 +230,10 @@ Deno.test("Auth.Identities.Grants.List returns the caller's approved app and age
           updatedAt: "2026-04-11T00:00:00.000Z",
         },
       ],
+      count: 1,
+      offset: 0,
+      limit: 10,
+      nextOffset: undefined,
     });
   });
 });
