@@ -110,11 +110,6 @@ Deno.test("auth config loads structured provider map from file", async () => {
         "http://localhost:5173",
         "https://app.example.com",
       ]);
-      assertEquals(cfg.web.cors, {
-        mode: "restricted",
-        origins: ["http://localhost:5173", "https://app.example.com"],
-        credentials: true,
-      });
       assertEquals(cfg.web.publicOrigin, "http://localhost:3000");
       assertEquals(cfg.auth.localIdentity.passwordPolicy.minLength, 12);
       assertEquals(cfg.httpRateLimit.windowMs, 1234);
@@ -305,7 +300,6 @@ Deno.test("auth config parses direct JSONC text without env cache mutation", asy
         const cfg = parseAuthConfig(configPath, text);
 
         assertEquals(cfg.web.origins, ["*"]);
-        assertEquals(cfg.web.cors, { mode: "public" });
         assertEquals(
           cfg.oauth.redirectBase,
           "http://localhost:3000/auth/callback",
@@ -447,7 +441,6 @@ Deno.test("auth config defaults web origins to wildcard", async () => {
     async (configPath) => {
       const cfg = await loadAuthConfigFromFile(configPath);
       assertEquals(cfg.web.origins, ["*"]);
-      assertEquals(cfg.web.cors, { mode: "public" });
       assertEquals(cfg.web.allowInsecureOrigins, []);
     },
   );
@@ -570,20 +563,15 @@ Deno.test("auth config preserves explicit wildcard web origins", async () => {
     async (configPath) => {
       const cfg = await loadAuthConfigFromFile(configPath);
       assertEquals(cfg.web.origins, ["*"]);
-      assertEquals(cfg.web.cors, { mode: "public" });
     },
   );
 });
 
-Deno.test("auth config loads explicit restricted credentialed CORS", async () => {
+Deno.test("auth config rejects removed web cors config", async () => {
   await withTempConfig(
     `{
       "web": {
-        "cors": {
-          "mode": "restricted",
-          "origins": ["http://127.0.0.1:5173", "https://app.example.com"],
-          "credentials": true
-        }
+        "cors": { "mode": "public" }
       },
       "nats": {
         "servers": "localhost",
@@ -617,12 +605,7 @@ Deno.test("auth config loads explicit restricted credentialed CORS", async () =>
       }
     }`,
     async (configPath) => {
-      const cfg = await loadAuthConfigFromFile(configPath);
-      assertEquals(cfg.web.cors, {
-        mode: "restricted",
-        origins: ["http://localhost:5173", "https://app.example.com"],
-        credentials: true,
-      });
+      assertThrows(() => loadAuthConfigFromFile(configPath));
     },
   );
 });

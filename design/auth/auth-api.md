@@ -52,16 +52,18 @@ Browser auth endpoints:
 - `POST /auth/flow/:flowId/approval`
 - `POST /auth/flow/:flowId/bind`
 
-Global CORS behavior is deployment-configured:
+Global CORS behavior derives from `web.origins`:
 
-- `web.cors.mode: "public"` allows arbitrary browser origins without
-  credentials. This is appropriate for public Trellis APIs where requests carry
-  explicit Trellis proofs rather than ambient cookies.
-- `web.cors.mode: "restricted"` allows only configured origins and may enable
-  credentialed CORS with `credentials: true`.
-- Flow-specific routes still perform their own portal-origin and redirect
-  validation, and credentialed routes such as OAuth callback state handling keep
-  their stricter flow-local CORS/cookie rules.
+- `web.origins: ["*"]` allows arbitrary browser origins without credentials.
+  This is appropriate for public Trellis APIs where requests carry explicit
+  Trellis proofs rather than ambient cookies.
+- Specific `web.origins` entries allow only those configured origins and enable
+  credentialed CORS for those origins.
+- Flow-specific routes still perform stricter flow-local validation. Portal
+  endpoints allow the selected portal origin for the flow. Bind allows only the
+  app origin recorded when the flow was created from `redirectTo`. Credentialed
+  routes such as OAuth callback state handling keep their stricter CORS/cookie
+  rules.
 
 Public Trellis URLs and public NATS/WebSocket transports should use HTTPS/WSS.
 Loopback HTTP/WS remains valid for local development, and explicit

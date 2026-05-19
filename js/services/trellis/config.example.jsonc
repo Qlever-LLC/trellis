@@ -4,8 +4,8 @@
   "port": 3000,
   "instanceName": "Trellis Auth",
 
-  // Browser origins allowed to call the auth endpoints.
-  // Omit this block to allow any origin by default, or set ["*"] explicitly.
+  // Browser origins allowed to call auth endpoints, use auth redirects, and
+  // receive CORS headers from global auth/bootstrap endpoints.
   "web": {
     "origins": [
       "http://localhost:5173",
@@ -29,6 +29,7 @@
   "ttlMs": {
     "sessions": 86400000,
     "oauth": 300000,
+    "deviceFlow": 1800000,
     "pendingAuth": 300000,
     "connections": 7200000,
     "natsJwt": 3600000
@@ -36,6 +37,10 @@
 
   "nats": {
     "servers": "localhost",
+    "jetstream": {
+      // Use 1 for standalone/local NATS and 3 for a three-node production cluster.
+      "replicas": 1
+    },
     "trellis": {
       "credsPath": ".local/nats/trellis-auth.creds"
     },

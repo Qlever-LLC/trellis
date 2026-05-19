@@ -12,7 +12,6 @@ function createConfig(): Config {
     instanceName: "Trellis Auth",
     web: {
       origins: ["http://localhost:5173"],
-      cors: { mode: "restricted", origins: ["http://localhost:5173"], credentials: true },
       publicOrigin: "http://localhost:3000",
       allowInsecureOrigins: [],
     },

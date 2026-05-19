@@ -10,17 +10,6 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 const MIN_LOCAL_PASSWORD_LENGTH = 8;
 const DEFAULT_LOCAL_PASSWORD_LENGTH = 12;
 
-const webCorsSchema = z.discriminatedUnion("mode", [
-  z.object({
-    mode: z.literal("public"),
-  }),
-  z.object({
-    mode: z.literal("restricted"),
-    origins: z.array(z.string()).min(1),
-    credentials: z.boolean().default(false),
-  }),
-]);
-
 const githubProviderSchema = z.object({
   type: z.literal("github"),
   clientId: z.string(),
@@ -60,10 +49,10 @@ const rawSchema = z.object({
   web: z
     .object({
       origins: z.array(z.string()).default(["*"]),
-      cors: webCorsSchema.optional(),
       publicOrigin: z.string().optional(),
       allowInsecureOrigins: z.array(z.string()).default([]),
     })
+    .strict()
     .default({
       origins: ["*"],
       allowInsecureOrigins: [],
@@ -183,9 +172,6 @@ export type Config = {
   instanceName: string;
   web: {
     origins: string[];
-    cors:
-      | { mode: "public" }
-      | { mode: "restricted"; origins: string[]; credentials: boolean };
     publicOrigin?: string;
     allowInsecureOrigins: string[];
   };
@@ -270,21 +256,6 @@ function normalizeOriginList(origins: string[]): string[] {
 function normalizeWebOrigins(origins: string[]): string[] {
   if (origins.includes("*")) return ["*"];
   return normalizeOriginList(origins);
-}
-
-function normalizeWebCors(rawWeb: RawConfig["web"]): Config["web"]["cors"] {
-  if (rawWeb.cors?.mode === "restricted") {
-    return {
-      mode: "restricted",
-      origins: normalizeOriginList(rawWeb.cors.origins),
-      credentials: rawWeb.cors.credentials,
-    };
-  }
-  if (rawWeb.cors?.mode === "public") return { mode: "public" };
-  const origins = normalizeWebOrigins(rawWeb.origins);
-  return origins.includes("*")
-    ? { mode: "public" }
-    : { mode: "restricted", origins, credentials: true };
 }
 
 function isLoopbackUrl(url: URL): boolean {
@@ -418,7 +389,6 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
     instanceName: raw.instanceName,
     web: {
       origins: normalizeWebOrigins(raw.web.origins),
-      cors: normalizeWebCors(raw.web),
       publicOrigin: canonicalizeLoopbackUrl(raw.web.publicOrigin),
       allowInsecureOrigins: normalizeOriginList(raw.web.allowInsecureOrigins),
     },

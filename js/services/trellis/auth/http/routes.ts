@@ -13,8 +13,6 @@ import {
   createAuthHttpRouteContext,
 } from "./route_context.ts";
 
-type AuthCorsConfig = AuthHttpRouteOptions["config"]["web"]["cors"];
-
 type RateLimitContext = {
   env?: unknown;
   req?: { header: (name: string) => string | undefined };
@@ -70,6 +68,25 @@ function browserFlowPortalEndpointFlowId(
   }
 }
 
+function browserFlowBindEndpointFlowId(
+  pathname: string,
+  method: string,
+): string | undefined {
+  const prefix = "/auth/flow/";
+  if (!pathname.startsWith(prefix)) return undefined;
+  if (method !== "POST" && method !== "OPTIONS") return undefined;
+
+  const parts = pathname.slice(prefix.length).split("/");
+  if (parts.length !== 2 || parts[1] !== "bind") return undefined;
+  const flowId = parts[0];
+  if (!flowId) return undefined;
+  try {
+    return decodeURIComponent(flowId);
+  } catch {
+    return undefined;
+  }
+}
+
 function setCorsHeaders(
   c: {
     header: (name: string, value: string) => void;
@@ -87,8 +104,8 @@ function setCorsHeaders(
   }
 }
 
-function globalAuthCorsOptions(corsConfig: AuthCorsConfig) {
-  if (corsConfig.mode === "public") {
+function globalAuthCorsOptions(origins: readonly string[]) {
+  if (origins.includes("*")) {
     return {
       origin: "*",
       allowMethods: ["GET", "POST", "OPTIONS"],
@@ -96,9 +113,9 @@ function globalAuthCorsOptions(corsConfig: AuthCorsConfig) {
     };
   }
   return {
-    origin: (origin: string) => resolveCorsOrigin(origin, corsConfig.origins),
+    origin: (origin: string) => resolveCorsOrigin(origin, origins),
     allowMethods: ["GET", "POST", "OPTIONS"],
-    credentials: corsConfig.credentials,
+    credentials: true,
   };
 }
 
@@ -200,8 +217,30 @@ export function registerHttpRoutes(
     await next();
   });
 
+  app.use("/auth/flow/*", async (c, next) => {
+    const flowId = browserFlowBindEndpointFlowId(
+      new URL(c.req.url).pathname,
+      c.req.method,
+    );
+    if (!flowId) {
+      await next();
+      return;
+    }
+    const origin = await context.resolveBrowserFlowBindCorsOrigin(
+      flowId,
+      c.req.header("origin"),
+    );
+    if (origin) {
+      setCorsHeaders(c, origin);
+      if (c.req.method === "OPTIONS") {
+        return c.body(null, 204);
+      }
+    }
+    await next();
+  });
+
   {
-    const corsOptions = globalAuthCorsOptions(config.web.cors);
+    const corsOptions = globalAuthCorsOptions(config.web.origins);
     const authCors = cors(corsOptions);
     app.use(
       "/auth/*",

@@ -33,7 +33,7 @@ const config: Config = {
   logLevel: "info",
   port: 3000,
   instanceName: "Trellis",
-  web: { origins: [], cors: { mode: "public" }, allowInsecureOrigins: [] },
+  web: { origins: ["*"], allowInsecureOrigins: [] },
   httpRateLimit: { windowMs: 60_000, max: 0 },
   storage: { dbPath: ":memory:" },
   auth: { localIdentity: { enabled: true, passwordPolicy: { minLength: 8 } } },

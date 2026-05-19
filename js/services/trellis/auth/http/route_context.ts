@@ -410,6 +410,16 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
       : undefined;
   }
 
+  async function resolveBrowserFlowBindCorsOrigin(
+    flowId: string,
+    requestOrigin: string | undefined,
+  ): Promise<string | undefined> {
+    if (!requestOrigin) return undefined;
+
+    const flow = await loadBrowserFlow(flowId);
+    return flow?.app?.origin === requestOrigin ? requestOrigin : undefined;
+  }
+
   function registrationAvailability(
     selected: SelectedLoginPortal,
   ): FlowRegistrationAvailability {
@@ -755,6 +765,7 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     resolveSelectedLoginPortal,
     requireSelectedPortalOrigin,
     resolveBrowserFlowCorsOrigin,
+    resolveBrowserFlowBindCorsOrigin,
     registrationAvailability,
     resolveLinkedActiveUserIdentity,
     bindResolvedUserSession,

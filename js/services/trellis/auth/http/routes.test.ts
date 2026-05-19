@@ -36,7 +36,7 @@ const config: Config = {
   logLevel: "info",
   port: 3000,
   instanceName: "Trellis",
-  web: { origins: [], cors: { mode: "public" }, allowInsecureOrigins: [] },
+  web: { origins: ["*"], allowInsecureOrigins: [] },
   httpRateLimit: { windowMs: 60_000, max: 0 },
   storage: { dbPath: ":memory:" },
   auth: { localIdentity: { enabled: true, passwordPolicy: { minLength: 8 } } },
@@ -1347,6 +1347,37 @@ Deno.test({
 });
 
 Deno.test({
+  name: "auth HTTP bind preflight allows only the flow app origin",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({
+      app: { contractId: "client.example@v1", origin: "https://app.example" },
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/flow/flow-local/bind",
+      {
+        method: "OPTIONS",
+        headers: {
+          origin: "https://app.example",
+          "access-control-request-method": "POST",
+        },
+      },
+    );
+
+    assertEquals(response.status, 204);
+    assertEquals(
+      response.headers.get("access-control-allow-origin"),
+      "https://app.example",
+    );
+    assertEquals(
+      response.headers.get("access-control-allow-credentials"),
+      "true",
+    );
+  },
+});
+
+Deno.test({
   name: "auth HTTP public CORS allows arbitrary origins without credentials",
   sanitizeResources: false,
   fn: async () => {
@@ -1370,8 +1401,7 @@ Deno.test({
 });
 
 Deno.test({
-  name:
-    "auth HTTP restricted CORS can allow credentials for configured origins",
+  name: "auth HTTP restricted CORS allows credentials for configured origins",
   sanitizeResources: false,
   fn: async () => {
     const app = await registerTestRoutes({}, {}, {}, {
@@ -1379,11 +1409,7 @@ Deno.test({
         ...config,
         web: {
           ...config.web,
-          cors: {
-            mode: "restricted",
-            origins: ["https://app.example"],
-            credentials: true,
-          },
+          origins: ["https://app.example"],
         },
       },
     });
