@@ -38,7 +38,7 @@ It covers:
 Relationship: `ttlMs.natsJwt < ttlMs.sessions`.
 
 Reducing `ttlMs.natsJwt` increases reconnect frequency but does not change RPC
-replay window.
+request-id replay-cache retention.
 
 ### Per-service Secrets
 
@@ -69,6 +69,7 @@ Additional `trellis` service config:
 | deviceInstances        | None              |
 | identityEnvelopes      | None              |
 | deploymentEnvelopes    | None              |
+| loginPortals           | None              |
 | deploymentPortalRoutes | None              |
 | services               | None              |
 | connections            | 2h                |
@@ -80,6 +81,7 @@ Cluster-wide required state:
 - SQLite auth/control-plane database (`storage.dbPath`)
 - services tables
 - sessions table
+- RPC replay cache used by auth validators
 - OAuth state store
 - pending auth store
 - device activation flow store
@@ -87,7 +89,8 @@ Cluster-wide required state:
 - device instance store
 - device deployment store
 - identity envelope tables
-- deployment envelope tables, including portal-route metadata
+- auth-owned login portal records, settings, and route selectors
+- deployment envelope tables, including device portal-route metadata
 - connection store
 
 Production requirements:
@@ -192,24 +195,6 @@ rate-limit identity by themselves.
 5. Remove the old sentinel user
 
 ## Accepted Risks
-
-### RPC Message Replay
-
-Risk: a signed request can be replayed while the session is still valid.
-
-Mitigations:
-
-- TLS required
-- non-extractable keys in browsers
-- per-message signatures bound to subject and payload
-- session revocation invalidates future replays
-
-Accepted because:
-
-- replay requires insider access or prior capture
-- replay can only reproduce the same request, not forge a new one
-- the protocol remains simpler than nonce-based or timestamp-per-request designs
-- applications can layer idempotency keys where needed
 
 ### XSS Session Abuse
 

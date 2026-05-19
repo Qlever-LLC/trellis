@@ -4,7 +4,9 @@ import { AsyncResult } from "@qlever-llc/result";
 import {
   base64urlEncode,
   createAuth,
+  deriveDeviceIdentity,
   sha256,
+  signDeviceWaitRequest,
   utf8,
 } from "@qlever-llc/trellis/auth";
 
@@ -16,6 +18,7 @@ import { buildAuthStartSignaturePayload } from "./start_request.ts";
 import { hashKey } from "../crypto.ts";
 import { identityIdForProviderSubject } from "../identity.ts";
 import { createLocalCredentialPassword } from "../local_credentials/passwords.ts";
+import { registerDeviceActivationHttpRoutes } from "../device_activation/http.ts";
 import type {
   AccountFlow,
   LocalCredential,
@@ -33,10 +36,10 @@ const config: Config = {
   logLevel: "info",
   port: 3000,
   instanceName: "Trellis",
-  web: { origins: [], allowInsecureOrigins: [] },
+  web: { origins: [], cors: { mode: "public" }, allowInsecureOrigins: [] },
   httpRateLimit: { windowMs: 60_000, max: 0 },
   storage: { dbPath: ":memory:" },
-  auth: { localIdentity: { enabled: true } },
+  auth: { localIdentity: { enabled: true, passwordPolicy: { minLength: 8 } } },
   ttlMs: {
     sessions: 1,
     oauth: 1,
@@ -81,6 +84,7 @@ const portalSettings: LoginPortalSettings = {
   portalId: portalRecord.portalId,
   localRegistrationEnabled: true,
   federatedRegistrationEnabled: true,
+  allowedFederatedProviders: null,
   selfRegisteredAccountActive: true,
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
@@ -99,6 +103,7 @@ const externalPortalSettings: LoginPortalSettings = {
   portalId: externalPortalRecord.portalId,
   localRegistrationEnabled: true,
   federatedRegistrationEnabled: true,
+  allowedFederatedProviders: null,
   selfRegisteredAccountActive: true,
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
@@ -1093,6 +1098,108 @@ Deno.test({
 });
 
 Deno.test({
+  name:
+    "auth HTTP flow state filters federated providers by selected portal allowlist",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({ authToken: undefined }, {}, {
+      github: testProvider("github", "GitHub"),
+      google: testProvider("google", "Google"),
+    }, {
+      loginPortalStorage: {
+        resolveForApp: () =>
+          Promise.resolve({
+            portal: portalRecord,
+            settings: {
+              ...portalSettings,
+              allowedFederatedProviders: ["github"],
+            },
+            defaultCapabilities: [],
+            defaultCapabilityGroups: [],
+          }),
+      },
+    });
+
+    const response = await app.request("http://trellis/auth/flow/flow-local");
+
+    assertEquals(response.status, 200);
+    const body = await response.json();
+    assertEquals(body.providers, [
+      { id: "local", displayName: "Username and password" },
+      { id: "github", displayName: "GitHub" },
+    ]);
+    assertEquals(body.registration.federatedIdentity, {
+      available: true,
+      providers: [{ id: "github", displayName: "GitHub" }],
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP flow state treats empty federated provider allowlist as none",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({ authToken: undefined }, {}, {
+      github: testProvider("github", "GitHub"),
+    }, {
+      loginPortalStorage: {
+        resolveForApp: () =>
+          Promise.resolve({
+            portal: portalRecord,
+            settings: { ...portalSettings, allowedFederatedProviders: [] },
+            defaultCapabilities: [],
+            defaultCapabilityGroups: [],
+          }),
+      },
+    });
+
+    const response = await app.request("http://trellis/auth/flow/flow-local");
+
+    assertEquals(response.status, 200);
+    const body = await response.json();
+    assertEquals(body.providers, [
+      { id: "local", displayName: "Username and password" },
+    ]);
+    assertEquals(body.registration.federatedIdentity, {
+      available: false,
+      providers: [],
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP login rejects federated provider outside selected portal allowlist",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({ authToken: undefined }, {}, {
+      github: testProvider("github", "GitHub"),
+      google: testProvider("google", "Google"),
+    }, {
+      loginPortalStorage: {
+        resolveForApp: () =>
+          Promise.resolve({
+            portal: portalRecord,
+            settings: {
+              ...portalSettings,
+              allowedFederatedProviders: ["github"],
+            },
+            defaultCapabilities: [],
+            defaultCapabilityGroups: [],
+          }),
+      },
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/login/google?flowId=flow-local",
+    );
+
+    assertEquals(response.status, 403);
+  },
+});
+
+Deno.test({
   name: "auth HTTP flow state accepts configured external portal origin",
   sanitizeResources: false,
   fn: async () => {
@@ -1214,6 +1321,68 @@ Deno.test({
     );
 
     assertEquals(response.headers.get("access-control-allow-origin"), null);
+  },
+});
+
+Deno.test({
+  name: "auth HTTP public CORS allows arbitrary origins without credentials",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes();
+
+    const response = await app.request("http://trellis/bootstrap/client", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://third-party.example",
+        "access-control-request-method": "POST",
+      },
+    });
+
+    assertEquals(response.status, 204);
+    assertEquals(response.headers.get("access-control-allow-origin"), "*");
+    assertEquals(
+      response.headers.get("access-control-allow-credentials"),
+      null,
+    );
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP restricted CORS can allow credentials for configured origins",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({}, {}, {}, {
+      config: {
+        ...config,
+        web: {
+          ...config.web,
+          cors: {
+            mode: "restricted",
+            origins: ["https://app.example"],
+            credentials: true,
+          },
+        },
+      },
+    });
+
+    const response = await app.request("http://trellis/bootstrap/client", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://app.example",
+        "access-control-request-method": "POST",
+      },
+    });
+
+    assertEquals(response.status, 204);
+    assertEquals(
+      response.headers.get("access-control-allow-origin"),
+      "https://app.example",
+    );
+    assertEquals(
+      response.headers.get("access-control-allow-credentials"),
+      "true",
+    );
   },
 });
 
@@ -1993,6 +2162,87 @@ Deno.test({
 
     assertEquals(response.status, 400);
     assertEquals(await response.json(), { error: "Invalid approval request" });
+  },
+});
+
+Deno.test({
+  name: "device activation wait loads signed flowId directly",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = new Hono();
+    const identity = await deriveDeviceIdentity(new Uint8Array(32).fill(19));
+    let loadedKey: string | undefined;
+    let scanned = false;
+    const flow = {
+      flowId: "flow-direct",
+      kind: "device_activation",
+      deviceActivation: {
+        instanceId: "dev_1",
+        deploymentId: "reader.default",
+        publicIdentityKey: identity.publicIdentityKey,
+        nonce: "nonce_1",
+        qrMac: "mac_1",
+      },
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      expiresAt: new Date("2099-01-01T00:05:00.000Z"),
+    };
+
+    registerDeviceActivationHttpRoutes(app, {
+      browserFlowsKV: {
+        get: (key: string) => {
+          loadedKey = key;
+          return AsyncResult.ok({ value: key === flow.flowId ? flow : null });
+        },
+        put: () => AsyncResult.ok(undefined),
+        keys: () => {
+          scanned = true;
+          return AsyncResult.ok((async function* () {})());
+        },
+      },
+      contracts: createTestContracts(),
+      deploymentEnvelopeStorage: { get: async () => undefined },
+      deploymentPortalRouteStorage: { get: async () => undefined },
+      deviceActivationReviewStorage: { getByFlowId: async () => undefined },
+      deviceActivationStorage: { get: async () => undefined },
+      deviceDeploymentStorage: { get: async () => undefined },
+      deviceInstanceStorage: {
+        get: async () => ({
+          instanceId: "dev_1",
+          publicIdentityKey: identity.publicIdentityKey,
+          deploymentId: "reader.default",
+          state: "registered",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          activatedAt: null,
+          revokedAt: null,
+        }),
+      },
+      deviceProvisioningSecretStorage: { get: async () => undefined },
+      logger: { error: () => {} },
+      sentinelCreds: { jwt: "jwt", seed: "seed" },
+      config,
+    } as never);
+
+    const waitRequest = await signDeviceWaitRequest({
+      flowId: flow.flowId,
+      publicIdentityKey: identity.publicIdentityKey,
+      nonce: flow.deviceActivation.nonce,
+      identitySeed: identity.identitySeed,
+      contractDigest: "digest-a",
+      iat: Math.floor(Date.now() / 1_000),
+    });
+    const response = await app.request(
+      "http://trellis/auth/devices/activate/wait",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(waitRequest),
+      },
+    );
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), { status: "pending" });
+    assertEquals(loadedKey, "flow-direct");
+    assertEquals(scanned, false);
   },
 });
 

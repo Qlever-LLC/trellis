@@ -202,8 +202,10 @@ instance has been activated.
 Browser clients:
 
 - use Ed25519 keys
-- store them in IndexedDB via WebCrypto
-- must keep them non-extractable
+- keep private keys non-extractable
+- may use a temporary memory-only non-extractable key for the current tab/session
+- may use a remembered IndexedDB non-extractable key with expiry metadata for
+  longer-lived browser sessions
 
 Server and service clients:
 
@@ -214,7 +216,8 @@ Rules:
 
 - the private session key seed is the real application credential
 - the public session key is an identifier, not a secret credential
-- session keys persist across reconnects and are rotated only deliberately
+- persistent session keys survive reconnects until expiry or explicit rotation;
+  memory-only browser keys are deliberately discarded with the page/session
 
 ### 6) Sentinel credentials trigger auth callout; they grant no real access
 
@@ -276,16 +279,23 @@ Rules:
 - Trellis ships a built-in login portal and a generic device-activation portal,
   commonly served by the Trellis HTTP server from static assets; the built-in
   login portal is a DB-projected, visible, non-deletable portal record
-- login portal settings and route selectors live in auth-owned projected
-  storage; instance config gates only instance-level capabilities such as
-  `auth.localIdentity.enabled`
+- login portal records, settings, and route selectors live in auth-owned
+  projected storage; instance config gates only instance-level capabilities such
+  as `auth.localIdentity.enabled`
+- custom login portal records are auth-owned routing targets and can be created,
+  updated, or removed by admin RPC, but the built-in login portal remains
+  non-deletable and non-replaceable
 - a portal is a browser web app selected by auth-owned login routing or
   deployment-owned device routing; it is never a service-authenticated principal
 - portal routes are routing config only and do not imply approval, capabilities,
   or service authority
 - login portal self-registration policy can enable local registration only when
   local identity is enabled for the instance; federated registration
-  availability is derived from configured OAuth/OIDC providers
+  availability requires configured OAuth/OIDC providers, portal-level federated
+  registration, and the portal's `allowedFederatedProviders` filter
+- `allowedFederatedProviders: null` means all configured federated providers are
+  allowed for that portal, `[]` means none are allowed, and a non-empty list
+  allows only those configured provider ids
 - there is no special portal contract kind; custom portals remain first-class
   browser UX surfaces without portal-specific contract machinery
 - a portal MAY also act later as a normal user-authenticated browser app, but
@@ -316,6 +326,9 @@ Rules:
   identity, or origin that pre-authorize envelope and capability decisions
 - grant overrides cannot invent availability; the requested boundary must still
   fit the relevant deployment envelope
+- grant override approval requires the matching override rows themselves to cover
+  the requested approval capabilities; user-owned capabilities remain separate
+  authorization evidence and are not copied into deployment grant approval
 - approval scopes are derived from declared contract APIs; there is no separate
   scope DSL
 - stored grants, sessions, users, services, and devices continue to store
@@ -341,6 +354,9 @@ Rules:
   approval record
 - after any successful rebind or digest change, callers MUST reconnect NATS
   before using the new rights because transport JWTs are issued per connection
+- browser clients treat both `session_not_found` and `reauth_required` as
+  auth-required states and should re-enter the login/reauth flow rather than
+  surfacing them as terminal application errors
 
 ### 9) Activated devices are deployment-owned
 
@@ -418,8 +434,9 @@ Rules:
 - Rust admin clients are thin typed facades over generated auth/admin SDK
   models; they may group calls ergonomically but must not hand-maintain
   independent wire shapes or redefine auth semantics
-- Rust portal administration commands do not call standalone portal RPCs; portal
-  routing is deployment-envelope metadata and built-in portals remain implicit
+- Rust portal administration commands are thin facades over `Auth.Portals.*`;
+  login portal records and route selectors are auth-owned, while device portal
+  routing remains deployment-owned
 
 The important distinction is that installed and activated devices differ in auth
 establishment, not in the basic runtime treatment after auth succeeds.
@@ -454,9 +471,10 @@ Rules:
 - activated devices do not use browser bind or user session flows; they
   establish their session from activation state plus identity-key proof and
   current contract evidence
-- browser sessions that are revoked or otherwise missing during runtime RPCs
-  surface as `session_not_found` and should re-enter the browser login flow
-  rather than displaying a terminal application error
+- browser sessions that are revoked, missing, or too stale for a protected admin
+  action surface as `session_not_found` or `reauth_required` and should re-enter
+  the browser login/reauth flow rather than displaying a terminal application
+  error
 - session-facing RPCs must not reconstruct a missing durable session from caller
   context. Missing durable session state is authoritative and returns
   `session_not_found`.
@@ -477,9 +495,19 @@ Rules:
 
 - Trellis MUST derive permissions from contracts rather than from a parallel
   scope system
-- user approval planning and active-catalog refresh both resolve `uses`
-  dependencies against currently active contracts. Inactive or missing
+- runtime permission derivation and active-catalog refresh resolve `uses`
+  dependencies against currently active contracts. Inactive or missing required
   dependencies fail closed instead of being treated as advisory metadata.
+- contract dependencies are authored and emitted only under `uses.required` or
+  `uses.optional`; flat aliases directly under `uses` are invalid and must not be
+  interpreted as required dependencies.
+- approval planning may derive reviewable surfaces and capabilities from known
+  inactive required dependency manifests, but runtime permission derivation and
+  active-catalog refresh still require those dependencies to be active.
+- missing optional dependency contracts or optional requested surfaces are skipped
+  during planning and grant no runtime authority; if they later become active,
+  they require a new envelope expansion and approval before a fresh reconnect can
+  use them.
 - active-catalog refresh, portal routing, surface status, shrink preview, and
   unused installed-contract cleanup are derived through targeted durable-store
   queries rather than broad scans of local manifests or in-memory catalogs.
@@ -487,6 +515,9 @@ Rules:
   built-in Trellis contracts or the global contract store; deployment evidence
   records are used to discover approved digests and surfaces, not to hydrate
   manifests.
+- for a single deployment and contract id, the active projection uses only the
+  latest deployment evidence row; older same-id digests remain audit history and
+  stale service reconnects must fail with `contract_changed`.
 - user approval planning collects required capability keys from declared RPC,
   operation, and event capability lists and attaches the owning contract's
   capability metadata when available

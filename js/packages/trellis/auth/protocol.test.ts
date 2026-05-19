@@ -51,7 +51,9 @@ import {
   AuthPortalsLoginRoutesListResponseSchema,
   AuthPortalsLoginRoutesPutResponseSchema,
   AuthPortalsLoginSettingsResponseSchema,
+  AuthPortalsLoginSettingsUpdateSchema,
   AuthRequestsValidateResponseSchema,
+  AuthRequestsValidateSchema,
   AuthResolveDeviceUserAuthoritiesProgressSchema,
   AuthResolveDeviceUserAuthoritiesResponseSchema,
   AuthResolveDeviceUserAuthoritiesSchema,
@@ -63,9 +65,28 @@ import {
   NatsAuthTokenV1Schema,
   PortalFlowStateSchema,
   ServiceDeploymentSchema,
+  WaitForDeviceActivationRequestSchema,
 } from "./mod.ts";
 
 const now = new Date().toISOString();
+const deviceActivationActor = {
+  participantKind: "app" as const,
+  userId: "usr_123",
+  identity: {
+    identityId: "idn_github_123",
+    provider: "github",
+    subject: "123",
+  },
+};
+const adminDeviceActivationActor = {
+  participantKind: "app" as const,
+  userId: "usr_admin",
+  identity: {
+    identityId: "idn_github_admin",
+    provider: "github",
+    subject: "admin",
+  },
+};
 const adminApprovalCapabilities = {
   admin: {
     displayName: "Admin",
@@ -143,6 +164,7 @@ Deno.test("admin portal RPC schemas expose projected portal fields", () => {
     portalId: "trellis.builtin.login",
     localRegistrationEnabled: true,
     federatedRegistrationEnabled: false,
+    allowedFederatedProviders: null,
     selfRegisteredAccountActive: true,
     updatedAt: now,
   };
@@ -161,16 +183,40 @@ Deno.test("admin portal RPC schemas expose projected portal fields", () => {
     settings,
     defaultCapabilities: ["admin"],
     defaultCapabilityGroups: ["operators"],
+    federatedProviders: [{
+      id: "github",
+      displayName: "GitHub",
+      type: "oauth",
+    }],
+  }));
+  assert(Value.Check(AuthPortalsLoginSettingsUpdateSchema, {
+    portalId: portal.portalId,
+    localRegistrationEnabled: true,
+    federatedRegistrationEnabled: true,
+    allowedFederatedProviders: ["github"],
+    selfRegisteredAccountActive: true,
+    defaultCapabilities: [],
+    defaultCapabilityGroups: [],
+  }));
+  assert(Value.Check(AuthPortalsLoginSettingsUpdateSchema, {
+    portalId: portal.portalId,
+    localRegistrationEnabled: true,
+    federatedRegistrationEnabled: true,
+    allowedFederatedProviders: [],
+    selfRegisteredAccountActive: true,
+    defaultCapabilities: [],
+    defaultCapabilityGroups: [],
   }));
   assert(Value.Check(AuthPortalsLoginRoutesListResponseSchema, {
     routes: [route],
   }));
   assert(Value.Check(AuthPortalsLoginRoutesPutResponseSchema, { route }));
-  assertFalse(Value.Check(AuthPortalsLoginSettingsResponseSchema, {
+  assert(Value.Check(AuthPortalsLoginSettingsResponseSchema, {
     portal,
     settings: { ...settings, jsonSettings: {} },
     defaultCapabilities: [],
     defaultCapabilityGroups: [],
+    federatedProviders: [],
   }));
 });
 
@@ -196,6 +242,24 @@ Deno.test("auth schemas keep contractDigest consistently typed", () => {
     sig: "B".repeat(86),
     iat: 1,
     contractDigest: "digest with spaces",
+  }));
+});
+
+Deno.test("device activation wait request requires flowId", () => {
+  assert(Value.Check(WaitForDeviceActivationRequestSchema, {
+    flowId: "flow_123",
+    publicIdentityKey: "pub_123",
+    nonce: "nonce_123",
+    contractDigest: "digest_123",
+    iat: 1,
+    sig: "sig_123",
+  }));
+  assertFalse(Value.Check(WaitForDeviceActivationRequestSchema, {
+    publicIdentityKey: "pub_123",
+    nonce: "nonce_123",
+    contractDigest: "digest_123",
+    iat: 1,
+    sig: "sig_123",
   }));
 });
 
@@ -328,6 +392,7 @@ Deno.test("AuthRequestsValidateResponseSchema validates device caller variants",
       name: "Ada",
       email: "ada@example.com",
       capabilities: ["admin"],
+      lastAuth: "2026-04-10T00:00:00.000Z",
     },
   }));
   assert(Value.Check(AuthRequestsValidateResponseSchema, {
@@ -537,6 +602,45 @@ Deno.test("AuthSessionsMeResponseSchema validates user, device, and service enve
     device: null,
     service: null,
     requestId: "req_123",
+  }));
+});
+
+Deno.test("AuthRequestsValidateSchema requires proof v2 metadata and non-empty strings", () => {
+  assert(Value.Check(AuthRequestsValidateSchema, {
+    sessionKey: "sk_123",
+    proof: "sig_123",
+    subject: "rpc.v1.Example.Call",
+    payloadHash: "hash_123",
+    iat: 1_700_000_000,
+    requestId: "req_123",
+    capabilities: ["example.call"],
+  }));
+
+  assertFalse(Value.Check(AuthRequestsValidateSchema, {
+    sessionKey: "sk_123",
+    proof: "sig_123",
+    subject: "rpc.v1.Example.Call",
+    payloadHash: "hash_123",
+    requestId: "req_123",
+  }));
+
+  assertFalse(Value.Check(AuthRequestsValidateSchema, {
+    sessionKey: "",
+    proof: "sig_123",
+    subject: "rpc.v1.Example.Call",
+    payloadHash: "hash_123",
+    iat: 1_700_000_000,
+    requestId: "req_123",
+  }));
+
+  assertFalse(Value.Check(AuthRequestsValidateSchema, {
+    sessionKey: "sk_123",
+    proof: "sig_123",
+    subject: "rpc.v1.Example.Call",
+    payloadHash: "hash_123",
+    iat: 1_700_000_000,
+    requestId: "req_123",
+    capabilities: [""],
   }));
 });
 
@@ -755,10 +859,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     publicIdentityKey: "A".repeat(43),
     deploymentId: "sherpa",
     requestedAt: now,
-    requestedBy: {
-      origin: "github",
-      id: "123",
-    },
+    requestedBy: deviceActivationActor,
   }));
   assert(Value.Check(AuthDeviceUserAuthoritiesRequestedEventSchema, {
     flowId: "flow_1",
@@ -766,10 +867,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     publicIdentityKey: "A".repeat(43),
     deploymentId: "sherpa",
     requestedAt: now,
-    requestedBy: {
-      origin: "github",
-      id: "123",
-    },
+    requestedBy: deviceActivationActor,
   }));
   assert(Value.Check(AuthDeviceUserAuthoritiesApprovedEventSchema, {
     reviewId: "dar_1",
@@ -779,23 +877,15 @@ Deno.test("device activation and connect-info schemas validate", () => {
     deploymentId: "sherpa",
     requestedAt: now,
     approvedAt: now,
-    requestedBy: {
-      origin: "github",
-      id: "123",
-    },
-    approvedBy: {
-      id: "admin",
-    },
+    requestedBy: deviceActivationActor,
+    approvedBy: adminDeviceActivationActor,
   }));
   assert(Value.Check(AuthDeviceUserAuthoritiesResolvedEventSchema, {
     instanceId: "dev_1",
     publicIdentityKey: "A".repeat(43),
     deploymentId: "sherpa",
     resolvedAt: now,
-    resolvedBy: {
-      origin: "github",
-      id: "123",
-    },
+    resolvedBy: deviceActivationActor,
     flowId: "flow_1",
     reviewId: "dar_1",
   }));
@@ -805,7 +895,7 @@ Deno.test("device activation and connect-info schemas validate", () => {
     iat: 123,
     sig: "proof",
   }));
-  assertFalse(Value.Check(AuthDevicesConnectInfoGetSchema, {
+  assert(Value.Check(AuthDevicesConnectInfoGetSchema, {
     publicIdentityKey: "A".repeat(43),
     contractDigest: "digest-a",
     iat: 123,

@@ -140,6 +140,9 @@ CASE: SERVICE CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - reject if the service instance has no current contract evidence, if the
   presented evidence differs from that runtime evidence, or if the required
   boundary no longer fits the deployment envelope
+- reject with `contract_changed` if the deployment has newer evidence for the
+  same contract id than the presented digest; old same-id evidence must not be
+  refreshed back into the active set by a stale service binary
 - lookup or create the session keyed by `sessionKey` only after envelope fit
   succeeds
 - compute inboxPrefix
@@ -232,14 +235,18 @@ function buildProofInput(
   sessionKey: string,
   subject: string,
   payloadHash: Uint8Array,
+  iat: number,
+  requestId: string,
 ): Uint8Array {
   const enc = new TextEncoder();
   const sessionKeyBytes = enc.encode(sessionKey);
   const subjectBytes = enc.encode(subject);
+  const iatBytes = enc.encode(String(iat));
+  const requestIdBytes = enc.encode(requestId);
 
   const buf = new Uint8Array(
     4 + sessionKeyBytes.length + 4 + subjectBytes.length + 4 +
-      payloadHash.length,
+      payloadHash.length + 4 + iatBytes.length + 4 + requestIdBytes.length,
   );
   const view = new DataView(buf.buffer);
 
@@ -255,6 +262,14 @@ function buildProofInput(
   view.setUint32(offset, payloadHash.length);
   offset += 4;
   buf.set(payloadHash, offset);
+  offset += payloadHash.length;
+  view.setUint32(offset, iatBytes.length);
+  offset += 4;
+  buf.set(iatBytes, offset);
+  offset += iatBytes.length;
+  view.setUint32(offset, requestIdBytes.length);
+  offset += 4;
+  buf.set(requestIdBytes, offset);
 
   return buf;
 }
@@ -262,7 +277,7 @@ function buildProofInput(
 payloadHash = SHA256(payload);
 proof = ed25519_sign(
   sessionKeyPrivate,
-  SHA256(buildProofInput(sessionKey, subject, payloadHash)),
+  SHA256(buildProofInput(sessionKey, subject, payloadHash, iat, requestId)),
 );
 ```
 
@@ -271,6 +286,11 @@ Rules:
 - receivers MUST compute `payloadHash` from the raw request body they actually
   received
 - receivers MUST NOT trust a caller-supplied payload hash header
+- clients MUST send `iat` and `request-id` headers with every signed RPC request
+- verifiers MUST include the corrected `iat` value and `requestId` in the proof
+  input and reject proofs whose `iat` is outside the configured freshness window
+- auth MUST reject replay of the same `requestId` for the same session while the
+  replay cache entry is live
 - receivers MUST verify the request against the stored authenticated
   session/principal state created at connect, bootstrap, or session binding time
 - length-prefixing is mandatory and prevents boundary attacks
@@ -280,15 +300,19 @@ Required message headers:
 ```text
 session-key: <sessionKey>
 proof: <base64url(ed25519 signature)>
+iat: <unix seconds, corrected to server-relative time when available>
+request-id: <unique request id for this session>
 ```
 
 Verification steps:
 
-1. Extract `session-key`
+1. Extract `session-key`, `proof`, `iat`, and `request-id`
 2. Compute `payloadHash = SHA256(raw_request_body)`
 3. Reconstruct proof input and verify signature using `session-key` as the
    public key
-4. Call `rpc.Auth.Requests.Validate` for session lookup, stored
+4. Call `rpc.Auth.Requests.Validate` with `sessionKey`, `proof`, `subject`, raw
+   `payloadHash`, `iat`, `requestId`, and required capabilities for session
+   lookup, replay detection, stored
    contract/principal context, and capability checking
 
 ## Pre-Auth Device Wait Verification
@@ -303,19 +327,22 @@ Proof input:
 
 ```ts
 function buildDeviceWaitProofInput(
+  flowId: string,
   publicIdentityKey: string,
   nonce: string,
   iat: number,
-  contractDigest?: string,
+  contractDigest: string,
 ): Uint8Array {
   const enc = new TextEncoder();
+  const flowIdBytes = enc.encode(flowId);
   const publicIdentityKeyBytes = enc.encode(publicIdentityKey);
   const nonceBytes = enc.encode(nonce);
   const iatBytes = enc.encode(String(iat));
-  const contractDigestBytes = enc.encode(contractDigest ?? "");
+  const contractDigestBytes = enc.encode(contractDigest);
 
   const buf = new Uint8Array(
-    4 + publicIdentityKeyBytes.length +
+    4 + flowIdBytes.length +
+      4 + publicIdentityKeyBytes.length +
       4 + nonceBytes.length +
       4 + iatBytes.length +
       4 + contractDigestBytes.length,
@@ -323,6 +350,11 @@ function buildDeviceWaitProofInput(
   const view = new DataView(buf.buffer);
 
   let offset = 0;
+  view.setUint32(offset, flowIdBytes.length);
+  offset += 4;
+  buf.set(flowIdBytes, offset);
+  offset += flowIdBytes.length;
+
   view.setUint32(offset, publicIdentityKeyBytes.length);
   offset += 4;
   buf.set(publicIdentityKeyBytes, offset);
@@ -348,7 +380,7 @@ function buildDeviceWaitProofInput(
 sig = ed25519_sign(
   identityPrivateKey,
   SHA256(
-    buildDeviceWaitProofInput(publicIdentityKey, nonce, iat, contractDigest),
+    buildDeviceWaitProofInput(flowId, publicIdentityKey, nonce, iat, contractDigest),
   ),
 );
 ```
@@ -357,10 +389,12 @@ Rules:
 
 - the endpoint MUST reject if `abs(now - iat) > 30s`
 - the endpoint MUST verify `sig` using the supplied `publicIdentityKey`
-- when the request includes `contractDigest`, the endpoint MUST include that
-  exact digest in the proof input
-- the endpoint MUST match the request against a pending or activated
-  device-activation flow using `publicIdentityKey` and `nonce`
+- the endpoint MUST include the signed `flowId` in the proof input and load the
+  browser flow directly by that id
+- the endpoint MUST include the exact `contractDigest` in the proof input
+- the endpoint MUST match the direct flow lookup against `publicIdentityKey` and
+  `nonce`; QR and MAC bearer semantics remain the intended protection for the
+  browser-to-flow handoff
 - the endpoint MUST NOT create a device session or issue transport credentials
   directly
 - the endpoint is a bounded long poll for setup only; it is not a general
@@ -403,6 +437,7 @@ All auth errors use `AuthError` with a `reason` code.
 | SessionKey header missing    | `missing_session_key`         |
 | Session not found            | `session_not_found`           |
 | Session expired              | `session_expired`             |
+| Fresh authentication needed  | `reauth_required`             |
 | Invalid signature            | `invalid_signature`           |
 | SessionKey mismatch in OAuth | `oauth_session_key_mismatch`  |
 | Session already bound        | `session_already_bound`       |
@@ -424,11 +459,11 @@ All auth errors use `AuthError` with a `reason` code.
 Detailed errors are acceptable because callers only reach them after passing
 connection-level auth.
 
-Browser clients treat `session_not_found` as an authentication-required state,
-not as a page-local application error. A revoked browser session therefore
-re-enters the normal login redirect flow so the app can preserve its current
-return path and show sign-in UX. Non-browser clients may surface the same
-`AuthError` directly.
+Browser clients treat `session_not_found` and `reauth_required` as
+authentication-required states, not as page-local application errors. Revoked or
+stale browser sessions therefore re-enter the normal login/reauth redirect flow
+so the app can preserve its current return path and show sign-in UX. Non-browser
+clients may surface the same `AuthError` directly.
 
 ## Internal State Model
 
@@ -437,13 +472,15 @@ return path and show sign-in UX. Non-browser clients may surface the same
 The portal-owned browser login UX uses `flowId` as the browser-visible
 identifier and keeps `authToken` internal to the Trellis runtime service.
 Trellis ships a built-in portal served by the Trellis HTTP server from static
-assets. Deployments may carry portal-route metadata for login or device flows,
-but those routes are deployment-owned routing config only, not standalone
-portal/default/selection authority. Device activation uses the same
-browser-visible `flowId` concept with `kind: "device_activation"` flow records
-rather than a separate public identifier. Portals are web apps, not
-service-authenticated principals; if a portal later continues as a Trellis app
-after login, it does so under a normal user session.
+assets. Login portal records and route selectors are global auth-owned routing
+config; the built-in login portal record is visible, non-removable, and
+non-replaceable. Device deployments may carry deployment-owned portal-route
+metadata for device flows. Neither form is standalone portal authority. Device
+activation uses the same browser-visible `flowId` concept with
+`kind: "device_activation"` flow records rather than a separate public
+identifier. Portals are web apps, not service-authenticated principals; if a
+portal later continues as a Trellis app after login, it does so under a normal
+user session.
 
 Flow summary:
 
@@ -451,7 +488,8 @@ Flow summary:
    initiating contract, and either returns `bound` immediately or creates a
    Trellis-owned browser flow plus a short `flowId`-based `loginUrl`.
 2. `GET /auth/login/:provider` requires `flowId` and stores the provider choice
-   in the same browser flow.
+   in the same browser flow. The provider must be allowed by the selected login
+   portal policy.
 3. `GET /auth/callback/:provider` provisions or refreshes the auth-local user
    projection, stores the resulting `authToken` server-side against the browser
    flow, and redirects back to the portal with the same `flowId`.
@@ -482,7 +520,7 @@ Runtime storage responsibilities:
 
 | Storage                    | Logical contents                                                                                                                                                           | TTL                                          |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| SQL                        | Users, sessions, identity-envelope grants, deployment grant overrides, service records, device records, deployment envelopes, portal-route metadata, and contract evidence | Durable, with session expiry from `lastAuth` |
+| SQL                        | Users, sessions, identity-envelope grants, deployment grant overrides, service records, device records, deployment envelopes, auth-owned login portal records/settings/routes, deployment-owned device portal-route metadata, and contract evidence | Durable, with session expiry from `lastAuth` |
 | `trellis_oauth_states` KV  | OAuth state mapping keyed by `hash(state)`                                                                                                                                 | 5 min                                        |
 | `trellis_pending_auth` KV  | Pending authenticated bind keyed by `hash(authToken)`                                                                                                                      | 5 min                                        |
 | `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"`                                                                           | Browser-flow TTL                             |
@@ -493,9 +531,13 @@ raw token value.
 
 Browser flows are keyed by raw `flowId` because the flow identifier is
 browser-visible and used to fetch auth-owned portal state. Device activation
-records persist for the lifetime of the activated device unless revoked. Portal
-routing metadata is deployment-owned envelope state used by browser login and
-device activation.
+records persist for the lifetime of the activated device unless revoked. Browser
+login uses auth-owned global login portal records and route selectors. Device
+activation routing remains deployment-owned envelope state.
+
+Provider chooser state returns only effective providers after selected portal
+policy. `allowedFederatedProviders: null` allows all configured providers, `[]`
+allows none, and a non-empty array allows only that configured subset.
 
 ### Browser Flow Record
 
@@ -590,10 +632,11 @@ Rules:
 ```ts
 {
   userTrellisId: string;
-  // Provider origin/id captured when approval was granted. These fields are
-  // audit evidence, not the matching key for approval reuse.
-  origin: string;
-  id: string;
+  identity: {
+    identityId: string;
+    provider: string;
+    subject: string;
+  };
   identityAnchor:
     | { kind: "web"; contractId: string; origin: string }
     | { kind: "cli"; contractId: string; sessionPublicKey: string }
@@ -610,16 +653,18 @@ Rules:
 
 Trellis stores identity-envelope grants when a durable approval decision exists.
 Durable approval records are keyed for reuse by Trellis `userTrellisId` plus the
-app identity anchor. The provider `origin`/`id` that was active when approval
-was granted remains audit evidence only; it is not used to decide whether a
-later linked local or OIDC identity on the same Trellis account may reuse the
-approval.
+app identity anchor. The identity that was active when approval was granted is
+recorded as evidence only; it is not used to decide whether a later linked local
+or OIDC identity on the same Trellis account may reuse the approval.
 
-The presented contract digest is stored as contract evidence for audit and
-repeat boundary checks, not as the authority key or a manifest lookup fallback.
-Full manifests are resolved from built-in Trellis contracts or the global
-`contracts` store. The normal portal denial path does not create or update a
-stored denial record; it is returned to the originating app as an
+The presented contract digest is stored as contract evidence for audit, repeat
+boundary checks, and active-set projection. It is not a manifest lookup fallback;
+full manifests are resolved from built-in Trellis contracts or the global
+`contracts` store. For one deployment and contract id, only the latest evidence
+row is active; older same-id evidence remains historical and stale reconnects
+must fail with `contract_changed` rather than making the old digest active again.
+The normal portal denial path does not create or update a stored denial record;
+it is returned to the originating app as an
 `authError=approval_denied` browser callback so a later sign-in attempt can
 present the permission prompt again.
 
@@ -719,7 +764,8 @@ Events:
 Rules:
 
 - services may subscribe only if the presented contract evidence fits the
-  service deployment envelope and declares the events in `uses`
+  service deployment envelope and declares the events in grouped
+  `uses.required` or `uses.optional` entries that are active and authorized
 - extra manual capability flags are not the contract boundary
 - user sessions must never receive service-only capabilities
 

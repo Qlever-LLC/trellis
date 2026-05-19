@@ -19,7 +19,7 @@ function formatIsoDate(value: Date): string {
 
 export const ContractSchemaRefSchema = Type.Object({
   schema: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 
 export type ContractSchemaRef = Static<typeof ContractSchemaRefSchema>;
 
@@ -30,7 +30,7 @@ export const ContractKvResourceSchema = Type.Object({
   history: Type.Optional(Type.Integer({ minimum: 1, default: 1 })),
   ttlMs: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
   maxValueBytes: Type.Optional(Type.Integer({ minimum: 1 })),
-}, { additionalProperties: false });
+});
 
 export type ContractKvResource = Static<typeof ContractKvResourceSchema>;
 
@@ -40,7 +40,7 @@ export const ContractStoreResourceSchema = Type.Object({
   ttlMs: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
   maxObjectBytes: Type.Optional(Type.Integer({ minimum: 1 })),
   maxTotalBytes: Type.Optional(Type.Integer({ minimum: 1 })),
-}, { additionalProperties: false });
+});
 
 export type ContractStoreResource = Static<typeof ContractStoreResourceSchema>;
 
@@ -55,7 +55,7 @@ export const ContractStateStoreSchema = Type.Object({
     Type.String({ minLength: 1 }),
     ContractSchemaRefSchema,
   )),
-}, { additionalProperties: false });
+});
 
 export type ContractStateStore = Static<typeof ContractStateStoreSchema>;
 
@@ -77,7 +77,7 @@ export const ContractJobQueueSchema = Type.Object({
   logs: Type.Optional(Type.Boolean()),
   dlq: Type.Optional(Type.Boolean()),
   concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
-}, { additionalProperties: false });
+});
 
 export type ContractJobQueue = Static<typeof ContractJobQueueSchema>;
 
@@ -95,7 +95,7 @@ export const ContractResourcesSchema = Type.Object({
   store: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), ContractStoreResourceSchema),
   ),
-}, { additionalProperties: false });
+});
 
 export type ContractResources = Static<typeof ContractResourcesSchema>;
 

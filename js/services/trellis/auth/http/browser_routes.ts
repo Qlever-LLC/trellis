@@ -15,7 +15,10 @@ import {
   recordLocalCredentialLoginFailure,
   resetLocalCredentialLoginFailures,
 } from "../local_credentials/login_attempts.ts";
-import { verifyLocalCredentialPassword } from "../local_credentials/passwords.ts";
+import {
+  validateLocalCredentialPasswordPolicy,
+  verifyLocalCredentialPassword,
+} from "../local_credentials/passwords.ts";
 import {
   type PendingAuth,
   SessionKeySchema,
@@ -54,14 +57,14 @@ const LocalLoginRequestSchema = Type.Object({
   flowId: Type.String({ minLength: 1 }),
   username: Type.String({ minLength: 1 }),
   password: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 
 const LocalRegistrationRequestSchema = Type.Object({
   username: Type.String({ minLength: 1 }),
   password: Type.String({ minLength: 1 }),
   name: Type.String({ minLength: 1 }),
   email: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 
 async function createPendingAuthForIdentity(args: {
   context: AuthHttpRouteContext;
@@ -301,6 +304,15 @@ export function registerBrowserAuthRoutes(
     if (!flow.sessionKey) {
       throw new HTTPException(400, { message: "Invalid browser flow state" });
     }
+    const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    if (
+      !context.isFederatedProviderAllowed(
+        selectedPortal,
+        c.req.param("provider"),
+      )
+    ) {
+      throw new HTTPException(403, { message: "OAuth Provider not allowed" });
+    }
 
     const [redirectUrl, idpParams] = await context.oauthCodeRequest(provider);
     const stateHash = await hashKey(idpParams.state);
@@ -453,6 +465,17 @@ export function registerBrowserAuthRoutes(
     }
 
     const request = Value.Parse(LocalRegistrationRequestSchema, body);
+    try {
+      validateLocalCredentialPasswordPolicy(
+        request.password,
+        config.auth.localIdentity.passwordPolicy.minLength,
+      );
+    } catch (error) {
+      return c.json(
+        { error: error instanceof Error ? error.message : "Invalid password" },
+        400,
+      );
+    }
     const result = await opts.loginPortalStorage.registerLocalIdentity({
       username: request.username,
       password: request.password,
@@ -577,7 +600,12 @@ export function registerBrowserAuthRoutes(
       }
       const selectedPortal = await context.resolveSelectedLoginPortal(flow);
       const registration = context.registrationAvailability(selectedPortal);
-      if (!registration.federatedIdentity.available) throw error;
+      if (
+        !registration.federatedIdentity.available ||
+        !context.isFederatedProviderAllowed(selectedPortal, providerId)
+      ) {
+        throw error;
+      }
       const result = await opts.loginPortalStorage.registerFederatedIdentity({
         provider: providerId,
         user,

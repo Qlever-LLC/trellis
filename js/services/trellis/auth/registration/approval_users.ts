@@ -132,6 +132,7 @@ export async function registerApprovalAndUserRpcs(deps: {
     "Auth.CapabilityGroups.Put",
     createAuthCapabilityGroupsPutHandler(
       deps.capabilityGroupStorage,
+      deps.contracts,
       deps.logger,
     ),
   );

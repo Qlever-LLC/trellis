@@ -24,6 +24,12 @@ declare const Deno: {
   test(name: string, fn: () => void | Promise<void>): void;
 };
 
+const jobContext = {
+  requestId: "req_test",
+  traceId: "trace_test",
+  traceparent: "00-trace_test-span_test-01",
+};
+
 Deno.test("loadJobsPageData requests jobs and services with the provided filter", async () => {
   const calls: Array<{ method: string; input: unknown }> = [];
   function request(
@@ -55,6 +61,7 @@ Deno.test("loadJobsPageData requests jobs and services with the provided filter"
           type: "document-process",
           state: "pending",
           payload: null,
+          context: jobContext,
           createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:00:00.000Z",
           tries: 0,
@@ -209,6 +216,7 @@ Deno.test("loadJobDetailData requests detail by id", async () => {
           type: "document-process",
           state: "failed",
           payload: { documentId: "doc-1" },
+          context: jobContext,
           createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:01:00.000Z",
           tries: 3,
@@ -236,6 +244,7 @@ Deno.test("cancelJob sends id-only action input", async () => {
           type: "document-process",
           state: "cancelled",
           payload: null,
+          context: jobContext,
           createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:01:00.000Z",
           tries: 0,
@@ -260,6 +269,7 @@ Deno.test("retryJob sends id-only action input", async () => {
           type: "document-process",
           state: "retry",
           payload: null,
+          context: jobContext,
           createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:01:00.000Z",
           tries: 3,
@@ -284,6 +294,7 @@ Deno.test("replayDlqJob sends id-only action input", async () => {
           type: "document-process",
           state: "retry",
           payload: null,
+          context: jobContext,
           createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:01:00.000Z",
           tries: 3,
@@ -308,6 +319,7 @@ Deno.test("dismissDlqJob sends id-only action input", async () => {
           type: "document-process",
           state: "dismissed",
           payload: null,
+          context: jobContext,
           createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:01:00.000Z",
           tries: 3,

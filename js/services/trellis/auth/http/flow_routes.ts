@@ -70,14 +70,13 @@ function buildAppMeta(args: {
 }
 
 function buildProvidersList(
-  providers: AuthHttpRouteContext["providers"],
+  federatedProviders: ReturnType<
+    AuthHttpRouteContext["federatedProvidersForPortal"]
+  >,
 ) {
   return [
     localLoginProvider,
-    ...Object.entries(providers).map(([id, provider]) => ({
-      id,
-      displayName: provider.displayName,
-    })),
+    ...federatedProviders,
   ];
 }
 
@@ -86,7 +85,7 @@ export function registerFlowRoutes(
   app: Hono,
   context: AuthHttpRouteContext,
 ): void {
-  const { config, providers, opts } = context;
+  const { config, opts } = context;
   const { pendingAuthKV } = opts.runtimeDeps;
 
   app.get("/auth/flow/:flowId", async (c) => {
@@ -96,9 +95,12 @@ export function registerFlowRoutes(
       return c.json({ status: "expired" });
     }
 
-    const providersList = buildProvidersList(providers);
     const contract = flow.contract ?? {};
     const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    const federatedProviders = context.federatedProvidersForPortal(
+      selectedPortal,
+    );
+    const providersList = buildProvidersList(federatedProviders);
     context.requireSelectedPortalOrigin(
       selectedPortal,
       c.req.header("origin"),
@@ -178,8 +180,10 @@ export function registerFlowRoutes(
     const pendingRecord = pendingEntry as PendingAuthEntry;
     const pending = pendingRecord.value as PendingAuth;
     const resolution = await context.requireApprovalResolution(pending);
-    const providersList = buildProvidersList(providers);
     const registration = context.registrationAvailability(selectedPortal);
+    const providersList = buildProvidersList(
+      registration.federatedIdentity.providers,
+    );
     const contract = flow.contract ?? {};
     const appMeta = buildAppMeta({
       contract,

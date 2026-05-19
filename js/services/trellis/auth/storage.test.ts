@@ -10,6 +10,7 @@ import type { TrellisStorage } from "../storage/db.ts";
 import { identityIdForProviderSubject } from "./identity.ts";
 import {
   accountFlows,
+  authLoginPortalSettings,
   authPortals,
   deviceActivationReviews,
   deviceActivations,
@@ -207,6 +208,26 @@ function makeDeviceProvisioningSecret(
   };
 }
 
+const deviceActivationActor = {
+  participantKind: "app" as const,
+  userId: "admin",
+  identity: {
+    identityId: "idn_github_admin",
+    provider: "github",
+    subject: "admin",
+  },
+};
+
+const deviceReviewActor = {
+  participantKind: "app" as const,
+  userId: "reviewer",
+  identity: {
+    identityId: "idn_github_reviewer",
+    provider: "github",
+    subject: "reviewer",
+  },
+};
+
 function makeDeviceActivation(
   overrides: Partial<DeviceActivation> = {},
 ): DeviceActivation {
@@ -214,7 +235,7 @@ function makeDeviceActivation(
     instanceId: "dev_instance_a",
     publicIdentityKey: "pub_identity_a",
     deploymentId: "dev-deployment-a",
-    activatedBy: { origin: "github", id: "admin" },
+    activatedBy: deviceActivationActor,
     state: "activated",
     activatedAt: "2026-04-26T00:00:01.000Z",
     revokedAt: null,
@@ -232,7 +253,7 @@ function makeDeviceActivationReview(
     instanceId: "dev_instance_a",
     publicIdentityKey: "pub_identity_a",
     deploymentId: "dev-deployment-a",
-    requestedBy: { origin: "github", id: "reviewer" },
+    requestedBy: deviceReviewActor,
     state: "pending",
     requestedAt: new Date("2026-04-26T00:00:00.000Z"),
     decidedAt: null,
@@ -491,6 +512,7 @@ Deno.test("login portal storage provides built-in default policy", async () => {
     assertEquals(selected.portal.portalId, "trellis.builtin.login");
     assertEquals(selected.settings.localRegistrationEnabled, true);
     assertEquals(selected.settings.federatedRegistrationEnabled, true);
+    assertEquals(selected.settings.allowedFederatedProviders, null);
     assertEquals(selected.settings.selfRegisteredAccountActive, true);
     assertEquals(selected.defaultCapabilities, []);
     assertEquals(selected.defaultCapabilityGroups, []);
@@ -500,6 +522,32 @@ Deno.test("login portal storage provides built-in default policy", async () => {
       await loginPortals.deletePortal("trellis.builtin.login"),
       false,
     );
+  });
+});
+
+Deno.test("login portal storage persists federated provider allowlist", async () => {
+  await withRepositories(async ({ loginPortals }, storage) => {
+    await loginPortals.ensureBuiltinPortal(
+      new Date("2026-01-01T00:00:00.000Z"),
+    );
+
+    const selected = await loginPortals.updateSelectedLoginPortal({
+      portalId: "trellis.builtin.login",
+      settings: {
+        portalId: "trellis.builtin.login",
+        localRegistrationEnabled: true,
+        federatedRegistrationEnabled: true,
+        allowedFederatedProviders: ["github"],
+        selfRegisteredAccountActive: true,
+        updatedAt: "2026-01-01T00:00:01.000Z",
+      },
+      defaultCapabilities: [],
+      defaultCapabilityGroups: [],
+    });
+
+    assertEquals(selected?.settings.allowedFederatedProviders, ["github"]);
+    const [row] = await storage.db.select().from(authLoginPortalSettings);
+    assertEquals(row?.allowedFederatedProviders, '["github"]');
   });
 });
 

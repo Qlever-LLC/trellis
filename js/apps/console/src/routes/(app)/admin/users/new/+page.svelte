@@ -19,12 +19,10 @@
     userId: string;
     setupUrl: string;
   };
-  type CapabilityGroup = {
+  type CapabilitySection = {
     key: string;
     title: string;
-    sortKey: string;
-    source: CapabilityView["source"];
-    contractId?: string;
+    subtitle: string | null;
     capabilities: CapabilityView[];
   };
 
@@ -48,51 +46,52 @@
     if ((left.groupKey === "admin") !== (right.groupKey === "admin")) return left.groupKey === "admin" ? -1 : 1;
     return left.groupKey.localeCompare(right.groupKey);
   }));
-  const capabilityGroups = $derived.by(() => {
-    const groups: CapabilityGroup[] = [];
+  const capabilitySections = $derived.by(() => {
+    const sections: CapabilitySection[] = [];
 
     for (const capability of capabilities) {
-      const groupKey = capabilityGroupKey(capability);
-      const existing = groups.find((group) => group.key === groupKey);
+      const sectionKey = capabilitySectionKey(capability);
+      const existing = sections.find((section) => section.key === sectionKey);
       if (existing) {
         existing.capabilities.push(capability);
         continue;
       }
 
-      groups.push({
-        key: groupKey,
-        title: capabilityGroupTitle(capability),
-        sortKey: capabilityGroupSortKey(capability),
-        source: capability.source,
-        contractId: capability.contractId,
+      sections.push({
+        key: sectionKey,
+        title: capabilitySectionTitle(capability),
+        subtitle: capabilitySectionSubtitle(capability),
         capabilities: [capability],
       });
     }
 
-    return groups
-      .map((group) => ({
-        ...group,
-        capabilities: group.capabilities.slice().sort((left, right) => left.key.localeCompare(right.key)),
+    return sections
+      .map((section) => ({
+        ...section,
+        capabilities: section.capabilities.slice().sort((left, right) =>
+          localCapabilityKey(left.key).localeCompare(localCapabilityKey(right.key))
+        ),
       }))
       .sort((left, right) => {
-        if (left.source !== right.source) return left.source === "platform" ? -1 : 1;
-        return left.sortKey.localeCompare(right.sortKey);
+        if (left.key === "platform") return -1;
+        if (right.key === "platform") return 1;
+        return left.title.localeCompare(right.title) || left.key.localeCompare(right.key);
       });
   });
 
-  function capabilityGroupKey(capability: CapabilityView): string {
+  function capabilitySectionKey(capability: CapabilityView): string {
     if (capability.source === "platform") return "platform";
-    return `contract:${capability.contractId ?? "unknown"}`;
+    return capability.contractId ?? capability.contractDisplayName ?? "contract";
   }
 
-  function capabilityGroupTitle(capability: CapabilityView): string {
+  function capabilitySectionTitle(capability: CapabilityView): string {
     if (capability.source === "platform") return "Platform";
-    return capability.contractDisplayName ?? capability.contractId ?? "Unknown contract";
+    return capability.contractDisplayName ?? capability.contractId ?? "Contract";
   }
 
-  function capabilityGroupSortKey(capability: CapabilityView): string {
-    if (capability.source === "platform") return "";
-    return `${capabilityGroupTitle(capability)}:${capability.contractId ?? ""}`;
+  function capabilitySectionSubtitle(capability: CapabilityView): string | null {
+    if (capability.source === "platform") return null;
+    return capability.contractId ?? null;
   }
 
   function uniqueCapabilities(values: string[]): string[] {
@@ -275,7 +274,7 @@
                   {#if group.groupKey === "admin"}<span class="badge badge-neutral badge-xs shrink-0">built-in/read-only</span>{/if}
                 </span>
                 <span class="mt-0.5 block truncate text-base-content/60" title={group.displayName}>{group.displayName}</span>
-                <span class="trellis-field-help block">{group.capabilities.length} capabilities · {group.includedGroups.length} included groups</span>
+                <span class="trellis-field-help block">{group.capabilities.length} capabilities, {group.includedGroups.length} included groups</span>
               </span>
             </label>
           {:else}
@@ -293,41 +292,35 @@
           <span class="trellis-metadata text-xs">{selectedCapabilities.length} selected</span>
         </div>
 
-        {#if capabilities.length === 0}
-          <div class="mt-4 border-y border-base-300 py-4 trellis-metadata text-xs">No cataloged capabilities were returned.</div>
-        {:else}
-          <div class="mt-4 grid grid-cols-1 gap-x-6 gap-y-5 xl:grid-cols-2 2xl:grid-cols-3">
-            {#each capabilityGroups as group (group.key)}
-              <section class="min-w-0">
-                <div class="border-b border-base-300 pb-2">
-                  <div class="flex min-w-0 items-center justify-between gap-2">
-                    <div class="min-w-0">
-                      <h4 class="truncate text-xs font-semibold">{group.title}</h4>
-                      {#if group.contractId}
-                        <div class="trellis-identifier truncate text-[0.65rem] text-base-content/50">{group.contractId}</div>
-                      {/if}
-                    </div>
-                    <span class="badge badge-ghost badge-xs shrink-0">{group.source}</span>
-                  </div>
+        <div class="mt-4 max-h-72 overflow-y-auto rounded border border-base-300 bg-base-100/40">
+          {#each capabilitySections as section (section.key)}
+            <div class="sticky top-0 z-10 border-b border-base-300 bg-base-200 px-2 py-1.5">
+              <div class="flex min-w-0 items-baseline justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="truncate text-xs font-semibold uppercase tracking-wide text-base-content/70">{section.title}</div>
+                  {#if section.subtitle}
+                    <div class="trellis-identifier truncate text-[0.65rem] text-base-content/50">{section.subtitle}</div>
+                  {/if}
                 </div>
-                <div class="divide-y divide-base-300/70">
-                  {#each group.capabilities as capability (capability.key)}
-                    <label class="grid cursor-pointer grid-cols-[auto_1fr] gap-2 py-2 text-xs hover:bg-base-200/60">
-                      <input class="checkbox checkbox-sm mt-0.5" type="checkbox" bind:group={selectedCapabilities} value={capability.key} />
-                      <span class="min-w-0 pr-2">
-                        <span class="block font-medium text-base-content">{capability.description}</span>
-                        <span class="trellis-identifier mt-0.5 block break-all text-base-content/50">{localCapabilityKey(capability.key)}</span>
-                        {#if capability.consequence}
-                          <span class="trellis-field-help block">Consequence: {capability.consequence}</span>
-                        {/if}
-                      </span>
-                    </label>
-                  {/each}
-                </div>
-              </section>
+                <span class="trellis-metadata text-[0.65rem]">{section.capabilities.length}</span>
+              </div>
+            </div>
+            {#each section.capabilities as capability (capability.key)}
+              <label class="grid cursor-pointer grid-cols-[auto_1fr] gap-2 border-b border-base-300/70 px-2 py-2 text-xs last:border-b-0 hover:bg-base-200/60">
+                <input class="checkbox checkbox-sm mt-0.5" type="checkbox" bind:group={selectedCapabilities} value={capability.key} />
+                <span class="min-w-0">
+                  <span class="block truncate font-medium text-base-content" title={capability.description}>{capability.description}</span>
+                  <span class="trellis-identifier mt-0.5 block break-all text-base-content/50">{localCapabilityKey(capability.key)}</span>
+                  {#if capability.consequence}
+                    <span class="trellis-field-help block">Consequence: {capability.consequence}</span>
+                  {/if}
+                </span>
+              </label>
             {/each}
-          </div>
-        {/if}
+          {:else}
+            <div class="px-2 py-3 trellis-metadata text-xs">No capabilities returned.</div>
+          {/each}
+        </div>
       </section>
 
       <section class="flex flex-wrap justify-end gap-2 px-5 py-3">

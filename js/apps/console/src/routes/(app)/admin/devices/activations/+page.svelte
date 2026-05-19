@@ -88,6 +88,10 @@
     return `${activation.instanceId}:${activation.activatedAt}:${activation.revokedAt ?? ""}:${activation.state}`;
   }
 
+  function formatActivatedBy(actor: Activation["activatedBy"]): string {
+    return actor ? `${actor.participantKind}:${actor.identity.provider}:${actor.identity.subject}` : "—";
+  }
+
   onMount(() => {
     void load();
   });
@@ -190,7 +194,7 @@
                 {/if}
               </td>
               <td class="text-base-content/60">{activation.deploymentId}</td>
-              <td class="text-base-content/60">{activation.activatedBy ? `${activation.activatedBy.origin}:${activation.activatedBy.id}` : "—"}</td>
+              <td class="text-base-content/60">{formatActivatedBy(activation.activatedBy)}</td>
               <td><span class="badge badge-sm">{activation.state}</span></td>
               <td class="text-base-content/60">{formatDate(activation.activatedAt)}</td>
               <td class="text-base-content/60">{activation.revokedAt ? formatDate(activation.revokedAt) : "—"}</td>

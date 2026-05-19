@@ -57,7 +57,7 @@ export const ContractApprovalCapabilitySchema = Type.Object({
   displayName: Type.String(),
   description: Type.String(),
   consequence: Type.Optional(Type.String()),
-}, { additionalProperties: false });
+});
 
 export type ContractApprovalCapability = StaticDecode<
   typeof ContractApprovalCapabilitySchema
@@ -115,7 +115,7 @@ export const AuthStartRequestSchema = Type.Object({
   contractDigest: Type.Optional(ContractDigestSchema),
   contract: Type.Optional(OpenObjectSchema),
   context: Type.Optional(OpenObjectSchema),
-}, { additionalProperties: false });
+});
 
 export const AuthStartFlowResponseSchema = Type.Object({
   status: Type.Literal("flow_started"),
@@ -140,6 +140,6 @@ export const NatsAuthTokenV1Schema = Type.Object({
   sig: SignatureSchema,
   iat: Type.Integer(),
   contractDigest: ContractDigestSchema,
-}, { additionalProperties: false });
+});
 
 export type NatsAuthTokenV1 = StaticDecode<typeof NatsAuthTokenV1Schema>;

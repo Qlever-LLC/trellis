@@ -25,6 +25,7 @@ import {
   type UserAccount,
   type UserIdentity,
 } from "../schemas.ts";
+import { decodeStringArrayField, parseJsonField } from "./shared.ts";
 
 export const BUILTIN_LOGIN_PORTAL_ID = "trellis.builtin.login";
 
@@ -67,9 +68,30 @@ function defaultSettings(
     portalId,
     localRegistrationEnabled: true,
     federatedRegistrationEnabled: true,
+    allowedFederatedProviders: null,
     selfRegisteredAccountActive: true,
     updatedAt: now.toISOString(),
   };
+}
+
+function decodeAllowedFederatedProviders(
+  value: string | null,
+): string[] | null {
+  if (value === null) return null;
+  const decoded = parseJsonField(
+    "login portal allowed federated providers",
+    value,
+  );
+  if (decoded === null) return null;
+  if (!Array.isArray(decoded)) {
+    throw new Error(
+      "Invalid JSON array stored for auth login portal allowed federated providers",
+    );
+  }
+  return decodeStringArrayField(
+    "login portal allowed federated providers",
+    value,
+  );
 }
 
 function decodePortalRow(row: PortalRow): LoginPortalRecord {
@@ -101,6 +123,9 @@ function decodeSettingsRow(row: SettingsRow): LoginPortalSettings {
     portalId: row.portalId,
     localRegistrationEnabled: row.localRegistrationEnabled,
     federatedRegistrationEnabled: row.federatedRegistrationEnabled,
+    allowedFederatedProviders: decodeAllowedFederatedProviders(
+      row.allowedFederatedProviders,
+    ),
     selfRegisteredAccountActive: row.selfRegisteredAccountActive,
     updatedAt: row.updatedAt,
   });
@@ -111,6 +136,9 @@ function encodeSettings(record: LoginPortalSettings): SettingsInsert {
     portalId: record.portalId,
     localRegistrationEnabled: record.localRegistrationEnabled,
     federatedRegistrationEnabled: record.federatedRegistrationEnabled,
+    allowedFederatedProviders: record.allowedFederatedProviders === null
+      ? null
+      : JSON.stringify(record.allowedFederatedProviders),
     selfRegisteredAccountActive: record.selfRegisteredAccountActive,
     updatedAt: record.updatedAt,
   };
@@ -250,9 +278,20 @@ export class SqlLoginPortalRepository {
   /** Deletes a non-built-in portal. */
   async deletePortal(portalId: string): Promise<boolean> {
     if (portalId === BUILTIN_LOGIN_PORTAL_ID) return false;
-    const rows = await this.#db.delete(authPortals).where(
-      eq(authPortals.portalId, portalId),
-    ).returning({ portalId: authPortals.portalId });
+    const rows = await this.#db.transaction(async (tx) => {
+      await tx.delete(authLoginPortalSettings).where(
+        eq(authLoginPortalSettings.portalId, portalId),
+      );
+      await tx.delete(authLoginPortalDefaultCapabilities).where(
+        eq(authLoginPortalDefaultCapabilities.portalId, portalId),
+      );
+      await tx.delete(authLoginPortalDefaultCapabilityGroups).where(
+        eq(authLoginPortalDefaultCapabilityGroups.portalId, portalId),
+      );
+      return await tx.delete(authPortals).where(
+        eq(authPortals.portalId, portalId),
+      ).returning({ portalId: authPortals.portalId });
+    });
     return rows.length > 0;
   }
 
@@ -265,6 +304,7 @@ export class SqlLoginPortalRepository {
         set: {
           localRegistrationEnabled: row.localRegistrationEnabled,
           federatedRegistrationEnabled: row.federatedRegistrationEnabled,
+          allowedFederatedProviders: row.allowedFederatedProviders,
           selfRegisteredAccountActive: row.selfRegisteredAccountActive,
           updatedAt: row.updatedAt,
         },
@@ -289,6 +329,10 @@ export class SqlLoginPortalRepository {
           localRegistrationEnabled: args.settings.localRegistrationEnabled,
           federatedRegistrationEnabled:
             args.settings.federatedRegistrationEnabled,
+          allowedFederatedProviders: args.settings.allowedFederatedProviders ===
+              null
+            ? null
+            : JSON.stringify(args.settings.allowedFederatedProviders),
           selfRegisteredAccountActive:
             args.settings.selfRegisteredAccountActive,
           updatedAt: args.settings.updatedAt,

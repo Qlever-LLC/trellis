@@ -41,6 +41,8 @@ type CapabilityGroupStorage = {
   delete(groupKey: string): Promise<void>;
 };
 
+type CapabilityCatalog = Pick<ContractsModule, "getActiveCapabilityDefinitions">;
+
 const ACCOUNT_PAGE_LIMIT = 100;
 
 const PLATFORM_CAPABILITIES = [{
@@ -371,6 +373,7 @@ export function createAuthCapabilityGroupsGetHandler(
 /** Creates the Auth.CapabilityGroups.Put RPC handler backed by SQL storage. */
 export function createAuthCapabilityGroupsPutHandler(
   storage: Pick<CapabilityGroupStorage, "put">,
+  contracts: CapabilityCatalog,
   logger: Pick<AuthLogger, "trace">,
 ) {
   return async (
@@ -393,6 +396,23 @@ export function createAuthCapabilityGroupsPutHandler(
     }, "RPC request");
     if (isBuiltinCapabilityGroup(req.groupKey)) {
       return Result.err(new AuthError({ reason: "invalid_request" }));
+    }
+    const catalogedCapabilities = new Set([
+      ...PLATFORM_CAPABILITIES.map((capability) => capability.key),
+      ...(await contracts.getActiveCapabilityDefinitions()).map((capability) =>
+        capability.key
+      ),
+    ]);
+    const unknownCapabilities = (req.capabilities ?? []).filter((capability) =>
+      !catalogedCapabilities.has(capability)
+    );
+    if (unknownCapabilities.length > 0) {
+      return Result.err(
+        new AuthError({
+          reason: "invalid_request",
+          context: { capabilities: unknownCapabilities },
+        }),
+      );
     }
     const now = new Date().toISOString();
     const group: CapabilityGroup = {

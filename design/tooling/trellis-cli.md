@@ -228,8 +228,12 @@ Operational command behavior:
   the revocation key
 - `trellis portals *` is the admin-oriented login portal surface. It reflects
   the same `Auth.Portals.*` RPCs used by Console for listing visible portals,
-  updating the built-in default login portal policy, and managing login route
-  selectors. The built-in login portal is visible and non-deletable.
+  creating, updating, or removing non-built-in portal records, updating the
+  built-in login portal policy, and managing login route selectors. The built-in
+  login portal is visible, non-deletable, and not replaceable through portal
+  upsert. Login settings include configured federated provider display and the
+  `allowedFederatedProviders` policy; route ids are internal RPC keys rather
+  than the primary operator-facing route shape.
 - `trellis svc` manages service deployments and `trellis dev` manages device
   deployments. Both use resource-first command shape: the deployment ID appears
   before the action for single-resource operations, for example
@@ -238,6 +242,11 @@ Operational command behavior:
   from source, manifest, or OCI image and expand the deployment envelope through
   `Auth.Envelopes.Expand`; envelope shrink remains outside the current CLI
   surface and is handled by Console or generated RPC clients
+- `trellis svc <id> grants list|add|remove` and
+  `trellis dev <id> grants list|add|remove` inspect and mutate deployment grant
+  overrides through `Auth.Envelopes.Get`,
+  `Auth.Envelopes.GrantOverrides.Put`, and
+  `Auth.Envelopes.GrantOverrides.Remove`
 - `trellis dev <id> provision` is the ergonomic provisioning path for device
   development and deployment: it generates a root secret locally, derives the
   device keys, registers the instance with auth using activation-only secret

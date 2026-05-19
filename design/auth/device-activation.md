@@ -160,16 +160,16 @@ path.
 
 Routing rules:
 
-- app and CLI login flows resolve portal routing from app identity and current
-  deployment-envelope metadata, then fall back to the built-in Trellis login
-  portal
+- app and CLI login flows resolve portal routing from auth-owned global login
+  route selectors keyed by app identity, then fall back to the built-in Trellis
+  login portal
 - activated-device flows resolve portal routing from the device deployment
   envelope, then fall back to the built-in Trellis device portal
 
 This is automatic resolution in the sense that callers do not choose the portal
 explicitly. It is still explicit on the server side because Trellis relies on
-stored deployment-envelope metadata, device-deployment records, and the built-in
-Trellis fallback.
+auth-owned login route selectors, stored deployment-envelope metadata for device
+flows, device-deployment records, and the built-in Trellis fallback.
 
 ### 6) Known-device activation uses one auth-owned operation
 
@@ -333,6 +333,9 @@ Rules:
 - the QR MAC prevents tampering between the device and the browser flow
 - Trellis verifies `qrMac` using the stored `activationKey` before creating a
   short-lived `kind: "device_activation"` browser flow
+- the returned browser flow id is the continuation handle for both portal UX and
+  online device waiting; the QR payload remains a bearer setup artifact guarded
+  by the MAC
 
 ### 9) Online wait and optional offline confirmation
 
@@ -360,6 +363,9 @@ type WaitForDeviceActivationResponse =
 Rules:
 
 - online devices use the wait endpoint to learn that activation completed
+- online wait requests include the `flowId` returned when the activation request
+  was created; Trellis loads that browser flow directly and verifies it matches
+  the signed device identity and nonce
 - wait proof construction and verification are canonical only in
   [auth-protocol.md](./auth-protocol.md); this document intentionally does not
   duplicate the algorithm

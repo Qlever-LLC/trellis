@@ -420,6 +420,7 @@ export const authLoginPortalSettings = sqliteTable(
     federatedRegistrationEnabled: integer("federated_registration_enabled", {
       mode: "boolean",
     }).notNull(),
+    allowedFederatedProviders: text("allowed_federated_providers"),
     selfRegisteredAccountActive: integer("self_registered_account_active", {
       mode: "boolean",
     }).notNull(),

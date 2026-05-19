@@ -87,7 +87,7 @@ export type SessionKey = StaticDecode<typeof SessionKeySchema>;
 export const AppIdentitySchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
   origin: Type.Optional(Type.String({ minLength: 1 })),
-}, { additionalProperties: false });
+});
 export type AppIdentity = StaticDecode<typeof AppIdentitySchema>;
 
 export const BrowserLoginOAuthStateSchema = Type.Object({
@@ -101,7 +101,7 @@ export const BrowserLoginOAuthStateSchema = Type.Object({
   context: Type.Optional(Type.Object({}, { additionalProperties: true })),
   flowId: Type.String({ minLength: 1 }),
   createdAt: IsoDateSchema,
-}, { additionalProperties: false });
+});
 
 export const AccountFlowOAuthStateSchema = Type.Object({
   kind: Type.Literal("account_flow"),
@@ -109,7 +109,7 @@ export const AccountFlowOAuthStateSchema = Type.Object({
   flowId: Type.String({ minLength: 1 }),
   codeVerifier: Type.String({ minLength: 1 }),
   createdAt: IsoDateSchema,
-}, { additionalProperties: false });
+});
 
 export const OAuthStateSchema = Type.Union([
   BrowserLoginOAuthStateSchema,
@@ -121,7 +121,7 @@ export const OAuth2TokensSchema = Type.Object({
   accessToken: Type.String(),
   refreshToken: Type.Optional(Type.String()),
   expires: Type.Optional(IsoDateSchema),
-}, { additionalProperties: false });
+});
 export type OAuth2Tokens = StaticDecode<typeof OAuth2TokensSchema>;
 
 export const OAuthUserSchema = Type.Object({
@@ -130,7 +130,7 @@ export const OAuthUserSchema = Type.Object({
   email: Type.Optional(Type.String()),
   name: Type.Optional(Type.String()),
   image: Type.Optional(Type.String()),
-}, { additionalProperties: false });
+});
 export type OAuthUser = StaticDecode<typeof OAuthUserSchema>;
 
 export const UserAccountSchema = Type.Object({
@@ -142,7 +142,7 @@ export const UserAccountSchema = Type.Object({
   capabilityGroups: Type.Array(Type.String({ minLength: 1 })),
   createdAt: DurableIsoDateStringSchema,
   updatedAt: DurableIsoDateStringSchema,
-}, { additionalProperties: false });
+});
 export type UserAccount = StaticDecode<typeof UserAccountSchema>;
 
 export const CapabilityGroupSchema = Type.Object({
@@ -153,7 +153,7 @@ export const CapabilityGroupSchema = Type.Object({
   includedGroups: Type.Array(Type.String({ minLength: 1 })),
   createdAt: DurableIsoDateStringSchema,
   updatedAt: DurableIsoDateStringSchema,
-}, { additionalProperties: false });
+});
 export type CapabilityGroup = StaticDecode<typeof CapabilityGroupSchema>;
 
 export const UserIdentitySchema = Type.Object({
@@ -166,7 +166,7 @@ export const UserIdentitySchema = Type.Object({
   emailVerified: Type.Boolean(),
   linkedAt: DurableIsoDateStringSchema,
   lastLoginAt: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
-}, { additionalProperties: false });
+});
 export type UserIdentity = StaticDecode<typeof UserIdentitySchema>;
 
 export const LocalCredentialSchema = Type.Object({
@@ -179,7 +179,7 @@ export const LocalCredentialSchema = Type.Object({
   failedLoginCount: Type.Integer({ minimum: 0 }),
   lockedUntil: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
   updatedAt: DurableIsoDateStringSchema,
-}, { additionalProperties: false });
+});
 export type LocalCredential = StaticDecode<typeof LocalCredentialSchema>;
 
 export const AccountFlowKindSchema = Type.Union([
@@ -211,14 +211,14 @@ export const AccountFlowSchema = Type.Object({
   createdAt: DurableIsoDateStringSchema,
   expiresAt: DurableIsoDateStringSchema,
   consumedAt: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
-}, { additionalProperties: false });
+});
 export type AccountFlow = StaticDecode<typeof AccountFlowSchema>;
 
 export const SessionIdentitySchema = Type.Object({
   identityId: Type.String({ minLength: 1 }),
   provider: Type.String({ minLength: 1 }),
   subject: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export type SessionIdentity = StaticDecode<typeof SessionIdentitySchema>;
 
 export const PendingAuthSchema = Type.Object({
@@ -230,7 +230,7 @@ export const PendingAuthSchema = Type.Object({
   app: Type.Optional(AppIdentitySchema),
   contract: Type.Object({}, { additionalProperties: true }),
   createdAt: IsoDateSchema,
-}, { additionalProperties: false });
+});
 export type PendingAuth = StaticDecode<typeof PendingAuthSchema>;
 
 export const AuthBrowserFlowKindSchema = Type.Union([
@@ -247,7 +247,7 @@ export const DeviceActivationFlowStateSchema = Type.Object({
   publicIdentityKey: Type.String({ minLength: 1 }),
   nonce: Type.String({ minLength: 1 }),
   qrMac: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export type DeviceActivationFlowState = StaticDecode<
   typeof DeviceActivationFlowStateSchema
 >;
@@ -266,14 +266,14 @@ export const AuthBrowserFlowSchema = Type.Object({
   deviceActivation: Type.Optional(DeviceActivationFlowStateSchema),
   createdAt: IsoDateSchema,
   expiresAt: IsoDateSchema,
-}, { additionalProperties: false });
+});
 export type AuthBrowserFlow = StaticDecode<typeof AuthBrowserFlowSchema>;
 
 export const DeviceProvisioningSecretSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
   activationKey: Type.String({ minLength: 1 }),
   createdAt: IsoDateSchema,
-}, { additionalProperties: false });
+});
 export type DeviceProvisioningSecret = StaticDecode<
   typeof DeviceProvisioningSecretSchema
 >;
@@ -285,10 +285,7 @@ export const DeviceActivationReviewRecordSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
   deploymentId: Type.String({ minLength: 1 }),
-  requestedBy: Type.Object({
-    origin: Type.String({ minLength: 1 }),
-    id: Type.String({ minLength: 1 }),
-  }, { additionalProperties: false }),
+  requestedBy: DeviceActivationActorSchema,
   state: Type.Union([
     Type.Literal("pending"),
     Type.Literal("approved"),
@@ -297,7 +294,7 @@ export const DeviceActivationReviewRecordSchema = Type.Object({
   requestedAt: IsoDateSchema,
   decidedAt: Type.Union([IsoDateSchema, Type.Null()]),
   reason: Type.Optional(Type.String({ minLength: 1 })),
-}, { additionalProperties: false });
+});
 export type DeviceActivationReviewRecord = StaticDecode<
   typeof DeviceActivationReviewRecordSchema
 >;
@@ -353,7 +350,7 @@ export type EnvelopeResourceKind = StaticDecode<
 export const EnvelopeBoundaryContractSchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
   required: Type.Boolean(),
-}, { additionalProperties: false });
+});
 export type EnvelopeBoundaryContract = StaticDecode<
   typeof EnvelopeBoundaryContractSchema
 >;
@@ -364,7 +361,7 @@ export const EnvelopeBoundarySurfaceSchema = Type.Object({
   name: Type.String({ minLength: 1 }),
   action: EnvelopeSurfaceActionSchema,
   required: Type.Boolean(),
-}, { additionalProperties: false });
+});
 export type EnvelopeBoundarySurface = StaticDecode<
   typeof EnvelopeBoundarySurfaceSchema
 >;
@@ -373,7 +370,7 @@ export const EnvelopeBoundaryResourceSchema = Type.Object({
   kind: EnvelopeResourceKindSchema,
   alias: Type.String({ minLength: 1 }),
   required: Type.Boolean(),
-}, { additionalProperties: false });
+});
 export type EnvelopeBoundaryResource = StaticDecode<
   typeof EnvelopeBoundaryResourceSchema
 >;
@@ -383,7 +380,7 @@ export const EnvelopeBoundarySchema = Type.Object({
   surfaces: Type.Array(EnvelopeBoundarySurfaceSchema),
   capabilities: Type.Array(Type.String({ minLength: 1 })),
   resources: Type.Array(EnvelopeBoundaryResourceSchema),
-}, { additionalProperties: false });
+});
 export type EnvelopeBoundary = StaticDecode<typeof EnvelopeBoundarySchema>;
 export const EnvelopeDeltaSchema = EnvelopeBoundarySchema;
 export type EnvelopeDelta = EnvelopeBoundary;
@@ -395,7 +392,7 @@ export const DeploymentEnvelopeSchema = Type.Object({
   createdAt: DurableIsoDateStringSchema,
   updatedAt: DurableIsoDateStringSchema,
   boundary: EnvelopeBoundarySchema,
-}, { additionalProperties: false });
+});
 export type DeploymentEnvelope = StaticDecode<typeof DeploymentEnvelopeSchema>;
 
 export const DeploymentPortalRouteSchema = Type.Object({
@@ -404,7 +401,7 @@ export const DeploymentPortalRouteSchema = Type.Object({
   entryUrl: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   disabled: Type.Boolean(),
   updatedAt: DurableIsoDateStringSchema,
-}, { additionalProperties: false });
+});
 export type DeploymentPortalRoute = StaticDecode<
   typeof DeploymentPortalRouteSchema
 >;
@@ -428,7 +425,7 @@ export const DeploymentGrantOverrideSchema = Type.Object({
   sessionPublicKey: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   devicePublicKey: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   capability: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export type DeploymentGrantOverride = StaticDecode<
   typeof DeploymentGrantOverrideSchema
 >;
@@ -441,7 +438,7 @@ export const DeploymentResourceBindingSchema = Type.Object({
   limits: Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
   createdAt: DurableIsoDateStringSchema,
   updatedAt: DurableIsoDateStringSchema,
-}, { additionalProperties: false });
+});
 export type DeploymentResourceBinding = StaticDecode<
   typeof DeploymentResourceBindingSchema
 >;
@@ -453,7 +450,7 @@ export const DeploymentContractEvidenceSchema = Type.Object({
   contract: Type.Record(Type.String(), Type.Unknown()),
   firstSeenAt: DurableIsoDateStringSchema,
   lastSeenAt: DurableIsoDateStringSchema,
-}, { additionalProperties: false });
+});
 export type DeploymentContractEvidence = StaticDecode<
   typeof DeploymentContractEvidenceSchema
 >;
@@ -495,7 +492,7 @@ export const EnvelopeExpansionRequestSchema = Type.Object({
   ]),
   decisionReason: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   delta: EnvelopeDeltaSchema,
-}, { additionalProperties: false });
+});
 export type EnvelopeExpansionRequest = StaticDecode<
   typeof EnvelopeExpansionRequestSchema
 >;
@@ -509,7 +506,7 @@ export const EnvelopeExpansionRequestStateUpdateSchema = Type.Object({
     Type.Null(),
   ]),
   decisionReason: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-}, { additionalProperties: false });
+});
 export type EnvelopeExpansionRequestStateUpdate = StaticDecode<
   typeof EnvelopeExpansionRequestStateUpdateSchema
 >;
@@ -527,22 +524,22 @@ export const IdentityAnchorSchema = Type.Union([
     kind: Type.Literal("web"),
     contractId: Type.String({ minLength: 1 }),
     origin: Type.String({ minLength: 1 }),
-  }, { additionalProperties: false }),
+  }),
   Type.Object({
     kind: Type.Literal("cli"),
     contractId: Type.String({ minLength: 1 }),
     sessionPublicKey: Type.String({ minLength: 1 }),
-  }, { additionalProperties: false }),
+  }),
   Type.Object({
     kind: Type.Literal("native"),
     contractId: Type.String({ minLength: 1 }),
     sessionPublicKey: Type.String({ minLength: 1 }),
-  }, { additionalProperties: false }),
+  }),
   Type.Object({
     kind: Type.Literal("device-user"),
     contractId: Type.String({ minLength: 1 }),
     devicePublicKey: Type.String({ minLength: 1 }),
-  }, { additionalProperties: false }),
+  }),
 ]);
 export type IdentityAnchor = StaticDecode<typeof IdentityAnchorSchema>;
 
@@ -558,7 +555,7 @@ export const IdentityEnvelopeRecordSchema = Type.Object({
   approvalEvidence: ContractApprovalSchema,
   publishSubjects: Type.Array(Type.String()),
   subscribeSubjects: Type.Array(Type.String()),
-}, { additionalProperties: false });
+});
 export type IdentityEnvelopeRecord = {
   identityEnvelopeId: string;
   userTrellisId: string;
@@ -585,7 +582,7 @@ export const UserProjectionSchema = Type.Object({
   active: Type.Boolean(),
   capabilities: Type.Array(Type.String()),
   capabilityGroups: Type.Array(Type.String()),
-}, { additionalProperties: false });
+});
 export type UserProjectionEntry = StaticDecode<typeof UserProjectionSchema>;
 
 export const UserSessionSchema = Type.Object({
@@ -609,7 +606,7 @@ export const UserSessionSchema = Type.Object({
   delegatedCapabilities: Type.Array(Type.String()),
   delegatedPublishSubjects: Type.Array(Type.String()),
   delegatedSubscribeSubjects: Type.Array(Type.String()),
-}, { additionalProperties: false });
+});
 export type UserSession = StaticDecode<typeof UserSessionSchema>;
 
 export const ServiceSessionSchema = Type.Object({
@@ -630,7 +627,7 @@ export const ServiceSessionSchema = Type.Object({
     Type.String({ pattern: "^[A-Za-z0-9_-]+$" }),
     Type.Null(),
   ]),
-}, { additionalProperties: false });
+});
 export type ServiceSession = StaticDecode<typeof ServiceSessionSchema>;
 
 export const DeviceSessionSchema = Type.Object({
@@ -647,7 +644,7 @@ export const DeviceSessionSchema = Type.Object({
   lastAuth: IsoDateSchema,
   activatedAt: Type.Union([IsoDateSchema, Type.Null()]),
   revokedAt: Type.Union([IsoDateSchema, Type.Null()]),
-}, { additionalProperties: false });
+});
 export type DeviceSession = StaticDecode<typeof DeviceSessionSchema>;
 
 export const SessionSchema = Type.Union([
@@ -661,19 +658,17 @@ export const ConnectionSchema = Type.Object({
   serverId: Type.String(),
   clientId: Type.Number(),
   connectedAt: IsoDateSchema,
-}, { additionalProperties: false });
+});
 export type Connection = StaticDecode<typeof ConnectionSchema>;
 
-export const AuthSessionsLogoutRequestSchema = Type.Object({}, {
-  additionalProperties: false,
-});
+export const AuthSessionsLogoutRequestSchema = Type.Object({});
 export type AuthSessionsLogoutRequest = StaticDecode<
   typeof AuthSessionsLogoutRequestSchema
 >;
 
 export const AuthSessionsLogoutResponseSchema = Type.Object({
   success: Type.Boolean(),
-}, { additionalProperties: false });
+});
 export type AuthSessionsLogoutResponse = StaticDecode<
   typeof AuthSessionsLogoutResponseSchema
 >;

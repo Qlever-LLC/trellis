@@ -242,14 +242,20 @@ Deno.test("device state schemas validate", () => {
     activatedAt: null,
     revokedAt: null,
   }));
+  const deviceActivationActor = {
+    participantKind: "app" as const,
+    userId: "usr_123",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
+  };
   assert(Value.Check(DeviceActivationRecordSchema, {
     instanceId: "dev_123",
     publicIdentityKey: sessionKey,
     deploymentId: "reader.default",
-    activatedBy: {
-      origin: "github",
-      id: "123",
-    },
+    activatedBy: deviceActivationActor,
     state: "activated",
     activatedAt: new Date().toISOString(),
     revokedAt: null,
@@ -261,10 +267,7 @@ Deno.test("device state schemas validate", () => {
     instanceId: "dev_123",
     publicIdentityKey: sessionKey,
     deploymentId: "reader.default",
-    requestedBy: {
-      origin: "github",
-      id: "123",
-    },
+    requestedBy: deviceActivationActor,
     state: "pending",
     requestedAt: new Date().toISOString(),
     decidedAt: null,
@@ -463,6 +466,8 @@ Deno.test("AuthRequestsValidateRequestSchema validates ADR auth request", () => 
       proof: sig,
       subject: "rpc.v1.Auth.Sessions.Me",
       payloadHash: "a".repeat(43),
+      iat: 1_735_689_600,
+      requestId: "req_1",
       capabilities: ["users:read"],
     }),
   );

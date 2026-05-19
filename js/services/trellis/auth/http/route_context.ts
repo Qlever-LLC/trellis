@@ -149,6 +149,7 @@ export type AuthHttpRouteOptions = {
     | "getActiveEntries"
     | "getActiveContractsById"
     | "getContract"
+    | "getKnownEntriesByContractId"
     | "getKnownContract"
     | "getKnownContractsById"
     | "validateContract"
@@ -209,6 +210,7 @@ function builtinLoginPortal(config: Config): SelectedLoginPortal {
       portalId: BUILTIN_LOGIN_PORTAL_ID,
       localRegistrationEnabled: true,
       federatedRegistrationEnabled: true,
+      allowedFederatedProviders: null,
       selfRegisteredAccountActive: true,
       updatedAt: now,
     },
@@ -411,12 +413,7 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
   function registrationAvailability(
     selected: SelectedLoginPortal,
   ): FlowRegistrationAvailability {
-    const federatedProviders = Object.entries(providers).map((
-      [id, provider],
-    ) => ({
-      id,
-      displayName: provider.displayName,
-    }));
+    const federatedProviders = federatedProvidersForPortal(selected);
     return {
       localIdentity: {
         available: config.auth.localIdentity.enabled &&
@@ -428,6 +425,23 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
         providers: federatedProviders,
       },
     };
+  }
+
+  function isFederatedProviderAllowed(
+    selected: SelectedLoginPortal,
+    providerId: string,
+  ): boolean {
+    const allowed = selected.settings.allowedFederatedProviders;
+    return allowed === null || allowed.includes(providerId);
+  }
+
+  function federatedProvidersForPortal(selected: SelectedLoginPortal) {
+    return Object.entries(providers)
+      .filter(([id]) => isFederatedProviderAllowed(selected, id))
+      .map(([id, provider]) => ({
+        id,
+        displayName: provider.displayName,
+      }));
   }
 
   async function resolvePortalEntryUrlForContract(
@@ -587,6 +601,8 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
         ? { approvalSource: args.approvalSource }
         : args.resolution.effectiveApproval.kind === "stored_approval"
         ? { approvalSource: "stored_approval" as const }
+        : args.resolution.effectiveApproval.kind === "deployment_grant"
+        ? { approvalSource: "deployment_grant" as const }
         : {}),
       ...(args.resolution.requestedBoundary
         ? { identityEnvelope: args.resolution.requestedBoundary }
@@ -726,6 +742,8 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     opts,
     config,
     providers,
+    federatedProvidersForPortal,
+    isFederatedProviderAllowed,
     oauthCodeRequest: opts.oauthCodeRequest ?? OAuth2CodeRequest,
     oauthCodeResponse: opts.oauthCodeResponse ?? OAuth2CodeResponse,
     loadBrowserFlow,

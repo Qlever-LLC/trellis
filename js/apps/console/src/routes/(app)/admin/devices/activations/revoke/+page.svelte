@@ -29,6 +29,10 @@
   const activeActivations = $derived(activations.filter((activation) => activation.state === "activated"));
   const selectedActivation = $derived(activeActivations.find((activation) => activation.instanceId === selectedInstanceId) ?? null);
 
+  function formatActivatedBy(actor: Activation["activatedBy"]): string {
+    return actor ? `${actor.participantKind}:${actor.identity.provider}:${actor.identity.subject}` : "—";
+  }
+
   async function load() {
     loading = true;
     error = null;
@@ -107,7 +111,7 @@
             <div class="trellis-identifier font-medium">{selectedActivation.instanceId}</div>
             <div class="text-base-content/60">Deployment: {selectedActivation.deploymentId}</div>
             <div class="text-base-content/60">Activated: {formatDate(selectedActivation.activatedAt)}</div>
-            <div class="text-base-content/60">Activated by: {selectedActivation.activatedBy ? `${selectedActivation.activatedBy.origin}:${selectedActivation.activatedBy.id}` : "—"}</div>
+            <div class="text-base-content/60">Activated by: {formatActivatedBy(selectedActivation.activatedBy)}</div>
           </div>
         {/if}
 

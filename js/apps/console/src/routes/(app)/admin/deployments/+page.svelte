@@ -186,6 +186,10 @@
     return value ? formatDate(value) : "—";
   }
 
+  function formatActivatedBy(actor: DeviceActivation["activatedBy"]): string {
+    return actor ? `${actor.participantKind}:${actor.identity.provider}:${actor.identity.subject}` : "—";
+  }
+
   function deviceMetadataValue(instanceId: string, key: (typeof understoodMetadataKeys)[number]): string {
     return deviceInstancesById.get(instanceId)?.metadata?.[key] ?? "—";
   }
@@ -533,7 +537,7 @@
                           {#each selectedDeviceActivations as activation (`${activation.instanceId}:${activation.activatedAt}:${activation.revokedAt ?? ""}:${activation.state}`)}
                             <tr>
                               <td><div class="trellis-identifier font-medium">{activation.instanceId}</div><div class="text-xs text-base-content/60">Name: {deviceMetadataValue(activation.instanceId, "name")}</div></td>
-                              <td class="text-base-content/60">{activation.activatedBy ? `${activation.activatedBy.origin}:${activation.activatedBy.id}` : "—"}</td>
+                              <td class="text-base-content/60">{formatActivatedBy(activation.activatedBy)}</td>
                               <td><StatusBadge label={activation.state} status={statusForActivation(activation.state)} /></td>
                               <td class="text-base-content/60">{formatDate(activation.activatedAt)}</td>
                               <td class="text-base-content/60">{formatMaybeDate(activation.revokedAt)}</td>

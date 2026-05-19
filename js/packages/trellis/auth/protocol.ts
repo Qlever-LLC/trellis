@@ -31,7 +31,7 @@ export const ServiceDeploymentSchema = Type.Unsafe<{
   deploymentId: Type.String({ minLength: 1 }),
   namespaces: Type.Array(Type.String({ minLength: 1 })),
   disabled: Type.Boolean(),
-}, { additionalProperties: false }));
+}));
 
 export const ServiceInstanceSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
@@ -155,7 +155,7 @@ export type EnvelopeResourceKind = StaticDecode<
 export const EnvelopeBoundaryContractSchema = Type.Object({
   contractId: Type.String({ minLength: 1 }),
   required: Type.Boolean(),
-}, { additionalProperties: false });
+});
 export type EnvelopeBoundaryContract = StaticDecode<
   typeof EnvelopeBoundaryContractSchema
 >;
@@ -166,7 +166,7 @@ export const EnvelopeBoundarySurfaceSchema = Type.Object({
   name: Type.String({ minLength: 1 }),
   action: EnvelopeSurfaceActionSchema,
   required: Type.Boolean(),
-}, { additionalProperties: false });
+});
 export type EnvelopeBoundarySurface = StaticDecode<
   typeof EnvelopeBoundarySurfaceSchema
 >;
@@ -175,7 +175,7 @@ export const EnvelopeBoundaryResourceSchema = Type.Object({
   kind: EnvelopeResourceKindSchema,
   alias: Type.String({ minLength: 1 }),
   required: Type.Boolean(),
-}, { additionalProperties: false });
+});
 export type EnvelopeBoundaryResource = StaticDecode<
   typeof EnvelopeBoundaryResourceSchema
 >;
@@ -185,7 +185,7 @@ export const EnvelopeBoundarySchema = Type.Object({
   surfaces: Type.Array(EnvelopeBoundarySurfaceSchema),
   capabilities: Type.Array(Type.String({ minLength: 1 })),
   resources: Type.Array(EnvelopeBoundaryResourceSchema),
-}, { additionalProperties: false });
+});
 export type EnvelopeBoundary = StaticDecode<typeof EnvelopeBoundarySchema>;
 
 export const DeploymentEnvelopeSchema = Type.Object({
@@ -195,7 +195,7 @@ export const DeploymentEnvelopeSchema = Type.Object({
   createdAt: IsoDateStringSchema,
   updatedAt: IsoDateStringSchema,
   boundary: EnvelopeBoundarySchema,
-}, { additionalProperties: false });
+});
 export type DeploymentEnvelope = StaticDecode<typeof DeploymentEnvelopeSchema>;
 
 export const DeploymentResourceBindingSchema = Type.Object({
@@ -206,7 +206,7 @@ export const DeploymentResourceBindingSchema = Type.Object({
   limits: Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
   createdAt: IsoDateStringSchema,
   updatedAt: IsoDateStringSchema,
-}, { additionalProperties: false });
+});
 export type DeploymentResourceBinding = StaticDecode<
   typeof DeploymentResourceBindingSchema
 >;
@@ -218,7 +218,7 @@ export const DeploymentContractEvidenceSchema = Type.Object({
   contract: OpenObjectSchema,
   firstSeenAt: IsoDateStringSchema,
   lastSeenAt: IsoDateStringSchema,
-}, { additionalProperties: false });
+});
 export type DeploymentContractEvidence = StaticDecode<
   typeof DeploymentContractEvidenceSchema
 >;
@@ -229,7 +229,7 @@ export const DeploymentPortalRouteSchema = Type.Object({
   entryUrl: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   disabled: Type.Boolean(),
   updatedAt: IsoDateStringSchema,
-}, { additionalProperties: false });
+});
 export type DeploymentPortalRoute = StaticDecode<
   typeof DeploymentPortalRouteSchema
 >;
@@ -248,7 +248,7 @@ export const DeploymentGrantOverrideSchema = Type.Object({
   sessionPublicKey: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   devicePublicKey: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   capability: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export type DeploymentGrantOverride = StaticDecode<
   typeof DeploymentGrantOverrideSchema
 >;
@@ -280,7 +280,7 @@ export const EnvelopeExpansionRequestSchema = Type.Object({
   ]),
   decisionReason: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   delta: EnvelopeBoundarySchema,
-}, { additionalProperties: false });
+});
 export type EnvelopeExpansionRequest = StaticDecode<
   typeof EnvelopeExpansionRequestSchema
 >;
@@ -290,21 +290,21 @@ export const AuthEnvelopesListSchema = Type.Object({
   disabled: Type.Optional(Type.Boolean()),
   offset: Type.Optional(Type.Integer({ minimum: 0 })),
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
-}, { additionalProperties: false });
+});
 export type AuthEnvelopesListInput = StaticDecode<
   typeof AuthEnvelopesListSchema
 >;
 
 export const AuthEnvelopesListResponseSchema = Type.Object({
   envelopes: Type.Array(DeploymentEnvelopeSchema),
-}, { additionalProperties: false });
+});
 export type AuthEnvelopesListResponse = StaticDecode<
   typeof AuthEnvelopesListResponseSchema
 >;
 
 export const AuthEnvelopesGetSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export type AuthEnvelopesGetInput = StaticDecode<typeof AuthEnvelopesGetSchema>;
 
 export const AuthEnvelopesGetResponseSchema = Type.Object({
@@ -314,16 +314,39 @@ export const AuthEnvelopesGetResponseSchema = Type.Object({
   expansionRequests: Type.Array(EnvelopeExpansionRequestSchema),
   portalRoute: Type.Union([DeploymentPortalRouteSchema, Type.Null()]),
   grantOverrides: Type.Array(DeploymentGrantOverrideSchema),
-}, { additionalProperties: false });
+});
 export type AuthEnvelopesGetResponse = StaticDecode<
   typeof AuthEnvelopesGetResponseSchema
+>;
+
+export const AuthEnvelopesGrantOverridesPutSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
+  overrides: Type.Array(DeploymentGrantOverrideSchema),
+});
+export type AuthEnvelopesGrantOverridesPutInput = StaticDecode<
+  typeof AuthEnvelopesGrantOverridesPutSchema
+>;
+
+export const AuthEnvelopesGrantOverridesResponseSchema = Type.Object({
+  grantOverrides: Type.Array(DeploymentGrantOverrideSchema),
+});
+export type AuthEnvelopesGrantOverridesResponse = StaticDecode<
+  typeof AuthEnvelopesGrantOverridesResponseSchema
+>;
+
+export const AuthEnvelopesGrantOverridesRemoveSchema = Type.Object({
+  deploymentId: Type.String({ minLength: 1 }),
+  overrides: Type.Array(DeploymentGrantOverrideSchema),
+});
+export type AuthEnvelopesGrantOverridesRemoveInput = StaticDecode<
+  typeof AuthEnvelopesGrantOverridesRemoveSchema
 >;
 
 export const AuthEnvelopesExpandSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   contract: OpenObjectSchema,
   expectedDigest: DigestSchema,
-}, { additionalProperties: false });
+});
 export type AuthEnvelopesExpandInput = StaticDecode<
   typeof AuthEnvelopesExpandSchema
 >;
@@ -341,7 +364,7 @@ export type AuthEnvelopesExpandResponse = StaticDecode<
 export const AuthEnvelopesApproveRequestSchema = Type.Object({
   requestId: Type.String({ minLength: 1 }),
   reason: Type.Optional(Type.String({ minLength: 1 })),
-}, { additionalProperties: false });
+});
 export type AuthEnvelopesApproveRequestInput = StaticDecode<
   typeof AuthEnvelopesApproveRequestSchema
 >;
@@ -352,7 +375,7 @@ export const AuthEnvelopesApproveRequestResponseSchema = Type.Object({
   delta: EnvelopeBoundarySchema,
   contractEvidence: DeploymentContractEvidenceSchema,
   resourceBindings: Type.Array(DeploymentResourceBindingSchema),
-}, { additionalProperties: false });
+});
 export type AuthEnvelopesApproveRequestResponse = StaticDecode<
   typeof AuthEnvelopesApproveRequestResponseSchema
 >;
@@ -366,14 +389,14 @@ export const AuthEnvelopeExpansionsListSchema = Type.Object({
   ])),
   offset: Type.Optional(Type.Integer({ minimum: 0 })),
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
-}, { additionalProperties: false });
+});
 export type AuthEnvelopeExpansionsListInput = StaticDecode<
   typeof AuthEnvelopeExpansionsListSchema
 >;
 
 export const AuthEnvelopeExpansionsListResponseSchema = Type.Object({
   requests: Type.Array(EnvelopeExpansionRequestSchema),
-}, { additionalProperties: false });
+});
 export type AuthEnvelopeExpansionsListResponse = StaticDecode<
   typeof AuthEnvelopeExpansionsListResponseSchema
 >;
@@ -381,14 +404,14 @@ export type AuthEnvelopeExpansionsListResponse = StaticDecode<
 export const AuthEnvelopeExpansionsRejectSchema = Type.Object({
   requestId: Type.String({ minLength: 1 }),
   reason: Type.Optional(Type.String({ minLength: 1 })),
-}, { additionalProperties: false });
+});
 export type AuthEnvelopeExpansionsRejectInput = StaticDecode<
   typeof AuthEnvelopeExpansionsRejectSchema
 >;
 
 export const AuthEnvelopeExpansionsRejectResponseSchema = Type.Object({
   request: EnvelopeExpansionRequestSchema,
-}, { additionalProperties: false });
+});
 export type AuthEnvelopeExpansionsRejectResponse = StaticDecode<
   typeof AuthEnvelopeExpansionsRejectResponseSchema
 >;
@@ -396,11 +419,11 @@ export type AuthEnvelopeExpansionsRejectResponse = StaticDecode<
 export const AuthEnvelopeShrinkResourceSchema = Type.Object({
   kind: EnvelopeResourceKindSchema,
   alias: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 
 export const AuthEnvelopeShrinkMissingBoundarySchema = Type.Object({
   missing: EnvelopeBoundarySchema,
-}, { additionalProperties: false });
+});
 
 export const AuthEnvelopeShrinkImpactedSessionSchema = Type.Object({
   sessionKey: Type.String({ minLength: 1 }),
@@ -408,18 +431,18 @@ export const AuthEnvelopeShrinkImpactedSessionSchema = Type.Object({
   contractId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   contractDigest: Type.Union([DigestSchema, Type.Null()]),
   missing: EnvelopeBoundarySchema,
-}, { additionalProperties: false });
+});
 
 export const AuthEnvelopeShrinkImpactedIdentityEnvelopeSchema = Type.Object({
   identityEnvelopeId: Type.String({ minLength: 1 }),
   identityAnchor: IdentityAnchorViewSchema,
   missing: EnvelopeBoundarySchema,
-}, { additionalProperties: false });
+});
 
 export const AuthEnvelopeShrinkImpactedRequestSchema = Type.Object({
   requestId: Type.String({ minLength: 1 }),
   missing: EnvelopeBoundarySchema,
-}, { additionalProperties: false });
+});
 
 export const AuthEnvelopeChangeImpactSchema = Type.Object({
   removed: EnvelopeBoundarySchema,
@@ -431,7 +454,7 @@ export const AuthEnvelopeChangeImpactSchema = Type.Object({
   ),
   impactedPendingRequests: Type.Array(AuthEnvelopeShrinkImpactedRequestSchema),
   orphanedResources: Type.Array(AuthEnvelopeShrinkResourceSchema),
-}, { additionalProperties: false });
+});
 export type AuthEnvelopeChangeImpact = StaticDecode<
   typeof AuthEnvelopeChangeImpactSchema
 >;
@@ -439,7 +462,7 @@ export type AuthEnvelopeChangeImpact = StaticDecode<
 export const AuthEnvelopesChangesPreviewSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   proposedBoundary: EnvelopeBoundarySchema,
-}, { additionalProperties: false });
+});
 export type AuthEnvelopesChangesPreviewInput = StaticDecode<
   typeof AuthEnvelopesChangesPreviewSchema
 >;
@@ -448,7 +471,7 @@ export const AuthEnvelopesChangesPreviewResponseSchema = Type.Object({
   current: DeploymentEnvelopeSchema,
   proposed: DeploymentEnvelopeSchema,
   impact: AuthEnvelopeChangeImpactSchema,
-}, { additionalProperties: false });
+});
 export type AuthEnvelopesChangesPreviewResponse = StaticDecode<
   typeof AuthEnvelopesChangesPreviewResponseSchema
 >;
@@ -457,7 +480,7 @@ export const AuthEnvelopesShrinkSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   proposedBoundary: EnvelopeBoundarySchema,
   confirm: Type.Boolean(),
-}, { additionalProperties: false });
+});
 export type AuthEnvelopesShrinkInput = StaticDecode<
   typeof AuthEnvelopesShrinkSchema
 >;
@@ -466,7 +489,7 @@ export const AuthEnvelopesShrinkResponseSchema = Type.Object({
   envelope: DeploymentEnvelopeSchema,
   impact: AuthEnvelopeChangeImpactSchema,
   retainedResources: Type.Array(AuthEnvelopeShrinkResourceSchema),
-}, { additionalProperties: false });
+});
 export type AuthEnvelopesShrinkResponse = StaticDecode<
   typeof AuthEnvelopesShrinkResponseSchema
 >;
@@ -644,7 +667,7 @@ export const AuthenticatedUserSchema = Type.Object({
     identityId: Type.String({ minLength: 1 }),
     provider: Type.String({ minLength: 1 }),
     subject: Type.String({ minLength: 1 }),
-  }, { additionalProperties: false }),
+  }),
   lastLogin: Type.Optional(IsoDateStringSchema),
 });
 export type AuthenticatedUser = StaticDecode<typeof AuthenticatedUserSchema>;
@@ -652,12 +675,14 @@ export type AuthenticatedUser = StaticDecode<typeof AuthenticatedUserSchema>;
 export const AuthSessionsMeSchema = Type.Object({});
 
 export const AuthRequestsValidateSchema = Type.Object({
-  sessionKey: Type.String(),
-  proof: Type.String(),
-  subject: Type.String(),
-  payloadHash: Type.String(),
-  capabilities: Type.Optional(Type.Array(Type.String())),
-}, { additionalProperties: false });
+  sessionKey: Type.String({ minLength: 1 }),
+  proof: Type.String({ minLength: 1 }),
+  subject: Type.String({ minLength: 1 }),
+  payloadHash: Type.String({ minLength: 1 }),
+  iat: Type.Integer(),
+  requestId: Type.String({ minLength: 1 }),
+  capabilities: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+});
 export const AuthenticatedServiceSchema = Type.Object({
   type: Type.Literal("service"),
   id: Type.String(),
@@ -716,12 +741,13 @@ export const CallerViewSchema = Type.Union([
       identityId: Type.String({ minLength: 1 }),
       provider: Type.String({ minLength: 1 }),
       subject: Type.String({ minLength: 1 }),
-    }, { additionalProperties: false }),
+    }),
     active: Type.Boolean(),
     name: Type.String(),
     email: Type.String(),
     image: Type.Optional(Type.String()),
     capabilities: Type.Array(Type.String()),
+    lastAuth: IsoDateStringSchema,
   }),
   AuthenticatedServiceSchema,
   AuthenticatedDeviceSchema,
@@ -766,7 +792,7 @@ export type UserGrantView = StaticDecode<typeof UserGrantViewSchema>;
 export const AuthIdentitiesGrantsListSchema = Type.Object({
   offset: Type.Optional(Type.Integer({ minimum: 0 })),
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
-}, { additionalProperties: false });
+});
 export const AuthIdentitiesGrantsListResponseSchema = Type.Object({
   grants: Type.Array(UserGrantViewSchema),
 });
@@ -779,19 +805,29 @@ export const LoginPortalRecordSchema = Type.Object({
   disabled: Type.Boolean(),
   createdAt: IsoDateStringSchema,
   updatedAt: IsoDateStringSchema,
-}, { additionalProperties: false });
+});
 export type LoginPortalRecord = StaticDecode<typeof LoginPortalRecordSchema>;
 
 export const LoginPortalSettingsSchema = Type.Object({
   portalId: Type.String({ minLength: 1 }),
   localRegistrationEnabled: Type.Boolean(),
   federatedRegistrationEnabled: Type.Boolean(),
+  allowedFederatedProviders: Type.Union([
+    Type.Array(Type.String({ minLength: 1 })),
+    Type.Null(),
+  ]),
   selfRegisteredAccountActive: Type.Boolean(),
   updatedAt: IsoDateStringSchema,
-}, { additionalProperties: false });
+});
 export type LoginPortalSettings = StaticDecode<
   typeof LoginPortalSettingsSchema
 >;
+
+export const LoginPortalFederatedProviderSchema = Type.Object({
+  id: Type.String({ minLength: 1 }),
+  displayName: Type.String({ minLength: 1 }),
+  type: Type.String({ minLength: 1 }),
+});
 
 export const LoginPortalRouteSchema = Type.Object({
   routeId: Type.String({ minLength: 1 }),
@@ -800,40 +836,56 @@ export const LoginPortalRouteSchema = Type.Object({
   origin: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   disabled: Type.Boolean(),
   updatedAt: IsoDateStringSchema,
-}, { additionalProperties: false });
+});
 export type LoginPortalRoute = StaticDecode<typeof LoginPortalRouteSchema>;
 
-export const AuthPortalsListSchema = Type.Object({}, {
-  additionalProperties: false,
-});
+export const AuthPortalsListSchema = Type.Object({});
 export const AuthPortalsListResponseSchema = Type.Object({
   portals: Type.Array(LoginPortalRecordSchema),
-}, { additionalProperties: false });
+});
+export const AuthPortalsPutSchema = Type.Object({
+  portalId: Type.String({ minLength: 1 }),
+  displayName: Type.String({ minLength: 1 }),
+  entryUrl: Type.String({ minLength: 1 }),
+  disabled: Type.Optional(Type.Boolean()),
+});
+export const AuthPortalsPutResponseSchema = Type.Object({
+  portal: LoginPortalRecordSchema,
+});
+export const AuthPortalsRemoveSchema = Type.Object({
+  portalId: Type.String({ minLength: 1 }),
+});
+export const AuthPortalsRemoveResponseSchema = Type.Object({
+  success: Type.Boolean(),
+});
 
 export const AuthPortalsLoginSettingsGetSchema = Type.Object({
   portalId: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export const AuthPortalsLoginSettingsResponseSchema = Type.Object({
   portal: LoginPortalRecordSchema,
   settings: LoginPortalSettingsSchema,
   defaultCapabilities: Type.Array(Type.String({ minLength: 1 })),
   defaultCapabilityGroups: Type.Array(Type.String({ minLength: 1 })),
-}, { additionalProperties: false });
+  federatedProviders: Type.Array(LoginPortalFederatedProviderSchema),
+});
 export const AuthPortalsLoginSettingsUpdateSchema = Type.Object({
   portalId: Type.String({ minLength: 1 }),
   localRegistrationEnabled: Type.Boolean(),
   federatedRegistrationEnabled: Type.Boolean(),
+  allowedFederatedProviders: Type.Union([
+    Type.Array(Type.String({ minLength: 1 })),
+    Type.Null(),
+  ]),
   selfRegisteredAccountActive: Type.Boolean(),
   defaultCapabilities: Type.Array(Type.String({ minLength: 1 })),
   defaultCapabilityGroups: Type.Array(Type.String({ minLength: 1 })),
-}, { additionalProperties: false });
-
-export const AuthPortalsLoginRoutesListSchema = Type.Object({}, {
-  additionalProperties: false,
 });
+
+export const AuthPortalsLoginRoutesListSchema = Type.Object({});
 export const AuthPortalsLoginRoutesListResponseSchema = Type.Object({
   routes: Type.Array(LoginPortalRouteSchema),
-}, { additionalProperties: false });
+});
 export const AuthPortalsLoginRoutesPutSchema = Type.Object({
   routeId: Type.Optional(Type.String({ minLength: 1 })),
   portalId: Type.String({ minLength: 1 }),
@@ -845,16 +897,16 @@ export const AuthPortalsLoginRoutesPutSchema = Type.Object({
     Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   ),
   disabled: Type.Optional(Type.Boolean()),
-}, { additionalProperties: false });
+});
 export const AuthPortalsLoginRoutesPutResponseSchema = Type.Object({
   route: LoginPortalRouteSchema,
-}, { additionalProperties: false });
+});
 export const AuthPortalsLoginRoutesRemoveSchema = Type.Object({
   routeId: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export const AuthPortalsLoginRoutesRemoveResponseSchema = Type.Object({
   success: Type.Boolean(),
-}, { additionalProperties: false });
+});
 
 export const FlowRegistrationAvailabilitySchema = Type.Object({
   localIdentity: Type.Object({
@@ -867,7 +919,7 @@ export const FlowRegistrationAvailabilitySchema = Type.Object({
       displayName: Type.String({ minLength: 1 }),
     })),
   }),
-}, { additionalProperties: false });
+});
 export type FlowRegistrationAvailability = StaticDecode<
   typeof FlowRegistrationAvailabilitySchema
 >;
@@ -970,7 +1022,7 @@ export const DeviceDeploymentSchema = Type.Unsafe<{
     Type.Union([Type.Literal("none"), Type.Literal("required")]),
   ),
   disabled: Type.Boolean(),
-}, { additionalProperties: false }));
+}));
 
 export const AuthDeploymentKindSchema = Type.Union([
   Type.Literal("service"),
@@ -984,7 +1036,7 @@ export const AuthDeploymentSchema = Type.Union([
     deploymentId: Type.String({ minLength: 1 }),
     namespaces: Type.Array(Type.String({ minLength: 1 })),
     disabled: Type.Boolean(),
-  }, { additionalProperties: false }),
+  }),
   Type.Object({
     kind: Type.Literal("device"),
     deploymentId: Type.String({ minLength: 1 }),
@@ -992,7 +1044,7 @@ export const AuthDeploymentSchema = Type.Union([
       Type.Union([Type.Literal("none"), Type.Literal("required")]),
     ),
     disabled: Type.Boolean(),
-  }, { additionalProperties: false }),
+  }),
 ]);
 export type AuthDeployment = StaticDecode<typeof AuthDeploymentSchema>;
 
@@ -1074,8 +1126,13 @@ export const DeviceSchema = Type.Object({
 });
 
 export const DeviceActivationActorSchema = Type.Object({
-  origin: Type.String({ minLength: 1 }),
-  id: Type.String({ minLength: 1 }),
+  participantKind: UserParticipantKindSchema,
+  userId: Type.String({ minLength: 1 }),
+  identity: Type.Object({
+    identityId: Type.String({ minLength: 1 }),
+    provider: Type.String({ minLength: 1 }),
+    subject: Type.String({ minLength: 1 }),
+  }),
 });
 export type DeviceActivationActor = StaticDecode<
   typeof DeviceActivationActorSchema
@@ -1116,10 +1173,7 @@ export const AuthDeviceUserAuthoritiesReviewRequestedEventSchema = Type.Object({
   publicIdentityKey: Type.String({ minLength: 1 }),
   deploymentId: Type.String({ minLength: 1 }),
   requestedAt: IsoDateStringSchema,
-  requestedBy: Type.Object({
-    origin: Type.String({ minLength: 1 }),
-    id: Type.String({ minLength: 1 }),
-  }),
+  requestedBy: DeviceActivationActorSchema,
 });
 
 export const AuthDeviceUserAuthoritiesRequestedEventSchema = Type.Object({
@@ -1140,10 +1194,7 @@ export const AuthDeviceUserAuthoritiesApprovedEventSchema = Type.Object({
   requestedAt: IsoDateStringSchema,
   approvedAt: IsoDateStringSchema,
   requestedBy: DeviceActivationActorSchema,
-  approvedBy: Type.Object({
-    id: Type.String({ minLength: 1 }),
-    origin: Type.Optional(Type.String({ minLength: 1 })),
-  }),
+  approvedBy: DeviceActivationActorSchema,
 });
 
 export const AuthDeviceUserAuthoritiesResolvedEventSchema = Type.Object({
@@ -1255,12 +1306,21 @@ export const WaitForDeviceActivationResponseSchema = Type.Union([
   }),
 ]);
 
+export const WaitForDeviceActivationRequestSchema = Type.Object({
+  flowId: Type.String({ minLength: 1 }),
+  publicIdentityKey: Type.String({ minLength: 1 }),
+  nonce: Type.String({ minLength: 1 }),
+  contractDigest: DigestSchema,
+  iat: Type.Number(),
+  sig: Type.String({ minLength: 1 }),
+});
+
 export const AuthDevicesConnectInfoGetSchema = Type.Object({
   publicIdentityKey: Type.String({ minLength: 1 }),
   contractDigest: DigestSchema,
   iat: Type.Number(),
   sig: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export const AuthDevicesConnectInfoGetResponseSchema = Type.Object({
   status: Type.Literal("ready"),
   connectInfo: DeviceConnectInfoSchema,
@@ -1320,7 +1380,7 @@ export const UserIdentityViewSchema = Type.Object({
   emailVerified: Type.Boolean(),
   linkedAt: IsoDateStringSchema,
   lastLoginAt: Type.Union([IsoDateStringSchema, Type.Null()]),
-}, { additionalProperties: false });
+});
 
 export const UserViewSchema = Type.Object({
   userId: Type.String({ minLength: 1 }),
@@ -1342,10 +1402,10 @@ export const AuthUsersListResponseSchema = Type.Object({
 
 export const AuthUsersGetSchema = Type.Object({
   userId: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export const AuthUsersGetResponseSchema = Type.Object({
   user: UserViewSchema,
-}, { additionalProperties: false });
+});
 
 export const AuthUsersCreateSchema = Type.Object({
   name: Type.Optional(Type.String({ minLength: 1 })),
@@ -1353,10 +1413,10 @@ export const AuthUsersCreateSchema = Type.Object({
   active: Type.Optional(Type.Boolean()),
   capabilities: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
   capabilityGroups: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
-}, { additionalProperties: false });
+});
 export const AuthUsersCreateResponseSchema = Type.Object({
   user: UserViewSchema,
-}, { additionalProperties: false });
+});
 
 const AccountFlowProfileHintSchema = Type.Record(Type.String(), Type.Unknown());
 
@@ -1367,11 +1427,9 @@ export const AuthAccountFlowsCreateProviderFlowSchema = Type.Object({
   expiresInSeconds: Type.Optional(
     Type.Integer({ minimum: 60, maximum: 2592000 }),
   ),
-}, { additionalProperties: false });
-
-export const AuthAccountFlowsCreateIdentityLinkSchema = Type.Object({}, {
-  additionalProperties: false,
 });
+
+export const AuthAccountFlowsCreateIdentityLinkSchema = Type.Object({});
 
 export const AuthAccountFlowsCreateLocalPasswordFlowSchema = Type.Object({
   userId: Type.String({ minLength: 1 }),
@@ -1379,13 +1437,13 @@ export const AuthAccountFlowsCreateLocalPasswordFlowSchema = Type.Object({
   expiresInSeconds: Type.Optional(
     Type.Integer({ minimum: 60, maximum: 2592000 }),
   ),
-}, { additionalProperties: false });
+});
 
 export const AuthAccountFlowsCreateResponseSchema = Type.Object({
   flowId: Type.String({ minLength: 1 }),
   url: Type.String({ minLength: 1 }),
   expiresAt: IsoDateStringSchema,
-}, { additionalProperties: false });
+});
 
 export const CapabilityDefinitionSchema = Type.Object({
   key: Type.String({ minLength: 1 }),
@@ -1401,7 +1459,7 @@ export const CapabilityDefinitionSchema = Type.Object({
 export const AuthCapabilitiesListSchema = Type.Object({
   offset: Type.Optional(Type.Integer({ minimum: 0 })),
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
-}, { additionalProperties: false });
+});
 export const AuthCapabilitiesListResponseSchema = Type.Object({
   capabilities: Type.Array(CapabilityDefinitionSchema),
 });
@@ -1414,22 +1472,22 @@ export const CapabilityGroupSchema = Type.Object({
   includedGroups: Type.Array(Type.String({ minLength: 1 })),
   createdAt: IsoDateStringSchema,
   updatedAt: IsoDateStringSchema,
-}, { additionalProperties: false });
+});
 
 export const AuthCapabilityGroupsListSchema = Type.Object({
   offset: Type.Optional(Type.Integer({ minimum: 0 })),
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
-}, { additionalProperties: false });
+});
 export const AuthCapabilityGroupsListResponseSchema = Type.Object({
   groups: Type.Array(CapabilityGroupSchema),
-}, { additionalProperties: false });
+});
 
 export const AuthCapabilityGroupsGetSchema = Type.Object({
   groupKey: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export const AuthCapabilityGroupsGetResponseSchema = Type.Object({
   group: CapabilityGroupSchema,
-}, { additionalProperties: false });
+});
 
 export const AuthCapabilityGroupsPutSchema = Type.Object({
   groupKey: Type.String({ minLength: 1 }),
@@ -1437,17 +1495,17 @@ export const AuthCapabilityGroupsPutSchema = Type.Object({
   description: Type.String({ minLength: 1 }),
   capabilities: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
   includedGroups: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
-}, { additionalProperties: false });
+});
 export const AuthCapabilityGroupsPutResponseSchema = Type.Object({
   group: CapabilityGroupSchema,
-}, { additionalProperties: false });
+});
 
 export const AuthCapabilityGroupsDeleteSchema = Type.Object({
   groupKey: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export const AuthCapabilityGroupsDeleteResponseSchema = Type.Object({
   success: Type.Boolean(),
-}, { additionalProperties: false });
+});
 
 export const AuthUsersUpdateSchema = Type.Object({
   userId: Type.String({ minLength: 1 }),
@@ -1463,7 +1521,7 @@ export const AuthUsersUpdateResponseSchema = Type.Object({
 
 export const AuthUserIdentitiesListSchema = Type.Object({
   userId: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export const AuthUserIdentitiesListResponseSchema = Type.Object({
   identities: Type.Array(UserIdentityViewSchema),
 });
@@ -1471,7 +1529,7 @@ export const AuthUserIdentitiesListResponseSchema = Type.Object({
 export const AuthUserIdentitiesUnlinkSchema = Type.Object({
   userId: Type.String({ minLength: 1 }),
   identityId: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 export const AuthUserIdentitiesUnlinkResponseSchema = Type.Object({
   success: Type.Boolean(),
 });

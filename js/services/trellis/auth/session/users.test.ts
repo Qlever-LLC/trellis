@@ -101,6 +101,23 @@ Deno.test("Auth.Capabilities.List returns platform and active contract capabilit
 });
 
 Deno.test("Auth.CapabilityGroups RPCs expose built-ins and manage custom groups", async () => {
+  const contracts = createTestContracts();
+  contracts.activateTestContract({
+    digest: "digest-customer",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "customer@v1",
+      displayName: "Customer",
+      description: "Customer contract.",
+      kind: "service",
+      capabilities: {
+        "customer.read": {
+          displayName: "Read customers",
+          description: "Read customer records.",
+        },
+      },
+    },
+  });
   const groups = new Map<string, {
     groupKey: string;
     displayName: string;
@@ -132,7 +149,11 @@ Deno.test("Auth.CapabilityGroups RPCs expose built-ins and manage custom groups"
     },
   };
 
-  const putResult = await createAuthCapabilityGroupsPutHandler(storage, logger)(
+  const putResult = await createAuthCapabilityGroupsPutHandler(
+    storage,
+    contracts,
+    logger,
+  )(
     {
       input: {
         groupKey: "customer.default",
@@ -176,6 +197,7 @@ Deno.test("Auth.CapabilityGroups RPCs expose built-ins and manage custom groups"
 
   const overwriteBuiltin = await createAuthCapabilityGroupsPutHandler(
     storage,
+    contracts,
     logger,
   )({
     input: {
@@ -188,6 +210,23 @@ Deno.test("Auth.CapabilityGroups RPCs expose built-ins and manage custom groups"
   const overwriteValue = overwriteBuiltin.take();
   assert(isErr(overwriteValue));
   assertEquals(overwriteValue.error.reason, "invalid_request");
+
+  const unknownCapability = await createAuthCapabilityGroupsPutHandler(
+    storage,
+    contracts,
+    logger,
+  )({
+    input: {
+      groupKey: "customer.invalid",
+      displayName: "Customer Invalid",
+      description: "Invalid customer permissions.",
+      capabilities: ["customer.unknown"],
+    },
+    context: { caller: userCaller },
+  });
+  const unknownValue = unknownCapability.take();
+  assert(isErr(unknownValue));
+  assertEquals(unknownValue.error.reason, "invalid_request");
 
   const deleteResult = await createAuthCapabilityGroupsDeleteHandler(
     storage,

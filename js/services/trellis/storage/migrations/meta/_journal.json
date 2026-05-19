@@ -15,6 +15,13 @@
       "when": 1778544000000,
       "tag": "00001_login_portals",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779148800000,
+      "tag": "00002_login_portal_provider_allowlists",
+      "breakpoints": true
     }
   ]
 }

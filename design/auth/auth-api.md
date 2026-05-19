@@ -52,6 +52,23 @@ Browser auth endpoints:
 - `POST /auth/flow/:flowId/approval`
 - `POST /auth/flow/:flowId/bind`
 
+Global CORS behavior is deployment-configured:
+
+- `web.cors.mode: "public"` allows arbitrary browser origins without
+  credentials. This is appropriate for public Trellis APIs where requests carry
+  explicit Trellis proofs rather than ambient cookies.
+- `web.cors.mode: "restricted"` allows only configured origins and may enable
+  credentialed CORS with `credentials: true`.
+- Flow-specific routes still perform their own portal-origin and redirect
+  validation, and credentialed routes such as OAuth callback state handling keep
+  their stricter flow-local CORS/cookie rules.
+
+Public Trellis URLs and public NATS/WebSocket transports should use HTTPS/WSS.
+Loopback HTTP/WS remains valid for local development, and explicit
+`web.allowInsecureOrigins` entries may permit other insecure public origins for
+controlled deployments. Internal HTTP behind a trusted HTTPS reverse proxy is
+still valid when the public browser-facing URL is secure.
+
 Activated-device endpoints are defined in
 [device-activation.md](./device-activation.md):
 
@@ -175,6 +192,9 @@ Rules:
 - if an OAuth/OIDC callback resolves to an unknown federated identity, Trellis
   may self-register it only when the selected login portal's effective policy
   allows federated registration and the provider is configured for the instance
+- the selected login portal may further restrict federated providers; `null`
+  means all configured providers are allowed, `[]` means none are allowed, and a
+  non-empty list means only those configured provider ids may continue
 
 ### GET /auth/flow/:flowId
 
@@ -187,6 +207,7 @@ type PortalFlowState =
   | {
     status: "choose_provider";
     flowId: string;
+    // Effective providers after the selected portal policy is applied.
     providers: Array<{
       id: string;
       displayName: string;
@@ -301,6 +322,11 @@ Rules:
 
 Registers a local username/password identity for the selected browser login flow
 and returns the next browser-flow state.
+
+Local password credentials use Argon2id. The default minimum length is 12
+characters; deployments may lower it only to the hard floor of 8. Trellis does
+not impose composition rules, and the current implementation does not maintain a
+PBKDF2 compatibility path for old hashes.
 
 Request body:
 
@@ -618,6 +644,8 @@ Request:
   proof: string;
   subject: string;
   payloadHash: string;
+  iat: number;
+  requestId: string;
   capabilities?: string[];
 }
 ```
@@ -669,10 +697,14 @@ This RPC is the capability and session lookup service used by other Trellis
 services. The caller shape is a union because users and devices all share the
 same post-auth authorization pipeline.
 
-The `proof` covers the session key, request subject, and raw payload hash. It
-does not include `contractDigest`; validation resolves contract context,
-principal identity, and capabilities from the authenticated session state that
-was created at connect, bootstrap, or session binding time.
+The `proof` covers the session key, request subject, raw payload hash, corrected
+`iat`, and `requestId`. Empty proof, session, subject, payload-hash, request-id,
+or capability strings are invalid. `payloadHash` is the hash of the raw request
+body computed by the receiving service; callers do not get to override it with a
+trusted header. Validation uses a replay cache keyed by session and request id.
+The proof does not include `contractDigest`; validation resolves contract
+context, principal identity, and capabilities from the authenticated session
+state that was created at connect, bootstrap, or session binding time.
 
 `Auth.Requests.Validate` is a baseline auth surface for service runtimes.
 Trellis may make it available to services automatically, without requiring every
@@ -756,9 +788,11 @@ type DeploymentGrantOverride = {
 ```
 
 `DeploymentContractEvidence` records the manifest digest and reviewed contract
-body used for envelope resolution. It is evidence, not an authority source.
-Authority comes from deployment envelopes, identity envelopes, and deployment
-grant overrides.
+body used for envelope resolution. It is evidence, not a standalone authority
+source. Authority comes from deployment envelopes, identity envelopes, and
+deployment grant overrides. The active projection uses deployment evidence only
+through enabled deployment envelopes, and for one deployment plus contract id the
+latest evidence row is the active digest; older same-id rows remain historical.
 
 ```ts
 type ServiceInstance = {
@@ -800,6 +834,34 @@ type ListDeploymentsRequest = {
 };
 type ListDeploymentsResponse = { deployments: AuthDeployment[] };
 
+type ListEnvelopesRequest = {
+  kind?: "service" | "device" | "app" | "cli" | "native" | "device-user";
+  disabled?: boolean;
+  offset?: number;
+  limit: number;
+};
+type ListEnvelopesResponse = { envelopes: DeploymentEnvelope[] };
+
+type GetEnvelopeRequest = { deploymentId: string };
+type GetEnvelopeResponse = {
+  envelope: DeploymentEnvelope;
+  resourceBindings: Array<Record<string, unknown>>;
+  contractEvidence: DeploymentContractEvidence[];
+  expansionRequests: Array<Record<string, unknown>>;
+  portalRoute: DeploymentPortalRoute | null;
+  grantOverrides: DeploymentGrantOverride[];
+};
+
+type PutGrantOverridesRequest = {
+  deploymentId: string;
+  overrides: DeploymentGrantOverride[];
+};
+type RemoveGrantOverridesRequest = {
+  deploymentId: string;
+  overrides: DeploymentGrantOverride[];
+};
+type GrantOverridesResponse = { grantOverrides: DeploymentGrantOverride[] };
+
 type ExpandEnvelopeRequest = {
   deploymentId: string;
   contract: Record<string, unknown>;
@@ -830,11 +892,18 @@ for the durable deployment record:
 
 - `Auth.Envelopes.Expand` requires a reviewed delta, validates any presented
   contract evidence by recomputing its digest and derived boundary, validates
-  the staged deployment record, then persists the durable deployment/evidence
+  the staged deployment envelope, then persists the durable envelope/evidence
   rows and refreshes the active catalog projection.
-- `Auth.Envelopes.Shrink` validates the staged deployment before persistence,
-  then refreshes the active catalog projection before kicking affected runtime
-  connections.
+- `Auth.Envelopes.Shrink` validates the staged deployment envelope before
+  persistence, then refreshes the active catalog projection before kicking
+  affected runtime connections.
+- service and device deployment enable/disable mutations validate the active
+  catalog with the matching staged deployment-envelope disabled state, because
+  enabled deployment envelopes define the active evidence set.
+- `Auth.Envelopes.GrantOverrides.Put` replaces all grant override rows for one
+  deployment. `Auth.Envelopes.GrantOverrides.Remove` removes exact matching
+  rows. Both return the deployment's current grant override rows after the
+  mutation.
 - service and device deployment mutations fail closed when the proposed active
   set has inactive or missing `uses` dependencies; Trellis validates that staged
   catalog state before exposing it to runtime permissions.
@@ -854,18 +923,26 @@ for the durable deployment record:
   record back; if rollback also fails, the RPC returns an unexpected aggregate
   failure rather than reporting a successful envelope change.
 - service bootstrap validates that the presented contract evidence fits the
-  enabled parent deployment envelope and matches the service instance's current
-  runtime evidence before persisting liveness state. Instance state affects
-  runtime availability; it does not activate catalog/auth surfaces.
+  enabled parent deployment envelope, is not stale relative to newer evidence for
+  the same deployment and contract id, and matches the service instance's current
+  runtime evidence when that instance already has runtime evidence. Instance
+  state affects runtime availability; it does not activate catalog/auth surfaces.
 - service bootstrap may create pending expansion requests from presented
   manifests whose required dependency contracts are not active yet. Unknown
   required dependencies are recorded as unresolved contract blockers; known
   inactive dependencies can be used for review-time surface and capability
   display, but not for runtime grants.
+- missing optional dependency contracts or optional requested surfaces are absent
+  from the requested delta and grant no authority. If they later become active,
+  a fresh reconnect requests a normal expansion before receiving that optional
+  authority.
 - if the deployment envelope fits but the required dependency closure is not
   active, service bootstrap returns `contract_activation_pending` and must not
   persist liveness state, resource bindings, or active deployment evidence for
   that ready attempt.
+- if the deployment has newer evidence for the same contract id than the digest
+  presented at bootstrap, service bootstrap returns `contract_changed` and must
+  not refresh the old evidence row back into the active set.
 - the successful service bootstrap response includes the resolved resource
   binding payload for the presented digest; service runtimes use that binding to
   initialize KV, store, jobs, and transfer helpers without requiring a
@@ -991,6 +1068,15 @@ type ActivateDeviceResponse =
     reason?: ActivationDecisionReason;
   };
 
+type WaitForDeviceActivationRequest = {
+  flowId: string;
+  publicIdentityKey: string;
+  nonce: string;
+  contractDigest: string;
+  iat: number;
+  sig: string;
+};
+
 type WaitForDeviceActivationResponse =
   | { status: "pending" }
   | {
@@ -1016,11 +1102,16 @@ type GetDeviceConnectInfoResponse = {
   connectInfo: DeviceConnectInfo;
 };
 
-`POST /auth/devices/connect-info` and `Auth.Devices.ConnectInfo.Get` return
-`auth.authority: "user_delegated"` for activated devices and
-`auth.authority: "admin_reviewed"` for admin/review-approved setup flows.
-Runtime access still requires the presented contract evidence to fit the device
-deployment envelope.
+// `POST /auth/devices/connect-info` and `Auth.Devices.ConnectInfo.Get` return
+// `auth.authority: "user_delegated"` for activated devices and
+// `auth.authority: "admin_reviewed"` for admin/review-approved setup flows.
+// Runtime access still requires the presented contract evidence to fit the
+// device deployment envelope.
+//
+// `POST /auth/devices/activate/wait` verifies the signed `flowId` and then
+// loads the browser flow directly by that id before matching `publicIdentityKey`
+// and `nonce`. The QR/MAC activation payload remains the intended bearer
+// artifact for handing the setup flow from the device to a browser.
 
 type ProvisionDeviceInstanceRequest = {
   deploymentId: string;
@@ -1082,9 +1173,22 @@ Portal rules:
   routes; they are commonly served by the Trellis HTTP server from static assets
   and the built-in login portal is represented as a visible, non-deletable
   auth-owned portal record
-- login portal policy and route selection live in auth-owned projected storage
-  and are exposed through `Auth.Portals.*` admin RPCs; device-activation portal
-  routing remains deployment-owned unless its design explicitly changes
+- login portal records, policy, and route selection live in auth-owned projected
+  storage and are exposed through `Auth.Portals.*` admin RPCs;
+  device-activation portal routing remains deployment-owned unless its design
+  explicitly changes
+- non-built-in login portal records can be created or updated through
+  `Auth.Portals.Put`; the built-in login portal remains visible and
+  non-deletable and cannot be replaced by a portal upsert
+- non-built-in login portal records can be removed through `Auth.Portals.Remove`
+  only when no login route targets them; built-in portal records cannot be
+  removed
+- login portal settings include `allowedFederatedProviders: string[] | null`;
+  `null` allows every configured OAuth/OIDC provider, `[]` allows no federated
+  providers, and an array allows only that configured subset
+- `Auth.Portals.LoginSettings.Get` returns `federatedProviders` for admin display
+  of configured provider ids, display names, and provider types; it does not
+  expose provider secrets or mutate provider configuration
 - custom portal apps should use explicit Trellis URL config rather than
   same-origin inference
 - portal routing metadata does not imply approval, capabilities, or
@@ -1106,6 +1210,11 @@ Portal routing rules:
   then falls back to the built-in Trellis device portal
 - for login routes, the built-in login portal has the explicit id
   `trellis.builtin.login`
+- custom login portals must have a visible portal record before a login route can
+  target them
+- login route ids are stable RPC keys for update/remove calls, but they are not a
+  user-facing routing concept; operator UI should present contract/origin match
+  fields and selected portal instead
 - most deployments can rely on the built-in portal; custom routing is optional
 
 Library rule:
@@ -1134,6 +1243,9 @@ Capability rule:
 - grant overrides are deployment metadata, not user-owned grants; user-facing
   callers still see only explicit user capabilities in insufficient-capability
   responses
+- deployment grant approval applies only when matching grant overrides themselves
+  cover the required approval capabilities; user capabilities do not turn a grant
+  override into approval authority
 - portal routes, defaults, selections, and registration settings do not imply
   approval, service authority, or capability grants; registration availability
   is reported explicitly in browser-flow state
@@ -1147,6 +1259,8 @@ Canonical RPC inventory:
 - `rpc.v1.Auth.Deployments.Remove`
 - `rpc.v1.Auth.Envelopes.List`
 - `rpc.v1.Auth.Envelopes.Get`
+- `rpc.v1.Auth.Envelopes.GrantOverrides.Put`
+- `rpc.v1.Auth.Envelopes.GrantOverrides.Remove`
 - `rpc.v1.Auth.Envelopes.Expand`
 - `rpc.v1.Auth.Envelopes.Shrink`
 - `rpc.v1.Auth.EnvelopeExpansions.Approve`
@@ -1181,6 +1295,8 @@ Canonical RPC inventory:
 - `rpc.v1.Auth.UserIdentities.List`
 - `rpc.v1.Auth.UserIdentities.Unlink`
 - `rpc.v1.Auth.Portals.List`
+- `rpc.v1.Auth.Portals.Put`
+- `rpc.v1.Auth.Portals.Remove`
 - `rpc.v1.Auth.Portals.LoginSettings.Get`
 - `rpc.v1.Auth.Portals.LoginSettings.Update`
 - `rpc.v1.Auth.Portals.LoginRoutes.List`
@@ -1212,6 +1328,11 @@ Canonical event inventory:
 Admin RPCs require the `admin` capability unless explicitly documented
 otherwise. Device review decision RPCs are the current exception and also allow
 `trellis.auth::device.review`.
+
+Admin RPCs also require fresh primary authentication. The default freshness
+window is 10 minutes from the session's `lastAuth`; stale admin sessions fail
+with `reauth_required` so browser, CLI, and Rust admin clients can send the user
+through the normal reauth flow before retrying the admin action.
 
 Admin list RPCs are bounded production queries. They require `limit`, may accept
 `offset` and documented filters, and MUST NOT expose an unbounded "list all"
@@ -1407,6 +1528,10 @@ group stores the group key on the user account; it does not copy the group's
 current capabilities into the user's direct grants. The built-in `admin` group
 is read-only in management surfaces, but can be assigned to users.
 
+`Auth.CapabilityGroups.Put` accepts only capability keys returned by
+`Auth.Capabilities.List`. Requests that include uncataloged capability strings
+fail with `invalid_request` instead of preserving or creating hidden grants.
+
 Admin UX SHOULD make the distinction visible: capabilities provided by selected
 groups should appear resolved for review but should not be editable as direct
 grants unless the group is removed from the user.
@@ -1442,8 +1567,9 @@ Trellis publishes these events as part of `trellis.auth@v1`:
 - `events.v1.Auth.DeviceUserAuthorities.Approved`
 - `events.v1.Auth.DeviceUserAuthorities.Resolved`
 
-Services may subscribe only when the presented contract evidence fits the
-service deployment envelope and declares the events in `uses`.
+Services may subscribe only when the presented contract evidence fits the service
+deployment envelope and declares the events in grouped `uses.required` or
+`uses.optional` entries that are active and authorized.
 
 ## Non-Goals
 

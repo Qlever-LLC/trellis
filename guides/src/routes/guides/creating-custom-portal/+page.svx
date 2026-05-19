@@ -1,4 +1,4 @@
-This guide walks through building a custom Trellis portal for custom login and onboarding experiences. Trellis already ships with a built-in portal for both user login and generic device onboarding. Custom portals let a Trellis admin replace that built-in experience for all login flows, one browser app, all device flows, or one device deployment.
+This guide walks through building a custom Trellis portal for custom login and onboarding experiences. Trellis already ships with a built-in portal for both user login and generic device onboarding. Custom login portals are auth-owned portal records selected by global login route rules; custom device portals remain device-deployment routing configuration.
 
 Before starting, read [Trellis Concepts](/guides/concepts) and [Write a SvelteKit app](/guides/writing-sveltekit-apps) for background on contracts, auth flows, and packages.
 
@@ -169,7 +169,13 @@ The `portal.state.app.context` payload is optional and app-defined. Portals must
 
 This is still a static SPA. The portal can read `flowId` straight from the browser URL, so it does not need a SvelteKit server route or redirect shim.
 
-Use `https://my-portal.example.com/login` as the portal route entry URL when configuring the deployment envelope.
+Use `https://my-portal.example.com/login` as the portal entry URL when creating the auth-owned login portal record.
+
+Use HTTPS for public portal entry URLs. Trellis can run public CORS in
+credentialless mode for arbitrary browser apps, but portal flow routes still
+validate the selected portal origin and use credentialed flow handling where the
+OAuth/browser-flow protocol requires it. Do not rely on a broad CORS setting to
+make an unregistered portal trusted.
 
 ## 4. Deploy the portal app
 
@@ -185,19 +191,23 @@ Deploy the `build/` output to your hosting provider and note the base URL, for e
 
 ## 5. Configure portal routing
 
-Trellis no longer exposes standalone portal administration RPCs or working
-`trellis portal *` commands. Built-in login and device portals are implicit.
-Custom portal routing is deployment-envelope metadata, not a separate portal
-authority surface.
+Use Console **Portals** or `Auth.Portals.*` admin RPCs to create the custom login
+portal record, configure registration policy, and add global route rules. Use
+`Auth.Portals.Put` to create or update non-built-in login portal records,
+`Auth.Portals.Remove` to remove non-built-in portals that are no longer targeted
+by routes, and `Auth.Portals.LoginRoutes.*` to manage route selectors.
 
-Use the Console Envelopes page or operator tooling that writes deployment
-envelope metadata to point a deployment at your portal entry URL. Treat the route
-as browser routing configuration only: it decides which web app renders the auth
-flow, but it does not grant capabilities, approval, or service authority.
+The built-in login portal is always visible, cannot be removed, and cannot be
+replaced by portal upsert. Route ids are internal RPC keys; normal operator UI
+should present contract/origin match fields and selected portals instead.
 
 For login flows, route by the app identity being authenticated. For device
-activation, route by the device deployment. Leaving the route unset uses the
-built-in Trellis portal.
+activation, route by the device deployment. Leaving login routes unset uses the
+built-in Trellis login portal.
+
+Portal settings can limit federated providers per portal. The default
+`allowedFederatedProviders: null` allows all configured providers, `[]` allows no
+federated providers, and a non-empty list allows only that subset.
 
 ## 6. Test the flow
 
@@ -205,9 +215,9 @@ Open the Trellis-connected browser app or device flow you want to test. The brow
 
 ## Updating the portal route
 
-Update the deployment-envelope portal route when the `entryUrl` changes. Do not
-model a portal URL change as deployment authority; the portal route is browser
-routing metadata.
+Update the auth-owned login portal record when the login portal `entryUrl`
+changes. Update auth-owned login route rules when the route match changes. Device
+activation portal URL changes remain deployment-owned device routing metadata.
 
 If the portal app contract changes, treat it like any other browser app contract
 change: the portal presents the new contract during login, and Trellis resolves
@@ -216,7 +226,7 @@ does not receive service deployment authority.
 
 ## Disabling a custom portal
 
-Remove the deployment-envelope route or point it back to the built-in portal.
-Existing user approvals and device activations remain governed by identity and
-deployment envelopes; disabling a portal route only changes future browser flow
-routing.
+Remove the auth-owned login route or point it back to the built-in portal.
+Remove the custom portal record only after no routes target it. Existing user
+approvals and device activations remain governed by identity and deployment
+envelopes; disabling a portal route only changes future browser flow routing.
