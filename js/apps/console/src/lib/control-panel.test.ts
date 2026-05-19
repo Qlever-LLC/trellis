@@ -21,7 +21,21 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
   const hrefs = sections.flatMap((section) =>
     section.items.map((item) => item.href)
   );
+  const operateSection = sections.find((section) => section.title === "Operate");
   const manageSection = sections.find((section) => section.title === "Manage");
+
+  deepEqual(operateSection?.items.map((item) => item.label), [
+    "Overview",
+    "Health Events",
+    "Sessions",
+    "Jobs",
+    "Device Activations",
+    "Device Reviews",
+    "Envelopes",
+    "Grants",
+    "Capability Groups",
+    "Portals",
+  ]);
 
   deepEqual(manageSection?.items[0], {
     href: "/admin/deployments",
@@ -49,6 +63,7 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
   ok(hrefs.includes("/admin/devices/activations"));
   ok(hrefs.includes("/admin/devices/instances"));
   ok(hrefs.includes("/admin/devices/reviews"));
+  ok(hrefs.includes("/admin/portals"));
 });
 
 Deno.test("control panel titles cover new admin routes", () => {

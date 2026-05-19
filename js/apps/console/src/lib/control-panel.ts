@@ -77,8 +77,24 @@ const navSections: NavSection[] = [
       { href: "/admin/health-events", label: "Health Events", icon: "alert" },
       { href: "/admin/sessions", label: "Sessions", icon: "activity" },
       { href: "/admin/jobs", label: "Jobs", icon: "clipboard" },
+      {
+        href: "/admin/devices/activations",
+        label: "Device Activations",
+        icon: "activity",
+      },
+      {
+        href: "/admin/devices/reviews",
+        label: "Device Reviews",
+        icon: "clipboard",
+      },
       { href: "/admin/envelopes", label: "Envelopes", icon: "shield" },
       { href: "/admin/grants", label: "Grants", icon: "key" },
+      {
+        href: "/admin/capability-groups",
+        label: "Capability Groups",
+        icon: "shield",
+      },
+      { href: "/admin/portals", label: "Portals", icon: "database" },
     ],
   },
   {
@@ -97,23 +113,7 @@ const navSections: NavSection[] = [
         icon: "box",
       },
       { href: "/admin/devices/instances", label: "Devices", icon: "phone" },
-      {
-        href: "/admin/devices/activations",
-        label: "Device Activations",
-        icon: "activity",
-      },
-      {
-        href: "/admin/devices/reviews",
-        label: "Device Reviews",
-        icon: "clipboard",
-      },
       { href: "/admin/users", label: "Users", icon: "users" },
-      {
-        href: "/admin/capability-groups",
-        label: "Capability Groups",
-        icon: "shield",
-      },
-      { href: "/admin/portals", label: "Portals", icon: "database" },
     ],
   },
 ];
