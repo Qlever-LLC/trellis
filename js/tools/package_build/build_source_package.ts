@@ -2,7 +2,7 @@ import { dirname, join } from "@std/path";
 import {
   resolveInternalNpmDependenciesForBuild,
   resolvePackageBuildVersion,
-} from "../release/release_version.ts";
+} from "./release_build_version.ts";
 
 type BuildSourcePackageOptions = {
   description: string;

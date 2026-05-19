@@ -16,6 +16,8 @@ design/         Trellis design docs
 ```
 
 See `docs/generated-artifacts.md` for regeneration details.
+See `docs/testing-and-release.md` for repository testing, versioning, and release
+checklists.
 
 ## Key concepts
 
@@ -54,6 +56,8 @@ For repository development workflows, prefer the repo-local prepare entrypoints:
 - `cargo xtask prepare`
 - `cargo xtask prepare-watch`
 - `cargo xtask build`
+- `cargo xtask release check-versions`
+- `cargo xtask release prepare --tag v0.9.0-rc.1`
 
 Normal operators only need `trellis`; repo generation flows stay behind those local tasks and wrappers.
 

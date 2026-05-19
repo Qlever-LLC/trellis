@@ -11,7 +11,6 @@
     "contracts:verify": "deno run -A @qlever-llc/trellis/generate discover ./services/trellis",
     "prepare": "deno run -A @qlever-llc/trellis/generate prepare ..",
     "prepare:watch": "deno run -A @qlever-llc/trellis/generate prepare --watch ..",
-    "release:bump-base": "deno run -A tools/release/bump_checked_in_versions.ts",
     "packages:build:npm": "deno task -c packages/result/deno.json build:npm && deno task -c packages/trellis/deno.json build:npm && deno task -c packages/trellis-svelte/deno.json build:npm",
     "smoke:npm": "deno run -A tools/package_build/npm_smoke.ts",
     "check:npm-release": "deno task build:npm && deno task smoke:npm",

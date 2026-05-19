@@ -4,7 +4,7 @@ import ts from "typescript";
 import {
   resolveInternalNpmDependenciesForBuild,
   resolvePackageBuildVersion,
-} from "../../../tools/release/release_version.ts";
+} from "../../../tools/package_build/release_build_version.ts";
 
 const description =
   "Svelte components and state helpers for Trellis browser applications.";

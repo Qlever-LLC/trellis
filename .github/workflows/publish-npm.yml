@@ -51,23 +51,13 @@ jobs:
         with:
           deno-version: 2.7.14
 
-      - name: Validate release metadata
-        run: deno run --config js/deno.json -A js/tools/release/validate_release.ts
-        env:
-          TRELLIS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
-
-      - name: Prepare release version
-        run: deno run --config js/deno.json -A js/tools/release/prepare_release.ts
-        env:
-          TRELLIS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
 
       - name: Seed generated SDK manifests for cargo metadata
         shell: bash
@@ -90,6 +80,19 @@ jobs:
           write_stub_manifest ../generated/packages/cargo/health trellis-sdk-health
           write_stub_manifest ../generated/packages/cargo/jobs trellis-sdk-jobs
           write_stub_manifest ../generated/packages/cargo/state trellis-sdk-state
+
+      - name: Prepare release version
+        run: cargo run --manifest-path xtask/Cargo.toml -- release prepare --tag "${RELEASE_TAG}"
+
+      - name: Validate release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${RELEASE_TAG}" ]; then
+            cargo run --manifest-path xtask/Cargo.toml -- release verify --version "${RELEASE_TAG#v}"
+          else
+            cargo run --manifest-path xtask/Cargo.toml -- release verify
+          fi
 
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2

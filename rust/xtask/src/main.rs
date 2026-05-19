@@ -7,12 +7,15 @@ use clap::Parser;
 use miette::{IntoDiagnostic, Result, WrapErr};
 use trellis_integration_harness::IntegrationArgs;
 
+mod release;
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 enum XtaskCommand {
     Prepare,
     PrepareWatch,
     Build(Vec<String>),
     Integration(IntegrationArgs),
+    Release(release::ReleaseCommand),
 }
 
 fn main() -> ExitCode {
@@ -31,6 +34,7 @@ fn run() -> Result<()> {
         XtaskCommand::PrepareWatch => run_prepare_watch(),
         XtaskCommand::Build(args) => run_build(&args),
         XtaskCommand::Integration(args) => trellis_integration_harness::run(args, run_prepare),
+        XtaskCommand::Release(command) => release::run_release(&repo_root()?, command),
     }
 }
 
@@ -61,6 +65,7 @@ where
         }
         Some("build") => Ok(XtaskCommand::Build(args.collect())),
         Some("integration") => parse_integration_args(args).map(XtaskCommand::Integration),
+        Some("release") => release::parse_release_command(args).map(XtaskCommand::Release),
         Some(command) => Err(miette::miette!(
             "unsupported xtask command `{command}`\n{}",
             usage_text()
@@ -78,7 +83,7 @@ where
 }
 
 fn usage_text() -> &'static str {
-    "usage: cargo xtask prepare | cargo xtask prepare-watch | cargo xtask build [cargo-build-args...] | cargo xtask integration [--list-known-failures] [--list-required-coverage] [--strict-known-failures] [--keep-workdir] [--skip-prepare]"
+    "usage: cargo xtask prepare | cargo xtask prepare-watch | cargo xtask build [cargo-build-args...] | cargo xtask integration [--list-known-failures] [--list-required-coverage] [--strict-known-failures] [--keep-workdir] [--skip-prepare] | cargo xtask release <command>"
 }
 
 fn run_prepare() -> Result<()> {
@@ -101,7 +106,9 @@ fn run_generate_prepare(extra_args: &[&str]) -> Result<()> {
     if status.success() {
         Ok(())
     } else {
-        Err(miette::miette!("prepare workflow failed with status {status}"))
+        Err(miette::miette!(
+            "prepare workflow failed with status {status}"
+        ))
     }
 }
 
@@ -121,7 +128,9 @@ fn run_build(args: &[String]) -> Result<()> {
     if status.success() {
         Ok(())
     } else {
-        Err(miette::miette!("build workflow failed with status {status}"))
+        Err(miette::miette!(
+            "build workflow failed with status {status}"
+        ))
     }
 }
 
@@ -134,11 +143,15 @@ fn repo_root() -> Result<PathBuf> {
             return Ok(ancestor.to_path_buf());
         }
     }
-    Err(miette::miette!("failed to resolve repository root from xtask manifest"))
+    Err(miette::miette!(
+        "failed to resolve repository root from xtask manifest"
+    ))
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::release::ReleaseCommand;
+
     use super::{parse_command, IntegrationArgs, XtaskCommand};
 
     #[test]
@@ -218,6 +231,20 @@ mod tests {
                 skip_prepare: true,
                 ..IntegrationArgs::default()
             })
+        );
+    }
+
+    #[test]
+    fn parse_release_command() {
+        let command = parse_command(
+            ["release", "check-versions"]
+                .into_iter()
+                .map(str::to_string),
+        )
+        .expect("parse release command");
+        assert_eq!(
+            command,
+            XtaskCommand::Release(ReleaseCommand::CheckVersions)
         );
     }
 
