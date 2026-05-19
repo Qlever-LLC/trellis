@@ -48,6 +48,21 @@ const boundary: EnvelopeBoundary = {
   resources: [{ kind: "kv", alias: "cache", required: true }],
 };
 
+const healthPublishBoundary: EnvelopeBoundary = {
+  contracts: [{ contractId: "trellis.health@v1", required: true }],
+  surfaces: [
+    {
+      contractId: "trellis.health@v1",
+      kind: "event",
+      name: "Health.Heartbeat",
+      action: "publish",
+      required: true,
+    },
+  ],
+  capabilities: [],
+  resources: [],
+};
+
 function envelope(
   overrides: Partial<DeploymentEnvelope> = {},
 ): DeploymentEnvelope {
@@ -245,6 +260,21 @@ Deno.test("livenessRows reports live when any runtime instance is active", () =>
       availability: "optional",
       runtime: "live",
     }],
+  );
+});
+
+Deno.test("livenessRows treats selected deployment event publishers as live", () => {
+  deepEqual(
+    livenessRows(
+      healthPublishBoundary,
+      serviceRuntimeDeployments([{
+        deploymentId: "billing.default",
+        currentContractId: "acme.billing@v1",
+        disabled: false,
+      }]),
+      "billing.default",
+    ).map((row) => row.runtime),
+    ["live"],
   );
 });
 

@@ -14,7 +14,6 @@ import {
 } from "@nats-io/nats-core";
 import { type BaseError, Result } from "@qlever-llc/result";
 import { sdk as core } from "@qlever-llc/trellis/sdk/core";
-import { sdk as health } from "@qlever-llc/trellis/sdk/health";
 import { Type } from "typebox";
 
 import type { LoggerLike } from "../globals.ts";
@@ -76,11 +75,6 @@ const heartbeatTestContract = defineServiceContract({}, () => ({
   id: "trellis.server.heartbeat-test@v1",
   displayName: "Heartbeat Test",
   description: "Verify heartbeat runtime lifecycle behavior.",
-  uses: {
-    required: {
-      health: health.use({ events: { publish: ["Health.Heartbeat"] } }),
-    },
-  },
 }));
 
 type WaitableService = {
@@ -1423,7 +1417,7 @@ Deno.test("service heartbeat publishing stops after terminal NATS close", async 
   }
 });
 
-Deno.test("service heartbeat publishing starts from declared health use", async () => {
+Deno.test("service heartbeat publishing starts from baseline health use", async () => {
   let publishRequests = 0;
   const connection = createFakeNatsConnection({
     requestJson: () => {

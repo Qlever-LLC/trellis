@@ -253,10 +253,7 @@ export function livenessRows(
 ): LivenessRow[] {
   return boundary.surfaces.map((surface) => {
     const relevantRuntimeDeployments = runtimeDeployments.filter((runtime) =>
-      (deploymentId === undefined || runtime.deploymentId === deploymentId ||
-        runtime.contractId === surface.contractId) &&
-      (runtime.contractId === undefined ||
-        runtime.contractId === surface.contractId)
+      runtimeDeploymentMatchesSurface(runtime, surface, deploymentId)
     );
     const hasLiveRuntime = relevantRuntimeDeployments.some((runtime) =>
       !runtime.disabled
@@ -281,6 +278,22 @@ export function livenessRows(
       runtime,
     };
   });
+}
+
+function runtimeDeploymentMatchesSurface(
+  runtime: RuntimeDeployment,
+  surface: EnvelopeBoundarySurface,
+  deploymentId?: string,
+): boolean {
+  const sameDeployment = deploymentId !== undefined &&
+    runtime.deploymentId === deploymentId;
+  const sameSurfaceContract = runtime.contractId === surface.contractId;
+
+  if (!sameDeployment && !sameSurfaceContract) return false;
+  if (runtime.contractId === undefined || sameSurfaceContract) return true;
+
+  return sameDeployment && surface.kind === "event" &&
+    surface.action === "publish";
 }
 
 export function serviceRuntimeDeployments(
