@@ -48,6 +48,25 @@ pub(super) async fn run_dev(format: OutputFormat, command: DevCommand) -> miette
     }
 }
 
+pub(super) async fn run_grants(format: OutputFormat, command: GrantsCommand) -> miette::Result<()> {
+    let (_state, connected) = connect_authenticated_cli_client(format).await?;
+    match command.command {
+        GrantsSubcommand::List(args) => {
+            if let Some(deployment_id) = args.deployment {
+                deployment_grants_list(format, &connected, &deployment_id).await
+            } else {
+                deployment_grants_list_all(format, &connected).await
+            }
+        }
+        GrantsSubcommand::Add(args) => {
+            deployment_grants_mutate(format, &connected, &args.deployment, &args.grant, true).await
+        }
+        GrantsSubcommand::Remove(args) => {
+            deployment_grants_mutate(format, &connected, &args.deployment, &args.grant, false).await
+        }
+    }
+}
+
 async fn run_svc_resource(format: OutputFormat, command: SvcResourceCommand) -> miette::Result<()> {
     match command.action {
         SvcResourceAction::Show => show_service(format, &command.id).await,
@@ -63,7 +82,6 @@ async fn run_svc_resource(format: OutputFormat, command: SvcResourceCommand) -> 
         SvcResourceAction::Expansions(expansions) => {
             service_expansions(format, &command.id, expansions).await
         }
-        SvcResourceAction::Grants(grants) => deployment_grants(format, &command.id, grants).await,
     }
 }
 
@@ -82,7 +100,6 @@ async fn run_dev_resource(format: OutputFormat, command: DevResourceCommand) -> 
         DevResourceAction::Provision(args) => provision_device(format, &id, &args).await,
         DevResourceAction::Activations(command) => dev_activations(format, &id, command).await,
         DevResourceAction::Reviews(command) => dev_reviews(format, &id, command).await,
-        DevResourceAction::Grants(command) => deployment_grants(format, &id, command).await,
     }
 }
 
@@ -525,30 +542,54 @@ async fn expansion_decide(
     Ok(())
 }
 
-async fn deployment_grants(
+async fn deployment_grants_list(
     format: OutputFormat,
+    connected: &trellis_client::TrellisClient,
     deployment_id: &str,
-    command: DeploymentGrantsCommand,
 ) -> miette::Result<()> {
-    let (_state, connected) = connect_authenticated_cli_client(format).await?;
-    match command {
-        DeploymentGrantsCommand::List => {
-            let response = connected
+    let response = connected
+        .request_json_value(
+            "rpc.v1.Auth.Envelopes.Get",
+            &json!({ "deploymentId": deployment_id }),
+        )
+        .await
+        .into_diagnostic()?;
+    print_deployment_grants_result(format, deployment_id, &response)
+}
+
+async fn deployment_grants_list_all(
+    format: OutputFormat,
+    connected: &trellis_client::TrellisClient,
+) -> miette::Result<()> {
+    let list_response = connected
+        .request_json_value(
+            "rpc.v1.Auth.Envelopes.List",
+            &json!({ "limit": 500, "offset": 0 }),
+        )
+        .await
+        .into_diagnostic()?;
+    let mut grant_overrides = Vec::new();
+    if let Some(envelopes) = list_response.get("envelopes").and_then(Value::as_array) {
+        for envelope in envelopes {
+            let Some(deployment_id) = envelope.get("deploymentId").and_then(Value::as_str) else {
+                continue;
+            };
+            let detail_response = connected
                 .request_json_value(
                     "rpc.v1.Auth.Envelopes.Get",
                     &json!({ "deploymentId": deployment_id }),
                 )
                 .await
                 .into_diagnostic()?;
-            print_deployment_grants_result(format, deployment_id, &response)
-        }
-        DeploymentGrantsCommand::Add(args) => {
-            deployment_grants_mutate(format, &connected, deployment_id, &args, true).await
-        }
-        DeploymentGrantsCommand::Remove(args) => {
-            deployment_grants_mutate(format, &connected, deployment_id, &args, false).await
+            if let Some(overrides) = detail_response
+                .get("grantOverrides")
+                .and_then(Value::as_array)
+            {
+                grant_overrides.extend(overrides.iter().cloned());
+            }
         }
     }
+    print_grants_result(format, &Value::Array(grant_overrides))
 }
 
 async fn deployment_grants_mutate(
@@ -573,6 +614,31 @@ async fn deployment_grants_mutate(
             })
         })
         .collect::<Vec<_>>();
+    let request_overrides = if add {
+        let response = connected
+            .request_json_value(
+                "rpc.v1.Auth.Envelopes.Get",
+                &json!({ "deploymentId": deployment_id }),
+            )
+            .await
+            .into_diagnostic()?;
+        let mut existing = response
+            .get("grantOverrides")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for override_row in grant_overrides {
+            if !existing
+                .iter()
+                .any(|existing_row| existing_row == &override_row)
+            {
+                existing.push(override_row);
+            }
+        }
+        existing
+    } else {
+        grant_overrides
+    };
     let subject = if add {
         "rpc.v1.Auth.Envelopes.GrantOverrides.Put"
     } else {
@@ -583,7 +649,7 @@ async fn deployment_grants_mutate(
             subject,
             &json!({
                 "deploymentId": deployment_id,
-                "grantOverrides": grant_overrides,
+                "overrides": request_overrides,
             }),
         )
         .await
@@ -594,6 +660,26 @@ async fn deployment_grants_mutate(
         &response,
         add,
         args.capabilities.len(),
+    )
+}
+
+fn print_grants_result(format: OutputFormat, grant_overrides: &Value) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(&json!({ "grantOverrides": grant_overrides }))?;
+        return Ok(());
+    }
+
+    print_value_table(
+        grant_overrides,
+        &[
+            "deploymentId",
+            "identityKind",
+            "contractId",
+            "origin",
+            "sessionPublicKey",
+            "devicePublicKey",
+            "capability",
+        ],
     )
 }
 

@@ -242,11 +242,13 @@ Operational command behavior:
   from source, manifest, or OCI image and expand the deployment envelope through
   `Auth.Envelopes.Expand`; envelope shrink remains outside the current CLI
   surface and is handled by Console or generated RPC clients
-- `trellis svc <id> grants list|add|remove` and
-  `trellis dev <id> grants list|add|remove` inspect and mutate deployment grant
-  overrides through `Auth.Envelopes.Get`,
+- `trellis grants list [--deployment <id>]`,
+  `trellis grants add --deployment <id> ...`, and
+  `trellis grants remove --deployment <id> ...` inspect and mutate deployment
+  grant overrides through `Auth.Envelopes.List`, `Auth.Envelopes.Get`,
   `Auth.Envelopes.GrantOverrides.Put`, and
-  `Auth.Envelopes.GrantOverrides.Remove`
+  `Auth.Envelopes.GrantOverrides.Remove`. Grant overrides are modeled as
+  deployment-owned policy rows rather than service or device subcommands.
 - `trellis dev <id> provision` is the ergonomic provisioning path for device
   development and deployment: it generates a root secret locally, derives the
   device keys, registers the instance with auth using activation-only secret

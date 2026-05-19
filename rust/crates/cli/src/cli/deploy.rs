@@ -112,6 +112,41 @@ impl DeviceReviewState {
 }
 
 #[derive(Debug, Args)]
+/// Manage deployment grant overrides.
+pub struct GrantsCommand {
+    #[command(subcommand)]
+    pub command: GrantsSubcommand,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
+/// Deployment grant override operations.
+pub enum GrantsSubcommand {
+    /// List deployment grant overrides.
+    List(GrantsListArgs),
+    /// Add deployment grant overrides.
+    Add(TopLevelGrantMutationArgs),
+    /// Remove deployment grant overrides.
+    Remove(TopLevelGrantMutationArgs),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// List deployment grant overrides.
+pub struct GrantsListArgs {
+    #[arg(long)]
+    pub deployment: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Add or remove deployment grant overrides.
+pub struct TopLevelGrantMutationArgs {
+    #[arg(long)]
+    pub deployment: String,
+
+    #[command(flatten)]
+    pub grant: DeploymentGrantMutationArgs,
+}
+
+#[derive(Debug, Args)]
 /// Manage service deployments.
 #[command(
     override_usage = "trellis svc list [OPTIONS]\n       trellis svc <ID> <COMMAND>",
@@ -207,9 +242,6 @@ pub enum SvcResourceAction {
     #[command(override_usage = "trellis svc <ID> expansions <COMMAND>")]
     #[command(subcommand)]
     Expansions(SvcExpansionsCommand),
-    #[command(override_usage = "trellis svc <ID> grants <COMMAND>")]
-    #[command(subcommand)]
-    Grants(DeploymentGrantsCommand),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -249,9 +281,6 @@ pub enum DevResourceAction {
     #[command(override_usage = "trellis dev <ID> reviews <COMMAND>")]
     #[command(subcommand)]
     Reviews(DevReviewsCommand),
-    #[command(override_usage = "trellis dev <ID> grants <COMMAND>")]
-    #[command(subcommand)]
-    Grants(DeploymentGrantsCommand),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Args)]
@@ -360,14 +389,6 @@ pub struct SvcExpansionDecisionArgs {
 
     #[arg(long)]
     pub reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
-/// Manage deployment grant overrides.
-pub enum DeploymentGrantsCommand {
-    List,
-    Add(DeploymentGrantMutationArgs),
-    Remove(DeploymentGrantMutationArgs),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Args)]

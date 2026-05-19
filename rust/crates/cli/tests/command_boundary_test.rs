@@ -16,6 +16,7 @@ fn new_top_level_help_is_available() {
         &["whoami", "--help"],
         &["approvals", "--help"],
         &["users", "--help"],
+        &["grants", "--help"],
         &["svc", "--help"],
         &["dev", "--help"],
         &["local", "--help"],

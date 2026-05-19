@@ -21,6 +21,7 @@ const AGENT_CONTRACT_JSON: &str = r#"{
             "Auth.EnvelopeExpansions.List",
             "Auth.EnvelopeExpansions.Reject",
             "Auth.Envelopes.Get",
+            "Auth.Envelopes.List",
             "Auth.Envelopes.Expand",
             "Auth.Envelopes.GrantOverrides.Put",
             "Auth.Envelopes.GrantOverrides.Remove",

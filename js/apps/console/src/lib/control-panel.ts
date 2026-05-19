@@ -18,6 +18,7 @@ export const routeTitles = {
   "/admin/capability-groups": "Capability Groups",
   "/admin/sessions": "Sessions",
   "/admin/deployments": "Deployments",
+  "/admin/grants": "Grants",
   "/admin/services": "Service Deployments",
   "/admin/sessions/revoke": "Revoke Session",
   "/admin/sessions/kick": "Kick Connection",
@@ -77,6 +78,7 @@ const navSections: NavSection[] = [
       { href: "/admin/sessions", label: "Sessions", icon: "activity" },
       { href: "/admin/jobs", label: "Jobs", icon: "clipboard" },
       { href: "/admin/envelopes", label: "Envelopes", icon: "shield" },
+      { href: "/admin/grants", label: "Grants", icon: "key" },
     ],
   },
   {
