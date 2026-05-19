@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod app;
+pub mod app_identity_approval;
 pub mod browser;
 pub mod cli;
 pub mod container;

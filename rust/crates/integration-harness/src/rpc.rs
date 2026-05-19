@@ -3,7 +3,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::process::{Child, Stdio};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_nats::HeaderMap;
 use bytes::Bytes;
@@ -1121,17 +1121,21 @@ async fn assert_auth_requests_validate_round_trip(
         .map_err(|error| {
             miette!("failed to encode Auth.Requests.Validate fixture payload: {error}")
         })?;
-    let proof = caller_client
-        .auth()
-        .create_proof(HARNESS_RUST_PING_SUBJECT, &payload);
+    let request_id = "integration-request-approved";
+    let (proof, iat) = create_harness_proof(
+        caller_client.auth(),
+        HARNESS_RUST_PING_SUBJECT,
+        &payload,
+        request_id,
+    );
 
     let response = trellis_auth::AuthClient::new(validator_client)
         .validate_request(&AuthRequestsValidateRequest {
             capabilities: Some(Vec::new()),
-            iat: 0,
+            iat,
             payload_hash: payload_hash_base64url(&payload),
             proof,
-            request_id: "integration-request-approved".to_string(),
+            request_id: request_id.to_string(),
             session_key: caller_client.auth().session_key.clone(),
             subject: HARNESS_RUST_PING_SUBJECT.to_string(),
         })
@@ -1172,15 +1176,21 @@ async fn assert_auth_protocol_matrix(
     let unknown_auth = trellis_client::SessionAuth::from_seed_base64url(&_unknown_seed)
         .into_diagnostic()
         .map_err(|error| miette!("failed to build unknown session auth: {error}"))?;
-    let unknown_proof = unknown_auth.create_proof(HARNESS_RUST_PING_SUBJECT, &payload);
+    let unknown_request_id = "integration-request-unknown-session";
+    let (unknown_proof, unknown_iat) = create_harness_proof(
+        &unknown_auth,
+        HARNESS_RUST_PING_SUBJECT,
+        &payload,
+        unknown_request_id,
+    );
     expect_validate_rpc_error(
         auth_client
             .validate_request(&AuthRequestsValidateRequest {
                 capabilities: Some(Vec::new()),
-                iat: 0,
+                iat: unknown_iat,
                 payload_hash: payload_hash_base64url(&payload),
                 proof: unknown_proof,
-                request_id: "integration-request-unknown-session".to_string(),
+                request_id: unknown_request_id.to_string(),
                 session_key: unknown_session_key,
                 subject: HARNESS_RUST_PING_SUBJECT.to_string(),
             })
@@ -1190,16 +1200,21 @@ async fn assert_auth_protocol_matrix(
     )?;
 
     let (_wrong_seed, wrong_session_key) = generate_session_keypair();
+    let wrong_request_id = "integration-request-wrong-proof";
+    let (wrong_proof, wrong_iat) = create_harness_proof(
+        caller_client.auth(),
+        HARNESS_RUST_PING_SUBJECT,
+        &payload,
+        wrong_request_id,
+    );
     expect_validate_rpc_error(
         auth_client
             .validate_request(&AuthRequestsValidateRequest {
                 capabilities: Some(Vec::new()),
-                iat: 0,
+                iat: wrong_iat,
                 payload_hash: payload_hash_base64url(&payload),
-                proof: caller_client
-                    .auth()
-                    .create_proof(HARNESS_RUST_PING_SUBJECT, &payload),
-                request_id: "integration-request-wrong-proof".to_string(),
+                proof: wrong_proof,
+                request_id: wrong_request_id.to_string(),
                 session_key: wrong_session_key,
                 subject: HARNESS_RUST_PING_SUBJECT.to_string(),
             })
@@ -1209,15 +1224,20 @@ async fn assert_auth_protocol_matrix(
     )?;
 
     let unauthorized_subject = "rpc.v1.Harness.Undeclared";
+    let unauthorized_request_id = "integration-request-undeclared";
+    let (unauthorized_proof, unauthorized_iat) = create_harness_proof(
+        caller_client.auth(),
+        unauthorized_subject,
+        &payload,
+        unauthorized_request_id,
+    );
     let unauthorized = auth_client
         .validate_request(&AuthRequestsValidateRequest {
             capabilities: Some(Vec::new()),
-            iat: 0,
+            iat: unauthorized_iat,
             payload_hash: payload_hash_base64url(&payload),
-            proof: caller_client
-                .auth()
-                .create_proof(unauthorized_subject, &payload),
-            request_id: "integration-request-undeclared".to_string(),
+            proof: unauthorized_proof,
+            request_id: unauthorized_request_id.to_string(),
             session_key: caller_client.auth().session_key.clone(),
             subject: unauthorized_subject.to_string(),
         })
@@ -1229,15 +1249,20 @@ async fn assert_auth_protocol_matrix(
         ));
     }
 
+    let missing_capability_request_id = "integration-request-missing-capability";
+    let (missing_capability_proof, missing_capability_iat) = create_harness_proof(
+        caller_client.auth(),
+        HARNESS_RUST_PING_SUBJECT,
+        &payload,
+        missing_capability_request_id,
+    );
     let missing_capability = auth_client
         .validate_request(&AuthRequestsValidateRequest {
             capabilities: Some(vec!["harness.missing.capability".to_string()]),
-            iat: 0,
+            iat: missing_capability_iat,
             payload_hash: payload_hash_base64url(&payload),
-            proof: caller_client
-                .auth()
-                .create_proof(HARNESS_RUST_PING_SUBJECT, &payload),
-            request_id: "integration-request-missing-capability".to_string(),
+            proof: missing_capability_proof,
+            request_id: missing_capability_request_id.to_string(),
             session_key: caller_client.auth().session_key.clone(),
             subject: HARNESS_RUST_PING_SUBJECT.to_string(),
         })
@@ -1248,6 +1273,130 @@ async fn assert_auth_protocol_matrix(
             "Auth.Requests.Validate allowed missing required capability"
         ));
     }
+
+    let stale_request_id = "integration-request-stale-iat";
+    let stale_iat = current_iat() - 120;
+    let stale_proof = caller_client.auth().create_proof(
+        HARNESS_RUST_PING_SUBJECT,
+        &payload,
+        stale_iat,
+        stale_request_id,
+    );
+    expect_validate_rpc_error(
+        auth_client
+            .validate_request(&AuthRequestsValidateRequest {
+                capabilities: Some(Vec::new()),
+                iat: stale_iat,
+                payload_hash: payload_hash_base64url(&payload),
+                proof: stale_proof,
+                request_id: stale_request_id.to_string(),
+                session_key: caller_client.auth().session_key.clone(),
+                subject: HARNESS_RUST_PING_SUBJECT.to_string(),
+            })
+            .await,
+        "iat_out_of_range",
+        "stale iat",
+    )?;
+
+    let replay_request_id = "integration-request-replay";
+    let (replay_proof, replay_iat) = create_harness_proof(
+        caller_client.auth(),
+        HARNESS_RUST_PING_SUBJECT,
+        &payload,
+        replay_request_id,
+    );
+    let replay_request = AuthRequestsValidateRequest {
+        capabilities: Some(Vec::new()),
+        iat: replay_iat,
+        payload_hash: payload_hash_base64url(&payload),
+        proof: replay_proof,
+        request_id: replay_request_id.to_string(),
+        session_key: caller_client.auth().session_key.clone(),
+        subject: HARNESS_RUST_PING_SUBJECT.to_string(),
+    };
+    let first_replay = auth_client
+        .validate_request(&replay_request)
+        .await
+        .into_diagnostic()?;
+    if !first_replay.allowed {
+        return Err(miette!(
+            "Auth.Requests.Validate replay setup request was not allowed"
+        ));
+    }
+    expect_validate_rpc_error(
+        auth_client.validate_request(&replay_request).await,
+        "invalid_signature",
+        "replayed request id",
+    )?;
+
+    let changed_request_id = "integration-request-changed-request-id";
+    let (changed_request_id_proof, changed_request_id_iat) = create_harness_proof(
+        caller_client.auth(),
+        HARNESS_RUST_PING_SUBJECT,
+        &payload,
+        changed_request_id,
+    );
+    expect_validate_rpc_error(
+        auth_client
+            .validate_request(&AuthRequestsValidateRequest {
+                capabilities: Some(Vec::new()),
+                iat: changed_request_id_iat,
+                payload_hash: payload_hash_base64url(&payload),
+                proof: changed_request_id_proof,
+                request_id: format!("{changed_request_id}-tampered"),
+                session_key: caller_client.auth().session_key.clone(),
+                subject: HARNESS_RUST_PING_SUBJECT.to_string(),
+            })
+            .await,
+        "invalid_signature",
+        "changed request id",
+    )?;
+
+    let changed_iat_request_id = "integration-request-changed-iat";
+    let (changed_iat_proof, changed_iat) = create_harness_proof(
+        caller_client.auth(),
+        HARNESS_RUST_PING_SUBJECT,
+        &payload,
+        changed_iat_request_id,
+    );
+    expect_validate_rpc_error(
+        auth_client
+            .validate_request(&AuthRequestsValidateRequest {
+                capabilities: Some(Vec::new()),
+                iat: changed_iat + 1,
+                payload_hash: payload_hash_base64url(&payload),
+                proof: changed_iat_proof,
+                request_id: changed_iat_request_id.to_string(),
+                session_key: caller_client.auth().session_key.clone(),
+                subject: HARNESS_RUST_PING_SUBJECT.to_string(),
+            })
+            .await,
+        "invalid_signature",
+        "changed iat",
+    )?;
+
+    let mismatched_hash_request_id = "integration-request-mismatched-hash";
+    let (mismatched_hash_proof, mismatched_hash_iat) = create_harness_proof(
+        caller_client.auth(),
+        HARNESS_RUST_PING_SUBJECT,
+        &payload,
+        mismatched_hash_request_id,
+    );
+    expect_validate_rpc_error(
+        auth_client
+            .validate_request(&AuthRequestsValidateRequest {
+                capabilities: Some(Vec::new()),
+                iat: mismatched_hash_iat,
+                payload_hash: payload_hash_base64url(b"different payload"),
+                proof: mismatched_hash_proof,
+                request_id: mismatched_hash_request_id.to_string(),
+                session_key: caller_client.auth().session_key.clone(),
+                subject: HARNESS_RUST_PING_SUBJECT.to_string(),
+            })
+            .await,
+        "invalid_signature",
+        "mismatched payload hash",
+    )?;
 
     assert_raw_rpc_denial(
         caller_client,
@@ -1302,10 +1451,16 @@ async fn assert_raw_rpc_denial(
     let mut headers = HeaderMap::new();
     headers.insert("session-key", caller_client.auth().session_key.as_str());
     if matches!(case, RawRpcDenial::ReplyInboxMismatch) {
-        let proof = caller_client
-            .auth()
-            .create_proof(HARNESS_RUST_PING_SUBJECT, payload);
+        let request_id = format!("integration-raw-reply-mismatch-{}", unique_suffix());
+        let (proof, iat) = create_harness_proof(
+            caller_client.auth(),
+            HARNESS_RUST_PING_SUBJECT,
+            payload,
+            &request_id,
+        );
         headers.insert("proof", proof.as_str());
+        headers.insert("iat", iat.to_string().as_str());
+        headers.insert("request-id", request_id.as_str());
     }
 
     caller_client
@@ -1622,10 +1777,13 @@ where
         message: "rust-trace-context".to_string(),
     };
     let payload = Bytes::from(serde_json::to_vec(&input).into_diagnostic()?);
-    let proof = client.auth().create_proof(R::SUBJECT, &payload);
+    let request_id = format!("integration-trace-{}", unique_suffix());
+    let (proof, iat) = create_harness_proof(client.auth(), R::SUBJECT, &payload, &request_id);
     let mut headers = async_nats::HeaderMap::new();
     headers.insert("session-key", client.auth().session_key.as_str());
     headers.insert("proof", proof.as_str());
+    headers.insert("iat", iat.to_string().as_str());
+    headers.insert("request-id", request_id.as_str());
     headers.insert("traceparent", traceparent);
     let response = client
         .nats()
@@ -1680,7 +1838,7 @@ async fn expect_old_live_connection_kicked(client: &TrellisClient) -> Result<()>
     }
 }
 
-async fn expect_rust_client_call_denied<R>(
+pub(crate) async fn expect_rust_client_call_denied<R>(
     client: &TrellisClient,
     message: &str,
     unexpected_success: &str,
@@ -1894,13 +2052,31 @@ fn write_ts_fixture_script(name: &str, contents: &str) -> Result<PathBuf> {
 }
 
 fn unique_suffix() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or_default()
 }
 
-async fn connect_service_with_retry(
+fn current_iat() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
+}
+
+fn create_harness_proof(
+    auth: &trellis_client::SessionAuth,
+    subject: &str,
+    payload: &[u8],
+    request_id: &str,
+) -> (String, i64) {
+    let iat = current_iat();
+    let proof = auth.create_proof(subject, payload, iat, request_id);
+    (proof, iat)
+}
+
+pub(crate) async fn connect_service_with_retry(
     trellis_url: &str,
     contract_digest: &str,
     service_seed: &str,

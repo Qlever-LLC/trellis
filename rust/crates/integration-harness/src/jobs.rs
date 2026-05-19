@@ -49,6 +49,7 @@ const HARNESS_JOBS_QUEUE: &str = "document-process";
 const LOCAL_JOBS_DEPLOYMENT_ID: &str = "harness.jobs-local";
 const LOCAL_JOBS_CONTRACT_ID: &str = "trellis.integration-harness.jobs-local@v1";
 const LOCAL_RUST_QUEUE: &str = "rustProcess";
+const LOCAL_RUST_SHUTDOWN_QUEUE: &str = "rustShutdown";
 const LOCAL_TS_QUEUE: &str = "tsProcess";
 const LOCAL_RUST_WORKER_CONSUMER: &str = "harness-local-jobs-rust-worker";
 const PASSING_CASES: usize = 29;
@@ -86,6 +87,10 @@ fn local_jobs_service_contract_json() -> Result<String> {
     .schema("JobResult", result_schema)
     .job_queue(
         LOCAL_RUST_QUEUE,
+        job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult"))),
+    )
+    .job_queue(
+        LOCAL_RUST_SHUTDOWN_QUEUE,
         job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult"))),
     )
     .job_queue(
@@ -129,6 +134,10 @@ const contract = defineServiceContract({ schemas }, (ref) => ({
   },
   jobs: {
     rustProcess: {
+      payload: ref.schema("JobPayload"),
+      result: ref.schema("JobResult"),
+    },
+    rustShutdown: {
       payload: ref.schema("JobPayload"),
       result: ref.schema("JobResult"),
     },
@@ -1477,13 +1486,18 @@ async fn assert_worker_shutdown_requeues(
     jobs_client: &JobsClient<'_>,
     rust_client: &TrellisClient,
 ) -> Result<()> {
+    const SHUTDOWN_REQUEUE_CONSUMER: &str = "harness-local-jobs-rust-shutdown-worker";
+
     let mut binding = service_local_runtime_binding(rust_client)?;
-    binding
+    let queue = binding
         .jobs
         .queues
-        .get_mut(LOCAL_RUST_QUEUE)
-        .ok_or_else(|| miette!("service-local Rust queue binding is missing"))?
-        .consumer_name = LOCAL_RUST_WORKER_CONSUMER.to_string();
+        .get_mut(LOCAL_RUST_SHUTDOWN_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust shutdown queue binding is missing"))?;
+    queue.consumer_name = SHUTDOWN_REQUEUE_CONSUMER.to_string();
+    queue.ack_wait_ms = 100;
+    queue.backoff_ms = vec![100];
+    queue.max_deliver = 5;
 
     let manager = JobManager::new(
         NatsJobEventPublisher::new(rust_client.nats().clone()),
@@ -1495,7 +1509,7 @@ async fn assert_worker_shutdown_requeues(
     );
     let job = manager
         .create(
-            LOCAL_RUST_QUEUE,
+            LOCAL_RUST_SHUTDOWN_QUEUE,
             json!({ "documentId": "shutdown-requeue" }),
         )
         .await
@@ -1529,7 +1543,7 @@ async fn assert_worker_shutdown_requeues(
             }))
         },
         WorkerHostOptions {
-            queue_types: Some(vec![LOCAL_RUST_QUEUE.to_string()]),
+            queue_types: Some(vec![LOCAL_RUST_SHUTDOWN_QUEUE.to_string()]),
             heartbeat_interval: Duration::from_secs(30),
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
         },
@@ -1544,12 +1558,15 @@ async fn assert_worker_shutdown_requeues(
         .map_err(|error| miette!("failed to stop shutdown worker A: {error}"))?;
 
     let mut binding = service_local_runtime_binding(rust_client)?;
-    binding
+    let queue = binding
         .jobs
         .queues
-        .get_mut(LOCAL_RUST_QUEUE)
-        .ok_or_else(|| miette!("service-local Rust queue binding is missing"))?
-        .consumer_name = LOCAL_RUST_WORKER_CONSUMER.to_string();
+        .get_mut(LOCAL_RUST_SHUTDOWN_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust shutdown queue binding is missing"))?;
+    queue.consumer_name = SHUTDOWN_REQUEUE_CONSUMER.to_string();
+    queue.ack_wait_ms = 100;
+    queue.backoff_ms = vec![100];
+    queue.max_deliver = 5;
     let worker_b = start_worker_host_from_binding(
         rust_client.nats().clone(),
         binding,
@@ -1571,7 +1588,7 @@ async fn assert_worker_shutdown_requeues(
             }))
         },
         WorkerHostOptions {
-            queue_types: Some(vec![LOCAL_RUST_QUEUE.to_string()]),
+            queue_types: Some(vec![LOCAL_RUST_SHUTDOWN_QUEUE.to_string()]),
             heartbeat_interval: Duration::from_secs(30),
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
         },

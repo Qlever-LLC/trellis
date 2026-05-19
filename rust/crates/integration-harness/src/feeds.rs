@@ -545,10 +545,16 @@ where
         topic: topic.to_string(),
     };
     let payload = Bytes::from(serde_json::to_vec(&input).into_diagnostic()?);
-    let proof = client.auth().create_proof(F::SUBJECT, &payload);
+    let iat = current_iat();
+    let request_id = format!("integration-feed-ready-{}", unique_suffix());
+    let proof = client
+        .auth()
+        .create_proof(F::SUBJECT, &payload, iat, &request_id);
     let mut headers = HeaderMap::new();
     headers.insert("session-key", client.auth().session_key.as_str());
     headers.insert("proof", proof.as_str());
+    headers.insert("iat", iat.to_string().as_str());
+    headers.insert("request-id", request_id.as_str());
     let inbox = format!(
         "{}.feeds-ready-{}",
         client.auth().inbox_prefix(),
@@ -605,9 +611,13 @@ async fn assert_invalid_feed_proof_denied(client: &TrellisClient) -> Result<()> 
         topic: "invalid-proof-rust-feed".to_string(),
     };
     let payload = Bytes::from(serde_json::to_vec(&input).into_diagnostic()?);
+    let iat = current_iat();
+    let request_id = format!("integration-feed-invalid-proof-{}", unique_suffix());
     let mut headers = HeaderMap::new();
     headers.insert("session-key", client.auth().session_key.as_str());
     headers.insert("proof", "invalid-proof");
+    headers.insert("iat", iat.to_string().as_str());
+    headers.insert("request-id", request_id.as_str());
     let inbox = format!(
         "{}.feeds-invalid-proof-{}",
         client.auth().inbox_prefix(),
@@ -852,6 +862,13 @@ fn unique_suffix() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
+        .unwrap_or_default()
+}
+
+fn current_iat() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
         .unwrap_or_default()
 }
 

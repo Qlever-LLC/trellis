@@ -267,11 +267,13 @@ async function ensureKvResource(
     kv = await kvm.open(bucket);
   }
   const jsm = await jetstreamManager(nats);
+  const status = await kv.status();
+  assertKvResourceStream(bucket, status.streamInfo.config);
   await reconcileKvResourceConfig(
     {
       update: (name, config) => jsm.streams.update(name, config),
     },
-    await kv.status(),
+    status,
     request,
     options,
   );
@@ -279,6 +281,7 @@ async function ensureKvResource(
 
 type KvResourceStreamConfig = {
   name: string;
+  subjects?: string[];
   max_msgs_per_subject: number;
   max_age: number;
   max_msg_size: number;
@@ -294,6 +297,22 @@ type KvResourceStatus = {
 type KvStreamUpdater = {
   update(name: string, config: KvResourceStreamConfig): Promise<unknown>;
 };
+
+function assertKvResourceStream(
+  bucket: string,
+  config: KvResourceStreamConfig,
+): void {
+  const expectedStream = `KV_${bucket}`;
+  const expectedSubject = `$KV.${bucket}.>`;
+  if (
+    config.name !== expectedStream ||
+    !config.subjects?.includes(expectedSubject)
+  ) {
+    throw new Error(
+      `stream '${config.name}' is not a KV bucket for '${bucket}'`,
+    );
+  }
+}
 
 /**
  * Updates an existing KV bucket stream so persisted bindings match the requested
@@ -350,6 +369,7 @@ async function ensureStoreResource(
     objectStore = await objm.open(name);
   }
   const status = await objectStore.status();
+  assertStoreResourceStream(name, status.streamInfo.config);
   await reconcileStoreResourceConfig(
     {
       async update(streamName, config) {
@@ -365,6 +385,7 @@ async function ensureStoreResource(
 
 type StoreResourceStreamConfig = {
   name: string;
+  subjects?: string[];
   max_age: number;
   max_bytes: number;
   num_replicas: number;
@@ -379,6 +400,24 @@ type StoreResourceStatus = {
 type StoreStreamUpdater = {
   update(name: string, config: StoreResourceStreamConfig): Promise<unknown>;
 };
+
+function assertStoreResourceStream(
+  name: string,
+  config: StoreResourceStreamConfig,
+): void {
+  const expectedStream = `OBJ_${name}`;
+  const expectedSubjectPrefix = `$O.${name}.`;
+  if (
+    config.name !== expectedStream ||
+    !config.subjects?.some((subject) =>
+      subject.startsWith(expectedSubjectPrefix)
+    )
+  ) {
+    throw new Error(
+      `stream '${config.name}' is not an object store for '${name}'`,
+    );
+  }
+}
 
 /**
  * Updates an existing object-store stream so omitted limits are reconciled back

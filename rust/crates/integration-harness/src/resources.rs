@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,13 +14,18 @@ use trellis_auth::{
     connect_admin_client_async, generate_session_keypair, AdminLoginOutcome, AdminSessionState,
 };
 use trellis_auth_adapters::AuthRequestValidatorAdapter;
-use trellis_client::{ServiceConnectOptions, TrellisClient, TrellisClientError};
+use trellis_client::{
+    ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient, TrellisClientError,
+};
 use trellis_contracts::{
     digest_contract_json, kv, rpc, store, use_contract, ContractKind, ContractManifestBuilder,
 };
 use trellis_core_bootstrap::CoreBootstrapBinding;
 use trellis_sdk_auth::client::AuthClient as SdkAuthClient;
-use trellis_sdk_auth::types::AuthEnvelopesExpandRequest;
+use trellis_sdk_auth::types::{
+    AuthEnvelopeExpansionsApproveRequest, AuthEnvelopeExpansionsListRequest,
+    AuthEnvelopesExpandRequest,
+};
 use trellis_sdk_core::types::TrellisBindingsGetResponseBinding;
 use trellis_service::{
     ConnectedService, KvResourceEntry, KvResourceHandle, KvResourceOperation, NatsKvResourceClient,
@@ -30,10 +35,12 @@ use trellis_service::{
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
+use crate::nats::ensure_resource_conflict_streams;
 use crate::workspace::repo_root;
 
-const PASSING_CASES: usize = 4;
+const PASSING_CASES: usize = 7;
 const HARNESS_DEPLOYMENT_ID: &str = "harness.resources";
+const HARNESS_PENDING_DEPLOYMENT_ID: &str = "harness.resources.pending";
 const HARNESS_CONTRACT_ID: &str = "trellis.integration-harness.resources@v1";
 const HARNESS_RUST_SERVICE_NAME: &str = "harness-resources-rust";
 const HARNESS_RUST_SUBJECT: &str = "rpc.v1.Harness.Rust.Resources";
@@ -96,10 +103,28 @@ fn harness_service_contract_json_with_store_limits(
             .history(1)
             .ttl_ms(0),
     )
+    .kv_resource(
+        "optionalRecords",
+        kv(
+            "Store optional harness resource lifecycle records",
+            "ResourceRecord",
+        )
+        .required(false)
+        .history(1)
+        .ttl_ms(0),
+    )
     .store_resource(
         "blobs",
         store("Store harness resource lifecycle blobs")
             .required(true)
+            .ttl_ms(store_ttl_ms)
+            .max_object_bytes(1_048_576)
+            .max_total_bytes(max_total_bytes),
+    )
+    .store_resource(
+        "optionalBlobs",
+        store("Store optional harness resource lifecycle blobs")
+            .required(false)
             .ttl_ms(store_ttl_ms)
             .max_object_bytes(1_048_576)
             .max_total_bytes(max_total_bytes),
@@ -176,12 +201,14 @@ const contract = defineServiceContract({ schemas }, (ref) => ({
       auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
     },
   },
-  resources: {
+    resources: {
     kv: {
       records: { purpose: "Store harness resource lifecycle records", schema: ref.schema("ResourceRecord"), required: true, history: 1, ttlMs: 0 },
+      optionalRecords: { purpose: "Store optional harness resource lifecycle records", schema: ref.schema("ResourceRecord"), required: false, history: 1, ttlMs: 0 },
     },
     store: {
       blobs: { purpose: "Store harness resource lifecycle blobs", required: true, ttlMs: 0, maxObjectBytes: 1048576, maxTotalBytes: 4194304 },
+      optionalBlobs: { purpose: "Store optional harness resource lifecycle blobs", required: false, ttlMs: 0, maxObjectBytes: 1048576, maxTotalBytes: 4194304 },
     },
   },
   rpc: {
@@ -202,6 +229,9 @@ const service = await TrellisService.connect({
   sessionKeySeed: Deno.env.get("HARNESS_TS_SERVICE_SEED")!,
   server: { log: false },
 }).orThrow();
+
+if (service.kv.optionalRecords !== undefined) throw new Error("optionalRecords KV binding should be absent");
+if ("optionalBlobs" in service.store) throw new Error("optionalBlobs store binding should be absent");
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -372,9 +402,15 @@ const harness = defineServiceContract({ schemas }, (ref) => ({
   displayName: "Trellis Integration Harness Resources",
   description: "Harness-owned service contract for service-bound resource lifecycle verification.",
   uses: { required: { auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }) } },
-  resources: {
-    kv: { records: { purpose: "Store harness resource lifecycle records", schema: ref.schema("ResourceRecord"), required: true, history: 1, ttlMs: 0 } },
-    store: { blobs: { purpose: "Store harness resource lifecycle blobs", required: true, ttlMs: 0, maxObjectBytes: 1048576, maxTotalBytes: 4194304 } },
+    resources: {
+    kv: {
+      records: { purpose: "Store harness resource lifecycle records", schema: ref.schema("ResourceRecord"), required: true, history: 1, ttlMs: 0 },
+      optionalRecords: { purpose: "Store optional harness resource lifecycle records", schema: ref.schema("ResourceRecord"), required: false, history: 1, ttlMs: 0 },
+    },
+    store: {
+      blobs: { purpose: "Store harness resource lifecycle blobs", required: true, ttlMs: 0, maxObjectBytes: 1048576, maxTotalBytes: 4194304 },
+      optionalBlobs: { purpose: "Store optional harness resource lifecycle blobs", required: false, ttlMs: 0, maxObjectBytes: 1048576, maxTotalBytes: 4194304 },
+    },
   },
   rpc: {
     "Harness.Rust.Resources": { version: "v1", subject: "rpc.v1.Harness.Rust.Resources", input: ref.schema("ResourceExerciseInput"), output: ref.schema("ResourceExerciseOutput"), capabilities: { call: [] }, errors: [ref.error("UnexpectedError")] },
@@ -472,6 +508,8 @@ impl trellis_client::RpcDescriptor for HarnessTsResourcesRpc {
 
 pub(crate) async fn run_resources_fixture(
     trellis_url: &str,
+    nats_url: &str,
+    trellis_creds: &Path,
     admin_login: &AdminLoginOutcome,
     browser: &BrowserContainer,
 ) -> Result<usize> {
@@ -485,6 +523,7 @@ pub(crate) async fn run_resources_fixture(
             .create_service_deployment(HARNESS_DEPLOYMENT_ID, vec!["harness".to_string()])
             .await
             .into_diagnostic()?;
+        ensure_optional_resource_conflicts(nats_url, trellis_creds, HARNESS_DEPLOYMENT_ID).await?;
 
         let stale_service_contract_json = stale_harness_service_contract_json()?;
         let stale_contract_digest =
@@ -501,6 +540,16 @@ pub(crate) async fn run_resources_fixture(
 
         let service_contract_json = harness_service_contract_json()?;
         let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
+        assert_pending_resource_service_approval(
+            trellis_url,
+            &auth_client,
+            &sdk_auth_client,
+            &service_contract_json,
+            &contract_digest,
+            nats_url,
+            trellis_creds,
+        )
+        .await?;
         sdk_auth_client
             .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
                 contract: contract_json_object(&service_contract_json)?,
@@ -542,6 +591,12 @@ pub(crate) async fn run_resources_fixture(
         Arc::clone(&service_client),
         validator,
     )?;
+    if connected.kv_binding("optionalRecords").is_ok() {
+        return Err(miette!("optionalRecords KV binding should be absent"));
+    }
+    if connected.store_binding("optionalBlobs").is_ok() {
+        return Err(miette!("optionalBlobs store binding should be absent"));
+    }
     let kv: KvResourceHandle<NatsKvResourceClient> = connected
         .kv("records")
         .await
@@ -602,6 +657,191 @@ pub(crate) async fn run_resources_fixture(
     .await;
     service_task.abort();
     call_result
+}
+
+async fn assert_pending_resource_service_approval(
+    trellis_url: &str,
+    auth_client: &trellis_auth::AuthClient<'_>,
+    sdk_auth_client: &SdkAuthClient<'_>,
+    contract_json: &str,
+    contract_digest: &str,
+    nats_url: &str,
+    trellis_creds: &Path,
+) -> Result<()> {
+    auth_client
+        .create_service_deployment(HARNESS_PENDING_DEPLOYMENT_ID, vec!["harness".to_string()])
+        .await
+        .into_diagnostic()?;
+    ensure_optional_resource_conflicts(nats_url, trellis_creds, HARNESS_PENDING_DEPLOYMENT_ID)
+        .await?;
+    let (service_seed, service_key) = generate_session_keypair();
+    auth_client
+        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+            deployment_id: HARNESS_PENDING_DEPLOYMENT_ID.to_string(),
+            instance_key: service_key,
+        })
+        .await
+        .into_diagnostic()?;
+
+    let connect_task = tokio::spawn(connect_pending_resource_service(
+        trellis_url.to_string(),
+        contract_digest.to_string(),
+        contract_json.to_string(),
+        service_seed,
+    ));
+    let pending_request_ids =
+        wait_for_pending_resource_expansion_requests(sdk_auth_client, contract_digest).await?;
+    for request_id in pending_request_ids {
+        sdk_auth_client
+            .auth_envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
+                request_id,
+                reason: Some("integration harness resource service startup approval".to_string()),
+            })
+            .await
+            .into_diagnostic()?;
+    }
+
+    let client = connect_task.await.into_diagnostic()??;
+    assert_resource_bootstrap_binding(&client, contract_digest)
+}
+
+async fn connect_pending_resource_service(
+    trellis_url: String,
+    contract_digest: String,
+    contract_json: String,
+    service_seed: String,
+) -> Result<TrellisClient> {
+    TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+        trellis_url: &trellis_url,
+        contract_id: HARNESS_CONTRACT_ID,
+        contract_digest: &contract_digest,
+        contract_json: &contract_json,
+        session_key_seed_base64url: &service_seed,
+        timeout_ms: 5_000,
+        retry_delay_ms: 250,
+        approval_timeout_ms: 30_000,
+    })
+    .await
+    .into_diagnostic()
+}
+
+async fn wait_for_pending_resource_expansion_requests(
+    auth_client: &SdkAuthClient<'_>,
+    contract_digest: &str,
+) -> Result<Vec<String>> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let response = auth_client
+            .auth_envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
+                deployment_id: Some(HARNESS_PENDING_DEPLOYMENT_ID.to_string()),
+                limit: 20,
+                offset: None,
+                state: Some(json!("pending")),
+            })
+            .await
+            .into_diagnostic()?;
+        let request_ids: Vec<_> = response
+            .requests
+            .into_iter()
+            .filter(|request| {
+                request.contract_id == HARNESS_CONTRACT_ID
+                    && request.contract_digest == contract_digest
+            })
+            .map(|request| request.request_id)
+            .collect();
+        if !request_ids.is_empty() {
+            return Ok(request_ids);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(miette!(
+                "timed out waiting for pending resource envelope expansion request"
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+fn assert_resource_bootstrap_binding(client: &TrellisClient, contract_digest: &str) -> Result<()> {
+    let binding_value = client
+        .service_bootstrap_binding()
+        .cloned()
+        .ok_or_else(|| miette!("pending resource service did not receive bootstrap binding"))?;
+    let binding = serde_json::from_value::<TrellisBindingsGetResponseBinding>(binding_value)
+        .map(CoreBootstrapBinding::new)
+        .map_err(|error| miette!("invalid pending resource service bootstrap binding: {error}"))?;
+    if binding.contract_id != HARNESS_CONTRACT_ID || binding.digest != contract_digest {
+        return Err(miette!(
+            "pending resource service bootstrap returned unexpected contract {} digest {}",
+            binding.contract_id,
+            binding.digest
+        ));
+    }
+
+    let kv = binding
+        .resources
+        .kv
+        .as_ref()
+        .and_then(|resources| resources.get("records"))
+        .ok_or_else(|| miette!("pending resource binding did not include records KV"))?;
+    if kv.bucket.is_empty() || kv.history != 1 || kv.ttl_ms != 0 {
+        return Err(miette!(
+            "pending resource records KV binding had unexpected limits: bucket={}, history={}, ttl_ms={}",
+            kv.bucket,
+            kv.history,
+            kv.ttl_ms
+        ));
+    }
+    if binding
+        .resources
+        .kv
+        .as_ref()
+        .is_some_and(|resources| resources.contains_key("optionalRecords"))
+    {
+        return Err(miette!(
+            "pending resource binding unexpectedly included optionalRecords KV"
+        ));
+    }
+
+    let store = binding
+        .resources
+        .store
+        .as_ref()
+        .and_then(|resources| resources.get("blobs"))
+        .ok_or_else(|| miette!("pending resource binding did not include blobs store"))?;
+    if store.name.is_empty() || store.ttl_ms != 0 || store.max_total_bytes != Some(4_194_304) {
+        return Err(miette!(
+            "pending resource blobs store binding had unexpected limits: name={}, ttl_ms={}, max_total_bytes={:?}",
+            store.name,
+            store.ttl_ms,
+            store.max_total_bytes
+        ));
+    }
+    if binding
+        .resources
+        .store
+        .as_ref()
+        .is_some_and(|resources| resources.contains_key("optionalBlobs"))
+    {
+        return Err(miette!(
+            "pending resource binding unexpectedly included optionalBlobs store"
+        ));
+    }
+    Ok(())
+}
+
+async fn ensure_optional_resource_conflicts(
+    nats_url: &str,
+    trellis_creds: &Path,
+    deployment_id: &str,
+) -> Result<()> {
+    ensure_resource_conflict_streams(
+        nats_url,
+        trellis_creds,
+        deployment_id,
+        HARNESS_CONTRACT_ID,
+        &[("kv", "optionalRecords"), ("store", "optionalBlobs")],
+    )
+    .await
 }
 
 fn connected_rust_service<'service, V>(

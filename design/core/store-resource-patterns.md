@@ -292,7 +292,7 @@ That does not change the rules in this document:
 - non-owner clients do not resolve store bindings
 - file transfer authorization still begins with explicit contract-owned
   `Files.*` APIs from the owning service, such as send-transfer operations and
-  receive-transfer RPCs
+  receive-transfer grants returned by RPCs or operations
 - the public abstraction is `Files`; `store` remains the service-owned backing
   capability
 - receive transfer grants must not be treated as raw store delegation; they are

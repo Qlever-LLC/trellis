@@ -399,7 +399,7 @@ async function missingResourceBindingKeys(input: {
   );
   const missing: string[] = [];
   for (const resource of input.requested.resources) {
-    if (resource.kind === "transfer") continue;
+    if (resource.kind === "transfer" || !resource.required) continue;
     const key = resourceKey(resource.kind, resource.alias);
     if (produced.has(key)) continue;
     const stored = await input.storage.get(

@@ -40,6 +40,16 @@ Public names use the resource group before the action. Examples:
 - `Auth.Envelopes.Shrink`
 - `Auth.EnvelopeExpansions.Approve`
 
+Shared approval capability views use this shape:
+
+```ts
+type ContractApprovalCapability = {
+  displayName: string;
+  description: string;
+  consequence?: string;
+};
+```
+
 ## HTTP Endpoints
 
 Browser auth endpoints:
@@ -254,7 +264,7 @@ type PortalFlowState =
       contractDigest: string;
       displayName: string;
       description: string;
-      capabilities: string[];
+      capabilities: Record<string, ContractApprovalCapability>;
     };
   }
   | {
@@ -266,7 +276,7 @@ type PortalFlowState =
       contractDigest: string;
       displayName: string;
       description: string;
-      capabilities: string[];
+      capabilities: Record<string, ContractApprovalCapability>;
     };
   }
   | {
@@ -277,7 +287,7 @@ type PortalFlowState =
       contractDigest: string;
       displayName: string;
       description: string;
-      capabilities: string[];
+      capabilities: Record<string, ContractApprovalCapability>;
     };
     missingCapabilities: string[];
     userCapabilities: string[];
@@ -429,7 +439,7 @@ type BindResponse =
       contractId: string;
       displayName: string;
       description: string;
-      capabilities: string[];
+      capabilities: Record<string, ContractApprovalCapability>;
     };
     missingCapabilities: string[];
     userCapabilities: string[];
@@ -1355,13 +1365,55 @@ Request:
 Response:
 
 ```ts
+type AuthSessionRow =
+  | {
+      key: string;
+      sessionKey: string;
+      participantKind: "app" | "agent";
+      principal: {
+        type: "user";
+        userId: string;
+        name: string;
+        identity: { identityId: string; provider: string; subject: string };
+      };
+      contractId: string;
+      contractDisplayName: string;
+      createdAt: string;
+      lastAuth: string;
+    }
+  | {
+      key: string;
+      sessionKey: string;
+      participantKind: "device";
+      principal: {
+        type: "device";
+        deviceId: string;
+        deviceType: string;
+        deploymentId: string;
+        runtimePublicKey: string;
+      };
+      contractId: string;
+      contractDisplayName?: string;
+      createdAt: string;
+      lastAuth: string;
+    }
+  | {
+      key: string;
+      sessionKey: string;
+      participantKind: "service";
+      principal: {
+        type: "service";
+        id: string;
+        instanceId: string;
+        deploymentId: string;
+        name: string;
+      };
+      createdAt: string;
+      lastAuth: string;
+    };
+
 {
-  sessions: Array<{
-    key: string;
-    type: "user" | "service" | "device";
-    createdAt: string;
-    lastAuth: string;
-  }>;
+  sessions: AuthSessionRow[];
 }
 ```
 

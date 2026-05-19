@@ -1309,6 +1309,76 @@ Deno.test("Auth.Envelopes.Expand rejects missing non-transfer resource bindings"
   assertEquals(evidence.putCount, 0);
 });
 
+Deno.test("Auth.Envelopes.Expand accepts missing optional resource bindings", async () => {
+  const contract: TrellisContractV1 = {
+    ...resourceContract(),
+    resources: {
+      kv: {
+        ...resourceContract().resources?.kv,
+        optionalCache: {
+          purpose: "Optional cache entries",
+          schema: { schema: "Empty" },
+          required: false,
+        },
+      },
+      store: {
+        ...resourceContract().resources?.store,
+        optionalUploads: {
+          purpose: "Optional uploaded files",
+          required: false,
+        },
+      },
+    },
+  };
+  const { handler, resources } = makeDeps({
+    provisionResourceBindings: async () => ({
+      kv: { cache: { bucket: "svc_cache", history: 2, ttlMs: 1000 } },
+      store: {
+        uploads: { name: "svc_uploads", ttlMs: 2000, maxTotalBytes: 100000 },
+      },
+      jobs: {
+        namespace: "billing_jobs",
+        workStream: "JOBS_WORK",
+        queues: {
+          reconcile: {
+            queueType: "reconcile",
+            publishPrefix: "trellis.jobs.billing.reconcile",
+            workSubject: "trellis.work.billing.reconcile",
+            consumerName: "billing-reconcile",
+            payload: { schema: "Empty" },
+            maxDeliver: 3,
+            backoffMs: [5000],
+            ackWaitMs: 300000,
+            progress: true,
+            logs: true,
+            dlq: true,
+            concurrency: 1,
+          },
+        },
+      },
+    }),
+  });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      contract,
+      expectedDigest: digestContractManifest(contract),
+    },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  assertEquals(
+    resources.list().map((binding) => [binding.kind, binding.alias]),
+    [
+      ["jobs", "reconcile"],
+      ["kv", "cache"],
+      ["store", "uploads"],
+    ],
+  );
+});
+
 Deno.test("Auth.Envelopes.Expand is idempotent for repeated expansion", async () => {
   const contract = serviceContract();
   const { handler, envelopes, evidence } = makeDeps();

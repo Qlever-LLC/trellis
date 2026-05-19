@@ -99,6 +99,11 @@ pub(crate) fn required_integration_coverage() -> Vec<RequiredCoverage> {
             expectation: "The suite must start Rust and TypeScript services before envelope coverage exists, verify pending expansion requests through public/admin APIs, approve them, and then prove all four Rust/TypeScript RPC caller/provider combinations connect through the approved envelope.",
         },
         RequiredCoverage {
+            id: "app-identity-envelope-approval",
+            title: "App identity-envelope approval flow",
+            expectation: "The suite must start an app-originated login flow with an app contract, approve access through the real portal, bind and connect as a user app, verify the approved surface works, verify an unapproved surface is denied, and prove bind remains approval_required before approval, for stale broader app evidence, and after revocation.",
+        },
+        RequiredCoverage {
             id: "optional-uses-dependency-closure",
             title: "Optional uses and dependency closure",
             expectation: "The suite must prove optional uses grant no authority while missing, required dependencies fail closed while unknown, known inactive required closure waits for activation, inactive digests do not become active after same-id updates, and cyclic required closures can be approved once known.",
@@ -168,6 +173,7 @@ mod tests {
         assert!(ids.contains(&"auth-protocol-matrix"));
         assert!(ids.contains(&"device-activation-end-to-end"));
         assert!(ids.contains(&"service-envelope-approval-flow"));
+        assert!(ids.contains(&"app-identity-envelope-approval"));
         assert!(ids.contains(&"optional-uses-dependency-closure"));
         assert!(ids.contains(&"capability-permission-matrix"));
         assert!(ids.contains(&"observability-trace-matrix"));

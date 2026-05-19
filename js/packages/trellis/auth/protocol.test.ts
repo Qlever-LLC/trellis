@@ -605,7 +605,7 @@ Deno.test("AuthSessionsMeResponseSchema validates user, device, and service enve
   }));
 });
 
-Deno.test("AuthRequestsValidateSchema requires proof v2 metadata and non-empty strings", () => {
+Deno.test("AuthRequestsValidateSchema requires current proof metadata and non-empty strings", () => {
   assert(Value.Check(AuthRequestsValidateSchema, {
     sessionKey: "sk_123",
     proof: "sig_123",

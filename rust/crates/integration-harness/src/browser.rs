@@ -144,6 +144,42 @@ pub(crate) async fn complete_local_login(
     username: &str,
     password: &str,
 ) -> Result<()> {
+    submit_local_login(driver, login_url, username, password).await?;
+    let source = driver.source().await.into_diagnostic()?;
+    if source.contains("Approve access") {
+        approve_current_flow(driver).await?;
+    }
+    wait_for_page_text(
+        driver,
+        &["Connected", "Return to the CLI"],
+        Duration::from_secs(30),
+    )
+    .await
+}
+
+pub(crate) async fn complete_local_login_until_approval(
+    driver: &WebDriver,
+    login_url: &str,
+    username: &str,
+    password: &str,
+) -> Result<()> {
+    submit_local_login(driver, login_url, username, password).await?;
+    let source = driver.source().await.into_diagnostic()?;
+    if source.contains("Approve access") {
+        Ok(())
+    } else {
+        Err(miette!(
+            "local login reached connected state without approval screen"
+        ))
+    }
+}
+
+async fn submit_local_login(
+    driver: &WebDriver,
+    login_url: &str,
+    username: &str,
+    password: &str,
+) -> Result<()> {
     driver.goto(login_url).await.into_diagnostic()?;
     wait_for_page_text(
         driver,
@@ -164,24 +200,20 @@ pub(crate) async fn complete_local_login(
         Duration::from_secs(30),
     )
     .await?;
-    let source = driver.source().await.into_diagnostic()?;
-    if source.contains("Approve access") {
-        find_xpath(
-            driver,
-            "//button[normalize-space()='Approve']",
-            Duration::from_secs(30),
-        )
-        .await?
-        .click()
-        .await
-        .into_diagnostic()?;
-    }
-    wait_for_page_text(
+    Ok(())
+}
+
+pub(crate) async fn approve_current_flow(driver: &WebDriver) -> Result<()> {
+    find_xpath(
         driver,
-        &["Connected", "Return to the CLI"],
+        "//button[normalize-space()='Approve']",
         Duration::from_secs(30),
     )
+    .await?
+    .click()
     .await
+    .into_diagnostic()?;
+    Ok(())
 }
 
 async fn fill_input(driver: &WebDriver, selector: &str, value: &str) -> Result<()> {

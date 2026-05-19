@@ -528,20 +528,26 @@ approval. A contract is active only when its approved deployment evidence
 belongs to an enabled active closure whose required dependencies also resolve as
 active. `Trellis.Surface.Status` is an advisory Trellis core RPC that checks the
 active catalog first, checks the caller's current capability envelope second,
-and checks live service implementation state only after authorization succeeds.
+and checks live service or device implementation state only after authorization
+succeeds.
 
 Status outcomes are:
 
-- `unknown_contract` when the contract id is not active
+- `unknown_contract` when the contract id is not known to the catalog
 - `unknown_surface` when the active contract lineage has no matching logical
   RPC, operation, event, or feed surface
 - `unauthorized` with missing capability keys when the caller's current envelope
   does not authorize the requested surface
-- `unavailable` with `no_live_implementer` or `disabled` when the surface is
-  known and authorized but no enabled connected service instance currently
-  implements an active digest that defines that surface
-- `available` when an enabled connected service instance currently implements an
-  active digest that defines the requested surface
+- `unavailable` with `envelope_unavailable` when the active contract is known but
+  no enabled deployment envelope currently covers the requested surface
+- `available` with `liveImplementer: true` and `runtime: "live"` when an enabled
+  connected service or device instance currently implements an active digest that
+  defines the requested surface
+- `available` with `liveImplementer: false` and `runtime: "no_live_implementer"`
+  when the surface is authorized and deployment-covered but no connected service
+  or device instance currently implements it
+- `available` with `liveImplementer: false` and `runtime: "disabled"` when only
+  disabled matching service or device instances currently implement it
 
 Availability MUST NOT grant authority, activate catalog entries, or remove
 transport permissions that were already granted from the caller's effective

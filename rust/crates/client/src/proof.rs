@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -6,6 +7,8 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 
 use crate::{RpcErrorPayload, TrellisClientError};
+
+static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) fn sha256(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
@@ -29,18 +32,49 @@ pub(crate) fn now_iat_seconds() -> u64 {
         .as_secs()
 }
 
-pub(crate) fn build_proof_input(session_key: &str, subject: &str, payload_hash: &[u8]) -> Vec<u8> {
+pub(crate) fn new_request_id() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let sequence = REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("req_{nanos:x}_{sequence:x}")
+}
+
+pub(crate) fn build_proof_input(
+    session_key: &str,
+    subject: &str,
+    payload_hash: &[u8],
+    iat: i64,
+    request_id: &str,
+) -> Vec<u8> {
     let session_key = session_key.as_bytes();
     let subject = subject.as_bytes();
+    let iat = iat.to_string();
+    let iat = iat.as_bytes();
+    let request_id = request_id.as_bytes();
 
-    let mut out =
-        Vec::with_capacity(4 + session_key.len() + 4 + subject.len() + 4 + payload_hash.len());
+    let mut out = Vec::with_capacity(
+        4 + session_key.len()
+            + 4
+            + subject.len()
+            + 4
+            + payload_hash.len()
+            + 4
+            + iat.len()
+            + 4
+            + request_id.len(),
+    );
     out.extend_from_slice(&(session_key.len() as u32).to_be_bytes());
     out.extend_from_slice(session_key);
     out.extend_from_slice(&(subject.len() as u32).to_be_bytes());
     out.extend_from_slice(subject);
     out.extend_from_slice(&(payload_hash.len() as u32).to_be_bytes());
     out.extend_from_slice(payload_hash);
+    out.extend_from_slice(&(iat.len() as u32).to_be_bytes());
+    out.extend_from_slice(iat);
+    out.extend_from_slice(&(request_id.len() as u32).to_be_bytes());
+    out.extend_from_slice(request_id);
     out
 }
 
@@ -49,6 +83,8 @@ pub fn verify_proof(
     public_session_key: &str,
     subject: &str,
     payload: &[u8],
+    iat: i64,
+    request_id: &str,
     proof_base64url: &str,
 ) -> Result<bool, TrellisClientError> {
     let public_key_bytes = base64url_decode(public_session_key)?;
@@ -66,7 +102,7 @@ pub fn verify_proof(
     signature.copy_from_slice(&signature_bytes);
 
     let payload_hash = sha256(payload);
-    let input = build_proof_input(public_session_key, subject, &payload_hash);
+    let input = build_proof_input(public_session_key, subject, &payload_hash, iat, request_id);
     let digest = sha256(&input);
 
     let public_key = VerifyingKey::from_bytes(&public_key).map_err(|error| {

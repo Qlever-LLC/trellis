@@ -522,24 +522,25 @@ Rules:
   user-delegated authority; they do not enable device-owned runtime access
 - Rust activated-device code SHOULD use the Rust helpers for deterministic
   identity derivation, activation payload and URL construction, wait-request
-  signing, activation wait, connect-info retrieval, and confirmation-code
-  verification rather than hand-written HKDF, HMAC, wait-proof, or connect-info
-  logic
+  signing, activation wait, connect-info retrieval, runtime connection, and
+  confirmation-code verification rather than hand-written HKDF, HMAC,
+  wait-proof, connect-info, or connection logic
 - Rust callers may use lower-level generated SDK surfaces for authenticated
   portal-side activation until a small typed convenience wrapper is available,
   but those calls still follow the `Auth.DeviceUserAuthorities.Resolve`
   operation model
-- any future Rust device runtime helper should follow the same service-style
-  connect pattern as the TypeScript device runtime helper and remain a thin
-  wrapper over the public auth HTTP and RPC surfaces
+- the Rust device runtime helper should follow the same service-style connect
+  pattern as the TypeScript device runtime helper and remain a thin wrapper over
+  the public auth HTTP and RPC surfaces
 
 Implementation status:
 
 - TypeScript currently provides the full activated-device connection path
   through `checkDeviceActivation(...)` and `TrellisDevice.connect(...)`
 - Rust currently has deterministic identity, activation payload, wait signing,
-  wait polling, and confirmation-code helpers, but does not yet have the full
-  activated-device runtime connect facade
+  wait polling, confirmation-code helpers, connect-info retrieval, and an
+  activated-device runtime connect facade through
+  `TrellisClient::connect_device(...)`
 - generated Rust device/state participant facades are still pending, so Rust
   demos may use lower-level session or offline flows until those facades exist
 

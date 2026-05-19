@@ -1,6 +1,7 @@
 use miette::{miette, IntoDiagnostic, Result};
 
 use crate::admin::run_admin_api_fixture;
+use crate::app_identity_approval::run_app_identity_approval_fixture;
 use crate::browser::{complete_admin_bootstrap, complete_local_login, BrowserContainer};
 use crate::cli::IntegrationArgs;
 use crate::container::IntegrationWorkdir;
@@ -60,10 +61,15 @@ pub(crate) fn admin_setup_contract_json() -> Result<String> {
             "Auth.Health",
             "Auth.Identities.Grants.List",
             "Auth.Identities.List",
+            "Auth.IdentityEnvelopes.Revoke",
             "Auth.Devices.List",
             "Auth.Devices.Provision",
             "Auth.Portals.List",
+            "Auth.Portals.Put",
+            "Auth.Portals.Remove",
             "Auth.Portals.LoginRoutes.List",
+            "Auth.Portals.LoginRoutes.Put",
+            "Auth.Portals.LoginRoutes.Remove",
             "Auth.Portals.LoginSettings.Get",
             "Auth.ServiceInstances.List",
             "Auth.ServiceInstances.Provision",
@@ -276,6 +282,15 @@ impl IntegrationRunner {
         let service_approval_passing_cases =
             run_service_approval_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
         eprintln!("integration preflight: service startup approval fixture passed");
+        eprintln!("integration preflight: running app identity-envelope approval fixture");
+        let app_identity_approval_passing_cases = run_app_identity_approval_fixture(
+            &host_trellis_origin,
+            &browser_trellis_origin,
+            &restored_outcome,
+            &browser,
+        )
+        .await?;
+        eprintln!("integration preflight: app identity-envelope approval fixture passed");
         eprintln!("integration preflight: running optional uses dependency fixture");
         let optional_uses_passing_cases =
             run_optional_uses_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
@@ -305,8 +320,14 @@ impl IntegrationRunner {
             run_feeds_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
         eprintln!("integration preflight: Rust/TypeScript feeds fixture passed");
         eprintln!("integration preflight: running Rust/TypeScript resources fixture");
-        let resources_passing_cases =
-            run_resources_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
+        let resources_passing_cases = run_resources_fixture(
+            &host_trellis_origin,
+            &nats.server_url(),
+            &nats_dir.join(trellis_creds),
+            &restored_outcome,
+            &browser,
+        )
+        .await?;
         eprintln!("integration preflight: Rust/TypeScript resources fixture passed");
         eprintln!("integration preflight: running Rust Jobs public API fixture");
         let jobs_passing_cases =
@@ -318,6 +339,7 @@ impl IntegrationRunner {
             + device_activation_passing_cases
             + rpc_passing_cases
             + service_approval_passing_cases
+            + app_identity_approval_passing_cases
             + optional_uses_passing_cases
             + operations_passing_cases
             + events_passing_cases

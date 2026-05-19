@@ -12,6 +12,7 @@ bytes.workspace = true
 clap.workspace = true
 futures-util.workspace = true
 miette.workspace = true
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
 serde_json.workspace = true
 thirtyfour = "0.36.1"
 tokio.workspace = true

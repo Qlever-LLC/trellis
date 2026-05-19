@@ -40,6 +40,8 @@ struct NatsConnectFixture {
 struct RpcProofFixture {
     subject: String,
     payload: String,
+    iat: i64,
+    request_id: String,
     payload_hash_base64url: String,
     proof_input_hex: String,
     proof_digest_base64url: String,
@@ -65,7 +67,7 @@ fn auth_proof_matches_shared_conformance_vectors() {
     assert!(fixtures.len() >= 2);
 
     for fixture in fixtures {
-        assert!(fixture.name.starts_with("proof-layout-v1"));
+        assert!(fixture.name.starts_with("proof-layout-current"));
         let auth = SessionAuth::from_seed_base64url(&fixture.seed).unwrap();
         assert_eq!(auth.session_key, fixture.session_key);
 
@@ -111,6 +113,8 @@ fn auth_proof_matches_shared_conformance_vectors() {
             &fixture.session_key,
             &fixture.rpc_proof.subject,
             &payload_hash,
+            fixture.rpc_proof.iat,
+            &fixture.rpc_proof.request_id,
         );
         assert_eq!(
             bytes_to_hex(&proof_input),
@@ -126,7 +130,9 @@ fn auth_proof_matches_shared_conformance_vectors() {
         assert_eq!(
             auth.create_proof(
                 &fixture.rpc_proof.subject,
-                fixture.rpc_proof.payload.as_bytes()
+                fixture.rpc_proof.payload.as_bytes(),
+                fixture.rpc_proof.iat,
+                &fixture.rpc_proof.request_id,
             ),
             fixture.rpc_proof.proof
         );
@@ -135,6 +141,8 @@ fn auth_proof_matches_shared_conformance_vectors() {
             &fixture.session_key,
             &fixture.rpc_proof.subject,
             fixture.rpc_proof.payload.as_bytes(),
+            fixture.rpc_proof.iat,
+            &fixture.rpc_proof.request_id,
             &fixture.rpc_proof.proof,
         )
         .unwrap());

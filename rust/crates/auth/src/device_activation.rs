@@ -388,6 +388,7 @@ impl DeviceActivationSession {
         iat: u64,
     ) -> Result<DeviceActivationWaitRequest, TrellisAuthError> {
         sign_device_wait_request(
+            &self.local_state.flow_id,
             &self.identity.public_identity_key,
             &self.local_state.nonce,
             &self.identity.identity_seed_base64url,
@@ -445,11 +446,13 @@ pub async fn start_device_activation_request(
 
 /// Build the length-prefixed byte input signed by device activation wait requests.
 pub fn build_device_wait_proof_input(
+    flow_id: &str,
     public_identity_key: &str,
     nonce: &str,
     iat: u64,
     contract_digest: Option<&str>,
 ) -> Vec<u8> {
+    let flow_id = flow_id.as_bytes();
     let public_identity_key = public_identity_key.as_bytes();
     let nonce = nonce.as_bytes();
     let iat = iat.to_string();
@@ -457,8 +460,18 @@ pub fn build_device_wait_proof_input(
     let contract_digest = contract_digest.unwrap_or_default().as_bytes();
 
     let mut out = Vec::with_capacity(
-        4 + public_identity_key.len() + 4 + nonce.len() + 4 + iat.len() + 4 + contract_digest.len(),
+        4 + flow_id.len()
+            + 4
+            + public_identity_key.len()
+            + 4
+            + nonce.len()
+            + 4
+            + iat.len()
+            + 4
+            + contract_digest.len(),
     );
+    out.extend_from_slice(&(flow_id.len() as u32).to_be_bytes());
+    out.extend_from_slice(flow_id);
     out.extend_from_slice(&(public_identity_key.len() as u32).to_be_bytes());
     out.extend_from_slice(public_identity_key);
     out.extend_from_slice(&(nonce.len() as u32).to_be_bytes());
@@ -472,6 +485,7 @@ pub fn build_device_wait_proof_input(
 
 /// Build and sign a pre-auth device activation wait request.
 pub fn sign_device_wait_request(
+    flow_id: &str,
     public_identity_key: &str,
     nonce: &str,
     identity_seed_base64url: &str,
@@ -489,6 +503,7 @@ pub fn sign_device_wait_request(
     seed.copy_from_slice(&identity_seed);
     let signing_key = SigningKey::from_bytes(&seed);
     let digest = Sha256::digest(build_device_wait_proof_input(
+        flow_id,
         public_identity_key,
         nonce,
         iat,
@@ -497,6 +512,7 @@ pub fn sign_device_wait_request(
     let signature = signing_key.sign(&digest);
 
     Ok(DeviceActivationWaitRequest {
+        flow_id: flow_id.to_string(),
         public_identity_key: public_identity_key.to_string(),
         contract_digest: contract_digest.map(ToOwned::to_owned),
         nonce: nonce.to_string(),
@@ -525,6 +541,7 @@ pub async fn get_device_connect_info(
     opts: GetDeviceConnectInfoOpts<'_>,
 ) -> Result<DeviceConnectInfoResponse, TrellisAuthError> {
     let signed = sign_device_wait_request(
+        "connect-info",
         opts.public_identity_key,
         "connect-info",
         opts.identity_seed_base64url,
@@ -594,6 +611,7 @@ pub async fn wait_for_device_activation(
 ) -> Result<serde_json::Value, TrellisAuthError> {
     loop {
         let request = sign_device_wait_request(
+            opts.flow_id,
             opts.public_identity_key,
             opts.nonce,
             opts.identity_seed_base64url,

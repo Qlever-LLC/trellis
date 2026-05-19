@@ -306,7 +306,7 @@ function missingResourceBindingKeys(
   );
   const missing: string[] = [];
   for (const resource of requested.resources) {
-    if (resource.kind === "transfer") continue;
+    if (resource.kind === "transfer" || !resource.required) continue;
     const key = resourceKey(resource.kind, resource.alias);
     if (!produced.has(key)) missing.push(key);
   }
@@ -723,15 +723,24 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         binding,
       ]),
     );
-    const requiredResourceKeys = new Set(
+    const requestedResourceKeys = new Set(
       requestedBoundary.resources
         .filter((resource) => resource.kind !== "transfer")
         .map((resource) => resourceKey(resource.kind, resource.alias)),
     );
-    let resourceBindingRecords = existingBindings.filter((binding) =>
-      requiredResourceKeys.has(resourceKey(binding.kind, binding.alias))
+    const requiredResourceKeys = new Set(
+      requestedBoundary.resources
+        .filter((resource) => resource.kind !== "transfer" && resource.required)
+        .map((resource) => resourceKey(resource.kind, resource.alias)),
     );
-    if (resourceBindingRecords.length < requiredResourceKeys.size) {
+    let resourceBindingRecords = existingBindings.filter((binding) =>
+      requestedResourceKeys.has(resourceKey(binding.kind, binding.alias))
+    );
+    const existingRequiredCount =
+      resourceBindingRecords.filter((binding) =>
+        requiredResourceKeys.has(resourceKey(binding.kind, binding.alias))
+      ).length;
+    if (existingRequiredCount < requiredResourceKeys.size) {
       const provisioned = await (deps.provisionResourceBindings ??
         provisionContractResourceBindings)(
           deps.nats,
@@ -749,7 +758,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       const recordByKey = new Map(
         existingBindings
           .filter((binding) =>
-            requiredResourceKeys.has(resourceKey(binding.kind, binding.alias))
+            requestedResourceKeys.has(resourceKey(binding.kind, binding.alias))
           )
           .map((
             binding,

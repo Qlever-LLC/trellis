@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 use crate::operations::{OperationDescriptor, OperationInvoker, OperationTransport};
-use crate::proof::now_iat_seconds;
+use crate::proof::{new_request_id, now_iat_seconds};
 use crate::transfer::{
     get_download_grant, put_upload_grant, DownloadTransferGrant, FileInfo, UploadTransferGrant,
 };
@@ -29,6 +29,18 @@ const HEALTH_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
 const DEFAULT_EVENT_STREAM: &str = "trellis";
 static HEALTH_HEARTBEAT_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 static FEED_INBOX_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+pub(crate) fn signed_headers(auth: &SessionAuth, subject: &str, payload: &[u8]) -> HeaderMap {
+    let iat = now_iat_seconds() as i64;
+    let request_id = new_request_id();
+    let proof = auth.create_proof(subject, payload, iat, &request_id);
+    let mut headers = HeaderMap::new();
+    headers.insert("session-key", auth.session_key.as_str());
+    headers.insert("proof", proof.as_str());
+    headers.insert("iat", iat.to_string().as_str());
+    headers.insert("request-id", request_id.as_str());
+    headers
+}
 
 /// Connection options for a Trellis service/session-key principal.
 pub struct ServiceConnectOptions<'a> {
@@ -576,6 +588,7 @@ fn build_device_connect_info_proof_input(
     iat: u64,
     contract_digest: &str,
 ) -> Vec<u8> {
+    let flow_id = b"connect-info";
     let public_identity_key = public_identity_key.as_bytes();
     let nonce = b"connect-info";
     let iat = iat.to_string();
@@ -583,8 +596,18 @@ fn build_device_connect_info_proof_input(
     let contract_digest = contract_digest.as_bytes();
 
     let mut out = Vec::with_capacity(
-        4 + public_identity_key.len() + 4 + nonce.len() + 4 + iat.len() + 4 + contract_digest.len(),
+        4 + flow_id.len()
+            + 4
+            + public_identity_key.len()
+            + 4
+            + nonce.len()
+            + 4
+            + iat.len()
+            + 4
+            + contract_digest.len(),
     );
+    out.extend_from_slice(&(flow_id.len() as u32).to_be_bytes());
+    out.extend_from_slice(flow_id);
     out.extend_from_slice(&(public_identity_key.len() as u32).to_be_bytes());
     out.extend_from_slice(public_identity_key);
     out.extend_from_slice(&(nonce.len() as u32).to_be_bytes());
@@ -1091,11 +1114,7 @@ impl TrellisClient {
         subject: &str,
         payload: Bytes,
     ) -> Result<async_nats::Message, TrellisClientError> {
-        let proof = self.auth.create_proof(subject, &payload);
-
-        let mut headers = HeaderMap::new();
-        headers.insert("session-key", self.auth.session_key.as_str());
-        headers.insert("proof", proof.as_str());
+        let headers = self.signed_headers(subject, &payload);
 
         let future = self
             .nats
@@ -1105,6 +1124,10 @@ impl TrellisClient {
             .map_err(|_| TrellisClientError::Timeout)?
             .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
         Ok(message)
+    }
+
+    pub(crate) fn signed_headers(&self, subject: &str, payload: &[u8]) -> HeaderMap {
+        signed_headers(&self.auth, subject, payload)
     }
 
     async fn request_json(&self, subject: &str, body: Value) -> Result<Value, TrellisClientError> {
@@ -1274,11 +1297,7 @@ impl TrellisClient {
         D::Event: Send + 'static,
     {
         let payload = Bytes::from(serde_json::to_vec(input)?);
-        let proof = self.auth.create_proof(D::SUBJECT, &payload);
-
-        let mut headers = HeaderMap::new();
-        headers.insert("session-key", self.auth.session_key.as_str());
-        headers.insert("proof", proof.as_str());
+        let headers = self.signed_headers(D::SUBJECT, &payload);
 
         let inbox = format!(
             "{}.{}",
@@ -1387,11 +1406,7 @@ impl OperationTransport for TrellisClient {
         body: Value,
     ) -> Result<BoxStream<'a, Result<Value, TrellisClientError>>, TrellisClientError> {
         let payload = Bytes::from(serde_json::to_vec(&body)?);
-        let proof = self.auth.create_proof(&subject, &payload);
-
-        let mut headers = HeaderMap::new();
-        headers.insert("session-key", self.auth.session_key.as_str());
-        headers.insert("proof", proof.as_str());
+        let headers = self.signed_headers(&subject, &payload);
 
         let inbox = self.nats.new_inbox();
         let subscriber = timeout(

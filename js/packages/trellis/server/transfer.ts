@@ -704,6 +704,8 @@ export class ServiceTransfer {
       payload: msg.data,
       proof: msg.headers?.get("proof"),
       sessionKey: msg.headers?.get("session-key"),
+      iat: msg.headers?.get("iat"),
+      requestId: msg.headers?.get("request-id"),
     });
     if (!authenticated) {
       const error = new TransferError({
@@ -863,6 +865,8 @@ export class ServiceTransfer {
       payload: msg.data,
       proof: msg.headers?.get("proof"),
       sessionKey: msg.headers?.get("session-key"),
+      iat: msg.headers?.get("iat"),
+      requestId: msg.headers?.get("request-id"),
     });
     if (!authenticated) {
       publishError(

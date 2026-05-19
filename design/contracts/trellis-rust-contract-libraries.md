@@ -50,8 +50,9 @@ The gaps are:
   templated event subjects and operation control subjects
 - the current Rust shape does not provide an idiomatic equivalent of a local
   participant contract that defines both owned and used surfaces
-- Rust device activation has protocol helpers but not yet a full activated-device
-  runtime connect facade
+- Rust device activation has protocol helpers and an activated-device runtime
+  connect facade through `TrellisClient::connect_device(...)`, but generated
+  device participant facades are still pending
 
 Rust should solve the same architectural problem as TypeScript, but with
 Rust-native ergonomics.

@@ -104,11 +104,12 @@ fn auth_start_signature_payload_uses_empty_provider_and_null_context_when_absent
 
 #[test]
 fn contract_digest_matches_canonical_json_not_raw_text() {
-    let compact =
-        r#"{"id":"trellis.agent@v1","displayName":"Trellis Agent","description":"Admin agent"}"#;
+    let compact = r#"{"format":"trellis.contract.v1","id":"trellis.agent@v1","kind":"agent","displayName":"Trellis Agent","description":"Admin agent"}"#;
     let reordered_pretty = r#"
     {
       "description": "Admin agent",
+      "format": "trellis.contract.v1",
+      "kind": "agent",
       "id": "trellis.agent@v1",
       "displayName": "Trellis Agent"
     }
@@ -129,9 +130,11 @@ fn contract_digest_ignores_display_metadata_changes() {
       "displayName": "Trellis Agent",
       "description": "Admin agent",
       "uses": {
-        "auth": {
-          "contract": "trellis.auth@v1",
-          "rpc": { "call": ["Auth.Sessions.Me", "Auth.Sessions.Logout"] }
+        "required": {
+          "auth": {
+            "contract": "trellis.auth@v1",
+            "rpc": { "call": ["Auth.Sessions.Me", "Auth.Sessions.Logout"] }
+          }
         }
       }
     }"#;
@@ -142,9 +145,11 @@ fn contract_digest_ignores_display_metadata_changes() {
       "displayName": "Renamed Agent",
       "description": "Updated display-only copy",
       "uses": {
-        "auth": {
-          "contract": "trellis.auth@v1",
-          "rpc": { "call": ["Auth.Sessions.Me", "Auth.Sessions.Logout"] }
+        "required": {
+          "auth": {
+            "contract": "trellis.auth@v1",
+            "rpc": { "call": ["Auth.Sessions.Me", "Auth.Sessions.Logout"] }
+          }
         }
       }
     }"#;
@@ -164,9 +169,11 @@ fn contract_digest_changes_for_identity_fields() {
       "displayName": "Trellis Agent",
       "description": "Admin agent",
       "uses": {
-        "auth": {
-          "contract": "trellis.auth@v1",
-          "rpc": { "call": ["Auth.Sessions.Me", "Auth.Sessions.Logout"] }
+        "required": {
+          "auth": {
+            "contract": "trellis.auth@v1",
+            "rpc": { "call": ["Auth.Sessions.Me", "Auth.Sessions.Logout"] }
+          }
         }
       }
     }"#;
@@ -177,9 +184,11 @@ fn contract_digest_changes_for_identity_fields() {
       "displayName": "Trellis Agent",
       "description": "Admin agent",
       "uses": {
-        "auth": {
-          "contract": "trellis.auth@v1",
-          "rpc": { "call": ["Auth.Sessions.Me", "Auth.Sessions.Logout", "Auth.Identities.List"] }
+        "required": {
+          "auth": {
+            "contract": "trellis.auth@v1",
+            "rpc": { "call": ["Auth.Sessions.Me", "Auth.Sessions.Logout", "Auth.Identities.List"] }
+          }
         }
       }
     }"#;
@@ -196,6 +205,8 @@ fn contract_digest_changes_for_capability_metadata() {
       "format": "trellis.contract.v1",
       "id": "trellis.agent@v1",
       "kind": "agent",
+      "displayName": "Trellis Agent",
+      "description": "Admin agent",
       "capabilities": {
         "agent.admin": {
           "displayName": "Admin access",
@@ -203,9 +214,11 @@ fn contract_digest_changes_for_capability_metadata() {
         }
       },
       "uses": {
-        "auth": {
-          "contract": "trellis.auth@v1",
-          "rpc": { "call": ["Auth.Sessions.Me"] }
+        "required": {
+          "auth": {
+            "contract": "trellis.auth@v1",
+            "rpc": { "call": ["Auth.Sessions.Me"] }
+          }
         }
       }
     }"#;
@@ -213,6 +226,8 @@ fn contract_digest_changes_for_capability_metadata() {
       "format": "trellis.contract.v1",
       "id": "trellis.agent@v1",
       "kind": "agent",
+      "displayName": "Trellis Agent",
+      "description": "Admin agent",
       "capabilities": {
         "agent.admin": {
           "displayName": "Admin access",
@@ -221,9 +236,11 @@ fn contract_digest_changes_for_capability_metadata() {
         }
       },
       "uses": {
-        "auth": {
-          "contract": "trellis.auth@v1",
-          "rpc": { "call": ["Auth.Sessions.Me"] }
+        "required": {
+          "auth": {
+            "contract": "trellis.auth@v1",
+            "rpc": { "call": ["Auth.Sessions.Me"] }
+          }
         }
       }
     }"#;
@@ -277,7 +294,7 @@ async fn start_agent_login_posts_detached_portal_redirect_target() {
 
     let challenge = start_agent_login(&StartAgentLoginOpts {
         trellis_url: &format!("http://{address}"),
-        contract_json: r#"{"id":"trellis.agent@v1","displayName":"Trellis Agent"}"#,
+        contract_json: r#"{"format":"trellis.contract.v1","id":"trellis.agent@v1","kind":"agent","displayName":"Trellis Agent","description":"Admin agent"}"#,
     })
     .await
     .expect("start agent login");
@@ -329,7 +346,7 @@ async fn start_admin_reauth_flow_uses_detached_portal_redirect_target() {
 
     let outcome = start_admin_reauth(
         &state,
-        r#"{"id":"trellis.agent@v1","displayName":"Trellis Agent"}"#,
+        r#"{"format":"trellis.contract.v1","id":"trellis.agent@v1","kind":"agent","displayName":"Trellis Agent","description":"Admin agent"}"#,
     )
     .await
     .expect("start admin reauth");
@@ -548,8 +565,13 @@ fn device_activation_payload_round_trips() {
 
 #[test]
 fn device_wait_proof_input_includes_contract_digest_length_and_content() {
-    let proof_input =
-        build_device_wait_proof_input("public-key", "nonce_123", 1_701_000_000, Some("digest-abc"));
+    let proof_input = build_device_wait_proof_input(
+        "flow_123",
+        "public-key",
+        "nonce_123",
+        1_701_000_000,
+        Some("digest-abc"),
+    );
 
     let mut offset = 0;
     let read_part = |bytes: &[u8], offset: &mut usize| {
@@ -561,6 +583,7 @@ fn device_wait_proof_input_includes_contract_digest_length_and_content() {
         part.to_string()
     };
 
+    assert_eq!(read_part(&proof_input, &mut offset), "flow_123");
     assert_eq!(read_part(&proof_input, &mut offset), "public-key");
     assert_eq!(read_part(&proof_input, &mut offset), "nonce_123");
     assert_eq!(read_part(&proof_input, &mut offset), "1701000000");
@@ -572,6 +595,7 @@ fn device_wait_proof_input_includes_contract_digest_length_and_content() {
 fn device_wait_signature_changes_when_contract_digest_changes() {
     let identity = derive_device_identity(&[19u8; 32]).expect("derive device identity");
     let first = sign_device_wait_request(
+        "flow_123",
         &identity.public_identity_key,
         "nonce_123",
         &identity.identity_seed_base64url,
@@ -580,6 +604,7 @@ fn device_wait_signature_changes_when_contract_digest_changes() {
     )
     .expect("sign first wait request");
     let second = sign_device_wait_request(
+        "flow_123",
         &identity.public_identity_key,
         "nonce_123",
         &identity.identity_seed_base64url,
@@ -644,6 +669,7 @@ fn device_activation_session_tracks_pending_state_and_signs_wait_requests() {
     assert_eq!(session.local_state().instance_id, "dev_123");
 
     let wait_request = session.build_wait_request(1234).expect("sign wait request");
+    assert_eq!(wait_request.flow_id, "flow_123");
     assert_eq!(
         wait_request.public_identity_key,
         session.public_identity_key()
@@ -890,6 +916,7 @@ async fn device_activation_wait_posts_to_activate_wait_endpoint() {
 
     let identity = derive_device_identity(&[11u8; 32]).expect("derive device identity");
     let request = sign_device_wait_request(
+        "flow_123",
         &identity.public_identity_key,
         "nonce_123",
         &identity.identity_seed_base64url,
@@ -976,6 +1003,7 @@ fn merge_json(target: &mut serde_json::Value, patch: serde_json::Value) {
 async fn device_connect_info_posts_signed_connect_info_request_and_parses_ready_response() {
     let identity = derive_device_identity(&[31u8; 32]).expect("derive device identity");
     let expected = sign_device_wait_request(
+        "connect-info",
         &identity.public_identity_key,
         "connect-info",
         &identity.identity_seed_base64url,

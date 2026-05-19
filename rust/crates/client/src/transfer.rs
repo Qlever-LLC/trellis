@@ -6,6 +6,7 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
+use crate::client::signed_headers;
 use crate::{SessionAuth, TrellisClient, TrellisClientError};
 
 const TRANSFER_SEQUENCE_HEADER: &str = "trellis-transfer-seq";
@@ -75,9 +76,7 @@ fn upload_headers(
     seq: u64,
     eof: bool,
 ) -> HeaderMap {
-    let mut headers = HeaderMap::new();
-    headers.insert("session-key", auth.session_key.as_str());
-    headers.insert("proof", auth.create_proof(subject, payload).as_str());
+    let mut headers = signed_headers(auth, subject, payload);
     headers.insert(TRANSFER_SEQUENCE_HEADER, seq.to_string().as_str());
     if eof {
         headers.insert(TRANSFER_EOF_HEADER, "true");
@@ -156,12 +155,7 @@ pub(crate) async fn get_download_grant(
 ) -> Result<Vec<u8>, TrellisClientError> {
     validate_grant(&grant.session_key, client)?;
 
-    let mut headers = HeaderMap::new();
-    headers.insert("session-key", client.auth().session_key.as_str());
-    headers.insert(
-        "proof",
-        client.auth().create_proof(&grant.subject, &[]).as_str(),
-    );
+    let headers = client.signed_headers(&grant.subject, &[]);
 
     let inbox = client.nats().new_inbox();
     let mut subscriber = tokio::time::timeout(
@@ -299,6 +293,16 @@ mod tests {
             &auth.session_key,
             subject,
             payload,
+            chunk_headers
+                .get("iat")
+                .expect("iat")
+                .as_str()
+                .parse()
+                .expect("iat integer"),
+            chunk_headers
+                .get("request-id")
+                .expect("request-id")
+                .as_str(),
             chunk_headers.get("proof").expect("proof").as_str()
         )
         .expect("proof verifies"));
@@ -331,6 +335,16 @@ mod tests {
             &auth.session_key,
             subject,
             &[],
+            eof_headers
+                .get("iat")
+                .expect("eof iat")
+                .as_str()
+                .parse()
+                .expect("eof iat integer"),
+            eof_headers
+                .get("request-id")
+                .expect("eof request-id")
+                .as_str(),
             eof_headers.get("proof").expect("eof proof").as_str()
         )
         .expect("eof proof verifies"));

@@ -358,6 +358,26 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+function storedApprovalCoversPlan(
+  approval: IdentityEnvelopeRecord,
+  plan: ApprovalResolution["plan"],
+): boolean {
+  const approvedCapabilities = new Set(
+    approvalCapabilityKeys(approval.approvalEvidence),
+  );
+  const approvedPublishSubjects = new Set(approval.publishSubjects);
+  const approvedSubscribeSubjects = new Set(approval.subscribeSubjects);
+  return approvalCapabilityKeys(plan.approval).every((capability) =>
+    approvedCapabilities.has(capability)
+  ) &&
+    plan.publishSubjects.every((subject) =>
+      approvedPublishSubjects.has(subject)
+    ) &&
+    plan.subscribeSubjects.every((subject) =>
+      approvedSubscribeSubjects.has(subject)
+    );
+}
+
 export async function getApprovalResolution(
   contracts: Pick<
     ContractsModule,
@@ -408,12 +428,16 @@ export async function getApprovalResolution(
     ? await resolveCapabilities(existingProjection, deps.capabilityGroupStorage)
     : [];
   const requestedIdentityAnchor = identityAnchorForApp(app, pending.sessionKey);
-  const storedApproval =
+  const matchingStoredApproval =
     (await deps.loadIdentityEnvelopesByUser?.(userId) ?? [])
       .find((approval) =>
         approval.userTrellisId === userId &&
         sameIdentityAnchor(approval.identityAnchor, requestedIdentityAnchor)
       ) ?? null;
+  const storedApproval = matchingStoredApproval &&
+      storedApprovalCoversPlan(matchingStoredApproval, plan)
+    ? matchingStoredApproval
+    : null;
   const matchedPolicies: [] = [];
   const grantOverrideCapabilities = matchingGrantOverrideCapabilities({
     overrides: deploymentGrantOverrides,

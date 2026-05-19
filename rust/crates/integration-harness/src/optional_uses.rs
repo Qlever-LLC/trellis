@@ -31,8 +31,11 @@ const DEPENDENCY_SERVICE_NAME: &str = "harness-optional-dep-rust";
 const OPTIONAL_DEP_PING_SUBJECT: &str = "rpc.v1.Optional.Dep.Ping";
 
 const REQUIRED_CONSUMER_DEPLOYMENT_ID: &str = "harness.required-consumer";
+const UNKNOWN_REQUIRED_CONSUMER_DEPLOYMENT_ID: &str = "harness.required-consumer-unknown";
 const REQUIRED_DEPLOYMENT_ID: &str = "harness.required-dep";
 const REQUIRED_CONSUMER_CONTRACT_ID: &str = "trellis.integration-harness.required-consumer@v1";
+const UNKNOWN_REQUIRED_CONSUMER_CONTRACT_ID: &str =
+    "trellis.integration-harness.required-consumer-unknown@v1";
 const REQUIRED_DEP_CONTRACT_ID: &str = "trellis.integration-harness.required-dep@v1";
 const UNKNOWN_REQUIRED_DEP_CONTRACT_ID: &str = "trellis.integration-harness.required-unknown@v1";
 const REQUIRED_DEP_SERVICE_NAME: &str = "harness-required-dep-rust";
@@ -226,17 +229,53 @@ async fn run_required_dependency_closure_fixture(
         .await
         .map_err(|error| miette!("failed to create required consumer deployment: {error}"))?;
     auth_client
+        .create_service_deployment(
+            UNKNOWN_REQUIRED_CONSUMER_DEPLOYMENT_ID,
+            vec!["harness".to_string()],
+        )
+        .await
+        .map_err(|error| {
+            miette!("failed to create unknown required consumer deployment: {error}")
+        })?;
+    auth_client
         .create_service_deployment(REQUIRED_DEPLOYMENT_ID, vec!["harness".to_string()])
         .await
         .map_err(|error| miette!("failed to create required dependency deployment: {error}"))?;
 
     let unknown_consumer_contract_json = required_consumer_contract_json(
-        REQUIRED_CONSUMER_CONTRACT_ID,
+        UNKNOWN_REQUIRED_CONSUMER_CONTRACT_ID,
         UNKNOWN_REQUIRED_DEP_CONTRACT_ID,
         "Required.Dep.Ping",
     )?;
     let unknown_consumer_digest =
         digest_contract_json(&unknown_consumer_contract_json).into_diagnostic()?;
+    let (unknown_consumer_seed, unknown_consumer_key) = generate_session_keypair();
+    auth_client
+        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+            deployment_id: UNKNOWN_REQUIRED_CONSUMER_DEPLOYMENT_ID.to_string(),
+            instance_key: unknown_consumer_key,
+        })
+        .await
+        .map_err(|error| {
+            miette!("failed to provision unknown required consumer instance: {error}")
+        })?;
+    assert_service_connect_fails(
+        trellis_url,
+        UNKNOWN_REQUIRED_CONSUMER_CONTRACT_ID,
+        &unknown_consumer_contract_json,
+        &unknown_consumer_digest,
+        &unknown_consumer_seed,
+    )
+    .await?;
+    let unknown_requests = wait_for_pending_delta(
+        sdk_auth_client,
+        UNKNOWN_REQUIRED_CONSUMER_DEPLOYMENT_ID,
+        UNKNOWN_REQUIRED_CONSUMER_CONTRACT_ID,
+        &unknown_consumer_digest,
+    )
+    .await?;
+    assert_required_unknown_delta_fails_closed(&unknown_requests)?;
+
     let (consumer_seed, consumer_key) = generate_session_keypair();
     auth_client
         .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
@@ -245,22 +284,6 @@ async fn run_required_dependency_closure_fixture(
         })
         .await
         .map_err(|error| miette!("failed to provision required consumer instance: {error}"))?;
-    assert_service_connect_fails(
-        trellis_url,
-        REQUIRED_CONSUMER_CONTRACT_ID,
-        &unknown_consumer_contract_json,
-        &unknown_consumer_digest,
-        &consumer_seed,
-    )
-    .await?;
-    let unknown_requests = wait_for_pending_delta(
-        sdk_auth_client,
-        REQUIRED_CONSUMER_DEPLOYMENT_ID,
-        REQUIRED_CONSUMER_CONTRACT_ID,
-        &unknown_consumer_digest,
-    )
-    .await?;
-    assert_required_unknown_delta_fails_closed(&unknown_requests)?;
 
     let dependency_contract_json = required_dependency_contract_json(false)?;
     let dependency_digest = digest_contract_json(&dependency_contract_json).into_diagnostic()?;
@@ -1065,6 +1088,7 @@ async fn wait_for_consumer_pending_optional_delta(
             })
             .collect();
         if !requests.is_empty() {
+            let mut saw_expected_optional_delta = false;
             for request in &requests {
                 let has_optional_contract = request
                     .delta
@@ -1076,9 +1100,10 @@ async fn wait_for_consumer_pending_optional_delta(
                         && surface.name == "Optional.Dep.Ping"
                 });
                 if expect_optional_dependency && (!has_optional_contract || !has_optional_surface) {
-                    return Err(miette!(
-                        "active optional dependency did not appear in pending expansion delta"
-                    ));
+                    continue;
+                }
+                if expect_optional_dependency {
+                    saw_expected_optional_delta = true;
                 }
                 if !expect_optional_dependency && (has_optional_contract || has_optional_surface) {
                     return Err(miette!(
@@ -1086,8 +1111,24 @@ async fn wait_for_consumer_pending_optional_delta(
                     ));
                 }
             }
+            if expect_optional_dependency && !saw_expected_optional_delta {
+                if tokio::time::Instant::now() < deadline {
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    continue;
+                }
+                return Err(miette!(
+                    "active optional dependency did not appear in pending expansion delta"
+                ));
+            }
             return Ok(requests
                 .into_iter()
+                .filter(|request| {
+                    !expect_optional_dependency
+                        || request.delta.surfaces.iter().any(|surface| {
+                            surface.contract_id == DEPENDENCY_CONTRACT_ID
+                                && surface.name == "Optional.Dep.Ping"
+                        })
+                })
                 .map(|request| request.request_id.clone())
                 .collect());
         }

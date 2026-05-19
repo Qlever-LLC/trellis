@@ -80,9 +80,15 @@ impl SessionAuth {
     }
 
     /// Create the `proof` header for a signed RPC request payload.
-    pub fn create_proof(&self, subject: &str, payload: &[u8]) -> String {
+    pub fn create_proof(
+        &self,
+        subject: &str,
+        payload: &[u8],
+        iat: i64,
+        request_id: &str,
+    ) -> String {
         let payload_hash = sha256(payload);
-        let input = build_proof_input(&self.session_key, subject, &payload_hash);
+        let input = build_proof_input(&self.session_key, subject, &payload_hash, iat, request_id);
         let digest = sha256(&input);
         let signature: Signature = self.signing_key.sign(&digest);
         base64url_encode(&signature.to_bytes())

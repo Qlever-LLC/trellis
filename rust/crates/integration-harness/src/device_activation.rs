@@ -5,9 +5,10 @@ use miette::{miette, IntoDiagnostic, Result};
 use serde_json::{json, to_string, Value};
 use time::OffsetDateTime;
 use trellis_auth::{
-    connect_admin_client_async, get_device_connect_info, start_device_activation_request,
-    wait_for_device_activation_response, AdminLoginOutcome, AuthClient as AdminAuthClient,
-    DeviceActivationSessionBuilder, GetDeviceConnectInfoOpts, WaitForDeviceActivationResponse,
+    connect_admin_client_async, get_device_connect_info, sign_device_wait_request,
+    start_device_activation_request, wait_for_device_activation_response, AdminLoginOutcome,
+    AuthClient as AdminAuthClient, DeviceActivationPayload, DeviceActivationSessionBuilder,
+    GetDeviceConnectInfoOpts, WaitForDeviceActivationResponse,
 };
 use trellis_client::{DeviceConnectOptions, OperationState, TrellisClient};
 use trellis_contracts::{
@@ -20,7 +21,7 @@ use trellis_sdk_auth::types::{AuthDeviceUserAuthoritiesResolveInput, AuthEnvelop
 use crate::browser::BrowserContainer;
 use crate::rpc::reauth_contract;
 
-const DEVICE_ACTIVATION_PASSING_CASES: usize = 20;
+const DEVICE_ACTIVATION_PASSING_CASES: usize = 27;
 static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) async fn run_device_activation_fixture(
@@ -56,12 +57,10 @@ pub(crate) async fn run_device_activation_fixture(
         .await
         .into_diagnostic()?;
 
-    let device_root_secret = device_root_secret();
-    let activation =
-        DeviceActivationSessionBuilder::new(&device_root_secret, format!("nonce-{suffix}"))
-            .into_diagnostic()?;
-    let device_identity =
-        trellis_auth::derive_device_identity(&device_root_secret).into_diagnostic()?;
+    let root_secret = device_root_secret();
+    let activation = DeviceActivationSessionBuilder::new(&root_secret, format!("nonce-{suffix}"))
+        .into_diagnostic()?;
+    let device_identity = trellis_auth::derive_device_identity(&root_secret).into_diagnostic()?;
 
     let provisioned = admin_auth
         .provision_device_instance(
@@ -83,6 +82,16 @@ pub(crate) async fn run_device_activation_fixture(
         ));
     }
 
+    assert_activation_start_rejected(
+        trellis_url,
+        &DeviceActivationPayload {
+            qr_mac: format!("{}x", activation.payload().qr_mac),
+            ..activation.payload().clone()
+        },
+        "tampered QR MAC",
+    )
+    .await?;
+
     let start = start_device_activation_request(trellis_url, activation.payload())
         .await
         .into_diagnostic()?;
@@ -101,6 +110,50 @@ pub(crate) async fn run_device_activation_fixture(
     let pending_session = activation
         .pending_session(trellis_url, &device_contract_digest, start.clone())
         .into_diagnostic()?;
+    assert_activation_wait_status_rejected(
+        trellis_url,
+        &sign_device_wait_request(
+            &format!("{}-unknown", start.flow_id),
+            &device_identity.public_identity_key,
+            pending_session.local_state().nonce.as_str(),
+            &device_identity.identity_seed_base64url,
+            Some(&device_contract_digest),
+            now_iat(),
+        )
+        .into_diagnostic()?,
+        "unknown signed flow id",
+    )
+    .await?;
+    let mut tampered_nonce_wait = pending_session
+        .build_wait_request(now_iat())
+        .into_diagnostic()?;
+    tampered_nonce_wait.nonce.push_str("-tampered");
+    assert_activation_wait_rejected(trellis_url, &tampered_nonce_wait, "tampered wait nonce")
+        .await?;
+    let wrong_device_identity =
+        trellis_auth::derive_device_identity(&device_root_secret()).into_diagnostic()?;
+    assert_activation_wait_rejected(
+        trellis_url,
+        &sign_device_wait_request(
+            &start.flow_id,
+            &wrong_device_identity.public_identity_key,
+            pending_session.local_state().nonce.as_str(),
+            &wrong_device_identity.identity_seed_base64url,
+            Some(&device_contract_digest),
+            now_iat(),
+        )
+        .into_diagnostic()?,
+        "wrong wait device identity",
+    )
+    .await?;
+    assert_activation_wait_rejected(
+        trellis_url,
+        &pending_session
+            .build_wait_request(stale_iat())
+            .into_diagnostic()?,
+        "stale wait iat",
+    )
+    .await?;
     let pending_wait = wait_for_device_activation_response(
         trellis_url,
         &pending_session
@@ -178,6 +231,28 @@ pub(crate) async fn run_device_activation_fixture(
             "device connect-info returned unexpected identity data"
         ));
     }
+    assert_connect_info_rejected(
+        GetDeviceConnectInfoOpts {
+            trellis_url,
+            public_identity_key: &device_identity.public_identity_key,
+            identity_seed_base64url: &device_identity.identity_seed_base64url,
+            contract_digest: &device_contract_digest,
+            iat: stale_iat(),
+        },
+        "stale connect-info iat",
+    )
+    .await?;
+    assert_connect_info_rejected(
+        GetDeviceConnectInfoOpts {
+            trellis_url,
+            public_identity_key: &device_identity.public_identity_key,
+            identity_seed_base64url: &device_identity.identity_seed_base64url,
+            contract_digest: "digest-v1-invalid",
+            iat: now_iat(),
+        },
+        "wrong connect-info contract digest",
+    )
+    .await?;
 
     let device_client = TrellisClient::connect_device(DeviceConnectOptions {
         trellis_url,
@@ -241,6 +316,71 @@ pub(crate) async fn run_device_activation_fixture(
     .await?;
 
     Ok(DEVICE_ACTIVATION_PASSING_CASES)
+}
+
+async fn assert_activation_start_rejected(
+    trellis_url: &str,
+    payload: &DeviceActivationPayload,
+    label: &str,
+) -> Result<()> {
+    if start_device_activation_request(trellis_url, payload)
+        .await
+        .is_ok()
+    {
+        return Err(miette!(
+            "device activation start unexpectedly accepted {}",
+            label
+        ));
+    }
+    Ok(())
+}
+
+async fn assert_activation_wait_rejected(
+    trellis_url: &str,
+    request: &trellis_auth::DeviceActivationWaitRequest,
+    label: &str,
+) -> Result<()> {
+    if wait_for_device_activation_response(trellis_url, request)
+        .await
+        .is_ok()
+    {
+        return Err(miette!(
+            "device activation wait unexpectedly accepted {}",
+            label
+        ));
+    }
+    Ok(())
+}
+
+async fn assert_activation_wait_status_rejected(
+    trellis_url: &str,
+    request: &trellis_auth::DeviceActivationWaitRequest,
+    label: &str,
+) -> Result<()> {
+    let response = wait_for_device_activation_response(trellis_url, request)
+        .await
+        .into_diagnostic()?;
+    if !matches!(response, WaitForDeviceActivationResponse::Rejected { .. }) {
+        return Err(miette!(
+            "device activation wait returned {:?} instead of rejected for {}",
+            response,
+            label
+        ));
+    }
+    Ok(())
+}
+
+async fn assert_connect_info_rejected(
+    opts: GetDeviceConnectInfoOpts<'_>,
+    label: &str,
+) -> Result<()> {
+    if get_device_connect_info(opts).await.is_ok() {
+        return Err(miette!(
+            "device connect-info unexpectedly accepted {}",
+            label
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -616,6 +756,10 @@ fn device_root_secret() -> [u8; 32] {
 
 fn now_iat() -> u64 {
     u64::try_from(OffsetDateTime::now_utc().unix_timestamp()).unwrap_or_default()
+}
+
+fn stale_iat() -> u64 {
+    now_iat().saturating_sub(3_600)
 }
 
 fn unique_suffix() -> String {

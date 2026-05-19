@@ -1283,6 +1283,65 @@ Deno.test("getApprovalResolution loads persisted identity envelope approvals", a
   });
 });
 
+Deno.test("getApprovalResolution treats stale identity envelope approvals as missing", async () => {
+  const contracts = createTestContracts();
+  const userTrellisId = linkedUserId;
+  const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "https://console.example/callback",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.console@v1",
+      displayName: "Console",
+      description: "Admin",
+      kind: "app",
+      capabilities: approvalCapabilities(["audit"]),
+      schemas: { AuditEvent: { type: "object" } },
+      events: {
+        "Audit.Recorded": {
+          version: "v1",
+          subject: "trellis.console.audit",
+          event: { schema: "AuditEvent" },
+          capabilities: { publish: ["audit"] },
+        },
+      },
+    },
+    createdAt: new Date(),
+  };
+  const storedApproval = storedAppApproval({
+    userTrellisId,
+    answer: "approved",
+    capabilities: [],
+  });
+
+  const resolution = await getApprovalResolution(contracts, pending, {
+    loadUserProjection: async () => ({
+      origin: "github",
+      id: "123",
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: [],
+      capabilityGroups: [],
+    }),
+    loadIdentityEnvelopesByUser: async (trellisId) => {
+      assertEquals(trellisId, userTrellisId);
+      return [storedApproval];
+    },
+  });
+
+  assertEquals(resolution.storedApproval, null);
+  assertEquals(resolution.effectiveApproval, { kind: "none", answer: "none" });
+});
+
 Deno.test("getApprovalResolution reuses approval for another linked identity", async () => {
   const contracts = createTestContracts();
   const userTrellisId = linkedUserId;

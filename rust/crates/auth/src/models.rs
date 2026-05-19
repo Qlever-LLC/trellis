@@ -124,6 +124,8 @@ pub struct DeviceActivationPayload {
 /// Signed pre-auth request sent to `/auth/devices/activate/wait`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DeviceActivationWaitRequest {
+    #[serde(rename = "flowId")]
+    pub flow_id: String,
     #[serde(rename = "publicIdentityKey")]
     pub public_identity_key: String,
     #[serde(rename = "contractDigest", skip_serializing_if = "Option::is_none")]
@@ -263,6 +265,7 @@ pub enum WaitForDeviceActivationResponse {
 /// Polling options for waiting on an activated device.
 pub struct WaitForDeviceActivationOpts<'a> {
     pub trellis_url: &'a str,
+    pub flow_id: &'a str,
     pub public_identity_key: &'a str,
     pub nonce: &'a str,
     pub identity_seed_base64url: &'a str,

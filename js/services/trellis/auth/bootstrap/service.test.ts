@@ -768,6 +768,51 @@ Deno.test("POST /bootstrap/service rejects when provisioning misses a requested 
   assertEquals(setup.services.length, 0);
 });
 
+Deno.test("POST /bootstrap/service accepts missing optional resource bindings", async () => {
+  const contract = await validatedContract({
+    ...baseContract(),
+    resources: {
+      kv: {
+        cache: {
+          purpose: "Store cache entries",
+          schema: { schema: "CacheEntry" },
+          required: true,
+        },
+        optionalCache: {
+          purpose: "Store optional cache entries",
+          schema: { schema: "CacheEntry" },
+          required: false,
+        },
+      },
+    },
+  });
+  const setup = await createApp({
+    envelopeBoundary: mergeBoundaries(
+      await contractBoundary(createTestContracts(), contract.contract),
+      {
+        ...EMPTY_BOUNDARY,
+        resources: [{ kind: "kv", alias: "optionalCache", required: false }],
+      },
+    ),
+    knownContracts: [{ digest: contract.digest, contract: contract.contract }],
+    provisionResourceBindings: async () => ({
+      kv: { cache: { bucket: "bucket_cache", history: 1, ttlMs: 0 } },
+    }),
+  });
+
+  const response = await setup.bootstrap({
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
+    contract: contract.contract,
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals((await response.json()).binding.resources, {
+    kv: { cache: { bucket: "bucket_cache", history: 1, ttlMs: 0 } },
+  });
+  assertEquals(setup.bindings.map((binding) => binding.alias), ["cache"]);
+});
+
 Deno.test("POST /bootstrap/service rejects disabled deployments", async () => {
   const { contract, bootstrap } = await createApp({ deploymentDisabled: true });
 

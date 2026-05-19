@@ -4,28 +4,35 @@ use bytes::Bytes;
 use miette::{miette, IntoDiagnostic, Result};
 use serde_json::{json, to_string, Value};
 use trellis_auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis_contracts::{digest_contract_json, ContractKind, ContractManifestBuilder};
+use trellis_client::{ServiceConnectOptions, TrellisClient};
+use trellis_contracts::{
+    digest_contract_json, rpc, use_contract, ContractKind, ContractManifestBuilder,
+};
 use trellis_sdk_auth::{
     AuthCapabilitiesListRequest, AuthCapabilityGroupsDeleteRequest, AuthCapabilityGroupsGetRequest,
     AuthCapabilityGroupsListRequest, AuthCapabilityGroupsPutRequest, AuthClient as SdkAuthClient,
     AuthConnectionsListRequest, AuthDeploymentsCreateRequest, AuthDeploymentsListRequest,
     AuthDevicesListRequest, AuthDevicesProvisionRequest, AuthEnvelopesExpandRequest,
     AuthEnvelopesGetRequest, AuthEnvelopesListRequest, AuthIdentitiesGrantsListRequest,
-    AuthIdentitiesListRequest, AuthPortalsLoginSettingsGetRequest, AuthServiceInstancesListRequest,
+    AuthIdentitiesListRequest, AuthPortalsLoginRoutesPutRequest,
+    AuthPortalsLoginRoutesRemoveRequest, AuthPortalsLoginSettingsGetRequest, AuthPortalsPutRequest,
+    AuthPortalsRemoveRequest, AuthServiceInstancesListRequest,
     AuthServiceInstancesProvisionRequest, AuthSessionsListRequest, AuthUserIdentitiesListRequest,
     AuthUsersGetRequest, AuthUsersListRequest, AuthUsersUpdateRequest,
 };
-use trellis_sdk_core::{CoreClient, TrellisContractGetRequest, TrellisSurfaceStatusRequest};
+use trellis_sdk_core::{
+    CoreClient, TrellisBindingsGetRequest, TrellisContractGetRequest, TrellisSurfaceStatusRequest,
+};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 
-const ADMIN_API_PASSING_CASES: usize = 32;
+const ADMIN_API_PASSING_CASES: usize = 40;
 const AUTH_ADMIN_TRACE_ID: &str = "4bf92f3577b34da6a3ce929d0e0e4736";
 const AUTH_ADMIN_TRACEPARENT: &str = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
 pub(crate) async fn run_admin_api_fixture(
-    _trellis_url: &str,
+    trellis_url: &str,
     admin_login: &AdminLoginOutcome,
     browser: &BrowserContainer,
 ) -> Result<usize> {
@@ -239,6 +246,7 @@ pub(crate) async fn run_admin_api_fixture(
         .auth_portals_login_routes_list()
         .await
         .into_diagnostic()?;
+    assert_external_portal_origin_hardening(trellis_url, &auth_client, suffix).await?;
 
     let service_deployment_id = format!("harness-admin-service-{suffix}");
     let device_deployment_id = format!("harness-admin-device-{suffix}");
@@ -273,6 +281,9 @@ pub(crate) async fn run_admin_api_fixture(
     let service_contract_id = format!("trellis.integration-admin-service-{suffix}@v1");
     let service_contract_json = service_contract_json(&service_contract_id)?;
     let service_contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
+    let device_contract_id = format!("trellis.integration-admin-device-{suffix}@v1");
+    let device_contract_json = device_contract_json(&device_contract_id)?;
+    let device_contract_digest = digest_contract_json(&device_contract_json).into_diagnostic()?;
     let expanded = auth_client
         .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(&service_contract_json)?,
@@ -289,6 +300,14 @@ pub(crate) async fn run_admin_api_fixture(
             "Auth.Envelopes.Expand returned unexpected contract evidence"
         ));
     }
+    auth_client
+        .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+            contract: contract_json_object(&device_contract_json)?,
+            deployment_id: device_deployment_id.clone(),
+            expected_digest: device_contract_digest.clone(),
+        })
+        .await
+        .into_diagnostic()?;
 
     let envelopes = auth_client
         .auth_envelopes_list(&AuthEnvelopesListRequest {
@@ -325,7 +344,7 @@ pub(crate) async fn run_admin_api_fixture(
         ));
     }
 
-    let (_service_seed, service_key) = generate_session_keypair();
+    let (service_seed, service_key) = generate_session_keypair();
     let service_instance = auth_client
         .auth_service_instances_provision(&AuthServiceInstancesProvisionRequest {
             deployment_id: service_deployment_id.clone(),
@@ -350,6 +369,13 @@ pub(crate) async fn run_admin_api_fixture(
             "Auth.ServiceInstances.List did not include provisioned instance"
         ));
     }
+    assert_trellis_bindings_get(
+        trellis_url,
+        &service_contract_id,
+        &service_contract_digest,
+        &service_seed,
+    )
+    .await?;
 
     let (_device_seed, device_public_identity_key) = generate_session_keypair();
     let (_activation_seed, activation_key) = generate_session_keypair();
@@ -380,6 +406,12 @@ pub(crate) async fn run_admin_api_fixture(
             "Auth.Devices.List did not include provisioned device"
         ));
     }
+    assert_trellis_surface_status_device_implementer(
+        &core_client,
+        &device_contract_id,
+        "Harness.Admin.Device.Ping",
+    )
+    .await?;
 
     let catalog = core_client.trellis_catalog().await.into_diagnostic()?;
     if !catalog.catalog.contracts.iter().any(|contract| {
@@ -422,6 +454,123 @@ pub(crate) async fn run_admin_api_fixture(
     Ok(ADMIN_API_PASSING_CASES)
 }
 
+async fn assert_external_portal_origin_hardening(
+    trellis_url: &str,
+    auth_client: &SdkAuthClient<'_>,
+    suffix: u128,
+) -> Result<()> {
+    let portal_id = format!("harness.portal.{suffix}");
+    let route_id = format!("harness.portal.route.{suffix}");
+    let allowed_origin = format!("https://portal-{suffix}.example.test");
+    auth_client
+        .auth_portals_put(&AuthPortalsPutRequest {
+            portal_id: portal_id.clone(),
+            display_name: "Harness External Portal".to_string(),
+            entry_url: format!("{allowed_origin}/login"),
+            disabled: Some(false),
+        })
+        .await
+        .into_diagnostic()?;
+    auth_client
+        .auth_portals_login_routes_put(&AuthPortalsLoginRoutesPutRequest {
+            portal_id: portal_id.clone(),
+            route_id: Some(route_id.clone()),
+            contract_id: Some(json!("trellis.integration-agent@v1")),
+            origin: None,
+            disabled: Some(false),
+        })
+        .await
+        .into_diagnostic()?;
+
+    let result = assert_live_flow_origin(trellis_url, &allowed_origin).await;
+    let remove_route = auth_client
+        .auth_portals_login_routes_remove(&AuthPortalsLoginRoutesRemoveRequest {
+            route_id: route_id.clone(),
+        })
+        .await
+        .into_diagnostic();
+    let remove_portal = auth_client
+        .auth_portals_remove(&AuthPortalsRemoveRequest {
+            portal_id: portal_id.clone(),
+        })
+        .await
+        .into_diagnostic();
+    result?;
+    if !remove_route?.success {
+        return Err(miette!("Auth.Portals.LoginRoutes.Remove did not succeed"));
+    }
+    if !remove_portal?.success {
+        return Err(miette!("Auth.Portals.Remove did not succeed"));
+    }
+    Ok(())
+}
+
+async fn assert_live_flow_origin(trellis_url: &str, allowed_origin: &str) -> Result<()> {
+    let contract_json = admin_setup_contract_json()?;
+    let challenge = trellis_auth::start_agent_login(&trellis_auth::StartAgentLoginOpts {
+        trellis_url,
+        contract_json: &contract_json,
+    })
+    .await
+    .into_diagnostic()?;
+    let flow_id = flow_id_from_login_url(challenge.login_url())?;
+    let client = reqwest::Client::new();
+    let flow_url = format!("{trellis_url}/auth/flow/{flow_id}");
+
+    let allowed = client
+        .get(&flow_url)
+        .header("Origin", allowed_origin)
+        .send()
+        .await
+        .into_diagnostic()?;
+    if allowed.status() != reqwest::StatusCode::OK {
+        return Err(miette!(
+            "allowed portal Origin returned status {} instead of 200",
+            allowed.status()
+        ));
+    }
+    let allow_origin = allowed
+        .headers()
+        .get("access-control-allow-origin")
+        .and_then(|value| value.to_str().ok());
+    if allow_origin != Some(allowed_origin) {
+        return Err(miette!(
+            "allowed portal Origin returned Access-Control-Allow-Origin {:?}, expected {allowed_origin}",
+            allow_origin
+        ));
+    }
+
+    let disallowed = client
+        .get(&flow_url)
+        .header("Origin", "https://attacker.example.test")
+        .send()
+        .await
+        .into_diagnostic()?;
+    let status = disallowed.status();
+    let body = disallowed.text().await.into_diagnostic()?;
+    if status != reqwest::StatusCode::FORBIDDEN || !body.contains("portal_origin_mismatch") {
+        return Err(miette!(
+            "disallowed portal Origin returned status {status} and body {body:?}"
+        ));
+    }
+    Ok(())
+}
+
+fn flow_id_from_login_url(login_url: &str) -> Result<String> {
+    let flow_id = login_url
+        .split('?')
+        .nth(1)
+        .and_then(|query| {
+            query.split('&').find_map(|part| {
+                let (key, value) = part.split_once('=')?;
+                (key == "flowId").then_some(value)
+            })
+        })
+        .filter(|flow_id| !flow_id.is_empty())
+        .ok_or_else(|| miette!("agent login URL missing flowId: {login_url}"))?;
+    Ok(flow_id.to_string())
+}
+
 async fn reauth_admin_setup(
     admin_login: &AdminLoginOutcome,
     browser: &BrowserContainer,
@@ -458,11 +607,102 @@ fn service_contract_json(contract_id: &str) -> Result<String> {
         "Contract expanded by the direct primary admin/public API integration fixture.",
         ContractKind::Service,
     )
+    .use_ref(
+        "core",
+        use_contract("trellis.core@v1").with_rpc_call(["Trellis.Bindings.Get"]),
+    )
     .build()
     .map_err(|error| miette!("failed to build admin API service contract: {error}"))?;
 
     to_string(&manifest)
         .map_err(|error| miette!("failed to serialize admin API service contract: {error}"))
+}
+
+fn device_contract_json(contract_id: &str) -> Result<String> {
+    let ping_schema = json!({
+        "type": "object",
+        "properties": { "message": { "type": "string" } },
+        "required": ["message"]
+    });
+    let manifest = ContractManifestBuilder::new(
+        contract_id,
+        "Trellis Integration Admin Device",
+        "Device contract used by the direct primary admin/public API integration fixture.",
+        ContractKind::Device,
+    )
+    .schema("Ping", ping_schema)
+    .rpc(
+        "Harness.Admin.Device.Ping",
+        rpc("v1", "rpc.v1.Harness.Admin.Device.Ping", "Ping", "Ping")
+            .with_call_capabilities(std::iter::empty::<&str>())
+            .with_error_types(["UnexpectedError"]),
+    )
+    .build()
+    .map_err(|error| miette!("failed to build admin API device contract: {error}"))?;
+
+    to_string(&manifest)
+        .map_err(|error| miette!("failed to serialize admin API device contract: {error}"))
+}
+
+async fn assert_trellis_surface_status_device_implementer(
+    core_client: &CoreClient<'_>,
+    contract_id: &str,
+    surface: &str,
+) -> Result<()> {
+    let surface_status = core_client
+        .trellis_surface_status(&TrellisSurfaceStatusRequest {
+            contract_id: contract_id.to_string(),
+            kind: json!("rpc"),
+            surface: surface.to_string(),
+            action: Some(json!("call")),
+        })
+        .await
+        .into_diagnostic()?;
+    if surface_status.status.get("state") != Some(&json!("available"))
+        || surface_status.status.get("liveImplementer") != Some(&json!(true))
+        || surface_status.status.get("runtime") != Some(&json!("live"))
+    {
+        return Err(miette!(
+            "Trellis.Surface.Status returned unexpected device implementer status {}",
+            surface_status.status
+        ));
+    }
+    Ok(())
+}
+
+async fn assert_trellis_bindings_get(
+    trellis_url: &str,
+    contract_id: &str,
+    contract_digest: &str,
+    service_seed: &str,
+) -> Result<()> {
+    let service_client = TrellisClient::connect_service(ServiceConnectOptions {
+        trellis_url,
+        contract_id,
+        contract_digest,
+        session_key_seed_base64url: service_seed,
+        timeout_ms: 5_000,
+    })
+    .await
+    .into_diagnostic()?;
+    let response = CoreClient::new(&service_client)
+        .trellis_bindings_get(&TrellisBindingsGetRequest {
+            contract_id: Some(contract_id.to_string()),
+            digest: Some(contract_digest.to_string()),
+        })
+        .await
+        .into_diagnostic()?;
+    let binding = response
+        .binding
+        .ok_or_else(|| miette!("Trellis.Bindings.Get did not return service binding"))?;
+    if binding.contract_id != contract_id || binding.digest != contract_digest {
+        return Err(miette!(
+            "Trellis.Bindings.Get returned contract {} digest {}, expected {contract_id} digest {contract_digest}",
+            binding.contract_id,
+            binding.digest
+        ));
+    }
+    Ok(())
 }
 
 fn assert_value_list_has_deployment(deployments: &[Value], deployment_id: &str) -> Result<()> {
@@ -561,10 +801,16 @@ async fn raw_traced_admin_rpc(
     body: Value,
 ) -> Result<async_nats::Message> {
     let payload = Bytes::from(serde_json::to_vec(&body).into_diagnostic()?);
-    let proof = client.auth().create_proof(subject, &payload);
+    let iat = current_iat();
+    let request_id = format!("integration-admin-trace-{}", unique_suffix());
+    let proof = client
+        .auth()
+        .create_proof(subject, &payload, iat, &request_id);
     let mut headers = async_nats::HeaderMap::new();
     headers.insert("session-key", client.auth().session_key.as_str());
     headers.insert("proof", proof.as_str());
+    headers.insert("iat", iat.to_string().as_str());
+    headers.insert("request-id", request_id.as_str());
     headers.insert("traceparent", AUTH_ADMIN_TRACEPARENT);
     headers.insert("tracestate", "harness=auth-admin");
     client
@@ -578,6 +824,13 @@ fn unique_suffix() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
+        .unwrap_or_default()
+}
+
+fn current_iat() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
         .unwrap_or_default()
 }
 

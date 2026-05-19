@@ -227,7 +227,9 @@ let terminal = completed.terminal;
 
 Rules:
 
-- Rust transfer execution should hang off typed operation refs rather than a standalone `client.transfer(grant)` helper
+- Rust send-transfer execution should hang off typed operation refs; receive
+  grants are downloaded through the root `TrellisClient::download_transfer(...)`
+  helper after parsing the generated receive-transfer grant
 - Rust should preserve the same chunk-progress semantics and Result-based failure model as TypeScript
 - Rust service providers that expose send-transfer operations should await the
   provider-side upload completion primitive, such as
@@ -244,7 +246,9 @@ Rules:
 - byte transfer uses raw NATS messages, not JSON/base64 wrappers
 - request signing still uses session-bound proof headers
 - send transfer sends ordered chunk requests on a runtime-owned transfer subject and receives per-chunk acknowledgements
-- receive transfer streams ordered chunks from a service-owned transfer endpoint to the caller
+- receive transfer streams ordered chunks from a service-owned transfer endpoint
+  to the caller; Rust callers use `download_transfer(...)` with the returned
+  receive-transfer grant rather than resolving raw store bindings
 - the runtime emits one transfer update per acknowledged chunk on both caller and provider sides
 - chunk sequence and end-of-stream markers are runtime protocol details owned by Trellis
 

@@ -24,7 +24,7 @@ use crate::workspace::repo_root;
 
 const HARNESS_CONTRACT_ID: &str = "trellis.integration-state-agent@v1";
 const HARNESS_DENIED_CONTRACT_ID: &str = "trellis.integration-state-denied-agent@v1";
-const PASSING_CASES: usize = 22;
+const PASSING_CASES: usize = 23;
 
 fn harness_state_contract_json() -> Result<String> {
     let manifest = ContractManifestBuilder::new(
@@ -345,6 +345,32 @@ async fn assert_rust_value_state(client: &TrellisClient) -> Result<()> {
     let final_get = store.get().await.into_diagnostic()?;
     if !matches!(final_get, StateGetResult::Missing { found: false }) {
         return Err(miette!("expected missing final preferences: {final_get:?}"));
+    }
+
+    let expiring = store
+        .put_with_options(
+            &Preferences {
+                theme: "rust-expiring".to_string(),
+                density: "temporary".to_string(),
+            },
+            &PutStateOptions {
+                ttl_ms: Some(250),
+                expected_revision: ExpectedPutRevision::CreateIfAbsent,
+            },
+        )
+        .await
+        .into_diagnostic()?;
+    if !expiring.applied {
+        return Err(miette!(
+            "unexpected expiring preferences create response: {expiring:?}"
+        ));
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+    let expired = store.get().await.into_diagnostic()?;
+    if !matches!(expired, StateGetResult::Missing { found: false }) {
+        return Err(miette!(
+            "expected expired preferences to be missing: {expired:?}"
+        ));
     }
     Ok(())
 }
