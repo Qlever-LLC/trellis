@@ -1518,6 +1518,7 @@ Deno.test({
   sanitizeResources: false,
   fn: async () => {
     let registered = false;
+    let registeredPasswordMinLength: number | undefined;
     let pendingAuth: PendingAuth | undefined;
     const app = await registerTestRoutes(
       {
@@ -1546,8 +1547,10 @@ Deno.test({
             capabilities: string[];
             capabilityGroups: string[];
             userId: string;
+            passwordMinLength?: number;
           }) => {
             registered = true;
+            registeredPasswordMinLength = request.passwordMinLength;
             return Promise.resolve({
               ok: true as const,
               account: {
@@ -1612,8 +1615,58 @@ Deno.test({
       flowId: "flow-register",
     });
     assertEquals(registered, true);
+    assertEquals(registeredPasswordMinLength, 8);
     assertEquals(pendingAuth?.identity.provider, "local");
     assertEquals(pendingAuth?.user.email, "alex@example.com");
+  },
+});
+
+Deno.test({
+  name: "auth HTTP local self-registration returns password policy errors",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes(
+      {
+        flowId: "flow-register-short-password",
+        authToken: undefined,
+        sessionKey: "session-local",
+        redirectTo: "http://localhost:5173/app",
+        contract: { id: "client.example@v1" },
+      },
+      {},
+      {},
+      {
+        loginPortalStorage: externalLoginPortalStorage(),
+        config: {
+          ...config,
+          auth: {
+            localIdentity: { enabled: true, passwordPolicy: { minLength: 12 } },
+          },
+        },
+      },
+    );
+
+    const response = await app.request(
+      "http://trellis/auth/flow/flow-register-short-password/register/local",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://portal.example",
+        },
+        body: JSON.stringify({
+          username: "alex",
+          password: "too-short",
+          name: "Alex Local",
+          email: "alex@example.com",
+        }),
+      },
+    );
+
+    assertEquals(response.status, 400);
+    assertEquals(await response.json(), {
+      error: "Password must be at least 12 characters",
+    });
   },
 });
 

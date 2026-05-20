@@ -114,58 +114,70 @@ Deno.test("computeEnvelopeDelta returns only unavailable rows and missing capabi
   );
 });
 
-Deno.test("grant overrides add capabilities only for matching identities", () => {
+Deno.test("grant overrides add capabilities only for matching identities", async () => {
   const grants: DeploymentGrantOverride[] = [
     {
       deploymentId: "app-a",
       identityKind: "web",
+      grantKind: "capability",
       contractId: "core@v1",
       origin: "https://app.example",
       sessionPublicKey: null,
-      devicePublicKey: null,
       capability: "users.write",
+      capabilityGroupKey: null,
     },
     {
       deploymentId: "app-a",
-      identityKind: "any",
-      contractId: null,
+      identityKind: "session",
+      grantKind: "capability",
+      contractId: "core@v1",
       origin: null,
-      sessionPublicKey: null,
-      devicePublicKey: null,
+      sessionPublicKey: "session-a",
       capability: "users.read",
+      capabilityGroupKey: null,
     },
   ];
 
   assertEquals(
-    applyGrantOverrideCapabilities(EMPTY_BOUNDARY, grants, {
+    await applyGrantOverrideCapabilities(EMPTY_BOUNDARY, grants, {
       kind: "web",
       contractId: "core@v1",
       origin: "https://app.example",
     }),
-    boundary({ capabilities: ["users.read", "users.write"] }),
+    boundary({ capabilities: ["users.write"] }),
   );
 
   assertEquals(
-    applyGrantOverrideCapabilities(EMPTY_BOUNDARY, grants, {
+    await applyGrantOverrideCapabilities(EMPTY_BOUNDARY, grants, {
+      kind: "cli",
+      contractId: "core@v1",
+      sessionPublicKey: "session-a",
+    }),
+    boundary({ capabilities: ["users.read"] }),
+  );
+
+  assertEquals(
+    await applyGrantOverrideCapabilities(EMPTY_BOUNDARY, grants, {
       kind: "web",
       contractId: "core@v1",
       origin: "https://other.example",
     }),
-    boundary({ capabilities: ["users.read"] }),
+    EMPTY_BOUNDARY,
   );
 });
 
-Deno.test("grant overrides do not invent envelope availability", () => {
-  const effective = applyGrantOverrideCapabilities(
+Deno.test("grant overrides do not invent envelope availability", async () => {
+  const effective = await applyGrantOverrideCapabilities(
     boundary({ capabilities: ["users.read"] }),
     [{
       deploymentId: "app-a",
-      identityKind: "any",
-      contractId: null,
+      identityKind: "session",
+      grantKind: "capability",
+      contractId: "billing@v1",
       origin: null,
-      sessionPublicKey: null,
-      devicePublicKey: null,
+      sessionPublicKey: "session-a",
       capability: "billing.export",
+      capabilityGroupKey: null,
     }],
     { kind: "cli", contractId: "billing@v1", sessionPublicKey: "session-a" },
   );
@@ -200,26 +212,63 @@ Deno.test("grant overrides do not invent envelope availability", () => {
   );
 });
 
-Deno.test("grant override matching requires every provided discriminator", () => {
+Deno.test("grant override matching requires every provided discriminator", async () => {
   assertEquals(
-    applyGrantOverrideCapabilities(
+    await applyGrantOverrideCapabilities(
       EMPTY_BOUNDARY,
       [{
         deploymentId: "app-a",
-        identityKind: "web",
+        identityKind: "session",
+        grantKind: "capability",
         contractId: "core@v1",
-        origin: "https://app.example",
+        origin: null,
         sessionPublicKey: "session-a",
-        devicePublicKey: null,
         capability: "users.write",
+        capabilityGroupKey: null,
       }],
       {
-        kind: "web",
+        kind: "cli",
         contractId: "core@v1",
-        origin: "https://app.example",
+        sessionPublicKey: "session-b",
       },
     ),
     EMPTY_BOUNDARY,
+  );
+});
+
+Deno.test("capability-group grant overrides resolve current group capabilities", async () => {
+  const effective = await applyGrantOverrideCapabilities(
+    EMPTY_BOUNDARY,
+    [{
+      deploymentId: "app-a",
+      identityKind: "web",
+      grantKind: "capability-group",
+      contractId: "core@v1",
+      origin: "https://app.example",
+      sessionPublicKey: null,
+      capability: null,
+      capabilityGroupKey: "operators",
+    }],
+    { kind: "web", contractId: "core@v1", origin: "https://app.example" },
+    {
+      get: async (groupKey) =>
+        groupKey === "operators"
+          ? {
+            groupKey,
+            displayName: "Operators",
+            description: "Current operator grants.",
+            capabilities: ["users.read", "users.write"],
+            includedGroups: [],
+            createdAt: "2026-05-19T00:00:00.000Z",
+            updatedAt: "2026-05-19T00:00:00.000Z",
+          }
+          : undefined,
+    },
+  );
+
+  assertEquals(
+    effective,
+    boundary({ capabilities: ["users.read", "users.write"] }),
   );
 });
 

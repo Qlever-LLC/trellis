@@ -671,30 +671,43 @@ present the permission prompt again.
 ### Grant Override Object
 
 ```ts
-{
-  overrideId: string;
-  target: {
-    contractId?: string;
-    origin?: string;
-    deploymentId?: string;
-  };
-  preauthorizedBoundary: EnvelopeBoundary;
-  disabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+type DeploymentGrantOverride = {
+  deploymentId: string;
+  contractId: string;
+  grantKind: "capability" | "capability-group";
+  capability: string | null;
+  capabilityGroupKey: string | null;
+} & (
+  | {
+    identityKind: "web";
+    origin: string;
+    sessionPublicKey: null;
+  }
+  | {
+    identityKind: "session";
+    origin: null;
+    sessionPublicKey: string;
+  }
+);
 ```
 
 Rules:
 
-- the `target` may match a contract lineage, app origin, deployment, or a
-  combination of those selectors
+- web overrides match exactly by `contractId` plus browser `origin`
+- session-keyed overrides match exactly by `contractId` plus `sessionPublicKey`
+- `grantKind: "capability"` grants one concrete capability and stores
+  `capability`; `capabilityGroupKey` is `null`
+- `grantKind: "capability-group"` grants one capability group reference and
+  stores `capabilityGroupKey`; `capability` is `null`
+- capability group references are resolved dynamically from the current group
+  definition during authorization and portal approval decisions
 - matching enabled overrides may pre-authorize envelope and capability decisions
   dynamically; they do not mutate the user projection
 - matching overrides can satisfy approval while they remain enabled, but they
   cannot create availability missing from the deployment envelope
-- `target.origin` restricts an override to browser sessions that present that
-  app origin; it is separate from redirect and origin validation
+- grant overrides do not support any identity shape beyond the two web and
+  session-keyed rows above; other identities continue to use their normal
+  envelope and activation flows
 
 ### Users Projection
 

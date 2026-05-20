@@ -473,11 +473,12 @@ export const deploymentGrantOverrides = sqliteTable(
     deploymentId: text("deployment_id").notNull(),
     grantKey: text("grant_key").notNull().unique(),
     identityKind: text("identity_kind").notNull(),
+    grantKind: text("grant_kind").notNull(),
     contractId: text("contract_id"),
     origin: text("origin"),
     sessionPublicKey: text("session_public_key"),
-    devicePublicKey: text("device_public_key"),
-    capability: text("capability").notNull(),
+    capability: text("capability"),
+    capabilityGroupKey: text("capability_group_key"),
   },
 );
 

@@ -1,10 +1,16 @@
 import type {
+  CapabilityGroup,
   DeploymentGrantOverride,
   EnvelopeBoundary,
   EnvelopeBoundaryContract,
   EnvelopeBoundaryResource,
   EnvelopeBoundarySurface,
 } from "./schemas.ts";
+import { resolveCapabilities } from "./capability_groups.ts";
+
+export type GrantOverrideCapabilityGroupLoader = {
+  get(groupKey: string): Promise<CapabilityGroup | undefined>;
+};
 
 const EMPTY_BOUNDARY: EnvelopeBoundary = {
   contracts: [],
@@ -235,51 +241,40 @@ function overrideMatchesIdentity(
   override: DeploymentGrantOverride,
   identity: EnvelopeIdentityAnchor,
 ): boolean {
-  if (
-    override.identityKind !== "any" && override.identityKind !== identity.kind
-  ) {
-    return false;
+  if (override.contractId !== identity.contractId) return false;
+  if (override.identityKind === "web") {
+    return identity.kind === "web" && override.origin === identity.origin;
   }
-  if (
-    override.contractId !== null && override.contractId !== identity.contractId
-  ) {
-    return false;
-  }
-  if (override.origin !== null) {
-    if (!("origin" in identity) || override.origin !== identity.origin) {
-      return false;
-    }
-  }
-  if (override.sessionPublicKey !== null) {
-    if (
-      !("sessionPublicKey" in identity) ||
-      override.sessionPublicKey !== identity.sessionPublicKey
-    ) {
-      return false;
-    }
-  }
-  if (override.devicePublicKey !== null) {
-    if (
-      !("devicePublicKey" in identity) ||
-      override.devicePublicKey !== identity.devicePublicKey
-    ) {
-      return false;
-    }
-  }
-  return true;
+  return "sessionPublicKey" in identity &&
+    override.sessionPublicKey === identity.sessionPublicKey;
 }
 
 /** Applies matching deployment grant overrides as capability overlays only. */
-export function applyGrantOverrideCapabilities(
+export async function applyGrantOverrideCapabilities(
   envelope: EnvelopeBoundary,
   overrides: DeploymentGrantOverride[],
   identity: EnvelopeIdentityAnchor,
-): EnvelopeBoundary {
+  capabilityGroupStorage?: GrantOverrideCapabilityGroupLoader,
+): Promise<EnvelopeBoundary> {
+  const matchingOverrides = overrides.filter((override) =>
+    overrideMatchesIdentity(override, identity)
+  );
+  const concreteCapabilities = matchingOverrides.flatMap((override) =>
+    override.grantKind === "capability" ? [override.capability] : []
+  );
+  const capabilityGroups = matchingOverrides.flatMap((override) =>
+    override.grantKind === "capability-group"
+      ? [override.capabilityGroupKey]
+      : []
+  );
+  const groupCapabilities = await resolveCapabilities({
+    capabilities: [],
+    capabilityGroups,
+  }, capabilityGroupStorage);
   const capabilities = [
     ...envelope.capabilities,
-    ...overrides
-      .filter((override) => overrideMatchesIdentity(override, identity))
-      .map((override) => override.capability),
+    ...concreteCapabilities,
+    ...groupCapabilities,
   ];
   return normalizeBoundary({ ...envelope, capabilities });
 }

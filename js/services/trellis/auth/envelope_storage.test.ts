@@ -484,41 +484,49 @@ Deno.test("portal routes, grant overrides, resources, and evidence support creat
     const grants: DeploymentGrantOverride[] = [{
       deploymentId: "svc-a",
       identityKind: "web",
+      grantKind: "capability",
       contractId: "app@v1",
       origin: "https://app.example.com",
       sessionPublicKey: null,
-      devicePublicKey: null,
       capability: "items.read",
+      capabilityGroupKey: null,
     }, {
       deploymentId: "svc-a",
-      identityKind: "any",
-      contractId: null,
+      identityKind: "session",
+      grantKind: "capability-group",
+      contractId: "app@v1",
       origin: null,
-      sessionPublicKey: null,
-      devicePublicKey: null,
-      capability: "admin.review",
+      sessionPublicKey: "session-a",
+      capability: null,
+      capabilityGroupKey: "reviewers",
     }];
     await grantOverrides.replaceForDeployment("svc-a", grants);
     assertEquals(
       (await grantOverrides.listByDeployment("svc-a")).map((grant) =>
-        grant.capability
+        grant.grantKind === "capability"
+          ? grant.capability
+          : grant.capabilityGroupKey
       ),
-      ["admin.review", "items.read"],
+      ["items.read", "reviewers"],
     );
     assertEquals(
       (await grantOverrides.listPage({ limit: 10 })).map((grant) =>
-        grant.capability
+        grant.grantKind === "capability"
+          ? grant.capability
+          : grant.capabilityGroupKey
       ),
-      ["admin.review", "items.read"],
+      ["items.read", "reviewers"],
     );
     await assertRejects(() =>
       grantOverrides.replaceForDeployment("svc-a", [grants[0], grants[0]])
     );
     assertEquals(
       (await grantOverrides.listByDeployment("svc-a")).map((grant) =>
-        grant.capability
+        grant.grantKind === "capability"
+          ? grant.capability
+          : grant.capabilityGroupKey
       ),
-      ["admin.review", "items.read"],
+      ["items.read", "reviewers"],
     );
 
     const binding: DeploymentResourceBinding = {

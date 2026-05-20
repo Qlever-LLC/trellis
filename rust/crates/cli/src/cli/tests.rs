@@ -183,6 +183,7 @@ fn parses_top_level_grant_commands() {
                     args.grant.capabilities,
                     vec!["trellis.billing::invoice.read".to_string()]
                 );
+                assert!(args.grant.capability_groups.is_empty());
             }
             other => panic!("unexpected grants command: {other:?}"),
         },
@@ -196,7 +197,11 @@ fn parses_top_level_grant_commands() {
         "--deployment",
         "reader",
         "--identity-kind",
-        "device-user",
+        "session",
+        "--contract",
+        "trellis.reader@v1",
+        "--session-public-key",
+        "reader-session",
         "--capability",
         "trellis.reader::scan",
     ]);
@@ -206,11 +211,46 @@ fn parses_top_level_grant_commands() {
                 assert_eq!(args.deployment, "reader");
                 assert_eq!(
                     args.grant.identity_kind,
-                    DeploymentGrantOverrideIdentityKind::DeviceUser
+                    DeploymentGrantOverrideIdentityKind::Session
+                );
+                assert_eq!(args.grant.contract_id.as_deref(), Some("trellis.reader@v1"));
+                assert_eq!(
+                    args.grant.session_public_key.as_deref(),
+                    Some("reader-session")
                 );
                 assert_eq!(
                     args.grant.capabilities,
                     vec!["trellis.reader::scan".to_string()]
+                );
+                assert!(args.grant.capability_groups.is_empty());
+            }
+            other => panic!("unexpected grants command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+
+    let cli = Cli::parse_from([
+        "trellis",
+        "grants",
+        "add",
+        "--deployment",
+        "billing",
+        "--identity-kind",
+        "web",
+        "--contract",
+        "trellis.billing@v1",
+        "--origin",
+        "https://billing.example.com",
+        "--capability-group",
+        "billing-admin",
+    ]);
+    match cli.command {
+        TopLevelCommand::Grants(command) => match command.command {
+            GrantsSubcommand::Add(args) => {
+                assert!(args.grant.capabilities.is_empty());
+                assert_eq!(
+                    args.grant.capability_groups,
+                    vec!["billing-admin".to_string()]
                 );
             }
             other => panic!("unexpected grants command: {other:?}"),

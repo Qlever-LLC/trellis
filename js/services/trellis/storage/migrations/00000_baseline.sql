@@ -318,11 +318,12 @@ CREATE TABLE IF NOT EXISTS `deployment_grant_overrides` (
 	`deployment_id` text NOT NULL,
 	`grant_key` text NOT NULL,
 	`identity_kind` text NOT NULL,
+	`grant_kind` text NOT NULL,
 	`contract_id` text,
 	`origin` text,
 	`session_public_key` text,
-	`device_public_key` text,
-	`capability` text NOT NULL
+	`capability` text,
+	`capability_group_key` text
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `deployment_grant_overrides_grant_key_unique` ON `deployment_grant_overrides` (`grant_key`);

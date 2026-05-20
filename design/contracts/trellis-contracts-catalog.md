@@ -1244,8 +1244,10 @@ Envelope expansion validation MUST also:
   contract kind, standalone portal authority, or source of portal-specific
   install or service-auth behavior
 - grant overrides are deployment-owned metadata layered on top of envelopes;
-  they may pre-authorize envelope and capability decisions without changing
-  deployment-envelope semantics or inventing availability
+  web rows are keyed by `contractId + origin`, session-keyed rows are keyed by
+  `contractId + sessionPublicKey`, and both may pre-authorize envelope and
+  capability decisions without changing deployment-envelope semantics or
+  inventing availability
 
 Operationally, envelope expansion fails if any of these conditions is true:
 

@@ -146,8 +146,8 @@ Rules:
   delegated approval or service authority
 - first login does not require pre-registering a portal because the built-in
   Trellis login portal is always available
-- auth MAY apply a matching grant override for the app's contract lineage and
-  optional app origin; when one matches, or when an existing identity envelope
+- auth MAY apply a matching grant override for the app's contract id and origin;
+  when one matches, or when an existing identity envelope
   already grants a strict superset of the requested boundary for the same app
   identity, auth may skip browser UX and return `bound` directly
 
@@ -800,13 +800,22 @@ type DeploymentPortalRoute = {
 
 type DeploymentGrantOverride = {
   deploymentId: string;
-  identityKind: "web" | "cli" | "native" | "device-user" | "any";
-  contractId: string | null;
-  origin: string | null;
-  sessionPublicKey: string | null;
-  devicePublicKey: string | null;
-  capability: string;
-};
+  contractId: string;
+  grantKind: "capability" | "capability-group";
+  capability: string | null;
+  capabilityGroupKey: string | null;
+} & (
+  | {
+    identityKind: "web";
+    origin: string;
+    sessionPublicKey: null;
+  }
+  | {
+    identityKind: "session";
+    origin: null;
+    sessionPublicKey: string;
+  }
+);
 ```
 
 `DeploymentContractEvidence` records the manifest digest and reviewed contract
@@ -925,7 +934,9 @@ for the durable deployment record:
 - `Auth.Envelopes.GrantOverrides.Put` replaces all grant override rows for one
   deployment. `Auth.Envelopes.GrantOverrides.Remove` removes exact matching
   rows. Both return the deployment's current grant override rows after the
-  mutation.
+  mutation. Grant override rows use only two identity shapes: web rows match a
+  `contractId` plus browser `origin`, and session rows match a `contractId` plus
+  `sessionPublicKey`.
 - service and device deployment mutations fail closed when the proposed active
   set has inactive or missing `uses` dependencies; Trellis validates that staged
   catalog state before exposing it to runtime permissions.

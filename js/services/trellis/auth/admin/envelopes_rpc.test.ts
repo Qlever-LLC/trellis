@@ -639,7 +639,7 @@ Deno.test("Auth.Envelopes.List returns admin-visible envelope authority rows", a
   assertEquals(
     value.entries.map((envelope: DeploymentEnvelope) => envelope.deploymentId),
     [
-    "billing.default",
+      "billing.default",
     ],
   );
   assertEquals(value.count, 1);
@@ -695,11 +695,12 @@ Deno.test("Auth.Envelopes.Get returns envelope detail for Console review", async
   grantOverrides.seed({
     deploymentId: "billing.default",
     identityKind: "web",
+    grantKind: "capability",
     contractId: contract.id,
     origin: "https://app.example.com",
     sessionPublicKey: null,
-    devicePublicKey: null,
     capability: "billing.call",
+    capabilityGroupKey: null,
   });
   const handler = createAuthEnvelopesGetHandler({
     deploymentEnvelopeStorage: envelopes,
@@ -739,21 +740,23 @@ Deno.test("Auth.Envelopes.GrantOverrides.Put replaces deployment override rows",
   envelopes.seed(makeEnvelope());
   grantOverrides.seed({
     deploymentId: "billing.default",
-    identityKind: "any",
-    contractId: null,
+    identityKind: "session",
+    grantKind: "capability",
+    contractId: "acme.billing@v1",
     origin: null,
-    sessionPublicKey: null,
-    devicePublicKey: null,
+    sessionPublicKey: "old-session",
     capability: "old.capability",
+    capabilityGroupKey: null,
   });
   const override: DeploymentGrantOverride = {
     deploymentId: "billing.default",
     identityKind: "web",
+    grantKind: "capability-group",
     contractId: "acme.billing@v1",
     origin: "https://app.example.com",
     sessionPublicKey: null,
-    devicePublicKey: null,
-    capability: "billing.call",
+    capability: null,
+    capabilityGroupKey: "billing-operators",
   };
   const handler = createAuthEnvelopesGrantOverridesPutHandler({
     deploymentEnvelopeStorage: envelopes,
@@ -780,11 +783,12 @@ Deno.test("Auth.Envelopes.GrantOverrides.Remove removes exact matching rows", as
   const removed: DeploymentGrantOverride = {
     deploymentId: "billing.default",
     identityKind: "web",
+    grantKind: "capability",
     contractId: "acme.billing@v1",
     origin: "https://app.example.com",
     sessionPublicKey: null,
-    devicePublicKey: null,
     capability: "billing.call",
+    capabilityGroupKey: null,
   };
   const retained: DeploymentGrantOverride = {
     ...removed,
@@ -874,7 +878,7 @@ Deno.test("Auth.EnvelopeExpansions.List returns filtered expansion requests", as
   assertEquals(
     value.entries.map((request: EnvelopeExpansionRequest) => request.requestId),
     [
-    "request-1",
+      "request-1",
     ],
   );
   assertEquals(value.count, 1);

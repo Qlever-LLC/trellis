@@ -94,7 +94,7 @@ export function validateLocalCredentialPasswordPolicy(
     throw new Error("Local password minimum length must be at least 8");
   }
   if (password.length < minLength) {
-    throw new Error(`Local password must be at least ${minLength} characters`);
+    throw new Error(`Password must be at least ${minLength} characters`);
   }
 }
 

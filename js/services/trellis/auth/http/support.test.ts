@@ -915,11 +915,12 @@ Deno.test("getApprovalResolution applies matching deployment grant overrides as 
     loadDeploymentGrantOverrides: async (deploymentId) => [{
       deploymentId,
       identityKind: "web",
+      grantKind: "capability",
       contractId: "trellis.console@v1",
       origin: "https://app.example.com",
       sessionPublicKey: null,
-      devicePublicKey: null,
       capability: "audit",
+      capabilityGroupKey: null,
     }],
   });
 
@@ -937,7 +938,7 @@ Deno.test("getApprovalResolution applies matching deployment grant overrides as 
   });
 });
 
-Deno.test("getApprovalResolution treats full matching grant overrides as approved when availability exists", async () => {
+Deno.test("getApprovalResolution treats group grant overrides as approved when availability exists", async () => {
   const contracts = createTestContracts();
   const now = new Date().toISOString();
   const pending: PendingAuth = {
@@ -1004,12 +1005,27 @@ Deno.test("getApprovalResolution treats full matching grant overrides as approve
     loadDeploymentGrantOverrides: async (deploymentId) => [{
       deploymentId,
       identityKind: "web",
+      grantKind: "capability-group",
       contractId: "trellis.console@v1",
       origin: "https://app.example.com",
       sessionPublicKey: null,
-      devicePublicKey: null,
-      capability: "audit",
+      capability: null,
+      capabilityGroupKey: "auditors",
     }],
+    capabilityGroupStorage: {
+      get: async (groupKey) =>
+        groupKey === "auditors"
+          ? {
+            groupKey,
+            displayName: "Auditors",
+            description: "Current audit grants.",
+            capabilities: ["audit"],
+            includedGroups: [],
+            createdAt: now,
+            updatedAt: now,
+          }
+          : undefined,
+    },
   });
 
   assertEquals(resolution.missingCapabilities, []);
@@ -1085,11 +1101,12 @@ Deno.test("getApprovalResolution does not approve partial or unrelated grant ove
       {
         deploymentId,
         identityKind: "web",
+        grantKind: "capability",
         contractId: "trellis.console@v1",
         origin: "https://other.example.com",
         sessionPublicKey: null,
-        devicePublicKey: null,
         capability: "admin",
+        capabilityGroupKey: null,
       },
     ],
   });

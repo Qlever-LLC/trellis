@@ -72,21 +72,14 @@ pub enum EnvelopeExpansionRequestState {
 /// Identity kinds supported by deployment grant overrides.
 pub enum DeploymentGrantOverrideIdentityKind {
     Web,
-    Cli,
-    Native,
-    #[value(name = "device-user")]
-    DeviceUser,
-    Any,
+    Session,
 }
 
 impl DeploymentGrantOverrideIdentityKind {
     pub fn as_wire_value(self) -> &'static str {
         match self {
             Self::Web => "web",
-            Self::Cli => "cli",
-            Self::Native => "native",
-            Self::DeviceUser => "device-user",
-            Self::Any => "any",
+            Self::Session => "session",
         }
     }
 }
@@ -406,11 +399,11 @@ pub struct DeploymentGrantMutationArgs {
     #[arg(long = "session-public-key")]
     pub session_public_key: Option<String>,
 
-    #[arg(long = "device-public-key")]
-    pub device_public_key: Option<String>,
-
-    #[arg(long = "capability", required = true)]
+    #[arg(long = "capability")]
     pub capabilities: Vec<String>,
+
+    #[arg(long = "capability-group")]
+    pub capability_groups: Vec<String>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Args)]

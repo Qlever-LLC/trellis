@@ -322,8 +322,9 @@ Rules:
   app origin
 - reconnect authorization revalidates the presented digest against the bound
   user/app context rather than relying on a renewable binding token
-- deployments MAY configure grant overrides keyed by contract lineage, app
-  identity, or origin that pre-authorize envelope and capability decisions
+- deployments MAY configure grant overrides keyed by `contractId + origin` for
+  browser apps or by `contractId + sessionPublicKey` for session-keyed clients;
+  matching rows pre-authorize envelope and capability decisions
 - grant overrides cannot invent availability; the requested boundary must still
   fit the relevant deployment envelope
 - grant override approval requires the matching override rows themselves to cover

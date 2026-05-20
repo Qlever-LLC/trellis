@@ -248,7 +248,9 @@ Operational command behavior:
   grant overrides through `Auth.Envelopes.List`, `Auth.Envelopes.Get`,
   `Auth.Envelopes.GrantOverrides.Put`, and
   `Auth.Envelopes.GrantOverrides.Remove`. Grant overrides are modeled as
-  deployment-owned policy rows rather than service or device subcommands.
+  deployment-owned policy rows rather than service or device subcommands. They
+  use `contractId + origin` for web grants and `contractId + sessionPublicKey`
+  for session-keyed grants.
 - `trellis dev <id> provision` is the ergonomic provisioning path for device
   development and deployment: it generates a root secret locally, derives the
   device keys, registers the instance with auth using activation-only secret

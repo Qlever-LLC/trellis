@@ -116,11 +116,12 @@ function decodeGrantOverrideRow(
   return Value.Decode(DeploymentGrantOverrideSchema, {
     deploymentId: row.deploymentId,
     identityKind: row.identityKind,
+    grantKind: row.grantKind,
     contractId: row.contractId,
     origin: row.origin,
     sessionPublicKey: row.sessionPublicKey,
-    devicePublicKey: row.devicePublicKey,
     capability: row.capability,
+    capabilityGroupKey: row.capabilityGroupKey,
   });
 }
 
@@ -132,11 +133,12 @@ function encodeGrantOverride(
     deploymentId: decoded.deploymentId,
     grantKey: grantOverrideKey(decoded),
     identityKind: decoded.identityKind,
+    grantKind: decoded.grantKind,
     contractId: decoded.contractId,
     origin: decoded.origin,
     sessionPublicKey: decoded.sessionPublicKey,
-    devicePublicKey: decoded.devicePublicKey,
     capability: decoded.capability,
+    capabilityGroupKey: decoded.capabilityGroupKey,
   };
 }
 
@@ -144,11 +146,12 @@ function grantOverrideKey(record: DeploymentGrantOverride): string {
   return JSON.stringify([
     record.deploymentId,
     record.identityKind,
+    record.grantKind,
     record.contractId,
     record.origin,
     record.sessionPublicKey,
-    record.devicePublicKey,
     record.capability,
+    record.capabilityGroupKey,
   ]);
 }
 
@@ -1050,12 +1053,13 @@ export class SqlDeploymentGrantOverrideRepository {
     const rows = await this.#db.select().from(deploymentGrantOverrides).where(
       eq(deploymentGrantOverrides.deploymentId, deploymentId),
     ).orderBy(
+      deploymentGrantOverrides.grantKind,
       deploymentGrantOverrides.capability,
+      deploymentGrantOverrides.capabilityGroupKey,
       deploymentGrantOverrides.identityKind,
       deploymentGrantOverrides.contractId,
       deploymentGrantOverrides.origin,
       deploymentGrantOverrides.sessionPublicKey,
-      deploymentGrantOverrides.devicePublicKey,
     );
     return rows.map((row) => decodeGrantOverrideRow(row));
   }
@@ -1065,12 +1069,13 @@ export class SqlDeploymentGrantOverrideRepository {
     const { offset, limit } = boundedListQuery(query);
     const rows = await this.#db.select().from(deploymentGrantOverrides).orderBy(
       deploymentGrantOverrides.deploymentId,
+      deploymentGrantOverrides.grantKind,
       deploymentGrantOverrides.capability,
+      deploymentGrantOverrides.capabilityGroupKey,
       deploymentGrantOverrides.identityKind,
       deploymentGrantOverrides.contractId,
       deploymentGrantOverrides.origin,
       deploymentGrantOverrides.sessionPublicKey,
-      deploymentGrantOverrides.devicePublicKey,
       deploymentGrantOverrides.grantKey,
     ).limit(limit).offset(offset);
     return rows.map((row) => decodeGrantOverrideRow(row));

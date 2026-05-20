@@ -31,7 +31,8 @@ Rules:
 - contracts SHOULD declare top-level metadata for every capability they own
 - deployments assign capability bundles to users and services
 - deployments MAY also assign auth-owned dynamic capability overlays through
-  envelope grant overrides keyed by the deployment or identity scope
+  envelope grant overrides keyed by `contractId + origin` for web grants or
+  `contractId + sessionPublicKey` for session-keyed grants
 - services receive deployment policy through deployment-envelope creation,
   expansion, and shrink decisions
 - authorization changes take effect immediately because auth derives subjects from active contracts and current grants

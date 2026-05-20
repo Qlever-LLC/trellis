@@ -337,15 +337,17 @@ function sameIdentityAnchor(
   }
 }
 
-function matchingGrantOverrideCapabilities(args: {
+async function matchingGrantOverrideCapabilities(args: {
   overrides: DeploymentGrantOverride[];
   identity: Parameters<typeof applyGrantOverrideCapabilities>[2];
-}): string[] {
-  return applyGrantOverrideCapabilities(
+  capabilityGroupStorage?: CapabilityGroupLoader;
+}): Promise<string[]> {
+  return (await applyGrantOverrideCapabilities(
     EMPTY_BOUNDARY,
     args.overrides,
     args.identity,
-  )
+    args.capabilityGroupStorage,
+  ))
     .capabilities;
 }
 
@@ -439,9 +441,10 @@ export async function getApprovalResolution(
     ? matchingStoredApproval
     : null;
   const matchedPolicies: [] = [];
-  const grantOverrideCapabilities = matchingGrantOverrideCapabilities({
+  const grantOverrideCapabilities = await matchingGrantOverrideCapabilities({
     overrides: deploymentGrantOverrides,
     identity: requestedIdentity,
+    capabilityGroupStorage: deps.capabilityGroupStorage,
   });
   const resolvedCapabilities = [
     ...new Set([

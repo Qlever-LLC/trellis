@@ -322,11 +322,12 @@ function grantOverrideKey(record: DeploymentGrantOverride): string {
   return JSON.stringify([
     record.deploymentId,
     record.identityKind,
+    record.grantKind,
     record.contractId,
     record.origin,
     record.sessionPublicKey,
-    record.devicePublicKey,
     record.capability,
+    record.capabilityGroupKey,
   ]);
 }
 
@@ -1307,7 +1308,10 @@ export function createAuthEnvelopeExpansionsListHandler(deps: {
       const filters = { deploymentId: req.deploymentId, state: req.state };
       if (deps.envelopeExpansionRequestStorage.listFilteredPage) {
         return Result.ok(
-          await deps.envelopeExpansionRequestStorage.listFilteredPage(filters, req),
+          await deps.envelopeExpansionRequestStorage.listFilteredPage(
+            filters,
+            req,
+          ),
         );
       }
       const entries = await deps.envelopeExpansionRequestStorage.listFiltered(

@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { isErr } from "@qlever-llc/result";
+  import { isErr, type AsyncResult, type BaseError } from "@qlever-llc/result";
   import type {
-    AuthEnvelopesGetResponse,
     DeploymentEnvelope,
+    DeploymentGrantOverride,
   } from "@qlever-llc/trellis/auth";
+  import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
@@ -12,90 +13,171 @@
   import { errorMessage } from "$lib/format";
   import { getTrellis } from "$lib/trellis";
 
-  type DeploymentGrantOverride = AuthEnvelopesGetResponse["grantOverrides"][number];
-  type GrantIdentityKind = DeploymentGrantOverride["identityKind"];
-  type GrantStatus = "Broad" | "Scoped";
+  type GrantIdentityKind = "web" | "session";
+  type ListPageInput = {
+    offset?: number;
+    limit: number;
+  };
+  type EnvelopeListOutput = {
+    entries: DeploymentEnvelope[];
+  };
+  type EnvelopeGetOutput = {
+    grantOverrides: DeploymentGrantOverride[];
+  };
+  type EnvelopeGetInput = {
+    deploymentId: string;
+  };
   type GrantOverrideMutationInput = {
     deploymentId: string;
     overrides: DeploymentGrantOverride[];
   };
-  type GrantOverrideRpcClient = {
-    request(
-      subject: "Auth.Envelopes.GrantOverrides.Put" | "Auth.Envelopes.GrantOverrides.Remove",
-      input: GrantOverrideMutationInput,
-    ): { take(): Promise<unknown> };
+  type GrantOverrideMutationOutput = {
+    grantOverrides: DeploymentGrantOverride[];
+  };
+  type AuthRpcClient = {
+    request(subject: "Auth.Envelopes.List", input: ListPageInput): AsyncResult<EnvelopeListOutput, BaseError>;
+    request(subject: "Auth.Envelopes.Get", input: EnvelopeGetInput): AsyncResult<EnvelopeGetOutput, BaseError>;
+    request(subject: "Auth.Envelopes.GrantOverrides.Remove", input: GrantOverrideMutationInput): AsyncResult<GrantOverrideMutationOutput, BaseError>;
   };
   type GrantOverrideRow = DeploymentGrantOverride & {
     envelope: DeploymentEnvelope;
   };
+  type GrantOverrideGroup = {
+    key: string;
+    identityKind: GrantIdentityKind;
+    contractId: string;
+    origin: string | null;
+    sessionPublicKey: string | null;
+    directCapabilities: string[];
+    capabilityGroupKeys: string[];
+    rows: GrantOverrideRow[];
+  };
 
   const trellis = getTrellis();
-  const grantOverrideRpc = trellis as GrantOverrideRpcClient;
-  const grantIdentityKinds: GrantIdentityKind[] = ["any", "web", "cli", "native", "device-user"];
+  const authRpc = trellis as AuthRpcClient;
 
   let loading = $state(true);
-  let saving = $state(false);
   let removingKey = $state<string | null>(null);
   let error = $state<string | null>(null);
   let saved = $state<string | null>(null);
   let search = $state("");
-  let deployments = $state.raw<DeploymentEnvelope[]>([]);
   let rows = $state.raw<GrantOverrideRow[]>([]);
-  let selectedDeploymentId = $state("");
-  let identityKind = $state<GrantIdentityKind>("any");
-  let contractId = $state("");
-  let origin = $state("");
-  let sessionPublicKey = $state("");
-  let devicePublicKey = $state("");
-  let capability = $state("");
 
-  const busy = $derived(loading || saving || removingKey !== null);
-  const deploymentOptions = $derived(deployments.toSorted((left, right) => left.deploymentId.localeCompare(right.deploymentId)));
-  const broadGrantCount = $derived(rows.filter((row) => grantStatus(row) === "Broad").length);
+  const busy = $derived(loading || removingKey !== null);
   const filteredRows = $derived.by(() => {
     const term = search.trim().toLowerCase();
     if (!term) return rows;
     return rows.filter((row) => searchableGrantText(row).includes(term));
   });
-  const rowsByDeployment = $derived.by(() => {
-    const groups: Record<string, DeploymentGrantOverride[]> = {};
-    for (const row of rows) {
-      groups[row.deploymentId] = [...(groups[row.deploymentId] ?? []), rowToOverride(row)];
-    }
-    return groups;
-  });
-
-  function trimmedOptional(value: string): string | null {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
+  const filteredGrantGroups = $derived(groupGrantOverrides(filteredRows));
+  function uniqueGrantReferences(values: string[]): string[] {
+    return Array.from(new Set(values.map((value) => value.trim()).filter((value) => value.length > 0)));
   }
 
   function grantOverrideKey(override: DeploymentGrantOverride): string {
     return [
       override.deploymentId,
       override.identityKind,
-      override.contractId ?? "*",
-      override.origin ?? "*",
-      override.sessionPublicKey ?? "*",
-      override.devicePublicKey ?? "*",
-      override.capability,
+      override.grantKind,
+      override.contractId,
+      override.origin ?? "-",
+      override.sessionPublicKey ?? "-",
+      grantOverrideReference(override),
     ].join("|");
   }
 
-  function rowToOverride(row: GrantOverrideRow): DeploymentGrantOverride {
-    return {
-      deploymentId: row.deploymentId,
-      identityKind: row.identityKind,
-      contractId: row.contractId,
-      origin: row.origin,
-      sessionPublicKey: row.sessionPublicKey,
-      devicePublicKey: row.devicePublicKey,
-      capability: row.capability,
-    };
+  function grantTargetKey(override: DeploymentGrantOverride): string {
+    return [
+      override.identityKind,
+      override.contractId,
+      override.origin ?? "-",
+      override.sessionPublicKey ?? "-",
+    ].join("|");
   }
 
-  function sameGrantOverride(left: DeploymentGrantOverride, right: DeploymentGrantOverride): boolean {
-    return grantOverrideKey(left) === grantOverrideKey(right);
+  function grantOverrideReference(override: DeploymentGrantOverride): string {
+    return override.grantKind === "capability" ? override.capability : override.capabilityGroupKey;
+  }
+
+  function groupGrantOverrides(overrides: GrantOverrideRow[]): GrantOverrideGroup[] {
+    const groups: Record<string, GrantOverrideGroup> = {};
+    for (const override of overrides) {
+      const key = grantTargetKey(override);
+      const existing = groups[key];
+      if (existing) {
+        existing.rows.push(override);
+        if (override.grantKind === "capability") {
+          existing.directCapabilities = uniqueGrantReferences([...existing.directCapabilities, override.capability]);
+        } else {
+          existing.capabilityGroupKeys = uniqueGrantReferences([...existing.capabilityGroupKeys, override.capabilityGroupKey]);
+        }
+      } else {
+        groups[key] = {
+          key,
+          identityKind: override.identityKind,
+          contractId: override.contractId,
+          origin: override.origin,
+          sessionPublicKey: override.sessionPublicKey,
+          directCapabilities: override.grantKind === "capability" ? [override.capability] : [],
+          capabilityGroupKeys: override.grantKind === "capability-group" ? [override.capabilityGroupKey] : [],
+          rows: [override],
+        };
+      }
+    }
+    return Object.values(groups).map((group) => ({
+      ...group,
+      directCapabilities: group.directCapabilities.slice().sort((left, right) => left.localeCompare(right)),
+      capabilityGroupKeys: group.capabilityGroupKeys.slice().sort((left, right) => left.localeCompare(right)),
+    })).sort((left, right) => left.key.localeCompare(right.key));
+  }
+
+  function rowToOverride(row: GrantOverrideRow): DeploymentGrantOverride {
+    if (row.identityKind === "web") {
+      if (row.grantKind === "capability") {
+        return {
+          deploymentId: row.deploymentId,
+          identityKind: "web",
+          grantKind: "capability",
+          contractId: row.contractId,
+          origin: row.origin,
+          sessionPublicKey: null,
+          capability: row.capability,
+          capabilityGroupKey: null,
+        };
+      }
+      return {
+        deploymentId: row.deploymentId,
+        identityKind: "web",
+        grantKind: "capability-group",
+        contractId: row.contractId,
+        origin: row.origin,
+        sessionPublicKey: null,
+        capability: null,
+        capabilityGroupKey: row.capabilityGroupKey,
+      };
+    }
+    if (row.grantKind === "capability") {
+      return {
+        deploymentId: row.deploymentId,
+        identityKind: "session",
+        grantKind: "capability",
+        contractId: row.contractId,
+        origin: null,
+        sessionPublicKey: row.sessionPublicKey,
+        capability: row.capability,
+        capabilityGroupKey: null,
+      };
+    }
+    return {
+      deploymentId: row.deploymentId,
+      identityKind: "session",
+      grantKind: "capability-group",
+      contractId: row.contractId,
+      origin: null,
+      sessionPublicKey: row.sessionPublicKey,
+      capability: null,
+      capabilityGroupKey: row.capabilityGroupKey,
+    };
   }
 
   function searchableGrantText(row: GrantOverrideRow): string {
@@ -105,58 +187,24 @@
       row.contractId ?? "",
       row.origin ?? "",
       row.sessionPublicKey ?? "",
-      row.devicePublicKey ?? "",
-      row.capability,
+      row.grantKind,
+      grantOverrideReference(row),
     ].join(" ").toLowerCase();
   }
 
-  function grantStatus(override: DeploymentGrantOverride): GrantStatus {
-    return override.identityKind === "any" && override.contractId === null && override.origin === null &&
-        override.sessionPublicKey === null && override.devicePublicKey === null
-      ? "Broad"
-      : "Scoped";
-  }
-
-  function resetForm(): void {
-    identityKind = "any";
-    contractId = "";
-    origin = "";
-    sessionPublicKey = "";
-    devicePublicKey = "";
-    capability = "";
-  }
-
-  function buildOverride(): DeploymentGrantOverride | null {
-    const deploymentId = selectedDeploymentId.trim();
-    const grantCapability = capability.trim();
-    if (!deploymentId || !grantCapability) return null;
-    return {
-      deploymentId,
-      identityKind,
-      contractId: trimmedOptional(contractId),
-      origin: trimmedOptional(origin),
-      sessionPublicKey: trimmedOptional(sessionPublicKey),
-      devicePublicKey: trimmedOptional(devicePublicKey),
-      capability: grantCapability,
-    };
-  }
-
-  async function load(): Promise<void> {
+  async function load(options: { preserveSaved?: boolean } = {}): Promise<void> {
     loading = true;
     error = null;
-    saved = null;
+    if (!options.preserveSaved) saved = null;
     try {
-      const listResponse = await trellis.request("Auth.Envelopes.List", { limit: 500, offset: 0 }).take();
+      const listResponse = await authRpc.request("Auth.Envelopes.List", { limit: 500, offset: 0 }).take();
       if (isErr(listResponse)) {
         error = errorMessage(listResponse);
-        deployments = [];
         rows = [];
         return;
       }
 
-      deployments = listResponse.entries;
-      selectedDeploymentId = selectedDeploymentId || deployments[0]?.deploymentId || "";
-
+      const deployments = listResponse.entries;
       const details = await Promise.all(deployments.map((deployment) => loadDeploymentGrantOverrides(deployment)));
       rows = details.flat().sort((left, right) => grantOverrideKey(left).localeCompare(grantOverrideKey(right)));
     } catch (e) {
@@ -167,65 +215,34 @@
   }
 
   async function loadDeploymentGrantOverrides(deployment: DeploymentEnvelope): Promise<GrantOverrideRow[]> {
-    const response = await trellis.request("Auth.Envelopes.Get", { deploymentId: deployment.deploymentId }).take();
+    const response = await authRpc.request("Auth.Envelopes.Get", { deploymentId: deployment.deploymentId }).take();
     if (isErr(response)) throw new Error(`Failed to load ${deployment.deploymentId}: ${errorMessage(response)}`);
     return response.grantOverrides.map((override) => ({ ...override, envelope: deployment }));
   }
 
-  async function addGrantOverride(): Promise<void> {
-    const nextOverride = buildOverride();
-    if (!nextOverride) {
-      error = "Select a deployment and enter a capability.";
-      return;
-    }
-
-    const existing = rowsByDeployment[nextOverride.deploymentId] ?? [];
-    if (existing.some((override) => sameGrantOverride(override, nextOverride))) {
-      saved = "Grant override already exists; no changes saved.";
-      error = null;
-      return;
-    }
-
-    saving = true;
-    error = null;
-    saved = null;
-    try {
-      const response = await grantOverrideRpc.request("Auth.Envelopes.GrantOverrides.Put", {
-        deploymentId: nextOverride.deploymentId,
-        overrides: [...existing, nextOverride],
-      }).take();
-      if (isErr(response)) {
-        error = errorMessage(response);
-        return;
-      }
-      saved = `Added grant override for ${nextOverride.deploymentId}.`;
-      resetForm();
-      await load();
-    } catch (e) {
-      error = errorMessage(e);
-    } finally {
-      saving = false;
-    }
-  }
-
-  async function removeGrantOverride(row: GrantOverrideRow): Promise<void> {
-    const override = rowToOverride(row);
-    if (!confirm(`Remove grant override ${override.capability} from ${override.deploymentId}?`)) return;
-    const key = grantOverrideKey(override);
+  async function removeGrantOverrideGroup(group: GrantOverrideGroup): Promise<void> {
+    if (!confirm(`Remove ${group.rows.length} grant override${group.rows.length === 1 ? "" : "s"} for ${group.contractId}?`)) return;
+    const key = group.key;
     removingKey = key;
     error = null;
     saved = null;
     try {
-      const response = await grantOverrideRpc.request("Auth.Envelopes.GrantOverrides.Remove", {
-        deploymentId: override.deploymentId,
-        overrides: [override],
-      }).take();
-      if (isErr(response)) {
-        error = errorMessage(response);
-        return;
+      const byDeployment: Record<string, DeploymentGrantOverride[]> = {};
+      for (const row of group.rows) {
+        byDeployment[row.deploymentId] = [...(byDeployment[row.deploymentId] ?? []), rowToOverride(row)];
+      }
+      for (const [deploymentId, overrides] of Object.entries(byDeployment)) {
+        const response = await authRpc.request("Auth.Envelopes.GrantOverrides.Remove", {
+          deploymentId,
+          overrides,
+        }).take();
+        if (isErr(response)) {
+          error = errorMessage(response);
+          return;
+        }
       }
       saved = "Removed grant override.";
-      await load();
+      await load({ preserveSaved: true });
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -237,11 +254,12 @@
 </script>
 
 <section class="space-y-4">
-  <PageToolbar title="Grants" description="Review deployment-owned grant overrides that pre-authorize matching app, CLI, native, and device-user access.">
+  <PageToolbar title="Grants" description="Review authority deployment grant overrides that pre-authorize matching web origins and session keys.">
     {#snippet actions()}
       <label class="sr-only" for="grant-search">Search grant overrides</label>
       <input id="grant-search" class="input input-bordered input-sm w-72" placeholder="Search grants" bind:value={search} />
-      <button class="btn btn-ghost btn-sm" onclick={load} disabled={busy}>Refresh</button>
+      <a class="btn btn-outline btn-sm" href={resolve("/admin/grants/new")}>New grant</a>
+      <button class="btn btn-ghost btn-sm" onclick={() => void load()} disabled={busy}>Refresh</button>
     {/snippet}
   </PageToolbar>
 
@@ -258,117 +276,69 @@
     <div class="flex flex-col gap-3 border-y border-base-300 bg-base-100/45 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
       <div class="min-w-0">
         <p class="text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-base-content/45">Grant override policy</p>
-        <p class="mt-1 text-sm text-base-content/60">Overrides can satisfy approval prompts, but only when deployment availability already covers the requested contract boundary.</p>
+        <p class="mt-1 text-sm text-base-content/60">Overrides can satisfy approval prompts when an enabled authority deployment makes a matching web origin or session key request available.</p>
       </div>
       <div class="flex shrink-0 flex-wrap items-center gap-2">
-        <span class="badge badge-ghost badge-sm">{rows.length} total</span>
-        <span class="badge badge-outline badge-sm">{filteredRows.length} visible</span>
-        {#if broadGrantCount > 0}
-          <span class="badge badge-warning badge-sm">{broadGrantCount} broad</span>
-        {/if}
+        <span class="badge badge-ghost badge-sm">{groupGrantOverrides(rows).length} grants</span>
+        <span class="badge badge-outline badge-sm">{rows.length} stored references</span>
+        <span class="badge badge-outline badge-sm">{filteredGrantGroups.length} visible</span>
       </div>
     </div>
 
     <Panel title="Grant overrides" eyebrow="Primary policy table">
       {#if rows.length === 0}
-        <EmptyState title="No grant overrides" description="No deployment grant overrides are configured across the loaded envelopes." />
+        <EmptyState title="No grant overrides" description="No authority deployment grant overrides are configured across the loaded envelopes." />
       {:else}
         <div class="overflow-x-auto">
           <table class="table table-xs trellis-table grants-table border-b border-base-300 bg-base-100/30">
             <colgroup>
-              <col class="w-[16%]" />
-              <col class="w-[10%]" />
-              <col class="w-[14%]" />
-              <col class="w-[14%]" />
-              <col class="w-[14%]" />
-              <col class="w-[14%]" />
-              <col class="w-[14%]" />
-              <col class="w-[8%]" />
-              <col class="w-[6%]" />
+              <col style="width: 11%" />
+              <col style="width: 22%" />
+              <col style="width: 20%" />
+              <col style="width: 20%" />
+              <col style="width: 21%" />
+              <col style="width: 6%" />
             </colgroup>
             <thead>
               <tr>
-                <th>Deployment</th>
                 <th>Identity</th>
                 <th>Contract</th>
                 <th>Origin</th>
                 <th>Session key</th>
-                <th>Device key</th>
-                <th>Capability</th>
-                <th>Scope</th>
+                <th>Capabilities / groups</th>
                 <th class="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {#each filteredRows as row (grantOverrideKey(row))}
+              {#each filteredGrantGroups as group (group.key)}
                 <tr>
-                  <td class="max-w-0 align-top">
-                    <div class="trellis-identifier truncate font-semibold" title={row.deploymentId}>{row.deploymentId}</div>
-                    <div class="text-xs text-base-content/50">{row.envelope.kind}{row.envelope.disabled ? " · disabled" : ""}</div>
+                  <td class="align-top"><span class="badge badge-outline badge-xs">{group.identityKind}</span></td>
+                  <td class="align-top"><div class="trellis-identifier min-w-0 truncate" title={group.contractId}>{group.contractId}</div></td>
+                  <td class="align-top"><div class="trellis-identifier min-w-0 truncate" title={group.origin ?? "Web grants only"}>{group.origin ?? "—"}</div></td>
+                  <td class="align-top"><div class="trellis-identifier min-w-0 truncate" title={group.sessionPublicKey ?? "Session grants only"}>{group.sessionPublicKey ?? "—"}</div></td>
+                  <td class="align-top">
+                    {#if group.directCapabilities.length > 0}
+                      <div class="text-xs font-medium text-base-content/65">Direct capabilities</div>
+                      <div class="trellis-identifier mt-1 max-h-16 overflow-auto break-all text-xs text-base-content/70" title={group.directCapabilities.join("\n")}>{group.directCapabilities.join(", ")}</div>
+                    {/if}
+                    {#if group.capabilityGroupKeys.length > 0}
+                      <div class={["text-xs font-medium text-base-content/65", group.directCapabilities.length > 0 && "mt-2"]}>Capability groups</div>
+                      <div class="trellis-identifier mt-1 max-h-16 overflow-auto break-all text-xs text-base-content/70" title={group.capabilityGroupKeys.join("\n")}>{group.capabilityGroupKeys.join(", ")}</div>
+                    {/if}
                   </td>
-                  <td class="align-top"><span class="badge badge-outline badge-xs">{row.identityKind}</span></td>
-                  <td class="trellis-identifier max-w-0 truncate align-top" title={row.contractId ?? "Any"}>{row.contractId ?? "Any"}</td>
-                  <td class="trellis-identifier max-w-0 truncate align-top" title={row.origin ?? "Any"}>{row.origin ?? "Any"}</td>
-                  <td class="trellis-identifier max-w-0 truncate align-top" title={row.sessionPublicKey ?? "Any"}>{row.sessionPublicKey ?? "Any"}</td>
-                  <td class="trellis-identifier max-w-0 truncate align-top" title={row.devicePublicKey ?? "Any"}>{row.devicePublicKey ?? "Any"}</td>
-                  <td class="trellis-identifier max-w-0 truncate align-top" title={row.capability}>{row.capability}</td>
-                  <td class="align-top"><span class={["badge badge-xs", grantStatus(row) === "Broad" ? "badge-warning" : "badge-ghost"]}>{grantStatus(row)}</span></td>
                   <td class="whitespace-nowrap text-right align-top">
-                    <button class="btn btn-ghost btn-xs" onclick={() => removeGrantOverride(row)} disabled={busy || removingKey === grantOverrideKey(row)} aria-label={`Remove grant override for ${row.capability}`}>
-                      {removingKey === grantOverrideKey(row) ? "..." : "Remove"}
+                    <button class="btn btn-ghost btn-xs" onclick={() => removeGrantOverrideGroup(group)} disabled={busy || removingKey === group.key} aria-label={`Remove grant override for ${group.contractId}`}>
+                      {removingKey === group.key ? "..." : "Remove"}
                     </button>
                   </td>
                 </tr>
               {:else}
-                <tr><td colspan="9" class="text-base-content/55">No grant overrides match the current filter.</td></tr>
+                <tr><td colspan="6" class="text-base-content/55">No grant overrides match the current filter.</td></tr>
               {/each}
             </tbody>
           </table>
         </div>
       {/if}
-    </Panel>
-
-    <Panel title="Add grant override" eyebrow="append to deployment override set">
-      <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-        <label class="form-control">
-          <span class="label-text text-xs">Deployment</span>
-          <select class="select select-bordered select-sm trellis-identifier" bind:value={selectedDeploymentId} disabled={deploymentOptions.length === 0}>
-            {#each deploymentOptions as deployment (deployment.deploymentId)}
-              <option value={deployment.deploymentId}>{deployment.deploymentId}</option>
-            {/each}
-          </select>
-        </label>
-        <label class="form-control">
-          <span class="label-text text-xs">Identity kind</span>
-          <select class="select select-bordered select-sm" bind:value={identityKind}>
-            {#each grantIdentityKinds as kind (kind)}<option value={kind}>{kind}</option>{/each}
-          </select>
-        </label>
-        <label class="form-control">
-          <span class="label-text text-xs">Contract id</span>
-          <input class="input input-bordered input-sm trellis-identifier" placeholder="Any contract" bind:value={contractId} />
-        </label>
-        <label class="form-control">
-          <span class="label-text text-xs">Origin</span>
-          <input class="input input-bordered input-sm trellis-identifier" placeholder="Any origin" bind:value={origin} />
-        </label>
-        <label class="form-control">
-          <span class="label-text text-xs">Session key</span>
-          <input class="input input-bordered input-sm trellis-identifier" placeholder="Any session key" bind:value={sessionPublicKey} />
-        </label>
-        <label class="form-control">
-          <span class="label-text text-xs">Device key</span>
-          <input class="input input-bordered input-sm trellis-identifier" placeholder="Any device key" bind:value={devicePublicKey} />
-        </label>
-        <label class="form-control xl:col-span-2">
-          <span class="label-text text-xs">Capability</span>
-          <input class="input input-bordered input-sm trellis-identifier" placeholder="capability.key" bind:value={capability} />
-        </label>
-      </div>
-      <div class="mt-3 flex items-center justify-between gap-2">
-        <p class="text-xs text-base-content/55">Blank contract, origin, session key, and device key fields match any value.</p>
-        <button class="btn btn-primary btn-sm" onclick={addGrantOverride} disabled={busy || !selectedDeploymentId || !capability.trim()}>{saving ? "Saving..." : "Add grant"}</button>
-      </div>
     </Panel>
   {/if}
 </section>

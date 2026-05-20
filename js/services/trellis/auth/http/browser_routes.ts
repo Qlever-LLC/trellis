@@ -485,6 +485,7 @@ export function registerBrowserAuthRoutes(
       capabilities: selectedPortal.defaultCapabilities,
       capabilityGroups: selectedPortal.defaultCapabilityGroups,
       userId: `usr_${randomToken(16)}`,
+      passwordMinLength: config.auth.localIdentity.passwordPolicy.minLength,
     });
     if (!result.ok) return c.json({ error: result.error }, 409);
 

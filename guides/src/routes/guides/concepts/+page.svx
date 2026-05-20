@@ -218,9 +218,9 @@ opens the account-link flow directly, so users should not need to copy a
 generated link. A Trellis account can have many OIDC login identities but only
 one local username/password identity.
 
-Deployments can also configure **grant overrides** for browser apps. A grant override is keyed by contract lineage and may optionally restrict matching browser origins. When an override matches, Trellis can pre-authorize envelope and capability decisions without copying those capabilities onto the user record. This is how a Trellis admin can remove first-login approval screens for trusted product apps while still keeping the decision deployment-owned and revocable.
+Deployments can also configure **grant overrides** for browser apps and session-keyed clients. Web grant overrides are keyed by `contractId + origin`; session-keyed grant overrides are keyed by `contractId + sessionPublicKey`. When an override matches, Trellis can pre-authorize envelope and capability decisions without copying those capabilities onto the user record. This is how a Trellis admin can remove first-login approval screens for trusted product apps while still keeping the decision deployment-owned and revocable.
 
-While a grant override is enabled, it takes precedence over an older explicit user denial for that app lineage. If the override changes in a way that removes access, Trellis revokes affected delegated sessions and requires reconnect or re-auth.
+While a grant override is enabled, it takes precedence over an older explicit user denial for that same web or session-keyed identity. If the override changes in a way that removes access, Trellis revokes affected delegated sessions and requires reconnect or re-auth.
 
 Portal trust comes from auth-owned login portal records/routes or deployment-owned device portal routing, not from service deployment. Some portals stay passive and only render auth flow state. Other portals also continue after login as normal Trellis browser apps acting as the logged-in user. In that case the portal may declare an optional app contract, but it is still never a service-authenticated principal.
 
@@ -265,7 +265,7 @@ metadata from the in-memory active catalog. The list is a catalog for assignment
 UX; actual authority still comes from user grants, device grants, identity
 envelopes, deployment envelopes, grant overrides, and runtime contract proofs.
 
-For browser-app sessions, Trellis may also apply deployment-owned capability overlays from a matching envelope grant override. Those capabilities are session-time policy, not user-owned grants.
+For browser-app and session-keyed sessions, Trellis may also apply deployment-owned capability overlays from a matching envelope grant override. Those capabilities are session-time policy, not user-owned grants.
 
 ## Resources
 

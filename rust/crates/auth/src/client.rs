@@ -690,10 +690,8 @@ impl<'a> AuthClient<'a> {
         &self,
         deployment_id: Option<&str>,
         disabled: Option<bool>,
-    ) -> Result<
-        Vec<trellis_sdk_auth::AuthServiceInstancesListResponseEntriesItem>,
-        TrellisAuthError,
-    > {
+    ) -> Result<Vec<trellis_sdk_auth::AuthServiceInstancesListResponseEntriesItem>, TrellisAuthError>
+    {
         Ok(self
             .call::<_, trellis_sdk_auth::AuthServiceInstancesListResponse>(
                 "rpc.v1.Auth.ServiceInstances.List",

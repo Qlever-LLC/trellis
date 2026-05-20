@@ -599,21 +599,78 @@ async fn deployment_grants_mutate(
     args: &DeploymentGrantMutationArgs,
     add: bool,
 ) -> miette::Result<()> {
-    let grant_overrides = args
+    let contract_id = args
+        .contract_id
+        .as_deref()
+        .ok_or_else(|| miette::miette!("--contract is required for grant overrides"))?;
+    let identity_value = match args.identity_kind {
+        DeploymentGrantOverrideIdentityKind::Web => args
+            .origin
+            .as_deref()
+            .ok_or_else(|| miette::miette!("--origin is required for web grant overrides"))?,
+        DeploymentGrantOverrideIdentityKind::Session => {
+            args.session_public_key.as_deref().ok_or_else(|| {
+                miette::miette!("--session-public-key is required for session grant overrides")
+            })?
+        }
+    };
+    if args.capabilities.is_empty() && args.capability_groups.is_empty() {
+        return Err(miette::miette!(
+            "at least one --capability or --capability-group is required"
+        ));
+    }
+
+    let identity_kind = args.identity_kind.as_wire_value();
+    let mut grant_overrides = args
         .capabilities
         .iter()
-        .map(|capability| {
-            json!({
+        .map(|capability| match args.identity_kind {
+            DeploymentGrantOverrideIdentityKind::Web => json!({
                 "deploymentId": deployment_id,
-                "identityKind": args.identity_kind.as_wire_value(),
-                "contractId": args.contract_id.as_deref(),
-                "origin": args.origin.as_deref(),
-                "sessionPublicKey": args.session_public_key.as_deref(),
-                "devicePublicKey": args.device_public_key.as_deref(),
+                "identityKind": identity_kind,
+                "grantKind": "capability",
+                "contractId": contract_id,
+                "origin": identity_value,
+                "sessionPublicKey": null,
                 "capability": capability,
-            })
+                "capabilityGroupKey": null,
+            }),
+            DeploymentGrantOverrideIdentityKind::Session => json!({
+                "deploymentId": deployment_id,
+                "identityKind": identity_kind,
+                "grantKind": "capability",
+                "contractId": contract_id,
+                "origin": null,
+                "sessionPublicKey": identity_value,
+                "capability": capability,
+                "capabilityGroupKey": null,
+            }),
         })
         .collect::<Vec<_>>();
+    grant_overrides.extend(args.capability_groups.iter().map(
+        |group_key| match args.identity_kind {
+            DeploymentGrantOverrideIdentityKind::Web => json!({
+                "deploymentId": deployment_id,
+                "identityKind": identity_kind,
+                "grantKind": "capability-group",
+                "contractId": contract_id,
+                "origin": identity_value,
+                "sessionPublicKey": null,
+                "capability": null,
+                "capabilityGroupKey": group_key,
+            }),
+            DeploymentGrantOverrideIdentityKind::Session => json!({
+                "deploymentId": deployment_id,
+                "identityKind": identity_kind,
+                "grantKind": "capability-group",
+                "contractId": contract_id,
+                "origin": null,
+                "sessionPublicKey": identity_value,
+                "capability": null,
+                "capabilityGroupKey": group_key,
+            }),
+        },
+    ));
     let request_overrides = if add {
         let response = connected
             .request_json_value(
@@ -659,7 +716,7 @@ async fn deployment_grants_mutate(
         deployment_id,
         &response,
         add,
-        args.capabilities.len(),
+        args.capabilities.len() + args.capability_groups.len(),
     )
 }
 
@@ -674,11 +731,12 @@ fn print_grants_result(format: OutputFormat, grant_overrides: &Value) -> miette:
         &[
             "deploymentId",
             "identityKind",
+            "grantKind",
             "contractId",
             "origin",
             "sessionPublicKey",
-            "devicePublicKey",
             "capability",
+            "capabilityGroupKey",
         ],
     )
 }
@@ -948,7 +1006,6 @@ fn print_deployment_grants_result(
             "contractId",
             "origin",
             "sessionPublicKey",
-            "devicePublicKey",
             "capability",
         ],
     )
