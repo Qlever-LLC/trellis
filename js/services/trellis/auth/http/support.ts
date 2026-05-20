@@ -89,6 +89,17 @@ export type ApprovalResolutionWithStoredApproval = ApprovalResolution & {
   storedApproval: IdentityEnvelopeRecord;
 };
 
+type ApprovalContracts =
+  & Pick<
+    ContractsModule,
+    | "getActiveContractsById"
+    | "getActiveEntries"
+    | "validateContract"
+  >
+  & {
+    getBuiltinDigests?: () => string[];
+  };
+
 export function getApprovalResolutionBlocker(
   resolution: ApprovalResolution,
 ): "user_inactive" | null {
@@ -317,6 +328,25 @@ function mergeEnvelopeBoundaries(
   };
 }
 
+async function builtinAvailabilityBoundaries(
+  contracts: ApprovalContracts,
+): Promise<EnvelopeBoundary[]> {
+  const builtinDigests = new Set(contracts.getBuiltinDigests?.() ?? []);
+  if (builtinDigests.size === 0) return [];
+
+  const activeEntries = await contracts.getActiveEntries();
+  const boundaries: EnvelopeBoundary[] = [];
+  for (const entry of activeEntries) {
+    if (!builtinDigests.has(entry.digest)) continue;
+    const analysis = await analyzeContractEnvelopeBoundary(
+      contracts,
+      entry.contract,
+    );
+    boundaries.push(analysis.contributedAvailability);
+  }
+  return boundaries;
+}
+
 function sameIdentityAnchor(
   left: IdentityAnchor,
   right: IdentityAnchor,
@@ -381,12 +411,7 @@ function storedApprovalCoversPlan(
 }
 
 export async function getApprovalResolution(
-  contracts: Pick<
-    ContractsModule,
-    | "getActiveContractsById"
-    | "getActiveEntries"
-    | "validateContract"
-  >,
+  contracts: ApprovalContracts,
   pending: PendingAuth,
   deps: ApprovalResolutionDeps,
 ): Promise<ApprovalResolution> {
@@ -415,7 +440,10 @@ export async function getApprovalResolution(
     (await deps.loadDeploymentEnvelopes?.() ?? [])
       .filter((envelope) => !envelope.disabled);
   const systemAvailabilityEnvelope = mergeEnvelopeBoundaries(
-    enabledDeploymentEnvelopes.map((envelope) => envelope.boundary),
+    [
+      ...enabledDeploymentEnvelopes.map((envelope) => envelope.boundary),
+      ...await builtinAvailabilityBoundaries(contracts),
+    ],
   );
   const deploymentGrantOverrides = (
     await Promise.all(

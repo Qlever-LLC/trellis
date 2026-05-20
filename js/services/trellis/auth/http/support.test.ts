@@ -1035,6 +1035,161 @@ Deno.test("getApprovalResolution treats group grant overrides as approved when a
   });
 });
 
+Deno.test("getApprovalResolution treats built-in auth surfaces as available for grant overrides", async () => {
+  const contracts = createTestContracts([
+    {
+      digest: "auth-digest",
+      contract: {
+        format: "trellis.contract.v1",
+        id: "trellis.auth@v1",
+        displayName: "Trellis Auth",
+        description: "Built-in auth runtime surfaces.",
+        kind: "service",
+        schemas: { Empty: { type: "object" } },
+        rpc: {
+          "Auth.Sessions.Me": {
+            version: "v1",
+            subject: "rpc.v1.Auth.Sessions.Me",
+            input: { schema: "Empty" },
+            output: { schema: "Empty" },
+            capabilities: { call: [] },
+          },
+          "Auth.Sessions.Logout": {
+            version: "v1",
+            subject: "rpc.v1.Auth.Sessions.Logout",
+            input: { schema: "Empty" },
+            output: { schema: "Empty" },
+            capabilities: { call: [] },
+          },
+        },
+      },
+    },
+    {
+      digest: "workspace-digest",
+      contract: {
+        format: "trellis.contract.v1",
+        id: "krishi.workspace@v1",
+        displayName: "Krishi Workspace",
+        description: "Workspace surfaces.",
+        kind: "service",
+        capabilities: approvalCapabilities(["krishi.workspace::read"]),
+        schemas: { Empty: { type: "object" } },
+        rpc: {
+          "Workspace.Me": {
+            version: "v1",
+            subject: "rpc.v1.Workspace.Me",
+            input: { schema: "Empty" },
+            output: { schema: "Empty" },
+            capabilities: { call: ["krishi.workspace::read"] },
+          },
+        },
+      },
+    },
+  ]);
+  const contractsWithBuiltins = {
+    ...contracts,
+    getBuiltinDigests: () => ["auth-digest"],
+  };
+  const now = new Date().toISOString();
+  const pending: PendingAuth = {
+    userId: linkedUserId,
+    identity: linkedIdentity,
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "http://127.0.0.1:5174/login/callback",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "krishi.krishi-ui@v1",
+      displayName: "Krishi",
+      description: "Krishi UI.",
+      kind: "app",
+      uses: {
+        required: {
+          auth: {
+            contract: "trellis.auth@v1",
+            rpc: { call: ["Auth.Sessions.Me", "Auth.Sessions.Logout"] },
+          },
+          workspace: {
+            contract: "krishi.workspace@v1",
+            rpc: { call: ["Workspace.Me"] },
+          },
+        },
+      },
+    },
+    createdAt: new Date(),
+  };
+
+  const resolution = await getApprovalResolution(
+    contractsWithBuiltins,
+    pending,
+    {
+      loadUserProjection: async () => ({
+        origin: "github",
+        id: "123",
+        name: "User",
+        email: "user@example.com",
+        active: true,
+        capabilities: [],
+        capabilityGroups: [],
+      }),
+      loadDeploymentEnvelopes: async () => [{
+        deploymentId: "workspace",
+        kind: "service",
+        disabled: false,
+        createdAt: now,
+        updatedAt: now,
+        boundary: {
+          contracts: [{ contractId: "krishi.workspace@v1", required: true }],
+          surfaces: [{
+            contractId: "krishi.workspace@v1",
+            kind: "rpc",
+            name: "Workspace.Me",
+            action: "call",
+            required: true,
+          }],
+          capabilities: [],
+          resources: [],
+        },
+      }],
+      loadDeploymentGrantOverrides: async (deploymentId) => [{
+        deploymentId,
+        identityKind: "web",
+        grantKind: "capability-group",
+        contractId: "krishi.krishi-ui@v1",
+        origin: "http://127.0.0.1:5174",
+        sessionPublicKey: null,
+        capability: null,
+        capabilityGroupKey: "krishi-user",
+      }],
+      capabilityGroupStorage: {
+        get: async (groupKey) =>
+          groupKey === "krishi-user"
+            ? {
+              groupKey,
+              displayName: "Krishi User",
+              description: "Krishi user app access.",
+              capabilities: ["krishi.workspace::read"],
+              includedGroups: [],
+              createdAt: now,
+              updatedAt: now,
+            }
+            : undefined,
+      },
+    },
+  );
+
+  assertEquals(resolution.missingCapabilities, []);
+  assertEquals(resolution.effectiveApproval, {
+    kind: "deployment_grant",
+    answer: "approved",
+  });
+});
+
 Deno.test("getApprovalResolution does not approve partial or unrelated grant overrides", async () => {
   const contracts = createTestContracts();
   const now = new Date().toISOString();
