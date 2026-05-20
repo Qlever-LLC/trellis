@@ -11,4 +11,6 @@ export const AuthConnectionsOpenedEventSchema = Type.Intersect([
   }),
 ]);
 
-export type AuthConnectionsOpenedEvent = Static<typeof AuthConnectionsOpenedEventSchema>;
+export type AuthConnectionsOpenedEvent = Static<
+  typeof AuthConnectionsOpenedEventSchema
+>;

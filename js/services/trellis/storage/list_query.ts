@@ -45,6 +45,8 @@ export function listPage<T>(
     count,
     offset,
     limit,
-    nextOffset: limit <= 0 || offset + limit >= count ? undefined : offset + limit,
+    nextOffset: limit <= 0 || offset + limit >= count
+      ? undefined
+      : offset + limit,
   };
 }

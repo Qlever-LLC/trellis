@@ -72,7 +72,7 @@ jobs:
             rust/tools/generate -> target
 
       - name: Generate SDK artifacts
-        run: cargo xtask prepare
+        run: cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
 
       - name: Run workspace tests
         shell: bash

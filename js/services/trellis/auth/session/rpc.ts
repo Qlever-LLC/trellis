@@ -954,10 +954,14 @@ export function createAuthSessionsLogoutHandler(deps: {
 
 export function createAuthSessionsListHandler(deps: {
   logger: Pick<SessionRpcLogger, "trace">;
-  sessionStorage: Pick<
-    SessionStorage,
-    "listEntries" | "listEntriesByUser"
-  > & Partial<Pick<SessionStorage, "listEntriesPage" | "listEntriesPageByUser">>;
+  sessionStorage:
+    & Pick<
+      SessionStorage,
+      "listEntries" | "listEntriesByUser"
+    >
+    & Partial<
+      Pick<SessionStorage, "listEntriesPage" | "listEntriesPageByUser">
+    >;
 }) {
   return async ({ input: req = {} }: { input?: UserRefFilter }) => {
     deps.logger.trace(

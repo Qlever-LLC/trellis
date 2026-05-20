@@ -8,13 +8,28 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-20
+
 ### Changed
 
-- Reworked catalog and auth authority so installed contract evidence,
-  deployment envelopes, runtime bindings, and resource bindings are read from
-  durable storage instead of long-lived in-memory contract state.
+- Reworked catalog and auth authority so installed contract evidence, deployment
+  envelopes, runtime bindings, and resource bindings are read from durable
+  storage instead of long-lived in-memory contract state.
 - Changed store and auth list-style APIs to require bounded requests, replacing
   unbounded scans with explicit limits and targeted storage queries.
+- Prepared release-managed Rust crate and generated package metadata for the
+  `0.9.0` release.
+
+### Fixed
+
+- Fixed release and publishing bootstrap paths so clean checkouts generate the
+  required SDK artifacts before release, package, and image verification.
+- Fixed generated Rust SDK formatting so prepared generated crates pass the
+  workspace formatter checks used by release verification.
+- Fixed service runtime RPC subscriptions so multiple instances share requests
+  through queue groups instead of each instance handling the same request.
+- Fixed generator TypeScript compiler discovery from repository-root workflows
+  that use the JavaScript workspace `node_modules` directory.
 
 ## [0.8.2] - 2026-05-01
 

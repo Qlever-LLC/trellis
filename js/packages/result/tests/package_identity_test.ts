@@ -58,10 +58,12 @@ Deno.test("result npm declarations do not import DNT polyfills", async () => {
 });
 
 Deno.test("result npm build does not emit import-meta ponyfill references", async () => {
-  for (const dir of [
-    new URL("../npm/esm/", import.meta.url),
-    new URL("../npm/script/", import.meta.url),
-  ]) {
+  for (
+    const dir of [
+      new URL("../npm/esm/", import.meta.url),
+      new URL("../npm/script/", import.meta.url),
+    ]
+  ) {
     for await (const path of walkFiles(dir)) {
       const source = await Deno.readTextFile(path);
       assertEquals(source.includes("import-meta-ponyfill"), false);

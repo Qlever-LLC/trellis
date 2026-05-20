@@ -464,7 +464,9 @@ export class SqlUserAccountRepository {
   }
 
   /** Returns a counted page of user accounts ordered by canonical user id. */
-  async listCountedPage(query: BoundedListQuery): Promise<ListPage<UserAccount>> {
+  async listCountedPage(
+    query: BoundedListQuery,
+  ): Promise<ListPage<UserAccount>> {
     const { offset, limit } = boundedListQuery(query);
     const [countRow] = await this.#db.select({ count: count() }).from(users);
     const rows = await this.#db.select().from(users).orderBy(users.userId)
@@ -1220,7 +1222,9 @@ export class SqlIdentityEnvelopeRepository {
       identityEnvelopes,
     ).where(where);
     const rows = await this.#db.select().from(identityEnvelopes).where(where)
-      .orderBy(identityEnvelopes.identityEnvelopeId).limit(limit).offset(offset);
+      .orderBy(identityEnvelopes.identityEnvelopeId).limit(limit).offset(
+        offset,
+      );
     return listPage(
       rows.map((row: IdentityEnvelopeRow) => decodeIdentityEnvelopeRow(row)),
       countRow?.count ?? 0,
@@ -1259,7 +1263,9 @@ export class SqlIdentityEnvelopeRepository {
       identityEnvelopes,
     ).where(where);
     const rows = await this.#db.select().from(identityEnvelopes).where(where)
-      .orderBy(identityEnvelopes.identityEnvelopeId).limit(limit).offset(offset);
+      .orderBy(identityEnvelopes.identityEnvelopeId).limit(limit).offset(
+        offset,
+      );
     return listPage(
       rows.map((row: IdentityEnvelopeRow) => decodeIdentityEnvelopeRow(row)),
       countRow?.count ?? 0,
@@ -1305,7 +1311,9 @@ export class SqlIdentityEnvelopeRepository {
   ): Promise<ListPage<IdentityEnvelopeRecord>> {
     const conditions: SQL[] = [];
     if (filters.userTrellisId !== undefined) {
-      conditions.push(eq(identityEnvelopes.userTrellisId, filters.userTrellisId));
+      conditions.push(
+        eq(identityEnvelopes.userTrellisId, filters.userTrellisId),
+      );
     }
     if (filters.answer !== undefined) {
       conditions.push(eq(identityEnvelopes.answer, filters.answer));
@@ -1316,7 +1324,10 @@ export class SqlIdentityEnvelopeRepository {
       identityEnvelopes,
     ).where(where);
     const rows = await this.#db.select().from(identityEnvelopes).where(where)
-      .orderBy(identityEnvelopes.userTrellisId, identityEnvelopes.identityEnvelopeId)
+      .orderBy(
+        identityEnvelopes.userTrellisId,
+        identityEnvelopes.identityEnvelopeId,
+      )
       .limit(limit).offset(offset);
     return listPage(
       rows.map((row: IdentityEnvelopeRow) => decodeIdentityEnvelopeRow(row)),

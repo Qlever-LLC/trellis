@@ -10,4 +10,6 @@ export const AuthSessionsLogoutResponseSchema = Type.Object(
     success: Type.Boolean(),
   },
 );
-export type AuthSessionsLogoutResponse = Static<typeof AuthSessionsLogoutResponseSchema>;
+export type AuthSessionsLogoutResponse = Static<
+  typeof AuthSessionsLogoutResponseSchema
+>;

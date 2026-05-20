@@ -154,7 +154,11 @@ Deno.test("Auth.AccountFlows.CreateIdentityLink targets the caller account", asy
   assertEquals(saved.flow.kind, "identity_link");
   assertEquals(saved.flow.targetUserId, "usr_self");
   assertEquals(saved.flow.allowedProviders, null);
-  assert(value.url.startsWith("https://auth.example.test/_trellis/portal/account/link?flowId="));
+  assert(
+    value.url.startsWith(
+      "https://auth.example.test/_trellis/portal/account/link?flowId=",
+    ),
+  );
 });
 
 Deno.test("account flow creation returns user_not_found for a missing target account", async () => {

@@ -63,26 +63,10 @@ jobs:
           }
           trap cleanup EXIT
 
-          seed_sdk_manifests() {
+          prepare_sdk_artifacts() {
             local repo_root="$1"
-            local rust_root="${repo_root}/rust"
-            local workspace_version
 
-            workspace_version="$(grep -m1 '^version = ' "${rust_root}/Cargo.toml" | cut -d '"' -f 2)"
-
-            write_stub_manifest() {
-              local dir="$1"
-              local crate_name="$2"
-
-              mkdir -p "$dir"
-              printf '[package]\nname = "%s"\nversion = "%s"\nedition = "2021"\nlicense = "Apache-2.0"\n\n[dependencies]\n' "$crate_name" "$workspace_version" > "$dir/Cargo.toml"
-            }
-
-            write_stub_manifest "${repo_root}/generated/packages/cargo/auth" trellis-sdk-auth
-            write_stub_manifest "${repo_root}/generated/packages/cargo/trellis-core" trellis-sdk-core
-            write_stub_manifest "${repo_root}/generated/packages/cargo/health" trellis-sdk-health
-            write_stub_manifest "${repo_root}/generated/packages/cargo/jobs" trellis-sdk-jobs
-            write_stub_manifest "${repo_root}/generated/packages/cargo/state" trellis-sdk-state
+            cargo run --manifest-path "${repo_root}/rust/tools/generate/Cargo.toml" -- prepare --no-npm "${repo_root}"
           }
 
           build_guides() {
@@ -90,12 +74,7 @@ jobs:
             local base_path="$2"
             local out_dir="$3"
 
-            seed_sdk_manifests "${repo_root}"
-
-            (
-              cd "${repo_root}/js"
-              deno task prepare
-            )
+            prepare_sdk_artifacts "${repo_root}"
 
             (
               cd "${repo_root}/guides"
@@ -111,12 +90,7 @@ jobs:
             local base_path="$2"
             local out_dir="$3"
 
-            seed_sdk_manifests "${repo_root}"
-
-            (
-              cd "${repo_root}/js"
-              deno task prepare
-            )
+            prepare_sdk_artifacts "${repo_root}"
 
             (
               cd "${repo_root}/js/apps/console"

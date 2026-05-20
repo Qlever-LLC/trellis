@@ -54,7 +54,7 @@ fn fake_tsc_path() -> std::path::PathBuf {
     if !path.exists() {
         write_executable(
             &path,
-r#"#!/bin/sh
+            r#"#!/bin/sh
 set -eu
 if [ "${1:-}" = "--version" ]; then
   printf 'Version 0.0.0-test\n'
@@ -1149,10 +1149,7 @@ fn local_mode_generates_service_artifacts_from_rust_contract_sources() {
     )
     .unwrap();
 
-    let output = trellis_generate()
-        .current_dir(&project)
-        .output()
-        .unwrap();
+    let output = trellis_generate().current_dir(&project).output().unwrap();
     assert!(
         output.status.success(),
         "{}",

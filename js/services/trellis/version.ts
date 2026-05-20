@@ -9,7 +9,9 @@ export type VersionInfo = {
 };
 
 /** Builds the public Trellis service version payload. */
-export function buildVersionInfo(env: Pick<typeof Deno.env, "get">): VersionInfo {
+export function buildVersionInfo(
+  env: Pick<typeof Deno.env, "get">,
+): VersionInfo {
   const version = env.get("TRELLIS_VERSION")?.trim() || manifest.version;
   const revision = env.get("TRELLIS_REVISION")?.trim();
   return {

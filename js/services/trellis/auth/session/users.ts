@@ -21,8 +21,9 @@ import { listPage } from "../../storage/list_query.ts";
 type RpcUser = { userId: string; capabilities?: string[] };
 type UserReadAccountStorage = Pick<SqlUserAccountRepository, "get">;
 type UserCreateAccountStorage = Pick<SqlUserAccountRepository, "create">;
-type UserListAccountStorage = Pick<SqlUserAccountRepository, "listPage"> &
-  Partial<Pick<SqlUserAccountRepository, "listCountedPage">>;
+type UserListAccountStorage =
+  & Pick<SqlUserAccountRepository, "listPage">
+  & Partial<Pick<SqlUserAccountRepository, "listCountedPage">>;
 type UserUpdateAccountStorage = Pick<
   SqlUserAccountRepository,
   "get" | "put" | "listPage"
@@ -31,8 +32,9 @@ type ActiveAdminAccountStorage = Pick<
   SqlUserAccountRepository,
   "listPage"
 >;
-type UserListIdentityStorage = Pick<SqlUserIdentityRepository, "listByUser"> &
-  Partial<Pick<SqlUserIdentityRepository, "listPageByUser">>;
+type UserListIdentityStorage =
+  & Pick<SqlUserIdentityRepository, "listByUser">
+  & Partial<Pick<SqlUserIdentityRepository, "listPageByUser">>;
 type UserUnlinkIdentityStorage = Pick<
   SqlUserIdentityRepository,
   "listByUser" | "unlink"
@@ -40,12 +42,17 @@ type UserUnlinkIdentityStorage = Pick<
 type CapabilityGroupStorage = {
   get(groupKey: string): Promise<CapabilityGroup | undefined>;
   listPage(query: BoundedListQuery): Promise<CapabilityGroup[]>;
-  listCountedPage?: (query: BoundedListQuery) => Promise<ListPage<CapabilityGroup>>;
+  listCountedPage?: (
+    query: BoundedListQuery,
+  ) => Promise<ListPage<CapabilityGroup>>;
   put(record: CapabilityGroup): Promise<void>;
   delete(groupKey: string): Promise<void>;
 };
 
-type CapabilityCatalog = Pick<ContractsModule, "getActiveCapabilityDefinitions">;
+type CapabilityCatalog = Pick<
+  ContractsModule,
+  "getActiveCapabilityDefinitions"
+>;
 
 const ACCOUNT_PAGE_LIMIT = 100;
 

@@ -17,7 +17,7 @@ sha2.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
-trellis-contracts = { path = "../contracts", version = "0.8.2" }
+trellis-contracts = { path = "../contracts", version = "0.9.0" }
 futures-util.workspace = true
 nkeys = "0.4"
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }

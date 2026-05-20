@@ -79,8 +79,7 @@ jobs:
             rust/tools/generate -> target
 
       - name: Generate SDK artifacts
-        run: deno task prepare
-        working-directory: js
+        run: cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
 
       - name: Normalize image owner
         id: owner
@@ -174,8 +173,7 @@ jobs:
             rust/tools/generate -> target
 
       - name: Generate SDK artifacts
-        run: deno task prepare
-        working-directory: js
+        run: cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
 
       - name: Normalize image owner
         id: owner

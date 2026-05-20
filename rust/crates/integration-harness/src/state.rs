@@ -228,19 +228,22 @@ pub(crate) async fn run_state_fixture(
         browser,
     )
     .await?;
-    let caller_client = connect_admin_client_async(&caller_login.state)
-        .await
-        .into_diagnostic()?;
+    {
+        let caller_client = connect_admin_client_async(&caller_login.state)
+            .await
+            .into_diagnostic()?;
 
-    assert_rust_value_state(&caller_client)
-        .await
-        .map_err(|error| miette!("Rust value state case failed: {error}"))?;
-    assert_rust_map_state(&caller_client)
-        .await
-        .map_err(|error| miette!("Rust map state case failed: {error}"))?;
-    assert_generated_state_sdk(&caller_client, &caller_login)
-        .await
-        .map_err(|error| miette!("generated Rust state SDK case failed: {error}"))?;
+        assert_rust_value_state(&caller_client)
+            .await
+            .map_err(|error| miette!("Rust value state case failed: {error}"))?;
+        assert_rust_map_state(&caller_client)
+            .await
+            .map_err(|error| miette!("Rust map state case failed: {error}"))?;
+        assert_generated_state_sdk(&caller_client, &caller_login)
+            .await
+            .map_err(|error| miette!("generated Rust state SDK case failed: {error}"))?;
+    }
+
     run_ts_state_client(trellis_url, &caller_login.state.session_seed)
         .await
         .map_err(|error| miette!("TypeScript state case failed: {error}"))?;

@@ -69,6 +69,7 @@ fn sample_catalog() -> TrellisCatalogResponse {
                 id: "trellis.jobs@v1".to_string(),
             }],
             format: "trellis.catalog.v1".to_string(),
+            issues: None,
         },
     }
 }

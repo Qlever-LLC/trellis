@@ -88,7 +88,8 @@ async function typecheckContextApi(): Promise<void> {
   const generatedTrellis: GeneratedClient = generatedApp.getTrellis();
   const generatedConnectionStatus: TrellisConnectionStatus =
     generatedTrellis.connection.status;
-  const generatedMe = await generatedTrellis.request("Auth.Sessions.Me", {}).orThrow();
+  const generatedMe = await generatedTrellis.request("Auth.Sessions.Me", {})
+    .orThrow();
 
   const me = await trellis.request("Auth.Sessions.Me", {}).orThrow();
   const participantKind: "app" | "agent" | "device" | "service" =

@@ -1379,23 +1379,23 @@ Deno.test("Auth.Connections.List returns explicit participant metadata for user 
 
   assertEquals(value, {
     entries: [
-    {
-      key: "usr_github_123.sk_agent.user_nkey",
-      userNkey: "user_nkey",
-      sessionKey: "sk_agent",
-      participantKind: "agent",
-      principal: {
-        type: "user",
-        userId: userTrellisId,
-        identity: TEST_IDENTITY,
-        name: "Ada",
+      {
+        key: "usr_github_123.sk_agent.user_nkey",
+        userNkey: "user_nkey",
+        sessionKey: "sk_agent",
+        participantKind: "agent",
+        principal: {
+          type: "user",
+          userId: userTrellisId,
+          identity: TEST_IDENTITY,
+          name: "Ada",
+        },
+        contractId: "trellis.agent@v1",
+        contractDisplayName: "Trellis Agent",
+        serverId: "n1",
+        clientId: 7,
+        connectedAt: "2026-04-10T00:00:00.000Z",
       },
-      contractId: "trellis.agent@v1",
-      contractDisplayName: "Trellis Agent",
-      serverId: "n1",
-      clientId: 7,
-      connectedAt: "2026-04-10T00:00:00.000Z",
-    },
     ],
     count: 1,
     offset: 0,
@@ -1445,9 +1445,11 @@ Deno.test("Auth.Connections.List skips malformed connection entries", async () =
   if (isErr(value)) throw value.error;
 
   assertEquals(
-    value.entries.map((connection: { userNkey: string }) => connection.userNkey),
+    value.entries.map((connection: { userNkey: string }) =>
+      connection.userNkey
+    ),
     [
-    "user_nkey_2",
+      "user_nkey_2",
     ],
   );
   assertEquals(value.count, 1);

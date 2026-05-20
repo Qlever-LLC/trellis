@@ -699,10 +699,14 @@ export class SqlDeviceActivationReviewRepository {
   }, query: BoundedListQuery): Promise<ListPage<DeviceActivationReviewRecord>> {
     const conditions: SQL[] = [];
     if (filters.instanceId !== undefined) {
-      conditions.push(eq(deviceActivationReviews.instanceId, filters.instanceId));
+      conditions.push(
+        eq(deviceActivationReviews.instanceId, filters.instanceId),
+      );
     }
     if (filters.deploymentId !== undefined) {
-      conditions.push(eq(deviceActivationReviews.deploymentId, filters.deploymentId));
+      conditions.push(
+        eq(deviceActivationReviews.deploymentId, filters.deploymentId),
+      );
     }
     if (filters.deploymentIds !== undefined) {
       const requested = [...new Set(filters.deploymentIds)];
@@ -717,11 +721,18 @@ export class SqlDeviceActivationReviewRepository {
     const [countRow] = await this.#db.select({ count: count() }).from(
       deviceActivationReviews,
     ).where(where);
-    const rows = await this.#db.select().from(deviceActivationReviews).where(where)
-      .orderBy(deviceActivationReviews.requestedAt, deviceActivationReviews.reviewId)
+    const rows = await this.#db.select().from(deviceActivationReviews).where(
+      where,
+    )
+      .orderBy(
+        deviceActivationReviews.requestedAt,
+        deviceActivationReviews.reviewId,
+      )
       .limit(limit).offset(offset);
     return listPage(
-      rows.map((row: DeviceActivationReviewRow) => decodeDeviceActivationReviewRow(row)),
+      rows.map((row: DeviceActivationReviewRow) =>
+        decodeDeviceActivationReviewRow(row)
+      ),
       countRow?.count ?? 0,
       query,
     );

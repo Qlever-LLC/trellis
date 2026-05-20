@@ -3,13 +3,16 @@ use crate::{
     RequestValidator, Router, ServerError,
 };
 
-/// Subscribe to one RPC subject for service request handling.
+/// Queue-subscribe to one RPC subject for service request handling.
+///
+/// Uses the subject as the queue group so multiple service instances share
+/// requests instead of each handling every request independently.
 pub async fn subscribe_subject(
     client: &async_nats::Client,
     subject: &str,
 ) -> Result<async_nats::Subscriber, ServerError> {
     client
-        .subscribe(subject.to_string())
+        .queue_subscribe(subject.to_string(), subject.to_string())
         .await
         .map_err(|error| {
             ServerError::Nats(format!(

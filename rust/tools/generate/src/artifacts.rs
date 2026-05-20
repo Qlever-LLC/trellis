@@ -6,7 +6,6 @@ use std::process::Command;
 
 use miette::IntoDiagnostic;
 use serde::{Deserialize, Serialize};
-use trellis_contracts::LoadedManifest;
 use trellis_codegen_rust::{
     default_sdk_stem, rust_sdk_cargo_manifest_is_valid, GenerateRustParticipantFacadeOpts,
     GenerateRustSdkOpts, ParticipantAliasMapping, RustRuntimeDeps,
@@ -16,6 +15,7 @@ use trellis_codegen_ts::{
     collect_ts_sdk_sources, GenerateTsSdkOpts, TsRuntimeDeps,
     TsRuntimeSource as CodegenTsRuntimeSource,
 };
+use trellis_contracts::LoadedManifest;
 
 use crate::cli::{ContractInputArgs, RuntimeSource};
 use crate::contract_input::{self, ResolvedContractInput};
@@ -254,7 +254,10 @@ fn write_npm_package_shell(
             .into_diagnostic()?
         ),
     )?;
-    write_if_changed(&out.join("esm/mod.js"), "export const CONTRACT_DIGEST = \"shell\";\n")?;
+    write_if_changed(
+        &out.join("esm/mod.js"),
+        "export const CONTRACT_DIGEST = \"shell\";\n",
+    )?;
     write_if_changed(
         &out.join("esm/mod.d.ts"),
         "export declare const CONTRACT_DIGEST = \"shell\";\n",
@@ -789,8 +792,14 @@ fn rewrite_npm_ts_imports(contents: &str, loaded: &LoadedManifest) -> String {
         };
         let stem = sdk_output_stem(&use_ref.contract);
         for file in ["types", "api", "owned_api"] {
-            rewritten = rewritten.replace(&format!("\"../{stem}/{file}.js\""), &js_string(&package_name));
-            rewritten = rewritten.replace(&format!("'../{stem}/{file}.js'"), &format!("'{package_name}'"));
+            rewritten = rewritten.replace(
+                &format!("\"../{stem}/{file}.js\""),
+                &js_string(&package_name),
+            );
+            rewritten = rewritten.replace(
+                &format!("'../{stem}/{file}.js'"),
+                &format!("'{package_name}'"),
+            );
         }
     }
     rewritten
@@ -812,15 +821,9 @@ fn resolve_tsc_bin() -> miette::Result<OsString> {
         }
     }
 
-    let mut current = std::env::current_dir().into_diagnostic()?;
-    loop {
-        let candidate = current.join("node_modules/.bin/tsc");
-        if candidate.exists() {
-            return Ok(candidate.into_os_string());
-        }
-        if !current.pop() {
-            break;
-        }
+    let current = std::env::current_dir().into_diagnostic()?;
+    if let Some(tsc) = find_tsc_in_node_modules(&current) {
+        return Ok(tsc);
     }
 
     let tsc = OsString::from("tsc");
@@ -829,6 +832,24 @@ fn resolve_tsc_bin() -> miette::Result<OsString> {
             "npm package generation requires the TypeScript compiler `tsc`; install TypeScript in the Node project, make `tsc` available on PATH, or set TRELLIS_TSC_BIN"
         )
     })
+}
+
+fn find_tsc_in_node_modules(start: &Path) -> Option<OsString> {
+    let mut current = start.to_path_buf();
+    loop {
+        for candidate in [
+            current.join("node_modules/.bin/tsc"),
+            current.join("js/node_modules/.bin/tsc"),
+        ] {
+            if candidate.exists() {
+                return Some(candidate.into_os_string());
+            }
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    None
 }
 
 fn binary_is_available(binary: &OsString) -> bool {
@@ -1031,8 +1052,9 @@ mod tests {
     use crate::cli::RuntimeSource;
 
     use super::{
-        generated_artifacts_metadata_path, render_npm_tsconfig, rewrite_npm_ts_imports,
-        trellis_package_version, ts_package_name_from_id, write_contract_shell_outputs,
+        find_tsc_in_node_modules, generated_artifacts_metadata_path, render_npm_tsconfig,
+        rewrite_npm_ts_imports, trellis_package_version, ts_package_name_from_id,
+        write_contract_shell_outputs,
     };
 
     #[test]
@@ -1077,6 +1099,19 @@ mod tests {
         assert!(tsconfig.contains("/tmp/npm-out/esm"));
         assert!(!tsconfig.contains("deno"));
         assert!(!tsconfig.contains("dnt"));
+    }
+
+    #[test]
+    fn tsc_lookup_finds_js_workspace_node_modules_from_repo_root() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let tsc = temp.path().join("js/node_modules/.bin/tsc");
+        fs::create_dir_all(tsc.parent().expect("tsc parent")).expect("create tsc parent");
+        fs::write(&tsc, "#!/bin/sh\n").expect("write tsc");
+
+        assert_eq!(
+            find_tsc_in_node_modules(temp.path()),
+            Some(tsc.into_os_string())
+        );
     }
 
     #[test]

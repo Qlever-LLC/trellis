@@ -172,7 +172,11 @@ body {
 }
 
 .portal-provider-link:hover {
-  border-color: color-mix(in oklab, var(--color-accent) 28%, var(--portal-line));
+  border-color: color-mix(
+    in oklab,
+    var(--color-accent) 28%,
+    var(--portal-line)
+  );
   background-color: var(--color-base-100);
   box-shadow: 0 10px 22px oklch(22% 0.026 259 / 0.07);
   transform: translateY(-1px);

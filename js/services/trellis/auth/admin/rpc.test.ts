@@ -2198,8 +2198,8 @@ function deviceAdminDeps(args: {
       listFilteredPage: async (filters = {}, query) =>
         pageFromQuery(
           stored &&
-              (filters.disabled === undefined ||
-                stored.disabled === filters.disabled)
+            (filters.disabled === undefined ||
+              stored.disabled === filters.disabled)
             ? [stored]
             : [],
           query,
@@ -3080,7 +3080,8 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide completes approve decision 
       },
       delete: async () => {},
       listPage: async () => [review],
-      listFilteredPage: async (_filters, query) => pageFromQuery([review], query),
+      listFilteredPage: async (_filters, query) =>
+        pageFromQuery([review], query),
     },
     deviceActivationStorage: {
       get: async () => undefined,
@@ -3183,7 +3184,8 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide completes reject decision t
       },
       delete: async () => {},
       listPage: async () => [review],
-      listFilteredPage: async (_filters, query) => pageFromQuery([review], query),
+      listFilteredPage: async (_filters, query) =>
+        pageFromQuery([review], query),
     },
   }).decideDeviceActivationReview({
     input: { reviewId: "dar_1", decision: "reject", reason: "not expected" },
@@ -3247,7 +3249,8 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide retries completion for alre
       },
       delete: async () => {},
       listPage: async () => [review],
-      listFilteredPage: async (_filters, query) => pageFromQuery([review], query),
+      listFilteredPage: async (_filters, query) =>
+        pageFromQuery([review], query),
     },
     deviceActivationStorage: {
       get: async () => activation,
@@ -3318,7 +3321,8 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide retries completion for alre
       },
       delete: async () => {},
       listPage: async () => [review],
-      listFilteredPage: async (_filters, query) => pageFromQuery([review], query),
+      listFilteredPage: async (_filters, query) =>
+        pageFromQuery([review], query),
     },
   }).decideDeviceActivationReview({
     input: { reviewId: "dar_1", decision: "reject" },
@@ -3376,7 +3380,8 @@ Deno.test("Auth.DeviceUserAuthorities.Reviews.Decide does not mutate when operat
       },
       delete: async () => {},
       listPage: async () => [review],
-      listFilteredPage: async (_filters, query) => pageFromQuery([review], query),
+      listFilteredPage: async (_filters, query) =>
+        pageFromQuery([review], query),
     },
     deviceActivationStorage: {
       get: async () => undefined,

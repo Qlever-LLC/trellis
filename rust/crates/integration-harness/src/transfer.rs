@@ -13,7 +13,9 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use trellis_auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
 use trellis_auth_adapters::AuthRequestValidatorAdapter;
-use trellis_client::{OperationState, ServiceConnectOptions, TrellisClient, TrellisClientError};
+use trellis_client::{
+    OperationState, ServiceConnectWithContractOptions, TrellisClient, TrellisClientError,
+};
 use trellis_contracts::{
     digest_contract_json, operation, rpc, store, use_contract, ContractKind,
     ContractManifestBuilder,
@@ -625,6 +627,7 @@ pub(crate) async fn run_transfer_fixture(
     browser: &BrowserContainer,
 ) -> Result<usize> {
     let setup_login = reauth_admin_setup(admin_login, browser).await?;
+    let service_contract_json = harness_service_contract_json()?;
     let (contract_digest, rust_service_seed, ts_service_seed) = {
         let admin_client = connect_admin_client_async(&setup_login.state)
             .await
@@ -635,7 +638,6 @@ pub(crate) async fn run_transfer_fixture(
             .await
             .into_diagnostic()?;
 
-        let service_contract_json = harness_service_contract_json()?;
         let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
         let sdk_auth_client = SdkAuthClient::new(&admin_client);
         sdk_auth_client
@@ -668,9 +670,14 @@ pub(crate) async fn run_transfer_fixture(
     };
 
     let service_client = Arc::new(
-        connect_service_with_retry(trellis_url, &contract_digest, &rust_service_seed)
-            .await
-            .into_diagnostic()?,
+        connect_service_with_retry(
+            trellis_url,
+            &contract_digest,
+            &service_contract_json,
+            &rust_service_seed,
+        )
+        .await
+        .into_diagnostic()?,
     );
     let rust_store = InMemoryStore::default();
     let resources = rust_resources();
@@ -880,43 +887,46 @@ pub(crate) async fn run_transfer_fixture(
             browser,
         )
         .await?;
-        let caller_client = connect_admin_client_async(&caller_login.state)
-            .await
-            .into_diagnostic()?;
-        assert_rust_upload::<HarnessRustUploadOperation>(
-            &caller_client,
-            "rust-client/rust-upload.txt",
-            b"rust to rust upload",
-        )
-        .await?;
-        assert_rust_upload::<HarnessTsUploadOperation>(
-            &caller_client,
-            "rust-client/ts-upload.txt",
-            b"rust to ts upload",
-        )
-        .await?;
-        assert_rust_oversized_upload::<HarnessRustUploadOperation>(
-            &caller_client,
-            "rust-client/rust-oversized.bin",
-        )
-        .await?;
-        assert_rust_oversized_upload::<HarnessTsUploadOperation>(
-            &caller_client,
-            "rust-client/ts-oversized.bin",
-        )
-        .await?;
-        assert_rust_download::<HarnessRustDownloadRpc>(
-            &caller_client,
-            "rust-client/rust-download.txt",
-            b"rust-download:rust-client/rust-download.txt",
-        )
-        .await?;
-        assert_rust_download::<HarnessTsDownloadRpc>(
-            &caller_client,
-            "rust-client/ts-download.txt",
-            b"ts-download:rust-client/ts-download.txt",
-        )
-        .await?;
+        {
+            let caller_client = connect_admin_client_async(&caller_login.state)
+                .await
+                .into_diagnostic()?;
+            assert_rust_upload::<HarnessRustUploadOperation>(
+                &caller_client,
+                "rust-client/rust-upload.txt",
+                b"rust to rust upload",
+            )
+            .await?;
+            assert_rust_upload::<HarnessTsUploadOperation>(
+                &caller_client,
+                "rust-client/ts-upload.txt",
+                b"rust to ts upload",
+            )
+            .await?;
+            assert_rust_oversized_upload::<HarnessRustUploadOperation>(
+                &caller_client,
+                "rust-client/rust-oversized.bin",
+            )
+            .await?;
+            assert_rust_oversized_upload::<HarnessTsUploadOperation>(
+                &caller_client,
+                "rust-client/ts-oversized.bin",
+            )
+            .await?;
+            assert_rust_download::<HarnessRustDownloadRpc>(
+                &caller_client,
+                "rust-client/rust-download.txt",
+                b"rust-download:rust-client/rust-download.txt",
+            )
+            .await?;
+            assert_rust_download::<HarnessTsDownloadRpc>(
+                &caller_client,
+                "rust-client/ts-download.txt",
+                b"ts-download:rust-client/ts-download.txt",
+            )
+            .await?;
+        }
+
         run_ts_client(trellis_url, &caller_login.state.session_seed).await?;
         assert_session_mismatch_denied(trellis_url, &caller_login.state, browser).await?;
         Ok(PASSING_CASES)
@@ -1176,17 +1186,18 @@ async fn assert_session_mismatch_denied(
     caller_state: &trellis_auth::AdminSessionState,
     browser: &BrowserContainer,
 ) -> Result<()> {
-    let caller_client = connect_admin_client_async(caller_state)
-        .await
-        .into_diagnostic()?;
-    let grant_value = assert_rust_download::<HarnessRustDownloadRpc>(
-        &caller_client,
-        "denied/session-bound.txt",
-        b"rust-download:denied/session-bound.txt",
-    )
-    .await?;
-    let grant =
-        trellis_client::download_transfer_grant_from_value(grant_value).into_diagnostic()?;
+    let grant = {
+        let caller_client = connect_admin_client_async(caller_state)
+            .await
+            .into_diagnostic()?;
+        let grant_value = assert_rust_download::<HarnessRustDownloadRpc>(
+            &caller_client,
+            "denied/session-bound.txt",
+            b"rust-download:denied/session-bound.txt",
+        )
+        .await?;
+        trellis_client::download_transfer_grant_from_value(grant_value).into_diagnostic()?
+    };
     let denied_login = reauth_contract(
         caller_state,
         &harness_denied_contract_json()?,
@@ -1452,28 +1463,20 @@ fn unique_suffix() -> u128 {
 async fn connect_service_with_retry(
     trellis_url: &str,
     contract_digest: &str,
+    contract_json: &str,
     service_seed: &str,
 ) -> Result<TrellisClient, trellis_client::TrellisClientError> {
-    let mut last_error = None;
-    for _ in 0..10 {
-        match TrellisClient::connect_service(ServiceConnectOptions {
-            trellis_url,
-            contract_id: HARNESS_CONTRACT_ID,
-            contract_digest,
-            session_key_seed_base64url: service_seed,
-            timeout_ms: 5_000,
-        })
-        .await
-        {
-            Ok(client) => return Ok(client),
-            Err(error) => {
-                last_error = Some(error);
-                tokio::time::sleep(Duration::from_millis(250)).await;
-            }
-        }
-    }
-
-    Err(last_error.expect("service connect retry should record at least one error"))
+    TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+        trellis_url,
+        contract_id: HARNESS_CONTRACT_ID,
+        contract_digest,
+        contract_json,
+        session_key_seed_base64url: service_seed,
+        timeout_ms: 5_000,
+        retry_delay_ms: 250,
+        approval_timeout_ms: 30_000,
+    })
+    .await
 }
 
 fn contract_json_object(contract_json: &str) -> Result<BTreeMap<String, Value>> {

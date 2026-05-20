@@ -55,7 +55,10 @@ export {
   ServiceHealth,
 } from "./health.ts";
 export { defineError } from "./contract_support/mod.ts";
-export { PageRequestSchema, PageResponseSchema } from "./contract_support/mod.ts";
+export {
+  PageRequestSchema,
+  PageResponseSchema,
+} from "./contract_support/mod.ts";
 export type {
   ErrorClass,
   InferRuntimeRpcError,
