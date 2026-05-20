@@ -6,6 +6,7 @@
   } from "@qlever-llc/trellis/sdk/auth";
   import { page } from "$app/state";
   import { onMount } from "svelte";
+  import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
@@ -24,6 +25,7 @@
   let pending = $state(false);
   let instances = $state<Instance[]>([]);
   let selectedInstanceId = $state(page.url.searchParams.get("instance") ?? "");
+  let confirmationModal: ConfirmationModal | undefined = $state();
 
   const disableableInstances = $derived(instances.filter((instance) => instance.state !== "disabled"));
   const selectedInstance = $derived(disableableInstances.find((instance) => instance.instanceId === selectedInstanceId) ?? null);
@@ -69,6 +71,19 @@
     }
   }
 
+  async function requestDisableInstance() {
+    if (!selectedInstance) return;
+    const confirmed = await confirmationModal?.confirm({
+      title: "Disable device instance?",
+      message: "This prevents the device instance from authenticating until it is explicitly re-enabled.",
+      confirmLabel: "Disable instance",
+      targetLabel: "Device instance",
+      targetName: selectedInstance.instanceId,
+      expectedValue: selectedInstance.instanceId,
+    });
+    if (confirmed) await disableInstance();
+  }
+
   onMount(() => {
     void load();
   });
@@ -91,7 +106,7 @@
     <EmptyState title="No instances available" description="There are no non-disabled device instances available to disable." />
   {:else}
     <Panel title="Confirm instance disable" eyebrow="Destructive workflow">
-      <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void disableInstance(); }}>
+      <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void requestDisableInstance(); }}>
         <label class="form-control gap-1">
           <span class="label-text text-xs">Instance</span>
           <select class="select select-bordered select-sm" bind:value={selectedInstanceId} required>
@@ -119,3 +134,5 @@
     </Panel>
   {/if}
 </section>
+
+<ConfirmationModal bind:this={confirmationModal} />

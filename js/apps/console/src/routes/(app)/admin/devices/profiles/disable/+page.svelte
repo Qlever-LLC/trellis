@@ -6,6 +6,7 @@
   } from "@qlever-llc/trellis/sdk/auth";
   import { page } from "$app/state";
   import { onMount } from "svelte";
+  import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
@@ -24,6 +25,7 @@
   let pending = $state(false);
   let deployments = $state<Deployment[]>([]);
   let selectedDeploymentId = $state(page.url.searchParams.get("deployment") ?? "");
+  let confirmationModal: ConfirmationModal | undefined = $state();
 
   const activeDeployments = $derived(deployments.filter((deployment) => !deployment.disabled));
   const selectedDeployment = $derived(activeDeployments.find((deployment) => deployment.deploymentId === selectedDeploymentId) ?? null);
@@ -69,6 +71,19 @@
     }
   }
 
+  async function requestDisableDeployment() {
+    if (!selectedDeployment) return;
+    const confirmed = await confirmationModal?.confirm({
+      title: "Disable device deployment?",
+      message: "This prevents new device activations for the deployment until it is re-enabled.",
+      confirmLabel: "Disable deployment",
+      targetLabel: "Device deployment",
+      targetName: selectedDeployment.deploymentId,
+      expectedValue: selectedDeployment.deploymentId,
+    });
+    if (confirmed) await disableDeployment();
+  }
+
   onMount(() => {
     void load();
   });
@@ -91,7 +106,7 @@
     <EmptyState title="No active deployments" description="There are no active device deployments available to disable." />
   {:else}
     <Panel title="Confirm deployment disable" eyebrow="Destructive workflow">
-      <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void disableDeployment(); }}>
+      <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void requestDisableDeployment(); }}>
         <label class="form-control gap-1">
           <span class="label-text text-xs">Deployment</span>
           <select class="select select-bordered select-sm" bind:value={selectedDeploymentId} required>
@@ -118,3 +133,5 @@
     </Panel>
   {/if}
 </section>
+
+<ConfirmationModal bind:this={confirmationModal} />

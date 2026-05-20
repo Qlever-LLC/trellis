@@ -7,6 +7,7 @@
   import { resolve } from "$app/paths";
   import { goto } from "$app/navigation";
   import { onMount } from "svelte";
+  import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import { errorMessage, formatDate } from "$lib/format";
@@ -82,6 +83,7 @@
   let routeContractId = $state("");
   let routeOrigin = $state("");
   let routeDisabled = $state(false);
+  let confirmationModal: ConfirmationModal | undefined = $state();
 
   const editingExisting = $derived(mode === "edit");
   const metadataReadOnly = $derived(portal?.builtIn === true);
@@ -299,6 +301,18 @@
     }
 
     const target = portal?.portalId ?? trimmedPortalId;
+    if (editingExisting && portal && !portal.disabled && disabled) {
+      const confirmed = await confirmationModal?.confirm({
+        title: "Disable portal?",
+        message: "This disables the portal record after the settings are saved.",
+        confirmLabel: "Disable portal",
+        targetLabel: "Portal",
+        targetName: target,
+        expectedValue: target,
+      });
+      if (!confirmed) return;
+    }
+
     saving = true;
     error = null;
     saved = null;
@@ -341,6 +355,20 @@
 
   async function saveRoute() {
     if (!portal) return;
+    const existingRoute = editingRouteKey ? routes.find((route) => route.routeKey === editingRouteKey) ?? null : null;
+    if (existingRoute && !existingRoute.disabled && routeDisabled) {
+      const confirmed = await confirmationModal?.confirm({
+        title: "Disable portal route?",
+        message: "This disables the selected portal route after the route is saved.",
+        confirmLabel: "Disable route",
+        targetLabel: "Route",
+        targetName: routeMatch(existingRoute),
+        expectedValue: existingRoute.routeKey,
+        details: `Route key: ${existingRoute.routeKey}`,
+      });
+      if (!confirmed) return;
+    }
+
     savingRoute = true;
     error = null;
     saved = null;
@@ -387,6 +415,19 @@
     } finally {
       removingRouteKey = null;
     }
+  }
+
+  async function requestRemoveRoute(route: Route) {
+    const confirmed = await confirmationModal?.confirm({
+      title: "Remove portal route?",
+      message: "This removes the route rule from the portal.",
+      confirmLabel: "Remove route",
+      targetLabel: "Route",
+      targetName: routeMatch(route),
+      expectedValue: route.routeKey,
+      details: `Route key: ${route.routeKey}`,
+    });
+    if (confirmed) await removeRoute(route);
   }
 
   onMount(() => { void load(); });
@@ -595,7 +636,7 @@
                         <td class="hidden text-xs text-base-content/60 lg:table-cell">{formatDate(route.updatedAt)}</td>
                         <td class="text-right">
                           <button class="btn btn-ghost btn-xs" type="button" onclick={() => editRoute(route)} disabled={busy}>Edit</button>
-                          <button class="btn btn-error btn-outline btn-xs" type="button" onclick={() => removeRoute(route)} disabled={busy}>{removingRouteKey === route.routeKey ? "Removing" : "Remove"}</button>
+                          <button class="btn btn-error btn-outline btn-xs" type="button" onclick={() => requestRemoveRoute(route)} disabled={busy}>{removingRouteKey === route.routeKey ? "Removing" : "Remove"}</button>
                         </td>
                       </tr>
                     {:else}
@@ -636,3 +677,5 @@
     </form>
   {/if}
 </section>
+
+<ConfirmationModal bind:this={confirmationModal} />

@@ -3,6 +3,7 @@
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { onMount } from "svelte";
+  import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
@@ -20,6 +21,7 @@
   let pending = $state(false);
   let grants = $state<UserGrantRecord[]>([]);
   let selectedIdentityEnvelopeId = $state("");
+  let confirmationModal: ConfirmationModal | undefined = $state();
 
   const selectedGrant = $derived(grants.find((grant) => grant.identityEnvelopeId === selectedIdentityEnvelopeId) ?? null);
 
@@ -53,6 +55,20 @@
     } finally {
       pending = false;
     }
+  }
+
+  async function requestRevokeGrant() {
+    if (!selectedGrant) return;
+    const summary = describeUserGrant(selectedGrant);
+    const confirmed = await confirmationModal?.confirm({
+      title: "Revoke delegated grant?",
+      message: "This stops the selected app or agent from acting on your behalf.",
+      confirmLabel: "Revoke grant",
+      targetLabel: summary.title,
+      targetName: selectedGrant.identityEnvelopeId,
+      expectedValue: selectedGrant.identityEnvelopeId,
+    });
+    if (confirmed) await revokeGrant();
   }
 
   onMount(() => {
@@ -100,10 +116,12 @@
         {/if}
 
         <div class="flex flex-wrap gap-2">
-          <button class="btn btn-error btn-sm" onclick={revokeGrant} disabled={!selectedGrant || pending}>{pending ? "Revoking..." : "Revoke grant"}</button>
+          <button class="btn btn-error btn-sm" onclick={requestRevokeGrant} disabled={!selectedGrant || pending}>{pending ? "Revoking..." : "Revoke grant"}</button>
           <a class="btn btn-ghost btn-sm" href={resolve("/profile")}>Cancel</a>
         </div>
       </div>
     </Panel>
   {/if}
 </section>
+
+<ConfirmationModal bind:this={confirmationModal} />

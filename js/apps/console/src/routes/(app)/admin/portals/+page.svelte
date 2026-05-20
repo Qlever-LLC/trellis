@@ -2,6 +2,7 @@
   import { isErr } from "@qlever-llc/result";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
@@ -27,6 +28,7 @@
   let error = $state<string | null>(null);
   let saved = $state<string | null>(null);
   let portals = $state.raw<Portal[]>([]);
+  let confirmationModal: ConfirmationModal | undefined = $state();
 
   const activePortalCount = $derived(portals.filter((portal) => !portal.disabled).length);
   const busy = $derived(loading || removingPortalId !== null);
@@ -74,6 +76,19 @@
     } finally {
       removingPortalId = null;
     }
+  }
+
+  async function requestRemovePortal(portal: Portal) {
+    if (portal.builtIn || portal.routeCount > 0) return;
+    const confirmed = await confirmationModal?.confirm({
+      title: "Delete portal?",
+      message: "This removes the portal record. Portal routes must be removed first.",
+      confirmLabel: "Delete portal",
+      targetLabel: "Portal",
+      targetName: portal.portalId,
+      expectedValue: portal.portalId,
+    });
+    if (confirmed) await removePortal(portal);
   }
 
   onMount(() => { void load(); });
@@ -138,7 +153,7 @@
                         <li><a href={resolve(`/admin/portals/edit?portalId=${encodeURIComponent(portal.portalId)}`)}>Edit</a></li>
                         {#if !portal.builtIn}
                           <li>
-                            <button class="text-error" onclick={() => removePortal(portal)} disabled={busy || portal.routeCount > 0} title={portal.routeCount > 0 ? "Remove routes first" : "Delete portal"}>{removingPortalId === portal.portalId ? "Deleting" : "Delete"}</button>
+                            <button class="text-error" onclick={() => requestRemovePortal(portal)} disabled={busy || portal.routeCount > 0} title={portal.routeCount > 0 ? "Remove routes first" : "Delete portal"}>{removingPortalId === portal.portalId ? "Deleting" : "Delete"}</button>
                           </li>
                         {/if}
                       </ul>
@@ -154,3 +169,5 @@
 
   {/if}
 </section>
+
+<ConfirmationModal bind:this={confirmationModal} />

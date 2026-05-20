@@ -6,6 +6,7 @@
   } from "@qlever-llc/trellis/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
@@ -62,6 +63,7 @@
   let saved = $state<string | null>(null);
   let search = $state("");
   let rows = $state.raw<GrantOverrideRow[]>([]);
+  let confirmationModal: ConfirmationModal | undefined = $state();
 
   const busy = $derived(loading || removingKey !== null);
   const filteredRows = $derived.by(() => {
@@ -221,7 +223,6 @@
   }
 
   async function removeGrantOverrideGroup(group: GrantOverrideGroup): Promise<void> {
-    if (!confirm(`Remove ${group.rows.length} grant override${group.rows.length === 1 ? "" : "s"} for ${group.contractId}?`)) return;
     const key = group.key;
     removingKey = key;
     error = null;
@@ -248,6 +249,18 @@
     } finally {
       removingKey = null;
     }
+  }
+
+  async function requestRemoveGrantOverrideGroup(group: GrantOverrideGroup): Promise<void> {
+    const confirmed = await confirmationModal?.confirm({
+      title: "Remove grant override?",
+      message: `This removes ${group.rows.length} stored grant override${group.rows.length === 1 ? "" : "s"} for the selected contract target.`,
+      confirmLabel: "Remove grant override",
+      targetLabel: "Contract",
+      targetName: group.contractId,
+      expectedValue: group.contractId,
+    });
+    if (confirmed) await removeGrantOverrideGroup(group);
   }
 
   onMount(() => { void load(); });
@@ -327,7 +340,7 @@
                     {/if}
                   </td>
                   <td class="whitespace-nowrap text-right align-top">
-                    <button class="btn btn-ghost btn-xs" onclick={() => removeGrantOverrideGroup(group)} disabled={busy || removingKey === group.key} aria-label={`Remove grant override for ${group.contractId}`}>
+                    <button class="btn btn-ghost btn-xs" onclick={() => requestRemoveGrantOverrideGroup(group)} disabled={busy || removingKey === group.key} aria-label={`Remove grant override for ${group.contractId}`}>
                       {removingKey === group.key ? "..." : "Remove"}
                     </button>
                   </td>
@@ -342,6 +355,8 @@
     </Panel>
   {/if}
 </section>
+
+<ConfirmationModal bind:this={confirmationModal} />
 
 <style>
   .grants-table {

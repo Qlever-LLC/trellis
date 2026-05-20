@@ -6,6 +6,7 @@
   } from "@qlever-llc/trellis/sdk/auth";
   import { page } from "$app/state";
   import { onMount } from "svelte";
+  import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
@@ -24,6 +25,7 @@
   let pending = $state(false);
   let activations = $state<Activation[]>([]);
   let selectedInstanceId = $state(page.url.searchParams.get("instance") ?? "");
+  let confirmationModal: ConfirmationModal | undefined = $state();
 
   const activeActivations = $derived(activations.filter((activation) => activation.state === "activated"));
   const selectedActivation = $derived(activeActivations.find((activation) => activation.instanceId === selectedInstanceId) ?? null);
@@ -73,6 +75,19 @@
     }
   }
 
+  async function requestRevokeActivation() {
+    if (!selectedActivation) return;
+    const confirmed = await confirmationModal?.confirm({
+      title: "Revoke device activation?",
+      message: "This terminates the activated user authority for this device instance.",
+      confirmLabel: "Revoke activation",
+      targetLabel: "Device instance",
+      targetName: selectedActivation.instanceId,
+      expectedValue: selectedActivation.instanceId,
+    });
+    if (confirmed) await revokeActivation();
+  }
+
   onMount(() => {
     void load();
   });
@@ -95,7 +110,7 @@
     <EmptyState title="No active activations" description="There are no activated device instances available to revoke." />
   {:else}
     <Panel title="Confirm activation revoke" eyebrow="Destructive workflow">
-      <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void revokeActivation(); }}>
+      <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void requestRevokeActivation(); }}>
         <label class="form-control gap-1">
           <span class="label-text text-xs">Activated instance</span>
           <select class="select select-bordered select-sm" bind:value={selectedInstanceId} required>
@@ -123,3 +138,5 @@
     </Panel>
   {/if}
 </section>
+
+<ConfirmationModal bind:this={confirmationModal} />

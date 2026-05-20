@@ -4,6 +4,7 @@
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { onMount } from "svelte";
+  import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
@@ -21,6 +22,7 @@
   let pending = $state(false);
   let sessions = $state<SessionRecord[]>([]);
   let selectedSessionKey = $state("");
+  let confirmationModal: ConfirmationModal | undefined = $state();
 
   const selectedSession = $derived(sessions.find((session) => session.sessionKey === selectedSessionKey) ?? null);
 
@@ -55,6 +57,20 @@
     } finally {
       pending = false;
     }
+  }
+
+  async function requestRevokeSession() {
+    if (!selectedSession) return;
+    const summary = describeSessionPrincipal(selectedSession);
+    const confirmed = await confirmationModal?.confirm({
+      title: "Revoke session?",
+      message: "This immediately invalidates the selected active session.",
+      confirmLabel: "Revoke session",
+      targetLabel: summary.title,
+      targetName: selectedSession.sessionKey,
+      expectedValue: selectedSession.sessionKey,
+    });
+    if (confirmed) await revokeSession();
   }
 
   onMount(() => {
@@ -101,10 +117,12 @@
         {/if}
 
         <div class="flex flex-wrap gap-2">
-          <button class="btn btn-error btn-sm" onclick={revokeSession} disabled={!selectedSession || pending}>{pending ? "Revoking..." : "Revoke session"}</button>
+          <button class="btn btn-error btn-sm" onclick={requestRevokeSession} disabled={!selectedSession || pending}>{pending ? "Revoking..." : "Revoke session"}</button>
           <a class="btn btn-ghost btn-sm" href={resolve("/admin/sessions")}>Cancel</a>
         </div>
       </div>
     </Panel>
   {/if}
 </section>
+
+<ConfirmationModal bind:this={confirmationModal} />

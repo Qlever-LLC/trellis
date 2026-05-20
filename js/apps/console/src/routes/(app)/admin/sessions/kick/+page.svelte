@@ -4,6 +4,7 @@
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { onMount } from "svelte";
+  import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
@@ -21,6 +22,7 @@
   let pending = $state(false);
   let connections = $state<ConnectionRecord[]>([]);
   let selectedUserNkey = $state("");
+  let confirmationModal: ConfirmationModal | undefined = $state();
 
   const selectedConnection = $derived(connections.find((connection) => connection.userNkey === selectedUserNkey) ?? null);
 
@@ -55,6 +57,20 @@
     } finally {
       pending = false;
     }
+  }
+
+  async function requestKickConnection() {
+    if (!selectedConnection) return;
+    const summary = describeSessionPrincipal(selectedConnection);
+    const confirmed = await confirmationModal?.confirm({
+      title: "Kick connection?",
+      message: "This immediately disconnects the selected active connection.",
+      confirmLabel: "Kick connection",
+      targetLabel: summary.title,
+      targetName: selectedConnection.userNkey,
+      expectedValue: selectedConnection.userNkey,
+    });
+    if (confirmed) await kickConnection();
   }
 
   onMount(() => {
@@ -101,10 +117,12 @@
         {/if}
 
         <div class="flex flex-wrap gap-2">
-          <button class="btn btn-error btn-sm" onclick={kickConnection} disabled={!selectedConnection || pending}>{pending ? "Kicking..." : "Kick connection"}</button>
+          <button class="btn btn-error btn-sm" onclick={requestKickConnection} disabled={!selectedConnection || pending}>{pending ? "Kicking..." : "Kick connection"}</button>
           <a class="btn btn-ghost btn-sm" href={resolve("/admin/sessions")}>Cancel</a>
         </div>
       </div>
     </Panel>
   {/if}
 </section>
+
+<ConfirmationModal bind:this={confirmationModal} />

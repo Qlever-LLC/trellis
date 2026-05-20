@@ -3,6 +3,7 @@
   import type { AuthCapabilityGroupsListOutput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
@@ -19,6 +20,7 @@
   let saved = $state<string | null>(null);
   let deletingGroupKey = $state<string | null>(null);
   let groups = $state.raw<CapabilityGroupView[]>([]);
+  let confirmationModal: ConfirmationModal | undefined = $state();
 
   const sortedGroups = $derived(groups.slice().sort(compareGroups));
   const busy = $derived(loading || deletingGroupKey !== null);
@@ -55,7 +57,6 @@
 
   async function deleteGroup(group: CapabilityGroupView) {
     if (group.groupKey === "admin") return;
-    if (!confirm(`Delete capability group ${group.groupKey}?`)) return;
     deletingGroupKey = group.groupKey;
     error = null;
     saved = null;
@@ -72,6 +73,19 @@
     } finally {
       deletingGroupKey = null;
     }
+  }
+
+  async function requestDeleteGroup(group: CapabilityGroupView) {
+    if (group.groupKey === "admin") return;
+    const confirmed = await confirmationModal?.confirm({
+      title: "Delete capability group?",
+      message: "This removes the custom capability group from the authority catalog.",
+      confirmLabel: "Delete group",
+      targetLabel: "Capability group",
+      targetName: group.groupKey,
+      expectedValue: group.groupKey,
+    });
+    if (confirmed) await deleteGroup(group);
   }
 
   onMount(() => { void load(); });
@@ -141,7 +155,7 @@
                         <li><a href={resolve(`/admin/capability-groups/edit?groupKey=${encodeURIComponent(group.groupKey)}`)}>Edit</a></li>
                         {#if group.groupKey !== "admin"}
                           <li>
-                            <button class="text-error" onclick={() => deleteGroup(group)} disabled={busy}>{deletingGroupKey === group.groupKey ? "Deleting" : "Delete"}</button>
+                            <button class="text-error" onclick={() => requestDeleteGroup(group)} disabled={busy}>{deletingGroupKey === group.groupKey ? "Deleting" : "Delete"}</button>
                           </li>
                         {/if}
                       </ul>
@@ -156,6 +170,8 @@
     </Panel>
   {/if}
 </section>
+
+<ConfirmationModal bind:this={confirmationModal} />
 
 <style>
   .capability-groups-table {

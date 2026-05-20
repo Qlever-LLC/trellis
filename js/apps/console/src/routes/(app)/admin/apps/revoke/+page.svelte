@@ -4,6 +4,7 @@
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { onMount } from "svelte";
+  import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
@@ -22,6 +23,7 @@
   let pending = $state(false);
   let approvals = $state<ApprovalEntry[]>([]);
   let selectedKey = $state("");
+  let confirmationModal: ConfirmationModal | undefined = $state();
 
   const selectedApproval = $derived(approvals.find((entry) => entry.identityEnvelopeId === selectedKey) ?? null);
 
@@ -60,6 +62,19 @@
     } finally {
       pending = false;
     }
+  }
+
+  async function requestRevokeApproval() {
+    if (!selectedApproval) return;
+    const confirmed = await confirmationModal?.confirm({
+      title: "Revoke app approval?",
+      message: "This removes the selected per-user app approval.",
+      confirmLabel: "Revoke approval",
+      targetLabel: selectedApproval.user,
+      targetName: selectedApproval.identityEnvelopeId,
+      expectedValue: selectedApproval.identityEnvelopeId,
+    });
+    if (confirmed) await revokeApproval();
   }
 
   onMount(() => {
@@ -105,10 +120,12 @@
         {/if}
 
         <div class="flex flex-wrap gap-2">
-          <button class="btn btn-error btn-sm" onclick={revokeApproval} disabled={!selectedApproval || pending}>{pending ? "Revoking..." : "Revoke approval"}</button>
+          <button class="btn btn-error btn-sm" onclick={requestRevokeApproval} disabled={!selectedApproval || pending}>{pending ? "Revoking..." : "Revoke approval"}</button>
           <a class="btn btn-ghost btn-sm" href={resolve("/admin/apps")}>Cancel</a>
         </div>
       </div>
     </Panel>
   {/if}
 </section>
+
+<ConfirmationModal bind:this={confirmationModal} />

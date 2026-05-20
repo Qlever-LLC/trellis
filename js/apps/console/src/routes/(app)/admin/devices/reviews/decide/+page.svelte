@@ -7,6 +7,7 @@
   } from "@qlever-llc/trellis/sdk/auth";
   import { page } from "$app/state";
   import { onMount } from "svelte";
+  import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
@@ -32,6 +33,7 @@
   let decision = $state<"approve" | "reject">("approve");
   let reason = $state("");
   let showMetadata = $state(false);
+  let confirmationModal: ConfirmationModal | undefined = $state();
 
   const pendingReviews = $derived(reviews.filter((review) => review.state === "pending"));
   const selectedReview = $derived(pendingReviews.find((review) => review.reviewId === selectedReviewId) ?? null);
@@ -102,6 +104,22 @@
     }
   }
 
+  async function requestDecision() {
+    if (!selectedReview) return;
+    if (decision === "reject") {
+      const confirmed = await confirmationModal?.confirm({
+        title: "Reject activation review?",
+        message: "This completes the original activation operation with a rejected terminal result.",
+        confirmLabel: "Reject review",
+        targetLabel: "Review",
+        targetName: selectedReview.reviewId,
+        expectedValue: selectedReview.reviewId,
+      });
+      if (!confirmed) return;
+    }
+    await decideReview();
+  }
+
   onMount(() => {
     void load();
   });
@@ -128,7 +146,7 @@
         <div class="mb-4 rounded-box border border-base-300 bg-base-200/40 p-3 text-xs text-base-content/60">
           The decision RPC resolves the activation operation that created this review. Retry a decision only with the same terminal result.
         </div>
-        <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void decideReview(); }}>
+        <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void requestDecision(); }}>
           <label class="form-control gap-1">
             <span class="label-text text-xs">Review</span>
             <select class="select select-bordered select-sm" bind:value={selectedReviewId} required>
@@ -201,3 +219,5 @@
     </div>
   {/if}
 </section>
+
+<ConfirmationModal bind:this={confirmationModal} />
