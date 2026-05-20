@@ -11,6 +11,7 @@ export type NatsConnectOpts = {
   inboxPrefix?: string;
   authenticator?: unknown;
   maxReconnectAttempts?: number;
+  waitOnFirstConnect?: boolean;
 } & Record<string, unknown>;
 
 export type NatsConnectFn = (opts: NatsConnectOpts) => Promise<NatsConnection>;

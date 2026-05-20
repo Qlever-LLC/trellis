@@ -11,7 +11,10 @@ import { logger as noopLogger, type LoggerLike } from "../globals.ts";
 import { serverLogger } from "../server_logger.ts";
 import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
 import type { ContractKvMetadata } from "../contract_support/mod.ts";
-import { DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS } from "../runtime_transport.ts";
+import {
+  DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
+  DEFAULT_SERVICE_RUNTIME_WAIT_ON_FIRST_CONNECT,
+} from "../runtime_transport.ts";
 import type { TrellisServiceRuntimeDeps } from "./runtime.ts";
 import {
   createConnectedService,
@@ -142,6 +145,7 @@ export async function connectTrellisServiceInternal<
   const nc = await connectFn({
     servers: opts.nats.servers,
     maxReconnectAttempts: DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
+    waitOnFirstConnect: DEFAULT_SERVICE_RUNTIME_WAIT_ON_FIRST_CONNECT,
     inboxPrefix,
     authenticator: [authTokenAuthenticator, authenticator],
     ...(opts.nats.options ?? {}),

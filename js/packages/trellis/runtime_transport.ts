@@ -11,6 +11,7 @@ type RuntimeTransports = {
 };
 
 export const DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS = -1;
+export const DEFAULT_SERVICE_RUNTIME_WAIT_ON_FIRST_CONNECT = true;
 
 export type RuntimeTransportConnectOptions = {
   servers: string | string[];
@@ -18,6 +19,7 @@ export type RuntimeTransportConnectOptions = {
   authenticator?: Authenticator | Authenticator[];
   inboxPrefix?: string;
   maxReconnectAttempts?: number;
+  waitOnFirstConnect?: boolean;
 } & Record<string, unknown>;
 
 export type RuntimeTransport = {

@@ -71,6 +71,7 @@ import { ServiceTransfer } from "./transfer.ts";
 import { logger as noopLogger, type LoggerLike } from "../globals.ts";
 import {
   DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
+  DEFAULT_SERVICE_RUNTIME_WAIT_ON_FIRST_CONNECT,
   loadDefaultRuntimeTransport,
   selectRuntimeTransportServers,
 } from "../runtime_transport.ts";
@@ -2180,6 +2181,7 @@ export class TrellisService<
               bootstrap.connectInfo.transports,
             ),
             maxReconnectAttempts: DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
+            waitOnFirstConnect: DEFAULT_SERVICE_RUNTIME_WAIT_ON_FIRST_CONNECT,
             inboxPrefix,
             authenticator: [
               authTokenAuthenticator,

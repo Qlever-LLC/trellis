@@ -472,12 +472,14 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
   let connectToken = "";
   let authenticatorCount = 0;
   let maxReconnectAttempts: unknown;
+  let waitOnFirstConnect: unknown;
 
   const fakeConnect: NatsConnectFn = async (opts) => {
     connectServers = Array.isArray(opts.servers)
       ? opts.servers.join(",")
       : opts.servers;
     maxReconnectAttempts = opts.maxReconnectAttempts;
+    waitOnFirstConnect = opts.waitOnFirstConnect;
     const authenticators = authenticatorsFromValue(opts.authenticator);
     authenticatorCount = authenticators.length;
     const auth = authenticators[0]?.();
@@ -561,6 +563,7 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
     assertEquals(connectToken.includes('"iat":1700000120'), true);
     assertEquals(authenticatorCount, 2);
     assertEquals(maxReconnectAttempts, -1);
+    assertEquals(waitOnFirstConnect, true);
   } finally {
     globalThis.fetch = originalFetch;
     Date.now = originalNow;
@@ -826,6 +829,7 @@ Deno.test("internal service connect uses a reconnect-safe auth token authenticat
   let secondToken = "";
   let authenticatorCount = 0;
   let maxReconnectAttempts: unknown;
+  let waitOnFirstConnect: unknown;
 
   try {
     let nowMs = 1_700_000_000_000;
@@ -848,6 +852,7 @@ Deno.test("internal service connect uses a reconnect-safe auth token authenticat
         }, {
           connect: async (opts): Promise<NatsConnection> => {
             maxReconnectAttempts = opts.maxReconnectAttempts;
+            waitOnFirstConnect = opts.waitOnFirstConnect;
             const authenticators = authenticatorsFromValue(opts.authenticator);
             authenticatorCount = authenticators.length;
 
@@ -886,6 +891,7 @@ Deno.test("internal service connect uses a reconnect-safe auth token authenticat
     assertEquals(second.iat - first.iat, 31);
     assertNotEquals(first.sig, second.sig);
     assertEquals(maxReconnectAttempts, -1);
+    assertEquals(waitOnFirstConnect, true);
   } finally {
     Date.now = originalNow;
   }
@@ -893,6 +899,7 @@ Deno.test("internal service connect uses a reconnect-safe auth token authenticat
 
 Deno.test("internal service connect preserves explicit reconnect attempt overrides", async () => {
   let maxReconnectAttempts: unknown;
+  let waitOnFirstConnect: unknown;
 
   await assertRejects(
     () =>
@@ -902,7 +909,7 @@ Deno.test("internal service connect preserves explicit reconnect attempt overrid
         nats: {
           servers: "nats://127.0.0.1:4222",
           authenticator: {},
-          options: { maxReconnectAttempts: 3 },
+          options: { maxReconnectAttempts: 3, waitOnFirstConnect: false },
         },
         server: {
           api: core.API.owned,
@@ -912,6 +919,7 @@ Deno.test("internal service connect preserves explicit reconnect attempt overrid
       }, {
         connect: async (opts): Promise<NatsConnection> => {
           maxReconnectAttempts = opts.maxReconnectAttempts;
+          waitOnFirstConnect = opts.waitOnFirstConnect;
           throw new Error("stop-after-connect-options");
         },
       }),
@@ -920,6 +928,7 @@ Deno.test("internal service connect preserves explicit reconnect attempt overrid
   );
 
   assertEquals(maxReconnectAttempts, 3);
+  assertEquals(waitOnFirstConnect, false);
 });
 
 Deno.test("TrellisService.connect surfaces bootstrap failure reasons", async () => {
