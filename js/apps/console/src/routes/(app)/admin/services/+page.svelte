@@ -340,7 +340,7 @@
           <Panel title="Deployment summary" eyebrow="Runtime drill-in" class="min-w-0">
             {#snippet actions()}
               <a class="btn btn-outline btn-sm" href={resolve("/admin/services/new")}>Create</a>
-              <a class="btn btn-ghost btn-sm" href={resolve(`/admin/deployments?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Manage deployment</a>
+              <a class="btn btn-ghost btn-sm" href={resolve(`/admin/authority?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Review authority</a>
             {/snippet}
 
             <div class="flex flex-wrap items-start justify-between gap-3">

@@ -296,8 +296,8 @@
         </section>
 
         <section class="card trellis-card overflow-hidden bg-base-100">
-          <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Deployment Permissions</h2><a href={resolve("/admin/deployments")} class="btn btn-ghost btn-xs">View all</a></div>
-          <EmptyState title="Deployment permissions available" description="Open Deployments to inspect permissions, pending requests, resources, and runtime availability." class="m-5" />
+          <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Authority Requests</h2><a href={resolve("/admin/authority")} class="btn btn-ghost btn-xs">View all</a></div>
+          <EmptyState title="Authority review available" description="Open Authority to inspect permissions and pending service or device requests." class="m-5" />
         </section>
       </div>
     </div>

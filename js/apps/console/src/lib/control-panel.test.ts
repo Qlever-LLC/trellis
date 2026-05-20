@@ -35,14 +35,19 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
   ]);
 
   deepEqual(manageSection?.items[0], {
-    href: "/admin/deployments",
-    label: "Deployments",
-    icon: "server",
-  });
-  deepEqual(manageSection?.items[1], {
     href: "/admin/services",
     label: "Services",
     icon: "server",
+  });
+  deepEqual(manageSection?.items[1], {
+    href: "/admin/devices",
+    label: "Devices",
+    icon: "phone",
+  });
+  deepEqual(manageSection?.items[2], {
+    href: "/admin/authority",
+    label: "Authority",
+    icon: "shield",
   });
   ok(labels.includes("Jobs"));
   ok(!labels.includes("API Catalog"));
@@ -50,8 +55,13 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
   ok(!labels.includes("Settings"));
   ok(!labels.includes("Envelopes"));
   ok(labels.includes("Grants"));
-  ok(!labels.includes("Device Deployments"));
+  ok(!labels.includes("Deployments"));
+  ok(labels.includes("Devices"));
+  ok(labels.includes("Authority"));
   ok(hrefs.includes("/admin/services"));
+  ok(hrefs.includes("/admin/devices"));
+  ok(hrefs.includes("/admin/authority"));
+  ok(!hrefs.map(String).includes("/admin/deployments"));
   ok(!hrefs.map(String).includes("/admin/envelopes"));
   ok(hrefs.includes("/admin/grants"));
   ok(!hrefs.map(String).includes("/admin/app-grants"));
@@ -64,8 +74,9 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
 });
 
 Deno.test("control panel titles cover new admin routes", () => {
-  deepEqual(getPageTitle("/admin/deployments"), "Deployments");
+  deepEqual(getPageTitle("/admin/authority"), "Authority");
   deepEqual(getPageTitle("/admin/services"), "Services");
+  deepEqual(getPageTitle("/admin/devices"), "Devices");
   deepEqual(getPageTitle("/admin/jobs"), "Jobs");
   deepEqual(getPageTitle("/admin/grants"), "Grants");
 });
