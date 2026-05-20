@@ -424,6 +424,13 @@ function contractEvidenceRecord(input: {
     contract: { ...input.contract },
     firstSeenAt: input.existing?.firstSeenAt ?? input.now,
     lastSeenAt: input.now,
+    ...(input.existing?.ignoredAt
+      ? {
+        ignoredAt: input.existing.ignoredAt,
+        ignoredBy: input.existing.ignoredBy ?? null,
+        ignoreReason: input.existing.ignoreReason ?? null,
+      }
+      : {}),
   };
 }
 
@@ -672,10 +679,11 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         ),
         contract.id,
       );
+      const activeEntries = (await deps.contracts.getActiveEntries()).filter(
+        (entry) => entry.contract.id === contract.id,
+      );
       const effectiveDigests = new Set(
-        (await deps.contracts.getActiveEntries())
-          .filter((entry) => entry.contract.id === contract.id)
-          .map((entry) => entry.digest),
+        activeEntries.map((entry) => entry.digest),
       );
       const issue = latestEvidence?.contractDigest === request.contractDigest &&
           !effectiveDigests.has(request.contractDigest) &&
@@ -702,6 +710,28 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
           ),
           409,
         );
+      }
+      if (
+        existingEvidence.ignoredAt &&
+        !effectiveDigests.has(request.contractDigest)
+      ) {
+        const activeContractDigest = activeEntries[0]?.digest;
+        if (activeContractDigest) {
+          return c.json(
+            bootstrapFailure(
+              "contract_changed",
+              `Service deployment '${service.deploymentId}' has quarantined evidence for contract '${request.contractId}'. Restart with the active contract digest.`,
+              {
+                instanceId: service.instanceId,
+                deploymentId: service.deploymentId,
+                contractId: request.contractId,
+                contractDigest: request.contractDigest,
+                activeContractDigest,
+              },
+            ),
+            409,
+          );
+        }
       }
       if (
         latestEvidence &&

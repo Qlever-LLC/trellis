@@ -455,6 +455,89 @@ Deno.test("POST /bootstrap/service rejects stale same-contract digest", async ()
   assertEquals(setup.evidence.length, 2);
 });
 
+Deno.test("POST /bootstrap/service rejects quarantined same-contract digest", async () => {
+  const oldContract = await validatedContract(baseContract());
+  const newContract = await validatedContract(expandedContract());
+  const setup = await createApp({
+    envelopeBoundary: await contractBoundary(
+      createTestContracts(),
+      newContract.contract,
+    ),
+    initialEvidence: [
+      {
+        deploymentId: "deployment_1",
+        contractId: oldContract.contract.id,
+        contractDigest: oldContract.digest,
+        contract: oldContract.contract,
+        firstSeenAt: "2026-01-01T00:00:00.000Z",
+        lastSeenAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        deploymentId: "deployment_1",
+        contractId: newContract.contract.id,
+        contractDigest: newContract.digest,
+        contract: newContract.contract,
+        firstSeenAt: "2026-01-01T00:00:01.000Z",
+        lastSeenAt: "2026-01-01T00:00:01.000Z",
+        ignoredAt: "2026-01-01T00:00:02.000Z",
+        ignoredBy: { userId: "admin" },
+        ignoreReason: "test repair",
+      },
+    ],
+  });
+  setup.contracts.setActiveTestDigests([oldContract.digest]);
+
+  const response = await setup.bootstrap({
+    contractId: newContract.contract.id,
+    contractDigest: newContract.digest,
+    contract: newContract.contract,
+  });
+
+  assertEquals(response.status, 409);
+  const body = await response.json();
+  assertEquals(body.reason, "contract_changed");
+  assertEquals(body.activeContractDigest, oldContract.digest);
+  assertEquals(setup.services, []);
+  assertEquals(setup.evidence.length, 2);
+  assertEquals(setup.evidence[1]?.ignoredAt, "2026-01-01T00:00:02.000Z");
+});
+
+Deno.test("POST /bootstrap/service preserves quarantine metadata on reconnect", async () => {
+  const contract = await validatedContract(expandedContract());
+  const setup = await createApp({
+    envelopeBoundary: await contractBoundary(
+      createTestContracts(),
+      contract.contract,
+    ),
+    initialEvidence: [
+      {
+        deploymentId: "deployment_1",
+        contractId: contract.contract.id,
+        contractDigest: contract.digest,
+        contract: contract.contract,
+        firstSeenAt: "2026-01-01T00:00:00.000Z",
+        lastSeenAt: "2026-01-01T00:00:00.000Z",
+        ignoredAt: "2026-01-01T00:00:01.000Z",
+        ignoredBy: { userId: "admin" },
+        ignoreReason: "test repair",
+      },
+    ],
+  });
+  setup.contracts.setActiveTestDigests([contract.digest]);
+
+  const response = await setup.bootstrap({
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
+    contract: contract.contract,
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals(setup.evidence.length, 1);
+  assertEquals(setup.evidence[0]?.ignoredAt, "2026-01-01T00:00:01.000Z");
+  assertEquals(setup.evidence[0]?.ignoredBy, { userId: "admin" });
+  assertEquals(setup.evidence[0]?.ignoreReason, "test repair");
+});
+
 Deno.test("POST /bootstrap/service accepts older digest when it remains effective", async () => {
   const oldContract = await validatedContract(baseContract());
   const newContract = await validatedContract(expandedContract());
