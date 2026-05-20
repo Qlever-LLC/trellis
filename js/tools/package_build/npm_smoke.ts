@@ -54,7 +54,8 @@ type Semver = {
 async function run(
   command: string,
   args: string[],
-  options: { cwd?: string; capture?: boolean; env?: Record<string, string> } = {},
+  options: { cwd?: string; capture?: boolean; env?: Record<string, string> } =
+    {},
 ): Promise<string> {
   const process = new Deno.Command(command, {
     args,
