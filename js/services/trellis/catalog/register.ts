@@ -35,7 +35,10 @@ type CatalogRegistrationDeps = {
   deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
   deploymentContractEvidenceStorage: SqlDeploymentContractEvidenceRepository;
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
-  logger: { trace: (fields: Record<string, unknown>, message: string) => void };
+  logger: {
+    trace: (fields: Record<string, unknown>, message: string) => void;
+    warn: (fields: Record<string, unknown>, message: string) => void;
+  };
 };
 
 type ContractGetInput = Parameters<
@@ -74,7 +77,14 @@ export async function registerCatalog(
     logger: deps.logger,
   });
 
-  await deps.contracts.refreshActiveContracts();
+  try {
+    await deps.contracts.refreshActiveContracts();
+  } catch (error) {
+    deps.logger.warn(
+      { error },
+      "Active contract catalog is degraded; admin repair RPCs will still be mounted",
+    );
+  }
 
   await deps.trellis.mount(
     "Trellis.Catalog",

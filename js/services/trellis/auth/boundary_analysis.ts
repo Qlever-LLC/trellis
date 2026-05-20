@@ -394,14 +394,20 @@ async function getKnownDependencyEntries(
     throw new Error("Known contract dependency lookup is unavailable");
   }
   const entriesByDigest = new Map<string, ContractEntry>();
+  const activeEntriesByContractId = new Map<string, ContractEntry[]>();
+  for (const entry of await contracts.getActiveEntries()) {
+    const entries = activeEntriesByContractId.get(entry.contract.id) ?? [];
+    entries.push(entry);
+    activeEntriesByContractId.set(entry.contract.id, entries);
+  }
   for (
     const contractId of sortUniqueStrings(
       Object.values(uses ?? {}).map((use) => use.contract),
     )
   ) {
-    for (
-      const entry of await contracts.getKnownEntriesByContractId(contractId)
-    ) {
+    const dependencyEntries = activeEntriesByContractId.get(contractId) ??
+      await contracts.getKnownEntriesByContractId(contractId);
+    for (const entry of dependencyEntries) {
       entriesByDigest.set(entry.digest, entry);
     }
   }

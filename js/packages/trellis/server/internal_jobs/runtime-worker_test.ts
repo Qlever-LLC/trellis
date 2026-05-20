@@ -1,7 +1,13 @@
 import { assertEquals } from "@std/assert";
 import { JobManager } from "./job-manager.ts";
 import { startQueueWorkerLoop } from "./runtime-worker.ts";
-import type { Job } from "./types.ts";
+import type { Job, JobContext } from "./types.ts";
+
+const jobContext: JobContext = {
+  requestId: "request-1",
+  traceId: "0123456789abcdef0123456789abcdef",
+  traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+};
 
 const jobsBinding = {
   namespace: "svc",
@@ -56,6 +62,7 @@ Deno.test("startQueueWorkerLoop skips terminal projected jobs before processing"
     service: "svc",
     type: "refresh",
     state: "pending",
+    context: jobContext,
     payload: { siteId: "site-1" },
     createdAt: "2024-01-01T00:00:00.000Z",
     updatedAt: "2024-01-01T00:00:00.000Z",
@@ -68,6 +75,7 @@ Deno.test("startQueueWorkerLoop skips terminal projected jobs before processing"
     jobType: job.type,
     eventType: "created",
     state: "pending",
+    context: jobContext,
     tries: 0,
     maxTries: 5,
     payload: job.payload,
@@ -114,6 +122,7 @@ Deno.test("startQueueWorkerLoop prefers latest lifecycle event over stale projec
     service: "svc",
     type: "refresh",
     state: "pending",
+    context: jobContext,
     payload: { siteId: "site-2" },
     createdAt: "2024-01-01T00:00:00.000Z",
     updatedAt: "2024-01-01T00:00:00.000Z",
@@ -126,6 +135,7 @@ Deno.test("startQueueWorkerLoop prefers latest lifecycle event over stale projec
     jobType: job.type,
     eventType: "created",
     state: "pending",
+    context: jobContext,
     tries: 0,
     maxTries: 5,
     payload: job.payload,

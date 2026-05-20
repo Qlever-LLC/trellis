@@ -8,7 +8,6 @@ use crate::process::{CommandSpec, ProcessRunner};
 use crate::workspace::repo_root;
 
 const PORTAL_BUILD_DIR_ENV: &str = "TRELLIS_LOGIN_PORTAL_BUILD_DIR";
-const PORTAL_SVELTE_KIT_DIR_ENV: &str = "TRELLIS_LOGIN_PORTAL_SVELTE_KIT_DIR";
 
 #[derive(Debug, Clone)]
 pub(crate) struct PortalBuild {
@@ -28,17 +27,11 @@ pub(crate) fn build_login_portal(
 ) -> Result<PortalBuild> {
     let repo_root = repo_root()?;
     let portal_root = repo_root.join("js/portals/login");
-    let (workdir_build_dir, workdir_svelte_kit_dir) = login_portal_build_paths(workdir.path());
+    let workdir_build_dir = login_portal_build_dir(workdir.path());
 
     remove_existing_dir(&workdir_build_dir)?;
-    remove_existing_dir(&workdir_svelte_kit_dir)?;
 
-    let spec = login_portal_build_command(
-        &portal_root,
-        &workdir_build_dir,
-        &workdir_svelte_kit_dir,
-        public_trellis_url,
-    );
+    let spec = login_portal_build_command(&portal_root, &workdir_build_dir, public_trellis_url);
     let output = process_runner.output(&spec)?;
     if !output.status.success() {
         return Err(miette!(
@@ -53,17 +46,13 @@ pub(crate) fn build_login_portal(
     })
 }
 
-fn login_portal_build_paths(workdir: &Path) -> (PathBuf, PathBuf) {
-    (
-        workdir.join("portal-login-build"),
-        workdir.join("portal-login-svelte-kit"),
-    )
+fn login_portal_build_dir(workdir: &Path) -> PathBuf {
+    workdir.join("portal-login-build")
 }
 
 fn login_portal_build_command(
     portal_root: &Path,
     build_dir: &Path,
-    svelte_kit_dir: &Path,
     public_trellis_url: &str,
 ) -> CommandSpec {
     CommandSpec::new("deno")
@@ -72,7 +61,6 @@ fn login_portal_build_command(
         .current_dir(portal_root)
         .env("PUBLIC_TRELLIS_URL", public_trellis_url)
         .env(PORTAL_BUILD_DIR_ENV, build_dir)
-        .env(PORTAL_SVELTE_KIT_DIR_ENV, svelte_kit_dir)
 }
 
 fn remove_existing_dir(path: &Path) -> Result<()> {
@@ -89,19 +77,18 @@ mod tests {
     use std::ffi::OsStr;
     use std::path::Path;
 
-    use super::{login_portal_build_command, login_portal_build_paths};
+    use super::{login_portal_build_command, login_portal_build_dir};
 
     #[test]
-    fn login_portal_build_command_uses_workdir_output_paths() {
+    fn login_portal_build_command_uses_workdir_static_output_path() {
         let temp = tempfile::tempdir().expect("temp dir");
         let repo_portal_root = Path::new("/repo/js/portals/login");
         let repo_build_dir = repo_portal_root.join("build");
-        let (build_dir, svelte_kit_dir) = login_portal_build_paths(temp.path());
+        let build_dir = login_portal_build_dir(temp.path());
 
         let spec = login_portal_build_command(
             repo_portal_root,
             &build_dir,
-            &svelte_kit_dir,
             "http://host.containers.internal:3000",
         );
 
@@ -117,15 +104,14 @@ mod tests {
             "http://host.containers.internal:3000"
         );
         assert_eq!(env("TRELLIS_LOGIN_PORTAL_BUILD_DIR"), build_dir.as_os_str());
-        assert_eq!(
-            env("TRELLIS_LOGIN_PORTAL_SVELTE_KIT_DIR"),
-            svelte_kit_dir.as_os_str()
-        );
+        assert!(spec
+            .envs()
+            .iter()
+            .all(|(key, _)| key != OsStr::new("TRELLIS_LOGIN_PORTAL_SVELTE_KIT_DIR")));
         assert_ne!(
             env("TRELLIS_LOGIN_PORTAL_BUILD_DIR"),
             repo_build_dir.as_os_str()
         );
         assert!(build_dir.starts_with(temp.path()));
-        assert!(svelte_kit_dir.starts_with(temp.path()));
     }
 }

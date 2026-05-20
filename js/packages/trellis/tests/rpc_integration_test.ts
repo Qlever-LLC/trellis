@@ -66,6 +66,7 @@ const TEST_USER = {
   name: "Test User",
   email: "test@example.com",
   capabilities: ["service"],
+  lastAuth: "2026-04-10T00:00:00.000Z",
   identity: {
     identityId: "test-identity-123",
     provider: "test",
@@ -87,6 +88,7 @@ type TestAuthUserCaller = {
   email: string;
   image?: string;
   capabilities: string[];
+  lastAuth: string;
   identity: {
     identityId: string;
     provider: string;

@@ -219,6 +219,13 @@ export const DeploymentContractEvidenceSchema = Type.Object({
   contract: OpenObjectSchema,
   firstSeenAt: IsoDateStringSchema,
   lastSeenAt: IsoDateStringSchema,
+  ignoredAt: Type.Optional(Type.Union([IsoDateStringSchema, Type.Null()])),
+  ignoredBy: Type.Optional(
+    Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
+  ),
+  ignoreReason: Type.Optional(
+    Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  ),
 });
 export type DeploymentContractEvidence = StaticDecode<
   typeof DeploymentContractEvidenceSchema
@@ -1135,6 +1142,23 @@ export const AuthDeploymentsDisableSchema = Type.Object({
 });
 export const AuthDeploymentsDisableResponseSchema = Type.Object({
   deployment: AuthDeploymentSchema,
+});
+
+export const AuthCatalogIssuesResolveSchema = Type.Object({
+  issueId: Type.String({ minLength: 1 }),
+  action: Type.Union([
+    Type.Literal("keep-current"),
+    Type.Literal("force-replace"),
+  ]),
+});
+export const AuthCatalogIssuesResolveResponseSchema = Type.Object({
+  success: Type.Literal(true),
+  issueId: Type.String({ minLength: 1 }),
+  action: Type.Union([
+    Type.Literal("keep-current"),
+    Type.Literal("force-replace"),
+  ]),
+  ignoredEvidence: Type.Array(DeploymentContractEvidenceSchema),
 });
 
 export const AuthDeploymentsEnableSchema = Type.Object({

@@ -22,6 +22,10 @@ import { SqlContractStorageRepository } from "./storage.ts";
 
 class FailingGetManyContractStorageRepository
   extends SqlContractStorageRepository {
+  override async get(_digest: string): Promise<ContractRecord | undefined> {
+    throw new Error("contract lookup failed");
+  }
+
   override async getMany(
     _digests: Iterable<string>,
   ): Promise<ContractRecord[]> {
@@ -155,13 +159,14 @@ async function putDeploymentEvidence(
   storage: SqlDeploymentContractEvidenceRepository,
   deploymentId: string,
   installed: InstalledTestContract,
+  firstSeenAt = TEST_NOW,
 ): Promise<void> {
   await storage.put({
     deploymentId,
     contractId: installed.id,
     contractDigest: installed.digest,
     contract: contractEvidenceJson(installed.contract),
-    firstSeenAt: TEST_NOW,
+    firstSeenAt,
     lastSeenAt: TEST_NOW,
   });
 }
@@ -575,7 +580,7 @@ Deno.test("contracts runtime fails closed when an active digest is missing", asy
   });
 });
 
-Deno.test("contracts runtime refresh fails closed for invalid deployment evidence", async () => {
+Deno.test("contracts runtime excludes missing active contract digests", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-missing-active-",
@@ -637,13 +642,22 @@ Deno.test("contracts runtime refresh fails closed for invalid deployment evidenc
       createdAt: "2026-01-01T00:00:00.000Z",
     });
 
+    await module.refreshActiveContracts();
+
+    assertEquals((await module.getActiveCatalog()).contracts, []);
+    assertEquals(await module.getActiveCatalogIssues(), [
+      {
+        issueId: "missing-active-contract:service@v1:missing-digest::",
+        kind: "missing-active-contract",
+        contractId: "service@v1",
+        digest: "missing-digest",
+        message: "Unknown active contract digest 'missing-digest'",
+        deploymentIds: ["service.default"],
+        actions: [],
+      },
+    ]);
     await assertRejects(
-      () => module.refreshActiveContracts(),
-      Error,
-      "Unknown active contract digest 'missing-digest'",
-    );
-    await assertRejects(
-      () => module.getActiveCatalog(),
+      () => module.validateActiveCatalog(),
       Error,
       "Unknown active contract digest 'missing-digest'",
     );
@@ -653,7 +667,7 @@ Deno.test("contracts runtime refresh fails closed for invalid deployment evidenc
   }
 });
 
-Deno.test("contracts runtime refresh fails closed when an active contract cannot hydrate", async () => {
+Deno.test("contracts runtime excludes invalid active contract digests", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-bad-active-",
@@ -720,13 +734,22 @@ Deno.test("contracts runtime refresh fails closed when an active contract cannot
       createdAt: "2026-01-01T00:00:00.000Z",
     });
 
+    await module.refreshActiveContracts();
+
+    assertEquals((await module.getActiveCatalog()).contracts, []);
+    assertEquals(await module.getActiveCatalogIssues(), [
+      {
+        issueId: "invalid-active-contract:service@v1:bad-digest::",
+        kind: "invalid-active-contract",
+        contractId: "service@v1",
+        digest: "bad-digest",
+        message: "Failed to load active contract 'bad-digest'",
+        deploymentIds: ["service.default"],
+        actions: [],
+      },
+    ]);
     await assertRejects(
-      () => module.refreshActiveContracts(),
-      Error,
-      "Failed to load active contract 'bad-digest'",
-    );
-    await assertRejects(
-      () => module.getActiveCatalog(),
+      () => module.validateActiveCatalog(),
       Error,
       "Failed to load active contract 'bad-digest'",
     );
@@ -736,7 +759,7 @@ Deno.test("contracts runtime refresh fails closed when an active contract cannot
   }
 });
 
-Deno.test("contracts runtime refresh fails closed before activating divergent compatible digests", async () => {
+Deno.test("contracts runtime degrades divergent active compatible digests", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-divergent-active-",
@@ -795,11 +818,13 @@ Deno.test("contracts runtime refresh fails closed before activating divergent co
       deploymentContractEvidenceStorage,
       "service.default",
       firstInstalled,
+      "2026-01-01T00:00:00.000Z",
     );
     await putDeploymentEvidence(
       deploymentContractEvidenceStorage,
       "service.default",
       secondInstalled,
+      "2026-01-01T00:00:01.000Z",
     );
     await serviceInstanceStorage.put({
       instanceId: "svc_1",
@@ -822,20 +847,337 @@ Deno.test("contracts runtime refresh fails closed before activating divergent co
       createdAt: "2026-01-01T00:00:00.000Z",
     });
 
+    await module.refreshActiveContracts();
+
+    assertEquals(
+      (await module.getActiveCatalog()).contracts.map((entry) => entry.digest),
+      [firstInstalled.digest],
+    );
+    assertEquals(await module.getActiveCatalogIssues(), [
+      {
+        issueId:
+          `incompatible-active-contract:billing@v1:${secondInstalled.digest}:${firstInstalled.digest}:${secondInstalled.digest}`,
+        kind: "incompatible-active-contract",
+        contractId: "billing@v1",
+        digest: secondInstalled.digest,
+        message:
+          `Active contract digest '${secondInstalled.digest}' for 'billing@v1' conflicts with effective digest '${firstInstalled.digest}' (Active compatible digests define 'Refund' with different capabilities)`,
+        deploymentIds: ["service.default"],
+        effectiveDigests: [firstInstalled.digest],
+        conflictingDigest: secondInstalled.digest,
+        conflictingDigests: [secondInstalled.digest],
+        effectiveDeploymentIds: ["service.default"],
+        conflictingDeploymentIds: ["service.default"],
+        actions: [
+          {
+            action: "keep-current",
+            label: "Keep current effective contract",
+            description:
+              "Quarantine the conflicting deployment evidence so the current effective digest remains active.",
+            risk: "recommended",
+            deploymentIds: ["service.default"],
+            digests: [secondInstalled.digest],
+          },
+          {
+            action: "force-replace",
+            label: "Force replace current contract",
+            description:
+              "Quarantine the current effective deployment evidence so the conflicting digest can become active.",
+            risk: "dangerous",
+            deploymentIds: ["service.default"],
+            digests: [firstInstalled.digest],
+          },
+        ],
+      },
+    ]);
     await assertRejects(
-      () => module.refreshActiveContracts(),
+      () => module.validateActiveCatalog(),
       Error,
       "different capabilities",
     );
-    await assertRejects(
-      () => module.getActiveCatalog(),
-      Error,
-      "different capabilities",
-    );
+    await module.validateActiveCatalog({
+      stagedServiceDeployments: [
+        testServiceDeployment("service.default", ["Billing"], true),
+      ],
+    });
+    await deploymentContractEvidenceStorage.ignoreEvidence({
+      deploymentIds: ["service.default"],
+      contractDigests: [secondInstalled.digest],
+      ignoredAt: "2026-01-01T00:00:02.000Z",
+      ignoredBy: { userId: "admin" },
+      reason: "test repair",
+    });
+    await module.refreshActiveContracts();
+    assertEquals(await module.getActiveCatalogIssues(), []);
   } finally {
     storage.client.close();
     await Deno.remove(dbPath).catch(() => undefined);
   }
+});
+
+Deno.test("contracts runtime groups same-lineage active incompatibilities into one repair", async () => {
+  await withContractsModule(
+    async (module, _contracts, deployments, evidence, envelopes) => {
+      const first = makeOperationContract(
+        "billing@v1",
+        "operations.v1.Billing.Refund",
+      );
+      first.operations!.Refund!.capabilities = { call: ["billing.refund"] };
+      const second = makeOperationContract(
+        "billing@v1",
+        "operations.v1.Billing.Refund",
+      );
+      second.operations!.Refund!.capabilities = {
+        call: ["billing.refund.v2"],
+      };
+      const third = makeOperationContract(
+        "billing@v1",
+        "operations.v1.Billing.Refund",
+      );
+      third.operations!.Refund!.capabilities = {
+        call: ["billing.refund.v3"],
+      };
+      const firstInstalled = await module.installServiceContract(first);
+      const secondInstalled = await module.installServiceContract(second);
+      const thirdInstalled = await module.installServiceContract(third);
+
+      await deployments.put(
+        testServiceDeployment("service.default", ["Billing"]),
+      );
+      await deployments.put(testServiceDeployment("service.other", [
+        "Billing",
+      ]));
+      await putDeploymentEnvelope(envelopes, "service.default", "service", [
+        "billing@v1",
+      ]);
+      await putDeploymentEnvelope(envelopes, "service.other", "service", [
+        "billing@v1",
+      ]);
+      await putDeploymentEvidence(
+        evidence,
+        "service.default",
+        firstInstalled,
+        "2026-01-01T00:00:00.000Z",
+      );
+      await putDeploymentEvidence(
+        evidence,
+        "service.default",
+        secondInstalled,
+        "2026-01-01T00:00:01.000Z",
+      );
+      await putDeploymentEvidence(
+        evidence,
+        "service.other",
+        thirdInstalled,
+        "2026-01-01T00:00:02.000Z",
+      );
+
+      await module.refreshActiveContracts();
+
+      const conflictingDigests = [
+        secondInstalled.digest,
+        thirdInstalled.digest,
+      ].sort((left, right) => left.localeCompare(right));
+      assertEquals(await module.getActiveCatalogIssues(), [
+        {
+          issueId:
+            `incompatible-active-contract:billing@v1:${thirdInstalled.digest}:${firstInstalled.digest}:${
+              conflictingDigests.join(",")
+            }`,
+          kind: "incompatible-active-contract",
+          contractId: "billing@v1",
+          digest: thirdInstalled.digest,
+          message:
+            `Active contract digest '${thirdInstalled.digest}' for 'billing@v1' conflicts with effective digest '${firstInstalled.digest}' (Active compatible digests define 'Refund' with different capabilities)`,
+          deploymentIds: ["service.default", "service.other"],
+          effectiveDigests: [firstInstalled.digest],
+          conflictingDigest: thirdInstalled.digest,
+          conflictingDigests,
+          effectiveDeploymentIds: ["service.default"],
+          conflictingDeploymentIds: ["service.default", "service.other"],
+          actions: [
+            {
+              action: "keep-current",
+              label: "Keep current effective contract",
+              description:
+                "Quarantine the conflicting deployment evidence so the current effective digest remains active.",
+              risk: "recommended",
+              deploymentIds: ["service.default", "service.other"],
+              digests: conflictingDigests,
+            },
+            {
+              action: "force-replace",
+              label: "Force replace current contract",
+              description:
+                "Quarantine the current effective deployment evidence so the conflicting digest can become active.",
+              risk: "dangerous",
+              deploymentIds: ["service.default"],
+              digests: [firstInstalled.digest, secondInstalled.digest].sort((
+                left,
+                right,
+              ) => left.localeCompare(right)),
+            },
+          ],
+        },
+      ]);
+
+      await evidence.ignoreEvidence({
+        deploymentIds: ["service.default", "service.other"],
+        contractDigests: conflictingDigests,
+        ignoredAt: "2026-01-01T00:00:03.000Z",
+        ignoredBy: { userId: "admin" },
+        reason: "test keep current repair",
+      });
+      await module.refreshActiveContracts();
+      assertEquals(await module.getActiveCatalogIssues(), []);
+    },
+  );
+});
+
+Deno.test("contracts runtime force replace activates newest grouped conflict in one repair", async () => {
+  await withContractsModule(
+    async (module, _contracts, deployments, evidence, envelopes) => {
+      const first = makeOperationContract(
+        "billing@v1",
+        "operations.v1.Billing.Refund",
+      );
+      first.operations!.Refund!.capabilities = { call: ["billing.refund"] };
+      const second = makeOperationContract(
+        "billing@v1",
+        "operations.v1.Billing.Refund",
+      );
+      second.operations!.Refund!.capabilities = {
+        call: ["billing.refund.v2"],
+      };
+      const third = makeOperationContract(
+        "billing@v1",
+        "operations.v1.Billing.Refund",
+      );
+      third.operations!.Refund!.capabilities = {
+        call: ["billing.refund.v3"],
+      };
+      const firstInstalled = await module.installServiceContract(first);
+      const secondInstalled = await module.installServiceContract(second);
+      const thirdInstalled = await module.installServiceContract(third);
+
+      await deployments.put(
+        testServiceDeployment("service.default", ["Billing"]),
+      );
+      await deployments.put(testServiceDeployment("service.other", [
+        "Billing",
+      ]));
+      await putDeploymentEnvelope(envelopes, "service.default", "service", [
+        "billing@v1",
+      ]);
+      await putDeploymentEnvelope(envelopes, "service.other", "service", [
+        "billing@v1",
+      ]);
+      await putDeploymentEvidence(
+        evidence,
+        "service.default",
+        firstInstalled,
+        "2026-01-01T00:00:00.000Z",
+      );
+      await putDeploymentEvidence(
+        evidence,
+        "service.default",
+        secondInstalled,
+        "2026-01-01T00:00:01.000Z",
+      );
+      await putDeploymentEvidence(
+        evidence,
+        "service.other",
+        thirdInstalled,
+        "2026-01-01T00:00:02.000Z",
+      );
+      await module.refreshActiveContracts();
+
+      const issue = (await module.getActiveCatalogIssues())[0];
+      if (!issue) throw new Error("expected grouped catalog issue");
+      assertEquals(issue.conflictingDigest, thirdInstalled.digest);
+      const forceReplace = issue.actions.find((candidate) =>
+        candidate.action === "force-replace"
+      );
+      if (!forceReplace) throw new Error("expected force-replace action");
+
+      await evidence.ignoreEvidence({
+        deploymentIds: forceReplace.deploymentIds,
+        contractDigests: forceReplace.digests,
+        ignoredAt: "2026-01-01T00:00:03.000Z",
+        ignoredBy: { userId: "admin" },
+        reason: "test force replace repair",
+      });
+      await module.refreshActiveContracts();
+
+      assertEquals(
+        (await module.getActiveCatalog()).contracts.map((entry) =>
+          entry.digest
+        ),
+        [thirdInstalled.digest],
+      );
+      assertEquals(await module.getActiveCatalogIssues(), []);
+    },
+  );
+});
+
+Deno.test("contracts runtime lets newer compatible deployment evidence supersede older evidence", async () => {
+  await withContractsModule(
+    async (module, _contracts, deployments, evidence, envelopes) => {
+      const first = makeOperationContract(
+        "billing@v1",
+        "operations.v1.Billing.Refund",
+      );
+      first.description = "First compatible billing contract.";
+      const second = makeOperationContract(
+        "billing@v1",
+        "operations.v1.Billing.Refund",
+      );
+      second.description = "Second compatible billing contract.";
+      const firstInstalled = await module.installServiceContract(first);
+      const secondInstalled = await module.installServiceContract(second);
+
+      await deployments.put(
+        testServiceDeployment("service.default", ["Billing"]),
+      );
+      await putDeploymentEnvelope(envelopes, "service.default", "service", [
+        "billing@v1",
+      ]);
+      await putDeploymentEvidence(
+        evidence,
+        "service.default",
+        firstInstalled,
+        "2026-01-01T00:00:10.000Z",
+      );
+      await putDeploymentEvidence(
+        evidence,
+        "service.default",
+        secondInstalled,
+        "2026-01-01T00:00:20.000Z",
+      );
+      await deployments.put(
+        testServiceDeployment("service.other", ["Billing"]),
+      );
+      await putDeploymentEnvelope(envelopes, "service.other", "service", [
+        "billing@v1",
+      ]);
+      await putDeploymentEvidence(
+        evidence,
+        "service.other",
+        secondInstalled,
+        "2026-01-01T00:00:05.000Z",
+      );
+
+      await module.refreshActiveContracts();
+
+      assertEquals(
+        (await module.getActiveCatalog()).contracts.map((entry) =>
+          entry.digest
+        ),
+        [secondInstalled.digest],
+      );
+      assertEquals(await module.getActiveCatalogIssues(), []);
+    },
+  );
 });
 
 Deno.test("contracts runtime refresh ignores stale deployment digests for built-in lineages", async () => {
@@ -995,7 +1337,7 @@ Deno.test("contracts runtime dry-run rejects incompatible staged active digests 
   }
 });
 
-Deno.test("contracts runtime refresh rejects active uses dependencies without mutating active permission state", async () => {
+Deno.test("contracts runtime strict validation rejects active uses dependencies", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-active-uses-",
@@ -1108,13 +1450,27 @@ Deno.test("contracts runtime refresh rejects active uses dependencies without mu
       createdAt: now,
     });
 
-    await assertRejects(
-      () => module.refreshActiveContracts(),
-      Error,
-      "inactive contract 'billing@v1'",
+    await module.refreshActiveContracts();
+    assertEquals(
+      (await module.getActiveCatalog()).contracts.map((entry) => entry.digest),
+      [],
+    );
+    assertEquals(
+      (await module.getActiveCatalogIssues()).map((issue) => ({
+        kind: issue.kind,
+        contractId: issue.contractId,
+        digest: issue.digest,
+        deploymentIds: issue.deploymentIds,
+      })),
+      [{
+        kind: "invalid-active-contract-uses",
+        contractId: portal.id,
+        digest: portal.digest,
+        deploymentIds: ["portal.default"],
+      }],
     );
     await assertRejects(
-      () => module.getActiveCatalog(),
+      () => module.validateActiveCatalog(),
       Error,
       "inactive contract 'billing@v1'",
     );
@@ -1351,7 +1707,7 @@ Deno.test("contracts runtime activates service deployment envelope evidence with
   }
 });
 
-Deno.test("contracts runtime fails closed for evidence-only active contract manifests", async () => {
+Deno.test("contracts runtime excludes evidence-only active contract manifests", async () => {
   await withContractsModule(
     async (
       module,
@@ -1381,15 +1737,24 @@ Deno.test("contracts runtime fails closed for evidence-only active contract mani
         lastSeenAt: TEST_NOW,
       });
 
-      await assertRejects(
-        () => module.refreshActiveContracts(),
-        Error,
-        `Unknown active contract digest '${validated.digest}'`,
-      );
+      await module.refreshActiveContracts();
 
       assertEquals(await contractStorage.listPage({ limit: 10 }), []);
+      assertEquals((await module.getActiveCatalog()).contracts, []);
+      assertEquals(await module.getActiveCatalogIssues(), [
+        {
+          issueId:
+            `missing-active-contract:${validated.contract.id}:${validated.digest}::`,
+          kind: "missing-active-contract",
+          contractId: validated.contract.id,
+          digest: validated.digest,
+          message: `Unknown active contract digest '${validated.digest}'`,
+          deploymentIds: ["service.evidence"],
+          actions: [],
+        },
+      ]);
       await assertRejects(
-        () => module.getActiveCatalog(),
+        () => module.validateActiveCatalog(),
         Error,
         `Unknown active contract digest '${validated.digest}'`,
       );

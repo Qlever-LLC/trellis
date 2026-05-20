@@ -1,14 +1,17 @@
 import { assert, assertEquals } from "@std/assert";
 
 const docs = [
-  "../design/auth/trellis-auth.md",
-  "../design/auth/auth-api.md",
-  "../design/auth/auth-protocol.md",
-  "../design/auth/device-activation.md",
-  "../design/contracts/trellis-contracts-catalog.md",
-  "../design/core/kv-resource-patterns.md",
-  "../design/jobs/trellis-jobs.md",
+  "design/auth/trellis-auth.md",
+  "design/auth/auth-api.md",
+  "design/auth/auth-protocol.md",
+  "design/auth/device-activation.md",
+  "design/contracts/trellis-contracts-catalog.md",
+  "design/core/kv-resource-patterns.md",
+  "design/jobs/trellis-jobs.md",
 ];
+
+const repoRoot = new URL("../../../", import.meta.url);
+const repoFile = (path: string) => new URL(path, repoRoot);
 
 const legacyAuthorityPatterns = [
   /firstConnectPolicy/g,
@@ -48,7 +51,7 @@ const requiredEnvelopeTerms = [
 ];
 
 Deno.test("envelope auth docs define the clean-break vocabulary", async () => {
-  const text = await Deno.readTextFile("../design/auth/trellis-auth.md");
+  const text = await Deno.readTextFile(repoFile("design/auth/trellis-auth.md"));
 
   for (const term of requiredEnvelopeTerms) {
     assert(
@@ -59,7 +62,7 @@ Deno.test("envelope auth docs define the clean-break vocabulary", async () => {
 });
 
 Deno.test("auth API docs use grouped resource-first auth names", async () => {
-  const text = await Deno.readTextFile("../design/auth/auth-api.md");
+  const text = await Deno.readTextFile(repoFile("design/auth/auth-api.md"));
 
   for (
     const rpc of [
@@ -75,7 +78,7 @@ Deno.test("auth API docs use grouped resource-first auth names", async () => {
 });
 
 Deno.test("auth API section headings use grouped rpc auth names", async () => {
-  const text = await Deno.readTextFile("../design/auth/auth-api.md");
+  const text = await Deno.readTextFile(repoFile("design/auth/auth-api.md"));
   const ungroupedHeadings = text
     .split("\n")
     .filter((line) => line.startsWith("### rpc.Auth."))
@@ -90,7 +93,7 @@ Deno.test("auth and contract docs do not endorse legacy authority primitives", a
   const failures: string[] = [];
 
   for (const doc of docs) {
-    const text = await Deno.readTextFile(doc);
+    const text = await Deno.readTextFile(repoFile(doc));
     for (const pattern of legacyAuthorityPatterns) {
       const matches = text.match(pattern) ?? [];
       if (matches.length > 0) {

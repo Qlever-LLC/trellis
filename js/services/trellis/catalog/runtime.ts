@@ -26,6 +26,8 @@ import {
   type ValidatedContract,
 } from "./store.ts";
 import {
+  createActiveContractLookup,
+  resolveContractUses,
   resolveContractUsesFromEntries,
   validateActiveContractCompatibility,
   validateActiveContractUses,
@@ -63,6 +65,39 @@ type DeviceInstanceRecord = Awaited<
 type DeploymentEnvelopeRecord = Awaited<
   ReturnType<SqlDeploymentEnvelopeRepository["listPage"]>
 >[number];
+type DeploymentContractEvidenceRecord = Awaited<
+  ReturnType<SqlDeploymentContractEvidenceRepository["listByDeployments"]>
+>[number];
+
+/** Describes an active catalog digest that was excluded from the effective runtime catalog. */
+export type ActiveCatalogIssue = {
+  issueId: string;
+  kind:
+    | "missing-active-contract"
+    | "invalid-active-contract"
+    | "incompatible-active-contract"
+    | "invalid-active-contract-uses";
+  contractId?: string;
+  digest?: string;
+  message: string;
+  deploymentIds: string[];
+  effectiveDigests?: string[];
+  conflictingDigest?: string;
+  conflictingDigests?: string[];
+  effectiveDeploymentIds?: string[];
+  conflictingDeploymentIds?: string[];
+  actions: ActiveCatalogIssueAction[];
+};
+
+export type ActiveCatalogIssueAction = {
+  action: "keep-current" | "force-replace";
+  label: string;
+  description: string;
+  risk: "recommended" | "dangerous";
+  deploymentIds: string[];
+  digests: string[];
+};
+
 type ActiveCatalogValidationOptions = {
   proposedDigests?: Iterable<string>;
   extraActiveDigests?: Iterable<string>;
@@ -84,6 +119,48 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function sortUnique(values: Iterable<string>): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function stableIssueId(args: {
+  kind: ActiveCatalogIssue["kind"];
+  contractId?: string;
+  digest?: string;
+  effectiveDigests?: Iterable<string>;
+  conflictingDigests?: Iterable<string>;
+}): string {
+  return [
+    args.kind,
+    args.contractId ?? "",
+    args.digest ?? "",
+    sortUnique(args.effectiveDigests ?? []).join(","),
+    sortUnique(args.conflictingDigests ?? []).join(","),
+  ].join(":");
+}
+
+function quarantineAction(args: {
+  action: "keep-current" | "force-replace";
+  risk: "recommended" | "dangerous";
+  label: string;
+  description: string;
+  deploymentIds: Iterable<string>;
+  digests: Iterable<string>;
+}): ActiveCatalogIssueAction {
+  return {
+    action: args.action,
+    label: args.label,
+    description: args.description,
+    risk: args.risk,
+    deploymentIds: sortUnique(args.deploymentIds),
+    digests: sortUnique(args.digests),
+  };
+}
+
+function summarizeActiveCatalogIssue(issue: ActiveCatalogIssue): string {
+  return issue.message;
 }
 
 function subjectNamespace(subject: string): string | null {
@@ -319,6 +396,62 @@ export function createContractsModule(opts: {
     return validateActiveDigestEntries(entriesByDigest, requested);
   }
 
+  async function loadEffectiveEntry(args: {
+    digest: string;
+    contractId?: string;
+    deploymentIds: string[];
+  }): Promise<{ entry?: ContractEntry; issue?: ActiveCatalogIssue }> {
+    const builtin = builtinByDigest.get(args.digest);
+    if (builtin) return { entry: { digest: args.digest, contract: builtin } };
+
+    const stored = await opts.contractStorage.get(args.digest);
+    if (!stored) {
+      return {
+        issue: {
+          issueId: stableIssueId({
+            kind: "missing-active-contract",
+            contractId: args.contractId,
+            digest: args.digest,
+          }),
+          kind: "missing-active-contract",
+          ...(args.contractId ? { contractId: args.contractId } : {}),
+          digest: args.digest,
+          message: `Unknown active contract digest '${args.digest}'`,
+          deploymentIds: args.deploymentIds,
+          actions: [],
+        },
+      };
+    }
+
+    const entry = await hydrateStoredContract({
+      logger,
+      record: {
+        digest: stored.digest,
+        id: stored.id,
+        contract: stored.contract,
+      },
+      message: "Failed to hydrate active contract",
+    });
+    if (!entry) {
+      return {
+        issue: {
+          issueId: stableIssueId({
+            kind: "invalid-active-contract",
+            contractId: stored.id,
+            digest: args.digest,
+          }),
+          kind: "invalid-active-contract",
+          contractId: stored.id,
+          digest: args.digest,
+          message: `Failed to load active contract '${args.digest}'`,
+          deploymentIds: args.deploymentIds,
+          actions: [],
+        },
+      };
+    }
+    return { entry };
+  }
+
   async function getKnownEntriesByContractId(
     contractId: string,
   ): Promise<ContractEntry[]> {
@@ -373,7 +506,7 @@ export function createContractsModule(opts: {
     }
 
     const validated = await validateContractManifest(args.contract);
-    const entries = await validateActiveCatalogEntries();
+    const entries = (await loadEffectiveActiveCatalogState()).entries;
     const indexes = buildActiveContractIndexes(
       new Map(entries.map((entry) => [entry.digest, entry.contract])),
       entries.map((entry) => entry.digest),
@@ -535,10 +668,13 @@ export function createContractsModule(opts: {
   async function collectProposedActiveDigestsFromRecords(
     validationOpts?: ActiveCatalogValidationOptions,
   ): Promise<Set<string>> {
-    const deploymentEnvelopes = overlayStagedRecords(
-      await opts.deploymentEnvelopeStorage.listEnabled(),
-      validationOpts?.stagedDeploymentEnvelopes,
-      (envelope) => envelope.deploymentId,
+    const deploymentEnvelopes = applyStagedParentDeploymentDisabled(
+      overlayStagedRecords(
+        await opts.deploymentEnvelopeStorage.listEnabled(),
+        validationOpts?.stagedDeploymentEnvelopes,
+        (envelope) => envelope.deploymentId,
+      ),
+      validationOpts,
     );
     const deploymentContractEvidence = await opts
       .deploymentContractEvidenceStorage?.listByDeployments(
@@ -555,10 +691,439 @@ export function createContractsModule(opts: {
     return active;
   }
 
+  function applyStagedParentDeploymentDisabled(
+    deploymentEnvelopes: DeploymentEnvelopeRecord[],
+    validationOpts?: ActiveCatalogValidationOptions,
+  ): DeploymentEnvelopeRecord[] {
+    const disabledDeploymentIds = new Set<string>();
+    for (const deployment of validationOpts?.stagedServiceDeployments ?? []) {
+      if (deployment.disabled) {
+        disabledDeploymentIds.add(deployment.deploymentId);
+      }
+    }
+    for (const deployment of validationOpts?.stagedDeviceDeployments ?? []) {
+      if (deployment.disabled) {
+        disabledDeploymentIds.add(deployment.deploymentId);
+      }
+    }
+    if (disabledDeploymentIds.size === 0) return deploymentEnvelopes;
+    return deploymentEnvelopes.map((envelope) =>
+      disabledDeploymentIds.has(envelope.deploymentId)
+        ? { ...envelope, disabled: true }
+        : envelope
+    );
+  }
+
+  type ActiveDigestEvidence = {
+    digest: string;
+    contractId?: string;
+    firstSeenAt?: string;
+    deploymentIds: string[];
+    deploymentFirstSeenAt: Record<string, string>;
+  };
+
+  function activeDigestEvidenceFromRecords(args: {
+    active: Set<string>;
+    deploymentEnvelopes: DeploymentEnvelopeRecord[];
+    deploymentContractEvidence: DeploymentContractEvidenceRecord[];
+  }): ActiveDigestEvidence[] {
+    const activeContractsByDeployment = new Map<string, Set<string>>();
+    const builtinContractIds = new Set(
+      opts.builtinContracts.map(({ contract }) => contract.id),
+    );
+    for (const envelope of args.deploymentEnvelopes) {
+      if (envelope.disabled) continue;
+      activeContractsByDeployment.set(
+        envelope.deploymentId,
+        new Set([
+          ...envelope.boundary.contracts.map((contract) => contract.contractId),
+          ...envelope.boundary.surfaces.map((surface) => surface.contractId),
+        ]),
+      );
+    }
+
+    const metadata = new Map<string, ActiveDigestEvidence>();
+    for (const digest of args.active) {
+      metadata.set(digest, {
+        digest,
+        deploymentIds: [],
+        deploymentFirstSeenAt: {},
+      });
+    }
+
+    for (const evidence of args.deploymentContractEvidence) {
+      if (evidence.ignoredAt) continue;
+      if (builtinContractIds.has(evidence.contractId)) continue;
+      if (!args.active.has(evidence.contractDigest)) continue;
+      if (
+        !activeContractsByDeployment.get(evidence.deploymentId)?.has(
+          evidence.contractId,
+        )
+      ) continue;
+      const record = metadata.get(evidence.contractDigest) ?? {
+        digest: evidence.contractDigest,
+        deploymentIds: [],
+        deploymentFirstSeenAt: {},
+      };
+      record.contractId = evidence.contractId;
+      if (
+        record.firstSeenAt === undefined ||
+        evidence.firstSeenAt < record.firstSeenAt
+      ) {
+        record.firstSeenAt = evidence.firstSeenAt;
+      }
+      const deploymentFirstSeenAt = record.deploymentFirstSeenAt[
+        evidence.deploymentId
+      ];
+      if (
+        deploymentFirstSeenAt === undefined ||
+        evidence.firstSeenAt < deploymentFirstSeenAt
+      ) {
+        record.deploymentFirstSeenAt[evidence.deploymentId] =
+          evidence.firstSeenAt;
+      }
+      record.deploymentIds.push(evidence.deploymentId);
+      metadata.set(evidence.contractDigest, record);
+    }
+
+    return [...metadata.values()].map((record) => ({
+      ...record,
+      deploymentIds: sortUnique(record.deploymentIds),
+    }));
+  }
+
+  async function collectActiveDigestEvidence(
+    validationOpts?: ActiveCatalogValidationOptions,
+  ): Promise<ActiveDigestEvidence[]> {
+    if (validationOpts?.proposedDigests) {
+      const active = await collectProposedActiveDigests(validationOpts);
+      return [...active].map((digest) => ({
+        digest,
+        deploymentIds: [],
+        deploymentFirstSeenAt: {},
+      }));
+    }
+
+    const deploymentEnvelopes = applyStagedParentDeploymentDisabled(
+      overlayStagedRecords(
+        await opts.deploymentEnvelopeStorage.listEnabled(),
+        validationOpts?.stagedDeploymentEnvelopes,
+        (envelope) => envelope.deploymentId,
+      ),
+      validationOpts,
+    );
+    const deploymentContractEvidence = await opts
+      .deploymentContractEvidenceStorage?.listByDeployments(
+        deploymentEnvelopes.map((envelope) => envelope.deploymentId),
+      ) ?? [];
+    const active = collectActiveContractDigests({
+      builtinDigests: [...builtinDigests],
+      builtinContractIds: opts.builtinContracts.map(({ contract }) =>
+        contract.id
+      ),
+      deploymentEnvelopes,
+      deploymentContractEvidence,
+    });
+    for (const digest of validationOpts?.extraActiveDigests ?? []) {
+      active.add(digest);
+    }
+    return activeDigestEvidenceFromRecords({
+      active,
+      deploymentEnvelopes,
+      deploymentContractEvidence,
+    });
+  }
+
+  function activeDigestEvidenceCompare(
+    left: ActiveDigestEvidence,
+    right: ActiveDigestEvidence,
+  ): number {
+    return (left.firstSeenAt ?? "").localeCompare(right.firstSeenAt ?? "") ||
+      left.digest.localeCompare(right.digest);
+  }
+
+  type EffectiveActiveEntry = ActiveDigestEvidence & ContractEntry;
+
+  function selectEffectiveCompatibleEntries(
+    candidates: Array<ActiveDigestEvidence & ContractEntry>,
+  ): { entries: EffectiveActiveEntry[]; issues: ActiveCatalogIssue[] } {
+    const byContractId = new Map<
+      string,
+      Array<ActiveDigestEvidence & ContractEntry>
+    >();
+    for (const candidate of candidates) {
+      const entries = byContractId.get(candidate.contract.id) ?? [];
+      entries.push(candidate);
+      byContractId.set(candidate.contract.id, entries);
+    }
+
+    type IncompatibleActiveCandidate = {
+      entry: ActiveDigestEvidence & ContractEntry;
+      errorMessage: string;
+    };
+
+    const effective: EffectiveActiveEntry[] = [];
+    const issues: ActiveCatalogIssue[] = [];
+    for (const entries of byContractId.values()) {
+      entries.sort(activeDigestEvidenceCompare);
+      const accepted: Array<ActiveDigestEvidence & ContractEntry> = [];
+      const conflicts: IncompatibleActiveCandidate[] = [];
+      for (const candidate of entries) {
+        const currentCandidate = currentDeploymentEvidenceCandidate(
+          accepted,
+          candidate,
+        );
+        if (!currentCandidate) continue;
+        try {
+          validateActiveContractCompatibility([...accepted, currentCandidate]);
+          replaceDeploymentEvidence(accepted, currentCandidate);
+          accepted.push(currentCandidate);
+        } catch (error) {
+          conflicts.push({
+            entry: currentCandidate,
+            errorMessage: getErrorMessage(error),
+          });
+        }
+      }
+      if (conflicts.length > 0) {
+        const selected = conflicts[conflicts.length - 1];
+        if (!selected) continue;
+        const effectiveDigests = accepted.map((entry) => entry.digest);
+        const effectiveDeploymentIds = sortUnique(
+          accepted.flatMap((entry) => entry.deploymentIds),
+        );
+        const conflictingDigests = sortUnique(
+          conflicts.map(({ entry }) => entry.digest),
+        );
+        const conflictingDeploymentIds = sortUnique(
+          conflicts.flatMap(({ entry }) => entry.deploymentIds),
+        );
+        const forceReplaceSiblingConflicts = conflicts
+          .filter((conflict) => conflict !== selected)
+          .filter(({ entry }) => {
+            try {
+              validateActiveContractCompatibility([selected.entry, entry]);
+              return false;
+            } catch {
+              return true;
+            }
+          });
+        const forceReplaceDeploymentIds = sortUnique([
+          ...effectiveDeploymentIds,
+          ...forceReplaceSiblingConflicts.flatMap(({ entry }) =>
+            entry.deploymentIds
+          ),
+        ]);
+        const forceReplaceDigests = [
+          ...effectiveDigests,
+          ...forceReplaceSiblingConflicts.map(({ entry }) => entry.digest),
+        ];
+        issues.push({
+          issueId: stableIssueId({
+            kind: "incompatible-active-contract",
+            contractId: selected.entry.contract.id,
+            digest: selected.entry.digest,
+            effectiveDigests,
+            conflictingDigests,
+          }),
+          kind: "incompatible-active-contract",
+          contractId: selected.entry.contract.id,
+          digest: selected.entry.digest,
+          message:
+            `Active contract digest '${selected.entry.digest}' for '${selected.entry.contract.id}' conflicts with effective digest '${
+              effectiveDigests[0]
+            }' (${selected.errorMessage})`,
+          deploymentIds: conflictingDeploymentIds,
+          effectiveDigests,
+          conflictingDigest: selected.entry.digest,
+          conflictingDigests,
+          effectiveDeploymentIds,
+          conflictingDeploymentIds,
+          actions: [
+            quarantineAction({
+              action: "keep-current",
+              risk: "recommended",
+              label: "Keep current effective contract",
+              description:
+                "Quarantine the conflicting deployment evidence so the current effective digest remains active.",
+              deploymentIds: conflictingDeploymentIds,
+              digests: conflictingDigests,
+            }),
+            quarantineAction({
+              action: "force-replace",
+              risk: "dangerous",
+              label: "Force replace current contract",
+              description:
+                "Quarantine the current effective deployment evidence so the conflicting digest can become active.",
+              deploymentIds: forceReplaceDeploymentIds,
+              digests: forceReplaceDigests,
+            }),
+          ],
+        });
+      }
+      effective.push(...accepted);
+    }
+    effective.sort((left, right) => left.digest.localeCompare(right.digest));
+    return { entries: effective, issues };
+  }
+
+  function currentDeploymentEvidenceCandidate(
+    accepted: Array<ActiveDigestEvidence & ContractEntry>,
+    candidate: ActiveDigestEvidence & ContractEntry,
+  ): (ActiveDigestEvidence & ContractEntry) | undefined {
+    if (candidate.deploymentIds.length === 0) return candidate;
+    const deploymentIds = candidate.deploymentIds.filter((deploymentId) => {
+      const candidateSeenAt = candidate.deploymentFirstSeenAt[deploymentId] ??
+        candidate.firstSeenAt ?? "";
+      return !accepted.some((entry) =>
+        entry.contract.id === candidate.contract.id &&
+        entry.deploymentIds.includes(deploymentId) &&
+        (entry.deploymentFirstSeenAt[deploymentId] ?? entry.firstSeenAt ??
+            "") >=
+          candidateSeenAt
+      );
+    });
+    if (deploymentIds.length === 0) return undefined;
+    if (deploymentIds.length === candidate.deploymentIds.length) {
+      return candidate;
+    }
+    return { ...candidate, deploymentIds };
+  }
+
+  function replaceDeploymentEvidence(
+    accepted: Array<ActiveDigestEvidence & ContractEntry>,
+    candidate: ActiveDigestEvidence & ContractEntry,
+  ): void {
+    if (candidate.deploymentIds.length === 0) return;
+    const supersededDeployments = new Set(candidate.deploymentIds);
+    for (let index = accepted.length - 1; index >= 0; index -= 1) {
+      const entry = accepted[index];
+      if (entry.contract.id !== candidate.contract.id) continue;
+      const deploymentIds = entry.deploymentIds.filter((deploymentId) =>
+        !supersededDeployments.has(deploymentId) ||
+        ((candidate.deploymentFirstSeenAt[deploymentId] ??
+          candidate.firstSeenAt ?? "") <=
+          (entry.deploymentFirstSeenAt[deploymentId] ?? entry.firstSeenAt ??
+            ""))
+      );
+      if (deploymentIds.length === entry.deploymentIds.length) continue;
+      if (deploymentIds.length === 0) {
+        accepted.splice(index, 1);
+      } else {
+        accepted[index] = { ...entry, deploymentIds };
+      }
+    }
+  }
+
+  function activeUseIssue(
+    entry: EffectiveActiveEntry,
+    error: unknown,
+  ): ActiveCatalogIssue {
+    return {
+      issueId: stableIssueId({
+        kind: "invalid-active-contract-uses",
+        contractId: entry.contract.id,
+        digest: entry.digest,
+      }),
+      kind: "invalid-active-contract-uses",
+      contractId: entry.contract.id,
+      digest: entry.digest,
+      message:
+        `Active contract digest '${entry.digest}' for '${entry.contract.id}' has invalid active dependencies (${
+          getErrorMessage(error)
+        })`,
+      deploymentIds: entry.deploymentIds,
+      actions: entry.deploymentIds.length === 0 ? [] : [
+        quarantineAction({
+          action: "keep-current",
+          risk: "recommended",
+          label: "Quarantine invalid active uses",
+          description:
+            "Quarantine this digest's deployment evidence so active dependencies can be repaired.",
+          deploymentIds: entry.deploymentIds,
+          digests: [entry.digest],
+        }),
+      ],
+    };
+  }
+
+  function selectEntriesWithValidUses(
+    entries: EffectiveActiveEntry[],
+  ): { entries: EffectiveActiveEntry[]; issues: ActiveCatalogIssue[] } {
+    const issues: ActiveCatalogIssue[] = [];
+    let remaining = [...entries];
+    let changed = true;
+    while (changed) {
+      changed = false;
+      const activeById = createActiveContractLookup(remaining);
+      const next: EffectiveActiveEntry[] = [];
+      for (const entry of remaining) {
+        try {
+          resolveContractUses(entry.contract, (_alias, use, options) => {
+            const target = activeById.get(use.contract);
+            if (!target) {
+              if (!options.required) return null;
+              throw new Error(
+                `Dependency references inactive contract '${use.contract}'`,
+              );
+            }
+            return target;
+          });
+          next.push(entry);
+        } catch (error) {
+          issues.push(activeUseIssue(entry, error));
+          changed = true;
+        }
+      }
+      remaining = next;
+    }
+    return { entries: remaining, issues };
+  }
+
+  async function loadEffectiveActiveCatalogState(
+    validationOpts?: ActiveCatalogValidationOptions,
+    loadOpts?: { skipActiveUsesValidation?: boolean },
+  ): Promise<{ entries: ContractEntry[]; issues: ActiveCatalogIssue[] }> {
+    const digestEvidence = await collectActiveDigestEvidence(validationOpts);
+    const candidates: Array<ActiveDigestEvidence & ContractEntry> = [];
+    const issues: ActiveCatalogIssue[] = [];
+    for (const evidence of digestEvidence) {
+      const result = await loadEffectiveEntry({
+        digest: evidence.digest,
+        contractId: evidence.contractId,
+        deploymentIds: evidence.deploymentIds,
+      });
+      if (result.issue) {
+        issues.push(result.issue);
+        continue;
+      }
+      if (result.entry) {
+        candidates.push({ ...evidence, ...result.entry });
+      }
+    }
+
+    const compatible = selectEffectiveCompatibleEntries(candidates);
+    const uses = loadOpts?.skipActiveUsesValidation === true
+      ? { entries: compatible.entries, issues: [] }
+      : selectEntriesWithValidUses(compatible.entries);
+    return {
+      entries: uses.entries,
+      issues: [...issues, ...compatible.issues, ...uses.issues],
+    };
+  }
+
   async function validateActiveCatalogEntries(
     validationOpts?: ActiveCatalogValidationOptions,
     opts?: { skipActiveUsesValidation?: boolean },
   ): Promise<Array<{ digest: string; contract: TrellisContractV1 }>> {
+    const effective = await loadEffectiveActiveCatalogState(
+      validationOpts,
+      opts,
+    );
+    const firstIssue = effective.issues[0];
+    if (firstIssue) {
+      throw new Error(summarizeActiveCatalogIssue(firstIssue));
+    }
     const activeEntries = await loadActiveEntries(validationOpts);
     validateActiveContractCompatibility(activeEntries);
     if (opts?.skipActiveUsesValidation !== true) {
@@ -584,7 +1149,7 @@ export function createContractsModule(opts: {
   async function refreshActiveContracts(
     validationOpts?: ActiveCatalogValidationOptions,
   ): Promise<void> {
-    await validateActiveCatalog(validationOpts);
+    await loadEffectiveActiveCatalogState(validationOpts);
   }
 
   async function refreshActiveContractsForRemoval(
@@ -601,7 +1166,11 @@ export function createContractsModule(opts: {
       opts?: { includeInactive?: boolean },
     ) => {
       if (!opts?.includeInactive) {
-        const active = await collectProposedActiveDigests();
+        const active = new Set(
+          (await loadEffectiveActiveCatalogState()).entries.map((entry) =>
+            entry.digest
+          ),
+        );
         if (!active.has(digest)) {
           return undefined;
         }
@@ -614,13 +1183,14 @@ export function createContractsModule(opts: {
       return entry?.contract;
     },
     getKnownEntriesByContractId,
-    getActiveEntries: validateActiveCatalog,
+    getActiveEntries: async () =>
+      (await loadEffectiveActiveCatalogState()).entries,
     getActiveContractsById: async (id: string) =>
-      getContractsById(await validateActiveCatalog(), id),
+      getContractsById((await loadEffectiveActiveCatalogState()).entries, id),
     getKnownContractsById: async (id: string) =>
       getContractsById(await getKnownEntriesByContractId(id), id),
     findActiveSubject: async (subject: string) => {
-      const entries = await validateActiveCatalog();
+      const entries = (await loadEffectiveActiveCatalogState()).entries;
       const byDigest = new Map(
         entries.map((entry) => [entry.digest, entry.contract]),
       );
@@ -631,9 +1201,14 @@ export function createContractsModule(opts: {
       return findActiveSubject(indexes.activeSubjectIndex, subject);
     },
     getActiveCatalog: async () =>
-      getActiveCatalog(await validateActiveCatalog()),
+      getActiveCatalog((await loadEffectiveActiveCatalogState()).entries),
+    getActiveCatalogState: async () => await loadEffectiveActiveCatalogState(),
+    getActiveCatalogIssues: async () =>
+      (await loadEffectiveActiveCatalogState()).issues,
     getActiveCapabilityDefinitions: async () =>
-      getActiveCapabilityDefinitions(await validateActiveCatalog()),
+      getActiveCapabilityDefinitions(
+        (await loadEffectiveActiveCatalogState()).entries,
+      ),
     installDeviceContract,
     installServiceContract,
     refreshActiveContracts,

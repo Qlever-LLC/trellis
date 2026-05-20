@@ -114,6 +114,11 @@ pub(crate) fn required_integration_coverage() -> Vec<RequiredCoverage> {
             expectation: "The suite must prove live auth-callout permission derivation for caller-visible capabilities, including operation call/read/cancel access and stale grant denial after capability changes.",
         },
         RequiredCoverage {
+            id: "active-catalog-repair",
+            title: "Active catalog issue repair and restart persistence",
+            expectation: "The suite must create incompatible active service contract evidence through public bootstrap APIs, prove the current effective digest remains callable, block conflicting service startup, resolve one issue with Auth.CatalogIssues.Resolve, and verify unresolved issues survive Trellis restart.",
+        },
+        RequiredCoverage {
             id: "observability-trace-matrix",
             title: "Observability and trace propagation matrix",
             expectation: "The suite must prove request correlation and trace propagation across RPC, operations, events, feeds, transfer, jobs, and auth/admin control-plane calls through live NATS/auth-callout.",
@@ -176,6 +181,7 @@ mod tests {
         assert!(ids.contains(&"app-identity-envelope-approval"));
         assert!(ids.contains(&"optional-uses-dependency-closure"));
         assert!(ids.contains(&"capability-permission-matrix"));
+        assert!(ids.contains(&"active-catalog-repair"));
         assert!(ids.contains(&"observability-trace-matrix"));
     }
 

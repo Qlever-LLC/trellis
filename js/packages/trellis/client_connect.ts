@@ -726,6 +726,17 @@ async function createRuntimeUserAuthenticator(args: {
   let refreshInFlight: Promise<void> | null = null;
   let recoveryInFlight: Promise<void> | null = null;
 
+  const refreshCurrentToken = async (): Promise<void> => {
+    const currentIat = correctedIatSeconds(
+      args.deps.now(),
+      args.offsetState.serverClockOffsetMs,
+    );
+    const nextToken = await buildRuntimeAuthToken(currentIat);
+    precomputedTokens.set(currentIat, nextToken);
+    latestPreparedIat = Math.max(latestPreparedIat, currentIat);
+    currentToken = nextToken;
+  };
+
   const refresh = (): Promise<void> => {
     if (refreshInFlight) return refreshInFlight;
     refreshInFlight = (async () => {
@@ -769,7 +780,7 @@ async function createRuntimeUserAuthenticator(args: {
         precomputedTokens.clear();
         latestPreparedIat = 0;
       }
-      await refresh();
+      await refreshCurrentToken();
     })().finally(() => {
       recoveryInFlight = null;
     });
@@ -801,16 +812,13 @@ async function createRuntimeUserAuthenticator(args: {
         const nextToken = precomputedTokens.get(currentIat);
         if (nextToken) {
           currentToken = nextToken;
-          if (currentIat >= latestPreparedIat - 60) {
-            void refresh();
-          }
           return { auth_token: currentToken };
         }
         if (args.recoverBrowserAuth) {
           void recover();
           return { auth_token: currentToken };
         }
-        void refresh();
+        void refreshCurrentToken();
         return { auth_token: currentToken };
       },
     ],

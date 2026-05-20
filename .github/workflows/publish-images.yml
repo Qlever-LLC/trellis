@@ -55,27 +55,8 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Seed generated SDK manifests for cargo metadata
-        shell: bash
-        working-directory: rust
-        run: |
-          set -euo pipefail
-
-          workspace_version="$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f 2)"
-
-          write_stub_manifest() {
-            local dir="$1"
-            local crate_name="$2"
-
-            mkdir -p "$dir"
-            printf '[package]\nname = "%s"\nversion = "%s"\nedition = "2021"\nlicense = "Apache-2.0"\n\n[dependencies]\n' "$crate_name" "$workspace_version" > "$dir/Cargo.toml"
-          }
-
-          write_stub_manifest ../generated/packages/cargo/auth trellis-sdk-auth
-          write_stub_manifest ../generated/packages/cargo/trellis-core trellis-sdk-core
-          write_stub_manifest ../generated/packages/cargo/health trellis-sdk-health
-          write_stub_manifest ../generated/packages/cargo/jobs trellis-sdk-jobs
-          write_stub_manifest ../generated/packages/cargo/state trellis-sdk-state
+      - name: Bootstrap generated SDK artifacts
+        run: cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
 
       - name: Prepare release version
         run: cargo run --manifest-path xtask/Cargo.toml -- release prepare --tag "${RELEASE_TAG}"
@@ -169,27 +150,8 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Seed generated SDK manifests for cargo metadata
-        shell: bash
-        working-directory: rust
-        run: |
-          set -euo pipefail
-
-          workspace_version="$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f 2)"
-
-          write_stub_manifest() {
-            local dir="$1"
-            local crate_name="$2"
-
-            mkdir -p "$dir"
-            printf '[package]\nname = "%s"\nversion = "%s"\nedition = "2021"\nlicense = "Apache-2.0"\n\n[dependencies]\n' "$crate_name" "$workspace_version" > "$dir/Cargo.toml"
-          }
-
-          write_stub_manifest ../generated/packages/cargo/auth trellis-sdk-auth
-          write_stub_manifest ../generated/packages/cargo/trellis-core trellis-sdk-core
-          write_stub_manifest ../generated/packages/cargo/health trellis-sdk-health
-          write_stub_manifest ../generated/packages/cargo/jobs trellis-sdk-jobs
-          write_stub_manifest ../generated/packages/cargo/state trellis-sdk-state
+      - name: Bootstrap generated SDK artifacts
+        run: cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
 
       - name: Prepare release version
         run: cargo run --manifest-path xtask/Cargo.toml -- release prepare --tag "${RELEASE_TAG}"

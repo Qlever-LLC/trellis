@@ -196,6 +196,12 @@ function decodeContractEvidenceRow(
     contract: parseJsonField("deployment contract evidence", row.contractJson),
     firstSeenAt: row.firstSeenAt,
     lastSeenAt: row.lastSeenAt,
+    ignoredAt: row.ignoredAt,
+    ignoredBy: row.ignoredByJson === null ? null : parseJsonField(
+      "deployment contract evidence ignored_by",
+      row.ignoredByJson,
+    ),
+    ignoreReason: row.ignoreReason,
   });
 }
 
@@ -210,6 +216,11 @@ function encodeContractEvidence(
     contractJson: JSON.stringify(decoded.contract),
     firstSeenAt: decoded.firstSeenAt,
     lastSeenAt: decoded.lastSeenAt,
+    ignoredAt: decoded.ignoredAt ?? null,
+    ignoredByJson: decoded.ignoredBy === undefined || decoded.ignoredBy === null
+      ? null
+      : JSON.stringify(decoded.ignoredBy),
+    ignoreReason: decoded.ignoreReason ?? null,
   };
 }
 
@@ -1275,8 +1286,43 @@ export class SqlDeploymentContractEvidenceRepository {
           contractJson: row.contractJson,
           firstSeenAt: row.firstSeenAt,
           lastSeenAt: row.lastSeenAt,
+          ignoredAt: row.ignoredAt,
+          ignoredByJson: row.ignoredByJson,
+          ignoreReason: row.ignoreReason,
         },
       });
+  }
+
+  /** Marks selected deployment contract evidence rows as ignored without deleting history. */
+  async ignoreEvidence(args: {
+    deploymentIds: Iterable<string>;
+    contractDigests: Iterable<string>;
+    ignoredAt: string;
+    ignoredBy: Record<string, unknown>;
+    reason: string;
+  }): Promise<DeploymentContractEvidence[]> {
+    const deploymentIds = [...new Set(args.deploymentIds)];
+    const contractDigests = [...new Set(args.contractDigests)];
+    if (deploymentIds.length === 0 || contractDigests.length === 0) return [];
+    await this.#db.update(deploymentContractEvidence).set({
+      ignoredAt: args.ignoredAt,
+      ignoredByJson: JSON.stringify(args.ignoredBy),
+      ignoreReason: args.reason,
+    }).where(and(
+      inArray(deploymentContractEvidence.deploymentId, deploymentIds),
+      inArray(deploymentContractEvidence.contractDigest, contractDigests),
+    ));
+    const rows = await this.#db.select().from(deploymentContractEvidence).where(
+      and(
+        inArray(deploymentContractEvidence.deploymentId, deploymentIds),
+        inArray(deploymentContractEvidence.contractDigest, contractDigests),
+      ),
+    ).orderBy(
+      deploymentContractEvidence.deploymentId,
+      deploymentContractEvidence.contractId,
+      deploymentContractEvidence.contractDigest,
+    );
+    return rows.map((row) => decodeContractEvidenceRow(row));
   }
 
   /** Updates deployment contract evidence. */
@@ -1569,7 +1615,9 @@ export class SqlEnvelopeExpansionRequestRepository {
   }, query: BoundedListQuery): Promise<ListPage<EnvelopeExpansionRequest>> {
     const conditions: SQL[] = [];
     if (filters.deploymentId !== undefined) {
-      conditions.push(eq(envelopeExpansionRequests.deploymentId, filters.deploymentId));
+      conditions.push(
+        eq(envelopeExpansionRequests.deploymentId, filters.deploymentId),
+      );
     }
     if (filters.state !== undefined) {
       conditions.push(eq(envelopeExpansionRequests.state, filters.state));
@@ -1579,7 +1627,9 @@ export class SqlEnvelopeExpansionRequestRepository {
     const [countRow] = await this.#db.select({ count: count() }).from(
       envelopeExpansionRequests,
     ).where(where);
-    const rows = await this.#db.select().from(envelopeExpansionRequests).where(where)
+    const rows = await this.#db.select().from(envelopeExpansionRequests).where(
+      where,
+    )
       .orderBy(
         envelopeExpansionRequests.deploymentId,
         envelopeExpansionRequests.createdAt,
@@ -1587,7 +1637,9 @@ export class SqlEnvelopeExpansionRequestRepository {
       ).limit(limit).offset(offset);
     const requests: EnvelopeExpansionRequest[] = [];
     for (const row of rows) {
-      requests.push(decodeExpansionRequest(row, await this.#deltaForRequest(row.requestId)));
+      requests.push(
+        decodeExpansionRequest(row, await this.#deltaForRequest(row.requestId)),
+      );
     }
     return listPage(requests, countRow?.count ?? 0, query);
   }

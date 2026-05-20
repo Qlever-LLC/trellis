@@ -21,7 +21,9 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
   const hrefs = sections.flatMap((section) =>
     section.items.map((item) => item.href)
   );
-  const operateSection = sections.find((section) => section.title === "Operate");
+  const operateSection = sections.find((section) =>
+    section.title === "Operate"
+  );
   const manageSection = sections.find((section) => section.title === "Manage");
 
   deepEqual(operateSection?.items.map((item) => item.label), [
@@ -45,9 +47,9 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
     icon: "phone",
   });
   deepEqual(manageSection?.items[2], {
-    href: "/admin/authority",
-    label: "Authority",
-    icon: "shield",
+    href: "/admin/users",
+    label: "Users",
+    icon: "users",
   });
   ok(labels.includes("Jobs"));
   ok(!labels.includes("API Catalog"));
@@ -57,10 +59,10 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
   ok(labels.includes("Grants"));
   ok(!labels.includes("Deployments"));
   ok(labels.includes("Devices"));
-  ok(labels.includes("Authority"));
+  ok(!labels.includes("Authority"));
   ok(hrefs.includes("/admin/services"));
   ok(hrefs.includes("/admin/devices"));
-  ok(hrefs.includes("/admin/authority"));
+  ok(!hrefs.map(String).includes("/admin/authority"));
   ok(!hrefs.map(String).includes("/admin/deployments"));
   ok(!hrefs.map(String).includes("/admin/envelopes"));
   ok(hrefs.includes("/admin/grants"));
@@ -74,8 +76,11 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
 });
 
 Deno.test("control panel titles cover new admin routes", () => {
-  deepEqual(getPageTitle("/admin/authority"), "Authority");
   deepEqual(getPageTitle("/admin/services"), "Services");
+  deepEqual(
+    getPageTitle("/admin/services/repair"),
+    "Repair Service Catalog",
+  );
   deepEqual(getPageTitle("/admin/devices"), "Devices");
   deepEqual(getPageTitle("/admin/jobs"), "Jobs");
   deepEqual(getPageTitle("/admin/grants"), "Grants");

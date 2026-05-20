@@ -29,6 +29,13 @@
       "when": 1779235200000,
       "tag": "00003_dynamic_grant_override_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779321600000,
+      "tag": "00004_contract_evidence_quarantine",
+      "breakpoints": true
     }
   ]
 }

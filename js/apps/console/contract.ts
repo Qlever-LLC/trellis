@@ -1,5 +1,6 @@
 import { defineAppContract } from "@qlever-llc/trellis/contracts";
 import { sdk as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
+import { sdk as trellisCore } from "@qlever-llc/trellis/sdk/core";
 import { sdk as trellisHealth } from "@qlever-llc/trellis/sdk/health";
 import { sdk as trellisJobs } from "@qlever-llc/trellis/sdk/jobs";
 
@@ -15,6 +16,7 @@ export const contract = defineAppContract(
           rpc: {
             call: [
               "Auth.Deployments.Create",
+              "Auth.CatalogIssues.Resolve",
               "Auth.DeviceUserAuthorities.Reviews.Decide",
               "Auth.Devices.Disable",
               "Auth.ServiceInstances.Disable",
@@ -73,6 +75,11 @@ export const contract = defineAppContract(
               "Auth.Portals.Routes.Put",
               "Auth.Portals.Routes.Remove",
             ],
+          },
+        }),
+        core: trellisCore.use({
+          rpc: {
+            call: ["Trellis.Catalog", "Trellis.Contract.Get"],
           },
         }),
         health: trellisHealth.use({

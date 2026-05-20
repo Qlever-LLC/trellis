@@ -3,6 +3,9 @@ use miette::{miette, IntoDiagnostic, Result};
 use crate::admin::run_admin_api_fixture;
 use crate::app_identity_approval::run_app_identity_approval_fixture;
 use crate::browser::{complete_admin_bootstrap, complete_local_login, BrowserContainer};
+use crate::catalog_repair::{
+    run_catalog_repair_fixture, verify_catalog_repair_persistence_after_restart,
+};
 use crate::cli::IntegrationArgs;
 use crate::container::IntegrationWorkdir;
 use crate::device_activation::run_device_activation_fixture;
@@ -48,6 +51,7 @@ pub(crate) fn admin_setup_contract_json() -> Result<String> {
             "Auth.CapabilityGroups.Get",
             "Auth.CapabilityGroups.List",
             "Auth.CapabilityGroups.Put",
+            "Auth.CatalogIssues.Resolve",
             "Auth.Connections.List",
             "Auth.Deployments.Create",
             "Auth.Deployments.Disable",
@@ -195,7 +199,7 @@ impl IntegrationRunner {
         let trellis_runtime = TrellisRuntime::start(
             &workdir,
             &manifest,
-            bootstrap_options,
+            bootstrap_options.clone(),
             &nats.server_url(),
             &nats.websocket_url(),
             portal.build_dir(),
@@ -333,8 +337,32 @@ impl IntegrationRunner {
         let jobs_passing_cases =
             run_jobs_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
         eprintln!("integration preflight: Rust Jobs public API fixture passed");
+        eprintln!("integration preflight: running active catalog repair fixture");
+        let (catalog_repair_passing_cases, catalog_repair_persistence_check) =
+            run_catalog_repair_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
+        eprintln!("integration preflight: active catalog repair fixture passed");
         assert_jobs_shared_streams(&nats.server_url(), &nats_dir.join(trellis_creds)).await?;
         eprintln!("integration preflight: shared Jobs streams are present");
+        eprintln!("integration preflight: restarting Trellis runtime for catalog repair persistence check");
+        drop(trellis_runtime);
+        let trellis_runtime = TrellisRuntime::start(
+            &workdir,
+            &manifest,
+            bootstrap_options,
+            &nats.server_url(),
+            &nats.websocket_url(),
+            portal.build_dir(),
+        )?;
+        eprintln!(
+            "integration preflight: Trellis runtime restarted {}",
+            trellis_runtime.public_url()
+        );
+        let catalog_repair_restart_passing_cases = verify_catalog_repair_persistence_after_restart(
+            &restored_outcome,
+            &catalog_repair_persistence_check,
+        )
+        .await?;
+        eprintln!("integration preflight: active catalog repair persistence check passed");
         let passing_cases = admin_api_passing_cases
             + device_activation_passing_cases
             + rpc_passing_cases
@@ -348,7 +376,9 @@ impl IntegrationRunner {
             + transfer_passing_cases
             + feeds_passing_cases
             + resources_passing_cases
-            + jobs_passing_cases;
+            + jobs_passing_cases
+            + catalog_repair_passing_cases
+            + catalog_repair_restart_passing_cases;
         print_required_coverage(&required_coverage);
         print_known_failures(&known_failures);
         eprintln!(

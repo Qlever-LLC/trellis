@@ -4,6 +4,7 @@ pub mod admin;
 pub mod app;
 pub mod app_identity_approval;
 pub mod browser;
+pub mod catalog_repair;
 pub mod cli;
 pub mod container;
 pub mod device_activation;

@@ -49,6 +49,16 @@
   thrown exceptions.
 - Exported public functions, classes, and methods need JSDoc. See
   `design/core/observability-patterns.md`.
+- Format files as part of the normal edit loop, before type checks and tests.
+  For JS, TS, Svelte, JSON, Markdown, CSS, and SVG files, run
+  `rtk deno fmt -c js/deno.json <changed files>`. For Rust files, run
+  `rtk cargo fmt --manifest-path rust/Cargo.toml --package <crate>` when the
+  crate is known, or `rustfmt --edition 2021 <changed .rs files>` for narrow
+  file-scoped edits. If generated artifacts are affected, run prepare first and
+  then verify generated Rust formatting with
+  `rtk cargo fmt --manifest-path rust/Cargo.toml --all --check`. Do not
+  bulk-format unrelated drift unless the user asks for that cleanup; report it
+  separately.
 - When changes affect contracts, generated SDKs, or runtime surfaces that depend
   on generated artifacts, run `cd js && deno task prepare` and
   `cd rust && cargo xtask prepare` as part of verification.

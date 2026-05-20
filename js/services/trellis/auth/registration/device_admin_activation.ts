@@ -34,6 +34,7 @@ export async function registerDeviceAdminAndActivation(
         | "getActiveEntries"
         | "getBuiltinDigests"
         | "getContract"
+        | "getActiveCatalogIssues"
         | "validateContract"
         | "refreshActiveContracts"
         | "refreshActiveContractsForRemoval"
@@ -87,6 +88,7 @@ export async function registerDeviceAdminAndActivation(
     validateActiveCatalog: deps.contracts.validateActiveCatalog,
     validateActiveCatalogForRemoval:
       deps.contracts.validateActiveCatalogForRemoval,
+    getActiveCatalogIssues: deps.contracts.getActiveCatalogIssues,
     builtinContractDigests: deps.contracts.getBuiltinDigests(),
   });
   const kick = createKick(deps);
@@ -106,6 +108,8 @@ export async function registerDeviceAdminAndActivation(
     kick,
     refreshActiveContracts: deps.contracts.refreshActiveContracts,
     validateActiveCatalog: deps.contracts.validateActiveCatalog,
+    validateActiveCatalogForRemoval:
+      deps.contracts.validateActiveCatalogForRemoval,
     connectionsKV: deps.connectionsKV,
     sessionStorage: deps.sessionStorage,
     deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
@@ -200,12 +204,12 @@ export async function registerDeviceAdminAndActivation(
       return {
         entries: [
           ...servicePage.entries.map((deployment) => ({
-          kind: "service" as const,
-          ...deployment,
+            kind: "service" as const,
+            ...deployment,
           })),
           ...devicePage.entries.map((deployment) => ({
-          kind: "device" as const,
-          ...deployment,
+            kind: "device" as const,
+            ...deployment,
           })),
         ],
         count: servicePage.count + devicePage.count,
@@ -227,6 +231,10 @@ export async function registerDeviceAdminAndActivation(
       deployment: { kind: "device" as const, ...deployment },
     }));
   });
+  await deps.trellis.mount(
+    "Auth.CatalogIssues.Resolve",
+    handlers.resolveCatalogIssue,
+  );
   await deps.trellis.mount("Auth.Deployments.Enable", async (args) => {
     if (args.input.kind === "service") {
       const result = await enableServiceDeployment(args);

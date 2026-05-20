@@ -261,7 +261,10 @@ async function hasLiveConnection(
 }
 
 export function createTrellisCatalogHandler(
-  contractsModule: Pick<ContractsModule, "getActiveEntries">,
+  contractsModule: Pick<
+    ContractsModule,
+    "getActiveCatalogState"
+  >,
   deploymentEnvelopeStorage: DeploymentEnvelopeStorage,
   deploymentContractEvidenceStorage: DeploymentContractEvidenceStorage,
   logger: CatalogLogger = noopLogger,
@@ -271,7 +274,7 @@ export function createTrellisCatalogHandler(
   > => {
     logger.trace({ rpc: "Trellis.Catalog" }, "RPC request");
     try {
-      const entries = await contractsModule.getActiveEntries();
+      const { entries, issues } = await contractsModule.getActiveCatalogState();
       const availableEntries: ActiveEntry[] = [];
       for (const entry of entries) {
         const envelopes = await deploymentEnvelopeStorage
@@ -300,7 +303,11 @@ export function createTrellisCatalogHandler(
         );
       const catalog = Value.Parse(
         TrellisCatalogSchema,
-        { format: "trellis.catalog.v1", contracts },
+        {
+          format: "trellis.catalog.v1",
+          contracts,
+          issues,
+        },
       ) as TrellisCatalog;
       return Result.ok({ catalog });
     } catch (error) {

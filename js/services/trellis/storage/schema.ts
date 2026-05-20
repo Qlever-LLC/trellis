@@ -509,6 +509,9 @@ export const deploymentContractEvidence = sqliteTable(
     contractJson: text("contract_json").notNull(),
     firstSeenAt: text("first_seen_at").notNull(),
     lastSeenAt: text("last_seen_at").notNull(),
+    ignoredAt: text("ignored_at"),
+    ignoredByJson: text("ignored_by_json"),
+    ignoreReason: text("ignore_reason"),
   },
   (table) => [
     primaryKey({ columns: [table.deploymentId, table.contractDigest] }),

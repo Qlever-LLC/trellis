@@ -40,6 +40,7 @@ import {
   collectDeploymentContractEvidenceDigests,
   purgeUnusedInstalledContracts,
 } from "./contract_gc.ts";
+import type { ActiveCatalogIssue } from "../../catalog/runtime.ts";
 type RpcUser =
   & StaticDecode<
     typeof AuthRequestsValidateResponseSchema
@@ -139,11 +140,16 @@ type ActiveCatalogValidator = (opts: {
 type ActiveCatalogDeps = ActiveContractsDeps & {
   validateActiveCatalog: ActiveCatalogValidator;
   validateActiveCatalogForRemoval?: ActiveCatalogValidator;
+  getActiveCatalogIssues?: () => Promise<ActiveCatalogIssue[]>;
 };
 
 export type AdminRpcDeps = {
   browserFlowsKV: RuntimeKV<unknown>;
   builtinContractDigests?: Iterable<string>;
+  getActiveCatalogIssues?: () => Promise<ActiveCatalogIssue[]>;
+  refreshActiveContracts: (
+    opts?: Parameters<ActiveCatalogValidator>[0],
+  ) => Promise<void>;
   connectionsKV: RuntimeKV<Connection>;
   contractApprovalStorage:
     & Pick<
@@ -171,12 +177,15 @@ export type AdminRpcDeps = {
       state?: string;
       deploymentIds?: Iterable<string>;
     }, query: BoundedListQuery): Promise<DeviceActivationReviewRecord[]>;
-    listFilteredPage(filters: {
-      instanceId?: string;
-      deploymentId?: string;
-      state?: string;
-      deploymentIds?: Iterable<string>;
-    }, query: BoundedListQuery): Promise<ListPage<DeviceActivationReviewRecord>>;
+    listFilteredPage(
+      filters: {
+        instanceId?: string;
+        deploymentId?: string;
+        state?: string;
+        deploymentIds?: Iterable<string>;
+      },
+      query: BoundedListQuery,
+    ): Promise<ListPage<DeviceActivationReviewRecord>>;
   };
   deviceActivationStorage: {
     get(instanceId: string): Promise<DeviceActivation | undefined>;
@@ -221,7 +230,12 @@ export type AdminRpcDeps = {
       SqlDeploymentContractEvidenceRepository,
       "listPage" | "listByDeployment"
     >
-    & Partial<Pick<SqlDeploymentContractEvidenceRepository, "listByDigests">>;
+    & Partial<
+      Pick<
+        SqlDeploymentContractEvidenceRepository,
+        "listByDigests" | "ignoreEvidence"
+      >
+    >;
   deviceInstanceStorage: {
     get(instanceId: string): Promise<DeviceInstance | undefined>;
     put(record: DeviceInstance): Promise<void>;
@@ -288,6 +302,11 @@ export type AdminRpcDeps = {
 
 type AdminRpcContext = AdminRpcDeps;
 
+type CatalogIssueResolveRequest = {
+  issueId: string;
+  action: "keep-current" | "force-replace";
+};
+
 type DeviceDeploymentRpcContext = AdminRpcDeps;
 
 type AdminRpcHandler<Args, Response> = (
@@ -300,6 +319,95 @@ function bindAdminRpcHandler<Args, Response>(
   handler: AdminRpcHandler<Args, Response>,
 ): (args: Args) => Promise<Response> {
   return (args) => handler(args, deps);
+}
+
+function authCallerEvidenceActor(caller: RpcUser): Record<string, unknown> {
+  if (caller.type !== "user") {
+    return { participantKind: caller.type };
+  }
+  return {
+    participantKind: caller.participantKind,
+    userId: caller.userId,
+    identity: caller.identity,
+  };
+}
+
+async function authResolveCatalogIssueHandler(
+  { input: req, context: { caller } }: {
+    input: CatalogIssueResolveRequest;
+    context: { caller: RpcUser };
+  },
+  ctx: AdminRpcContext,
+): Promise<
+  Result<{
+    success: true;
+    issueId: string;
+    action: "keep-current" | "force-replace";
+    ignoredEvidence: Awaited<
+      ReturnType<
+        NonNullable<
+          AdminRpcDeps["deploymentContractEvidenceStorage"]
+        >["listByDeployment"]
+      >
+    >;
+  }, AuthError | UnexpectedError>
+> {
+  const authorized = requireAdminFreshAuth(caller);
+  if (authorized.isErr()) return authorized;
+  if (!ctx.getActiveCatalogIssues) {
+    return Result.err(
+      new UnexpectedError({
+        cause: new Error(
+          "catalog issue resolution requires getActiveCatalogIssues",
+        ),
+      }),
+    );
+  }
+  if (!ctx.deploymentContractEvidenceStorage?.ignoreEvidence) {
+    return Result.err(
+      new UnexpectedError({
+        cause: new Error(
+          "catalog issue resolution requires deploymentContractEvidenceStorage.ignoreEvidence",
+        ),
+      }),
+    );
+  }
+  try {
+    const issue = (await ctx.getActiveCatalogIssues()).find((candidate) =>
+      candidate.issueId === req.issueId
+    );
+    if (!issue) {
+      return invalidRequest({
+        issueId: req.issueId,
+      });
+    }
+    const action = issue.actions.find((candidate) =>
+      candidate.action === req.action
+    );
+    if (!action) {
+      return invalidRequest({
+        issueId: req.issueId,
+        action: req.action,
+      });
+    }
+    const ignoredEvidence = await ctx.deploymentContractEvidenceStorage
+      .ignoreEvidence({
+        deploymentIds: action.deploymentIds,
+        contractDigests: action.digests,
+        ignoredAt: new Date().toISOString(),
+        ignoredBy: authCallerEvidenceActor(caller),
+        reason: `Resolved catalog issue ${req.issueId} with ${req.action}`,
+      });
+    await ctx.refreshActiveContracts();
+    return Result.ok({
+      success: true,
+      issueId: req.issueId,
+      action: req.action,
+      ignoredEvidence,
+    });
+  } catch (error) {
+    return Result.err(new UnexpectedError({ cause: toError(error) }));
+  }
 }
 
 function isAdmin(user: RpcUser): boolean {
@@ -719,7 +827,10 @@ async function listDeviceActivationReviews(
   },
   query: BoundedListQuery,
 ): Promise<ListPage<DeviceActivationReviewRecord>> {
-  return await ctx.deviceActivationReviewStorage.listFilteredPage(filters, query);
+  return await ctx.deviceActivationReviewStorage.listFilteredPage(
+    filters,
+    query,
+  );
 }
 
 async function listDeviceActivationReviewsForDeploymentRemoval(
@@ -1692,6 +1803,10 @@ export function createDeviceAdminHandlers(
     decideDeviceActivationReview: bindAdminRpcHandler(
       deps,
       authDecideDeviceActivationReviewHandler,
+    ),
+    resolveCatalogIssue: bindAdminRpcHandler(
+      deps,
+      authResolveCatalogIssueHandler,
     ),
   };
 }

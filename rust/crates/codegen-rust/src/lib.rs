@@ -1,7 +1,9 @@
 //! Rust SDK generation from canonical Trellis contract manifests.
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use serde::Deserialize;
 use trellis_contracts::{load_manifest, ContractUseRef};
@@ -54,6 +56,9 @@ pub enum CodegenRustError {
 
     #[error("invalid generated Rust source for {path}: {message}")]
     RustSyntax { path: String, message: String },
+
+    #[error("failed to format generated Rust source for {path}: {message}")]
+    RustFormat { path: String, message: String },
 }
 
 /// Options for generating one Rust SDK crate.
@@ -2080,10 +2085,49 @@ fn format_generated_rust_source(
 ) -> Result<String, CodegenRustError> {
     let path = path.as_ref().display().to_string();
     let file = syn::parse_file(contents).map_err(|error| CodegenRustError::RustSyntax {
-        path,
+        path: path.clone(),
         message: error.to_string(),
     })?;
-    Ok(prettyplease::unparse(&file))
+    format_rust_source_with_rustfmt(&path, &prettyplease::unparse(&file))
+}
+
+fn format_rust_source_with_rustfmt(path: &str, contents: &str) -> Result<String, CodegenRustError> {
+    let mut child = Command::new("rustfmt")
+        .args(["--edition", "2021"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| CodegenRustError::RustFormat {
+            path: path.to_string(),
+            message: format!("failed to start rustfmt: {error}"),
+        })?;
+
+    child
+        .stdin
+        .take()
+        .expect("rustfmt stdin should be piped")
+        .write_all(contents.as_bytes())
+        .map_err(|error| CodegenRustError::RustFormat {
+            path: path.to_string(),
+            message: format!("failed to write rustfmt input: {error}"),
+        })?;
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| CodegenRustError::RustFormat {
+            path: path.to_string(),
+            message: format!("failed to read rustfmt output: {error}"),
+        })?;
+
+    if !output.status.success() {
+        return Err(CodegenRustError::RustFormat {
+            path: path.to_string(),
+            message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        });
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn key_to_pascal(value: &str) -> String {
@@ -2802,7 +2846,8 @@ mod tests {
         assert!(client_rs.contains("pub async fn trellis_catalog("));
         assert!(client_rs.contains("pub async fn audit_feed("));
         assert!(client_rs.contains("futures_util::stream::BoxStream"));
-        assert!(client_rs.contains("self.inner.feed::<crate::feeds::AuditFeedFeedDescriptor>"));
+        assert!(client_rs.contains(".feed::<"));
+        assert!(client_rs.contains("crate::feeds::AuditFeedFeedDescriptor"));
         assert!(client_rs.contains("trellis_client::OperationInvoker<"));
         assert!(client_rs.contains("crate::operations::TrellisProcessOperation"));
         assert!(server_rs.contains("register_trellis_catalog"));
@@ -3507,9 +3552,8 @@ mod tests {
         assert!(evidence_rs.contains("sdk::operations::EvidenceUploadOperation"));
         assert!(evidence_rs.contains("self.inner.evidence_upload()"));
         assert!(evidence_rs.contains("pub async fn subscribe_evidence_uploaded("));
-        assert!(evidence_rs.contains(
-            "self.transport.subscribe::<sdk::events::EvidenceUploadedEventDescriptor>().await"
-        ));
+        assert!(evidence_rs.contains(".subscribe::<"));
+        assert!(evidence_rs.contains("sdk::events::EvidenceUploadedEventDescriptor"));
         assert!(evidence_rs.contains("pub async fn evidence_stream("));
         assert!(evidence_rs.contains(".feed::<sdk::feeds::EvidenceStreamFeedDescriptor>"));
         assert!(evidence_rs.contains("&sdk::rpc::Empty {}"));

@@ -607,6 +607,7 @@ export function createAuthDeploymentsServiceDisableHandler(
     kick: (serverId: string, clientId: number) => Promise<void>;
     refreshActiveContracts: () => Promise<void>;
     validateActiveCatalog: ActiveCatalogValidator;
+    validateActiveCatalogForRemoval?: ActiveCatalogValidator;
     serviceDeploymentStorage: ServiceDeploymentStorage;
     serviceInstanceStorage: ServiceInstanceStorage;
     deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
@@ -642,10 +643,13 @@ export function createAuthDeploymentsServiceDisableHandler(
       ...deploymentEnvelope,
       disabled: true,
     };
-    const validated = await validateActiveCatalog(deps.validateActiveCatalog, {
-      stagedServiceDeployments: [nextDeployment],
-      stagedDeploymentEnvelopes: [nextDeploymentEnvelope],
-    });
+    const validated = await validateActiveCatalog(
+      deps.validateActiveCatalogForRemoval ?? deps.validateActiveCatalog,
+      {
+        stagedServiceDeployments: [nextDeployment],
+        stagedDeploymentEnvelopes: [nextDeploymentEnvelope],
+      },
+    );
     if (isErr(validated)) return validated;
     try {
       await serviceDeploymentStorage.put(nextDeployment);

@@ -483,6 +483,15 @@ export const DeploymentContractEvidenceSchema = Type.Object({
   contract: Type.Record(Type.String(), Type.Unknown()),
   firstSeenAt: DurableIsoDateStringSchema,
   lastSeenAt: DurableIsoDateStringSchema,
+  ignoredAt: Type.Optional(
+    Type.Union([DurableIsoDateStringSchema, Type.Null()]),
+  ),
+  ignoredBy: Type.Optional(
+    Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
+  ),
+  ignoreReason: Type.Optional(
+    Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  ),
 });
 export type DeploymentContractEvidence = StaticDecode<
   typeof DeploymentContractEvidenceSchema

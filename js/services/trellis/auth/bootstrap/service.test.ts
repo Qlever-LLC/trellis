@@ -455,6 +455,44 @@ Deno.test("POST /bootstrap/service rejects stale same-contract digest", async ()
   assertEquals(setup.evidence.length, 2);
 });
 
+Deno.test("POST /bootstrap/service accepts older digest when it remains effective", async () => {
+  const oldContract = await validatedContract(baseContract());
+  const newContract = await validatedContract(expandedContract());
+  const setup = await createApp({
+    initialEvidence: [
+      {
+        deploymentId: "deployment_1",
+        contractId: oldContract.contract.id,
+        contractDigest: oldContract.digest,
+        contract: oldContract.contract,
+        firstSeenAt: "2026-01-01T00:00:00.000Z",
+        lastSeenAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        deploymentId: "deployment_1",
+        contractId: newContract.contract.id,
+        contractDigest: newContract.digest,
+        contract: newContract.contract,
+        firstSeenAt: "2026-01-01T00:00:01.000Z",
+        lastSeenAt: "2026-01-01T00:00:01.000Z",
+      },
+    ],
+  });
+  setup.contracts.setActiveTestDigests([oldContract.digest]);
+
+  const response = await setup.bootstrap({
+    contractId: oldContract.contract.id,
+    contractDigest: oldContract.digest,
+    contract: oldContract.contract,
+  });
+
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.status, "ready");
+  assertEquals(body.connectInfo.contractDigest, oldContract.digest);
+  assertEquals(setup.services[0]?.currentContractDigest, oldContract.digest);
+});
+
 Deno.test("POST /bootstrap/service creates pending request when envelope does not fit", async () => {
   const setup = await createApp();
 

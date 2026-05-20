@@ -89,6 +89,31 @@ This command verifies that `CHANGELOG.md` has a non-empty release section and
 prints the changed files since the supplied tag. Humans still own deciding
 whether the changelog is complete and readable.
 
+## Formatting During Implementation
+
+Formatting is part of the normal implementation loop, not just release
+verification. After editing source, docs, styles, generated-artifact inputs, or
+workflow files, format the changed files before running type checks and tests.
+
+Use targeted formatting for the files changed by the task:
+
+```bash
+rtk deno fmt -c js/deno.json <changed js/ts/svelte/json/md/css/svg files>
+rtk cargo fmt --manifest-path rust/Cargo.toml --package <crate>
+rustfmt --edition 2021 <changed .rs files>
+```
+
+When generated artifacts are affected, run the relevant prepare command first,
+then verify generated Rust formatting with:
+
+```bash
+rtk cargo fmt --manifest-path rust/Cargo.toml --all --check
+```
+
+If a full formatter check reports unrelated pre-existing drift, keep the task
+patch scoped and report that drift separately unless the cleanup is explicitly
+part of the task.
+
 ## Release Verification
 
 Before the release commit, run at least:

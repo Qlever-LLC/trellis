@@ -274,6 +274,17 @@ class InMemoryContracts {
   async getActiveEntries(): Promise<ContractEntry[]> {
     return [...this.#entries];
   }
+
+  async getActiveCatalogState(): Promise<{
+    entries: ContractEntry[];
+    issues: [];
+  }> {
+    return { entries: await this.getActiveEntries(), issues: [] };
+  }
+
+  async getActiveCatalogIssues(): Promise<[]> {
+    return [];
+  }
 }
 
 function matchFilter(filter: string, key: string): boolean {
@@ -569,6 +580,7 @@ Deno.test("Trellis.Catalog lists envelope-available known contracts", async () =
         displayName: "Exports",
         description: "Exports public schemas.",
       }],
+      issues: [],
     },
   });
 });

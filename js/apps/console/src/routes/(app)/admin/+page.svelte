@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { isErr } from "@qlever-llc/result";
+  import { isErr, type BaseError, type Result } from "@qlever-llc/result";
+  import type { AuthEnvelopeExpansionsListResponse } from "@qlever-llc/trellis/auth";
   import type {
+    AuthDeviceUserAuthoritiesReviewsListOutput,
     AuthServiceInstancesListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
@@ -21,6 +23,23 @@
 
   type ServiceInstance = AuthServiceInstancesListOutput["entries"][number];
   type Job = JobsListOutput["jobs"][number];
+  type ExpansionRequest = AuthEnvelopeExpansionsListResponse["entries"][number];
+  type DeviceReview = AuthDeviceUserAuthoritiesReviewsListOutput["entries"][number];
+  type CatalogIssue = {
+    issueId: string;
+    kind: string;
+    contractId?: string;
+    message: string;
+  };
+  type CatalogOutput = {
+    catalog: {
+      issues?: CatalogIssue[];
+    };
+  };
+  type RpcTakeable<T> = { take(): Promise<T | Result<never, BaseError>> };
+  type CoreRequest = {
+    (method: "Trellis.Catalog", input: Record<string, never>): RpcTakeable<CatalogOutput>;
+  };
   type OverviewInstance = {
     service: string;
     id: string;
@@ -38,14 +57,19 @@
   };
 
   const trellis = getTrellis();
+  const coreRequest = trellis.request.bind(trellis) as CoreRequest;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let catalogIssueError = $state<string | null>(null);
   let instances = $state<ServiceInstance[]>([]);
   let sessionCount = $state(0);
   let connectionCount = $state(0);
   let jobsUnavailableMessage = $state<string | null>(null);
   let jobs = $state<Job[]>([]);
+  let catalogIssues = $state.raw<CatalogIssue[]>([]);
+  let pendingExpansionRequests = $state.raw<ExpansionRequest[]>([]);
+  let pendingDeviceReviews = $state.raw<DeviceReview[]>([]);
 
   const activeInstances = $derived(instances.filter((instance) => !instance.disabled).length);
   const disabledInstances = $derived(instances.filter((instance) => instance.disabled).length);
@@ -55,6 +79,10 @@
   const disabledTotal = $derived(disabledInstances);
   const activeJobCount = $derived(jobs.filter((job) => job.state === "active").length);
   const totalJobCount = $derived(jobs.length);
+  const pendingWorkTotal = $derived(pendingExpansionRequests.length + pendingDeviceReviews.length);
+  const pendingServiceAuthority = $derived(pendingExpansionRequests.filter((request) => request.requestedByKind === "service").length);
+  const pendingDeviceAuthority = $derived(pendingExpansionRequests.length - pendingServiceAuthority);
+  const catalogWarningCount = $derived(catalogIssues.length);
 
   const topology = $derived([
     { icon: "box", label: "Service instances", value: serviceInstanceTotal, detail: `${activeInstances} active / ${disabledTotal} disabled`, tone: "text-success bg-success/10" },
@@ -68,8 +96,15 @@
     { label: "Sessions", value: sessionCount },
     { label: "Connections", value: connectionCount },
     { label: "Jobs", value: totalJobCount, badge: `${activeJobCount} active`, badgeClass: "badge-success" },
-    { label: "Warnings", value: "Not loaded", detail: "Contract warnings" },
+    { label: "Warnings", value: catalogWarningCount, detail: catalogIssueError ? "Catalog unavailable" : "catalog repair" },
   ]);
+
+  function firstCatalogIssueSummary(issue: CatalogIssue): string {
+    if (issue.kind === "incompatible-active-contract") {
+      return `Two active versions of ${issue.contractId ?? "a contract"} describe the same API differently.`;
+    }
+    return `A catalog repair issue affects ${issue.contractId ?? "a contract"}.`;
+  }
 
   function toOverviewInstance(instance: ServiceInstance): OverviewInstance {
     return {
@@ -143,19 +178,29 @@
   async function load() {
     loading = true;
     error = null;
+    catalogIssueError = null;
     jobsUnavailableMessage = null;
     try {
-      const [sessionsRes, connectionsRes, instancesRes] = await Promise.all([
+      const [sessionsRes, connectionsRes, instancesRes, expansionRequestsRes, deviceReviewsRes, catalogRes] = await Promise.all([
         trellis.request("Auth.Sessions.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.Connections.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.EnvelopeExpansions.List", { state: "pending", limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.DeviceUserAuthorities.Reviews.List", { state: "pending", limit: 500, offset: 0 }).take(),
+        coreRequest("Trellis.Catalog", {}).take(),
       ]);
       if (isErr(sessionsRes)) { error = errorMessage(sessionsRes); return; }
       if (isErr(connectionsRes)) { error = errorMessage(connectionsRes); return; }
       if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
+      if (isErr(expansionRequestsRes)) { error = errorMessage(expansionRequestsRes); return; }
+      if (isErr(deviceReviewsRes)) { error = errorMessage(deviceReviewsRes); return; }
+      if (isErr(catalogRes)) catalogIssueError = errorMessage(catalogRes);
       sessionCount = sessionsRes.entries?.length ?? 0;
       connectionCount = connectionsRes.entries?.length ?? 0;
       instances = instancesRes.entries ?? [];
+      pendingExpansionRequests = expansionRequestsRes.entries ?? [];
+      pendingDeviceReviews = deviceReviewsRes.entries ?? [];
+      catalogIssues = isErr(catalogRes) ? [] : catalogRes.catalog.issues ?? [];
 
       const jobsData = await loadJobsPageData({
         listServices: () => trellis.request("Jobs.ListServices", {}),
@@ -195,6 +240,22 @@
 
     {#if error}
       <div class="alert alert-error mb-4"><span>{error}</span></div>
+    {/if}
+
+    {#if catalogIssues.length > 0 || catalogIssueError}
+      <div class="alert alert-warning mb-4 items-start">
+        <div class="min-w-0">
+          <div class="font-medium">Service catalog repair needed</div>
+          <div class="mt-1 text-sm">
+            {#if catalogIssueError}
+              Catalog repair status is unavailable: {catalogIssueError}
+            {:else if catalogIssues[0]}
+              {firstCatalogIssueSummary(catalogIssues[0])} Review whether to keep the existing contract or replace it with the new one.
+            {/if}
+          </div>
+        </div>
+        <a class="btn btn-warning btn-outline btn-sm" href={resolve("/admin/services/repair")}>Open repair</a>
+      </div>
     {/if}
 
     <Panel title="Runtime Topology" class="overflow-hidden">
@@ -296,8 +357,15 @@
         </section>
 
         <section class="card trellis-card overflow-hidden bg-base-100">
-          <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Authority Requests</h2><a href={resolve("/admin/authority")} class="btn btn-ghost btn-xs">View all</a></div>
-          <EmptyState title="Authority review available" description="Open Authority to inspect permissions and pending service or device requests." class="m-5" />
+          <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Pending Work</h2><span class="badge badge-sm {pendingWorkTotal > 0 ? 'badge-warning' : 'badge-ghost'}">{pendingWorkTotal} pending</span></div>
+          {#if pendingWorkTotal === 0}
+            <div class="px-5 py-3 text-sm text-base-content/60">No authority expansion or device activation reviews waiting.</div>
+          {:else}
+            <div class="divide-y divide-base-300 text-sm">
+              <a class="flex items-center justify-between px-5 py-2.5 hover:bg-base-200/50" href={resolve("/admin/services")}>Service authority <span class="badge badge-outline badge-sm">{pendingServiceAuthority}</span></a>
+              <a class="flex items-center justify-between px-5 py-2.5 hover:bg-base-200/50" href={resolve("/admin/devices")}>Device reviews / authority <span class="badge badge-outline badge-sm">{pendingDeviceReviews.length + pendingDeviceAuthority}</span></a>
+            </div>
+          {/if}
         </section>
       </div>
     </div>

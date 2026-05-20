@@ -296,6 +296,50 @@ Deno.test("analyzeContractEnvelopeBoundary preserves contract-only uses", async 
   assertEquals(analysis.optional.contracts, []);
 });
 
+Deno.test("analyzeContractEnvelopeBoundary knownOrPending prefers active dependency entries", async () => {
+  const activeDependency = dependencyContract();
+  const inactiveDependency = dependencyContract();
+  inactiveDependency.schemas = {
+    Empty: { type: "string" },
+  };
+  const store = createTestContracts([{
+    digest: "active-dep-digest",
+    contract: activeDependency,
+  }]);
+  store.addKnownTestContract({
+    digest: "inactive-dep-digest",
+    contract: inactiveDependency,
+  });
+
+  const analysis = await analyzeContractEnvelopeBoundary(
+    store,
+    {
+      format: "trellis.contract.v1",
+      id: "example.service@v1",
+      displayName: "Example Service",
+      description: "Service contract",
+      kind: "service",
+      uses: {
+        required: {
+          api: { contract: "example.api@v1", rpc: { call: ["Ping"] } },
+        },
+      },
+    },
+    { dependencyResolution: "knownOrPending" },
+  );
+
+  assertEquals(analysis.required.surfaces, [
+    {
+      contractId: "example.api@v1",
+      kind: "rpc",
+      name: "Ping",
+      action: "call",
+      required: true,
+    },
+  ]);
+  assertEquals(analysis.required.capabilities, ["rpc:call"]);
+});
+
 Deno.test("analyzeContractEnvelopeBoundary derives resources and jobs", async () => {
   const store = createTestContracts();
 

@@ -102,13 +102,15 @@ export const ServiceBootstrapRequestSchema = Type.Object({
 });
 
 export type ServiceBootstrapDeps = {
-  contracts: Pick<
-    ContractsModule,
-    | "getActiveEntries"
-    | "getContract"
-    | "getKnownEntriesByContractId"
-    | "validateContract"
-  >;
+  contracts:
+    & Pick<
+      ContractsModule,
+      | "getActiveEntries"
+      | "getContract"
+      | "getKnownEntriesByContractId"
+      | "validateContract"
+    >
+    & Partial<Pick<ContractsModule, "getActiveCatalogIssues">>;
   transports: {
     native?: { natsServers: string[] };
     websocket?: { natsServers: string[] };
@@ -670,9 +672,41 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         ),
         contract.id,
       );
+      const effectiveDigests = new Set(
+        (await deps.contracts.getActiveEntries())
+          .filter((entry) => entry.contract.id === contract.id)
+          .map((entry) => entry.digest),
+      );
+      const issue = latestEvidence?.contractDigest === request.contractDigest &&
+          !effectiveDigests.has(request.contractDigest) &&
+          deps.contracts.getActiveCatalogIssues
+        ? (await deps.contracts.getActiveCatalogIssues()).find((candidate) =>
+          candidate.digest === request.contractDigest ||
+          candidate.conflictingDigests?.includes(request.contractDigest)
+        )
+        : undefined;
+      if (issue) {
+        return c.json(
+          bootstrapFailure(
+            "contract_catalog_issue",
+            `Service contract '${request.contractId}' digest '${request.contractDigest}' is blocked by an active catalog issue. Repair the catalog issue in Console before starting this service.${
+              issue ? ` ${issue.message}` : ""
+            }`,
+            {
+              instanceId: service.instanceId,
+              deploymentId: service.deploymentId,
+              contractId: request.contractId,
+              contractDigest: request.contractDigest,
+              ...(issue ? { issueId: issue.issueId } : {}),
+            },
+          ),
+          409,
+        );
+      }
       if (
         latestEvidence &&
-        latestEvidence.contractDigest !== request.contractDigest
+        latestEvidence.contractDigest !== request.contractDigest &&
+        !effectiveDigests.has(request.contractDigest)
       ) {
         return c.json(
           bootstrapFailure(

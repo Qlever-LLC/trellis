@@ -36,6 +36,8 @@ import {
   PortalFlowStateSchema,
 } from "@qlever-llc/trellis/auth";
 import {
+  AuthCatalogIssuesResolveResponseSchema,
+  AuthCatalogIssuesResolveSchema,
   AuthDeploymentSchema,
   AuthDeploymentsCreateResponseSchema,
   AuthDeploymentsCreateSchema,
@@ -260,6 +262,8 @@ const schemas = {
   AuthEnvelopesShrinkResponse: AuthEnvelopesShrinkResponseSchema,
   AuthDeploymentsDisableRequest: AuthDeploymentsDisableSchema,
   AuthDeploymentsDisableResponse: AuthDeploymentsDisableResponseSchema,
+  AuthCatalogIssuesResolveRequest: AuthCatalogIssuesResolveSchema,
+  AuthCatalogIssuesResolveResponse: AuthCatalogIssuesResolveResponseSchema,
   AuthDeploymentsEnableRequest: AuthDeploymentsEnableSchema,
   AuthDeploymentsEnableResponse: AuthDeploymentsEnableResponseSchema,
   AuthDeploymentsRemoveRequest: AuthDeploymentsRemoveSchema,
@@ -512,6 +516,13 @@ export const TRELLIS_AUTH_RPC = {
     version: "v1",
     input: schemaRef("AuthDeploymentsDisableRequest"),
     output: schemaRef("AuthDeploymentsDisableResponse"),
+    capabilities: { call: ["admin"] },
+    errors: ["AuthError", "ValidationError", "UnexpectedError"],
+  },
+  "Auth.CatalogIssues.Resolve": {
+    version: "v1",
+    input: schemaRef("AuthCatalogIssuesResolveRequest"),
+    output: schemaRef("AuthCatalogIssuesResolveResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },

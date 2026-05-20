@@ -26,6 +26,7 @@ export type ActiveDeploymentContractEvidenceRecord = {
   contractId: string;
   contractDigest: string;
   lastSeenAt?: string;
+  ignoredAt?: string | null;
 };
 
 export type ActiveCatalogRecordSet = {
@@ -57,6 +58,7 @@ export function addDeploymentEvidenceDigests<
     );
   }
   for (const record of evidence) {
+    if (record.ignoredAt) continue;
     if (ignoredContractIds.has(record.contractId)) continue;
     if (
       !activeContractsByDeployment.get(record.deploymentId)?.has(
