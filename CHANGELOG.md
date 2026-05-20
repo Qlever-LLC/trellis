@@ -30,6 +30,8 @@ and this project adheres to
   through queue groups instead of each instance handling the same request.
 - Fixed generator TypeScript compiler discovery from repository-root workflows
   that use the JavaScript workspace `node_modules` directory.
+- Fixed npm package export normalization so the `@qlever-llc/trellis/generate`
+  subpath remains available in freshly built publish artifacts.
 
 ## [0.8.2] - 2026-05-01
 

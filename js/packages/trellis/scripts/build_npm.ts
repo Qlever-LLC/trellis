@@ -355,7 +355,6 @@ async function normalizePackageJsonExports() {
   );
 
   packageJson.exports = Object.fromEntries(normalizedEntries);
-  delete packageJson.exports["./generate"];
   packageJson.bin = {
     "trellis-generate": "./bin/trellis-generate.js",
   };
