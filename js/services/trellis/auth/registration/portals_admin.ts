@@ -1,12 +1,12 @@
 import {
+  createAuthPortalsGetHandler,
   createAuthPortalsListHandler,
-  createAuthPortalsLoginRoutesListHandler,
-  createAuthPortalsLoginRoutesPutHandler,
-  createAuthPortalsLoginRoutesRemoveHandler,
   createAuthPortalsLoginSettingsGetHandler,
   createAuthPortalsLoginSettingsUpdateHandler,
   createAuthPortalsPutHandler,
   createAuthPortalsRemoveHandler,
+  createAuthPortalsRoutesPutHandler,
+  createAuthPortalsRoutesRemoveHandler,
   type FederatedProviderView,
 } from "../admin/portals_rpc.ts";
 import type { Config } from "../../config.ts";
@@ -34,6 +34,10 @@ export async function registerPortalAdminRpcs(deps: {
     createAuthPortalsListHandler(deps.loginPortalStorage),
   );
   await deps.trellis.mount(
+    "Auth.Portals.Get",
+    createAuthPortalsGetHandler(deps.loginPortalStorage, federatedProviders),
+  );
+  await deps.trellis.mount(
     "Auth.Portals.Put",
     createAuthPortalsPutHandler(deps.loginPortalStorage),
   );
@@ -56,15 +60,11 @@ export async function registerPortalAdminRpcs(deps: {
     ),
   );
   await deps.trellis.mount(
-    "Auth.Portals.LoginRoutes.List",
-    createAuthPortalsLoginRoutesListHandler(deps.loginPortalStorage),
+    "Auth.Portals.Routes.Put",
+    createAuthPortalsRoutesPutHandler(deps.loginPortalStorage),
   );
   await deps.trellis.mount(
-    "Auth.Portals.LoginRoutes.Put",
-    createAuthPortalsLoginRoutesPutHandler(deps.loginPortalStorage),
-  );
-  await deps.trellis.mount(
-    "Auth.Portals.LoginRoutes.Remove",
-    createAuthPortalsLoginRoutesRemoveHandler(deps.loginPortalStorage),
+    "Auth.Portals.Routes.Remove",
+    createAuthPortalsRoutesRemoveHandler(deps.loginPortalStorage),
   );
 }

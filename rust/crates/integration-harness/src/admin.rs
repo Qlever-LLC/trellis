@@ -14,10 +14,9 @@ use trellis_sdk_auth::{
     AuthConnectionsListRequest, AuthDeploymentsCreateRequest, AuthDeploymentsListRequest,
     AuthDevicesListRequest, AuthDevicesProvisionRequest, AuthEnvelopesExpandRequest,
     AuthEnvelopesGetRequest, AuthEnvelopesListRequest, AuthIdentitiesGrantsListRequest,
-    AuthIdentitiesListRequest, AuthPortalsListRequest, AuthPortalsLoginRoutesListRequest,
-    AuthPortalsLoginRoutesPutRequest, AuthPortalsLoginRoutesRemoveRequest,
+    AuthIdentitiesListRequest, AuthPortalsGetRequest, AuthPortalsListRequest,
     AuthPortalsLoginSettingsGetRequest, AuthPortalsPutRequest, AuthPortalsRemoveRequest,
-    AuthServiceInstancesListRequest,
+    AuthPortalsRoutesPutRequest, AuthPortalsRoutesRemoveRequest, AuthServiceInstancesListRequest,
     AuthServiceInstancesProvisionRequest, AuthSessionsListRequest, AuthUserIdentitiesListRequest,
     AuthUsersGetRequest, AuthUsersListRequest, AuthUsersUpdateRequest,
 };
@@ -254,9 +253,8 @@ pub(crate) async fn run_admin_api_fixture(
         ));
     }
     auth_client
-        .auth_portals_login_routes_list(&AuthPortalsLoginRoutesListRequest {
-            limit: 100,
-            offset: None,
+        .auth_portals_get(&AuthPortalsGetRequest {
+            portal_id: default_portal.portal_id.clone(),
         })
         .await
         .into_diagnostic()?;
@@ -474,7 +472,6 @@ async fn assert_external_portal_origin_hardening(
     suffix: u128,
 ) -> Result<()> {
     let portal_id = format!("harness.portal.{suffix}");
-    let route_id = format!("harness.portal.route.{suffix}");
     let allowed_origin = format!("https://portal-{suffix}.example.test");
     auth_client
         .auth_portals_put(&AuthPortalsPutRequest {
@@ -486,9 +483,8 @@ async fn assert_external_portal_origin_hardening(
         .await
         .into_diagnostic()?;
     auth_client
-        .auth_portals_login_routes_put(&AuthPortalsLoginRoutesPutRequest {
+        .auth_portals_routes_put(&AuthPortalsRoutesPutRequest {
             portal_id: portal_id.clone(),
-            route_id: Some(route_id.clone()),
             contract_id: Some(json!("trellis.integration-agent@v1")),
             origin: None,
             disabled: Some(false),
@@ -498,8 +494,10 @@ async fn assert_external_portal_origin_hardening(
 
     let result = assert_live_flow_origin(trellis_url, &allowed_origin).await;
     let remove_route = auth_client
-        .auth_portals_login_routes_remove(&AuthPortalsLoginRoutesRemoveRequest {
-            route_id: route_id.clone(),
+        .auth_portals_routes_remove(&AuthPortalsRoutesRemoveRequest {
+            portal_id: portal_id.clone(),
+            contract_id: Some(json!("trellis.integration-agent@v1")),
+            origin: None,
         })
         .await
         .into_diagnostic();
@@ -511,7 +509,7 @@ async fn assert_external_portal_origin_hardening(
         .into_diagnostic();
     result?;
     if !remove_route?.success {
-        return Err(miette!("Auth.Portals.LoginRoutes.Remove did not succeed"));
+        return Err(miette!("Auth.Portals.Routes.Remove did not succeed"));
     }
     if !remove_portal?.success {
         return Err(miette!("Auth.Portals.Remove did not succeed"));

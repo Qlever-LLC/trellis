@@ -525,6 +525,81 @@ Deno.test("login portal storage provides built-in default policy", async () => {
   });
 });
 
+Deno.test("login portal storage exposes portal-scoped routes and selector keys", async () => {
+  await withRepositories(async ({ loginPortals }) => {
+    const timestamp = "2026-01-01T00:00:00.000Z";
+    await loginPortals.putPortal({
+      portalId: "portal.main",
+      displayName: "Main Portal",
+      entryUrl: "https://login.example.com",
+      builtIn: false,
+      disabled: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await loginPortals.putPortal({
+      portalId: "portal.alt",
+      displayName: "Alt Portal",
+      entryUrl: "https://alt.example.com",
+      builtIn: false,
+      disabled: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await loginPortals.putRoute({
+      routeKey: "app.example@v1:https://app.example.com",
+      portalId: "portal.main",
+      contractId: "app.example@v1",
+      origin: "https://app.example.com",
+      disabled: false,
+      updatedAt: timestamp,
+    });
+    await loginPortals.putRoute({
+      routeKey: "any-contract:https://alt.example.com",
+      portalId: "portal.alt",
+      contractId: null,
+      origin: "https://alt.example.com",
+      disabled: false,
+      updatedAt: timestamp,
+    });
+
+    assertEquals(
+      (await loginPortals.listPortalSummariesPage({ limit: 10 })).entries.map(
+        (
+          portal,
+        ) => [portal.portalId, portal.routeCount, portal.activeRouteCount],
+      ),
+      [
+        ["portal.alt", 1, 1],
+        ["portal.main", 1, 1],
+        ["trellis.builtin.login", 0, 0],
+      ],
+    );
+    assertEquals(
+      (await loginPortals.listRoutesByPortal("portal.main")).map((route) =>
+        route.routeKey
+      ),
+      ["app.example@v1:https://app.example.com"],
+    );
+    assertEquals(
+      (await loginPortals.resolveForApp({
+        contractId: "app.example@v1",
+        origin: "https://app.example.com",
+      })).portal.portalId,
+      "portal.main",
+    );
+    assertEquals(
+      await loginPortals.deleteRouteBySelector({
+        portalId: "portal.main",
+        contractId: "app.example@v1",
+        origin: "https://app.example.com",
+      }),
+      true,
+    );
+    assertEquals(await loginPortals.listRoutesByPortal("portal.main"), []);
+  });
+});
+
 Deno.test("login portal storage persists federated provider allowlist", async () => {
   await withRepositories(async ({ loginPortals }, storage) => {
     await loginPortals.ensureBuiltinPortal(
@@ -613,6 +688,25 @@ Deno.test("login portal self-registration creates local account atomically", asy
     });
     assertEquals(duplicate, { ok: false, error: "identity_conflict" });
     assertEquals(await accounts.get("usr_duplicate"), undefined);
+  });
+});
+
+Deno.test("login portal self-registration honors password policy override", async () => {
+  await withRepositories(async ({ loginPortals }) => {
+    const result = await loginPortals.registerLocalIdentity({
+      username: "policy-user",
+      password: "12345678",
+      passwordMinLength: 8,
+      name: "Policy User",
+      email: "policy@example.com",
+      active: true,
+      capabilities: [],
+      capabilityGroups: [],
+      userId: "usr_policy_registered",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    assertEquals(result.ok, true);
   });
 });
 

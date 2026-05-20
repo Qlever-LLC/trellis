@@ -303,7 +303,7 @@ await service.trellis.mount("Harness.Ts.Resources", async ({ input, trellis }) =
   const status = await store.status().orThrow();
   if (status.ttlMs !== 0 || status.maxTotalBytes !== 4194304) throw new Error(`store status did not include configured limits: ${JSON.stringify(status)}`);
   const listed = await store.list({ prefix: input.key, limit: 10 }).orThrow();
-  if (!listed.some((entry) => entry.key === storeKey)) throw new Error(`store list did not include ${storeKey}`);
+  if (!listed.entries.some((entry) => entry.key === storeKey)) throw new Error(`store list did not include ${storeKey}`);
   await store.delete(storeKey).orThrow();
   await store.delete(typedWaitKey).orThrow();
   await store.delete(delayedWaitKey).orThrow();

@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import { defineAppContract } from "@qlever-llc/trellis";
 
 import { trellisAuth } from "./trellis_auth.ts";
@@ -53,4 +53,13 @@ Deno.test("trellisAuth.use exposes explicit rpc api surface", () => {
     app.API.used.rpc["Auth.Identities.List"].subject,
     "rpc.v1.Auth.Identities.List",
   );
+});
+
+Deno.test("trellis auth contract exposes portal-scoped routes only", () => {
+  assert("Auth.Portals.Get" in trellisAuth.API.owned.rpc);
+  assert("Auth.Portals.Routes.Put" in trellisAuth.API.owned.rpc);
+  assert("Auth.Portals.Routes.Remove" in trellisAuth.API.owned.rpc);
+  assert(!("Auth.Portals.LoginRoutes.List" in trellisAuth.API.owned.rpc));
+  assert(!("Auth.Portals.LoginRoutes.Put" in trellisAuth.API.owned.rpc));
+  assert(!("Auth.Portals.LoginRoutes.Remove" in trellisAuth.API.owned.rpc));
 });

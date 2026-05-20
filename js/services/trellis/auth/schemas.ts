@@ -19,6 +19,7 @@ import {
   LoginPortalRecordSchema,
   LoginPortalRouteSchema,
   LoginPortalSettingsSchema,
+  LoginPortalSummarySchema,
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
 } from "../../../packages/trellis/auth/protocol.ts";
@@ -63,6 +64,7 @@ export {
   LoginPortalRecordSchema,
   LoginPortalRouteSchema,
   LoginPortalSettingsSchema,
+  LoginPortalSummarySchema,
   SentinelCredsSchema,
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
@@ -72,6 +74,7 @@ export type {
   LoginPortalRecord,
   LoginPortalRoute,
   LoginPortalSettings,
+  LoginPortalSummary,
 } from "../../../packages/trellis/auth/protocol.ts";
 
 export const SessionKeySchema = Type.String({
@@ -408,24 +411,54 @@ export type DeploymentPortalRoute = StaticDecode<
 
 export const DeploymentGrantOverrideIdentityKindSchema = Type.Union([
   Type.Literal("web"),
-  Type.Literal("cli"),
-  Type.Literal("native"),
-  Type.Literal("device-user"),
-  Type.Literal("any"),
+  Type.Literal("session"),
 ]);
 export type DeploymentGrantOverrideIdentityKind = StaticDecode<
   typeof DeploymentGrantOverrideIdentityKindSchema
 >;
 
-export const DeploymentGrantOverrideSchema = Type.Object({
-  deploymentId: Type.String({ minLength: 1 }),
-  identityKind: DeploymentGrantOverrideIdentityKindSchema,
-  contractId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  origin: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  sessionPublicKey: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  devicePublicKey: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  capability: Type.String({ minLength: 1 }),
-});
+export const DeploymentGrantOverrideSchema = Type.Union([
+  Type.Object({
+    deploymentId: Type.String({ minLength: 1 }),
+    identityKind: Type.Literal("web"),
+    grantKind: Type.Literal("capability"),
+    contractId: Type.String({ minLength: 1 }),
+    origin: Type.String({ minLength: 1 }),
+    sessionPublicKey: Type.Null(),
+    capability: Type.String({ minLength: 1 }),
+    capabilityGroupKey: Type.Null(),
+  }),
+  Type.Object({
+    deploymentId: Type.String({ minLength: 1 }),
+    identityKind: Type.Literal("web"),
+    grantKind: Type.Literal("capability-group"),
+    contractId: Type.String({ minLength: 1 }),
+    origin: Type.String({ minLength: 1 }),
+    sessionPublicKey: Type.Null(),
+    capability: Type.Null(),
+    capabilityGroupKey: Type.String({ minLength: 1 }),
+  }),
+  Type.Object({
+    deploymentId: Type.String({ minLength: 1 }),
+    identityKind: Type.Literal("session"),
+    grantKind: Type.Literal("capability"),
+    contractId: Type.String({ minLength: 1 }),
+    origin: Type.Null(),
+    sessionPublicKey: Type.String({ minLength: 1 }),
+    capability: Type.String({ minLength: 1 }),
+    capabilityGroupKey: Type.Null(),
+  }),
+  Type.Object({
+    deploymentId: Type.String({ minLength: 1 }),
+    identityKind: Type.Literal("session"),
+    grantKind: Type.Literal("capability-group"),
+    contractId: Type.String({ minLength: 1 }),
+    origin: Type.Null(),
+    sessionPublicKey: Type.String({ minLength: 1 }),
+    capability: Type.Null(),
+    capabilityGroupKey: Type.String({ minLength: 1 }),
+  }),
+]);
 export type DeploymentGrantOverride = StaticDecode<
   typeof DeploymentGrantOverrideSchema
 >;

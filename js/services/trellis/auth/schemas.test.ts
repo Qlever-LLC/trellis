@@ -307,11 +307,45 @@ Deno.test("envelope authority storage schemas validate modeled rows", () => {
   assert(Value.Check(DeploymentGrantOverrideSchema, {
     deploymentId: "svc.graph.default",
     identityKind: "web",
+    grantKind: "capability",
     contractId: "app.graph@v1",
     origin: "https://app.example.com",
     sessionPublicKey: null,
-    devicePublicKey: null,
     capability: "graph.query",
+    capabilityGroupKey: null,
+  }));
+  assert(Value.Check(DeploymentGrantOverrideSchema, {
+    deploymentId: "svc.graph.default",
+    identityKind: "session",
+    grantKind: "capability-group",
+    contractId: "app.graph@v1",
+    origin: null,
+    sessionPublicKey: "session-key",
+    capability: null,
+    capabilityGroupKey: "graph-users",
+  }));
+  for (const removed of ["any", "native", "device-user"]) {
+    assertFalse(Value.Check(DeploymentGrantOverrideSchema, {
+      deploymentId: "svc.graph.default",
+      identityKind: removed,
+      grantKind: "capability",
+      contractId: "app.graph@v1",
+      origin: null,
+      sessionPublicKey: null,
+      capability: "graph.query",
+      capabilityGroupKey: null,
+    }));
+  }
+  assert(Value.Check(DeploymentGrantOverrideSchema, {
+    deploymentId: "svc.graph.default",
+    identityKind: "web",
+    contractId: "app.graph@v1",
+    origin: "https://app.example.com",
+    sessionPublicKey: null,
+    futureField: "preserved-by-schema-evolution",
+    grantKind: "capability",
+    capability: "graph.query",
+    capabilityGroupKey: null,
   }));
   assert(Value.Check(DeploymentResourceBindingSchema, {
     deploymentId: "svc.graph.default",

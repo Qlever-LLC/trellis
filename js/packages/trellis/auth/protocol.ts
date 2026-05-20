@@ -235,21 +235,48 @@ export type DeploymentPortalRoute = StaticDecode<
   typeof DeploymentPortalRouteSchema
 >;
 
-export const DeploymentGrantOverrideSchema = Type.Object({
-  deploymentId: Type.String({ minLength: 1 }),
-  identityKind: Type.Union([
-    Type.Literal("web"),
-    Type.Literal("cli"),
-    Type.Literal("native"),
-    Type.Literal("device-user"),
-    Type.Literal("any"),
-  ]),
-  contractId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  origin: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  sessionPublicKey: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  devicePublicKey: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  capability: Type.String({ minLength: 1 }),
-});
+export const DeploymentGrantOverrideSchema = Type.Union([
+  Type.Object({
+    deploymentId: Type.String({ minLength: 1 }),
+    identityKind: Type.Literal("web"),
+    grantKind: Type.Literal("capability"),
+    contractId: Type.String({ minLength: 1 }),
+    origin: Type.String({ minLength: 1 }),
+    sessionPublicKey: Type.Null(),
+    capability: Type.String({ minLength: 1 }),
+    capabilityGroupKey: Type.Null(),
+  }),
+  Type.Object({
+    deploymentId: Type.String({ minLength: 1 }),
+    identityKind: Type.Literal("web"),
+    grantKind: Type.Literal("capability-group"),
+    contractId: Type.String({ minLength: 1 }),
+    origin: Type.String({ minLength: 1 }),
+    sessionPublicKey: Type.Null(),
+    capability: Type.Null(),
+    capabilityGroupKey: Type.String({ minLength: 1 }),
+  }),
+  Type.Object({
+    deploymentId: Type.String({ minLength: 1 }),
+    identityKind: Type.Literal("session"),
+    grantKind: Type.Literal("capability"),
+    contractId: Type.String({ minLength: 1 }),
+    origin: Type.Null(),
+    sessionPublicKey: Type.String({ minLength: 1 }),
+    capability: Type.String({ minLength: 1 }),
+    capabilityGroupKey: Type.Null(),
+  }),
+  Type.Object({
+    deploymentId: Type.String({ minLength: 1 }),
+    identityKind: Type.Literal("session"),
+    grantKind: Type.Literal("capability-group"),
+    contractId: Type.String({ minLength: 1 }),
+    origin: Type.Null(),
+    sessionPublicKey: Type.String({ minLength: 1 }),
+    capability: Type.Null(),
+    capabilityGroupKey: Type.String({ minLength: 1 }),
+  }),
+]);
 export type DeploymentGrantOverride = StaticDecode<
   typeof DeploymentGrantOverrideSchema
 >;
@@ -831,7 +858,7 @@ export const LoginPortalFederatedProviderSchema = Type.Object({
 });
 
 export const LoginPortalRouteSchema = Type.Object({
-  routeId: Type.String({ minLength: 1 }),
+  routeKey: Type.String({ minLength: 1 }),
   portalId: Type.String({ minLength: 1 }),
   contractId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   origin: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
@@ -840,12 +867,32 @@ export const LoginPortalRouteSchema = Type.Object({
 });
 export type LoginPortalRoute = StaticDecode<typeof LoginPortalRouteSchema>;
 
+export const LoginPortalSummarySchema = Type.Object({
+  ...LoginPortalRecordSchema.properties,
+  routeCount: Type.Integer({ minimum: 0 }),
+  activeRouteCount: Type.Integer({ minimum: 0 }),
+});
+export type LoginPortalSummary = StaticDecode<
+  typeof LoginPortalSummarySchema
+>;
+
 export const AuthPortalsListSchema = Type.Object({
   offset: Type.Optional(Type.Integer({ minimum: 0 })),
   limit: Type.Integer({ minimum: 0, maximum: 500 }),
 });
 export const AuthPortalsListResponseSchema = Type.Object({
-  ...PageResponseSchema(LoginPortalRecordSchema).properties,
+  ...PageResponseSchema(LoginPortalSummarySchema).properties,
+});
+export const AuthPortalsGetSchema = Type.Object({
+  portalId: Type.String({ minLength: 1 }),
+});
+export const AuthPortalsGetResponseSchema = Type.Object({
+  portal: LoginPortalRecordSchema,
+  settings: LoginPortalSettingsSchema,
+  routes: Type.Array(LoginPortalRouteSchema),
+  defaultCapabilities: Type.Array(Type.String({ minLength: 1 })),
+  defaultCapabilityGroups: Type.Array(Type.String({ minLength: 1 })),
+  federatedProviders: Type.Array(LoginPortalFederatedProviderSchema),
 });
 export const AuthPortalsPutSchema = Type.Object({
   portalId: Type.String({ minLength: 1 }),
@@ -886,15 +933,7 @@ export const AuthPortalsLoginSettingsUpdateSchema = Type.Object({
   defaultCapabilityGroups: Type.Array(Type.String({ minLength: 1 })),
 });
 
-export const AuthPortalsLoginRoutesListSchema = Type.Object({
-  offset: Type.Optional(Type.Integer({ minimum: 0 })),
-  limit: Type.Integer({ minimum: 0, maximum: 500 }),
-});
-export const AuthPortalsLoginRoutesListResponseSchema = Type.Object({
-  ...PageResponseSchema(LoginPortalRouteSchema).properties,
-});
-export const AuthPortalsLoginRoutesPutSchema = Type.Object({
-  routeId: Type.Optional(Type.String({ minLength: 1 })),
+export const AuthPortalsRoutesPutSchema = Type.Object({
   portalId: Type.String({ minLength: 1 }),
   contractId: Type.Optional(Type.Union([
     Type.String({ minLength: 1 }),
@@ -905,13 +944,20 @@ export const AuthPortalsLoginRoutesPutSchema = Type.Object({
   ),
   disabled: Type.Optional(Type.Boolean()),
 });
-export const AuthPortalsLoginRoutesPutResponseSchema = Type.Object({
+export const AuthPortalsRoutesPutResponseSchema = Type.Object({
   route: LoginPortalRouteSchema,
 });
-export const AuthPortalsLoginRoutesRemoveSchema = Type.Object({
-  routeId: Type.String({ minLength: 1 }),
+export const AuthPortalsRoutesRemoveSchema = Type.Object({
+  portalId: Type.String({ minLength: 1 }),
+  contractId: Type.Optional(Type.Union([
+    Type.String({ minLength: 1 }),
+    Type.Null(),
+  ])),
+  origin: Type.Optional(
+    Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  ),
 });
-export const AuthPortalsLoginRoutesRemoveResponseSchema = Type.Object({
+export const AuthPortalsRoutesRemoveResponseSchema = Type.Object({
   success: Type.Boolean(),
 });
 

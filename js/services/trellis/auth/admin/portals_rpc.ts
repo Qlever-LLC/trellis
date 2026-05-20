@@ -43,11 +43,16 @@ export type FederatedProviderView = {
 };
 
 type LoginRoutePutInput = {
-  routeId?: string;
   portalId: string;
   contractId?: string | null;
   origin?: string | null;
   disabled?: boolean;
+};
+
+type LoginRouteSelectorInput = {
+  portalId: string;
+  contractId?: string | null;
+  origin?: string | null;
 };
 
 function invalid(
@@ -80,11 +85,19 @@ function responseForSelected(
   };
 }
 
-function routeIdFor(input: LoginRoutePutInput): string {
-  if (input.routeId) return input.routeId;
-  const contract = input.contractId?.trim() || "any-contract";
-  const origin = input.origin?.trim() || "any-origin";
-  return `${input.portalId}:${contract}:${origin}`;
+function normalizeSelector(input: LoginRouteSelectorInput) {
+  return {
+    contractId: input.contractId?.trim() || null,
+    origin: input.origin?.trim() || null,
+  };
+}
+
+function routeKeyFor(
+  input: { contractId: string | null; origin: string | null },
+) {
+  const contract = input.contractId || "any-contract";
+  const origin = input.origin || "any-origin";
+  return `${contract}:${origin}`;
 }
 
 /** Creates the admin login portal list RPC handler. */
@@ -98,7 +111,35 @@ export function createAuthPortalsListHandler(
     const authorized = requireAdminFreshAuth(caller);
     if (authorized.isErr()) return authorized;
     try {
-      return Result.ok(await storage.listPortalsPage(input));
+      return Result.ok(await storage.listPortalSummariesPage(input));
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+  };
+}
+
+/** Creates the admin login portal detail RPC handler. */
+export function createAuthPortalsGetHandler(
+  storage: SqlLoginPortalRepository,
+  federatedProviders: FederatedProviderView[] = [],
+) {
+  return async ({ input, context: { caller } }: {
+    input: { portalId: string };
+    context: { caller: RpcUser };
+  }) => {
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
+    try {
+      const selected = await storage.getSelectedByPortalId(input.portalId);
+      if (!selected) {
+        return invalid("/portalId", "login portal not found", {
+          portalId: input.portalId,
+        });
+      }
+      return Result.ok({
+        ...responseForSelected(selected, federatedProviders),
+        routes: await storage.listRoutesByPortal(input.portalId),
+      });
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
@@ -279,26 +320,8 @@ export function createAuthPortalsLoginSettingsUpdateHandler(
   };
 }
 
-/** Creates the admin login route list RPC handler. */
-export function createAuthPortalsLoginRoutesListHandler(
-  storage: SqlLoginPortalRepository,
-) {
-  return async ({ input, context: { caller } }: {
-    input: BoundedListQuery;
-    context: { caller: RpcUser };
-  }) => {
-    const authorized = requireAdminFreshAuth(caller);
-    if (authorized.isErr()) return authorized;
-    try {
-      return Result.ok(await storage.listRoutesPage(input));
-    } catch (error) {
-      return Result.err(new UnexpectedError({ cause: toError(error) }));
-    }
-  };
-}
-
 /** Creates the admin login route upsert RPC handler. */
-export function createAuthPortalsLoginRoutesPutHandler(
+export function createAuthPortalsRoutesPutHandler(
   storage: SqlLoginPortalRepository,
 ) {
   return async ({
@@ -322,11 +345,25 @@ export function createAuthPortalsLoginRoutesPutHandler(
           portalId: input.portalId,
         });
       }
+      const selector = normalizeSelector(input);
+      const existing = await storage.getRouteBySelector(selector);
+      if (existing && existing.portalId !== input.portalId) {
+        return invalid(
+          "/selector",
+          "login route selector targets another portal",
+          {
+            contractId: selector.contractId,
+            origin: selector.origin,
+            portalId: input.portalId,
+            existingPortalId: existing.portalId,
+          },
+        );
+      }
       const route: LoginPortalRoute = {
-        routeId: routeIdFor(input),
+        routeKey: routeKeyFor(selector),
         portalId: input.portalId,
-        contractId: input.contractId?.trim() || null,
-        origin: input.origin?.trim() || null,
+        contractId: selector.contractId,
+        origin: selector.origin,
         disabled: input.disabled ?? false,
         updatedAt: new Date().toISOString(),
       };
@@ -339,20 +376,23 @@ export function createAuthPortalsLoginRoutesPutHandler(
 }
 
 /** Creates the admin login route removal RPC handler. */
-export function createAuthPortalsLoginRoutesRemoveHandler(
+export function createAuthPortalsRoutesRemoveHandler(
   storage: SqlLoginPortalRepository,
 ) {
   return async ({
     input,
     context: { caller },
   }: {
-    input: { routeId: string };
+    input: LoginRouteSelectorInput;
     context: { caller: RpcUser };
   }) => {
     const authorized = requireAdminFreshAuth(caller);
     if (authorized.isErr()) return authorized;
     try {
-      const success = await storage.deleteRoute(input.routeId);
+      const success = await storage.deleteRouteBySelector({
+        portalId: input.portalId,
+        ...normalizeSelector(input),
+      });
       return Result.ok({ success });
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));

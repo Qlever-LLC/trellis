@@ -47,11 +47,12 @@ import {
   AuthIdentitiesGrantsListSchema,
   AuthIdentityEnvelopesRevokeResponseSchema,
   AuthIdentityEnvelopesRevokeSchema,
+  AuthPortalsGetResponseSchema,
   AuthPortalsListResponseSchema,
-  AuthPortalsLoginRoutesListResponseSchema,
-  AuthPortalsLoginRoutesPutResponseSchema,
   AuthPortalsLoginSettingsResponseSchema,
   AuthPortalsLoginSettingsUpdateSchema,
+  AuthPortalsRoutesPutResponseSchema,
+  AuthPortalsRoutesRemoveSchema,
   AuthRequestsValidateResponseSchema,
   AuthRequestsValidateSchema,
   AuthResolveDeviceUserAuthoritiesProgressSchema,
@@ -175,7 +176,7 @@ Deno.test("admin portal RPC schemas expose projected portal fields", () => {
     updatedAt: now,
   };
   const route = {
-    routeId: "trellis.builtin.login:any-contract:any-origin",
+    routeKey: "any-contract:any-origin",
     portalId: "trellis.builtin.login",
     contractId: null,
     origin: null,
@@ -183,7 +184,26 @@ Deno.test("admin portal RPC schemas expose projected portal fields", () => {
     updatedAt: now,
   };
 
-  assert(Value.Check(AuthPortalsListResponseSchema, page([portal])));
+  assert(Value.Check(
+    AuthPortalsListResponseSchema,
+    page([{
+      ...portal,
+      routeCount: 1,
+      activeRouteCount: 1,
+    }]),
+  ));
+  assert(Value.Check(AuthPortalsGetResponseSchema, {
+    portal,
+    settings,
+    routes: [route],
+    defaultCapabilities: ["admin"],
+    defaultCapabilityGroups: ["operators"],
+    federatedProviders: [{
+      id: "github",
+      displayName: "GitHub",
+      type: "oauth",
+    }],
+  }));
   assert(Value.Check(AuthPortalsLoginSettingsResponseSchema, {
     portal,
     settings,
@@ -213,10 +233,12 @@ Deno.test("admin portal RPC schemas expose projected portal fields", () => {
     defaultCapabilities: [],
     defaultCapabilityGroups: [],
   }));
-  assert(Value.Check(AuthPortalsLoginRoutesListResponseSchema, {
-    ...page([route]),
+  assert(Value.Check(AuthPortalsRoutesPutResponseSchema, { route }));
+  assert(Value.Check(AuthPortalsRoutesRemoveSchema, {
+    portalId: portal.portalId,
+    contractId: null,
+    origin: null,
   }));
-  assert(Value.Check(AuthPortalsLoginRoutesPutResponseSchema, { route }));
   assert(Value.Check(AuthPortalsLoginSettingsResponseSchema, {
     portal,
     settings: { ...settings, jsonSettings: {} },
@@ -248,6 +270,52 @@ Deno.test("auth schemas keep contractDigest consistently typed", () => {
     sig: "B".repeat(86),
     iat: 1,
     contractDigest: "digest with spaces",
+  }));
+});
+
+Deno.test("deployment grant override schema accepts only web and session identities", () => {
+  assert(Value.Check(AuthProtocol.DeploymentGrantOverrideSchema, {
+    deploymentId: "svc.graph.default",
+    identityKind: "web",
+    grantKind: "capability",
+    contractId: "app.graph@v1",
+    origin: "https://app.example.com",
+    sessionPublicKey: null,
+    capability: "graph.query",
+    capabilityGroupKey: null,
+  }));
+  assert(Value.Check(AuthProtocol.DeploymentGrantOverrideSchema, {
+    deploymentId: "svc.graph.default",
+    identityKind: "session",
+    grantKind: "capability-group",
+    contractId: "app.graph@v1",
+    origin: null,
+    sessionPublicKey: "session-key",
+    capability: null,
+    capabilityGroupKey: "graph-users",
+  }));
+  for (const removed of ["any", "native", "device-user"]) {
+    assertFalse(Value.Check(AuthProtocol.DeploymentGrantOverrideSchema, {
+      deploymentId: "svc.graph.default",
+      identityKind: removed,
+      grantKind: "capability",
+      contractId: "app.graph@v1",
+      origin: null,
+      sessionPublicKey: null,
+      capability: "graph.query",
+      capabilityGroupKey: null,
+    }));
+  }
+  assert(Value.Check(AuthProtocol.DeploymentGrantOverrideSchema, {
+    deploymentId: "svc.graph.default",
+    identityKind: "web",
+    contractId: "app.graph@v1",
+    origin: "https://app.example.com",
+    sessionPublicKey: null,
+    futureField: "preserved-by-schema-evolution",
+    grantKind: "capability",
+    capability: "graph.query",
+    capabilityGroupKey: null,
   }));
 });
 

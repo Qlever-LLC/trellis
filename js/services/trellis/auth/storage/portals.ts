@@ -22,6 +22,7 @@ import {
   LoginPortalRouteSchema,
   type LoginPortalSettings,
   LoginPortalSettingsSchema,
+  type LoginPortalSummary,
   type UserAccount,
   type UserIdentity,
 } from "../schemas.ts";
@@ -153,7 +154,7 @@ function encodeSettings(record: LoginPortalSettings): SettingsInsert {
 
 function decodeRouteRow(row: RouteRow): LoginPortalRoute {
   return Value.Decode(LoginPortalRouteSchema, {
-    routeId: row.routeId,
+    routeKey: row.routeId,
     portalId: row.portalId,
     contractId: row.contractId,
     origin: row.origin,
@@ -164,7 +165,7 @@ function decodeRouteRow(row: RouteRow): LoginPortalRoute {
 
 function encodeRoute(record: LoginPortalRoute): RouteInsert {
   return {
-    routeId: record.routeId,
+    routeId: record.routeKey,
     portalId: record.portalId,
     contractId: record.contractId,
     origin: record.origin,
@@ -297,6 +298,26 @@ export class SqlLoginPortalRepository {
     return listPage(rows.map(decodePortalRow), countRow?.count ?? 0, query);
   }
 
+  /** Returns a counted page of visible login portals with route totals. */
+  async listPortalSummariesPage(
+    query: BoundedListQuery,
+  ): Promise<ListPage<LoginPortalSummary>> {
+    const page = await this.listPortalsPage(query);
+    const routes = await this.listRoutes();
+    return {
+      ...page,
+      entries: page.entries.map((portal) => ({
+        ...portal,
+        routeCount: routes.filter((route) => route.portalId === portal.portalId)
+          .length,
+        activeRouteCount:
+          routes.filter((route) =>
+            route.portalId === portal.portalId && !route.disabled
+          ).length,
+      })),
+    };
+  }
+
   /** Deletes a non-built-in portal. */
   async deletePortal(portalId: string): Promise<boolean> {
     if (portalId === BUILTIN_LOGIN_PORTAL_ID) return false;
@@ -410,33 +431,49 @@ export class SqlLoginPortalRepository {
     return rows.map(decodeRouteRow);
   }
 
-  /** Returns a counted page of login portal routes. */
-  async listRoutesPage(
-    query: BoundedListQuery,
-  ): Promise<ListPage<LoginPortalRoute>> {
-    const { offset, limit } = boundedListQuery(query);
-    const [countRow] = await this.#db.select({ count: count() }).from(
-      authLoginPortalRoutes,
-    );
-    const rows = await this.#db.select().from(authLoginPortalRoutes).orderBy(
-      authLoginPortalRoutes.routeId,
-    ).limit(limit).offset(offset);
-    return listPage(rows.map(decodeRouteRow), countRow?.count ?? 0, query);
+  /** Lists login portal route selections for one portal. */
+  async listRoutesByPortal(portalId: string): Promise<LoginPortalRoute[]> {
+    const rows = await this.#db.select().from(authLoginPortalRoutes).where(
+      eq(authLoginPortalRoutes.portalId, portalId),
+    ).orderBy(authLoginPortalRoutes.routeId);
+    return rows.map(decodeRouteRow);
   }
 
-  /** Returns one login portal route by id. */
-  async getRoute(routeId: string): Promise<LoginPortalRoute | undefined> {
+  /** Returns one login portal route by selector. */
+  async getRouteBySelector(args: {
+    contractId: string | null;
+    origin: string | null;
+  }): Promise<LoginPortalRoute | undefined> {
     const rows = await this.#db.select().from(authLoginPortalRoutes).where(
-      eq(authLoginPortalRoutes.routeId, routeId),
+      and(
+        args.contractId === null
+          ? isNull(authLoginPortalRoutes.contractId)
+          : eq(authLoginPortalRoutes.contractId, args.contractId),
+        args.origin === null
+          ? isNull(authLoginPortalRoutes.origin)
+          : eq(authLoginPortalRoutes.origin, args.origin),
+      ),
     ).limit(1);
     const row = rows[0];
     return row === undefined ? undefined : decodeRouteRow(row);
   }
 
-  /** Deletes one login portal route. */
-  async deleteRoute(routeId: string): Promise<boolean> {
+  /** Deletes one login portal route by portal and selector. */
+  async deleteRouteBySelector(args: {
+    portalId: string;
+    contractId: string | null;
+    origin: string | null;
+  }): Promise<boolean> {
     const rows = await this.#db.delete(authLoginPortalRoutes).where(
-      eq(authLoginPortalRoutes.routeId, routeId),
+      and(
+        eq(authLoginPortalRoutes.portalId, args.portalId),
+        args.contractId === null
+          ? isNull(authLoginPortalRoutes.contractId)
+          : eq(authLoginPortalRoutes.contractId, args.contractId),
+        args.origin === null
+          ? isNull(authLoginPortalRoutes.origin)
+          : eq(authLoginPortalRoutes.origin, args.origin),
+      ),
     ).returning({ routeId: authLoginPortalRoutes.routeId });
     return rows.length > 0;
   }
@@ -536,6 +573,7 @@ export class SqlLoginPortalRepository {
     capabilityGroups: string[];
     userId: string;
     now?: Date;
+    passwordMinLength?: number;
   }): Promise<SelfRegistrationResult> {
     const now = args.now ?? new Date();
     const identity: UserIdentity = {
@@ -554,6 +592,7 @@ export class SqlLoginPortalRepository {
       identityId: identity.identityId,
       password: args.password,
       now,
+      minLength: args.passwordMinLength,
     });
 
     return await this.#db.transaction(async (tx) => {

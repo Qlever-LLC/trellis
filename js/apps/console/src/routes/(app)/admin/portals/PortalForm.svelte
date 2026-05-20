@@ -37,6 +37,15 @@
     type: string;
   };
 
+  type Route = {
+    routeKey: string;
+    portalId: string;
+    contractId: string | null;
+    origin: string | null;
+    disabled: boolean;
+    updatedAt: string;
+  };
+
   type CapabilityView = AuthCapabilitiesListOutput["entries"][number];
   type CapabilityGroupView = AuthCapabilityGroupsListOutput["entries"][number];
 
@@ -47,10 +56,13 @@
   const trellis = getTrellis();
   let loading = $state(true);
   let saving = $state(false);
+  let savingRoute = $state(false);
+  let removingRouteKey = $state<string | null>(null);
   let error = $state<string | null>(null);
   let saved = $state<string | null>(null);
   let portal = $state<Portal | null>(null);
   let settings = $state<Settings | null>(null);
+  let routes = $state.raw<Route[]>([]);
   let capabilities = $state.raw<CapabilityView[]>([]);
   let capabilityGroups = $state.raw<CapabilityGroupView[]>([]);
   let federatedProviders = $state.raw<FederatedProvider[]>([]);
@@ -66,10 +78,17 @@
   let selfRegisteredAccountActive = $state(true);
   let selectedDefaultCapabilities = $state<string[]>([]);
   let selectedDefaultCapabilityGroups = $state<string[]>([]);
+  let editingRouteKey = $state<string | null>(null);
+  let routeContractId = $state("");
+  let routeOrigin = $state("");
+  let routeDisabled = $state(false);
 
   const editingExisting = $derived(mode === "edit");
   const metadataReadOnly = $derived(portal?.builtIn === true);
-  const busy = $derived(loading || saving);
+  const routeBusy = $derived(savingRoute || removingRouteKey !== null);
+  const busy = $derived(loading || saving || routeBusy);
+  const activeRouteCount = $derived(routes.filter((route) => !route.disabled).length);
+  const sortedRoutes = $derived.by(() => [...routes].sort((a, b) => routeSortKey(a).localeCompare(routeSortKey(b))));
   const catalogedCapabilityKeys = $derived(new Set(capabilities.map((capability) => capability.key)));
   const catalogedCapabilityGroupKeys = $derived(new Set(capabilityGroups.map((group) => group.groupKey)));
   const uncatalogedSelectedCapabilities = $derived(selectedDefaultCapabilities.filter((key) => !catalogedCapabilityKeys.has(key)).sort());
@@ -90,6 +109,28 @@
 
   function providerTypeLabel(type: string): string {
     return type === "oidc" ? "OIDC" : type;
+  }
+
+  function routeMatch(route: Route): string {
+    return `${route.contractId ?? "any contract"} / ${route.origin ?? "any origin"}`;
+  }
+
+  function routeKind(route: Route): string {
+    if (route.contractId && route.origin) return "contract + origin";
+    if (route.contractId) return "contract only";
+    if (route.origin) return "origin only";
+    return "default route";
+  }
+
+  function routePriority(route: Route): number {
+    if (route.contractId && route.origin) return 1;
+    if (route.contractId) return 2;
+    if (route.origin) return 3;
+    return 4;
+  }
+
+  function routeSortKey(route: Route): string {
+    return `${route.disabled ? 1 : 0}:${routePriority(route)}:${routeMatch(route)}`;
   }
 
   function federatedProviderInputId(providerId: string): string {
@@ -134,12 +175,31 @@
     disabled = !(event.currentTarget as HTMLInputElement).checked;
   }
 
+  function handleRouteEnabledChange(event: Event) {
+    routeDisabled = !(event.currentTarget as HTMLInputElement).checked;
+  }
+
+  function resetRouteForm() {
+    editingRouteKey = null;
+    routeContractId = "";
+    routeOrigin = "";
+    routeDisabled = false;
+  }
+
+  function editRoute(route: Route) {
+    editingRouteKey = route.routeKey;
+    routeContractId = route.contractId ?? "";
+    routeOrigin = route.origin ?? "";
+    routeDisabled = route.disabled;
+  }
+
   function applySettingsResponse(response: {
     portal: Portal;
     settings: Settings;
     defaultCapabilities: string[];
     defaultCapabilityGroups: string[];
     federatedProviders?: FederatedProvider[];
+    routes?: Route[];
   }) {
     portal = response.portal;
     settings = response.settings;
@@ -160,6 +220,16 @@
     selectedDefaultCapabilities = uniqueValues(response.defaultCapabilities);
     selectedDefaultCapabilityGroups = uniqueValues(response.defaultCapabilityGroups);
     federatedProviders = response.federatedProviders ?? [];
+    routes = response.routes ?? routes;
+  }
+
+  async function loadPortalDetail(target: string) {
+    const response = await trellis.request("Auth.Portals.Get", { portalId: target }).take();
+    if (isErr(response)) {
+      error = errorMessage(response);
+      return;
+    }
+    applySettingsResponse(response);
   }
 
   async function loadAllCapabilities(): Promise<CapabilityView[]> {
@@ -204,12 +274,7 @@
         error = "Portal ID is required.";
         return;
       }
-      const response = await trellis.request("Auth.Portals.LoginSettings.Get", { portalId: targetPortalId }).take();
-      if (isErr(response)) {
-        error = errorMessage(response);
-        return;
-      }
-      applySettingsResponse(response);
+      await loadPortalDetail(targetPortalId);
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -271,6 +336,56 @@
       error = errorMessage(e);
     } finally {
       saving = false;
+    }
+  }
+
+  async function saveRoute() {
+    if (!portal) return;
+    savingRoute = true;
+    error = null;
+    saved = null;
+    try {
+      const response = await trellis.request("Auth.Portals.Routes.Put", {
+        portalId: portal.portalId,
+        contractId: routeContractId.trim() || null,
+        origin: routeOrigin.trim() || null,
+        disabled: routeDisabled,
+      }).take();
+      if (isErr(response)) {
+        error = errorMessage(response);
+        return;
+      }
+      saved = "Portal route saved.";
+      resetRouteForm();
+      await loadPortalDetail(portal.portalId);
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      savingRoute = false;
+    }
+  }
+
+  async function removeRoute(route: Route) {
+    removingRouteKey = route.routeKey;
+    error = null;
+    saved = null;
+    try {
+      const response = await trellis.request("Auth.Portals.Routes.Remove", {
+        portalId: route.portalId,
+        contractId: route.contractId,
+        origin: route.origin,
+      }).take();
+      if (isErr(response)) {
+        error = errorMessage(response);
+        return;
+      }
+      saved = response.success ? "Portal route removed." : "Portal route was already absent.";
+      if (editingRouteKey === route.routeKey) resetRouteForm();
+      await loadPortalDetail(route.portalId);
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      removingRouteKey = null;
     }
   }
 
@@ -454,6 +569,65 @@
           </div>
         </div>
       </Panel>
+
+      {#if editingExisting && portal}
+        <Panel title="Portal routes" eyebrow={`${activeRouteCount} active / ${routes.length} total`}>
+          <div class="space-y-3">
+            <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div class="overflow-x-auto">
+                <table class="table table-sm trellis-table border-b border-base-300 bg-base-100/30">
+                  <thead>
+                    <tr>
+                      <th>Match</th>
+                      <th>Status</th>
+                      <th class="hidden lg:table-cell">Updated</th>
+                      <th class="text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each sortedRoutes as route (route.routeKey)}
+                      <tr>
+                        <td class="font-mono text-xs">
+                          <div>{routeMatch(route)}</div>
+                          <div class="text-base-content/50">{routeKind(route)}</div>
+                        </td>
+                        <td><span class="badge badge-sm {route.disabled ? 'badge-neutral' : 'badge-success'}">{route.disabled ? "disabled" : "active"}</span></td>
+                        <td class="hidden text-xs text-base-content/60 lg:table-cell">{formatDate(route.updatedAt)}</td>
+                        <td class="text-right">
+                          <button class="btn btn-ghost btn-xs" type="button" onclick={() => editRoute(route)} disabled={busy}>Edit</button>
+                          <button class="btn btn-error btn-outline btn-xs" type="button" onclick={() => removeRoute(route)} disabled={busy}>{removingRouteKey === route.routeKey ? "Removing" : "Remove"}</button>
+                        </td>
+                      </tr>
+                    {:else}
+                      <tr><td class="text-xs text-base-content/60" colspan="4">No routes target this portal.</td></tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="space-y-2 rounded border border-base-300 p-3">
+                <div class="text-xs uppercase tracking-wide text-base-content/55">{editingRouteKey ? "Edit route" : "Add route"}</div>
+                <label class="form-control">
+                  <span class="label-text text-xs uppercase tracking-wide text-base-content/55">Contract ID</span>
+                  <input class="input input-bordered input-sm font-mono" bind:value={routeContractId} disabled={busy || editingRouteKey !== null} placeholder="Blank for any contract" />
+                </label>
+                <label class="form-control">
+                  <span class="label-text text-xs uppercase tracking-wide text-base-content/55">Origin</span>
+                  <input class="input input-bordered input-sm font-mono" bind:value={routeOrigin} disabled={busy || editingRouteKey !== null} placeholder="Blank for any origin" />
+                </label>
+                <label class="flex items-center justify-between rounded border border-base-300 px-3 py-2 text-sm">
+                  <span>Enabled</span>
+                  <input class="toggle toggle-sm toggle-primary" type="checkbox" checked={!routeDisabled} disabled={busy} onchange={handleRouteEnabledChange} />
+                </label>
+                <div class="flex justify-end gap-2">
+                  <button class="btn btn-ghost btn-xs" type="button" onclick={resetRouteForm} disabled={busy}>Clear</button>
+                  <button class="btn btn-outline btn-xs" type="button" onclick={saveRoute} disabled={busy}>{savingRoute ? "Saving" : editingRouteKey ? "Update route" : "Save route"}</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Panel>
+      {/if}
 
       <div class="flex justify-end gap-2">
         <a class="btn btn-ghost btn-sm" href={resolve("/admin/portals")}>Cancel</a>

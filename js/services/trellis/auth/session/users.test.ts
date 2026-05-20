@@ -82,7 +82,7 @@ Deno.test("Auth.Capabilities.List returns platform and active contract capabilit
   });
 
   assertEquals(result.take(), {
-    capabilities: [{
+    entries: [{
       key: "admin",
       displayName: "Administer Trellis",
       description:
@@ -97,6 +97,10 @@ Deno.test("Auth.Capabilities.List returns platform and active contract capabilit
       contractDigest: "digest-auth",
       contractDisplayName: "Trellis Auth",
     }],
+    count: 2,
+    offset: 0,
+    limit: 10,
+    nextOffset: undefined,
   });
 });
 
@@ -176,8 +180,7 @@ Deno.test("Auth.CapabilityGroups RPCs expose built-ins and manage custom groups"
   )({ input: { limit: 10 }, context: { caller: userCaller } });
   const listValue = listResult.take();
   assert(!isErr(listValue));
-  assertEquals(listValue.groups.map((group) => group.groupKey), [
-    "admin",
+  assertEquals(listValue.entries.map((group) => group.groupKey), [
     "customer.default",
   ]);
 
@@ -185,7 +188,13 @@ Deno.test("Auth.CapabilityGroups RPCs expose built-ins and manage custom groups"
     storage,
     logger,
   )({ input: { limit: 0 }, context: { caller: userCaller } });
-  assertEquals(emptyPageResult.take(), { groups: [] });
+  assertEquals(emptyPageResult.take(), {
+    entries: [],
+    count: 0,
+    offset: 0,
+    limit: 0,
+    nextOffset: undefined,
+  });
 
   const builtinGet = await createAuthCapabilityGroupsGetHandler(
     storage,
@@ -274,7 +283,7 @@ Deno.test("Auth.Users.List returns account users with linked identities", async 
   });
 
   assertEquals(result.take(), {
-    users: [{
+    entries: [{
       userId: "usr_ada",
       name: "Ada Lovelace",
       email: "ada@example.com",
@@ -307,6 +316,10 @@ Deno.test("Auth.Users.List returns account users with linked identities", async 
         lastLoginAt: null,
       }],
     }],
+    count: 0,
+    offset: 0,
+    limit: 10,
+    nextOffset: undefined,
   });
 });
 
@@ -704,7 +717,7 @@ Deno.test("Auth.UserIdentities.List returns identities for an existing account i
   });
 
   assertEquals(result.take(), {
-    identities: [{
+    entries: [{
       identityId: "idn_ada",
       provider: "github",
       subject: "ada",
@@ -723,6 +736,10 @@ Deno.test("Auth.UserIdentities.List returns identities for an existing account i
       linkedAt: "2026-04-26T00:00:01.000Z",
       lastLoginAt: null,
     }],
+    count: 0,
+    offset: 0,
+    limit: 500,
+    nextOffset: undefined,
   });
 });
 

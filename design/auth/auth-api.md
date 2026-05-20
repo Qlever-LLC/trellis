@@ -1206,9 +1206,10 @@ Portal rules:
 - login portal settings include `allowedFederatedProviders: string[] | null`;
   `null` allows every configured OAuth/OIDC provider, `[]` allows no federated
   providers, and an array allows only that configured subset
-- `Auth.Portals.LoginSettings.Get` returns `federatedProviders` for admin display
-  of configured provider ids, display names, and provider types; it does not
-  expose provider secrets or mutate provider configuration
+- `Auth.Portals.Get` returns the portal record, login settings, portal-scoped
+  routes, default grants, and `federatedProviders` for admin display of
+  configured provider ids, display names, and provider types; it does not expose
+  provider secrets or mutate provider configuration
 - custom portal apps should use explicit Trellis URL config rather than
   same-origin inference
 - portal routing metadata does not imply approval, capabilities, or
@@ -1232,9 +1233,11 @@ Portal routing rules:
   `trellis.builtin.login`
 - custom login portals must have a visible portal record before a login route can
   target them
-- login route ids are stable RPC keys for update/remove calls, but they are not a
-  user-facing routing concept; operator UI should present contract/origin match
-  fields and selected portal instead
+- route keys are selector-derived RPC identity for one `contractId + origin`
+  selector; operator UI should present routes as app/contract selectors owned by
+  each portal instead of as a global route inventory
+- adding a portal-scoped route for a selector already targeting another portal is
+  rejected rather than silently moving the selector
 - most deployments can rely on the built-in portal; custom routing is optional
 
 Library rule:
@@ -1315,13 +1318,13 @@ Canonical RPC inventory:
 - `rpc.v1.Auth.UserIdentities.List`
 - `rpc.v1.Auth.UserIdentities.Unlink`
 - `rpc.v1.Auth.Portals.List`
+- `rpc.v1.Auth.Portals.Get`
 - `rpc.v1.Auth.Portals.Put`
 - `rpc.v1.Auth.Portals.Remove`
 - `rpc.v1.Auth.Portals.LoginSettings.Get`
 - `rpc.v1.Auth.Portals.LoginSettings.Update`
-- `rpc.v1.Auth.Portals.LoginRoutes.List`
-- `rpc.v1.Auth.Portals.LoginRoutes.Put`
-- `rpc.v1.Auth.Portals.LoginRoutes.Remove`
+- `rpc.v1.Auth.Portals.Routes.Put`
+- `rpc.v1.Auth.Portals.Routes.Remove`
 - `rpc.v1.Auth.AccountFlows.CreateInvite`
 - `rpc.v1.Auth.AccountFlows.CreateIdentityLink`
 - `rpc.v1.Auth.AccountFlows.CreatePasswordSetup`
