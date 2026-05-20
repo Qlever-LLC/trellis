@@ -3,6 +3,10 @@
   import { ok } from "@qlever-llc/result";
   import type { HealthHeartbeat } from "@qlever-llc/trellis/health";
   import type {
+    AuthEnvelopeExpansionsListResponse,
+    DeploymentEnvelope,
+  } from "@qlever-llc/trellis/auth";
+  import type {
     AuthServiceInstancesListOutput,
     AuthDeploymentsListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
@@ -18,6 +22,7 @@
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
+  import { boundaryCounts } from "$lib/envelope_console";
   import {
     appendHealthEvent,
     pruneExpiredHealthInstances,
@@ -33,7 +38,21 @@
   type Deployment = Extract<AuthDeploymentsListOutput["entries"][number], { kind: "service" }>;
   type ServiceInstance = AuthServiceInstancesListOutput["entries"][number];
   type Job = JobsListOutput["jobs"][number];
-  type Tab = "instances" | "jobs" | "contracts" | "events";
+  type ExpansionRequest = AuthEnvelopeExpansionsListResponse["entries"][number];
+  type ExpansionRequestRow = {
+    requestId: string;
+    deploymentId: string;
+    state: ExpansionRequest["state"];
+    requestedByKind: ExpansionRequest["requestedByKind"];
+    contractId: string;
+    contractDigest: string;
+    requiredContracts: number;
+    optionalSurfaces: number;
+    resources: number;
+    capabilities: number;
+    createdAt: string;
+  };
+  type Tab = "health" | "instances" | "jobs" | "requests" | "permissions" | "events";
 
   const trellis = getTrellis();
   const STALE_REFRESH_MS = 5_000;
@@ -46,13 +65,17 @@
   let deployments = $state.raw<Deployment[]>([]);
   let instances = $state.raw<ServiceInstance[]>([]);
   let jobs = $state.raw<Job[]>([]);
+  let envelopes = $state.raw<DeploymentEnvelope[]>([]);
+  let expansionRequests = $state.raw<ExpansionRequest[]>([]);
   let recentEvents = $state.raw<HealthFeedEvent[]>([]);
   let healthInstances = $state.raw<Record<string, HealthInstanceView>>({});
   let now = $state(Date.now());
 
   let selectedDeploymentId = $state("");
-  let activeTab = $state<Tab>("instances");
+  let activeTab = $state<Tab>("health");
   let search = $state("");
+
+  const tabs: Tab[] = ["health", "instances", "jobs", "requests", "permissions", "events"];
 
   const selectedDeployment = $derived(deployments.find((deployment) => deployment.deploymentId === selectedDeploymentId) ?? null);
   const selectedInstances = $derived(instances.filter((instance) => instance.deploymentId === selectedDeploymentId));
@@ -68,6 +91,14 @@
     recentEvents.filter((event) => event.heartbeat.service.name === selectedDeploymentId || selectedInstanceIds.has(event.heartbeat.service.instanceId)),
   );
   const selectedJobs = $derived(jobs.filter((job) => job.service === selectedDeploymentId));
+  const selectedEnvelope = $derived(envelopes.find((envelope) => envelope.deploymentId === selectedDeploymentId && envelope.kind === "service") ?? null);
+  const selectedBoundaryCounts = $derived(selectedEnvelope ? boundaryCounts(selectedEnvelope.boundary) : null);
+  const selectedRequestRows = $derived.by(() =>
+    expansionRequests
+      .filter((request) => request.deploymentId === selectedDeploymentId && request.state === "pending")
+      .map(expansionRequestRow)
+      .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt)),
+  );
   const filteredDeployments = $derived.by(() => {
     const term = search.trim().toLowerCase();
     if (!term) return deployments;
@@ -105,6 +136,23 @@
 
   function formatSeenAt(value?: number): string {
     return value ? formatDate(new Date(value).toISOString()) : "No heartbeat yet";
+  }
+
+  function expansionRequestRow(request: ExpansionRequest): ExpansionRequestRow {
+    const counts = boundaryCounts(request.delta);
+    return {
+      requestId: request.requestId,
+      deploymentId: request.deploymentId,
+      state: request.state,
+      requestedByKind: request.requestedByKind,
+      contractId: request.contractId,
+      contractDigest: request.contractDigest,
+      requiredContracts: counts.requiredContracts,
+      optionalSurfaces: counts.optionalSurfaces,
+      resources: counts.requiredResources + counts.optionalResources,
+      capabilities: counts.capabilities,
+      createdAt: request.createdAt,
+    };
   }
 
   function statusForJob(state: Job["state"]): "healthy" | "degraded" | "unhealthy" | "offline" {
@@ -145,14 +193,20 @@
     error = null;
     jobsUnavailableMessage = null;
     try {
-      const [deploymentsRes, instancesRes] = await Promise.all([
+      const [deploymentsRes, instancesRes, envelopesRes, expansionRequestsRes] = await Promise.all([
         trellis.request("Auth.Deployments.List", { kind: "service", limit: 500, offset: 0 }).take(),
         trellis.request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.Envelopes.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.EnvelopeExpansions.List", { state: "pending", limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(deploymentsRes)) { error = errorMessage(deploymentsRes); return; }
       if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
+      if (isErr(envelopesRes)) { error = errorMessage(envelopesRes); return; }
+      if (isErr(expansionRequestsRes)) { error = errorMessage(expansionRequestsRes); return; }
       deployments = (deploymentsRes.entries ?? []).filter((deployment): deployment is Deployment => deployment.kind === "service");
       instances = instancesRes.entries ?? [];
+      envelopes = (envelopesRes.entries ?? []).filter((envelope) => envelope.kind === "service");
+      expansionRequests = expansionRequestsRes.entries ?? [];
 
       const jobsData = await loadJobsPageData({
         listServices: () => trellis.request("Jobs.ListServices", {}),
@@ -215,7 +269,7 @@
 </script>
 
 <section class="space-y-4">
-  <PageToolbar title="Service deployments" description="Inspect service deployments, instances, contracts, jobs, and events.">
+  <PageToolbar title="Service runtime" description="Inspect service deployment health, instances, jobs, authority requests, permissions, and events.">
     {#snippet actions()}
       <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
     {/snippet}
@@ -286,8 +340,7 @@
           <Panel title="Deployment summary" eyebrow="Runtime drill-in" class="min-w-0">
             {#snippet actions()}
               <a class="btn btn-outline btn-sm" href={resolve("/admin/services/new")}>Create</a>
-              <a class="btn btn-ghost btn-sm" href={resolve("/admin/services/instances")}>Instances</a>
-              <a class="btn btn-ghost btn-sm" href={resolve(`/admin/envelopes?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Envelopes</a>
+              <a class="btn btn-ghost btn-sm" href={resolve(`/admin/deployments?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Manage deployment</a>
             {/snippet}
 
             <div class="flex flex-wrap items-start justify-between gap-3">
@@ -313,7 +366,7 @@
               <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Last heartbeat</dt><dd class="mt-1 truncate font-medium">{formatSeenAt(selectedHealthService?.lastSeenAt)}</dd></div>
               <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Runtime</dt><dd class="mt-1 min-w-0"><div class="truncate font-medium">{selectedHealthService?.version ?? "Not instrumented"}</div><div class="truncate text-xs text-base-content/60">{formatRuntime(selectedHealthService?.runtime, selectedHealthService?.instances[0]?.runtimeVersion)}</div></dd></div>
               <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Instances</dt><dd class="mt-1 font-medium">{activeInstances.length}/{selectedInstances.length} active</dd></div>
-              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Authority</dt><dd class="mt-1"><a class="btn btn-ghost btn-xs" href={resolve(`/admin/envelopes?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Open envelope</a></dd></div>
+              <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Authority requests</dt><dd class="mt-1 font-medium">{selectedRequestRows.length} pending</dd></div>
               <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Jobs</dt><dd class="mt-1 font-medium">{jobsUnavailableMessage ? "Unavailable" : selectedJobs.length}</dd></div>
               <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Capabilities</dt><dd class="mt-1 font-medium">{new Set(selectedInstances.flatMap((instance) => instance.capabilities)).size}</dd></div>
               <div class="bg-base-100 px-3 py-2.5"><dt class="text-xs text-base-content/60">Telemetry</dt><dd class="mt-1 font-medium">{selectedHealthService ? "Instrumented" : "No heartbeat"}</dd></div>
@@ -328,14 +381,34 @@
 
           <Panel title="Details" eyebrow="Deployment operations" class="min-w-0">
             <div class="tabs tabs-bordered mb-4">
-              {#each ["instances", "jobs", "contracts", "events"] as tab (tab)}
-                <button class={["tab capitalize", activeTab === tab && "tab-active"]} onclick={() => (activeTab = tab as Tab)}>{tab}</button>
+              {#each tabs as tab (tab)}
+                <button class={["tab capitalize", activeTab === tab && "tab-active"]} onclick={() => (activeTab = tab)}>{tab}</button>
               {/each}
             </div>
 
-            {#if activeTab === "instances"}
+            {#if activeTab === "health"}
+              {#if !selectedHealthService}
+                <EmptyState title="No heartbeat" description="No live heartbeat has been received for this deployment yet." />
+              {:else}
+                <div class="overflow-x-auto">
+                  <table class="table table-sm trellis-table">
+                    <thead><tr><th>Instance</th><th>Status</th><th>Runtime</th><th>Last seen</th></tr></thead>
+                    <tbody>
+                      {#each selectedHealthService.instances as instance (instance.instanceId)}
+                        <tr>
+                          <td class="trellis-identifier">{instance.instanceId}</td>
+                          <td><StatusBadge label={instance.status} status={instance.status} /></td>
+                          <td><div>{formatRuntime(selectedHealthService.runtime, instance.runtimeVersion)}</div><div class="trellis-identifier text-xs text-base-content/60">{selectedHealthService.version}</div></td>
+                          <td class="text-base-content/60">{formatSeenAt(instance.lastSeenAt)}</td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              {/if}
+            {:else if activeTab === "instances"}
               {#if selectedInstances.length === 0}
-                <EmptyState title="No instances" description="Run services instances to provision a service instance." />
+                <EmptyState title="No instances" description="Provisioned service runtime identities appear here after they are registered." />
               {:else}
                 <div class="overflow-x-auto">
                   <table class="table table-sm trellis-table">
@@ -384,9 +457,52 @@
                   </table>
                 </div>
               {/if}
-            {:else if activeTab === "contracts"}
-              <EmptyState title="Deployment authority moved" description="Review contract evidence and authority boundaries from the envelopes view." />
-              <div class="mt-3"><a class="btn btn-ghost btn-xs" href={resolve(`/admin/envelopes?deployment=${encodeURIComponent(selectedDeployment.deploymentId)}`)}>Review envelope</a></div>
+            {:else if activeTab === "requests"}
+              {#if selectedRequestRows.length === 0}
+                <EmptyState title="No pending authority requests" description="This service deployment has no pending authority expansion requests." />
+              {:else}
+                <div class="overflow-x-auto">
+                  <table class="table table-sm trellis-table">
+                    <thead><tr><th>Request</th><th>Requester</th><th>Contract</th><th>Delta</th><th>Created</th></tr></thead>
+                    <tbody>
+                      {#each selectedRequestRows as request (request.requestId)}
+                        <tr>
+                          <td class="trellis-identifier">{request.requestId}</td>
+                          <td><span class="badge badge-outline badge-xs">{request.requestedByKind}</span></td>
+                          <td><div class="trellis-identifier">{request.contractId}</div><div class="trellis-identifier text-xs text-base-content/60">{request.contractDigest}</div></td>
+                          <td>{request.requiredContracts} contracts · {request.optionalSurfaces} optional surfaces · {request.resources} resources · {request.capabilities} capabilities</td>
+                          <td class="text-base-content/60">{formatDate(request.createdAt)}</td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              {/if}
+            {:else if activeTab === "permissions"}
+              {#if !selectedEnvelope || !selectedBoundaryCounts}
+                <EmptyState title="No authority boundary" description="No current authority boundary was returned for this service deployment." />
+              {:else}
+                <div class="space-y-3 text-sm">
+                  <div class="grid gap-px overflow-hidden rounded-box border border-base-300 bg-base-300 sm:grid-cols-2 xl:grid-cols-4">
+                    <div class="bg-base-100 px-3 py-2.5"><div class="text-xs text-base-content/60">Contracts</div><div class="font-medium">{selectedBoundaryCounts.requiredContracts} required / {selectedBoundaryCounts.optionalContracts} optional</div></div>
+                    <div class="bg-base-100 px-3 py-2.5"><div class="text-xs text-base-content/60">Surfaces</div><div class="font-medium">{selectedBoundaryCounts.requiredSurfaces} required / {selectedBoundaryCounts.optionalSurfaces} optional</div></div>
+                    <div class="bg-base-100 px-3 py-2.5"><div class="text-xs text-base-content/60">Resources</div><div class="font-medium">{selectedBoundaryCounts.requiredResources} required / {selectedBoundaryCounts.optionalResources} optional</div></div>
+                    <div class="bg-base-100 px-3 py-2.5"><div class="text-xs text-base-content/60">Capabilities</div><div class="font-medium">{selectedBoundaryCounts.capabilities}</div></div>
+                  </div>
+                  <div class="overflow-x-auto">
+                    <table class="table table-sm trellis-table">
+                      <thead><tr><th>Contract</th><th>Availability</th></tr></thead>
+                      <tbody>
+                        {#each selectedEnvelope.boundary.contracts as contract (contract.contractId)}
+                          <tr><td class="trellis-identifier">{contract.contractId}</td><td><span class="badge badge-outline badge-xs">{contract.required ? "required" : "optional"}</span></td></tr>
+                        {:else}
+                          <tr><td colspan="2" class="text-base-content/60">No contract boundary entries.</td></tr>
+                        {/each}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              {/if}
             {:else if selectedEvents.length === 0}
               <EmptyState title="No heartbeat events" description="No live heartbeat events have been received for this deployment yet." />
             {:else}

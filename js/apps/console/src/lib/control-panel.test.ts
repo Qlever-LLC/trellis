@@ -29,9 +29,6 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
     "Health Events",
     "Sessions",
     "Jobs",
-    "Device Activations",
-    "Device Reviews",
-    "Envelopes",
     "Grants",
     "Capability Groups",
     "Portals",
@@ -44,33 +41,31 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
   });
   deepEqual(manageSection?.items[1], {
     href: "/admin/services",
-    label: "Service Deployments",
+    label: "Services",
     icon: "server",
   });
   ok(labels.includes("Jobs"));
   ok(!labels.includes("API Catalog"));
   ok(labels.includes("Account"));
   ok(!labels.includes("Settings"));
-  ok(labels.includes("Envelopes"));
+  ok(!labels.includes("Envelopes"));
   ok(labels.includes("Grants"));
   ok(!labels.includes("Device Deployments"));
   ok(hrefs.includes("/admin/services"));
-  ok(hrefs.includes("/admin/envelopes"));
+  ok(!hrefs.map(String).includes("/admin/envelopes"));
   ok(hrefs.includes("/admin/grants"));
   ok(!hrefs.map(String).includes("/admin/app-grants"));
-  ok(hrefs.includes("/admin/services/instances"));
+  ok(!hrefs.map(String).includes("/admin/services/instances"));
   ok(!hrefs.map(String).includes("/admin/apis"));
-  ok(hrefs.includes("/admin/devices/activations"));
-  ok(hrefs.includes("/admin/devices/instances"));
-  ok(hrefs.includes("/admin/devices/reviews"));
+  ok(!hrefs.map(String).includes("/admin/devices/activations"));
+  ok(!hrefs.map(String).includes("/admin/devices/instances"));
+  ok(!hrefs.map(String).includes("/admin/devices/reviews"));
   ok(hrefs.includes("/admin/portals"));
 });
 
 Deno.test("control panel titles cover new admin routes", () => {
   deepEqual(getPageTitle("/admin/deployments"), "Deployments");
-  deepEqual(getPageTitle("/admin/services"), "Service Deployments");
-  deepEqual(getPageTitle("/admin/devices/profiles"), "Device Deployments");
+  deepEqual(getPageTitle("/admin/services"), "Services");
   deepEqual(getPageTitle("/admin/jobs"), "Jobs");
-  deepEqual(getPageTitle("/admin/envelopes"), "Envelopes");
   deepEqual(getPageTitle("/admin/grants"), "Grants");
 });

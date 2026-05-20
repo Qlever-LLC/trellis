@@ -221,7 +221,7 @@
         <div class="card-body p-0">
           <div class="flex h-14 items-center justify-between border-b border-base-300 px-5">
             <h2 class="card-title text-base">Service Instances</h2>
-            <a href={resolve("/admin/services/instances")} class="btn btn-ghost btn-sm">View all <Icon name="arrowRight" size={16} /></a>
+            <a href={resolve("/admin/services")} class="btn btn-ghost btn-sm">View services <Icon name="arrowRight" size={16} /></a>
           </div>
           {#if displayInstances.length === 0}
             <EmptyState title="No service instances" description="Provisioned service instances will appear here after they are registered." class="m-5" />
@@ -259,7 +259,7 @@
           {/if}
           <div class="flex h-14 items-center justify-between border-t border-base-300 px-5 text-sm text-base-content/60">
             <span>Showing {displayInstances.length === 0 ? "0" : `1–${displayInstances.length}`} of {serviceInstanceTotal}</span>
-            <a href={resolve("/admin/services/instances")} class="btn btn-ghost btn-sm">View all service instances <Icon name="arrowRight" size={16} /></a>
+            <a href={resolve("/admin/services")} class="btn btn-ghost btn-sm">View service runtime <Icon name="arrowRight" size={16} /></a>
           </div>
         </div>
       </section>
@@ -296,8 +296,8 @@
         </section>
 
         <section class="card trellis-card overflow-hidden bg-base-100">
-          <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Envelope Authority</h2><a href={resolve("/admin/envelopes")} class="btn btn-ghost btn-xs">View all</a></div>
-          <EmptyState title="Envelope review available" description="Open Envelopes to inspect deployment authority, expansion requests, and runtime availability." class="m-5" />
+          <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Deployment Permissions</h2><a href={resolve("/admin/deployments")} class="btn btn-ghost btn-xs">View all</a></div>
+          <EmptyState title="Deployment permissions available" description="Open Deployments to inspect permissions, pending requests, resources, and runtime availability." class="m-5" />
         </section>
       </div>
     </div>
