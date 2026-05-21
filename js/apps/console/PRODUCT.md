@@ -20,8 +20,9 @@ and consistent control patterns matter more than visual novelty.
 - Platform operators responsible for keeping Trellis deployments healthy.
 - Service owners inspecting service instances, contracts, jobs, health events,
   and runtime permissions.
-- Administrators managing users, sessions, app grants, portals, device profiles,
-  activations, and reviews.
+- Administrators managing users, sessions, grants, deployment envelopes,
+  capability groups, portals, consolidated device records, activation reviews,
+  and service repair workflows.
 - Developers diagnosing runtime integration issues during local or staging work.
 
 ## User Mindset

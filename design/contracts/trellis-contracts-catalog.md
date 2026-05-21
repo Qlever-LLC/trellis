@@ -179,6 +179,7 @@ Top-level fields:
 | `operations`   | no       | object | Map of logical operation names to operation descriptors            |
 | `rpc`          | no       | object | Map of logical RPC names to RPC operation descriptors              |
 | `events`       | no       | object | Map of logical event names to event descriptors                    |
+| `feeds`        | no       | object | Map of logical feed names to feed descriptors                      |
 | `state`        | no       | object | Map of named Trellis-managed state stores                          |
 | `resources`    | no       | object | Map of declarative cloud resource requests                         |
 | `errors`       | no       | object | Map of declared error types to error descriptors                   |
@@ -248,8 +249,9 @@ The digest projection includes:
 - `format`, `id`, and `kind`
 - top-level `capabilities`
 - reachable schemas referenced by state, RPCs, operations, operation signals,
-  events, jobs, schema-backed KV resources, and declared RPC error schemas
-- state, `uses`, RPCs, operations, events, jobs, declared RPC errors, and
+  events, feeds, jobs, schema-backed KV resources, and declared RPC error
+  schemas
+- state, `uses`, RPCs, operations, events, feeds, jobs, declared RPC errors, and
   KV/store resource requests
 - sorted and deduplicated capability and `uses` selector lists
 
@@ -473,9 +475,10 @@ Rules:
 
 - dependencies are declared by logical contract `id` plus logical
   operation/RPC/event names, not by raw capability strings
-- dependencies MUST be grouped under `uses.required` or `uses.optional`; aliases
-  directly under `uses` are invalid, must not be accepted as an implied required
-  dependency, and both required and optional uses participate in digest identity
+- dependencies are defined only under `uses.required` or `uses.optional`;
+  aliases directly under `uses` are invalid and undefined, and callers must not
+  rely on any authority or digest semantics for them
+- both required and optional uses participate in digest identity
 - if the same alias appears in both `required` and `optional`, the required
   entry wins and the optional duplicate is ignored
 - a service contract MUST NOT receive cross-contract runtime permissions unless
@@ -541,11 +544,11 @@ Status outcomes are:
   RPC, operation, event, or feed surface
 - `unauthorized` with missing capability keys when the caller's current envelope
   does not authorize the requested surface
-- `unavailable` with `envelope_unavailable` when the active contract is known but
-  no enabled deployment envelope currently covers the requested surface
+- `unavailable` with `envelope_unavailable` when the active contract is known
+  but no enabled deployment envelope currently covers the requested surface
 - `available` with `liveImplementer: true` and `runtime: "live"` when an enabled
-  connected service or device instance currently implements an active digest that
-  defines the requested surface
+  connected service or device instance currently implements an active digest
+  that defines the requested surface
 - `available` with `liveImplementer: false` and `runtime: "no_live_implementer"`
   when the surface is authorized and deployment-covered but no connected service
   or device instance currently implements it
@@ -804,7 +807,8 @@ Rules:
   - `maxTotalBytes`: optional desired total-store maximum in bytes; omitted
     means no finite total-size request and reconciles the backing NATS object
     store to the backend sentinel for "no contract-requested finite total limit"
-  - `maxObjectBytes`: optional desired per-object maximum in bytes
+  - `maxObjectBytes`: optional desired per-object maximum in bytes, enforced by
+    Trellis runtime write paths when exposed in the installed binding
 - envelope expansion approves the requested alias/type/spec, not general
   infrastructure-management credentials for the service
 - required resources fail envelope expansion if Trellis cannot provision or bind
@@ -813,7 +817,9 @@ Rules:
   if provisioning is unavailable or fails; service code must treat those aliases
   as optional at runtime
 - v1 store bindings expose effective runtime limits, including `maxObjectBytes`
-  when the runtime enforces a finite per-object limit
+  when the contract requested a finite per-object limit; NATS object-store
+  `max_bytes` is the total-store limit, while Trellis runtime write paths
+  enforce the per-object binding limit
 
 ### 10a) First-class jobs
 
@@ -987,8 +993,8 @@ Digest rules for v1:
 - encoding: base64url without padding
 - the digest projection includes runtime identity and behavior: `format`, `id`,
   `kind`, `capabilities`, `state`, `uses`, `rpc`, `operations`, `events`,
-  `jobs`, `resources.kv`, `resources.store`, reachable schemas, and RPC-declared
-  reachable errors
+  `feeds`, `jobs`, `resources.kv`, `resources.store`, reachable schemas, and
+  RPC-declared reachable errors
 - resource `required` flags participate in the digest because they change
   install, activation, and binding behavior
 - the digest projection excludes contract-level `displayName`, `description`,
@@ -1036,17 +1042,18 @@ Catalog rules:
 
 - the catalog contains only active contracts for the current deployment
 - entries are keyed by digest and include `id`, `displayName`, and `description`
-- a catalog MAY contain multiple digests for the same `id` when different enabled
-  deployments contribute different latest evidence rows for that contract id
-- within one deployment and contract id, only the latest evidence row contributes
-  an active digest; older same-id evidence remains historical and must not become
-  active again merely because a stale service reconnects
+- a catalog MAY contain multiple digests for the same `id` when enabled
+  deployments contribute different non-ignored evidence rows for that contract
+  id
+- within one deployment and contract id, all non-ignored reviewed evidence rows
+  covered by an enabled envelope contribute active digests; ignored same-id
+  evidence remains audit history and rollout context
 - catalog ordering is not semantically significant, but implementations SHOULD
   return a stable order for diffability and testing
 - active catalog refresh is fail-closed: failure to query the bounded set of
   enabled deployment envelopes, matching deployment contract-evidence rows, or
-  hydrate required active contract state MUST fail startup or refresh rather than
-  publishing a partial active catalog
+  hydrate required active contract state MUST fail startup or refresh rather
+  than publishing a partial active catalog
 - catalog hydration resolves full manifests from built-in Trellis contracts or
   the global `contracts` store; deployment evidence MUST NOT be used as a
   manifest lookup fallback
@@ -1063,11 +1070,12 @@ Catalog rules:
   durable active set, so incompatible boundaries fail before partial catalog
   state is persisted or exposed to callers
 - active service boundaries and digests are derived from enabled service
-  deployment envelopes plus matching latest deployment evidence, not from service
-  deployment rows, service instances, or their current runtime evidence fields
-- active device boundaries and digests are derived from enabled device deployment
-  envelopes plus matching latest deployment evidence, not from device deployment
-  rows or per-device current-contract fields
+  deployment envelopes plus matching non-ignored deployment evidence, not from
+  service deployment rows, service instances, or their current runtime evidence
+  fields
+- active device boundaries and digests are derived from enabled device
+  deployment envelopes plus matching non-ignored deployment evidence, not from
+  device deployment rows or per-device current-contract fields
 - deployment enable/disable validation MUST stage the matching deployment
   envelope state, because deployment-envelope enabled state determines whether
   that deployment's evidence can contribute to the active set
@@ -1150,9 +1158,9 @@ runtime discovery RPC set.
 - when the deployment envelope fits but the required dependency closure is not
   active yet, bootstrap returns `contract_activation_pending`; service runtimes
   wait and retry rather than receiving runtime credentials
-- when the deployment has newer evidence for the same contract id than the
-  presented digest, bootstrap returns `contract_changed`; runtimes must restart
-  with the active digest rather than refreshing stale evidence
+- when the presented digest has been ignored or no longer fits the enabled
+  deployment envelope, bootstrap returns `contract_changed`; runtimes must
+  restart with active evidence rather than refreshing ignored evidence
 - approving the pending request expands the deployment envelope, persists the
   reviewed evidence and resource bindings. Runtime bootstrap completes only
   after every required dependency in the approved closure is also active.
@@ -1206,8 +1214,9 @@ The `trellis` runtime service MUST:
 - store reviewed deployment evidence by digest; any redundant contract JSON in
   evidence records is historical/review evidence only, not a manifest lookup
   fallback
-- use the latest reviewed evidence row per deployment and contract id when
-  projecting active digests; older rows remain audit history and rollout context
+- use non-ignored reviewed evidence rows covered by enabled deployment envelopes
+  when projecting active digests; ignored rows remain audit history and rollout
+  context
 - maintain durable deployment envelope/evidence rows for the deployment and
   publish an in-memory active catalog only as a fail-closed projection
 - reject active subject collisions across operations, RPCs, and events using the
@@ -1246,8 +1255,8 @@ Envelope expansion validation MUST also:
   portal routes remain deployment-owned routing config; neither form is a
   contract kind, standalone portal authority, or source of portal-specific
   install or service-auth behavior
-- grant overrides are deployment-owned metadata layered on top of envelopes;
-  web rows are keyed by `contractId + origin`, session-keyed rows are keyed by
+- grant overrides are deployment-owned metadata layered on top of envelopes; web
+  rows are keyed by `contractId + origin`, session-keyed rows are keyed by
   `contractId + sessionPublicKey`, and both may pre-authorize envelope and
   capability decisions without changing deployment-envelope semantics or
   inventing availability
@@ -1264,13 +1273,13 @@ Operationally, envelope expansion fails if any of these conditions is true:
 Rollout rule:
 
 - when a deployment rolls from one digest to another for the same contract `id`,
-  the latest evidence row for that deployment and contract id supersedes the old
-  row in the active projection
-- multiple digests for the same contract `id` may still be active across
-  different enabled deployments during a rollout
+  both non-ignored evidence rows may remain active while the deployment envelope
+  covers them
+- multiple digests for the same contract `id` may still be active across one or
+  more enabled deployments during a rollout
 - each service instance still presents one exact contract digest at any moment
-- stale service instances that present an older digest after newer same-id
-  evidence exists for their deployment are rejected with `contract_changed`
+- service instances that present ignored or envelope-incompatible evidence are
+  rejected with `contract_changed`
 
 Subject collision rule:
 

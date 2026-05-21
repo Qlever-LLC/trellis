@@ -93,9 +93,9 @@ Rules:
     when the store should not request a finite total-size limit
 - contracts request logical stores; Trellis chooses the concrete physical store
   identity at service envelope expansion or shrink/expand update time
-- Trellis validates store declarations from contract evidence, but physical store
-  identity is scoped to the deployment and contract lineage rather than the
-  digest so compatible service updates preserve objects
+- Trellis validates store declarations from contract evidence, but physical
+  store identity is scoped to the deployment and contract lineage rather than
+  the digest so compatible service updates preserve objects
 - required stores fail envelope expansion when Trellis cannot provision or bind
   them
 - optional stores (`required: false`) may be omitted from bindings if
@@ -130,9 +130,11 @@ Rules:
 - bindings expose only the information the service runtime needs to use the
   resource safely
 - bindings include `maxTotalBytes` only when the contract requested a finite
-  total-store limit
+  total-store limit; Trellis maps this to the backing NATS object store's
+  `max_bytes` stream limit
 - bindings include `maxObjectBytes` only when the contract requested a finite
-  per-object limit that the runtime write path enforces
+  per-object limit that the Trellis runtime write path enforces before writing
+  each object
 - bindings must not expose operator or platform management credentials
 
 ### Runtime API Expectations

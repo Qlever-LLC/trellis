@@ -19,6 +19,14 @@ The app has two distinct roles:
   browser apps. When the redirect target resolves back to the current portal
   page, the portal stays on its completion screen so the user can return to the
   terminal instead of looping back through browser navigation.
+- Account flows under `/_trellis/portal/account/*` complete identity-link and
+  local password setup/reset links created by Trellis admin or self-service
+  RPCs.
+- Admin flows under `/_trellis/portal/admin/*` handle first-admin bootstrap
+  without requiring a separate custom portal contract.
+- Local username/password sign-in is available when the portal flow state
+  exposes local credentials as an enabled provider; provider choice and
+  credential verification remain server-owned.
 - `/_trellis/portal/devices/activate` resumes a preserved `flowId` after sign-in
   and starts the `Auth.DeviceUserAuthorities.Resolve` operation over the Trellis
   runtime. Review-required deployments continue watching that same operation;

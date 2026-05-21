@@ -140,9 +140,9 @@ CASE: SERVICE CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - reject if the service instance has no current contract evidence, if the
   presented evidence differs from that runtime evidence, or if the required
   boundary no longer fits the deployment envelope
-- reject with `contract_changed` if the deployment has newer evidence for the
-  same contract id than the presented digest; old same-id evidence must not be
-  refreshed back into the active set by a stale service binary
+- reject with `contract_changed` if the presented evidence is ignored or no
+  longer fits the enabled deployment envelope; reconnects must not refresh ignored
+  evidence back into the active set
 - lookup or create the session keyed by `sessionKey` only after envelope fit
   succeeds
 - compute inboxPrefix
@@ -312,8 +312,8 @@ Verification steps:
    public key
 4. Call `rpc.Auth.Requests.Validate` with `sessionKey`, `proof`, `subject`, raw
    `payloadHash`, `iat`, `requestId`, and required capabilities for session
-   lookup, replay detection, stored
-   contract/principal context, and capability checking
+   lookup, replay detection, stored contract/principal context, and capability
+   checking
 
 ## Pre-Auth Device Wait Verification
 
@@ -380,7 +380,13 @@ function buildDeviceWaitProofInput(
 sig = ed25519_sign(
   identityPrivateKey,
   SHA256(
-    buildDeviceWaitProofInput(flowId, publicIdentityKey, nonce, iat, contractDigest),
+    buildDeviceWaitProofInput(
+      flowId,
+      publicIdentityKey,
+      nonce,
+      iat,
+      contractDigest,
+    ),
   ),
 );
 ```
@@ -518,13 +524,13 @@ Bind proof rules:
 
 Runtime storage responsibilities:
 
-| Storage                    | Logical contents                                                                                                                                                           | TTL                                          |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| SQL                        | Users, sessions, identity-envelope grants, deployment grant overrides, service records, device records, deployment envelopes, auth-owned login portal records/settings/routes, deployment-owned device portal-route metadata, and contract evidence | Durable, with session expiry from `lastAuth` |
-| `trellis_oauth_states` KV  | OAuth state mapping keyed by `hash(state)`                                                                                                                                 | 5 min                                        |
-| `trellis_pending_auth` KV  | Pending authenticated bind keyed by `hash(authToken)`                                                                                                                      | 5 min                                        |
-| `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"`                                                                           | Browser-flow TTL                             |
-| `trellis_connections` KV   | Active connection presence keyed by session, principal, and NATS user key                                                                                                  | Connection TTL                               |
+| Storage                    | Logical contents                                                                                                                                                                                                                                                                     | TTL                                          |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| SQL                        | Users, sessions, identity-envelope grants, deployment grant overrides, service records, device records, deployment envelopes, auth-owned login portal records/settings/routes, deployment-owned device portal-route metadata, contract evidence, and hashed account-management flows | Durable, with session expiry from `lastAuth` |
+| `trellis_oauth_states` KV  | OAuth state mapping keyed by `hash(state)`                                                                                                                                                                                                                                           | 5 min                                        |
+| `trellis_pending_auth` KV  | Pending authenticated bind keyed by `hash(authToken)`                                                                                                                                                                                                                                | 5 min                                        |
+| `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"`                                                                                                                                                                                     | Browser-flow TTL                             |
+| `trellis_connections` KV   | Active connection presence keyed by session, principal, and NATS user key                                                                                                                                                                                                            | Connection TTL                               |
 
 Ephemeral tokens (`state`, `authToken`) are stored by `hash(token)` rather than
 raw token value.
@@ -658,37 +664,39 @@ recorded as evidence only; it is not used to decide whether a later linked local
 or OIDC identity on the same Trellis account may reuse the approval.
 
 The presented contract digest is stored as contract evidence for audit, repeat
-boundary checks, and active-set projection. It is not a manifest lookup fallback;
-full manifests are resolved from built-in Trellis contracts or the global
-`contracts` store. For one deployment and contract id, only the latest evidence
-row is active; older same-id evidence remains historical and stale reconnects
-must fail with `contract_changed` rather than making the old digest active again.
-The normal portal denial path does not create or update a stored denial record;
-it is returned to the originating app as an
-`authError=approval_denied` browser callback so a later sign-in attempt can
-present the permission prompt again.
+boundary checks, and active-set projection. It is not a manifest lookup
+fallback; full manifests are resolved from built-in Trellis contracts or the
+global `contracts` store. For one deployment and contract id, non-ignored
+reviewed evidence rows covered by an enabled deployment envelope are active;
+ignored same-id evidence remains historical and reconnects must fail with
+`contract_changed` rather than making an ignored digest active again. The normal
+portal denial path does not create or update a stored denial record; it is
+returned to the originating app as an `authError=approval_denied` browser
+callback so a later sign-in attempt can present the permission prompt again.
 
 ### Grant Override Object
 
 ```ts
-type DeploymentGrantOverride = {
-  deploymentId: string;
-  contractId: string;
-  grantKind: "capability" | "capability-group";
-  capability: string | null;
-  capabilityGroupKey: string | null;
-} & (
-  | {
-    identityKind: "web";
-    origin: string;
-    sessionPublicKey: null;
+type DeploymentGrantOverride =
+  & {
+    deploymentId: string;
+    contractId: string;
+    grantKind: "capability" | "capability-group";
+    capability: string | null;
+    capabilityGroupKey: string | null;
   }
-  | {
-    identityKind: "session";
-    origin: null;
-    sessionPublicKey: string;
-  }
-);
+  & (
+    | {
+      identityKind: "web";
+      origin: string;
+      sessionPublicKey: null;
+    }
+    | {
+      identityKind: "session";
+      origin: null;
+      sessionPublicKey: string;
+    }
+  );
 ```
 
 Rules:
@@ -727,14 +735,18 @@ Rules:
 
 This account projection is Trellis-local and is updated by Trellis-managed
 flows. `userId` is generated by Trellis and is not derived from provider
-`origin`/`id` values. Local-user creation uses `username` only as the local
-login hint for a `local/<username>` identity.
+`origin`/`id` values. Local-user creation stores `username` as the subject of
+the local identity, not as the account id.
 
 Account linking adds provider identities to the same Trellis user account.
 Multiple OIDC identities may be linked to one Trellis account. A Trellis account
 may have at most one local username/password identity; an OIDC identity may link
 to a local identity only when the target account does not already have a local
 identity.
+
+Local password-reset flows are bound to that existing local identity. The reset
+flow record stores the target identity id and local username; portals may not
+choose or change the username during reset completion.
 
 It stores explicit per-user capability grants plus assigned dynamic
 `capabilityGroups`. New admin-bootstrap accounts use this group assignment model
@@ -777,8 +789,8 @@ Events:
 Rules:
 
 - services may subscribe only if the presented contract evidence fits the
-  service deployment envelope and declares the events in grouped
-  `uses.required` or `uses.optional` entries that are active and authorized
+  service deployment envelope and declares the events in grouped `uses.required`
+  or `uses.optional` entries that are active and authorized
 - extra manual capability flags are not the contract boundary
 - user sessions must never receive service-only capabilities
 

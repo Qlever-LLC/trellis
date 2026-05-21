@@ -49,6 +49,8 @@ Durable SQL-backed records:
 - global normalized contract manifests keyed by digest
 - contract evidence records and resource bindings
 - sessions bound to a principal, session key, contract context, and `lastAuth`
+- one-time account-management flows keyed by hashed flow id, including admin
+  bootstrap, identity-link, and local-password setup/reset flows
 
 KV-backed runtime records:
 
@@ -193,6 +195,11 @@ local username/password identity, and an OIDC identity can link to a local
 identity only when the target Trellis account does not already have a local
 identity.
 
+Local password setup/reset links are bound to an existing local identity. The
+local username is chosen when the account's local identity is created, including
+admin-created local users and the initial `admin` bootstrap identity; reset
+completion only sets credential material for that bound identity.
+
 For activated devices, the public identity key is the durable principal
 identity. That identity is not allowed online until the preregistered device
 instance has been activated.
@@ -203,7 +210,8 @@ Browser clients:
 
 - use Ed25519 keys
 - keep private keys non-extractable
-- may use a temporary memory-only non-extractable key for the current tab/session
+- may use a temporary memory-only non-extractable key for the current
+  tab/session
 - may use a remembered IndexedDB non-extractable key with expiry metadata for
   longer-lived browser sessions
 
@@ -327,9 +335,10 @@ Rules:
   matching rows pre-authorize envelope and capability decisions
 - grant overrides cannot invent availability; the requested boundary must still
   fit the relevant deployment envelope
-- grant override approval requires the matching override rows themselves to cover
-  the requested approval capabilities; user-owned capabilities remain separate
-  authorization evidence and are not copied into deployment grant approval
+- grant override approval requires the matching override rows themselves to
+  cover the requested approval capabilities; user-owned capabilities remain
+  separate authorization evidence and are not copied into deployment grant
+  approval
 - approval scopes are derived from declared contract APIs; there is no separate
   scope DSL
 - stored grants, sessions, users, services, and devices continue to store
@@ -337,10 +346,12 @@ Rules:
   `capabilityGroups`, while direct `capabilities` remain explicit per-user
   grants. The richer approval capability object is for approval review and
   stored approval records
-- new admin bootstrap completions assign the built-in `admin` group on the user
-  account instead of materializing that group's capabilities as direct grants;
-  existing direct-admin accounts remain valid because authorization resolves
-  direct capabilities and assigned groups
+- admin bootstrap creates or reuses the initial local `admin` account and
+  identity, then issues a password-reset URL for that bound local identity;
+  bootstrap admin accounts assign the built-in `admin` group instead of
+  materializing that group's capabilities as direct grants. Existing
+  direct-admin accounts remain valid because authorization resolves direct
+  capabilities and assigned groups
 - Trellis stores durable `approved` decisions; user denial in the portal is a
   one-time browser-flow outcome that redirects the caller back with
   `authError=approval_denied` and does not create a durable denial record
@@ -500,15 +511,15 @@ Rules:
   dependencies against currently active contracts. Inactive or missing required
   dependencies fail closed instead of being treated as advisory metadata.
 - contract dependencies are authored and emitted only under `uses.required` or
-  `uses.optional`; flat aliases directly under `uses` are invalid and must not be
-  interpreted as required dependencies.
+  `uses.optional`; flat aliases directly under `uses` are invalid and must not
+  be interpreted as required dependencies.
 - approval planning may derive reviewable surfaces and capabilities from known
   inactive required dependency manifests, but runtime permission derivation and
   active-catalog refresh still require those dependencies to be active.
-- missing optional dependency contracts or optional requested surfaces are skipped
-  during planning and grant no runtime authority; if they later become active,
-  they require a new envelope expansion and approval before a fresh reconnect can
-  use them.
+- missing optional dependency contracts or optional requested surfaces are
+  skipped during planning and grant no runtime authority; if they later become
+  active, they require a new envelope expansion and approval before a fresh
+  reconnect can use them.
 - active-catalog refresh, portal routing, surface status, shrink preview, and
   unused installed-contract cleanup are derived through targeted durable-store
   queries rather than broad scans of local manifests or in-memory catalogs.
@@ -516,9 +527,10 @@ Rules:
   built-in Trellis contracts or the global contract store; deployment evidence
   records are used to discover approved digests and surfaces, not to hydrate
   manifests.
-- for a single deployment and contract id, the active projection uses only the
-  latest deployment evidence row; older same-id digests remain audit history and
-  stale service reconnects must fail with `contract_changed`.
+- for a single deployment and contract id, the active projection uses
+  non-ignored reviewed evidence rows covered by the enabled deployment envelope;
+  ignored same-id digests remain audit history and reconnects for them fail with
+  `contract_changed`.
 - user approval planning collects required capability keys from declared RPC,
   operation, and event capability lists and attaches the owning contract's
   capability metadata when available

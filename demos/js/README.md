@@ -59,9 +59,9 @@ When evolving the demo service during a rollout, keep duplicate RPC, operation,
 event, and job payload schemas wire-compatible. The demo schemas intentionally
 use normal open TypeBox objects, so adding optional fields is the safe additive
 path. Adding required fields, closing objects with closed-object
-additional-property rejection, or changing field types requires shrinking the old
-deployment envelope only after old runtimes are gone, or moving to a new contract
-lineage.
+additional-property rejection, or changing field types requires shrinking the
+old deployment envelope only after old runtimes are gone, or moving to a new
+contract lineage.
 
 ## Create And Start The Service
 
@@ -165,10 +165,10 @@ for named post-start signals. An omitted `read` list defaults to `call`, while
 the demo's explicit empty `read` lists make watching available to authenticated
 callers without extra capabilities.
 
-Because the demo service intentionally uses empty capability gates for its public
-surfaces, its contract does not declare a top-level local `capabilities` map. In
-services that define local capability keys, declare that metadata in the returned
-contract body rather than in the schema registry argument.
+Because the demo service intentionally uses empty capability gates for its
+public surfaces, its contract does not declare a top-level local `capabilities`
+map. In services that define local capability keys, declare that metadata in the
+returned contract body rather than in the schema registry argument.
 
 ## Jobs Are Private Implementation
 
@@ -179,11 +179,11 @@ public job polling API in this demo.
 
 ## Event Subscription Demo
 
-The app `Activity` route subscribes to `Audit.Recorded` and
-`Reports.Published` with ephemeral event handlers. The device TUI has a matching
-activity-watch menu option for a short terminal subscription. Report generation,
-evidence upload, and site refresh workflows publish service events that these
-subscribers can display.
+The app `Activity` route subscribes to `Audit.Recorded` and `Reports.Published`
+with ephemeral event handlers. The device TUI has a matching activity-watch menu
+option for a short terminal subscription. Report generation, evidence upload,
+and site refresh workflows publish service events that these subscribers can
+display.
 
 ## Cleanup
 

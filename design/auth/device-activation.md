@@ -436,10 +436,10 @@ Rules:
 ### 11) Runtime auth presents contract evidence
 
 Runtime auth happens after connect-info returns `ready`. Device runtime is gated
-by registration, lifecycle state, and a presented contract boundary that fits the
-enabled device deployment envelope. Activation is the user-delegated authority
-path; admin review can grant setup authority, but neither path replaces the
-runtime envelope check.
+by registration, lifecycle state, and a presented contract boundary that fits
+the enabled device deployment envelope. Activation is the user-delegated
+authority path; admin review can grant setup authority, but neither path
+replaces the runtime envelope check.
 
 At connect time the device presents:
 

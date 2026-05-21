@@ -39,6 +39,7 @@ Public names use the resource group before the action. Examples:
 - `Auth.Envelopes.Expand`
 - `Auth.Envelopes.Shrink`
 - `Auth.EnvelopeExpansions.Approve`
+- `Auth.EnvelopeExpansions.List`
 
 Shared approval capability views use this shape:
 
@@ -147,9 +148,9 @@ Rules:
 - first login does not require pre-registering a portal because the built-in
   Trellis login portal is always available
 - auth MAY apply a matching grant override for the app's contract id and origin;
-  when one matches, or when an existing identity envelope
-  already grants a strict superset of the requested boundary for the same app
-  identity, auth may skip browser UX and return `bound` directly
+  when one matches, or when an existing identity envelope already grants a
+  strict superset of the requested boundary for the same app identity, auth may
+  skip browser UX and return `bound` directly
 
 ### GET /auth/login/:provider
 
@@ -570,7 +571,8 @@ capabilities beyond successful authenticated user context:
 
 - `rpc.Auth.Sessions.Me`
 - `rpc.Auth.Sessions.Logout`
-- `rpc.Auth.AccountFlows.CreateIdentityLink`
+- `rpc.Auth.Users.IdentityLink.Create`
+- `rpc.Auth.Users.Password.Change`
 
 ### rpc.Auth.Sessions.Logout
 
@@ -774,7 +776,7 @@ type EnvelopeBoundary = {
 
 type DeploymentEnvelope = {
   deploymentId: string;
-  kind: "service" | "device" | "app" | "cli" | "native";
+  kind: "service" | "device" | "app" | "cli" | "native" | "device-user";
   disabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -788,6 +790,9 @@ type DeploymentContractEvidence = {
   contract: Record<string, unknown>;
   firstSeenAt: string;
   lastSeenAt: string;
+  ignoredAt?: string | null;
+  ignoredBy?: Record<string, unknown> | null;
+  ignoreReason?: string | null;
 };
 
 type DeploymentPortalRoute = {
@@ -798,32 +803,35 @@ type DeploymentPortalRoute = {
   updatedAt: string;
 };
 
-type DeploymentGrantOverride = {
-  deploymentId: string;
-  contractId: string;
-  grantKind: "capability" | "capability-group";
-  capability: string | null;
-  capabilityGroupKey: string | null;
-} & (
-  | {
-    identityKind: "web";
-    origin: string;
-    sessionPublicKey: null;
+type DeploymentGrantOverride =
+  & {
+    deploymentId: string;
+    contractId: string;
+    grantKind: "capability" | "capability-group";
+    capability: string | null;
+    capabilityGroupKey: string | null;
   }
-  | {
-    identityKind: "session";
-    origin: null;
-    sessionPublicKey: string;
-  }
-);
+  & (
+    | {
+      identityKind: "web";
+      origin: string;
+      sessionPublicKey: null;
+    }
+    | {
+      identityKind: "session";
+      origin: null;
+      sessionPublicKey: string;
+    }
+  );
 ```
 
 `DeploymentContractEvidence` records the manifest digest and reviewed contract
 body used for envelope resolution. It is evidence, not a standalone authority
 source. Authority comes from deployment envelopes, identity envelopes, and
 deployment grant overrides. The active projection uses deployment evidence only
-through enabled deployment envelopes, and for one deployment plus contract id the
-latest evidence row is the active digest; older same-id rows remain historical.
+through enabled deployment envelopes, and non-ignored reviewed evidence rows
+covered by those envelopes contribute active digests. Ignored same-id rows
+remain historical rollout and audit context.
 
 ```ts
 type ServiceInstance = {
@@ -887,6 +895,11 @@ type PutGrantOverridesRequest = {
   deploymentId: string;
   overrides: DeploymentGrantOverride[];
 };
+type ListGrantOverridesRequest = {
+  offset?: number;
+  limit: number;
+};
+type ListGrantOverridesResponse = PageResponse<DeploymentGrantOverride>;
 type RemoveGrantOverridesRequest = {
   deploymentId: string;
   overrides: DeploymentGrantOverride[];
@@ -932,9 +945,10 @@ for the durable deployment record:
   catalog with the matching staged deployment-envelope disabled state, because
   enabled deployment envelopes define the active evidence set.
 - `Auth.Envelopes.GrantOverrides.Put` replaces all grant override rows for one
-  deployment. `Auth.Envelopes.GrantOverrides.Remove` removes exact matching
-  rows. Both return the deployment's current grant override rows after the
-  mutation. Grant override rows use only two identity shapes: web rows match a
+  deployment. `Auth.Envelopes.GrantOverrides.List` pages grant override rows
+  across deployments. `Auth.Envelopes.GrantOverrides.Remove` removes exact
+  matching rows. Mutations return the deployment's current grant override rows.
+  Grant override rows use only two identity shapes: web rows match a
   `contractId` plus browser `origin`, and session rows match a `contractId` plus
   `sessionPublicKey`.
 - service and device deployment mutations fail closed when the proposed active
@@ -956,26 +970,26 @@ for the durable deployment record:
   record back; if rollback also fails, the RPC returns an unexpected aggregate
   failure rather than reporting a successful envelope change.
 - service bootstrap validates that the presented contract evidence fits the
-  enabled parent deployment envelope, is not stale relative to newer evidence for
-  the same deployment and contract id, and matches the service instance's current
-  runtime evidence when that instance already has runtime evidence. Instance
-  state affects runtime availability; it does not activate catalog/auth surfaces.
+  enabled parent deployment envelope, has not been ignored, and matches the
+  service instance's current runtime evidence when that instance already has
+  runtime evidence. Instance state affects runtime availability; it does not
+  activate catalog/auth surfaces.
 - service bootstrap may create pending expansion requests from presented
   manifests whose required dependency contracts are not active yet. Unknown
   required dependencies are recorded as unresolved contract blockers; known
   inactive dependencies can be used for review-time surface and capability
   display, but not for runtime grants.
-- missing optional dependency contracts or optional requested surfaces are absent
-  from the requested delta and grant no authority. If they later become active,
-  a fresh reconnect requests a normal expansion before receiving that optional
-  authority.
+- missing optional dependency contracts or optional requested surfaces are
+  absent from the requested delta and grant no authority. If they later become
+  active, a fresh reconnect requests a normal expansion before receiving that
+  optional authority.
 - if the deployment envelope fits but the required dependency closure is not
   active, service bootstrap returns `contract_activation_pending` and must not
   persist liveness state, resource bindings, or active deployment evidence for
   that ready attempt.
-- if the deployment has newer evidence for the same contract id than the digest
-  presented at bootstrap, service bootstrap returns `contract_changed` and must
-  not refresh the old evidence row back into the active set.
+- if the digest presented at bootstrap has been ignored or no longer fits the
+  enabled deployment envelope, service bootstrap returns `contract_changed` and
+  must not refresh that evidence row back into the active set.
 - the successful service bootstrap response includes the resolved resource
   binding payload for the presented digest; service runtimes use that binding to
   initialize KV, store, jobs, and transfer helpers without requiring a
@@ -1205,9 +1219,8 @@ Portal rules:
   and the built-in login portal is represented as a visible, non-deletable
   auth-owned portal record
 - login portal records, policy, and route selection live in auth-owned projected
-  storage and are exposed through `Auth.Portals.*` admin RPCs;
-  device-activation portal routing remains deployment-owned unless its design
-  explicitly changes
+  storage and are exposed through `Auth.Portals.*` admin RPCs; device-activation
+  portal routing remains deployment-owned unless its design explicitly changes
 - non-built-in login portal records can be created or updated through
   `Auth.Portals.Put`; the built-in login portal remains visible and
   non-deletable and cannot be replaced by a portal upsert
@@ -1244,13 +1257,13 @@ Portal routing rules:
   `trellis.builtin.login`
 - the built-in device activation portal is a Trellis-owned app contract with the
   id `trellis.portal.activation@v1`
-- custom login portals must have a visible portal record before a login route can
-  target them
+- custom login portals must have a visible portal record before a login route
+  can target them
 - route keys are selector-derived RPC identity for one `contractId + origin`
   selector; operator UI should present routes as app/contract selectors owned by
   each portal instead of as a global route inventory
-- adding a portal-scoped route for a selector already targeting another portal is
-  rejected rather than silently moving the selector
+- adding a portal-scoped route for a selector already targeting another portal
+  is rejected rather than silently moving the selector
 - most deployments can rely on the built-in portal; custom routing is optional
 
 Library rule:
@@ -1279,9 +1292,9 @@ Capability rule:
 - grant overrides are deployment metadata, not user-owned grants; user-facing
   callers still see only explicit user capabilities in insufficient-capability
   responses
-- deployment grant approval applies only when matching grant overrides themselves
-  cover the required approval capabilities; user capabilities do not turn a grant
-  override into approval authority
+- deployment grant approval applies only when matching grant overrides
+  themselves cover the required approval capabilities; user capabilities do not
+  turn a grant override into approval authority
 - portal routes, defaults, selections, and registration settings do not imply
   approval, service authority, or capability grants; registration availability
   is reported explicitly in browser-flow state
@@ -1296,10 +1309,12 @@ Canonical RPC inventory:
 - `rpc.v1.Auth.Envelopes.List`
 - `rpc.v1.Auth.Envelopes.Get`
 - `rpc.v1.Auth.Envelopes.GrantOverrides.Put`
+- `rpc.v1.Auth.Envelopes.GrantOverrides.List`
 - `rpc.v1.Auth.Envelopes.GrantOverrides.Remove`
 - `rpc.v1.Auth.Envelopes.Expand`
 - `rpc.v1.Auth.Envelopes.Shrink`
 - `rpc.v1.Auth.EnvelopeExpansions.Approve`
+- `rpc.v1.Auth.EnvelopeExpansions.List`
 - `rpc.v1.Auth.EnvelopeExpansions.Reject`
 - `rpc.v1.Auth.Envelopes.Changes.Preview`
 - `rpc.v1.Auth.ServiceInstances.Provision`
@@ -1338,10 +1353,9 @@ Canonical RPC inventory:
 - `rpc.v1.Auth.Portals.LoginSettings.Update`
 - `rpc.v1.Auth.Portals.Routes.Put`
 - `rpc.v1.Auth.Portals.Routes.Remove`
-- `rpc.v1.Auth.AccountFlows.CreateInvite`
-- `rpc.v1.Auth.AccountFlows.CreateIdentityLink`
-- `rpc.v1.Auth.AccountFlows.CreatePasswordSetup`
-- `rpc.v1.Auth.AccountFlows.CreatePasswordReset`
+- `rpc.v1.Auth.Users.IdentityLink.Create`
+- `rpc.v1.Auth.Users.Password.Change`
+- `rpc.v1.Auth.Users.PasswordReset.Create`
 - `rpc.v1.Auth.Capabilities.List`
 - `rpc.v1.Auth.CapabilityGroups.List`
 - `rpc.v1.Auth.CapabilityGroups.Get`
@@ -1354,6 +1368,10 @@ Canonical operation inventory:
 
 Canonical event inventory:
 
+- `events.v1.Auth.Connections.Opened`
+- `events.v1.Auth.Connections.Closed`
+- `events.v1.Auth.Connections.Kicked`
+- `events.v1.Auth.Sessions.Revoked`
 - `events.v1.Auth.DeviceUserAuthorities.Requested`
 - `events.v1.Auth.DeviceUserAuthorities.Approved`
 - `events.v1.Auth.DeviceUserAuthorities.ReviewRequested`
@@ -1492,18 +1510,19 @@ type AuthUserRow = {
 
 `Auth.Users.Create` uses the same account fields except `userId` and
 `identities`: callers may supply `name`, `email`, `active`, direct
-`capabilities`, and `capabilityGroups`; Trellis always generates the canonical
-`userId`. Local-user setup flows use a separate `username` profile hint for the
-local login identity, not as the account id. Each Trellis account may have at
-most one local username/password identity; it may have many linked OIDC
-identities.
+`capabilities`, `capabilityGroups`, and optional `username`; Trellis always
+generates the canonical `userId`. When `username` is present, Trellis atomically
+creates the account and its initial local username identity. Each Trellis
+account may have at most one local username/password identity; it may have many
+linked OIDC identities.
 
-Admin bootstrap creates the first Trellis account through the same durable user
-projection shape, but new bootstrap completions assign the built-in `admin`
-group by storing `capabilityGroups: ["admin"]`. They do not copy the admin
-group's current capabilities into the account's direct `capabilities` grant.
-Older accounts may still carry direct `"admin"` grants; authorization resolves
-both direct capabilities and assigned groups.
+Admin bootstrap creates or reuses the initial local `admin` account and local
+identity before issuing a password-reset URL for that identity. Bootstrap admin
+accounts assign the built-in `admin` group by storing
+`capabilityGroups: ["admin"]`; they do not copy the admin group's current
+capabilities into the account's direct `capabilities` grant. Older accounts may
+still carry direct `"admin"` grants; authorization resolves both direct
+capabilities and assigned groups.
 
 ### rpc.Auth.Capabilities.List
 
@@ -1586,7 +1605,7 @@ Rules:
   record, but new Trellis-owned assignments SHOULD use keys returned by
   `Auth.Capabilities.List`.
 
-### rpc.Auth.AccountFlows.CreateIdentityLink
+### rpc.Auth.Users.IdentityLink.Create
 
 Request:
 
@@ -1617,6 +1636,73 @@ Rules:
   account has no existing local identity
 - admins may view and unlink user identities through management surfaces, but do
   not generate identity-link URLs for other users
+
+### rpc.Auth.Users.Password.Change
+
+Request:
+
+```ts
+{
+  currentPassword: string;
+  newPassword: string;
+}
+```
+
+Response:
+
+```ts
+{
+  success: boolean;
+}
+```
+
+Rules:
+
+- this is a self-service authenticated-user RPC with no capability requirement
+- the target is always the caller's own `userId`; callers cannot pass another
+  account id
+- the target account must have exactly one local identity and an existing local
+  credential
+- Trellis verifies `currentPassword` against the existing local credential
+  before replacing it with `newPassword`
+- successful password change revokes other active sessions for the target user
+  when session storage is available, while preserving the caller's current
+  session when the RPC context includes `sessionKey`
+
+### rpc.Auth.Users.PasswordReset.Create
+
+Request:
+
+```ts
+{
+  userId: string;
+  expiresInSeconds?: number;
+}
+```
+
+Response:
+
+```ts
+{
+  flowId: string;
+  url: string;
+  expiresAt: string;
+}
+```
+
+Rules:
+
+- this is an admin RPC and requires fresh primary authentication
+- the flow targets the supplied `userId`
+- the target user must already have exactly one local identity; reset creation
+  fails rather than allowing the link holder to choose a username
+- the same durable flow kind covers first-time credential setup for an existing
+  local identity and later password reset
+- completion is local-provider only and creates or replaces the bound local
+  identity's credential
+- successful completion revokes active sessions for the target user
+- `expiresInSeconds` is bounded by auth policy; omitted values use the default
+  account-flow TTL
 
 ### rpc.Auth.CapabilityGroups.*
 
@@ -1664,9 +1750,9 @@ Trellis publishes these events as part of `trellis.auth@v1`:
 - `events.v1.Auth.DeviceUserAuthorities.Approved`
 - `events.v1.Auth.DeviceUserAuthorities.Resolved`
 
-Services may subscribe only when the presented contract evidence fits the service
-deployment envelope and declares the events in grouped `uses.required` or
-`uses.optional` entries that are active and authorized.
+Services may subscribe only when the presented contract evidence fits the
+service deployment envelope and declares the events in grouped `uses.required`
+or `uses.optional` entries that are active and authorized.
 
 ## Non-Goals
 

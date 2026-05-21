@@ -214,7 +214,8 @@ Operational command behavior:
   `trellis users edit` manage Trellis users by Trellis `userId`; provider
   identities are not the normal user-scoped administration key
 - `trellis users create` can seed direct capabilities and capability groups and
-  creates a password setup flow for the new user when account setup is required
+  creates a local password reset/setup link for the new user when account setup
+  is required
 - `trellis users edit` supports explicit add/remove/set/clear semantics for
   direct capabilities and capability groups so operators can make incremental or
   replacement changes without ambiguous merge behavior

@@ -10,28 +10,80 @@ and this project adheres to
 
 ## [0.9.0] - 2026-05-20
 
+### Added
+
+- Added durable deployment-envelope, contract-evidence, portal, user, session,
+  and resource-binding storage so Trellis authority no longer depends on
+  long-lived in-memory contract state.
+- Added first-class deployment grant overrides, capability groups, envelope
+  expansion review surfaces, and active catalog repair support for operator-led
+  rollout recovery.
+- Added login portal account flows for local password setup/reset, identity
+  linking, and admin bootstrap.
+- Added a Rust demo workspace and a shared demo app layout so TypeScript and
+  Rust service/device examples exercise the same inspection workflow.
+- Added the Rust integration harness plus `trellis-local-bootstrap` and
+  `trellis-generate-runner` workspace crates for local bootstrap, release, and
+  end-to-end verification workflows.
+
 ### Changed
 
-- Reworked catalog and auth authority so installed contract evidence, deployment
-  envelopes, runtime bindings, and resource bindings are read from durable
-  storage instead of long-lived in-memory contract state.
-- Changed store and auth list-style APIs to require bounded requests, replacing
-  unbounded scans with explicit limits and targeted storage queries.
-- Prepared release-managed Rust crate and generated package metadata for the
+- Reworked auth around deployment envelopes, identity envelopes, auth-owned
+  login portals, deployment-owned device routes, user accounts, and
+  resource-first admin RPC names.
+- Reworked the Console admin surface around envelopes, grants, capability
+  groups, consolidated devices, service repair, jobs detail, portal routing, and
+  destructive-action confirmations.
+- Changed store, auth, state, and jobs list-style APIs to require bounded
+  standard Trellis pagination or explicit limits, replacing unbounded scans with
+  targeted storage queries.
+- Changed contract digest and catalog handling to support forward-compatible
+  schemas, feeds, deployment evidence quarantine/ignore state, active catalog
+  repair, and durable resource bindings.
+- Renamed the Rust service runtime crate surface from server-oriented naming to
+  `trellis-service`, added Rust client state/store support, and expanded service
+  resource, transfer, operation, and jobs runtime coverage.
+- Moved release tooling into Rust xtask commands and prepared release-managed
+  Rust crate, generated SDK, npm package, image, and workflow metadata for the
   `0.9.0` release.
 
 ### Fixed
 
+- Fixed admin account-flow RPCs to require fresh primary authentication before
+  creating local password reset/setup flows.
 - Fixed release and publishing bootstrap paths so clean checkouts generate the
   required SDK artifacts before release, package, and image verification.
 - Fixed generated Rust SDK formatting so prepared generated crates pass the
   workspace formatter checks used by release verification.
 - Fixed service runtime RPC subscriptions so multiple instances share requests
   through queue groups instead of each instance handling the same request.
+- Fixed service runtime first-connect retry behavior when Trellis is temporarily
+  unavailable during bootstrap.
+- Fixed heartbeat liveness status and expanded integration coverage for auth,
+  catalog repair, events, feeds, jobs, operations, resources, state, transfer,
+  portal, and runtime flows.
 - Fixed generator TypeScript compiler discovery from repository-root workflows
   that use the JavaScript workspace `node_modules` directory.
 - Fixed npm package export normalization so the `@qlever-llc/trellis/generate`
   subpath remains available in freshly built publish artifacts.
+
+## [0.8.4] - 2026-05-07
+
+### Fixed
+
+- Fixed the Trellis npm generator entrypoint and release packaging so generated
+  packages can launch the version-pinned generator through npm bin wrappers.
+
+## [0.8.3] - 2026-05-07
+
+### Added
+
+- Added version-pinned generator launchers for shell-first contract generation.
+
+### Fixed
+
+- Fixed shell-first contract generation and serialized auth session store tests
+  that were racing in release verification.
 
 ## [0.8.2] - 2026-05-01
 
@@ -390,7 +442,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.8.4...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Qlever-LLC/trellis/compare/v0.8.4...v0.9.0
 [0.8.4]: https://github.com/Qlever-LLC/trellis/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/Qlever-LLC/trellis/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/Qlever-LLC/trellis/compare/v0.8.1...v0.8.2
