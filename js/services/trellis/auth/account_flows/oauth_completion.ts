@@ -105,8 +105,7 @@ function providerAllowed(flow: AccountFlow, provider: string): boolean {
 }
 
 function providerFlowKindAllowed(flow: AccountFlow): boolean {
-  return flow.kind === "admin_bootstrap" || flow.kind === "account_invite" ||
-    flow.kind === "identity_link";
+  return flow.kind === "admin_bootstrap" || flow.kind === "identity_link";
 }
 
 function profileName(user: OAuth2User): string | null {
@@ -144,7 +143,7 @@ async function completeTargetAccountOAuth(
   flowIdHash: string,
   now: Date,
 ): Promise<CompleteAccountFlowOAuthResult> {
-  if (flow.kind !== "account_invite" && flow.kind !== "identity_link") {
+  if (flow.kind !== "identity_link") {
     return { ok: false, error: "flow_wrong_kind" };
   }
   if (!providerAllowed(flow, options.provider)) {

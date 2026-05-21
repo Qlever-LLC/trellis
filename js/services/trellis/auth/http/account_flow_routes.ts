@@ -23,7 +23,7 @@ const localLoginProvider = {
 };
 
 const AdminBootstrapLocalPasswordRequestSchema = Type.Object({
-  username: Type.String({ minLength: 1 }),
+  username: Type.Optional(Type.String({ minLength: 1 })),
   password: Type.String({ minLength: 1 }),
   name: Type.Optional(Type.String({ minLength: 1 })),
   email: Type.Optional(Type.String({ minLength: 1 })),
@@ -47,9 +47,12 @@ function completionErrorStatus(
     case "flow_wrong_kind":
     case "flow_missing_admin_capability":
     case "flow_missing_target_user":
+    case "flow_missing_local_identity":
     case "local_provider_not_allowed":
     case "target_user_inactive":
       return 403;
+    case "local_username_mismatch":
+      return 400;
   }
 }
 
@@ -57,6 +60,7 @@ function flowBase(flow: AccountFlow) {
   return {
     kind: flow.kind,
     ...(flow.targetUserId === null ? {} : { targetUserId: flow.targetUserId }),
+    ...(flow.returnTo ? { returnTo: flow.returnTo } : {}),
   };
 }
 
@@ -98,10 +102,7 @@ function assertAccountFlowProviderStartAllowed(
   if (new Date(flow.expiresAt).getTime() <= Date.now()) {
     throw new HTTPException(410, { message: "flow_expired" });
   }
-  if (
-    flow.kind === "local_password_setup" ||
-    flow.kind === "local_password_reset"
-  ) {
+  if (flow.kind === "local_password_reset") {
     throw new HTTPException(403, { message: "flow_wrong_kind" });
   }
   if (
@@ -131,7 +132,7 @@ async function buildActiveAccountFlowState(
     flowId,
     ...flowBase(flow),
     allowedProviders: flow.allowedProviders,
-    profileHint: flow.profileHint,
+    profileHint: flow.kind === "local_password_reset" ? null : flow.profileHint,
     expiresAt: flow.expiresAt,
     providers: buildAccountFlowProviders(flow, context.providers, {
       includeLocal: !targetAlreadyHasLocalIdentity,
@@ -186,6 +187,16 @@ export function registerAccountFlowRoutes(
       userIdentityStorage: opts.userIdentityStorage,
       localCredentialStorage: opts.localCredentialStorage,
       sessionStorage: opts.runtimeDeps.sessionStorage,
+      connectionsKV: opts.runtimeDeps.connectionsKV,
+      kick: opts.kick,
+      publishSessionRevoked: async (event) => {
+        (await opts.runtimeDeps.trellis.publish(
+          "Auth.Sessions.Revoked",
+          event,
+        )).inspectErr((error) =>
+          logger.warn({ error }, "Failed to publish Auth.Sessions.Revoked")
+        );
+      },
     });
 
     if (!result.ok) {
@@ -195,7 +206,14 @@ export function registerAccountFlowRoutes(
       );
     }
 
-    return c.json({ status: "created", userId: result.userId });
+    const flow = await opts.accountFlowStorage.get(
+      await hashKey(c.req.param("flowId")),
+    );
+    return c.json({
+      status: "created",
+      userId: result.userId,
+      ...(flow?.returnTo ? { returnTo: flow.returnTo } : {}),
+    });
   });
 
   app.get("/auth/account-flow/:flowId/login/:provider", async (c) => {
@@ -219,6 +237,7 @@ export function registerAccountFlowRoutes(
       kind: "account_flow",
       provider: providerId,
       flowId,
+      ...(flow.returnTo ? { returnTo: flow.returnTo } : {}),
       codeVerifier: idpParams.codeVerifier,
       createdAt: new Date(),
     });

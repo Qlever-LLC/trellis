@@ -5,11 +5,13 @@ import type {
   AccountFlow,
   AccountFlowKind,
   LocalCredential,
+  Session,
   UserAccount,
   UserIdentity,
 } from "../schemas.ts";
 import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolvesActiveAdmin } from "../capability_groups.ts";
+import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
 
 const ACCOUNT_PAGE_LIMIT = 100;
 
@@ -44,12 +46,22 @@ type LocalCredentialStorage = {
 };
 
 type SessionStorage = {
-  deleteByUser?: (userId: string) => Promise<void>;
   listEntriesByUser?: (
     userId: string,
-  ) => Promise<Array<{ sessionKey: string }>>;
+  ) => Promise<Array<{ sessionKey: string; session: Session }>>;
   deleteBySessionKey?: (sessionKey: string) => Promise<void>;
 };
+
+type RuntimeConnectionKV = Parameters<typeof revokeRuntimeAccessForSession>[0][
+  "connectionsKV"
+];
+
+type PublishSessionRevoked = (event: {
+  origin: string;
+  id: string;
+  sessionKey: string;
+  revokedBy: string;
+}) => Promise<void>;
 
 type TargetAccountLocalPasswordFlowKind = Exclude<
   AccountFlowKind,
@@ -68,6 +80,8 @@ export type CompleteAdminBootstrapLocalPasswordError =
   | "target_user_not_found"
   | "target_user_inactive"
   | "local_identity_exists"
+  | "flow_missing_local_identity"
+  | "local_username_mismatch"
   | "flow_consume_conflict";
 
 export type CompleteAdminBootstrapLocalPasswordResult =
@@ -91,7 +105,7 @@ export type CompleteIdentityLinkLocalPasswordAtomicRecord = {
 
 export type CompleteAdminBootstrapLocalPasswordOptions = {
   flowId: string;
-  username: string;
+  username?: string;
   password: string;
   passwordMinLength?: number;
   name?: string;
@@ -103,6 +117,9 @@ export type CompleteAdminBootstrapLocalPasswordOptions = {
   userIdentityStorage: UserIdentityStorage;
   localCredentialStorage: LocalCredentialStorage;
   sessionStorage?: SessionStorage;
+  connectionsKV?: RuntimeConnectionKV;
+  kick?: (serverId: string, clientId: number) => Promise<void>;
+  publishSessionRevoked?: PublishSessionRevoked;
 };
 
 async function hasActiveAdminAccount(
@@ -130,8 +147,7 @@ async function hasActiveAdminAccount(
 function isTargetAccountLocalPasswordFlowKind(
   kind: AccountFlowKind,
 ): kind is TargetAccountLocalPasswordFlowKind {
-  return kind === "account_invite" || kind === "identity_link" ||
-    kind === "local_password_setup" || kind === "local_password_reset";
+  return kind === "identity_link" || kind === "local_password_reset";
 }
 
 function localProviderAllowed(flow: AccountFlow): boolean {
@@ -142,26 +158,68 @@ function localProviderAllowed(flow: AccountFlow): boolean {
 function shouldRevokeTargetUserSessions(
   kind: TargetAccountLocalPasswordFlowKind,
 ): boolean {
-  return kind === "local_password_setup" || kind === "local_password_reset";
+  return kind === "local_password_reset";
 }
 
-async function deleteSessionsByUser(
-  sessionStorage: SessionStorage | undefined,
-  userId: string,
-): Promise<void> {
-  if (!sessionStorage) return;
-  if (sessionStorage.deleteByUser) {
-    await sessionStorage.deleteByUser(userId);
-    return;
+function sessionRevocationEvent(
+  sessionKey: string,
+  session: Session,
+  revokedBy: string,
+): Parameters<PublishSessionRevoked>[0] | null {
+  if (session.type === "device") return null;
+  if (session.type === "user") {
+    return {
+      origin: session.identity.provider,
+      id: session.identity.subject,
+      sessionKey,
+      revokedBy,
+    };
   }
+  return {
+    origin: session.origin,
+    id: session.id,
+    sessionKey,
+    revokedBy,
+  };
+}
+
+async function revokeSessionsByUser(
+  options: CompleteAdminBootstrapLocalPasswordOptions,
+  userId: string,
+  revokedBy: string,
+): Promise<void> {
+  const sessionStorage = options.sessionStorage;
+  if (!sessionStorage) return;
   if (!sessionStorage.listEntriesByUser || !sessionStorage.deleteBySessionKey) {
     return;
   }
-  const entries = await sessionStorage.listEntriesByUser(userId);
   const deleteBySessionKey = sessionStorage.deleteBySessionKey;
-  await Promise.all(
-    entries.map((entry) => deleteBySessionKey(entry.sessionKey)),
-  );
+  const entries = await sessionStorage.listEntriesByUser(userId);
+  const deleteSession = async (
+    entry: { sessionKey: string; session: Session },
+  ) => {
+    const event = sessionRevocationEvent(
+      entry.sessionKey,
+      entry.session,
+      revokedBy,
+    );
+    if (event && options.publishSessionRevoked) {
+      await options.publishSessionRevoked(event);
+    }
+    await deleteBySessionKey(entry.sessionKey);
+  };
+  for (const entry of entries) {
+    if (!options.connectionsKV || !options.kick) {
+      await deleteSession(entry);
+      continue;
+    }
+    await revokeRuntimeAccessForSession({
+      sessionKey: entry.sessionKey,
+      connectionsKV: options.connectionsKV,
+      kick: options.kick,
+      deleteSession: () => deleteSession(entry),
+    });
+  }
 }
 
 async function completeTargetAccountLocalPassword(
@@ -187,30 +245,59 @@ async function completeTargetAccountLocalPassword(
   }
 
   const nowIso = now.toISOString();
-  const identityId = identityIdForProviderSubject("local", options.username);
+  if (flow.kind === "local_password_reset") {
+    if (flow.targetIdentityId === null || flow.targetLocalUsername === null) {
+      return { ok: false, error: "flow_missing_local_identity" };
+    }
+    if (
+      options.username !== undefined &&
+      options.username !== flow.targetLocalUsername
+    ) {
+      return { ok: false, error: "local_username_mismatch" };
+    }
+  }
+
+  const localIdentities = (await options.userIdentityStorage.listByUser(
+    targetAccount.userId,
+  )).filter((identity) => identity.provider === "local");
+  if (flow.kind === "local_password_reset") {
+    if (localIdentities.length !== 1) {
+      return { ok: false, error: "flow_missing_local_identity" };
+    }
+    const [localIdentity] = localIdentities;
+    if (
+      localIdentity === undefined ||
+      localIdentity.identityId !== flow.targetIdentityId ||
+      localIdentity.subject !== flow.targetLocalUsername
+    ) {
+      return { ok: false, error: "flow_missing_local_identity" };
+    }
+  }
+
+  const username = flow.kind === "local_password_reset"
+    ? flow.targetLocalUsername
+    : options.username;
+  if (!username) return { ok: false, error: "local_username_mismatch" };
+
+  const identityId = identityIdForProviderSubject("local", username);
   const existingIdentity = await options.userIdentityStorage
-    .getByProviderSubject("local", options.username);
+    .getByProviderSubject("local", username);
   if (existingIdentity && existingIdentity.userId !== targetAccount.userId) {
     return { ok: false, error: "local_identity_exists" };
   }
-  if (flow.kind === "identity_link") {
-    const existingTargetLocalIdentity = (await options.userIdentityStorage
-      .listByUser(targetAccount.userId)).find((identity) =>
-        identity.provider === "local"
-      );
-    if (
-      existingTargetLocalIdentity &&
-      existingTargetLocalIdentity.identityId !== existingIdentity?.identityId
-    ) {
-      return { ok: false, error: "local_identity_exists" };
-    }
+  const existingTargetLocalIdentity = localIdentities[0];
+  if (
+    existingTargetLocalIdentity &&
+    existingTargetLocalIdentity.identityId !== existingIdentity?.identityId
+  ) {
+    return { ok: false, error: "local_identity_exists" };
   }
 
   const identity: UserIdentity = existingIdentity ?? {
     identityId,
     userId: targetAccount.userId,
     provider: "local",
-    subject: options.username,
+    subject: username,
     displayName: options.name ?? null,
     email: options.email ?? null,
     emailVerified: false,
@@ -242,7 +329,11 @@ async function completeTargetAccountLocalPassword(
   if (!existingIdentity) await options.userIdentityStorage.put(identity);
   await options.localCredentialStorage.put(credential);
   if (shouldRevokeTargetUserSessions(flow.kind)) {
-    await deleteSessionsByUser(options.sessionStorage, targetAccount.userId);
+    await revokeSessionsByUser(
+      options,
+      targetAccount.userId,
+      flow.createdByUserId ?? "system",
+    );
   }
 
   return { ok: true, userId: targetAccount.userId };
@@ -276,6 +367,8 @@ export async function completeAdminBootstrapLocalPassword(
   }
 
   const userId = `usr_${randomToken(18)}`;
+  if (!options.username) return { ok: false, error: "local_username_mismatch" };
+
   const identityId = identityIdForProviderSubject("local", options.username);
   const account: UserAccount = {
     userId,

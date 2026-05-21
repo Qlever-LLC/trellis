@@ -16,6 +16,7 @@ import {
   createAuthUsersListHandler,
   createAuthUsersUpdateHandler,
 } from "./users.ts";
+import { identityIdForProviderSubject } from "../identity.ts";
 
 const logger = { trace: () => {} };
 const userCaller = {
@@ -459,6 +460,61 @@ Deno.test("Auth.Users.Create stores explicit account fields", async () => {
   assertEquals(saved.name, "Grace Hopper");
   assertEquals(saved.email, "grace@example.com");
   assertEquals(saved.capabilityGroups, ["customer.default"]);
+});
+
+Deno.test("Auth.Users.Create can create the initial local identity", async () => {
+  let savedAccount: UserAccount | undefined;
+  let savedIdentity: UserIdentity | undefined;
+
+  const result = await createAuthUsersCreateHandler({
+    create: () => Promise.resolve(false),
+    createWithLocalIdentity: (account, identity) => {
+      savedAccount = account;
+      savedIdentity = identity;
+      return Promise.resolve({ ok: true });
+    },
+  }, logger)({
+    input: {
+      name: "Grace Hopper",
+      email: "grace@example.com",
+      username: "grace",
+    },
+    context: { caller: userCaller },
+  });
+
+  const value = result.take();
+  assert(!isErr(value));
+  assertMatch(value.user.userId, /^usr_[0-9A-HJKMNP-TV-Z]{26}$/);
+  assert(savedAccount !== undefined);
+  assert(savedIdentity !== undefined);
+  assertEquals(value.user.identities, [{
+    identityId: identityIdForProviderSubject("local", "grace"),
+    provider: "local",
+    subject: "grace",
+    displayName: "Grace Hopper",
+    email: "grace@example.com",
+    emailVerified: false,
+    linkedAt: savedIdentity.linkedAt,
+    lastLoginAt: null,
+  }]);
+  assertEquals(savedIdentity.userId, savedAccount.userId);
+  assertEquals(savedIdentity.subject, "grace");
+});
+
+Deno.test("Auth.Users.Create rejects duplicate local usernames", async () => {
+  const result = await createAuthUsersCreateHandler({
+    create: () => Promise.resolve(false),
+    createWithLocalIdentity: () =>
+      Promise.resolve({ ok: false, error: "identity_already_exists" }),
+  }, logger)({
+    input: { username: "grace" },
+    context: { caller: userCaller },
+  });
+
+  const value = result.take();
+  assert(isErr(value));
+  assertEquals(value.error.reason, "identity_already_exists");
+  assertEquals(value.error.toSerializable().context?.username, "grace");
 });
 
 Deno.test("Auth.Users.Create reports generated userId collisions", async () => {

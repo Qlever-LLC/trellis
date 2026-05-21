@@ -342,8 +342,10 @@ function makeLocalCredential(
 function makeAccountFlow(overrides: Partial<AccountFlow> = {}): AccountFlow {
   return {
     flowIdHash: "sha256-flow-a",
-    kind: "account_invite",
+    kind: "identity_link",
     targetUserId: "usr_01HXACCOUNT000000000000000",
+    targetIdentityId: null,
+    targetLocalUsername: null,
     createdByUserId: "usr_01HXADMIN00000000000000",
     allowedProviders: ["local", "github"],
     capabilities: ["catalog.read"],
@@ -502,6 +504,35 @@ Deno.test("account storage creates without replacing duplicates", async () => {
     assertEquals(await accounts.create(first), true);
     assertEquals(await accounts.create(duplicate), false);
     assertEquals(await accounts.get(first.userId), first);
+  });
+});
+
+Deno.test("account storage atomically creates account with local identity", async () => {
+  await withRepositories(async ({ accounts, userIdentities }) => {
+    const account = makeAccount();
+    const identity = makeUserIdentity({
+      identityId: identityIdForProviderSubject("local", "ada"),
+      provider: "local",
+      subject: "ada",
+      userId: account.userId,
+    });
+
+    assertEquals(
+      await accounts.createWithLocalIdentity(account, identity),
+      { ok: true },
+    );
+    assertEquals(await accounts.get(account.userId), account);
+    assertEquals(await userIdentities.listByUser(account.userId), [identity]);
+
+    const duplicate = makeAccount({ userId: "usr_second" });
+    assertEquals(
+      await accounts.createWithLocalIdentity(duplicate, {
+        ...identity,
+        userId: duplicate.userId,
+      }),
+      { ok: false, error: "identity_already_exists" },
+    );
+    assertEquals(await accounts.get(duplicate.userId), undefined);
   });
 });
 

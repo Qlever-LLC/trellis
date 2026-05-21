@@ -593,6 +593,10 @@ export function registerBrowserAuthRoutes(
       portalUrl.searchParams.set("flowId", oauthEntry.value.flowId);
       portalUrl.searchParams.set("status", "completed");
       portalUrl.searchParams.set("userId", result.userId);
+      const returnTo = oauthEntry.value.returnTo ?? flow?.returnTo;
+      if (returnTo) {
+        portalUrl.searchParams.set("returnTo", returnTo);
+      }
       return c.redirect(portalUrl.toString());
     }
 

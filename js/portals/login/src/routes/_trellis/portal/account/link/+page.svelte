@@ -43,7 +43,19 @@
   function currentOAuthCompletion(): LocalPasswordSuccess | null {
     if (!browser) return null;
     const completionState = parseAccountFlowOAuthCompletion(new URL(window.location.href));
-    return completionState ? { status: "created", userId: completionState.userId } : null;
+    return completionState
+      ? {
+        status: "created",
+        userId: completionState.userId,
+        ...(completionState.returnTo ? { returnTo: completionState.returnTo } : {}),
+      }
+      : null;
+  }
+
+  function redirectToReturnTarget(target: string | undefined): boolean {
+    if (!browser || !target) return false;
+    window.location.assign(target);
+    return true;
   }
 
   function applyDefaults(): void {
@@ -65,6 +77,7 @@
       completion = oauthCompletion;
       loading = false;
       error = null;
+      redirectToReturnTarget(oauthCompletion.returnTo);
       return;
     }
 
@@ -91,13 +104,15 @@
     submitting = true;
     error = null;
     try {
-      completion = await completeAccountFlowLocalPassword(trellisUrl, flowId, {
+      const success = await completeAccountFlowLocalPassword(trellisUrl, flowId, {
         username: username.trim(),
         password,
         name,
         email,
       });
+      completion = success;
       password = "";
+      redirectToReturnTarget(success.returnTo);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {

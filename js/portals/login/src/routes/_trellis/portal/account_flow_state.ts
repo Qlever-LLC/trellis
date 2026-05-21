@@ -15,9 +15,7 @@ export type AccountFlowTarget = {
 /** Supported account-flow kinds surfaced to the built-in portal pages. */
 export type AccountFlowKind =
   | "admin_bootstrap"
-  | "account_invite"
   | "identity_link"
-  | "local_password_setup"
   | "local_password_reset";
 
 /** Active account-flow state returned by the backend. */
@@ -31,6 +29,7 @@ export type ActiveAccountFlowState = {
   expiresAt: string;
   providers: AccountFlowProvider[];
   target?: AccountFlowTarget;
+  returnTo?: string;
 };
 
 /** Expired or missing account-flow state. */
@@ -45,6 +44,7 @@ export type ConsumedAccountFlowState = {
   status: "consumed";
   kind: AccountFlowKind | string;
   targetUserId?: string;
+  returnTo?: string;
 };
 
 /** Account-flow state variants rendered by the portal pages. */
@@ -55,7 +55,7 @@ export type AccountFlowState =
 
 /** Local-password completion form values. */
 export type LocalPasswordInput = {
-  username: string;
+  username?: string;
   password: string;
   name: string;
   email: string;
@@ -65,6 +65,7 @@ export type LocalPasswordInput = {
 export type LocalPasswordSuccess = {
   status: "created";
   userId: string;
+  returnTo?: string;
 };
 
 /** OAuth/OIDC callback query state for a completed account flow. */
@@ -72,6 +73,7 @@ export type AccountFlowOAuthCompletion = {
   status: "completed";
   flowId: string;
   userId: string;
+  returnTo?: string;
 };
 
 /** Minimal fetch-compatible function used by account-flow helpers. */
@@ -88,12 +90,14 @@ export const ACCOUNT_FLOW_ERROR_MESSAGES: Record<string, string> = {
     "This account request was completed elsewhere. Refresh before trying again.",
   local_identity_exists:
     "That username is already in use. Choose a different username.",
+  local_username_mismatch:
+    "This password link is bound to a different local username. Ask for a new link.",
   target_user_not_found:
     "The target account for this request no longer exists.",
   target_user_inactive:
     "The target account is inactive. Contact an administrator for access.",
   local_provider_not_allowed:
-    "Username and password setup is not allowed for this request.",
+    "Username and password completion is not allowed for this request.",
   flow_missing_target_user:
     "This account request is missing its target account.",
 };
@@ -132,6 +136,14 @@ function parseAllowedProviders(value: unknown): string[] | null {
   if (value === null) return null;
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+/** Return a safe same-origin relative return target, if present. */
+export function safeRelativeReturnTo(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return undefined;
+  return trimmed;
 }
 
 function parseJsonRecord(value: unknown): Record<string, unknown> {
@@ -178,9 +190,15 @@ export function parseAccountFlowOAuthCompletion(
   const flowId = accountFlowIdFromUrl(url);
   const status = url.searchParams.get("status")?.trim();
   const userId = url.searchParams.get("userId")?.trim();
+  const returnTo = safeRelativeReturnTo(url.searchParams.get("returnTo"));
 
   if (flowId && status === "completed" && userId && userId.length > 0) {
-    return { status: "completed", flowId, userId };
+    return {
+      status: "completed",
+      flowId,
+      userId,
+      ...(returnTo ? { returnTo } : {}),
+    };
   }
 
   return null;
@@ -221,12 +239,8 @@ export function unavailableProviders(
 /** Human-friendly label for known flow kinds. */
 export function flowKindLabel(kind: string): string {
   switch (kind) {
-    case "account_invite":
-      return "account invitation";
     case "identity_link":
       return "account link";
-    case "local_password_setup":
-      return "password setup";
     case "local_password_reset":
       return "password reset";
     case "admin_bootstrap":
@@ -245,6 +259,9 @@ export function parseAccountFlowState(value: unknown): AccountFlowState {
       ...(typeof body.kind === "string" ? { kind: body.kind } : {}),
       ...(typeof body.targetUserId === "string"
         ? { targetUserId: body.targetUserId }
+        : {}),
+      ...(safeRelativeReturnTo(body.returnTo)
+        ? { returnTo: safeRelativeReturnTo(body.returnTo) }
         : {}),
     };
   }
@@ -278,6 +295,9 @@ export function parseAccountFlowState(value: unknown): AccountFlowState {
       expiresAt: body.expiresAt,
       providers: parseProviders(body.providers),
       ...(target ? { target } : {}),
+      ...(safeRelativeReturnTo(body.returnTo)
+        ? { returnTo: safeRelativeReturnTo(body.returnTo) }
+        : {}),
     };
   }
 
@@ -322,11 +342,12 @@ export async function completeAccountFlowLocalPassword(
   fetcher: FetchLike = fetch,
 ): Promise<LocalPasswordSuccess> {
   const payload: Record<string, string> = {
-    username: input.username,
     password: input.password,
   };
+  const username = input.username?.trim();
   const name = input.name.trim();
   const email = input.email.trim();
+  if (username) payload.username = username;
   if (name) payload.name = name;
   if (email) payload.email = email;
 
@@ -352,7 +373,12 @@ export async function completeAccountFlowLocalPassword(
     isRecord(body) && body.status === "created" &&
     typeof body.userId === "string"
   ) {
-    return { status: "created", userId: body.userId };
+    const returnTo = safeRelativeReturnTo(body.returnTo);
+    return {
+      status: "created",
+      userId: body.userId,
+      ...(returnTo ? { returnTo } : {}),
+    };
   }
   throw new Error(
     "Account request completed but returned an unexpected response.",

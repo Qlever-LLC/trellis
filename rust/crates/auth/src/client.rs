@@ -10,21 +10,20 @@ use trellis_client::{RpcDescriptor, TrellisClient, UserConnectOptions};
 use crate::protocol::LogoutResponse;
 use trellis_sdk_auth::{
     rpc::{
-        AuthAccountFlowsCreatePasswordSetupRpc, AuthCapabilitiesListRpc,
-        AuthCapabilityGroupsListRpc, AuthDeploymentsCreateRpc, AuthDeploymentsDisableRpc,
-        AuthDeploymentsEnableRpc, AuthDeploymentsListRpc, AuthDeploymentsRemoveRpc,
-        AuthIdentitiesListRpc, AuthIdentityEnvelopesRevokeRpc, AuthSessionsListRpc,
-        AuthSessionsMeRpc, AuthUsersCreateRpc, AuthUsersGetRpc, AuthUsersListRpc,
-        AuthUsersUpdateRpc, Empty,
+        AuthCapabilitiesListRpc, AuthCapabilityGroupsListRpc, AuthDeploymentsCreateRpc,
+        AuthDeploymentsDisableRpc, AuthDeploymentsEnableRpc, AuthDeploymentsListRpc,
+        AuthDeploymentsRemoveRpc, AuthIdentitiesListRpc, AuthIdentityEnvelopesRevokeRpc,
+        AuthSessionsListRpc, AuthSessionsMeRpc, AuthUsersCreateRpc, AuthUsersGetRpc,
+        AuthUsersListRpc, AuthUsersPasswordResetCreateRpc, AuthUsersUpdateRpc, Empty,
     },
     types::{
-        AuthAccountFlowsCreatePasswordSetupRequest, AuthAccountFlowsCreatePasswordSetupResponse,
         AuthCapabilitiesListRequest, AuthCapabilitiesListResponseEntriesItem,
         AuthCapabilityGroupsListRequest, AuthCapabilityGroupsListResponseEntriesItem,
         AuthDeploymentsCreateRequest, AuthDeploymentsDisableRequest, AuthDeploymentsEnableRequest,
         AuthDeploymentsListRequest, AuthDeploymentsRemoveRequest, AuthSessionsListRequest,
         AuthUsersCreateRequest, AuthUsersCreateResponseUser, AuthUsersGetRequest,
         AuthUsersGetResponseUser, AuthUsersListRequest, AuthUsersListResponseEntriesItem,
+        AuthUsersPasswordResetCreateRequest, AuthUsersPasswordResetCreateResponse,
         AuthUsersUpdateRequest,
     },
 };
@@ -266,12 +265,12 @@ impl<'a> AuthClient<'a> {
             .entries)
     }
 
-    /// Create a local password setup flow for one Trellis user.
-    pub async fn create_password_setup_flow(
+    /// Create a local password reset flow for one Trellis user.
+    pub async fn create_password_reset_flow(
         &self,
-        input: &AuthAccountFlowsCreatePasswordSetupRequest,
-    ) -> Result<AuthAccountFlowsCreatePasswordSetupResponse, TrellisAuthError> {
-        self.call_rpc::<AuthAccountFlowsCreatePasswordSetupRpc>(input)
+        input: &AuthUsersPasswordResetCreateRequest,
+    ) -> Result<AuthUsersPasswordResetCreateResponse, TrellisAuthError> {
+        self.call_rpc::<AuthUsersPasswordResetCreateRpc>(input)
             .await
     }
 

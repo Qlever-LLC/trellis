@@ -31,9 +31,11 @@
   let defaultsApplied = false;
 
   const active = $derived(flowState?.status === "active" ? flowState : null);
+  const isResetFlow = $derived(active?.kind === "local_password_reset");
   const title = $derived(active ? passwordFlowTitle(active.kind) : "Set your password");
   const action = $derived(active ? passwordFlowAction(active.kind) : "Save password");
-  const canSubmit = $derived(Boolean(active && flowId && hasLocalProvider(active) && username.trim() && password && !submitting && !completion));
+  const fixedUsername = $derived(active && !isResetFlow ? defaultProfileValue(active, "username").trim() : "");
+  const canSubmit = $derived(Boolean(active && flowId && hasLocalProvider(active) && (isResetFlow || fixedUsername) && password && !submitting && !completion));
 
   function currentFlowId(): string | null {
     if (!browser) return null;
@@ -42,7 +44,7 @@
 
   function applyDefaults(): void {
     if (!active || defaultsApplied) return;
-    username = defaultProfileValue(active, "username");
+    username = active.kind === "local_password_reset" ? "" : defaultProfileValue(active, "username");
     name = defaultProfileValue(active, "name");
     email = defaultProfileValue(active, "email");
     defaultsApplied = true;
@@ -73,7 +75,7 @@
     error = null;
     try {
       completion = await completeAccountFlowLocalPassword(trellisUrl, flowId, {
-        username: username.trim(),
+        ...(isResetFlow ? {} : { username: fixedUsername }),
         password,
         name,
         email,
@@ -119,12 +121,14 @@
       {:else if flowState?.status === "consumed"}
         <div><h1 class="text-xl font-semibold tracking-[-0.025em] text-base-content">Password link already used</h1><p class="portal-copy mt-2 text-sm">This {flowKindLabel(flowState.kind)} request has already been completed.</p></div>
       {:else if active}
-        <div><h1 class="text-xl font-semibold tracking-[-0.025em] text-base-content">{title}</h1><p class="portal-copy mt-2 text-sm">{active.kind === "local_password_reset" ? "Choose a replacement password for your local Trellis credentials." : "Choose local username and password credentials for this Trellis account."}</p></div>
+        <div><h1 class="text-xl font-semibold tracking-[-0.025em] text-base-content">{title}</h1></div>
         {@render targetSummary()}
         {#if !isExpectedPasswordFlow(active)}<div class="alert alert-warning text-sm" role="alert"><span>This link is for {flowKindLabel(active.kind)}, not password setup or reset. Continue only if this is expected.</span></div>{/if}
         {#if hasLocalProvider(active)}
           <form class="grid gap-4" onsubmit={(event) => { event.preventDefault(); void submitLocal(); }}>
-            <label class="form-control gap-1.5"><span class="label-text text-sm font-medium text-base-content">Username</span><input class="input input-bordered w-full" autocomplete="username" disabled={submitting} required bind:value={username} /></label>
+            {#if !isResetFlow && fixedUsername}
+              <label class="form-control gap-1.5"><span class="label-text text-sm font-medium text-base-content">Username</span><input class="input input-bordered w-full" autocomplete="username" disabled readonly value={fixedUsername} /></label>
+            {/if}
             <label class="form-control gap-1.5"><span class="label-text text-sm font-medium text-base-content">Password</span><input class="input input-bordered w-full" autocomplete="new-password" disabled={submitting} required type="password" bind:value={password} /></label>
             <label class="form-control gap-1.5"><span class="label-text text-sm font-medium text-base-content">Name <span class="font-normal text-base-content/45">optional</span></span><input class="input input-bordered w-full" autocomplete="name" disabled={submitting} bind:value={name} /></label>
             <label class="form-control gap-1.5"><span class="label-text text-sm font-medium text-base-content">Email <span class="font-normal text-base-content/45">optional</span></span><input class="input input-bordered w-full" autocomplete="email" disabled={submitting} type="email" bind:value={email} /></label>

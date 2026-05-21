@@ -125,8 +125,8 @@ pub(crate) async fn complete_admin_bootstrap(
     email: &str,
 ) -> Result<()> {
     driver.goto(bootstrap_url).await.into_diagnostic()?;
-    wait_for_page_text(driver, &["Create the first admin"], Duration::from_secs(30)).await?;
-    fill_input(driver, "input[autocomplete='username']", username).await?;
+    let _ = username;
+    wait_for_page_text(driver, &["Reset your password"], Duration::from_secs(30)).await?;
     fill_input(driver, "input[autocomplete='new-password']", password).await?;
     fill_input(driver, "input[autocomplete='name']", name).await?;
     fill_input(driver, "input[autocomplete='email']", email).await?;
@@ -135,7 +135,7 @@ pub(crate) async fn complete_admin_bootstrap(
         .click()
         .await
         .into_diagnostic()?;
-    wait_for_page_text(driver, &["Admin account ready"], Duration::from_secs(30)).await
+    wait_for_page_text(driver, &["Password saved"], Duration::from_secs(30)).await
 }
 
 pub(crate) async fn complete_local_login(

@@ -71,6 +71,10 @@ export type SessionStorageEntry = {
   session: Session;
 };
 
+export type CreateUserWithLocalIdentityResult =
+  | { ok: true }
+  | { ok: false; error: "user_already_exists" | "identity_already_exists" };
+
 function decodeUserRow(row: UserRow): UserProjectionEntry {
   return Value.Decode(UserProjectionSchema, {
     origin: "account",
@@ -239,6 +243,8 @@ function decodeAccountFlowRow(row: AccountFlowRow): AccountFlow {
     flowIdHash: row.flowIdHash,
     kind: row.kind,
     targetUserId: row.targetUserId,
+    targetIdentityId: row.targetIdentityId,
+    targetLocalUsername: row.targetLocalUsername,
     createdByUserId: row.createdByUserId,
     allowedProviders: row.allowedProviders === null
       ? null
@@ -249,6 +255,7 @@ function decodeAccountFlowRow(row: AccountFlowRow): AccountFlow {
     profileHint: row.profileHint === null
       ? null
       : parseJsonField("account flow profile hint", row.profileHint),
+    returnTo: row.returnTo,
     createdAt: row.createdAt,
     expiresAt: row.expiresAt,
     consumedAt: row.consumedAt,
@@ -260,6 +267,8 @@ function encodeAccountFlow(record: AccountFlow): AccountFlowInsert {
     flowIdHash: record.flowIdHash,
     kind: record.kind,
     targetUserId: record.targetUserId,
+    targetIdentityId: record.targetIdentityId,
+    targetLocalUsername: record.targetLocalUsername,
     createdByUserId: record.createdByUserId,
     allowedProviders: record.allowedProviders === null
       ? null
@@ -270,6 +279,7 @@ function encodeAccountFlow(record: AccountFlow): AccountFlowInsert {
     profileHint: record.profileHint === null
       ? null
       : JSON.stringify(record.profileHint),
+    returnTo: record.returnTo ?? null,
     createdAt: record.createdAt,
     expiresAt: record.expiresAt,
     consumedAt: record.consumedAt,
@@ -455,6 +465,47 @@ export class SqlUserAccountRepository {
     return inserted.length > 0;
   }
 
+  /** Atomically inserts a new user account and its initial local identity. */
+  async createWithLocalIdentity(
+    account: UserAccount,
+    identity: UserIdentity,
+  ): Promise<CreateUserWithLocalIdentityResult> {
+    const accountRow = encodeUserAccount(account);
+    const identityRow = encodeUserIdentity(identity);
+
+    return await this.#db.transaction(async (tx) => {
+      const existingIdentityRows = await tx.select().from(userIdentities).where(
+        and(
+          eq(userIdentities.provider, identity.provider),
+          eq(userIdentities.subject, identity.subject),
+        ),
+      ).limit(1);
+      if (existingIdentityRows.length > 0) {
+        return { ok: false, error: "identity_already_exists" };
+      }
+
+      const insertedAccount = await tx.insert(users).values(accountRow)
+        .onConflictDoNothing({ target: users.userId })
+        .returning({ userId: users.userId });
+      if (insertedAccount.length === 0) {
+        return { ok: false, error: "user_already_exists" };
+      }
+
+      const insertedIdentity = await tx.insert(userIdentities).values(
+        identityRow,
+      )
+        .onConflictDoNothing({
+          target: [userIdentities.provider, userIdentities.subject],
+        })
+        .returning({ identityId: userIdentities.identityId });
+      if (insertedIdentity.length === 0) {
+        return { ok: false, error: "identity_already_exists" };
+      }
+
+      return { ok: true };
+    });
+  }
+
   /** Returns a bounded page of user accounts ordered by canonical user id. */
   async listPage(query: BoundedListQuery): Promise<UserAccount[]> {
     const { offset, limit } = boundedListQuery(query);
@@ -627,10 +678,13 @@ export class SqlAccountFlowRepository {
       set: {
         kind: row.kind,
         targetUserId: row.targetUserId,
+        targetIdentityId: row.targetIdentityId,
+        targetLocalUsername: row.targetLocalUsername,
         createdByUserId: row.createdByUserId,
         allowedProviders: row.allowedProviders,
         capabilities: row.capabilities,
         profileHint: row.profileHint,
+        returnTo: row.returnTo,
         createdAt: row.createdAt,
         expiresAt: row.expiresAt,
         consumedAt: row.consumedAt,
@@ -920,7 +974,7 @@ export class SqlAccountFlowRepository {
       if (flowRow === undefined) return { ok: false, error: "flow_not_found" };
 
       const flow = decodeAccountFlowRow(flowRow);
-      if (flow.kind !== "account_invite" && flow.kind !== "identity_link") {
+      if (flow.kind !== "identity_link") {
         return { ok: false, error: "flow_wrong_kind" };
       }
       if (flow.consumedAt !== null) {

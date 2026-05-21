@@ -12,15 +12,22 @@ import {
 } from "../capability_groups.ts";
 import type {
   BoundedListQuery,
+  CreateUserWithLocalIdentityResult,
   ListPage,
   SqlUserAccountRepository,
   SqlUserIdentityRepository,
 } from "../storage.ts";
 import { listPage } from "../../storage/list_query.ts";
+import { identityIdForProviderSubject } from "../identity.ts";
 
 type RpcUser = { userId: string; capabilities?: string[] };
 type UserReadAccountStorage = Pick<SqlUserAccountRepository, "get">;
-type UserCreateAccountStorage = Pick<SqlUserAccountRepository, "create">;
+type UserCreateAccountStorage =
+  & Pick<
+    SqlUserAccountRepository,
+    "create"
+  >
+  & Partial<Pick<SqlUserAccountRepository, "createWithLocalIdentity">>;
 type UserListAccountStorage =
   & Pick<SqlUserAccountRepository, "listPage">
   & Partial<Pick<SqlUserAccountRepository, "listCountedPage">>;
@@ -91,6 +98,36 @@ async function isActiveAdmin(
 
 function generateAccountId(): string {
   return `usr_${ulid()}`;
+}
+
+function localIdentityForAccount(args: {
+  account: UserAccount;
+  username: string;
+  now: string;
+}): UserIdentity {
+  return {
+    identityId: identityIdForProviderSubject("local", args.username),
+    userId: args.account.userId,
+    provider: "local",
+    subject: args.username,
+    displayName: args.account.name,
+    email: args.account.email,
+    emailVerified: false,
+    linkedAt: args.now,
+    lastLoginAt: null,
+  };
+}
+
+function createUserError(
+  result:
+    | Extract<CreateUserWithLocalIdentityResult, { ok: false }>
+    | { ok: false; error: "user_already_exists" },
+  context: Record<string, unknown>,
+): AuthError {
+  return new AuthError({
+    reason: result.error,
+    context,
+  });
 }
 
 function userView(entry: UserAccount, identities: UserIdentity[]) {
@@ -235,6 +272,7 @@ export function createAuthUsersCreateHandler(
       input: {
         name?: string;
         email?: string;
+        username?: string;
         active?: boolean;
         capabilities?: string[];
         capabilityGroups?: string[];
@@ -268,12 +306,39 @@ export function createAuthUsersCreateHandler(
       updatedAt: now,
     };
 
+    const identity = req.username === undefined
+      ? undefined
+      : localIdentityForAccount({
+        account,
+        username: req.username,
+        now,
+      });
+
+    if (identity) {
+      if (!accountStorage.createWithLocalIdentity) {
+        throw new Error(
+          "User storage does not support local identity creation",
+        );
+      }
+      const created = await accountStorage.createWithLocalIdentity(
+        account,
+        identity,
+      );
+      if (!created.ok) {
+        return Result.err(createUserError(created, {
+          userId,
+          username: req.username,
+        }));
+      }
+
+      return Result.ok({ user: userView(account, [identity]) });
+    }
+
     const created = await accountStorage.create(account);
     if (!created) {
       return Result.err(
-        new AuthError({
-          reason: "user_already_exists",
-          context: { userId },
+        createUserError({ ok: false, error: "user_already_exists" }, {
+          userId,
         }),
       );
     }

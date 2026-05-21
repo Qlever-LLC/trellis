@@ -35,23 +35,25 @@ Deno.test("invite accountFlowIdFromUrl rejects missing and blank flow id", () =>
   );
 });
 
-Deno.test("invite parses active account flow state", () => {
-  const state = parseAccountFlowState({
-    status: "active",
-    flowId: "flow-1",
-    kind: "account_invite",
-    targetUserId: "usr_1",
-    allowedProviders: ["local", "github"],
-    profileHint: { name: "Ada" },
-    expiresAt: "2099-01-01T00:00:00.000Z",
-    providers: [{ id: "local", displayName: "Username and password" }],
-    target: { userId: "usr_1", name: "Ada", active: true },
-  });
+Deno.test("invite route no longer accepts active account-flow state", () => {
+  for (const kind of ["identity_link", "local_password_reset"] as const) {
+    const state = parseAccountFlowState({
+      status: "active",
+      flowId: "flow-1",
+      kind,
+      targetUserId: "usr_1",
+      allowedProviders: ["local", "github"],
+      profileHint: { name: "Ada" },
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      providers: [{ id: "local", displayName: "Username and password" }],
+      target: { userId: "usr_1", name: "Ada", active: true },
+    });
 
-  assertEquals(state.status, "active");
-  if (state.status === "active") {
-    assertEquals(isExpectedInviteFlow(state), true);
-    assertEquals(state.target?.name, "Ada");
+    assertEquals(state.status, "active");
+    if (state.status === "active") {
+      assertEquals(isExpectedInviteFlow(state), false);
+      assertEquals(state.target?.name, "Ada");
+    }
   }
 });
 

@@ -75,6 +75,7 @@ export type HttpRouteRuntimeDeps = Pick<
   | "pendingAuthKV"
   | "sentinelCreds"
   | "sessionStorage"
+  | "trellis"
 >;
 
 type HttpContractStorage = Pick<
@@ -476,9 +477,6 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
   function resolveAccountFlowPortalEntryUrl(kind: AccountFlowKind): string {
     if (kind === "admin_bootstrap") {
       return builtinPortalEntryUrl("/_trellis/portal/admin/bootstrap");
-    }
-    if (kind === "account_invite") {
-      return builtinPortalEntryUrl("/_trellis/portal/admin/invite");
     }
     if (kind === "identity_link") {
       return builtinPortalEntryUrl("/_trellis/portal/account/link");

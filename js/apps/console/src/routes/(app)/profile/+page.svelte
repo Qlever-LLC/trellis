@@ -2,6 +2,7 @@
   import { isErr } from "@qlever-llc/result";
   import type { AuthSessionsMeOutput, AuthUserIdentitiesListOutput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
+  import { page } from "$app/state";
   import { onMount } from "svelte";
   import { getInitials, getRoleLabel } from "../../../lib/control-panel.ts";
   import {
@@ -34,8 +35,12 @@
   let identities = $state<IdentityRecord[]>([]);
   let linkPending = $state(false);
   let linkError = $state<string | null>(null);
-  let resetPending = $state(false);
-  let resetError = $state<string | null>(null);
+  let passwordChangePending = $state(false);
+  let passwordChangeError = $state<string | null>(null);
+  let passwordChangeModalOpen = $state(false);
+  let currentPassword = $state("");
+  let newPassword = $state("");
+  let confirmNewPassword = $state("");
 
   const connectionStatus = $derived(connection.status.phase);
   const hasLocalIdentity = $derived(identities.some((identity) => identity.provider.trim().toLowerCase() === "local"));
@@ -48,27 +53,6 @@
   const mastheadSentence = $derived(
     `This account signs in through ${identities.length} ${identities.length === 1 ? "method" : "methods"} and has ${activeGrantCount} active delegated ${activeGrantCount === 1 ? "grant" : "grants"}.`,
   );
-
-  function openPreparedTab(url: string, tab: Window | null): boolean {
-    const opened = tab && !tab.closed ? tab : window.open("", "_blank");
-    if (!opened) return false;
-    opened.opener = null;
-    opened.location.href = url;
-    opened.focus();
-    return true;
-  }
-
-  function profileHintFor(account: NonNullable<AuthSessionsMeOutput["user"]>): Record<string, string> {
-    const hint: Record<string, string> = {};
-    const name = account.name?.trim();
-    const email = account.email?.trim();
-    if (name) {
-      hint.name = name;
-      hint.username = name;
-    }
-    if (email) hint.email = email;
-    return hint;
-  }
 
   function friendlyIdentityName(identity: IdentityRecord): string {
     return identity.displayName?.trim() || identity.email?.trim() || formatIdentityProviderLabel(identity.provider);
@@ -89,26 +73,39 @@
     return `${count} ${count === 1 ? "capability" : "capabilities"}`;
   }
 
+  function currentReturnTarget(): string {
+    return `${page.url.pathname}${page.url.search}${page.url.hash}`;
+  }
+
+  function openPasswordModal(): void {
+    passwordChangeError = null;
+    currentPassword = "";
+    newPassword = "";
+    confirmNewPassword = "";
+    passwordChangeModalOpen = true;
+  }
+
+  function closePasswordModal(): void {
+    if (passwordChangePending) return;
+    passwordChangeModalOpen = false;
+    passwordChangeError = null;
+    currentPassword = "";
+    newPassword = "";
+    confirmNewPassword = "";
+  }
+
   async function createIdentityLink() {
     linkPending = true;
     linkError = null;
-    const preparedTab = window.open("", "_blank");
     try {
-      const response = await trellis.request("Auth.AccountFlows.CreateIdentityLink", {}).take();
+      const response = await trellis.request("Auth.Users.IdentityLink.Create", { returnTo: currentReturnTarget() }).take();
       if (isErr(response)) {
-        preparedTab?.close();
         linkError = errorMessage(response);
         notifications.error(linkError, "Connect login failed");
         return;
       }
-      if (!openPreparedTab(response.url, preparedTab)) {
-        linkError = "Your browser blocked the login provider tab. Allow pop-ups for this site and try again.";
-        notifications.error(linkError, "Connect login blocked");
-        return;
-      }
-      notifications.success("Opened connect login flow in a new tab.", "Connect login ready");
+      window.location.assign(response.url);
     } catch (e) {
-      preparedTab?.close();
       linkError = errorMessage(e);
       notifications.error(linkError, "Connect login failed");
     } finally {
@@ -116,34 +113,39 @@
     }
   }
 
-  async function createPasswordReset() {
-    if (!user) return;
-    resetPending = true;
-    resetError = null;
-    const preparedTab = window.open("", "_blank");
+  async function changePassword() {
+    if (passwordChangePending) return;
+    passwordChangePending = true;
+    passwordChangeError = null;
     try {
-      const response = await trellis.request("Auth.AccountFlows.CreatePasswordReset", {
-        userId: user.userId,
-        profileHint: profileHintFor(user),
+      if (!currentPassword || !newPassword) {
+        passwordChangeError = "Enter your current password and a new password.";
+        return;
+      }
+      if (newPassword !== confirmNewPassword) {
+        passwordChangeError = "The new password fields do not match.";
+        return;
+      }
+
+      const response = await trellis.request("Auth.Users.Password.Change", {
+        currentPassword,
+        newPassword,
       }).take();
       if (isErr(response)) {
-        preparedTab?.close();
-        resetError = errorMessage(response);
-        notifications.error(resetError, "Password reset failed");
+        passwordChangeError = errorMessage(response);
+        notifications.error(passwordChangeError, "Password change failed");
         return;
       }
-      if (!openPreparedTab(response.url, preparedTab)) {
-        resetError = "Your browser blocked the password reset tab. Allow pop-ups for this site and try again.";
-        notifications.error(resetError, "Password reset blocked");
-        return;
-      }
-      notifications.success("Opened password reset in a new tab.", "Password reset ready");
+      currentPassword = "";
+      newPassword = "";
+      confirmNewPassword = "";
+      passwordChangeModalOpen = false;
+      notifications.success("Password changed. Other sessions may need to sign in again.", "Password changed");
     } catch (e) {
-      preparedTab?.close();
-      resetError = errorMessage(e);
-      notifications.error(resetError, "Password reset failed");
+      passwordChangeError = errorMessage(e);
+      notifications.error(passwordChangeError, "Password change failed");
     } finally {
-      resetPending = false;
+      passwordChangePending = false;
     }
   }
 
@@ -255,18 +257,18 @@
                         <div class="truncate font-medium">{identityTitle(identity)}</div>
                         <div class="text-xs text-base-content/60">{isLocalIdentity(identity) ? "Local password" : formatIdentityProviderLabel(identity.provider)}</div>
                       </div>
-                      <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-                        <dl class="grid gap-x-4 gap-y-1 text-xs text-base-content/60 sm:grid-cols-3">
-                          <div><dt class="font-semibold text-base-content/70">Email</dt><dd class="truncate">{identity.email || "Not provided"}</dd></div>
-                          <div><dt class="font-semibold text-base-content/70">Linked</dt><dd>{formatDate(identity.linkedAt)}</dd></div>
-                          <div><dt class="font-semibold text-base-content/70">Last used</dt><dd>{identity.lastLoginAt ? formatDate(identity.lastLoginAt) : "Not used yet"}</dd></div>
-                        </dl>
-                        {#if isLocalIdentity(identity)}
-                          <button class="btn btn-outline btn-sm" type="button" onclick={createPasswordReset} disabled={resetPending}>{resetPending ? "Opening..." : "Reset password"}</button>
-                        {/if}
+                        <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                          <dl class="grid gap-x-4 gap-y-1 text-xs text-base-content/60 sm:grid-cols-3">
+                            <div><dt class="font-semibold text-base-content/70">Email</dt><dd class="truncate">{identity.email || "Not provided"}</dd></div>
+                            <div><dt class="font-semibold text-base-content/70">Linked</dt><dd>{formatDate(identity.linkedAt)}</dd></div>
+                            <div><dt class="font-semibold text-base-content/70">Last used</dt><dd>{identity.lastLoginAt ? formatDate(identity.lastLoginAt) : "Not used yet"}</dd></div>
+                          </dl>
+                          {#if isLocalIdentity(identity)}
+                            <button class="btn btn-outline btn-xs" type="button" onclick={openPasswordModal}>Change password</button>
+                          {/if}
+                        </div>
                       </div>
                     </div>
-                  </div>
                 {:else}
                   <div class="p-3"><EmptyState title="No sign-in methods found" description="Refresh the page or contact an administrator if you cannot sign in again." /></div>
                 {/each}
@@ -275,7 +277,6 @@
               {#if !hasLocalIdentity}
                 <p class="text-sm text-base-content/60">No local password is connected to this account. Your connected login providers still work.</p>
               {/if}
-              {#if resetError}<div class="alert alert-error text-sm" role="alert"><span>{resetError}</span></div>{/if}
             </div>
           </div>
         </section>
@@ -341,4 +342,37 @@
       </div>
     </Panel>
   </section>
+{/if}
+
+{#if passwordChangeModalOpen}
+  <dialog class="modal modal-open" open aria-labelledby="password-change-title" onclick={(event) => { if (event.target === event.currentTarget) closePasswordModal(); }}>
+    <div class="modal-box relative w-full max-w-md border border-base-300 p-0">
+      <div class="flex items-start justify-between gap-3 border-b border-base-300 p-4">
+        <div>
+          <h3 id="password-change-title" class="font-semibold">Change local password</h3>
+          <p class="mt-1 text-sm text-base-content/60">Use your current password to update this account.</p>
+        </div>
+        <button class="btn btn-ghost btn-sm btn-square" type="button" aria-label="Cancel password change" onclick={closePasswordModal} disabled={passwordChangePending}>✕</button>
+      </div>
+      <form class="grid gap-3 p-4" onsubmit={(event) => { event.preventDefault(); void changePassword(); }}>
+        <label class="form-control w-full">
+          <span class="label py-1"><span class="label-text text-xs">Current password</span></span>
+          <input class="input input-bordered input-sm" type="password" bind:value={currentPassword} autocomplete="current-password" required />
+        </label>
+        <label class="form-control w-full">
+          <span class="label py-1"><span class="label-text text-xs">New password</span></span>
+          <input class="input input-bordered input-sm" type="password" bind:value={newPassword} autocomplete="new-password" required />
+        </label>
+        <label class="form-control w-full">
+          <span class="label py-1"><span class="label-text text-xs">Confirm new password</span></span>
+          <input class="input input-bordered input-sm" type="password" bind:value={confirmNewPassword} autocomplete="new-password" required />
+        </label>
+        {#if passwordChangeError}<div class="alert alert-error text-sm" role="alert"><span>{passwordChangeError}</span></div>{/if}
+        <div class="flex justify-end gap-2 pt-1">
+          <button class="btn btn-ghost btn-sm" type="button" onclick={closePasswordModal} disabled={passwordChangePending}>Cancel</button>
+          <button class="btn btn-primary btn-sm" type="submit" disabled={passwordChangePending}>{passwordChangePending ? "Changing..." : "Change password"}</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
 {/if}

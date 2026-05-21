@@ -132,6 +132,8 @@ export async function registerControlPlane(deps: {
 
   await ensureAdminBootstrapFlow({
     accountStorage,
+    userIdentityStorage,
+    localCredentialStorage,
     capabilityGroupStorage,
     accountFlowStorage,
     portalBaseUrl: config.web.publicOrigin ?? config.oauth.redirectBase,

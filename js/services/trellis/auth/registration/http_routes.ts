@@ -83,6 +83,7 @@ export function registerAuthHttpRoutes(
       | "pendingAuthKV"
       | "sentinelCreds"
       | "sessionStorage"
+      | "trellis"
     >,
 ): void {
   registerBuiltinPortalStaticRoutes(deps.app);

@@ -110,6 +110,7 @@ export const AccountFlowOAuthStateSchema = Type.Object({
   kind: Type.Literal("account_flow"),
   provider: Type.String({ minLength: 1 }),
   flowId: Type.String({ minLength: 1 }),
+  returnTo: Type.Optional(Type.String({ minLength: 1 })),
   codeVerifier: Type.String({ minLength: 1 }),
   createdAt: IsoDateSchema,
 });
@@ -187,9 +188,7 @@ export type LocalCredential = StaticDecode<typeof LocalCredentialSchema>;
 
 export const AccountFlowKindSchema = Type.Union([
   Type.Literal("admin_bootstrap"),
-  Type.Literal("account_invite"),
   Type.Literal("identity_link"),
-  Type.Literal("local_password_setup"),
   Type.Literal("local_password_reset"),
 ]);
 export type AccountFlowKind = StaticDecode<typeof AccountFlowKindSchema>;
@@ -198,6 +197,11 @@ export const AccountFlowSchema = Type.Object({
   flowIdHash: Type.String({ minLength: 1 }),
   kind: AccountFlowKindSchema,
   targetUserId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  targetIdentityId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  targetLocalUsername: Type.Union([
+    Type.String({ minLength: 1 }),
+    Type.Null(),
+  ]),
   createdByUserId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   allowedProviders: Type.Union([
     Type.Array(Type.String({ minLength: 1 })),
@@ -211,6 +215,9 @@ export const AccountFlowSchema = Type.Object({
     Type.Record(Type.String(), Type.Unknown()),
     Type.Null(),
   ]),
+  returnTo: Type.Optional(
+    Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  ),
   createdAt: DurableIsoDateStringSchema,
   expiresAt: DurableIsoDateStringSchema,
   consumedAt: Type.Union([DurableIsoDateStringSchema, Type.Null()]),

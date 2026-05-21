@@ -276,7 +276,8 @@ async fn users_show_command(format: OutputFormat, args: &UserRefArgs) -> miette:
 async fn users_create_command(format: OutputFormat, args: &UserCreateArgs) -> miette::Result<()> {
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
-    let username = trimmed_optional(&args.username);
+    let username = trimmed_optional(&args.username)
+        .ok_or_else(|| miette::miette!("--username is required to create a local user"))?;
     let user = auth_client
         .create_user(&authlib::AuthUsersCreateRequest {
             active: Some(!args.inactive),
@@ -284,15 +285,13 @@ async fn users_create_command(format: OutputFormat, args: &UserCreateArgs) -> mi
             capability_groups: Some(args.groups.clone()),
             email: trimmed_optional(&args.email),
             name: trimmed_optional(&args.name),
+            username: Some(username),
         })
         .await
         .into_diagnostic()?;
-    let profile_hint = username
-        .map(|username| BTreeMap::from([("username".to_string(), Value::String(username))]));
     let setup_flow = auth_client
-        .create_password_setup_flow(&authlib::AuthAccountFlowsCreatePasswordSetupRequest {
+        .create_password_reset_flow(&authlib::AuthUsersPasswordResetCreateRequest {
             expires_in_seconds: None,
-            profile_hint,
             user_id: user.user_id.clone(),
         })
         .await

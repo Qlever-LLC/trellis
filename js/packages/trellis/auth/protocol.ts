@@ -1502,6 +1502,7 @@ export const AuthUsersGetResponseSchema = Type.Object({
 export const AuthUsersCreateSchema = Type.Object({
   name: Type.Optional(Type.String({ minLength: 1 })),
   email: Type.Optional(Type.String({ minLength: 1 })),
+  username: Type.Optional(Type.String({ minLength: 1 })),
   active: Type.Optional(Type.Boolean()),
   capabilities: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
   capabilityGroups: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
@@ -1510,28 +1511,27 @@ export const AuthUsersCreateResponseSchema = Type.Object({
   user: UserViewSchema,
 });
 
-const AccountFlowProfileHintSchema = Type.Record(Type.String(), Type.Unknown());
+export const AuthUsersIdentityLinkCreateSchema = Type.Object({
+  returnTo: Type.Optional(Type.String({ minLength: 1 })),
+});
 
-export const AuthAccountFlowsCreateProviderFlowSchema = Type.Object({
+export const AuthUsersPasswordChangeSchema = Type.Object({
+  currentPassword: Type.String({ minLength: 1 }),
+  newPassword: Type.String({ minLength: 1 }),
+});
+
+export const AuthUsersPasswordChangeResponseSchema = Type.Object({
+  success: Type.Boolean(),
+});
+
+export const AuthUsersPasswordResetCreateSchema = Type.Object({
   userId: Type.String({ minLength: 1 }),
-  allowedProviders: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
-  profileHint: Type.Optional(AccountFlowProfileHintSchema),
   expiresInSeconds: Type.Optional(
     Type.Integer({ minimum: 60, maximum: 2592000 }),
   ),
 });
 
-export const AuthAccountFlowsCreateIdentityLinkSchema = Type.Object({});
-
-export const AuthAccountFlowsCreateLocalPasswordFlowSchema = Type.Object({
-  userId: Type.String({ minLength: 1 }),
-  profileHint: Type.Optional(AccountFlowProfileHintSchema),
-  expiresInSeconds: Type.Optional(
-    Type.Integer({ minimum: 60, maximum: 2592000 }),
-  ),
-});
-
-export const AuthAccountFlowsCreateResponseSchema = Type.Object({
+export const AuthUsersAccountFlowCreateResponseSchema = Type.Object({
   flowId: Type.String({ minLength: 1 }),
   url: Type.String({ minLength: 1 }),
   expiresAt: IsoDateStringSchema,

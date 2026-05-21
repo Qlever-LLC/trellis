@@ -111,11 +111,12 @@
     return { href };
   }
 
-  function buildCreateInput(): AuthUsersCreateInput {
+  function buildCreateInput(username: string): AuthUsersCreateInput {
     const input: AuthUsersCreateInput = {
       active,
       capabilities: uniqueCapabilities(selectedCapabilities),
       capabilityGroups: uniqueCapabilities(selectedCapabilityGroups),
+      username,
     };
     const trimmedName = trimmedOptional(name);
     const trimmedEmail = trimmedOptional(email);
@@ -148,13 +149,17 @@
     error = null;
     createdResult = null;
     try {
-      const createResponse = await trellis.request("Auth.Users.Create", buildCreateInput()).take();
+      const trimmedUsername = trimmedOptional(username);
+      if (!trimmedUsername) {
+        error = "Username is required to create the bound local identity before issuing a password setup link.";
+        return;
+      }
+
+      const createResponse = await trellis.request("Auth.Users.Create", buildCreateInput(trimmedUsername)).take();
       if (isErr(createResponse)) { error = errorMessage(createResponse); return; }
 
-      const trimmedUsername = trimmedOptional(username);
-      const setupResponse = await trellis.request("Auth.AccountFlows.CreatePasswordSetup", {
+      const setupResponse = await trellis.request("Auth.Users.PasswordReset.Create", {
         userId: createResponse.user.userId,
-        ...(trimmedUsername ? { profileHint: { username: trimmedUsername } } : {}),
       }).take();
       if (isErr(setupResponse)) { error = errorMessage(setupResponse); return; }
 
@@ -163,6 +168,7 @@
         setupUrl: setupResponse.url,
       };
       notifications.success(`Created ${createResponse.user.name ?? createResponse.user.userId}.`, "Created");
+
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -233,8 +239,8 @@
         <p class="text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-base-content/45">User profile</p>
         <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
           <label class="form-control w-full">
-            <span class="label py-1"><span class="label-text text-xs">Username</span><span class="label-text-alt">optional</span></span>
-            <input class="input input-bordered input-sm trellis-identifier" bind:value={username} autocomplete="username" placeholder="suggested local login" />
+            <span class="label py-1"><span class="label-text text-xs">Username</span><span class="label-text-alt">required</span></span>
+            <input class="input input-bordered input-sm trellis-identifier" bind:value={username} autocomplete="username" placeholder="local login" required />
           </label>
           <label class="form-control w-full">
             <span class="label py-1"><span class="label-text text-xs">Name</span><span class="label-text-alt">optional</span></span>

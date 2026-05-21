@@ -43,7 +43,6 @@ pub use protocol::{
 };
 pub use session_store::{clear_admin_session, load_admin_session, save_admin_session};
 pub use trellis_sdk_auth::types::{
-    AuthAccountFlowsCreatePasswordSetupRequest, AuthAccountFlowsCreatePasswordSetupResponse,
     AuthCapabilitiesListRequest, AuthCapabilitiesListResponse,
     AuthCapabilitiesListResponseEntriesItem, AuthCapabilityGroupsListRequest,
     AuthCapabilityGroupsListResponse, AuthCapabilityGroupsListResponseEntriesItem,
@@ -69,7 +68,8 @@ pub use trellis_sdk_auth::types::{
     AuthSessionsListResponse, AuthSessionsMeResponse, AuthUsersCreateRequest,
     AuthUsersCreateResponse, AuthUsersCreateResponseUser, AuthUsersGetRequest,
     AuthUsersGetResponse, AuthUsersGetResponseUser, AuthUsersListRequest, AuthUsersListResponse,
-    AuthUsersListResponseEntriesItem, AuthUsersUpdateRequest, AuthUsersUpdateResponse,
+    AuthUsersListResponseEntriesItem, AuthUsersPasswordResetCreateRequest,
+    AuthUsersPasswordResetCreateResponse, AuthUsersUpdateRequest, AuthUsersUpdateResponse,
 };
 
 #[cfg(test)]

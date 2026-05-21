@@ -52,17 +52,6 @@
     return localIdentity(user)?.subject.trim() || null;
   }
 
-  function profileHintFor(user: UserView): Record<string, string> {
-    const hint: Record<string, string> = {};
-    const name = userDisplayName(user);
-    const email = userDisplayEmail(user);
-    const username = userDisplayUsername(user) || name;
-    if (name) hint.name = name;
-    if (email) hint.email = email;
-    if (username) hint.username = username;
-    return hint;
-  }
-
   function identitySummary(user: UserView): string {
     const identity = primaryIdentity(user);
     if (!identity) return "No linked identity";
@@ -124,9 +113,8 @@
     if (resetPendingUserId) return;
     resetPendingUserId = user.userId;
     try {
-      const response = await trellis.request("Auth.AccountFlows.CreatePasswordReset", {
+      const response = await trellis.request("Auth.Users.PasswordReset.Create", {
         userId: user.userId,
-        profileHint: profileHintFor(user),
       }).take();
       if (isErr(response)) {
         notifications.error(errorMessage(response), "Password reset failed");

@@ -157,6 +157,24 @@ function testProvider(name: string, displayName: string): Provider {
   };
 }
 
+function accountFlow(overrides: Partial<AccountFlow>): AccountFlow {
+  return {
+    flowIdHash: "flow_hash",
+    kind: "identity_link",
+    targetUserId: "usr_target",
+    targetIdentityId: null,
+    targetLocalUsername: null,
+    createdByUserId: "usr_admin",
+    allowedProviders: null,
+    capabilities: null,
+    profileHint: null,
+    createdAt: "2026-05-09T00:00:00.000Z",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    consumedAt: null,
+    ...overrides,
+  };
+}
+
 Deno.test("auth HTTP rate-limit key ignores spoofable forwarding headers", () => {
   assertEquals(
     authHttpRateLimitKey({
@@ -266,6 +284,7 @@ async function registerTestRoutes(
       pendingAuthKV: kv,
       sentinelCreds: { jwt: "jwt", seed: "seed" },
       sessionStorage: storage,
+      trellis: { publish: () => AsyncResult.ok(undefined) },
       ...runtimeDepsOverride,
     },
   } as never);
@@ -507,6 +526,8 @@ Deno.test({
       flowIdHash: await hashKey(flowId),
       kind: "identity_link",
       targetUserId: "usr_target",
+      targetIdentityId: null,
+      targetLocalUsername: null,
       createdByUserId: "usr_admin",
       allowedProviders: null,
       capabilities: ["admin"],
@@ -542,6 +563,8 @@ Deno.test({
       flowIdHash: await hashKey(flowId),
       kind: "local_password_reset",
       targetUserId: "usr_target",
+      targetIdentityId: null,
+      targetLocalUsername: null,
       createdByUserId: "usr_admin",
       allowedProviders: ["local"],
       capabilities: null,
@@ -573,6 +596,7 @@ Deno.test({
   sanitizeResources: false,
   fn: async () => {
     const flowId = "invite-flow";
+    const identityId = identityIdForProviderSubject("local", "ada");
     const target: UserAccount = {
       userId: "usr_target",
       name: "Ada Account",
@@ -585,8 +609,10 @@ Deno.test({
     };
     const flow: AccountFlow = {
       flowIdHash: await hashKey(flowId),
-      kind: "account_invite",
+      kind: "identity_link",
       targetUserId: target.userId,
+      targetIdentityId: null,
+      targetLocalUsername: null,
       createdByUserId: "usr_admin",
       allowedProviders: ["local", "github"],
       capabilities: ["admin"],
@@ -617,7 +643,7 @@ Deno.test({
     assertEquals(await response.json(), {
       status: "active",
       flowId,
-      kind: "account_invite",
+      kind: "identity_link",
       targetUserId: target.userId,
       allowedProviders: ["local", "github"],
       profileHint: { name: "Ada" },
@@ -667,6 +693,8 @@ Deno.test({
       flowIdHash: await hashKey(flowId),
       kind: "identity_link",
       targetUserId: target.userId,
+      targetIdentityId: null,
+      targetLocalUsername: null,
       createdByUserId: target.userId,
       allowedProviders: null,
       capabilities: null,
@@ -709,6 +737,8 @@ Deno.test({
       flowIdHash: await hashKey(flowId),
       kind: "admin_bootstrap",
       targetUserId: null,
+      targetIdentityId: null,
+      targetLocalUsername: null,
       createdByUserId: null,
       allowedProviders: null,
       capabilities: ["admin"],
@@ -751,12 +781,15 @@ Deno.test({
     const flowId = "invite-oauth-flow";
     const flow: AccountFlow = {
       flowIdHash: await hashKey(flowId),
-      kind: "account_invite",
+      kind: "identity_link",
       targetUserId: "usr_target",
+      targetIdentityId: null,
+      targetLocalUsername: null,
       createdByUserId: "usr_admin",
       allowedProviders: ["github"],
       capabilities: null,
       profileHint: null,
+      returnTo: "/profile?tab=logins",
       createdAt: "2026-05-09T00:00:00.000Z",
       expiresAt: "2099-01-01T00:00:00.000Z",
       consumedAt: null,
@@ -796,8 +829,12 @@ Deno.test({
       "trellis_oauth=state-123",
     );
     assertEquals(savedState?.kind, "account_flow");
+    if (savedState?.kind !== "account_flow") {
+      throw new Error("expected account-flow OAuth state");
+    }
     assertEquals(savedState?.provider, "github");
     assertEquals(savedState?.flowId, flowId);
+    assertEquals(savedState?.returnTo, "/profile?tab=logins");
     assertEquals(savedState?.codeVerifier, "verifier-123");
     assertEquals(savedState?.createdAt instanceof Date, true);
   },
@@ -883,10 +920,13 @@ Deno.test({
       flowIdHash: await hashKey(flowId),
       kind: "identity_link",
       targetUserId: target.userId,
+      targetIdentityId: null,
+      targetLocalUsername: null,
       createdByUserId: "usr_admin",
       allowedProviders: ["github"],
       capabilities: null,
       profileHint: null,
+      returnTo: "/profile",
       createdAt: "2026-05-09T00:00:00.000Z",
       expiresAt: "2099-01-01T00:00:00.000Z",
       consumedAt: null,
@@ -944,6 +984,10 @@ Deno.test({
       response.headers.get("location") ?? "",
       "/_trellis/portal/account/link?flowId=link-oauth-flow&status=completed&userId=usr_target",
     );
+    assertStringIncludes(
+      response.headers.get("location") ?? "",
+      "returnTo=%2Fprofile",
+    );
     assertEquals(flow.consumedAt !== null, true);
     assertEquals(linkedIdentity?.userId, target.userId);
     assertEquals(linkedIdentity?.provider, "github");
@@ -958,6 +1002,7 @@ Deno.test({
   sanitizeResources: false,
   fn: async () => {
     const flowId = "invite-flow";
+    const identityId = identityIdForProviderSubject("local", "ada");
     const target: UserAccount = {
       userId: "usr_target",
       name: null,
@@ -970,17 +1015,31 @@ Deno.test({
     };
     const flow: AccountFlow = {
       flowIdHash: await hashKey(flowId),
-      kind: "account_invite",
+      kind: "local_password_reset",
       targetUserId: target.userId,
+      targetIdentityId: identityId,
+      targetLocalUsername: "ada",
       createdByUserId: "usr_admin",
       allowedProviders: ["local"],
       capabilities: null,
       profileHint: null,
+      returnTo: "/profile",
       createdAt: "2026-05-09T00:00:00.000Z",
       expiresAt: "2099-01-01T00:00:00.000Z",
       consumedAt: null,
     };
-    const identities: UserIdentity[] = [];
+    const existingIdentity: UserIdentity = {
+      identityId,
+      userId: target.userId,
+      provider: "local",
+      subject: "ada",
+      displayName: null,
+      email: null,
+      emailVerified: false,
+      linkedAt: "2026-05-01T00:00:00.000Z",
+      lastLoginAt: null,
+    };
+    const identities: UserIdentity[] = [existingIdentity];
     const credentials: LocalCredential[] = [];
     const app = await registerTestRoutes({}, {
       get: (id: string) =>
@@ -992,7 +1051,16 @@ Deno.test({
         flow.consumedAt = consumedAt;
         return Promise.resolve(true);
       },
-      getByProviderSubject: () => Promise.resolve(undefined),
+      getByProviderSubject: (provider: string, subject: string) =>
+        Promise.resolve(
+          identities.find((identity) =>
+            identity.provider === provider && identity.subject === subject
+          ),
+        ),
+      listByUser: (userId: string) =>
+        Promise.resolve(
+          identities.filter((identity) => identity.userId === userId),
+        ),
       put: (record: UserIdentity | LocalCredential) => {
         if ("provider" in record) identities.push(record);
         else credentials.push(record);
@@ -1018,21 +1086,13 @@ Deno.test({
     assertEquals(await response.json(), {
       status: "created",
       userId: target.userId,
+      returnTo: "/profile",
     });
     assertEquals(flow.consumedAt !== null, true);
     if (flow.consumedAt === null) throw new Error("expected consumed flow");
-    assertEquals(identities, [{
-      identityId: identityIdForProviderSubject("local", "ada"),
-      userId: target.userId,
-      provider: "local",
-      subject: "ada",
-      displayName: "Ada Local",
-      email: "ada@example.com",
-      emailVerified: false,
-      linkedAt: flow.consumedAt,
-      lastLoginAt: null,
-    }]);
+    assertEquals(identities, [existingIdentity]);
     assertEquals(credentials.length, 1);
+    assertEquals(credentials[0]?.identityId, identityId);
   },
 });
 
@@ -1054,8 +1114,10 @@ Deno.test({
     };
     const flow: AccountFlow = {
       flowIdHash: await hashKey(flowId),
-      kind: "local_password_setup",
+      kind: "local_password_reset",
       targetUserId: target.userId,
+      targetIdentityId: null,
+      targetLocalUsername: null,
       createdByUserId: "usr_admin",
       allowedProviders: ["local"],
       capabilities: null,
@@ -2522,6 +2584,7 @@ Deno.test({
             sessions.delete(sessionKey);
           },
         },
+        trellis: { publish: () => AsyncResult.ok(undefined) },
       },
     } as never);
 

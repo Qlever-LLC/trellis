@@ -12,7 +12,7 @@ const AGENT_CONTRACT_JSON: &str = r#"{
           "call": [
             "Auth.Deployments.Create",
             "Auth.DeviceUserAuthorities.Reviews.Decide",
-            "Auth.AccountFlows.CreatePasswordSetup",
+            "Auth.Users.PasswordReset.Create",
             "Auth.Capabilities.List",
             "Auth.CapabilityGroups.List",
             "Auth.Devices.Disable",

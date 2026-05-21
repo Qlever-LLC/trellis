@@ -14,6 +14,7 @@ export const AuthErrorDataSchema = Type.Object({
     Type.Literal("invalid_signature"),
     Type.Literal("user_not_found"),
     Type.Literal("user_already_exists"),
+    Type.Literal("identity_already_exists"),
     Type.Literal("identity_not_found"),
     Type.Literal("user_inactive"),
     Type.Literal("unknown_device"),
