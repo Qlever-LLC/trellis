@@ -477,7 +477,7 @@ pub(crate) async fn run_password_change_fixture(admin_login: &AdminLoginOutcome)
     match auth_client
         .auth_users_password_change(&AuthUsersPasswordChangeRequest {
             current_password: "not-the-admin-password".to_string(),
-            new_password: "adminpw8".to_string(),
+            new_password: "temporary-admin-password".to_string(),
         })
         .await
     {
@@ -503,7 +503,7 @@ pub(crate) async fn run_password_change_fixture(admin_login: &AdminLoginOutcome)
     let changed = auth_client
         .auth_users_password_change(&AuthUsersPasswordChangeRequest {
             current_password: "trellis-admin-password".to_string(),
-            new_password: "adminpw8".to_string(),
+            new_password: "temporary-admin-password".to_string(),
         })
         .await
         .into_diagnostic()?;
@@ -513,7 +513,7 @@ pub(crate) async fn run_password_change_fixture(admin_login: &AdminLoginOutcome)
 
     let restored = auth_client
         .auth_users_password_change(&AuthUsersPasswordChangeRequest {
-            current_password: "adminpw8".to_string(),
+            current_password: "temporary-admin-password".to_string(),
             new_password: "trellis-admin-password".to_string(),
         })
         .await

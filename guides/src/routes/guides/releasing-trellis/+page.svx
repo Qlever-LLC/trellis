@@ -103,13 +103,21 @@ Use stable version numbers without the `v` prefix when passing `--version`, `--f
 
 `CHANGELOG.md` is the source of truth for both the repo changelog and the GitHub release body.
 
-Review the commits since the previous release before finalizing the changelog:
+Review the commits and the actual code changes since the previous release before
+finalizing the changelog:
 
 ```sh
 git log --oneline "$PREVIOUS_TAG..HEAD"
+git diff --stat "$PREVIOUS_TAG..HEAD"
+git diff "$PREVIOUS_TAG..HEAD"
 ```
 
-Use that review to verify the changelog is complete and correct. It should cover user-visible changes, migration concerns, fixed user-visible bugs, and notable operational details without becoming a raw commit dump.
+Use the code review, not just the commit subjects, to verify the changelog is
+functionally complete and correct. It should cover user-visible changes,
+migration concerns, fixed user-visible bugs, and notable operational details
+without becoming a raw commit dump. Generated-file-only churn does not need its
+own entry, but generated artifacts should point back to a covered source or
+contract change.
 
 Add a section whose heading matches the release version exactly:
 

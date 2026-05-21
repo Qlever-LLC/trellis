@@ -53,7 +53,7 @@ Deno.test("password recognizes reset flows", () => {
       passwordPolicyError(state, "short"),
       "Password must be at least 12 characters.",
     );
-    assertEquals(passwordPolicyError(state, "long-enough"), null);
+    assertEquals(passwordPolicyError(state, "long-enough!"), null);
   }
 });
 

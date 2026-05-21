@@ -104,7 +104,7 @@ async function typecheckClientConnectRequestSurface() {
 
   const jobsResult = await connected.request("Jobs.List", { limit: 8 })
     .orThrow();
-  const jobCount: number = jobsResult.jobs.length;
+  const jobCount: number = jobsResult.entries.length;
   // @ts-expect-error generated SDK request output must be concrete, not any.
   const jobsOutputCheck: number = jobsResult;
 
@@ -155,7 +155,7 @@ async function typecheckRootTrellisRequestSurface() {
   const jobsResult = await rootAppTrellis.request("Jobs.List", {
     limit: 8,
   }).orThrow();
-  const jobCount: number = jobsResult.jobs.length;
+  const jobCount: number = jobsResult.entries.length;
   type RootMethod = Parameters<typeof rootAppTrellis.request>[0];
   const selectedMethod: RootMethod = "Selection.Selected";
 
@@ -209,7 +209,7 @@ async function typecheckTrellisClientConnectRequestSurface() {
 
   const jobsResult = await connected.request("Jobs.List", { limit: 8 })
     .orThrow();
-  const jobCount: number = jobsResult.jobs.length;
+  const jobCount: number = jobsResult.entries.length;
   // @ts-expect-error generated SDK request output must be concrete, not any.
   const jobsOutputCheck: number = jobsResult;
 

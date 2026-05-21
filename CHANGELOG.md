@@ -8,7 +8,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-05-20
+## [0.9.0-rc.1] - 2026-05-21
 
 ### Added
 
@@ -20,6 +20,17 @@ and this project adheres to
   rollout recovery.
 - Added login portal account flows for local password setup/reset, identity
   linking, and admin bootstrap.
+- Added durable user administration, linked identities, local password
+  credentials, login-attempt tracking, and account-flow session APIs.
+- Added first-class feed declarations plus TypeScript and Rust runtime APIs for
+  authenticated request/stream subscriptions with typed feed events.
+- Added SQLite-backed jobs query storage and paged Jobs admin queries, replacing
+  broader KV scans for job, resource, and state projections.
+- Added `trellis local init` and `trellis infra apply/check` workflows for local
+  NATS/Trellis bootstrap files and shared infrastructure verification.
+- Added Rust client support for device connect info, service bootstrap with
+  contract evidence and envelope approval waits, feed subscriptions, event
+  replay/ack controls, and typed RPC error payloads.
 - Added a Rust demo workspace and a shared demo app layout so TypeScript and
   Rust service/device examples exercise the same inspection workflow.
 - Added the Rust integration harness plus `trellis-local-bootstrap` and
@@ -31,26 +42,61 @@ and this project adheres to
 - Reworked auth around deployment envelopes, identity envelopes, auth-owned
   login portals, deployment-owned device routes, user accounts, and
   resource-first admin RPC names.
+- Reworked the Trellis CLI command tree around top-level login/logout/whoami,
+  users, portals, grants, `svc`/`dev`, local, infra, init, keys, and upgrade
+  commands; update scripts and operator runbooks that call old subcommands.
 - Reworked the Console admin surface around envelopes, grants, capability
   groups, consolidated devices, service repair, jobs detail, portal routing, and
   destructive-action confirmations.
+- Reworked the guides site with split concept pages, a multi-page TypeScript
+  service tutorial, updated install/start/local-development flows, and improved
+  API-doc navigation.
+- Removed the TypeScript runtime `authBypassMethods` option; unauthenticated RPC
+  handlers must now opt out per handler with `authRequired: false` instead of
+  using process-wide method bypass lists.
+- Changed Trellis service storage to a squashed `0.9` SQLite baseline with new
+  user identity, local credential, envelope, portal, grant override, resource
+  binding, and catalog evidence tables; existing `0.8.x` service databases
+  should be treated as incompatible unless an explicit migration path is added.
+- Changed RPC, feed, and transfer request proofs to include issued-at and
+  request-id headers, renamed the validation RPC to `Auth.Requests.Validate`,
+  and rejected transfer proofs that omit those fields.
 - Changed store, auth, state, and jobs list-style APIs to require bounded
   standard Trellis pagination or explicit limits, replacing unbounded scans with
-  targeted storage queries.
+  targeted storage queries and `nextOffset` response cursors.
+- Changed contract manifests and SDK generation to support grouped
+  required/optional uses, feeds, state accepted versions, contract-declared
+  capabilities, operation control capabilities/signals, and shared
+  `PageRequest`/`PageResponse` pagination models.
 - Changed contract digest and catalog handling to support forward-compatible
-  schemas, feeds, deployment evidence quarantine/ignore state, active catalog
-  repair, and durable resource bindings.
+  schemas, normalized manifests, feeds, declared capabilities, deployment
+  evidence quarantine/ignore state, active catalog repair, durable resource
+  bindings, and rejection of unsupported v1 subject and jobs/stream fields.
+- Changed operation runtime APIs to support service-side control handles, named
+  operation signals, durable signal history, and control/cancel capability
+  metadata.
+- Changed Trellis service configuration to require system NATS credentials,
+  resolve credential paths relative to the config file, enable SQLite
+  WAL/busy-timeout handling, and reject non-loopback HTTP/WS public origins
+  unless listed in `web.allowInsecureOrigins`.
 - Renamed the Rust service runtime crate surface from server-oriented naming to
   `trellis-service`, added Rust client state/store support, and expanded service
   resource, transfer, operation, and jobs runtime coverage.
 - Moved release tooling into Rust xtask commands and prepared release-managed
   Rust crate, generated SDK, npm package, image, and workflow metadata for the
-  `0.9.0` release.
+  `0.9.0-rc.1` release.
 
 ### Fixed
 
 - Fixed admin account-flow RPCs to require fresh primary authentication before
   creating local password reset/setup flows.
+- Fixed expired browser auth/account flows to redirect back to the app login
+  callback with a `flow_expired` error instead of leaving users stranded in the
+  portal flow.
+- Fixed Console grant override loading and removal grouping so override lists
+  and revoke actions target the correct deployment and identity groups.
+- Fixed local password setup/reset/change flows to return clearer policy and
+  flow-state errors.
 - Fixed release and publishing bootstrap paths so clean checkouts generate the
   required SDK artifacts before release, package, and image verification.
 - Fixed generated Rust SDK formatting so prepared generated crates pass the
