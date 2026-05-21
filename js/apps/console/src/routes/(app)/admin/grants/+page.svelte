@@ -34,6 +34,7 @@
   type GrantOverrideRow = DeploymentGrantOverride;
   type GrantOverrideGroup = {
     key: string;
+    deploymentId: string;
     identityKind: GrantIdentityKind;
     contractId: string;
     origin: string | null;
@@ -79,6 +80,7 @@
 
   function grantTargetKey(override: DeploymentGrantOverride): string {
     return [
+      override.deploymentId,
       override.identityKind,
       override.contractId,
       override.origin ?? "-",
@@ -105,6 +107,7 @@
       } else {
         groups[key] = {
           key,
+          deploymentId: override.deploymentId,
           identityKind: override.identityKind,
           contractId: override.contractId,
           origin: override.origin,
@@ -216,19 +219,13 @@
     error = null;
     saved = null;
     try {
-      const byDeployment: Record<string, DeploymentGrantOverride[]> = {};
-      for (const row of group.rows) {
-        byDeployment[row.deploymentId] = [...(byDeployment[row.deploymentId] ?? []), rowToOverride(row)];
-      }
-      for (const [deploymentId, overrides] of Object.entries(byDeployment)) {
-        const response = await authRpc.request("Auth.Envelopes.GrantOverrides.Remove", {
-          deploymentId,
-          overrides,
-        }).take();
-        if (isErr(response)) {
-          error = errorMessage(response);
-          return;
-        }
+      const response = await authRpc.request("Auth.Envelopes.GrantOverrides.Remove", {
+        deploymentId: group.deploymentId,
+        overrides: group.rows.map(rowToOverride),
+      }).take();
+      if (isErr(response)) {
+        error = errorMessage(response);
+        return;
       }
       saved = "Removed grant override.";
       await load({ preserveSaved: true });
@@ -242,10 +239,10 @@
   async function requestRemoveGrantOverrideGroup(group: GrantOverrideGroup): Promise<void> {
     const confirmed = await confirmationModal?.confirm({
       title: "Remove grant override?",
-      message: `This removes ${group.rows.length} stored grant override${group.rows.length === 1 ? "" : "s"} for the selected contract target.`,
+      message: `This removes ${group.rows.length} stored grant override${group.rows.length === 1 ? "" : "s"} for the selected contract target in deployment ${group.deploymentId}.`,
       confirmLabel: "Remove grant override",
       targetLabel: "Contract",
-      targetName: group.contractId,
+      targetName: `${group.deploymentId} / ${group.contractId}`,
       expectedValue: group.contractId,
     });
     if (confirmed) await removeGrantOverrideGroup(group);
@@ -293,15 +290,17 @@
         <div class="overflow-x-auto">
           <table class="table table-xs trellis-table grants-table border-b border-base-300 bg-base-100/30">
             <colgroup>
-              <col style="width: 11%" />
-              <col style="width: 22%" />
+              <col style="width: 13%" />
+              <col style="width: 10%" />
               <col style="width: 20%" />
-              <col style="width: 20%" />
-              <col style="width: 21%" />
+              <col style="width: 18%" />
+              <col style="width: 17%" />
+              <col style="width: 16%" />
               <col style="width: 6%" />
             </colgroup>
             <thead>
               <tr>
+                <th>Deployment</th>
                 <th>Identity</th>
                 <th>Contract</th>
                 <th>Origin</th>
@@ -313,6 +312,7 @@
             <tbody>
               {#each filteredGrantGroups as group (group.key)}
                 <tr>
+                  <td class="align-top"><div class="trellis-identifier min-w-0 truncate" title={group.deploymentId}>{group.deploymentId}</div></td>
                   <td class="align-top"><span class="badge badge-outline badge-xs">{group.identityKind}</span></td>
                   <td class="align-top"><div class="trellis-identifier min-w-0 truncate" title={group.contractId}>{group.contractId}</div></td>
                   <td class="align-top"><div class="trellis-identifier min-w-0 truncate" title={group.origin ?? "Web grants only"}>{group.origin ?? "—"}</div></td>
@@ -334,7 +334,7 @@
                   </td>
                 </tr>
               {:else}
-                <tr><td colspan="6" class="text-base-content/55">No grant overrides match the current filter.</td></tr>
+                <tr><td colspan="7" class="text-base-content/55">No grant overrides match the current filter.</td></tr>
               {/each}
             </tbody>
           </table>
