@@ -85,6 +85,8 @@ import {
   AuthEnvelopesExpandSchema,
   AuthEnvelopesGetResponseSchema,
   AuthEnvelopesGetSchema,
+  AuthEnvelopesGrantOverridesListResponseSchema,
+  AuthEnvelopesGrantOverridesListSchema,
   AuthEnvelopesGrantOverridesPutSchema,
   AuthEnvelopesGrantOverridesRemoveSchema,
   AuthEnvelopesGrantOverridesResponseSchema,
@@ -241,6 +243,9 @@ const schemas = {
   AuthEnvelopesGetRequest: AuthEnvelopesGetSchema,
   AuthEnvelopesGetResponse: AuthEnvelopesGetResponseSchema,
   AuthEnvelopesGrantOverridesPutRequest: AuthEnvelopesGrantOverridesPutSchema,
+  AuthEnvelopesGrantOverridesListRequest: AuthEnvelopesGrantOverridesListSchema,
+  AuthEnvelopesGrantOverridesListResponse:
+    AuthEnvelopesGrantOverridesListResponseSchema,
   AuthEnvelopesGrantOverridesResponse:
     AuthEnvelopesGrantOverridesResponseSchema,
   AuthEnvelopesGrantOverridesRemoveRequest:
@@ -460,6 +465,13 @@ export const TRELLIS_AUTH_RPC = {
     version: "v1",
     input: schemaRef("AuthEnvelopesGrantOverridesPutRequest"),
     output: schemaRef("AuthEnvelopesGrantOverridesResponse"),
+    capabilities: { call: ["admin"] },
+    errors: ["AuthError", "ValidationError", "UnexpectedError"],
+  },
+  "Auth.Envelopes.GrantOverrides.List": {
+    version: "v1",
+    input: schemaRef("AuthEnvelopesGrantOverridesListRequest"),
+    output: schemaRef("AuthEnvelopesGrantOverridesListResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },

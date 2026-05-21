@@ -29,6 +29,7 @@ export const contract = defineAppContract(
               "Auth.EnvelopeExpansions.List",
               "Auth.EnvelopeExpansions.Reject",
               "Auth.Envelopes.Expand",
+              "Auth.Envelopes.GrantOverrides.List",
               "Auth.Envelopes.GrantOverrides.Put",
               "Auth.Envelopes.GrantOverrides.Remove",
               "Auth.Envelopes.Get",

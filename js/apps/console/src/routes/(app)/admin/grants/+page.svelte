@@ -1,9 +1,6 @@
 <script lang="ts">
   import { isErr, type AsyncResult, type BaseError } from "@qlever-llc/result";
-  import type {
-    DeploymentEnvelope,
-    DeploymentGrantOverride,
-  } from "@qlever-llc/trellis/auth";
+  import type { DeploymentGrantOverride } from "@qlever-llc/trellis/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
@@ -19,30 +16,22 @@
     offset?: number;
     limit: number;
   };
-  type EnvelopeListOutput = {
-    entries: DeploymentEnvelope[];
+  type GrantOverrideListOutput = {
+    entries: DeploymentGrantOverride[];
+    nextOffset?: number;
   };
-  type EnvelopeGetOutput = {
+  type GrantOverrideMutationOutput = {
     grantOverrides: DeploymentGrantOverride[];
-  };
-  type EnvelopeGetInput = {
-    deploymentId: string;
   };
   type GrantOverrideMutationInput = {
     deploymentId: string;
     overrides: DeploymentGrantOverride[];
   };
-  type GrantOverrideMutationOutput = {
-    grantOverrides: DeploymentGrantOverride[];
-  };
   type AuthRpcClient = {
-    request(subject: "Auth.Envelopes.List", input: ListPageInput): AsyncResult<EnvelopeListOutput, BaseError>;
-    request(subject: "Auth.Envelopes.Get", input: EnvelopeGetInput): AsyncResult<EnvelopeGetOutput, BaseError>;
+    request(subject: "Auth.Envelopes.GrantOverrides.List", input: ListPageInput): AsyncResult<GrantOverrideListOutput, BaseError>;
     request(subject: "Auth.Envelopes.GrantOverrides.Remove", input: GrantOverrideMutationInput): AsyncResult<GrantOverrideMutationOutput, BaseError>;
   };
-  type GrantOverrideRow = DeploymentGrantOverride & {
-    envelope: DeploymentEnvelope;
-  };
+  type GrantOverrideRow = DeploymentGrantOverride;
   type GrantOverrideGroup = {
     key: string;
     identityKind: GrantIdentityKind;
@@ -199,16 +188,9 @@
     error = null;
     if (!options.preserveSaved) saved = null;
     try {
-      const listResponse = await authRpc.request("Auth.Envelopes.List", { limit: 500, offset: 0 }).take();
-      if (isErr(listResponse)) {
-        error = errorMessage(listResponse);
-        rows = [];
-        return;
-      }
-
-      const deployments = listResponse.entries;
-      const details = await Promise.all(deployments.map((deployment) => loadDeploymentGrantOverrides(deployment)));
-      rows = details.flat().sort((left, right) => grantOverrideKey(left).localeCompare(grantOverrideKey(right)));
+      const grantOverrides = await loadAllGrantOverrides();
+      rows = grantOverrides
+        .sort((left, right) => grantOverrideKey(left).localeCompare(grantOverrideKey(right)));
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -216,10 +198,16 @@
     }
   }
 
-  async function loadDeploymentGrantOverrides(deployment: DeploymentEnvelope): Promise<GrantOverrideRow[]> {
-    const response = await authRpc.request("Auth.Envelopes.Get", { deploymentId: deployment.deploymentId }).take();
-    if (isErr(response)) throw new Error(`Failed to load ${deployment.deploymentId}: ${errorMessage(response)}`);
-    return response.grantOverrides.map((override) => ({ ...override, envelope: deployment }));
+  async function loadAllGrantOverrides(): Promise<DeploymentGrantOverride[]> {
+    const entries: DeploymentGrantOverride[] = [];
+    let offset = 0;
+    while (true) {
+      const response = await authRpc.request("Auth.Envelopes.GrantOverrides.List", { limit: 500, offset }).take();
+      if (isErr(response)) throw new Error(errorMessage(response));
+      entries.push(...response.entries);
+      if (response.nextOffset === undefined) return entries;
+      offset = response.nextOffset;
+    }
   }
 
   async function removeGrantOverrideGroup(group: GrantOverrideGroup): Promise<void> {

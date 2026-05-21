@@ -1091,6 +1091,17 @@ export class SqlDeploymentGrantOverrideRepository {
     ).limit(limit).offset(offset);
     return rows.map((row) => decodeGrantOverrideRow(row));
   }
+
+  /** Returns a counted bounded page of grant overrides in deterministic order. */
+  async listCountedPage(
+    query: BoundedListQuery,
+  ): Promise<ListPage<DeploymentGrantOverride>> {
+    const [countRow, entries] = await Promise.all([
+      this.#db.select({ count: count() }).from(deploymentGrantOverrides),
+      this.listPage(query),
+    ]);
+    return listPage(entries, countRow[0]?.count ?? 0, query);
+  }
 }
 
 /** Stores deployment-owned resource bindings in SQL. */

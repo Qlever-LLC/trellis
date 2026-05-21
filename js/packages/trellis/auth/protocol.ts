@@ -362,6 +362,21 @@ export type AuthEnvelopesGrantOverridesPutInput = StaticDecode<
   typeof AuthEnvelopesGrantOverridesPutSchema
 >;
 
+export const AuthEnvelopesGrantOverridesListSchema = Type.Object({
+  offset: Type.Optional(Type.Integer({ minimum: 0 })),
+  limit: Type.Integer({ minimum: 0, maximum: 500 }),
+});
+export type AuthEnvelopesGrantOverridesListInput = StaticDecode<
+  typeof AuthEnvelopesGrantOverridesListSchema
+>;
+
+export const AuthEnvelopesGrantOverridesListResponseSchema = Type.Object({
+  ...PageResponseSchema(DeploymentGrantOverrideSchema).properties,
+});
+export type AuthEnvelopesGrantOverridesListResponse = StaticDecode<
+  typeof AuthEnvelopesGrantOverridesListResponseSchema
+>;
+
 export const AuthEnvelopesGrantOverridesResponseSchema = Type.Object({
   grantOverrides: Type.Array(DeploymentGrantOverrideSchema),
 });

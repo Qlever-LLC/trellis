@@ -31,6 +31,7 @@ import {
   createAuthEnvelopesChangesPreviewHandler,
   createAuthEnvelopesExpandHandler,
   createAuthEnvelopesGetHandler,
+  createAuthEnvelopesGrantOverridesListHandler,
   createAuthEnvelopesGrantOverridesPutHandler,
   createAuthEnvelopesGrantOverridesRemoveHandler,
   createAuthEnvelopesListHandler,
@@ -239,6 +240,37 @@ class InMemoryDeploymentGrantOverrideStorage {
     return this.#records.filter((record) =>
       record.deploymentId === deploymentId
     );
+  }
+
+  async listCountedPage(query: { offset?: number; limit: number }) {
+    await Promise.resolve();
+    const offset = query.offset ?? 0;
+    const entries = [...this.#records]
+      .sort((left, right) =>
+        left.deploymentId.localeCompare(right.deploymentId) ||
+        left.grantKind.localeCompare(right.grantKind) ||
+        String(left.capability).localeCompare(String(right.capability)) ||
+        String(left.capabilityGroupKey).localeCompare(
+          String(right.capabilityGroupKey),
+        ) ||
+        left.identityKind.localeCompare(right.identityKind) ||
+        left.contractId.localeCompare(right.contractId) ||
+        String(left.origin).localeCompare(String(right.origin)) ||
+        String(left.sessionPublicKey).localeCompare(
+          String(right.sessionPublicKey),
+        )
+      )
+      .slice(offset, offset + query.limit);
+    return {
+      entries,
+      count: this.#records.length,
+      offset,
+      limit: query.limit,
+      nextOffset:
+        query.limit <= 0 || offset + query.limit >= this.#records.length
+          ? undefined
+          : offset + query.limit,
+    };
   }
 }
 
@@ -732,6 +764,51 @@ Deno.test("Auth.Envelopes.Get returns envelope detail for Console review", async
   assertEquals(value.grantOverrides.map((override) => override.capability), [
     "billing.call",
   ]);
+});
+
+Deno.test("Auth.Envelopes.GrantOverrides.List returns compact paged grant override rows", async () => {
+  const grantOverrides = new InMemoryDeploymentGrantOverrideStorage();
+  grantOverrides.seed({
+    deploymentId: "billing.default",
+    identityKind: "web",
+    grantKind: "capability",
+    contractId: "acme.billing@v1",
+    origin: "https://app.example.com",
+    sessionPublicKey: null,
+    capability: "billing.call",
+    capabilityGroupKey: null,
+  });
+  grantOverrides.seed({
+    deploymentId: "ops.default",
+    identityKind: "session",
+    grantKind: "capability-group",
+    contractId: "acme.ops@v1",
+    origin: null,
+    sessionPublicKey: "session-key",
+    capability: null,
+    capabilityGroupKey: "ops-admins",
+  });
+  const handler = createAuthEnvelopesGrantOverridesListHandler({
+    deploymentGrantOverrideStorage: grantOverrides,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { limit: 1, offset: 0 },
+    context: adminContext,
+  });
+  if (result.isErr()) throw result.error;
+  const value = result.take() as unknown as {
+    entries: DeploymentGrantOverride[];
+    count: number;
+    nextOffset?: number;
+  };
+
+  assertEquals(value.entries.map((override) => override.deploymentId), [
+    "billing.default",
+  ]);
+  assertEquals(value.count, 2);
+  assertEquals(value.nextOffset, 1);
 });
 
 Deno.test("Auth.Envelopes.GrantOverrides.Put replaces deployment override rows", async () => {

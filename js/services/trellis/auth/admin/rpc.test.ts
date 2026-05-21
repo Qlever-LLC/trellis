@@ -327,6 +327,7 @@ Deno.test("auth contract exposes deployment and device admin RPCs", () => {
   assert(methods.includes("Auth.DeviceUserAuthorities.Reviews.Decide"));
   assert(methods.includes("Auth.Envelopes.List"));
   assert(methods.includes("Auth.Envelopes.Get"));
+  assert(methods.includes("Auth.Envelopes.GrantOverrides.List"));
   assert(methods.includes("Auth.Envelopes.Expand"));
   assert(methods.includes("Auth.EnvelopeExpansions.List"));
   assert(methods.includes("Auth.Envelopes.Changes.Preview"));

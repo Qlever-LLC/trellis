@@ -6,6 +6,7 @@ import {
   createAuthEnvelopesChangesPreviewHandler,
   createAuthEnvelopesExpandHandler,
   createAuthEnvelopesGetHandler,
+  createAuthEnvelopesGrantOverridesListHandler,
   createAuthEnvelopesGrantOverridesPutHandler,
   createAuthEnvelopesGrantOverridesRemoveHandler,
   createAuthEnvelopesListHandler,
@@ -94,6 +95,13 @@ export async function registerServiceAdminRpcs(deps: {
       deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
       envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
       deploymentPortalRouteStorage: deps.deploymentPortalRouteStorage,
+      deploymentGrantOverrideStorage: deps.deploymentGrantOverrideStorage,
+      logger: deps.logger,
+    }),
+  );
+  await deps.trellis.mount(
+    "Auth.Envelopes.GrantOverrides.List",
+    createAuthEnvelopesGrantOverridesListHandler({
       deploymentGrantOverrideStorage: deps.deploymentGrantOverrideStorage,
       logger: deps.logger,
     }),

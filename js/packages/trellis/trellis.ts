@@ -1590,6 +1590,24 @@ function isRuntimeRpcErrorDesc(value: unknown): value is RuntimeRpcErrorDesc {
     typeof Reflect.get(value, "fromSerializable") === "function";
 }
 
+const payloadSizeEncoder = new TextEncoder();
+
+function payloadByteLength(payload: string | Uint8Array): number {
+  return typeof payload === "string"
+    ? payloadSizeEncoder.encode(payload).byteLength
+    : payload.byteLength;
+}
+
+function causeMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+function causeLogData(cause: unknown): unknown {
+  return cause instanceof Error
+    ? { message: cause.message, stack: cause.stack, name: cause.name }
+    : cause;
+}
+
 function reconstructDeclaredRpcError(
   errorNames: readonly string[] | undefined,
   runtimeErrors: readonly RuntimeRpcErrorDesc[] | undefined,
@@ -2611,11 +2629,37 @@ export class Trellis<
         const result = resultPromise.take();
 
         if (isErr(result)) {
-          this.#respondWithError(msg, result.error);
+          this.#respondWithError(msg, result.error, { method: String(method) });
           continue;
         }
 
-        msg.respond(result);
+        const sent = this.#respondWithPayload(msg, result, undefined, {
+          method: String(method),
+          responseKind: "success",
+        });
+        if (sent.isErr()) {
+          const responseBytes = payloadByteLength(result);
+          const message = causeMessage(sent.error.cause);
+          this.#respondWithError(
+            msg,
+            new TransportError({
+              code: "trellis.rpc.response_send_failed",
+              message: message.includes("max_payload")
+                ? "Trellis RPC response exceeded NATS max_payload."
+                : "Trellis could not send the RPC response.",
+              hint:
+                "Reduce the requested page size or use a narrower RPC that does not include large detail payloads.",
+              cause: sent.error.cause,
+              context: {
+                method: String(method),
+                subject: msg.subject,
+                responseBytes,
+                causeMessage: message,
+              },
+            }),
+            { method: String(method), responseBytes },
+          );
+        }
       }
     });
   }
@@ -2967,13 +3011,65 @@ export class Trellis<
     });
   }
 
-  #respondWithError(msg: Msg, error: Error | BaseError): void {
+  #respondWithPayload(
+    msg: Msg,
+    payload: string,
+    options: { headers?: MsgHdrs } | undefined,
+    context: {
+      method?: string;
+      responseKind: "success" | "error";
+    },
+  ): Result<void, UnexpectedError> {
+    const responseBytes = payloadByteLength(payload);
+    try {
+      msg.respond(payload, options);
+      return ok(undefined);
+    } catch (cause) {
+      const error = new UnexpectedError({
+        cause,
+        context: {
+          method: context.method,
+          responseKind: context.responseKind,
+          subject: msg.subject,
+          reply: msg.reply,
+          responseBytes,
+          causeMessage: causeMessage(cause),
+        },
+      });
+      this.#log.error(
+        {
+          method: context.method,
+          responseKind: context.responseKind,
+          subject: msg.subject,
+          reply: msg.reply,
+          responseBytes,
+          cause: causeLogData(cause),
+        },
+        "Failed to send RPC response",
+      );
+      return err(error);
+    }
+  }
+
+  #respondWithError(
+    msg: Msg,
+    error: Error | BaseError,
+    context: { method?: string; responseBytes?: number } = {},
+  ): void {
     const trellisError = error instanceof BaseError &&
         !(error instanceof RemoteError)
       ? error
       : new UnexpectedError({ cause: error });
 
-    this.#log.error({ error: trellisError.toSerializable() }, "RPC error");
+    this.#log.error(
+      {
+        method: context.method,
+        subject: msg.subject,
+        responseBytes: context.responseBytes,
+        error: trellisError.toSerializable(),
+      },
+      "RPC error",
+    );
 
     const errorData = trellisError.toSerializable();
     const hdrs = natsHeaders();
@@ -2985,13 +3081,20 @@ export class Trellis<
         { error: serialized.error },
         "Failed to serialize error response",
       );
-      msg.respond(
+      this.#respondWithPayload(
+        msg,
         '{"type":"UnexpectedError","message":"Failed to serialize error"}',
         { headers: hdrs },
+        { method: context.method, responseKind: "error" },
       );
       return;
     }
-    msg.respond(serialized.take() as string, { headers: hdrs });
+    this.#respondWithPayload(
+      msg,
+      serialized.take() as string,
+      { headers: hdrs },
+      { method: context.method, responseKind: "error" },
+    );
   }
 
   respondWithError(msg: Msg, error: Error | BaseError): void {

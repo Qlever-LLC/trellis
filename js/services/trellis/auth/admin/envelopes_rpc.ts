@@ -107,6 +107,9 @@ type DeploymentPortalRouteStorage = {
 
 type DeploymentGrantOverrideStorage = {
   listByDeployment(deploymentId: string): Promise<DeploymentGrantOverride[]>;
+  listCountedPage(
+    query: BoundedListQuery,
+  ): Promise<ListPage<DeploymentGrantOverride>>;
   replaceForDeployment(
     deploymentId: string,
     records: DeploymentGrantOverride[],
@@ -634,6 +637,35 @@ export function createAuthEnvelopesGetHandler(deps: {
         portalRoute: portalRoute ?? null,
         grantOverrides,
       });
+    } catch (error) {
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
+    }
+  };
+}
+
+/** Creates the deployment grant override list RPC handler. */
+export function createAuthEnvelopesGrantOverridesListHandler(deps: {
+  deploymentGrantOverrideStorage: DeploymentGrantOverrideStorage;
+  logger: Pick<AuthRuntimeDeps["logger"], "trace">;
+}) {
+  return async (args: {
+    input: BoundedListQuery;
+    context: { caller: RpcUser };
+  }): Promise<
+    Result<ListPage<DeploymentGrantOverride>, AuthError | UnexpectedError>
+  > => {
+    const { input: req, context: { caller } } = args;
+    const authorized = requireAdminFreshAuth(caller);
+    if (authorized.isErr()) return authorized;
+    deps.logger.trace({
+      rpc: "Auth.Envelopes.GrantOverrides.List",
+      caller,
+    }, "RPC request");
+
+    try {
+      return Result.ok(
+        await deps.deploymentGrantOverrideStorage.listCountedPage(req),
+      );
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }

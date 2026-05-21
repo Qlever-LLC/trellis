@@ -6,6 +6,7 @@ type ErrorLike = {
     message?: unknown;
     remoteError?: {
       message?: unknown;
+      context?: Record<string, unknown>;
       issues?: Array<{ path?: unknown; message?: unknown }>;
     };
     issues?: Array<{ path?: unknown; message?: unknown }>;
@@ -98,6 +99,13 @@ export function errorMessage(error: unknown): string {
     const localIssues = candidate.error?.issues;
     if (Array.isArray(localIssues)) {
       return formatIssues(localIssues) ?? "Validation failed";
+    }
+
+    const remoteContextMessage = formatContextMessage(
+      candidate.error?.remoteError?.context,
+    );
+    if (remoteContextMessage) {
+      return remoteContextMessage;
     }
 
     if (typeof candidate.error?.remoteError?.message === "string") {
