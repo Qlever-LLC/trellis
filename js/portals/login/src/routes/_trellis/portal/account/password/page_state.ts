@@ -32,6 +32,39 @@ export type {
   LocalPasswordSuccess,
 };
 
+/** Return the configured password-policy minimum, if the flow exposes one. */
+export function passwordMinimumLength(
+  state: ActiveAccountFlowState,
+): number | null {
+  const minLength = state.passwordPolicy?.minLength;
+  return typeof minLength === "number" && Number.isInteger(minLength) &&
+      minLength > 0
+    ? minLength
+    : null;
+}
+
+/** Human-friendly password policy helper text for the password field. */
+export function passwordPolicyHint(state: ActiveAccountFlowState): string {
+  const minLength = passwordMinimumLength(state);
+  return minLength === null
+    ? "Use a strong password."
+    : `Use at least ${minLength} characters.`;
+}
+
+/** Validate the password against flow policy before submitting to the backend. */
+export function passwordPolicyError(
+  state: ActiveAccountFlowState,
+  password: string,
+): string | null {
+  const minLength = passwordMinimumLength(state);
+  if (
+    minLength !== null && password.length > 0 && password.length < minLength
+  ) {
+    return `Password must be at least ${minLength} characters.`;
+  }
+  return null;
+}
+
 /** Whether this portal route is intended for the loaded active flow. */
 export function isExpectedPasswordFlow(state: ActiveAccountFlowState): boolean {
   return state.kind === "local_password_reset";

@@ -648,6 +648,7 @@ Deno.test({
       allowedProviders: ["local", "github"],
       profileHint: { name: "Ada" },
       expiresAt: "2099-01-01T00:00:00.000Z",
+      passwordPolicy: { minLength: 8 },
       providers: [
         { id: "local", displayName: "Username and password" },
         { id: "github", displayName: "GitHub" },
@@ -766,6 +767,7 @@ Deno.test({
       allowedProviders: null,
       profileHint: null,
       expiresAt: "2099-01-01T00:00:00.000Z",
+      passwordPolicy: { minLength: 8 },
       providers: [
         { id: "local", displayName: "Username and password" },
         { id: "github", displayName: "GitHub" },
@@ -1142,6 +1144,94 @@ Deno.test({
 
     assertEquals(response.status, 403);
     assertEquals(await response.json(), { error: "target_user_inactive" });
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP account-flow local-password endpoint maps password policy errors",
+  sanitizeResources: false,
+  fn: async () => {
+    const flowId = "reset-short-password-flow";
+    const identityId = identityIdForProviderSubject("local", "ada");
+    const target: UserAccount = {
+      userId: "usr_target",
+      name: null,
+      email: null,
+      active: true,
+      capabilities: [],
+      capabilityGroups: [],
+      createdAt: "2026-05-09T00:00:00.000Z",
+      updatedAt: "2026-05-09T00:00:00.000Z",
+    };
+    const identity: UserIdentity = {
+      identityId,
+      userId: target.userId,
+      provider: "local",
+      subject: "ada",
+      displayName: null,
+      email: null,
+      emailVerified: false,
+      linkedAt: "2026-05-01T00:00:00.000Z",
+      lastLoginAt: null,
+    };
+    const flow: AccountFlow = {
+      flowIdHash: await hashKey(flowId),
+      kind: "local_password_reset",
+      targetUserId: target.userId,
+      targetIdentityId: identityId,
+      targetLocalUsername: "ada",
+      createdByUserId: "usr_admin",
+      allowedProviders: ["local"],
+      capabilities: null,
+      profileHint: null,
+      createdAt: "2026-05-09T00:00:00.000Z",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      consumedAt: null,
+    };
+    const app = await registerTestRoutes(
+      {},
+      {
+        get: (id: string) =>
+          Promise.resolve(
+            id === flow.flowIdHash
+              ? flow
+              : id === target.userId
+              ? target
+              : undefined,
+          ),
+        getByProviderSubject: (provider: string, subject: string) =>
+          Promise.resolve(
+            provider === "local" && subject === "ada" ? identity : undefined,
+          ),
+        listByUser: (userId: string) =>
+          Promise.resolve(userId === target.userId ? [identity] : []),
+      },
+      {},
+      {
+        config: {
+          ...config,
+          auth: {
+            localIdentity: { enabled: true, passwordPolicy: { minLength: 12 } },
+          },
+        },
+      },
+    );
+
+    const response = await app.request(
+      `http://trellis/auth/account-flow/${flowId}/local-password`,
+      {
+        method: "POST",
+        body: JSON.stringify({ password: "short" }),
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    assertEquals(response.status, 400);
+    assertEquals(await response.json(), {
+      error: "local_password_too_short",
+      minLength: 12,
+    });
   },
 });
 

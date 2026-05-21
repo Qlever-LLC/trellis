@@ -1,13 +1,15 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 
 import {
   completeAccountFlowLocalPassword,
   defaultProfileValue,
+  formatAccountFlowError,
   hasLocalProvider,
   isExpectedPasswordFlow,
   parseAccountFlowState,
   passwordFlowAction,
   passwordFlowTitle,
+  passwordPolicyError,
 } from "./page_state.ts";
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
@@ -36,6 +38,7 @@ Deno.test("password recognizes reset flows", () => {
     allowedProviders: ["local"],
     profileHint: { name: "Hint Name", email: "hint@example.com" },
     expiresAt: "2099-01-01T00:00:00.000Z",
+    passwordPolicy: { minLength: 12 },
     providers: [{ id: "local", displayName: "Username and password" }],
     target: { userId: "usr_1", email: "target@example.com", active: true },
   });
@@ -46,6 +49,11 @@ Deno.test("password recognizes reset flows", () => {
     assertEquals(hasLocalProvider(state), true);
     assertEquals(defaultProfileValue(state, "name"), "Hint Name");
     assertEquals(defaultProfileValue(state, "email"), "target@example.com");
+    assertEquals(
+      passwordPolicyError(state, "short"),
+      "Password must be at least 12 characters.",
+    );
+    assertEquals(passwordPolicyError(state, "long-enough"), null);
   }
 });
 
@@ -63,4 +71,29 @@ Deno.test("password completion omits username for reset flows", async () => {
 
   assertEquals(result, { status: "created", userId: "usr_1" });
   assertEquals(submitted, { password: "secret" });
+});
+
+Deno.test("password maps account-flow password policy errors", async () => {
+  assertEquals(
+    formatAccountFlowError(400, "local_password_too_short", { minLength: 12 }),
+    "Password must be at least 12 characters.",
+  );
+
+  await assertRejects(
+    () =>
+      completeAccountFlowLocalPassword(
+        "http://trellis.example",
+        "flow-1",
+        { password: "short", name: "", email: "" },
+        () =>
+          Promise.resolve(
+            jsonResponse(
+              { error: "local_password_too_short", minLength: 12 },
+              { status: 400 },
+            ),
+          ),
+      ),
+    Error,
+    "Password must be at least 12 characters.",
+  );
 });

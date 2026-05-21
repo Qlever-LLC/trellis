@@ -11,6 +11,9 @@
     hasLocalProvider,
     isExpectedPasswordFlow,
     loadAccountFlowState,
+    passwordMinimumLength,
+    passwordPolicyError,
+    passwordPolicyHint,
     passwordFlowAction,
     passwordFlowTitle,
     unavailableProviders,
@@ -35,7 +38,10 @@
   const title = $derived(active ? passwordFlowTitle(active.kind) : "Set your password");
   const action = $derived(active ? passwordFlowAction(active.kind) : "Save password");
   const fixedUsername = $derived(active && !isResetFlow ? defaultProfileValue(active, "username").trim() : "");
-  const canSubmit = $derived(Boolean(active && flowId && hasLocalProvider(active) && (isResetFlow || fixedUsername) && password && !submitting && !completion));
+  const passwordMinLength = $derived(active ? passwordMinimumLength(active) : null);
+  const passwordCurrentError = $derived(active ? passwordPolicyError(active, password) : null);
+  const passwordHelp = $derived(active ? passwordCurrentError ?? passwordPolicyHint(active) : "");
+  const canSubmit = $derived(Boolean(active && flowId && hasLocalProvider(active) && (isResetFlow || fixedUsername) && password && !passwordCurrentError && !submitting && !completion));
 
   function currentFlowId(): string | null {
     if (!browser) return null;
@@ -71,15 +77,19 @@
 
   async function submitLocal(): Promise<void> {
     if (!flowId || !active) return;
+    const policyError = passwordPolicyError(active, password);
+    if (policyError) {
+      error = policyError;
+      return;
+    }
     submitting = true;
     error = null;
     try {
-      completion = await completeAccountFlowLocalPassword(trellisUrl, flowId, {
-        ...(isResetFlow ? {} : { username: fixedUsername }),
-        password,
-        name,
-        email,
-      });
+      completion = await completeAccountFlowLocalPassword(
+        trellisUrl,
+        flowId,
+        { username: isResetFlow ? "" : fixedUsername, password, name, email },
+      );
       password = "";
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
@@ -129,7 +139,7 @@
             {#if !isResetFlow && fixedUsername}
               <label class="form-control gap-1.5"><span class="label-text text-sm font-medium text-base-content">Username</span><input class="input input-bordered w-full" autocomplete="username" disabled readonly value={fixedUsername} /></label>
             {/if}
-            <label class="form-control gap-1.5"><span class="label-text text-sm font-medium text-base-content">Password</span><input class="input input-bordered w-full" autocomplete="new-password" disabled={submitting} required type="password" bind:value={password} /></label>
+            <label class="form-control gap-1.5"><span class="label-text text-sm font-medium text-base-content">Password</span><input class="input input-bordered w-full" aria-describedby="password-help" autocomplete="new-password" disabled={submitting} minlength={passwordMinLength ?? undefined} required type="password" bind:value={password} /><span id="password-help" class={passwordCurrentError ? "text-xs text-error" : "text-xs text-base-content/55"}>{passwordHelp}</span></label>
             <label class="form-control gap-1.5"><span class="label-text text-sm font-medium text-base-content">Name <span class="font-normal text-base-content/45">optional</span></span><input class="input input-bordered w-full" autocomplete="name" disabled={submitting} bind:value={name} /></label>
             <label class="form-control gap-1.5"><span class="label-text text-sm font-medium text-base-content">Email <span class="font-normal text-base-content/45">optional</span></span><input class="input input-bordered w-full" autocomplete="email" disabled={submitting} type="email" bind:value={email} /></label>
             <button class="btn btn-primary btn-block" disabled={!canSubmit} type="submit">{#if submitting}<span class="loading loading-spinner loading-sm" aria-hidden="true"></span>Saving...{:else}{action}{/if}</button>

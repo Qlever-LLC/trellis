@@ -4,6 +4,11 @@ export type AccountFlowProvider = {
   displayName: string;
 };
 
+/** Password policy surfaced for local-password account flows. */
+export type AccountFlowPasswordPolicy = {
+  minLength: number;
+};
+
 /** Portal-safe target account summary returned for target-bound flows. */
 export type AccountFlowTarget = {
   userId: string;
@@ -27,6 +32,7 @@ export type ActiveAccountFlowState = {
   allowedProviders: string[] | null;
   profileHint: Record<string, unknown> | null;
   expiresAt: string;
+  passwordPolicy?: AccountFlowPasswordPolicy;
   providers: AccountFlowProvider[];
   target?: AccountFlowTarget;
   returnTo?: string;
@@ -132,6 +138,17 @@ function parseProviders(value: unknown): AccountFlowProvider[] {
   return value.map(parseProvider).filter((provider) => provider !== null);
 }
 
+function parsePasswordPolicy(
+  value: unknown,
+): AccountFlowPasswordPolicy | undefined {
+  if (!isRecord(value)) return undefined;
+  return typeof value.minLength === "number" &&
+      Number.isInteger(value.minLength) &&
+      value.minLength > 0
+    ? { minLength: value.minLength }
+    : undefined;
+}
+
 function parseAllowedProviders(value: unknown): string[] | null {
   if (value === null) return null;
   if (!Array.isArray(value)) return [];
@@ -161,6 +178,20 @@ async function parseJson(response: Response): Promise<unknown> {
 function responseErrorBody(value: unknown): string | null {
   if (!isRecord(value)) return null;
   return typeof value.error === "string" ? value.error : null;
+}
+
+function responseErrorDetails(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+function passwordPolicyMinimum(
+  details: Record<string, unknown> | null,
+): number | null {
+  const minLength = details?.minLength;
+  return typeof minLength === "number" && Number.isInteger(minLength) &&
+      minLength > 0
+    ? minLength
+    : null;
 }
 
 /** Extract the account flow id from a portal URL. */
@@ -283,6 +314,7 @@ export function parseAccountFlowState(value: unknown): AccountFlowState {
     typeof body.expiresAt === "string"
   ) {
     const target = parseTarget(body.target);
+    const passwordPolicy = parsePasswordPolicy(body.passwordPolicy);
     return {
       status: "active",
       flowId: body.flowId,
@@ -293,6 +325,7 @@ export function parseAccountFlowState(value: unknown): AccountFlowState {
       allowedProviders: parseAllowedProviders(body.allowedProviders),
       profileHint: isRecord(body.profileHint) ? body.profileHint : null,
       expiresAt: body.expiresAt,
+      ...(passwordPolicy ? { passwordPolicy } : {}),
       providers: parseProviders(body.providers),
       ...(target ? { target } : {}),
       ...(safeRelativeReturnTo(body.returnTo)
@@ -308,10 +341,18 @@ export function parseAccountFlowState(value: unknown): AccountFlowState {
 export function formatAccountFlowError(
   status: number,
   error: string | null,
+  details: Record<string, unknown> | null = null,
 ): string {
+  if (error === "local_password_too_short") {
+    const minLength = passwordPolicyMinimum(details);
+    return minLength === null
+      ? "Choose a longer password."
+      : `Password must be at least ${minLength} characters.`;
+  }
   if (error && error in ACCOUNT_FLOW_ERROR_MESSAGES) {
     return ACCOUNT_FLOW_ERROR_MESSAGES[error];
   }
+  if (error?.startsWith("Password must be at least ")) return `${error}.`;
   if (error) return `Account request failed (${status}): ${error}`;
   return `Account request failed with status ${status}.`;
 }
@@ -328,7 +369,11 @@ export async function loadAccountFlowState(
   const body = await parseJson(response);
   if (!response.ok) {
     throw new Error(
-      formatAccountFlowError(response.status, responseErrorBody(body)),
+      formatAccountFlowError(
+        response.status,
+        responseErrorBody(body),
+        responseErrorDetails(body),
+      ),
     );
   }
   return parseAccountFlowState(body);
@@ -366,7 +411,11 @@ export async function completeAccountFlowLocalPassword(
 
   if (!response.ok) {
     throw new Error(
-      formatAccountFlowError(response.status, responseErrorBody(body)),
+      formatAccountFlowError(
+        response.status,
+        responseErrorBody(body),
+        responseErrorDetails(body),
+      ),
     );
   }
   if (

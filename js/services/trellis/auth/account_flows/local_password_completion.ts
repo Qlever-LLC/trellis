@@ -1,6 +1,9 @@
 import { hashKey, randomToken } from "../crypto.ts";
 import { identityIdForProviderSubject } from "../identity.ts";
-import { createLocalCredentialPassword } from "../local_credentials/passwords.ts";
+import {
+  createLocalCredentialPassword,
+  validateLocalCredentialPasswordPolicy,
+} from "../local_credentials/passwords.ts";
 import type {
   AccountFlow,
   AccountFlowKind,
@@ -82,6 +85,7 @@ export type CompleteAdminBootstrapLocalPasswordError =
   | "local_identity_exists"
   | "flow_missing_local_identity"
   | "local_username_mismatch"
+  | "local_password_too_short"
   | "flow_consume_conflict";
 
 export type CompleteAdminBootstrapLocalPasswordResult =
@@ -159,6 +163,24 @@ function shouldRevokeTargetUserSessions(
   kind: TargetAccountLocalPasswordFlowKind,
 ): boolean {
   return kind === "local_password_reset";
+}
+
+function validateRequestedPassword(
+  options: CompleteAdminBootstrapLocalPasswordOptions,
+): CompleteAdminBootstrapLocalPasswordResult | null {
+  const minLength = options.passwordMinLength ?? 12;
+  try {
+    validateLocalCredentialPasswordPolicy(options.password, minLength);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === `Password must be at least ${minLength} characters`
+    ) {
+      return { ok: false, error: "local_password_too_short" };
+    }
+    throw error;
+  }
+  return null;
 }
 
 function sessionRevocationEvent(
@@ -279,6 +301,9 @@ async function completeTargetAccountLocalPassword(
     : options.username;
   if (!username) return { ok: false, error: "local_username_mismatch" };
 
+  const passwordPolicyError = validateRequestedPassword(options);
+  if (passwordPolicyError) return passwordPolicyError;
+
   const identityId = identityIdForProviderSubject("local", username);
   const existingIdentity = await options.userIdentityStorage
     .getByProviderSubject("local", username);
@@ -368,6 +393,9 @@ export async function completeAdminBootstrapLocalPassword(
 
   const userId = `usr_${randomToken(18)}`;
   if (!options.username) return { ok: false, error: "local_username_mismatch" };
+
+  const passwordPolicyError = validateRequestedPassword(options);
+  if (passwordPolicyError) return passwordPolicyError;
 
   const identityId = identityIdForProviderSubject("local", options.username);
   const account: UserAccount = {

@@ -52,8 +52,18 @@ function completionErrorStatus(
     case "target_user_inactive":
       return 403;
     case "local_username_mismatch":
+    case "local_password_too_short":
       return 400;
   }
+}
+
+function completionErrorBody(
+  error: CompleteAdminBootstrapLocalPasswordError,
+  passwordMinLength: number,
+): { error: CompleteAdminBootstrapLocalPasswordError; minLength?: number } {
+  return error === "local_password_too_short"
+    ? { error, minLength: passwordMinLength }
+    : { error };
 }
 
 function flowBase(flow: AccountFlow) {
@@ -134,6 +144,9 @@ async function buildActiveAccountFlowState(
     allowedProviders: flow.allowedProviders,
     profileHint: flow.kind === "local_password_reset" ? null : flow.profileHint,
     expiresAt: flow.expiresAt,
+    passwordPolicy: {
+      minLength: context.config.auth.localIdentity.passwordPolicy.minLength,
+    },
     providers: buildAccountFlowProviders(flow, context.providers, {
       includeLocal: !targetAlreadyHasLocalIdentity,
     }),
@@ -201,7 +214,10 @@ export function registerAccountFlowRoutes(
 
     if (!result.ok) {
       return c.json(
-        { error: result.error },
+        completionErrorBody(
+          result.error,
+          config.auth.localIdentity.passwordPolicy.minLength,
+        ),
         completionErrorStatus(result.error),
       );
     }
