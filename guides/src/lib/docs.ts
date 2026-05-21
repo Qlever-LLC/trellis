@@ -744,7 +744,7 @@ export const guideDocs: DocEntry[] = [
   {
     title: "Releasing Trellis",
     description:
-      "Cut a Trellis release from the repo, including changelog prep, local verification, version bumps, tagging, and publish flow.",
+      "Cut a Trellis release with the Rust xtask release tooling, changelog checks, verification, tagging, and publish flow.",
     href: "/guides/releasing-trellis",
     section: "Contributing",
   },

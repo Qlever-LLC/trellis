@@ -62,10 +62,11 @@
 - When changes affect contracts, generated SDKs, or runtime surfaces that depend
   on generated artifacts, run `cd js && deno task prepare` and
   `cd rust && cargo xtask prepare` as part of verification.
-- Follow `docs/testing-and-release.md` for testing and release practice. New
-  features must explicitly check whether they need integration coverage, and
-  runtime or public API behavior changes should run the full integration harness
-  before commit or at the end of the implementation cycle.
+- Follow `guides/src/routes/guides/releasing-trellis/+page.svx` for testing and
+  release practice. New features must explicitly check whether they need
+  integration coverage, and runtime or public API behavior changes should run
+  the full integration harness before commit or at the end of the implementation
+  cycle.
 - Release work must keep release-managed Trellis versions consistent through the
   Rust xtask release commands, verify `CHANGELOG.md` against changes since the
   previous release, and run the release verification checklist before the

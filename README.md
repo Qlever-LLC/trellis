@@ -10,14 +10,12 @@ guides/         Trellis documentation site (SvelteKit static site, published to 
 js/             TypeScript packages, services, and apps (Deno workspace)
 rust/           Rust crates (CLI, codegen, client/server, contract model)
 generated/      Derived manifests and SDKs when generated locally (usually absent from a clean checkout)
-docs/           Supporting docs, including generated artifact guidance
 deploy/         Deployment assets, including quadlets and NATS templates
 design/         Trellis design docs
 ```
 
-See `docs/generated-artifacts.md` for regeneration details.
-See `docs/testing-and-release.md` for repository testing, versioning, and release
-checklists.
+See `/guides/tutorial-writing-ts-services/contract-artifacts` for regeneration details.
+See `/guides/releasing-trellis` for repository testing, versioning, and release checklists.
 
 ## Key concepts
 
