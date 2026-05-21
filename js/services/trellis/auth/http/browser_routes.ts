@@ -28,6 +28,7 @@ import { validateRedirectTo } from "../redirect.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import type { AuthHttpRouteContext } from "./route_context.ts";
 import {
+  buildRedirectLocation,
   type CookieContext,
   getCookie,
   type OAuthStateEntry,
@@ -298,7 +299,15 @@ export function registerBrowserAuthRoutes(
     if (!flow) {
       throw new HTTPException(404, { message: "Expired browser flow" });
     }
-    if (flow.kind !== "login" || flow.expiresAt <= new Date()) {
+    if (flow.kind === "login" && flow.expiresAt <= new Date()) {
+      if (flow.redirectTo) {
+        return c.redirect(
+          buildRedirectLocation(flow.redirectTo, { authError: "flow_expired" }),
+        );
+      }
+      throw new HTTPException(404, { message: "Expired browser flow" });
+    }
+    if (flow.kind !== "login") {
       throw new HTTPException(404, { message: "Expired browser flow" });
     }
     if (!flow.sessionKey) {

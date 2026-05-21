@@ -14,7 +14,19 @@ type AuthCallbackResult =
   | BindResponse
   | { status: "approval_denied" }
   | { status: "approval_required" }
-  | { status: "error"; message: string };
+  | { status: "error"; code?: string; message: string };
+
+/** Converts auth callback reason codes into console-facing messages. */
+export function formatConsoleAuthError(error: string): string {
+  switch (error) {
+    case "approval_denied":
+      return "App access was denied.";
+    case "flow_expired":
+      return "This sign-in request expired. Start sign-in again.";
+    default:
+      return error;
+  }
+}
 
 class ConsoleAuthState {
   #authUrl: string | undefined = APP_CONFIG.authUrl;
@@ -38,7 +50,11 @@ class ConsoleAuthState {
       return { status: "approval_denied" };
     }
     if (authError) {
-      return { status: "error", message: authError };
+      return {
+        status: "error",
+        code: authError,
+        message: formatConsoleAuthError(authError),
+      };
     }
 
     const flowId = url.searchParams.get("flowId");

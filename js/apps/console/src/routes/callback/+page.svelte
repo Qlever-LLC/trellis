@@ -11,6 +11,7 @@
   } from "../../lib/config";
   import {
     buildConsoleLoginUrl,
+    formatConsoleAuthError,
     getConsoleRedirectTarget,
     auth,
   } from "../../lib/auth";
@@ -76,7 +77,7 @@
       }
 
       if (result.status === "approval_denied") {
-        window.location.href = loginUrl("App access was denied.");
+        window.location.href = loginUrl(formatConsoleAuthError("approval_denied"));
         return;
       }
 
@@ -90,6 +91,11 @@
         missingCapabilities = result.missingCapabilities;
         authError = "An administrator needs to grant additional capabilities before you can continue.";
         status = "Insufficient access";
+        return;
+      }
+
+      if (result.status === "error" && result.code === "flow_expired") {
+        window.location.href = loginUrl(result.message);
         return;
       }
 

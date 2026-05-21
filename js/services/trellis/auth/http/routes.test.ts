@@ -809,20 +809,20 @@ Deno.test({
   fn: async () => {
     const provider = { github: testProvider("github", "GitHub") };
 
-    for (
-      const flowOverride of [
-        { kind: "device_activation" as const },
-        { expiresAt: new Date("2020-01-01T00:00:00.000Z") },
-      ]
-    ) {
-      const app = await registerTestRoutes(flowOverride, {}, provider);
-      const response = await app.request(
-        "http://trellis/auth/login/github?flowId=flow-oauth",
-      );
+    const wrongKindApp = await registerTestRoutes(
+      { kind: "device_activation" as const },
+      {},
+      provider,
+    );
+    const wrongKindResponse = await wrongKindApp.request(
+      "http://trellis/auth/login/github?flowId=flow-oauth",
+    );
 
-      assertEquals(response.status, 404);
-      assertStringIncludes(await response.text(), "Expired browser flow");
-    }
+    assertEquals(wrongKindResponse.status, 404);
+    assertStringIncludes(
+      await wrongKindResponse.text(),
+      "Expired browser flow",
+    );
 
     const app = await registerTestRoutes(
       { sessionKey: undefined },
@@ -835,6 +835,31 @@ Deno.test({
 
     assertEquals(response.status, 400);
     assertStringIncludes(await response.text(), "Invalid browser flow state");
+  },
+});
+
+Deno.test({
+  name: "auth HTTP OAuth login start redirects expired login flows to app",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes(
+      {
+        expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+        redirectTo: "http://localhost:5173/callback?redirectTo=%2Fprofile",
+      },
+      {},
+      { github: testProvider("github", "GitHub") },
+    );
+
+    const response = await app.request(
+      "http://trellis/auth/login/github?flowId=flow-oauth",
+    );
+
+    assertEquals(response.status, 302);
+    assertEquals(
+      response.headers.get("location"),
+      "http://localhost:5173/callback?redirectTo=%2Fprofile&authError=flow_expired",
+    );
   },
 });
 

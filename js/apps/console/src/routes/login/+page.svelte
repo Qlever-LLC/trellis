@@ -14,6 +14,7 @@
     resolveConsolePath,
     startConsoleSignIn,
     auth,
+    formatConsoleAuthError,
   } from "../../lib/auth";
   import TrellisLogo from "../../lib/components/TrellisLogo.svelte";
   import { errorMessage } from "../../lib/format";
@@ -64,7 +65,8 @@
   onMount(() => {
     if (!browser) return;
 
-    authError = page.url.searchParams.get("authError");
+    const queryAuthError = page.url.searchParams.get("authError");
+    authError = queryAuthError ? formatConsoleAuthError(queryAuthError) : null;
     selectedAuthUrl = getSelectedAuthUrl(page.url) ?? "";
 
     if (page.url.searchParams.has("flowId")) {
