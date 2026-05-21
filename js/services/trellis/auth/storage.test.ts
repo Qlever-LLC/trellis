@@ -350,6 +350,7 @@ function makeAccountFlow(overrides: Partial<AccountFlow> = {}): AccountFlow {
     allowedProviders: ["local", "github"],
     capabilities: ["catalog.read"],
     profileHint: { name: "Ada Lovelace", email: "ada@example.com" },
+    returnTo: null,
     createdAt: "2026-04-26T00:00:03.000Z",
     expiresAt: "2026-04-27T00:00:03.000Z",
     consumedAt: null,
