@@ -1,6 +1,6 @@
 use miette::{miette, IntoDiagnostic, Result};
 
-use crate::admin::run_admin_api_fixture;
+use crate::admin::{run_admin_api_fixture, run_password_change_fixture};
 use crate::app_identity_approval::run_app_identity_approval_fixture;
 use crate::browser::{complete_admin_bootstrap, complete_local_login, BrowserContainer};
 use crate::catalog_repair::{
@@ -83,6 +83,7 @@ pub(crate) fn admin_setup_contract_json() -> Result<String> {
             "Auth.UserIdentities.List",
             "Auth.Users.Get",
             "Auth.Users.List",
+            "Auth.Users.Password.Change",
             "Auth.Users.Update",
         ]),
     )
@@ -363,6 +364,9 @@ impl IntegrationRunner {
         )
         .await?;
         eprintln!("integration preflight: active catalog repair persistence check passed");
+        eprintln!("integration preflight: running password change fixture");
+        let password_change_passing_cases = run_password_change_fixture(&restored_outcome).await?;
+        eprintln!("integration preflight: password change fixture passed");
         let passing_cases = admin_api_passing_cases
             + device_activation_passing_cases
             + rpc_passing_cases
@@ -378,7 +382,8 @@ impl IntegrationRunner {
             + resources_passing_cases
             + jobs_passing_cases
             + catalog_repair_passing_cases
-            + catalog_repair_restart_passing_cases;
+            + catalog_repair_restart_passing_cases
+            + password_change_passing_cases;
         print_required_coverage(&required_coverage);
         print_known_failures(&known_failures);
         eprintln!(

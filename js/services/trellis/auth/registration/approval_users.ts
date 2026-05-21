@@ -5,10 +5,9 @@ import {
 } from "../approval/rpc.ts";
 import { createKick } from "../callout/kick.ts";
 import {
-  createAuthAccountFlowsCreateIdentityLinkHandler,
-  createAuthAccountFlowsCreateInviteHandler,
-  createAuthAccountFlowsCreatePasswordResetHandler,
-  createAuthAccountFlowsCreatePasswordSetupHandler,
+  createAuthUsersIdentityLinkCreateHandler,
+  createAuthUsersPasswordChangeHandler,
+  createAuthUsersPasswordResetCreateHandler,
 } from "../session/account_flows.ts";
 import {
   createAuthCapabilitiesListHandler,
@@ -27,6 +26,7 @@ import type {
   SqlAccountFlowRepository,
   SqlCapabilityGroupRepository,
   SqlIdentityEnvelopeRepository,
+  SqlLocalCredentialRepository,
   SqlSessionRepository,
   SqlUserAccountRepository,
   SqlUserIdentityRepository,
@@ -60,6 +60,7 @@ export async function registerApprovalAndUserRpcs(deps: {
   capabilityGroupStorage: SqlCapabilityGroupRepository;
   accountFlowStorage: SqlAccountFlowRepository;
   userIdentityStorage: SqlUserIdentityRepository;
+  localCredentialStorage: SqlLocalCredentialRepository;
   contractApprovalStorage: SqlIdentityEnvelopeRepository;
 }): Promise<void> {
   const kick = createKick(deps);
@@ -169,8 +170,8 @@ export async function registerApprovalAndUserRpcs(deps: {
     ),
   );
   await deps.trellis.mount(
-    "Auth.AccountFlows.CreateInvite",
-    createAuthAccountFlowsCreateInviteHandler({
+    "Auth.Users.IdentityLink.Create",
+    createAuthUsersIdentityLinkCreateHandler({
       accountStorage: deps.accountStorage,
       accountFlowStorage: deps.accountFlowStorage,
       logger: deps.logger,
@@ -178,27 +179,25 @@ export async function registerApprovalAndUserRpcs(deps: {
     }),
   );
   await deps.trellis.mount(
-    "Auth.AccountFlows.CreateIdentityLink",
-    createAuthAccountFlowsCreateIdentityLinkHandler({
+    "Auth.Users.Password.Change",
+    createAuthUsersPasswordChangeHandler({
       accountStorage: deps.accountStorage,
-      accountFlowStorage: deps.accountFlowStorage,
+      userIdentityStorage: deps.userIdentityStorage,
+      localCredentialStorage: deps.localCredentialStorage,
+      sessionStorage: deps.sessionStorage,
+      connectionsKV: deps.connectionsKV,
+      kick,
+      publishSessionRevoked: deps.publishSessionRevoked,
       logger: deps.logger,
-      portalBaseUrl,
+      passwordMinLength:
+        deps.config.auth.localIdentity.passwordPolicy.minLength,
     }),
   );
   await deps.trellis.mount(
-    "Auth.AccountFlows.CreatePasswordSetup",
-    createAuthAccountFlowsCreatePasswordSetupHandler({
+    "Auth.Users.PasswordReset.Create",
+    createAuthUsersPasswordResetCreateHandler({
       accountStorage: deps.accountStorage,
-      accountFlowStorage: deps.accountFlowStorage,
-      logger: deps.logger,
-      portalBaseUrl,
-    }),
-  );
-  await deps.trellis.mount(
-    "Auth.AccountFlows.CreatePasswordReset",
-    createAuthAccountFlowsCreatePasswordResetHandler({
-      accountStorage: deps.accountStorage,
+      userIdentityStorage: deps.userIdentityStorage,
       accountFlowStorage: deps.accountFlowStorage,
       logger: deps.logger,
       portalBaseUrl,

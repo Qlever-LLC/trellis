@@ -1,11 +1,14 @@
 type ErrorLike = {
   name?: unknown;
   message?: unknown;
+  reason?: unknown;
   getContext?: () => Record<string, unknown>;
   error?: {
     message?: unknown;
+    reason?: unknown;
     remoteError?: {
       message?: unknown;
+      reason?: unknown;
       context?: Record<string, unknown>;
       issues?: Array<{ path?: unknown; message?: unknown }>;
     };
@@ -15,6 +18,35 @@ type ErrorLike = {
     };
   };
 };
+
+function formatAuthReason(reason: unknown): string | null {
+  if (typeof reason !== "string") return null;
+  switch (reason) {
+    case "invalid_request":
+      return "The request could not be completed. Check the form and try again.";
+    case "insufficient_permissions":
+      return "This Console session is missing permission for that action. Sign out and connect the Console again to approve the updated access.";
+    case "reauth_required":
+      return "Sign in again before completing this action.";
+    case "session_not_found":
+    case "session_expired":
+      return "Your session has expired. Sign in again.";
+    case "invalid_signature":
+    case "missing_session_key":
+    case "missing_proof":
+      return "Your session could not be verified. Sign in again.";
+    case "user_not_found":
+      return "That user account could not be found.";
+    case "user_inactive":
+      return "This account is inactive. Contact an administrator.";
+    case "forbidden":
+      return "You are not allowed to complete this action.";
+    case "last_admin_required":
+      return "At least one active administrator is required.";
+    default:
+      return null;
+  }
+}
 
 function formatContextMessage(
   context: Record<string, unknown> | undefined,
@@ -32,7 +64,7 @@ function formatContextMessage(
   }
 
   if (typeof context.reason === "string" && context.reason.length > 0) {
-    return context.reason;
+    return formatAuthReason(context.reason) ?? context.reason;
   }
 
   return null;
@@ -83,7 +115,8 @@ export function errorMessage(error: unknown): string {
     }
 
     if (typeof candidate.error?.context?.reason === "string") {
-      return candidate.error.context.reason;
+      return formatAuthReason(candidate.error.context.reason) ??
+        candidate.error.context.reason;
     }
 
     const nestedContextMessage = formatContextMessage(candidate.error?.context);
@@ -106,6 +139,23 @@ export function errorMessage(error: unknown): string {
     );
     if (remoteContextMessage) {
       return remoteContextMessage;
+    }
+
+    const directReasonMessage = formatAuthReason(candidate.reason);
+    if (directReasonMessage) {
+      return directReasonMessage;
+    }
+
+    const nestedReasonMessage = formatAuthReason(candidate.error?.reason);
+    if (nestedReasonMessage) {
+      return nestedReasonMessage;
+    }
+
+    const remoteReasonMessage = formatAuthReason(
+      candidate.error?.remoteError?.reason,
+    );
+    if (remoteReasonMessage) {
+      return remoteReasonMessage;
     }
 
     if (typeof candidate.error?.remoteError?.message === "string") {

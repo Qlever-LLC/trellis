@@ -18,7 +18,8 @@ use trellis_sdk_auth::{
     AuthPortalsLoginSettingsGetRequest, AuthPortalsPutRequest, AuthPortalsRemoveRequest,
     AuthPortalsRoutesPutRequest, AuthPortalsRoutesRemoveRequest, AuthServiceInstancesListRequest,
     AuthServiceInstancesProvisionRequest, AuthSessionsListRequest, AuthUserIdentitiesListRequest,
-    AuthUsersGetRequest, AuthUsersListRequest, AuthUsersUpdateRequest,
+    AuthUsersGetRequest, AuthUsersListRequest, AuthUsersPasswordChangeRequest,
+    AuthUsersUpdateRequest,
 };
 use trellis_sdk_core::{
     CoreClient, TrellisBindingsGetRequest, TrellisContractGetRequest, TrellisSurfaceStatusRequest,
@@ -28,6 +29,7 @@ use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 
 const ADMIN_API_PASSING_CASES: usize = 40;
+const PASSWORD_CHANGE_PASSING_CASES: usize = 3;
 const AUTH_ADMIN_TRACE_ID: &str = "4bf92f3577b34da6a3ce929d0e0e4736";
 const AUTH_ADMIN_TRACEPARENT: &str = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
@@ -464,6 +466,92 @@ pub(crate) async fn run_admin_api_fixture(
     }
 
     Ok(ADMIN_API_PASSING_CASES)
+}
+
+pub(crate) async fn run_password_change_fixture(admin_login: &AdminLoginOutcome) -> Result<usize> {
+    let admin_client = connect_admin_client_async(&admin_login.state)
+        .await
+        .into_diagnostic()?;
+    let auth_client = SdkAuthClient::new(&admin_client);
+
+    match auth_client
+        .auth_users_password_change(&AuthUsersPasswordChangeRequest {
+            current_password: "not-the-admin-password".to_string(),
+            new_password: "adminpw8".to_string(),
+        })
+        .await
+    {
+        Ok(_) => {
+            return Err(miette!(
+                "Auth.Users.Password.Change accepted the wrong password"
+            ))
+        }
+        Err(trellis_client::TrellisClientError::RpcError(payload)) => {
+            assert_password_change_error(
+                &payload,
+                "invalid_request",
+                "Current password is incorrect.",
+            )?;
+        }
+        Err(error) => {
+            return Err(miette!(
+                "Auth.Users.Password.Change wrong-password returned non-RPC error: {error}"
+            ));
+        }
+    }
+
+    let changed = auth_client
+        .auth_users_password_change(&AuthUsersPasswordChangeRequest {
+            current_password: "trellis-admin-password".to_string(),
+            new_password: "adminpw8".to_string(),
+        })
+        .await
+        .into_diagnostic()?;
+    if !changed.success {
+        return Err(miette!("Auth.Users.Password.Change did not report success"));
+    }
+
+    let restored = auth_client
+        .auth_users_password_change(&AuthUsersPasswordChangeRequest {
+            current_password: "adminpw8".to_string(),
+            new_password: "trellis-admin-password".to_string(),
+        })
+        .await
+        .into_diagnostic()?;
+    if !restored.success {
+        return Err(miette!(
+            "Auth.Users.Password.Change did not restore the admin password"
+        ));
+    }
+
+    Ok(PASSWORD_CHANGE_PASSING_CASES)
+}
+
+fn assert_password_change_error(
+    payload: &trellis_client::RpcErrorPayload,
+    expected_reason: &str,
+    expected_message: &str,
+) -> Result<()> {
+    let Some(value) = payload.value() else {
+        return Err(miette!(
+            "Auth.Users.Password.Change returned unstructured error: {}",
+            payload.raw()
+        ));
+    };
+    let message = value
+        .get("context")
+        .and_then(|context| context.get("message"))
+        .and_then(Value::as_str);
+    if payload.error_type() != Some("AuthError")
+        || value.get("reason") != Some(&json!(expected_reason))
+        || message != Some(expected_message)
+    {
+        return Err(miette!(
+            "Auth.Users.Password.Change returned unexpected error payload {}",
+            payload.raw()
+        ));
+    }
+    Ok(())
 }
 
 async fn assert_external_portal_origin_hardening(
