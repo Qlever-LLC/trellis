@@ -2,6 +2,8 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+use trellis_generate::artifacts::trellis_package_version;
+
 fn write_ts_contract(path: &Path, id: &str, display_name: &str, kind: &str) {
     fs::write(
         path,
@@ -186,7 +188,10 @@ fn explicit_generate_all_defaults_out_of_tree_package_to_trellis_sdk_scope() {
 
     let deno = fs::read_to_string(ts_out.join("deno.json")).unwrap();
     assert!(deno.contains("\"name\": \"@trellis-sdk/krishi-cloud\""));
-    assert!(deno.contains("npm:@qlever-llc/trellis@^0.8.2"));
+    assert!(deno.contains(&format!(
+        "npm:@qlever-llc/trellis@^{}",
+        trellis_package_version()
+    )));
     assert!(!deno.contains("jsr:@qlever-llc/trellis"));
     assert!(!deno.contains("@qlever-llc/trellis-generated-krishi-cloud"));
 }
