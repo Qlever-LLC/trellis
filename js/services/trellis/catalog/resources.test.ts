@@ -45,7 +45,7 @@ Deno.test("resource requests apply KV defaults", () => {
   ]);
 });
 
-Deno.test("resource requests apply store defaults and omit unenforced object limits", () => {
+Deno.test("resource requests apply store defaults and runtime object limits", () => {
   const contract = {
     ...CONTRACT,
     resources: {
@@ -65,6 +65,7 @@ Deno.test("resource requests apply store defaults and omit unenforced object lim
       purpose: "Temporary uploaded files awaiting processing",
       required: true,
       ttlMs: 0,
+      maxObjectBytes: 100 * 1024 * 1024,
     },
   ]);
 });
