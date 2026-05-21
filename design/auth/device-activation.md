@@ -38,6 +38,8 @@ Key decisions:
 - the client does not choose a flow type or deployment during normal activation
 - Trellis resolves the device instance, device deployment, and activation portal
   policy from preregistered records
+- the built-in device activation portal is the Trellis-owned app contract
+  `trellis.portal.activation@v1`
 - the activation portal is still a browser web app; if it calls Trellis after
   login, it does so as the logged-in user rather than as a service
 - devices present contract evidence at runtime; deployments validate the derived

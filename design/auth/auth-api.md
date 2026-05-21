@@ -1242,6 +1242,8 @@ Portal routing rules:
   then falls back to the built-in Trellis device portal
 - for login routes, the built-in login portal has the explicit id
   `trellis.builtin.login`
+- the built-in device activation portal is a Trellis-owned app contract with the
+  id `trellis.portal.activation@v1`
 - custom login portals must have a visible portal record before a login route can
   target them
 - route keys are selector-derived RPC identity for one `contractId + origin`

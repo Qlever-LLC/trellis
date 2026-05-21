@@ -219,6 +219,7 @@ Examples:
 
 - `trellis.core@v1`
 - `trellis.jobs@v1`
+- `trellis.portal.activation@v1`
 - `graph@v1`
 
 Rules:
@@ -226,6 +227,8 @@ Rules:
 - `id` MUST be stable for semantically compatible revisions within the same
   major line
 - a breaking contract revision MUST use a new `@vN` suffix
+- Trellis-owned contracts, including Trellis-owned app contracts, SHOULD use the
+  `trellis.` prefix so ownership is visible from the stable lineage id
 - a deployment MAY have multiple active digests for the same `id` during rollout
   or mixed-firmware operation
 - all concurrently active digests for the same `id` MUST remain semantically

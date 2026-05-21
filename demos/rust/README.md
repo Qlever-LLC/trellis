@@ -99,8 +99,10 @@ cargo run --manifest-path demos/rust/Cargo.toml -p trellis-rust-demo-device -- \
 
 The first run creates a private JSON store at `.trellis-demo-device.json`,
 starts device activation, and prints the activation URL, public identity key,
-and local confirmation code. After approval, rerun with the confirmation code to
-mark the local state activated and connect:
+and local confirmation code. Unless the deployment routes device activation to a
+custom portal, the URL opens the Trellis-owned `trellis.portal.activation@v1`
+portal. After approval, rerun with the confirmation code to mark the local state
+activated and connect:
 
 ```sh
 cargo run --manifest-path demos/rust/Cargo.toml -p trellis-rust-demo-device -- \

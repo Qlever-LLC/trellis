@@ -1,4 +1,4 @@
-This guide walks through building a custom Trellis portal for custom login and onboarding experiences. Trellis already ships with a built-in portal for both user login and generic device onboarding. Custom login portals are auth-owned portal records selected by global login route rules; custom device portals remain device-deployment routing configuration.
+This guide walks through building a custom Trellis portal for custom login and onboarding experiences. Trellis already ships with a built-in portal for both user login and generic device onboarding. The built-in device activation portal is the Trellis-owned app contract `trellis.portal.activation@v1`. Custom login portals are auth-owned portal records selected by global login route rules; custom device portals remain device-deployment routing configuration.
 
 Before starting, read [Trellis Concepts](/guides/concepts) and [Write a SvelteKit app](/guides/writing-sveltekit-apps) for background on contracts, auth flows, and packages.
 
