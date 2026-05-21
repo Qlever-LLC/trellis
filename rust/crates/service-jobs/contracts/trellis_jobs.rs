@@ -10,6 +10,7 @@ const READ_CAPABILITY: &str = "jobs.admin.read";
 const MUTATE_CAPABILITY: &str = "jobs.admin.mutate";
 const UNEXPECTED_ERROR: &str = "UnexpectedError";
 const VALIDATION_ERROR: &str = "ValidationError";
+const NOT_FOUND_ERROR: &str = "NotFoundError";
 
 /// Build the canonical Jobs admin contract manifest.
 pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
@@ -53,6 +54,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
     .schema("JobProgress", job_progress_schema())
     .schema("Job", job_schema())
     .schema("JobsHealthResponse", jobs_health_response_schema())
+    .schema("JobsListServicesRequest", page_request_schema())
     .schema(
         "JobsListServicesResponse",
         jobs_list_services_response_schema(),
@@ -65,12 +67,14 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
     .schema("JobsCancelResponse", job_response_schema())
     .schema("JobsRetryRequest", job_identity_schema())
     .schema("JobsRetryResponse", job_response_schema())
-    .schema("JobsListDLQRequest", job_list_request_schema())
+    .schema("JobsListDLQRequest", job_list_dlq_request_schema())
     .schema("JobsListDLQResponse", jobs_list_response_schema())
     .schema("JobsReplayDLQRequest", job_identity_schema())
     .schema("JobsReplayDLQResponse", job_response_schema())
     .schema("JobsDismissDLQRequest", job_identity_schema())
     .schema("JobsDismissDLQResponse", job_response_schema())
+    .schema("NotFoundErrorData", not_found_error_schema())
+    .error(NOT_FOUND_ERROR, NOT_FOUND_ERROR, "NotFoundErrorData")
     .rpc(
         "Jobs.Health",
         admin_rpc(
@@ -85,11 +89,11 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
         "Jobs.ListServices",
         admin_rpc(
             "Jobs.ListServices",
-            "Empty",
+            "JobsListServicesRequest",
             "JobsListServicesResponse",
             READ_CAPABILITY,
         )
-        .with_error_types([UNEXPECTED_ERROR]),
+        .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR]),
     )
     .rpc(
         "Jobs.List",
@@ -109,7 +113,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsGetResponse",
             READ_CAPABILITY,
         )
-        .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR]),
+        .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR, NOT_FOUND_ERROR]),
     )
     .rpc(
         "Jobs.Cancel",
@@ -119,7 +123,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsCancelResponse",
             MUTATE_CAPABILITY,
         )
-        .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR]),
+        .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR, NOT_FOUND_ERROR]),
     )
     .rpc(
         "Jobs.Retry",
@@ -129,7 +133,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsRetryResponse",
             MUTATE_CAPABILITY,
         )
-        .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR]),
+        .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR, NOT_FOUND_ERROR]),
     )
     .rpc(
         "Jobs.ListDLQ",
@@ -149,7 +153,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsReplayDLQResponse",
             MUTATE_CAPABILITY,
         )
-        .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR]),
+        .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR, NOT_FOUND_ERROR]),
     )
     .rpc(
         "Jobs.DismissDLQ",
@@ -159,7 +163,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsDismissDLQResponse",
             MUTATE_CAPABILITY,
         )
-        .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR]),
+        .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR, NOT_FOUND_ERROR]),
     )
     .build()
 }
@@ -294,12 +298,38 @@ fn job_identity_schema() -> Value {
 fn job_list_request_schema() -> Value {
     json!({
         "type": "object",
+        "required": ["limit"],
         "properties": {
             "service": { "type": "string", "minLength": 1 },
             "type": { "type": "string", "minLength": 1 },
-            "state": job_state_schema(),
+            "state": { "type": "array", "items": job_state_schema() },
             "since": { "type": "string", "format": "date-time" },
-            "cursor": { "type": "string", "minLength": 1 },
+            "offset": { "type": "integer", "minimum": 0 },
+            "limit": { "type": "integer", "minimum": 1 }
+        }
+    })
+}
+
+fn job_list_dlq_request_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["limit"],
+        "properties": {
+            "service": { "type": "string", "minLength": 1 },
+            "type": { "type": "string", "minLength": 1 },
+            "since": { "type": "string", "format": "date-time" },
+            "offset": { "type": "integer", "minimum": 0 },
+            "limit": { "type": "integer", "minimum": 1 }
+        }
+    })
+}
+
+fn page_request_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["limit"],
+        "properties": {
+            "offset": { "type": "integer", "minimum": 0 },
             "limit": { "type": "integer", "minimum": 1 }
         }
     })
@@ -340,34 +370,35 @@ fn jobs_health_response_schema() -> Value {
 }
 
 fn jobs_list_services_response_schema() -> Value {
+    page_response_schema(service_entry_schema())
+}
+
+fn jobs_list_response_schema() -> Value {
+    page_response_schema(job_schema())
+}
+
+fn page_response_schema(entry: Value) -> Value {
     json!({
         "type": "object",
-        "required": ["services"],
+        "required": ["entries", "count", "offset", "limit"],
         "properties": {
-            "services": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["name", "healthy", "workers"],
-                    "properties": {
-                        "name": { "type": "string", "minLength": 1 },
-                        "healthy": { "type": "boolean" },
-                        "workers": { "type": "array", "items": worker_schema() }
-                    }
-                }
-            }
+            "entries": { "type": "array", "items": entry },
+            "count": { "type": "integer", "minimum": 0 },
+            "offset": { "type": "integer", "minimum": 0 },
+            "limit": { "type": "integer", "minimum": 1 },
+            "nextOffset": { "type": "integer", "minimum": 0 }
         }
     })
 }
 
-fn jobs_list_response_schema() -> Value {
+fn service_entry_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["jobs", "hasMore"],
+        "required": ["name", "healthy", "workers"],
         "properties": {
-            "jobs": { "type": "array", "items": job_schema() },
-            "hasMore": { "type": "boolean" },
-            "nextCursor": { "type": "string", "minLength": 1 }
+            "name": { "type": "string", "minLength": 1 },
+            "healthy": { "type": "boolean" },
+            "workers": { "type": "array", "items": worker_schema() }
         }
     })
 }
@@ -375,8 +406,25 @@ fn jobs_list_response_schema() -> Value {
 fn jobs_get_response_schema() -> Value {
     json!({
         "type": "object",
+        "required": ["job"],
         "properties": {
             "job": job_schema()
+        }
+    })
+}
+
+fn not_found_error_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["id", "type", "message", "resource"],
+        "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "type": { "type": "string", "const": "NotFoundError" },
+            "message": { "type": "string" },
+            "resource": { "type": "string", "minLength": 1 },
+            "jobId": { "type": "string", "minLength": 1 },
+            "context": { "type": "object", "patternProperties": { "^.*$": {} } },
+            "traceId": { "type": "string" }
         }
     })
 }

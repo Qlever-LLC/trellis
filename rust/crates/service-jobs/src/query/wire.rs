@@ -5,12 +5,12 @@ use trellis_sdk_jobs::types::{
     JobsCancelResponseJob, JobsCancelResponseJobLogsItem, JobsCancelResponseJobProgress,
     JobsDismissDLQResponseJob, JobsDismissDLQResponseJobLogsItem,
     JobsDismissDLQResponseJobProgress, JobsGetResponseJob, JobsGetResponseJobLogsItem,
-    JobsGetResponseJobProgress, JobsListDLQResponseJobsItem, JobsListDLQResponseJobsItemLogsItem,
-    JobsListDLQResponseJobsItemProgress, JobsListResponseJobsItem,
-    JobsListResponseJobsItemLogsItem, JobsListResponseJobsItemProgress,
-    JobsListServicesResponseServicesItemWorkersItem, JobsReplayDLQResponseJob,
-    JobsReplayDLQResponseJobLogsItem, JobsReplayDLQResponseJobProgress, JobsRetryResponseJob,
-    JobsRetryResponseJobLogsItem, JobsRetryResponseJobProgress,
+    JobsGetResponseJobProgress, JobsListDLQResponseEntriesItem,
+    JobsListDLQResponseEntriesItemLogsItem, JobsListDLQResponseEntriesItemProgress,
+    JobsListResponseEntriesItem, JobsListResponseEntriesItemLogsItem,
+    JobsListResponseEntriesItemProgress, JobsListServicesResponseEntriesItemWorkersItem,
+    JobsReplayDLQResponseJob, JobsReplayDLQResponseJobLogsItem, JobsReplayDLQResponseJobProgress,
+    JobsRetryResponseJob, JobsRetryResponseJobLogsItem, JobsRetryResponseJobProgress,
 };
 
 use crate::worker_presence::WorkerPresenceRecord;
@@ -19,8 +19,8 @@ use super::JobsQueryError;
 
 pub(super) fn worker_presence_to_wire(
     worker: &WorkerPresenceRecord,
-) -> JobsListServicesResponseServicesItemWorkersItem {
-    JobsListServicesResponseServicesItemWorkersItem {
+) -> JobsListServicesResponseEntriesItemWorkersItem {
+    JobsListServicesResponseEntriesItemWorkersItem {
         concurrency: worker.concurrency.map(i64::from),
         instance_id: worker.instance_id.clone(),
         job_type: worker.job_type.clone(),
@@ -70,18 +70,18 @@ where
 
 impl_job_to_wire!(
     job_to_list_item,
-    JobsListResponseJobsItem,
-    JobsListResponseJobsItemLogsItem,
-    JobsListResponseJobsItemProgress,
+    JobsListResponseEntriesItem,
+    JobsListResponseEntriesItemLogsItem,
+    JobsListResponseEntriesItemProgress,
     "job list item maxTries",
     "job list item state",
     "job list item tries"
 );
 impl_job_to_wire!(
     job_to_dlq_item,
-    JobsListDLQResponseJobsItem,
-    JobsListDLQResponseJobsItemLogsItem,
-    JobsListDLQResponseJobsItemProgress,
+    JobsListDLQResponseEntriesItem,
+    JobsListDLQResponseEntriesItemLogsItem,
+    JobsListDLQResponseEntriesItemProgress,
     "job dlq list item maxTries",
     "job dlq list item state",
     "job dlq list item tries"
@@ -177,16 +177,16 @@ impl_wire_log_item!(JobsCancelResponseJobLogsItem);
 impl_wire_log_item!(JobsDismissDLQResponseJobLogsItem);
 impl_wire_log_item!(JobsReplayDLQResponseJobLogsItem);
 impl_wire_log_item!(JobsGetResponseJobLogsItem);
-impl_wire_log_item!(JobsListDLQResponseJobsItemLogsItem);
-impl_wire_log_item!(JobsListResponseJobsItemLogsItem);
+impl_wire_log_item!(JobsListDLQResponseEntriesItemLogsItem);
+impl_wire_log_item!(JobsListResponseEntriesItemLogsItem);
 impl_wire_log_item!(JobsRetryResponseJobLogsItem);
 
 impl_wire_progress_item!(JobsCancelResponseJobProgress);
 impl_wire_progress_item!(JobsDismissDLQResponseJobProgress);
 impl_wire_progress_item!(JobsReplayDLQResponseJobProgress);
 impl_wire_progress_item!(JobsGetResponseJobProgress);
-impl_wire_progress_item!(JobsListDLQResponseJobsItemProgress);
-impl_wire_progress_item!(JobsListResponseJobsItemProgress);
+impl_wire_progress_item!(JobsListDLQResponseEntriesItemProgress);
+impl_wire_progress_item!(JobsListResponseEntriesItemProgress);
 impl_wire_progress_item!(JobsRetryResponseJobProgress);
 
 fn map_logs<T>(logs: &Option<Vec<JobLogEntry>>) -> Result<Option<Vec<T>>, JobsQueryError>

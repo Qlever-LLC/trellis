@@ -5,6 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
+use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use trellis_jobs::types::{Job, JobEvent, JobState};
 use trellis_jobs::{
@@ -14,9 +15,9 @@ use trellis_jobs::{
 use trellis_sdk_jobs::types::{
     JobsCancelRequest, JobsCancelResponse, JobsDismissDLQRequest, JobsDismissDLQResponse,
     JobsGetRequest, JobsGetResponse, JobsListDLQRequest, JobsListDLQResponse,
-    JobsListDLQResponseJobsItem, JobsListRequest, JobsListResponse, JobsListResponseJobsItem,
-    JobsListServicesResponse, JobsListServicesResponseServicesItem,
-    JobsListServicesResponseServicesItemWorkersItem, JobsReplayDLQRequest, JobsReplayDLQResponse,
+    JobsListDLQResponseEntriesItem, JobsListRequest, JobsListResponse, JobsListResponseEntriesItem,
+    JobsListServicesRequest, JobsListServicesResponse, JobsListServicesResponseEntriesItem,
+    JobsListServicesResponseEntriesItemWorkersItem, JobsReplayDLQRequest, JobsReplayDLQResponse,
     JobsRetryRequest, JobsRetryResponse,
 };
 
@@ -30,7 +31,7 @@ use crate::worker_presence::WORKER_PRESENCE_FRESH_FOR;
 pub use resources::{
     jobs_admin_resources_from_binding, resolve_jobs_admin_resources, JobsAdminResources,
 };
-use state::{now_timestamp_string, parse_state_filter, JobsStateFilter};
+use state::{now_timestamp_string, parse_state_filter};
 use wire::{
     job_to_cancel_item, job_to_dismiss_item, job_to_dlq_item, job_to_get_item, job_to_list_item,
     job_to_replay_item, job_to_retry_item,
@@ -43,8 +44,6 @@ pub enum JobsQueryError {
     BindingsFetch(String),
     #[error("missing binding in Trellis.Bindings.Get response")]
     MissingBinding,
-    #[error("duplicate projected jobs found for globally addressable id '{id}'")]
-    DuplicateJobId { id: String },
     #[error("job state conflict for key '{key}': expected '{expected}', found '{actual}'")]
     JobStateConflict {
         key: String,
@@ -64,6 +63,11 @@ pub enum JobsQueryError {
     #[error("failed to convert {model} between internal and generated wire shapes: {details}")]
     ConvertWireModel {
         model: &'static str,
+        details: String,
+    },
+    #[error("invalid {field}: {details}")]
+    Validation {
+        field: &'static str,
         details: String,
     },
 }
@@ -88,14 +92,18 @@ impl JobsQuery {
     }
 
     /// List registered service instances grouped by service name.
-    pub async fn list_services(&self) -> Result<JobsListServicesResponse, JobsQueryError> {
+    pub async fn list_services(
+        &self,
+        request: &JobsListServicesRequest,
+    ) -> Result<JobsListServicesResponse, JobsQueryError> {
+        let (offset, limit) = parse_page_request(request.offset, request.limit)?;
         let now = OffsetDateTime::now_utc();
         let workers = self
             .store
             .list_fresh_workers(now, WORKER_PRESENCE_FRESH_FOR)?;
 
         let mut grouped =
-            BTreeMap::<String, Vec<JobsListServicesResponseServicesItemWorkersItem>>::new();
+            BTreeMap::<String, Vec<JobsListServicesResponseEntriesItemWorkersItem>>::new();
         for worker in workers {
             let service_name = worker.service.clone();
             grouped
@@ -111,14 +119,27 @@ impl JobsQuery {
                     .cmp(&right.job_type)
                     .then_with(|| left.instance_id.cmp(&right.instance_id))
             });
-            services.push(JobsListServicesResponseServicesItem {
+            services.push(JobsListServicesResponseEntriesItem {
                 healthy: !workers.is_empty(),
                 name,
                 workers,
             });
         }
+        let count = u64::try_from(services.len()).unwrap_or(u64::MAX);
+        let services = services
+            .into_iter()
+            .skip(usize::try_from(offset).unwrap_or(usize::MAX))
+            .take(usize::try_from(limit).unwrap_or(usize::MAX))
+            .collect();
+        let next_offset = offset.checked_add(limit).filter(|next| *next < count);
 
-        Ok(JobsListServicesResponse { services })
+        Ok(JobsListServicesResponse {
+            count: to_wire_integer(count),
+            entries: services,
+            limit: to_wire_integer(limit),
+            next_offset: next_offset.map(to_wire_integer),
+            offset: to_wire_integer(offset),
+        })
     }
 
     /// List projected jobs using the generated `Jobs.List` wire shape.
@@ -127,22 +148,26 @@ impl JobsQuery {
         request: &JobsListRequest,
     ) -> Result<JobsListResponse, JobsQueryError> {
         let state_filter = parse_state_filter(request.state.as_ref())?;
+        let (offset, limit) = parse_page_request(request.offset, request.limit)?;
+        let since = parse_since_filter(request.since.as_deref())?;
         let page = self.store.list_jobs(&ListJobsFilter {
             service: request.service.clone(),
             job_type: request.r#type.clone(),
-            states: state_filter_to_vec(state_filter.as_ref()),
-            since: request.since.clone(),
-            limit: request.limit.and_then(|value| u64::try_from(value).ok()),
-            cursor: request.cursor.clone(),
+            states: state_filter,
+            since,
+            offset: Some(offset),
+            limit,
         })?;
         Ok(JobsListResponse {
-            has_more: page.has_more,
-            jobs: page
+            count: to_wire_integer(page.count),
+            entries: page
                 .jobs
                 .iter()
                 .map(job_to_list_item)
-                .collect::<Result<Vec<JobsListResponseJobsItem>, _>>()?,
-            next_cursor: page.next_cursor,
+                .collect::<Result<Vec<JobsListResponseEntriesItem>, _>>()?,
+            limit: to_wire_integer(page.limit),
+            next_offset: page.next_offset.map(to_wire_integer),
+            offset: to_wire_integer(page.offset),
         })
     }
 
@@ -151,10 +176,15 @@ impl JobsQuery {
         &self,
         request: &JobsGetRequest,
     ) -> Result<JobsGetResponse, JobsQueryError> {
-        let job = self.store.get_job_by_global_id(&request.id)?;
+        let job = self
+            .store
+            .get_job_by_global_id(&request.id)?
+            .ok_or_else(|| JobsQueryError::JobNotFound {
+                key: request.id.clone(),
+            })?;
 
         Ok(JobsGetResponse {
-            job: job.as_ref().map(job_to_get_item).transpose()?,
+            job: job_to_get_item(&job)?,
         })
     }
 
@@ -219,23 +249,26 @@ impl JobsQuery {
         &self,
         request: &JobsListDLQRequest,
     ) -> Result<JobsListDLQResponse, JobsQueryError> {
-        let dead_only = JobsStateFilter::Single(JobState::Dead);
+        let (offset, limit) = parse_page_request(request.offset, request.limit)?;
+        let since = parse_since_filter(request.since.as_deref())?;
         let page = self.store.list_jobs(&ListJobsFilter {
             service: request.service.clone(),
             job_type: request.r#type.clone(),
-            states: state_filter_to_vec(Some(&dead_only)),
-            since: request.since.clone(),
-            limit: request.limit.and_then(|value| u64::try_from(value).ok()),
-            cursor: request.cursor.clone(),
+            states: Some(vec![JobState::Dead]),
+            since,
+            offset: Some(offset),
+            limit,
         })?;
         Ok(JobsListDLQResponse {
-            has_more: page.has_more,
-            jobs: page
+            count: to_wire_integer(page.count),
+            entries: page
                 .jobs
                 .iter()
                 .map(job_to_dlq_item)
-                .collect::<Result<Vec<JobsListDLQResponseJobsItem>, _>>()?,
-            next_cursor: page.next_cursor,
+                .collect::<Result<Vec<JobsListDLQResponseEntriesItem>, _>>()?,
+            limit: to_wire_integer(page.limit),
+            next_offset: page.next_offset.map(to_wire_integer),
+            offset: to_wire_integer(page.offset),
         })
     }
 
@@ -373,7 +406,6 @@ fn job_event_headers(event: &JobEvent) -> async_nats::header::HeaderMap {
 impl From<SqliteJobsStoreError> for JobsQueryError {
     fn from(error: SqliteJobsStoreError) -> Self {
         match error {
-            SqliteJobsStoreError::DuplicateJobId { id } => Self::DuplicateJobId { id },
             other => Self::ProjectionStore {
                 details: other.to_string(),
             },
@@ -381,12 +413,54 @@ impl From<SqliteJobsStoreError> for JobsQueryError {
     }
 }
 
-fn state_filter_to_vec(filter: Option<&JobsStateFilter>) -> Option<Vec<JobState>> {
-    match filter {
-        None => None,
-        Some(JobsStateFilter::Single(state)) => Some(vec![*state]),
-        Some(JobsStateFilter::Many(states)) => Some(states.clone()),
+fn parse_page_request(offset: Option<i64>, limit: i64) -> Result<(u64, u64), JobsQueryError> {
+    let offset = match offset {
+        Some(offset) => parse_non_negative_integer("offset", offset)?,
+        None => 0,
+    };
+    let limit = parse_positive_integer("limit", limit)?;
+    Ok((offset, limit))
+}
+
+fn parse_since_filter(value: Option<&str>) -> Result<Option<OffsetDateTime>, JobsQueryError> {
+    value
+        .map(|since| {
+            OffsetDateTime::parse(since, &Rfc3339).map_err(|error| JobsQueryError::Validation {
+                field: "since",
+                details: error.to_string(),
+            })
+        })
+        .transpose()
+}
+
+fn parse_positive_integer(field: &'static str, value: i64) -> Result<u64, JobsQueryError> {
+    if value < 1 {
+        return Err(JobsQueryError::ConvertWireModel {
+            model: field,
+            details: "must be at least 1".to_string(),
+        });
     }
+    u64::try_from(value).map_err(|error| JobsQueryError::ConvertWireModel {
+        model: field,
+        details: error.to_string(),
+    })
+}
+
+fn parse_non_negative_integer(field: &'static str, value: i64) -> Result<u64, JobsQueryError> {
+    if value < 0 {
+        return Err(JobsQueryError::ConvertWireModel {
+            model: field,
+            details: "must be non-negative".to_string(),
+        });
+    }
+    u64::try_from(value).map_err(|error| JobsQueryError::ConvertWireModel {
+        model: field,
+        details: error.to_string(),
+    })
+}
+
+fn to_wire_integer(value: u64) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
 }
 
 fn projection_key(job: &Job) -> String {
@@ -427,7 +501,10 @@ mod tests {
 
     use crate::contract::expected_contract;
 
-    use super::{jobs_admin_resources_from_binding, resolve_jobs_admin_resources, JobsQueryError};
+    use super::{
+        jobs_admin_resources_from_binding, parse_since_filter, resolve_jobs_admin_resources,
+        JobsQueryError,
+    };
 
     struct FakeCoreClient {
         binding_result: Mutex<Option<Result<TrellisBindingsGetResponse, TrellisClientError>>>,
@@ -569,5 +646,25 @@ mod tests {
 
         assert_eq!(resources.jobs_stream, "JOBS");
         assert_eq!(resources.jobs_advisories_stream, "JOBS_ADVISORIES");
+    }
+
+    #[test]
+    fn parse_since_filter_accepts_rfc3339_offset_timestamps() {
+        let parsed = parse_since_filter(Some("2025-12-31T19:00:30-05:00"))
+            .expect("offset timestamp should parse")
+            .expect("since should be present");
+
+        assert_eq!(parsed.unix_timestamp(), 1_767_225_630);
+    }
+
+    #[test]
+    fn parse_since_filter_rejects_invalid_timestamps_as_validation_errors() {
+        let error =
+            parse_since_filter(Some("not-a-timestamp")).expect_err("invalid timestamp should fail");
+
+        assert!(matches!(
+            error,
+            JobsQueryError::Validation { field: "since", .. }
+        ));
     }
 }

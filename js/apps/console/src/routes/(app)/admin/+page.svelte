@@ -22,7 +22,7 @@
   } from "@qlever-llc/trellis/sdk/jobs";
 
   type ServiceInstance = AuthServiceInstancesListOutput["entries"][number];
-  type Job = JobsListOutput["jobs"][number];
+  type Job = JobsListOutput["entries"][number];
   type ExpansionRequest = AuthEnvelopeExpansionsListResponse["entries"][number];
   type DeviceReview = AuthDeviceUserAuthoritiesReviewsListOutput["entries"][number];
   type CatalogIssue = {
@@ -203,13 +203,16 @@
       catalogIssues = isErr(catalogRes) ? [] : catalogRes.catalog.issues ?? [];
 
       const jobsData = await loadJobsPageData({
-        listServices: () => trellis.request("Jobs.ListServices", {}),
+        listServices: (input) => trellis.request("Jobs.ListServices", input),
         listJobs: (filter) => trellis.request("Jobs.List", filter),
       }).catch((jobsError: unknown) => ({
         available: false,
         message: `Jobs admin runtime is unavailable: ${errorMessage(jobsError)}`,
         services: [],
         jobs: [],
+        count: 0,
+        offset: 0,
+        limit: 50,
       }));
       jobs = jobsData.available ? jobsData.jobs : [];
       jobsUnavailableMessage = jobsData.available ? null : jobsData.message ?? "Jobs admin runtime is unavailable.";

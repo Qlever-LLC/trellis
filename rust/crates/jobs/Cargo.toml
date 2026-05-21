@@ -15,5 +15,6 @@ thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
 trellis-sdk-core.workspace = true
+ulid = "1.2.1"
 
 [dev-dependencies]

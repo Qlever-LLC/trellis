@@ -24,6 +24,7 @@ pub use api::{
 };
 pub use events::{cancelled_event, dead_event, dismissed_event, expired_event, retried_event};
 pub use keys::{job_key, worker_presence_key};
+pub use manager::TrellisJobMetaSource;
 pub use projection::{is_terminal, job_from_work_event, reduce_job_event};
 pub use registry::{
     new_worker_heartbeat, publish_worker_heartbeat, start_worker_heartbeat_loop,

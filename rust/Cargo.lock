@@ -3722,6 +3722,7 @@ dependencies = [
  "time",
  "tokio",
  "trellis-sdk-core",
+ "ulid",
 ]
 
 [[package]]

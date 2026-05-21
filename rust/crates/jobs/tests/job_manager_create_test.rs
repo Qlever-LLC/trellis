@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::json;
 use trellis_jobs::bindings::{JobsBinding, JobsQueueBinding};
-use trellis_jobs::manager::{JobManager, JobManagerError, JobMetaSource};
+use trellis_jobs::manager::{JobManager, JobManagerError, JobMetaSource, TrellisJobMetaSource};
 use trellis_jobs::publisher::{JobEventHeaders, JobEventPublisher};
 use trellis_jobs::types::{JobEvent, JobEventType, JobState};
 
@@ -125,6 +125,28 @@ async fn create_returns_pending_job_with_namespace_and_max_deliver() {
     assert_eq!(job.state, JobState::Pending);
     assert_eq!(job.tries, 0);
     assert_eq!(job.max_tries, 5);
+}
+
+#[tokio::test]
+async fn trellis_meta_source_generates_ulid_job_ids() {
+    let manager = JobManager::new(
+        RecordingPublisher::default(),
+        sample_bindings(),
+        TrellisJobMetaSource,
+    );
+
+    let job = manager
+        .create("document-process", json!({ "documentId": "doc-1" }))
+        .await
+        .expect("create should succeed");
+
+    assert_eq!(job.id.len(), 26);
+    assert!(job
+        .id
+        .chars()
+        .all(|char| char.is_ascii_uppercase() || char.is_ascii_digit()));
+    assert_ne!(job.context.request_id, job.id);
+    assert_eq!(job.context.request_id.len(), 26);
 }
 
 #[tokio::test]

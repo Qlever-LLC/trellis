@@ -8,6 +8,7 @@ use serde::Serialize;
 use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime};
+use ulid::Ulid;
 
 use crate::active_job::ActiveJob;
 use crate::bindings::{JobsBinding, JobsQueueBinding};
@@ -49,6 +50,22 @@ pub enum JobProcessOutcome<TResult> {
 pub trait JobMetaSource {
     fn next_job_id(&self) -> String;
     fn now_iso(&self) -> String;
+}
+
+/// Production Trellis metadata source for job ids and timestamps.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TrellisJobMetaSource;
+
+impl JobMetaSource for TrellisJobMetaSource {
+    fn next_job_id(&self) -> String {
+        Ulid::new().to_string()
+    }
+
+    fn now_iso(&self) -> String {
+        OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

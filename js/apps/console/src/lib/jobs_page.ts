@@ -5,6 +5,7 @@ import {
   type JobsGetOutput,
   type JobsListInput,
   type JobsListOutput,
+  type JobsListServicesInput,
   type JobsListServicesOutput,
   type JobsReplayDLQOutput,
   type JobsRetryOutput,
@@ -13,10 +14,12 @@ import {
 export type JobsPageData = {
   available: boolean;
   message?: string;
-  services: JobsListServicesOutput["services"];
-  jobs: JobsListOutput["jobs"];
-  hasMore: boolean;
-  nextCursor?: string;
+  services: JobsListServicesOutput["entries"];
+  jobs: JobsListOutput["entries"];
+  count: JobsListOutput["count"];
+  offset: JobsListOutput["offset"];
+  limit: JobsListOutput["limit"];
+  nextOffset?: JobsListOutput["nextOffset"];
 };
 
 export type JobsDetailData = {
@@ -26,7 +29,9 @@ export type JobsDetailData = {
 };
 
 type JobsPageRpc = {
-  listServices(): AsyncResult<JobsListServicesOutput, BaseError>;
+  listServices(
+    input: JobsListServicesInput,
+  ): AsyncResult<JobsListServicesOutput, BaseError>;
   listJobs(filter: JobsListInput): AsyncResult<JobsListOutput, BaseError>;
 };
 
@@ -74,6 +79,10 @@ function normalizedJobsUnavailable(error: unknown): string | null {
   return null;
 }
 
+function isJobsNotFound(error: unknown): boolean {
+  return error instanceof BaseError && error.name === "NotFoundError";
+}
+
 async function takeOrThrow<T>(result: AsyncResult<T, BaseError>): Promise<T> {
   const value = await result.take();
   if (isErr(value)) {
@@ -85,10 +94,10 @@ async function takeOrThrow<T>(result: AsyncResult<T, BaseError>): Promise<T> {
 /** Loads the Jobs list page data and normalizes unavailable Jobs runtime errors. */
 export async function loadJobsPageData(
   rpc: JobsPageRpc,
-  filter: JobsListInput = {},
+  filter: JobsListInput = { limit: 50 },
 ): Promise<JobsPageData> {
   try {
-    const servicesResponse = rpc.listServices();
+    const servicesResponse = rpc.listServices({ limit: 500 });
     const jobsResponse = rpc.listJobs(filter);
     const [servicesValue, jobsValue] = await Promise.all([
       takeOrThrow(servicesResponse),
@@ -97,10 +106,12 @@ export async function loadJobsPageData(
 
     return {
       available: true,
-      services: servicesValue.services,
-      jobs: jobsValue.jobs,
-      hasMore: jobsValue.hasMore,
-      nextCursor: jobsValue.nextCursor,
+      services: servicesValue.entries,
+      jobs: jobsValue.entries,
+      count: jobsValue.count,
+      offset: jobsValue.offset,
+      limit: jobsValue.limit,
+      nextOffset: jobsValue.nextOffset,
     };
   } catch (error) {
     const message = normalizedJobsUnavailable(error);
@@ -110,7 +121,9 @@ export async function loadJobsPageData(
         message,
         services: [],
         jobs: [],
-        hasMore: false,
+        count: 0,
+        offset: 0,
+        limit: filter.limit,
       };
     }
     throw error;
@@ -129,6 +142,9 @@ export async function loadJobDetailData(
     const message = normalizedJobsUnavailable(error);
     if (message) {
       return unavailableResult({ available: false, message });
+    }
+    if (isJobsNotFound(error)) {
+      return { available: true };
     }
     throw error;
   }

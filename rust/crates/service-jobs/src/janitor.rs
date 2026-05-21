@@ -1,8 +1,10 @@
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 use trellis_jobs::types::{Job, JobEvent};
 use trellis_jobs::{expired_event, is_terminal, job_event_subject, job_key};
 use trellis_service::ServerError;
 
-use crate::storage::{ListJobsFilter, SqliteJobsStore, SqliteJobsStoreError};
+use crate::storage::{SqliteJobsStore, SqliteJobsStoreError};
 
 const EXPIRED_REASON: &str = "job exceeded deadline";
 
@@ -66,11 +68,12 @@ pub fn plan_expired_events(
     now_iso: &str,
     reason: &str,
 ) -> Vec<PlannedExpiredEvent> {
+    let now = parse_timestamp(now_iso);
     jobs_by_key
         .iter()
         .filter_map(|(key, job)| {
             let deadline = job.deadline.as_deref()?;
-            if deadline > now_iso {
+            if parse_timestamp(deadline) > now {
                 return None;
             }
             if is_terminal(job.state) {
@@ -146,7 +149,7 @@ fn plan_expired_events_from_store(
     store: &SqliteJobsStore,
     now_iso: &str,
 ) -> Result<(usize, Vec<PlannedExpiredEvent>), JanitorError> {
-    let jobs = store.list_jobs(&ListJobsFilter::default())?.jobs;
+    let jobs = store.scan_expired_jobs(now_iso)?;
     let jobs_by_key = jobs
         .into_iter()
         .map(|job| (job_key(&job.service, &job.job_type, &job.id), job))
@@ -154,6 +157,10 @@ fn plan_expired_events_from_store(
     let scanned = jobs_by_key.len();
     let planned = plan_expired_events(&jobs_by_key, now_iso, EXPIRED_REASON);
     Ok((scanned, planned))
+}
+
+fn parse_timestamp(timestamp: &str) -> OffsetDateTime {
+    OffsetDateTime::parse(timestamp, &Rfc3339).unwrap_or(OffsetDateTime::UNIX_EPOCH)
 }
 
 #[cfg(test)]
@@ -220,10 +227,50 @@ mod tests {
         let (scanned, planned) = plan_expired_events_from_store(&store, "2026-03-28T12:01:00.000Z")
             .expect("planning should succeed");
 
-        assert_eq!(scanned, 3);
+        assert_eq!(scanned, 1);
         assert_eq!(planned.len(), 1);
         assert_eq!(planned[0].event.job_id, "overdue-active");
         assert_eq!(planned[0].event.state, JobState::Expired);
+    }
+
+    #[test]
+    fn janitor_plans_equivalent_deadline_timestamp_variants() {
+        let jobs = vec![
+            (
+                "documents.document-process.at-millis".to_string(),
+                job(
+                    "at-millis",
+                    JobState::Pending,
+                    Some("2026-03-28T12:01:00.000Z"),
+                ),
+            ),
+            (
+                "documents.document-process.at-offset".to_string(),
+                job(
+                    "at-offset",
+                    JobState::Pending,
+                    Some("2026-03-28T08:01:00-04:00"),
+                ),
+            ),
+            (
+                "documents.document-process.future-offset".to_string(),
+                job(
+                    "future-offset",
+                    JobState::Pending,
+                    Some("2026-03-28T08:01:01-04:00"),
+                ),
+            ),
+        ];
+
+        let planned = plan_expired_events(&jobs, "2026-03-28T12:01:00Z", EXPIRED_REASON);
+
+        assert_eq!(
+            planned
+                .iter()
+                .map(|event| event.event.job_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["at-millis", "at-offset"]
+        );
     }
 }
 

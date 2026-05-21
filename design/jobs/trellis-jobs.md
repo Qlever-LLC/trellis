@@ -59,8 +59,8 @@ Caller-visible asynchronous APIs are defined separately in
 Jobs remain service-private execution machinery.
 
 The shared streams used by jobs are Trellis-owned runtime infrastructure.
-Trellis provisions or binds those resources during service envelope expansion for
-jobs-enabled services. The Jobs admin runtime may host the built-in
+Trellis provisions or binds those resources during service envelope expansion
+for jobs-enabled services. The Jobs admin runtime may host the built-in
 `trellis.jobs@v1` RPCs, but it does not own or control the contract. Ordinary
 services and demos should not need an extra manual `trellis.jobs@v1` install
 step just to create or process jobs.
@@ -206,9 +206,9 @@ retry stream-first and replayable.
 
 Every lifecycle event includes `context` with `requestId`, `traceId`,
 `traceparent`, and optional `tracestate`. Job creation inherits active trace
-context when one exists and otherwise creates a fresh W3C `traceparent`; jobs are
-never created without trace context. Lifecycle publishes also set matching NATS
-headers: `request-id`, `traceparent`, and `tracestate` when present.
+context when one exists and otherwise creates a fresh W3C `traceparent`; jobs
+are never created without trace context. Lifecycle publishes also set matching
+NATS headers: `request-id`, `traceparent`, and `tracestate` when present.
 
 **Consumer configuration (per job-type):**
 
@@ -243,9 +243,10 @@ owned by the Jobs admin runtime.
   - `projection_metadata` for projection bookkeeping
 
 The jobs projection is a strict view of the event stream. Job state in SQLite
-changes only by projecting job events from `JOBS`; neither the Jobs admin runtime
-nor an admin RPC mutates projected job state directly. Admin mutations publish
-real lifecycle events and then observe those events through the projection.
+changes only by projecting job events from `JOBS`; neither the Jobs admin
+runtime nor an admin RPC mutates projected job state directly. Admin mutations
+publish real lifecycle events and then observe those events through the
+projection.
 
 Worker presence is also an internal SQL projection. Workers emit passive
 heartbeat subjects; the Jobs admin runtime stores the latest heartbeat per
@@ -256,14 +257,16 @@ Ordinary services do not bind to or write any admin projection storage.
 
 Shared jobs infrastructure is Trellis-owned runtime state. Trellis provisions or
 binds it during service envelope expansion for jobs-enabled environments rather
-than requiring a separate manual jobs install step or first-bootstrap side effect.
+than requiring a separate manual jobs install step or first-bootstrap side
+effect.
 
 - normal services declare top-level `jobs` to participate in jobs processing
   without owning the shared stream topology directly
 - Trellis owns the shared streams needed by the jobs subsystem
 - a separate jobs admin runtime may still implement centralized queries, janitor
-  work, and SQL projections for the built-in Jobs API, but ordinary service-local
-  workers do not depend on a manual jobs service deployment to start
+  work, and SQL projections for the built-in Jobs API, but ordinary
+  service-local workers do not depend on a manual jobs service deployment to
+  start
 - the `trellis` service provisions or binds the shared jobs resources during
   service envelope expansion before jobs-enabled services start
 - the `jobs` service and service-local workers create only dynamic per-job-type
@@ -283,10 +286,10 @@ streams and stream source transforms are Trellis-owned runtime details, not
 service-declared contract resources.
 
 Normal consuming service contracts should declare top-level `jobs`. The JSON
-examples below show the resolved JetStream configuration the jobs runtime expects
-after binding. Trellis should provision these shared resources during service
-envelope expansion so service-local workers can rely on the bindings without a
-separate infrastructure install step.
+examples below show the resolved JetStream configuration the jobs runtime
+expects after binding. Trellis should provision these shared resources during
+service envelope expansion so service-local workers can rely on the bindings
+without a separate infrastructure install step.
 
 Trellis jobs require `nats-server` 2.10.0 or newer. This is the runtime floor
 for JetStream source subject transforms and filtered consumer create API
@@ -296,8 +299,8 @@ permission model.
 ### Canonical Worker Runtime Flow
 
 All Trellis language runtimes MUST use the same service-local jobs worker flow.
-Library-specific JetStream helper behavior is not a runtime contract and must not
-add extra permissions or alter worker semantics.
+Library-specific JetStream helper behavior is not a runtime contract and must
+not add extra permissions or alter worker semantics.
 
 For each bound queue, the connected service runtime MUST:
 
@@ -312,8 +315,8 @@ For each bound queue, the connected service runtime MUST:
 - fail worker startup synchronously if the durable consumer cannot be created or
   attached
 - consume work messages from the ensured consumer handle
-- before processing a work item, read the latest lifecycle event from `JOBS` with
-  JetStream direct get by fully qualified lifecycle subject
+- before processing a work item, read the latest lifecycle event from `JOBS`
+  with JetStream direct get by fully qualified lifecycle subject
 - ack without processing when the latest lifecycle event is terminal
 - subscribe to the queue cancellation subject for live cooperative cancellation
 
@@ -323,11 +326,11 @@ libraries expose different helper APIs.
 
 The service-local jobs permission set therefore includes the concrete subjects
 needed for this canonical flow: filtered consumer create/info for the bound work
-stream, pull-message and ack subjects for that consumer, direct get on the `JOBS`
-stream for lifecycle reads, service-local lifecycle publish/subscribe subjects,
-and service-local worker heartbeat subjects. It does not include broad stream
-management, `JOBS_WORK` stream-info preflight, or legacy durable-consumer-create
-subjects for ordinary services.
+stream, pull-message and ack subjects for that consumer, direct get on the
+`JOBS` stream for lifecycle reads, service-local lifecycle publish/subscribe
+subjects, and service-local worker heartbeat subjects. It does not include broad
+stream management, `JOBS_WORK` stream-info preflight, or legacy
+durable-consumer-create subjects for ordinary services.
 
 Trellis-created Jobs streams use the configured JetStream replica count for the
 deployment. Standalone/local NATS deployments should use `1`; production
@@ -336,9 +339,9 @@ show the recommended production shape.
 
 Resolved service bindings may still include internal runtime-generated work
 stream details such as `JOBS_WORK`, but ordinary service code should treat those
-as Trellis internals rather than as public contract-authored stream aliases. Jobs
-admin projection storage is internal to the Jobs admin runtime and is not part of
-the service-visible jobs binding.
+as Trellis internals rather than as public contract-authored stream aliases.
+Jobs admin projection storage is internal to the Jobs admin runtime and is not
+part of the service-visible jobs binding.
 
 **Stream: `JOBS`**
 
@@ -737,23 +740,29 @@ derived SQL projections for job state and worker presence, then publishes
 administrative events or commands to the appropriate jobs subjects. It does not
 mutate projected job state directly.
 
-| RPC                 | Input                                  | Output              | Description                                |
-| ------------------- | -------------------------------------- | ------------------- | ------------------------------------------ |
-| `Jobs.Health`       | `{}`                                   | health payload      | Check jobs admin service health            |
-| `Jobs.ListServices` | `{ offset?: number; limit: number }`   | `PageResponse<ServiceInfo>` | List services and observed worker presence |
-| `Jobs.List`         | `JobFilter & { offset?: number; limit: number }` | `PageResponse<Job>` | List jobs (filterable)                     |
-| `Jobs.Get`          | `{ service, jobType, id }`             | `Job`               | Get single job                             |
-| `Jobs.Retry`        | `{ service, jobType, id }`             | `Job`               | Manually retry an eligible job             |
-| `Jobs.Cancel`       | `{ service, jobType, id }`             | `Job`               | Cancel an eligible job                     |
-| `Jobs.ListDLQ`      | `JobFilter & { offset?: number; limit: number }` | `PageResponse<Job>` | List dead letter jobs (`dead` only)        |
-| `Jobs.ReplayDLQ`    | `{ service, jobType, id }`             | `Job`               | Replay job from DLQ                        |
-| `Jobs.DismissDLQ`   | `{ service, jobType, id }`             | `Job`               | Dismiss dead-letter job                    |
+| RPC                 | Input                                                                | Output                      | Description                                |
+| ------------------- | -------------------------------------------------------------------- | --------------------------- | ------------------------------------------ |
+| `Jobs.Health`       | `{}`                                                                 | health payload              | Check jobs admin service health            |
+| `Jobs.ListServices` | `{ offset?: number; limit: number }`                                 | `PageResponse<ServiceInfo>` | List services and observed worker presence |
+| `Jobs.List`         | `JobFilter & { state?: JobState[]; offset?: number; limit: number }` | `PageResponse<Job>`         | List jobs (filterable)                     |
+| `Jobs.Get`          | `{ id }`                                                             | `{ job: Job }`              | Get single globally addressable job        |
+| `Jobs.Retry`        | `{ id }`                                                             | `{ job: Job }`              | Manually retry an eligible job             |
+| `Jobs.Cancel`       | `{ id }`                                                             | `{ job: Job }`              | Cancel an eligible job                     |
+| `Jobs.ListDLQ`      | `Omit<JobFilter, "state"> & { offset?: number; limit: number }`      | `PageResponse<Job>`         | List dead letter jobs (`dead` only)        |
+| `Jobs.ReplayDLQ`    | `{ id }`                                                             | `{ job: Job }`              | Replay job from DLQ                        |
+| `Jobs.DismissDLQ`   | `{ id }`                                                             | `{ job: Job }`              | Dismiss dead-letter job                    |
 
 List RPCs use the standard live offset page shape. Requests are
 `{ offset?: number; limit: number }` plus documented filters. Responses are
 `{ entries, count, offset, limit, nextOffset? }`. This is live offset
 pagination, not snapshot or cursor pagination: concurrent job updates can change
 which rows appear at later offsets.
+
+Production service-local runtimes generate Trellis-controlled ULID job ids. List
+filters can still narrow by service and job type, but single-job reads and
+mutations identify the job by `id` only. A missing id returns the declared
+`NotFoundError`; invalid filters, including invalid RFC3339 `since` timestamps,
+or invalid state transitions return the declared `ValidationError`.
 
 `Jobs.ReplayDLQ` and `Jobs.DismissDLQ` are explicit admin actions valid only for
 jobs currently in `dead`. `Jobs.ListDLQ` returns jobs still awaiting admin
@@ -768,8 +777,8 @@ The janitor enforces the `deadline` field on jobs—a business-level SLA (e.g.,
 "must complete within 24 hours"). It does NOT compete with JetStream's
 `AckWait`/redelivery mechanism.
 
-1. Periodically scans the SQL projection for jobs where `deadline < now` and
-   state is not terminal
+1. Periodically scans the SQL projection for jobs where `deadline <= now` (the
+   deadline is at or before the scan instant) and state is not terminal
 2. Emits `.expired` event for matching jobs
 3. Does NOT touch `active` jobs based on worker-heartbeat staleness—JetStream
    handles processing timeouts via AckWait

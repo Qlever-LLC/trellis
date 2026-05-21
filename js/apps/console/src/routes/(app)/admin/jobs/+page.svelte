@@ -18,9 +18,9 @@
   const trellis = getTrellis();
   const pageLimit = 50;
 
-  type Job = JobsListOutput["jobs"][number];
+  type Job = JobsListOutput["entries"][number];
   type JobState = Job["state"];
-  type ServiceInfo = JobsListServicesOutput["services"][number];
+  type ServiceInfo = JobsListServicesOutput["entries"][number];
   type JobPathname = `/admin/jobs/${string}` & {};
 
   const stateOptions: Array<{ value: "" | JobState; label: string }> = [
@@ -45,16 +45,15 @@
   let selectedService = $state("");
   let selectedState = $state<"" | JobState>("");
   let typeFilter = $state("");
-  let cursor = $state<string | undefined>(undefined);
-  let cursorStack = $state.raw<Array<string | undefined>>([]);
-  let hasMore = $state(false);
-  let nextCursor = $state<string | undefined>(undefined);
+  let offset = $state(0);
+  let offsetStack = $state.raw<number[]>([]);
+  let nextOffset = $state<number | undefined>(undefined);
   let autoRefresh = $state(false);
   let lastUpdated = $state<Date | null>(null);
   let refreshInterval: ReturnType<typeof setInterval> | undefined;
   let loadSequence = 0;
 
-  const pageNumber = $derived(cursorStack.length + 1);
+  const pageNumber = $derived(offsetStack.length + 1);
   const pageTypeFilter = $derived(typeFilter.trim());
   const filterSummary = $derived.by(() => {
     const parts = [
@@ -130,9 +129,9 @@
   function buildFilter(): JobsListInput {
     return {
       limit: pageLimit,
-      cursor,
+      offset,
       service: selectedService || undefined,
-      state: selectedState || undefined,
+      state: selectedState ? [selectedState] : undefined,
       type: pageTypeFilter || undefined,
     };
   }
@@ -150,7 +149,7 @@
 
     try {
       const data = await loadJobsPageData({
-        listServices: () => trellis.request("Jobs.ListServices", {}),
+        listServices: (input) => trellis.request("Jobs.ListServices", input),
         listJobs: (filter) => trellis.request("Jobs.List", filter),
       }, filter);
 
@@ -159,8 +158,7 @@
       unavailableMessage = data.available ? null : data.message ?? "Jobs admin runtime is unavailable.";
       services = data.services;
       jobs = data.jobs;
-      hasMore = data.hasMore;
-      nextCursor = data.nextCursor;
+      nextOffset = data.nextOffset;
       lastUpdated = new Date();
     } catch (e) {
       if (sequence !== loadSequence) return;
@@ -168,8 +166,7 @@
       unavailableMessage = null;
       jobs = [];
       services = [];
-      hasMore = false;
-      nextCursor = undefined;
+      nextOffset = undefined;
     } finally {
       if (sequence === loadSequence) {
         loading = false;
@@ -179,8 +176,8 @@
   }
 
   function resetPagination() {
-    cursor = undefined;
-    cursorStack = [];
+    offset = 0;
+    offsetStack = [];
   }
 
   function applyFilters() {
@@ -188,18 +185,35 @@
     void load();
   }
 
+  function isJobStateFilter(value: string): value is "" | JobState {
+    return stateOptions.some((option) => option.value === value);
+  }
+
+  function handleServiceFilterChange(event: Event) {
+    selectedService = event.currentTarget instanceof HTMLSelectElement ? event.currentTarget.value : "";
+    resetPagination();
+    void load();
+  }
+
+  function handleStateFilterChange(event: Event) {
+    const value = event.currentTarget instanceof HTMLSelectElement ? event.currentTarget.value : "";
+    selectedState = isJobStateFilter(value) ? value : "";
+    resetPagination();
+    void load();
+  }
+
   function goNext() {
-    if (!hasMore || !nextCursor) return;
-    cursorStack = [...cursorStack, cursor];
-    cursor = nextCursor;
+    if (nextOffset === undefined) return;
+    offsetStack = [...offsetStack, offset];
+    offset = nextOffset;
     void load();
   }
 
   function goPrevious() {
-    if (cursorStack.length === 0) return;
-    const previous = cursorStack[cursorStack.length - 1];
-    cursorStack = cursorStack.slice(0, -1);
-    cursor = previous;
+    if (offsetStack.length === 0) return;
+    const previous = offsetStack[offsetStack.length - 1];
+    offsetStack = offsetStack.slice(0, -1);
+    offset = previous ?? 0;
     void load();
   }
 
@@ -255,8 +269,8 @@
     {#snippet actions()}
       <select
         class="select select-bordered select-sm w-44"
-        bind:value={selectedService}
-        onchange={applyFilters}
+        value={selectedService}
+        onchange={handleServiceFilterChange}
         disabled={loading || !!unavailableMessage}
         aria-label="Filter by service"
       >
@@ -267,8 +281,8 @@
       </select>
       <select
         class="select select-bordered select-sm w-40"
-        bind:value={selectedState}
-        onchange={applyFilters}
+        value={selectedState}
+        onchange={handleStateFilterChange}
         disabled={loading || !!unavailableMessage}
         aria-label="Filter by state"
       >
@@ -345,10 +359,10 @@
 
     {#snippet footer()}
       <div class="flex items-center justify-between gap-3">
-        <span>Cursor page {pageNumber}</span>
+        <span>Page {pageNumber}</span>
         <div class="join">
-          <button class="btn btn-outline btn-xs join-item" onclick={goPrevious} disabled={loading || cursorStack.length === 0}>Previous</button>
-          <button class="btn btn-outline btn-xs join-item" onclick={goNext} disabled={loading || !hasMore || !nextCursor}>Next</button>
+          <button class="btn btn-outline btn-xs join-item" onclick={goPrevious} disabled={loading || offsetStack.length === 0}>Previous</button>
+          <button class="btn btn-outline btn-xs join-item" onclick={goNext} disabled={loading || nextOffset === undefined}>Next</button>
         </div>
       </div>
     {/snippet}

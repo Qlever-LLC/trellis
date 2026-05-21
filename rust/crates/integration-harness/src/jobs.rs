@@ -34,7 +34,8 @@ use trellis_sdk_core::types::TrellisBindingsGetResponseBinding;
 use trellis_sdk_jobs::client::JobsClient;
 use trellis_sdk_jobs::types::{
     JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsListDLQRequest, JobsListRequest,
-    JobsReplayDLQRequest, JobsRetryRequest,
+    JobsListServicesRequest, JobsListServicesResponseEntriesItemWorkersItem, JobsReplayDLQRequest,
+    JobsRetryRequest,
 };
 use trellis_service_jobs::{run_janitor_once, JobsServiceMode, SqliteJobsStore};
 
@@ -327,8 +328,8 @@ pub(crate) async fn run_jobs_fixture(
 
         let list = jobs_client
             .jobs_list(&JobsListRequest {
-                cursor: None,
-                limit: Some(20),
+                limit: 20,
+                offset: None,
                 service: Some(HARNESS_JOBS_SERVICE.to_string()),
                 since: None,
                 state: None,
@@ -336,7 +337,7 @@ pub(crate) async fn run_jobs_fixture(
             })
             .await
             .into_diagnostic()?;
-        if !list.jobs.iter().any(|job| job.id == "job-cancel-1") {
+        if !list.entries.iter().any(|job| job.id == "job-cancel-1") {
             return Err(miette!("Jobs.List did not include seeded pending job"));
         }
         assert_jobs_list_filters(&jobs_client).await?;
@@ -359,17 +360,16 @@ pub(crate) async fn run_jobs_fixture(
 
         let dlq = jobs_client
             .jobs_list_dlq(&JobsListDLQRequest {
-                cursor: None,
-                limit: Some(20),
+                limit: 20,
+                offset: None,
                 service: Some(HARNESS_JOBS_SERVICE.to_string()),
                 since: None,
-                state: None,
                 r#type: Some(HARNESS_JOBS_QUEUE.to_string()),
             })
             .await
             .into_diagnostic()?;
-        if !dlq.jobs.iter().any(|job| job.id == "job-dead-replay-1")
-            || !dlq.jobs.iter().any(|job| job.id == "job-dead-dismiss-1")
+        if !dlq.entries.iter().any(|job| job.id == "job-dead-replay-1")
+            || !dlq.entries.iter().any(|job| job.id == "job-dead-dismiss-1")
         {
             return Err(miette!("Jobs.ListDLQ did not include seeded dead jobs"));
         }
@@ -398,17 +398,16 @@ pub(crate) async fn run_jobs_fixture(
         )?;
         let dlq_after_mutations = jobs_client
             .jobs_list_dlq(&JobsListDLQRequest {
-                cursor: None,
-                limit: Some(20),
+                limit: 20,
+                offset: None,
                 service: Some(HARNESS_JOBS_SERVICE.to_string()),
                 since: None,
-                state: None,
                 r#type: Some(HARNESS_JOBS_QUEUE.to_string()),
             })
             .await
             .into_diagnostic()?;
         if dlq_after_mutations
-            .jobs
+            .entries
             .iter()
             .any(|job| job.id == "job-dead-replay-1" || job.id == "job-dead-dismiss-1")
         {
@@ -857,17 +856,17 @@ fn assert_job_result_echoed_context(
 async fn assert_jobs_list_filters(jobs_client: &JobsClient<'_>) -> Result<()> {
     let filtered = jobs_client
         .jobs_list(&JobsListRequest {
-            cursor: None,
-            limit: Some(10),
+            limit: 10,
+            offset: None,
             service: Some(HARNESS_JOBS_SERVICE.to_string()),
             since: Some("2026-03-28T12:00:11.500Z".to_string()),
-            state: Some(json!(["failed", "dead"])),
+            state: Some(vec![json!("failed"), json!("dead")]),
             r#type: Some(HARNESS_JOBS_QUEUE.to_string()),
         })
         .await
         .into_diagnostic()?;
     let ids = filtered
-        .jobs
+        .entries
         .iter()
         .map(|job| job.id.as_str())
         .collect::<Vec<_>>();
@@ -1043,8 +1042,8 @@ async fn assert_jobs_read_denied(
         .into_diagnostic()?;
     if JobsClient::new(&read_denied_client)
         .jobs_list(&JobsListRequest {
-            cursor: None,
-            limit: Some(1),
+            limit: 1,
+            offset: None,
             service: None,
             since: None,
             state: None,
@@ -1776,11 +1775,17 @@ async fn await_jobs_health(jobs_client: &JobsClient<'_>) -> Result<()> {
 
 async fn await_worker_presence(
     jobs_client: &JobsClient<'_>,
-) -> Result<trellis_sdk_jobs::types::JobsListServicesResponseServicesItemWorkersItem> {
+) -> Result<JobsListServicesResponseEntriesItemWorkersItem> {
     for _ in 0..60 {
-        let response = jobs_client.jobs_list_services().await.into_diagnostic()?;
+        let response = jobs_client
+            .jobs_list_services(&JobsListServicesRequest {
+                limit: 50,
+                offset: None,
+            })
+            .await
+            .into_diagnostic()?;
         if let Some(worker) = response
-            .services
+            .entries
             .into_iter()
             .find(|service| service.name == HARNESS_JOBS_SERVICE)
             .and_then(|service| {
@@ -1800,11 +1805,17 @@ async fn await_worker_presence(
 async fn await_worker_presence_by_instance(
     jobs_client: &JobsClient<'_>,
     instance_id: &str,
-) -> Result<trellis_sdk_jobs::types::JobsListServicesResponseServicesItemWorkersItem> {
+) -> Result<JobsListServicesResponseEntriesItemWorkersItem> {
     for _ in 0..80 {
-        let response = jobs_client.jobs_list_services().await.into_diagnostic()?;
+        let response = jobs_client
+            .jobs_list_services(&JobsListServicesRequest {
+                limit: 50,
+                offset: None,
+            })
+            .await
+            .into_diagnostic()?;
         if let Some(worker) = response
-            .services
+            .entries
             .into_iter()
             .flat_map(|service| service.workers)
             .find(|worker| worker.instance_id == instance_id)
@@ -1828,10 +1839,9 @@ async fn await_job_state(
             .jobs_get(&JobsGetRequest { id: id.to_string() })
             .await
             .into_diagnostic()?;
-        if let Some(job) = response.job {
-            if state_is(&job.state, expected_state) {
-                return Ok(job);
-            }
+        let job = response.job;
+        if state_is(&job.state, expected_state) {
+            return Ok(job);
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }

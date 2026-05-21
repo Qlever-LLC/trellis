@@ -7,12 +7,13 @@ use trellis_sdk_jobs::rpc::{
 };
 use trellis_sdk_jobs::types::{
     JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsHealthResponse,
-    JobsListDLQRequest, JobsListRequest, JobsReplayDLQRequest, JobsRetryRequest,
+    JobsListDLQRequest, JobsListRequest, JobsListServicesRequest, JobsReplayDLQRequest,
+    JobsRetryRequest,
 };
 use trellis_service::Router;
 
 use crate::contract::SERVICE_NAME;
-use crate::query::JobsQuery;
+use crate::query::{JobsQuery, JobsQueryError};
 
 /// Build the Jobs admin RPC router backed by a SQL projection query adapter.
 pub fn build_router_with_query(query: JobsQuery) -> Router {
@@ -27,9 +28,9 @@ pub fn build_router_with_query(query: JobsQuery) -> Router {
     });
     router.register_rpc::<JobsListServicesRpc, _, _>({
         let query = query.clone();
-        move |_ctx, _input: Empty| {
+        move |_ctx, input: JobsListServicesRequest| {
             let query = query.clone();
-            async move { query.list_services().await.map_err(map_query_error) }
+            async move { query.list_services(&input).await.map_err(map_query_error) }
         }
     });
     router.register_rpc::<JobsListRpc, _, _>({
@@ -84,8 +85,54 @@ pub fn build_router_with_query(query: JobsQuery) -> Router {
     router
 }
 
-fn map_query_error(error: crate::query::JobsQueryError) -> trellis_service::ServerError {
-    trellis_service::ServerError::Nats(format!("jobs RPC query failed: {error}"))
+fn map_query_error(error: JobsQueryError) -> trellis_service::ServerError {
+    match error {
+        JobsQueryError::JobNotFound { key } => {
+            trellis_service::ServerError::DeclaredRpc(trellis_service::DeclaredRpcError::new(
+                "NotFoundError",
+                format!("Job '{key}' not found"),
+                [
+                    ("resource", serde_json::json!("Job")),
+                    ("jobId", serde_json::json!(key)),
+                ],
+            ))
+        }
+        JobsQueryError::JobStateConflict {
+            key,
+            expected,
+            actual,
+        } => trellis_service::ServerError::DeclaredRpc(trellis_service::DeclaredRpcError::new(
+            "ValidationError",
+            format!("Job '{key}' is in state '{actual}', expected {expected}"),
+            [
+                ("field", serde_json::json!("state")),
+                ("jobKey", serde_json::json!(key)),
+                ("expected", serde_json::json!(expected)),
+                ("actual", serde_json::json!(actual)),
+            ],
+        )),
+        JobsQueryError::Validation { field, details } => {
+            trellis_service::ServerError::DeclaredRpc(trellis_service::DeclaredRpcError::new(
+                "ValidationError",
+                format!("Invalid {field}: {details}"),
+                [
+                    ("field", serde_json::json!(field)),
+                    ("details", serde_json::json!(details)),
+                ],
+            ))
+        }
+        JobsQueryError::ConvertWireModel { model, details } => {
+            trellis_service::ServerError::DeclaredRpc(trellis_service::DeclaredRpcError::new(
+                "ValidationError",
+                format!("Invalid {model}: {details}"),
+                [
+                    ("field", serde_json::json!(model)),
+                    ("details", serde_json::json!(details)),
+                ],
+            ))
+        }
+        other => trellis_service::ServerError::Nats(format!("jobs RPC query failed: {other}")),
+    }
 }
 
 fn now_timestamp_string() -> String {
