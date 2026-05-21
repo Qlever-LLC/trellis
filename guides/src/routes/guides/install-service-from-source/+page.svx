@@ -14,7 +14,7 @@ If you are deploying a published service from an OCI image, see [Install a servi
 Create or refresh the local administrator session:
 
 ```sh
-trellis auth login http://localhost:3000
+trellis login http://localhost:3000
 ```
 
 This CLI flow is detached-only. The command prints a portal URL and QR code for you to open or scan manually; it does not start a local callback listener or auto-open your browser.
@@ -22,7 +22,7 @@ This CLI flow is detached-only. The command prints a portal URL and QR code for 
 Confirm the session is active:
 
 ```sh
-trellis auth status
+trellis whoami
 ```
 
 ## 2. Prepare local generated artifacts
@@ -44,11 +44,12 @@ cargo xtask prepare
 ## 3. Create from source
 
 ```sh
-trellis deploy create svc/my-service
-trellis deploy provision svc/my-service
+trellis svc my-service create
+trellis svc my-service apply --source /path/to/my-service
+trellis svc my-service provision
 ```
 
-The CLI creates the service deployment, then generates a service instance key and provisions an instance. Before starting the service, use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add the service contract boundary from your source artifact to the deployment envelope.
+The CLI creates the service deployment, applies the source contract boundary to the deployment envelope, then generates a service instance key and provisions an instance.
 
 The CLI will:
 
@@ -83,9 +84,9 @@ envelope that you expand or shrink through Trellis Auth.
 Pass the seed and NATS details as environment variables and start the service with your normal command:
 
 ```sh
-export MY_SERVICE_SESSION_KEY_SEED="<seed printed by trellis deploy provision>"
+export MY_SERVICE_SESSION_KEY_SEED="<seed printed by trellis svc my-service provision>"
 export NATS_SERVERS=localhost
-export NATS_SENTINEL_CREDS=/path/to/sentinel.creds
+export NATS_SENTINEL_CREDS=$HOME/trellis/nats/creds/sentinel.creds
 ```
 
 ```sh
@@ -100,7 +101,13 @@ npm run dev
 
 ## 6. Update when the contract changes
 
-When you change the contract, update the deployment envelope through the Console Envelopes page or `Auth.Envelopes.Expand`. Trellis validates the new boundary against the proposed active catalog, provisions any required resource changes before making it available, and keeps the service instance key the same. Restart the service process after expanding the envelope. Shrink the envelope only after running service instances no longer need the old boundary.
+When you change the contract, regenerate artifacts and apply the new source boundary:
+
+```sh
+trellis svc my-service apply --source /path/to/my-service
+```
+
+Trellis validates the new boundary against the proposed active catalog, provisions any required resource changes before making it available, and keeps the service instance key the same. Restart the service process after applying the envelope. Shrink the envelope only after running service instances no longer need the old boundary.
 
 ## What the envelope actually grants
 
@@ -116,14 +123,14 @@ Trellis derives service access from:
 
 | Flag | Command | What it does |
 | --- | --- | --- |
-| `--namespace` | `deploy create svc/...` | Adds namespaces for the service deployment |
-| `--instance-seed` | `deploy provision svc/...` | Uses an existing service instance seed |
+| `--namespace` | `trellis svc <id> create` | Adds namespaces for the service deployment |
+| `--instance-seed` | `trellis svc <id> provision` | Uses an existing service instance seed |
 
 ## Development loop
 
 1. update schemas and the `defineServiceContract(...)` module
 2. run the repo-local prepare task (`deno task prepare` or `cargo xtask prepare`)
-3. expand or shrink the deployment envelope in the Console or with `Auth.Envelopes.Expand`
+3. run `trellis svc my-service apply --source /path/to/my-service`
 4. restart the service
 5. confirm the expected RPCs, events, and bindings work
 

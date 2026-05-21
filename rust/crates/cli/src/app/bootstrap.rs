@@ -134,6 +134,19 @@ fn local_trellis_bootstrap_command(args: &LocalInitArgs) -> miette::Result<()> {
     output::print_info(&format!("publicOrigin={}", manifest.urls.public_origin));
     output::print_info(&format!("natsServer={}", manifest.urls.nats_server));
     output::print_info(&format!("natsWebsocket={}", manifest.urls.nats_websocket));
+    output::print_info("");
+    output::print_info("Next steps:");
+    output::print_info("1. Start NATS with the generated nats/nats.conf and nats/jwt.conf files.");
+    output::print_info(&format!(
+        "2. Prepare Trellis infrastructure: trellis infra apply --servers 127.0.0.1 --trellis-creds {} --auth-creds {}",
+        args.out.join("nats/creds/trellis-auth.creds").display(),
+        args.out.join("nats/creds/auth-auth.creds").display(),
+    ));
+    output::print_info(&format!(
+        "3. Start Trellis from source: TRELLIS_CONFIG={} deno task dev",
+        args.out.join(&manifest.paths.trellis_config).display(),
+    ));
+    output::print_info("4. Open the admin setup URL printed by the Trellis server.");
     Ok(())
 }
 

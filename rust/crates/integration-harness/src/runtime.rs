@@ -342,7 +342,6 @@ mod tests {
                 nats_manifest: "nats/manifest.json".to_string(),
                 trellis_config: "trellis/config.jsonc".to_string(),
                 session_seed: "trellis/session.seed".to_string(),
-                github_oauth_secret: "trellis/oauth/github.secret".to_string(),
                 trellis_data: "trellis/data".to_string(),
             },
             urls: LocalTrellisBootstrapUrls {

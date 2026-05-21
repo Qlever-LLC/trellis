@@ -97,14 +97,15 @@ console.log("Connected to Trellis!");
 
 Before we can run this, we need to create a deployment, provision a service instance, and add the contract boundary to the deployment envelope.
 
-Every Trellis service authenticates with a unique instance key. `trellis deploy provision` prints the private seed for that instance; treat it like a private key and never commit it to source control.
+Every Trellis service authenticates with a unique instance key. `trellis svc <id> provision` prints the private seed for that instance; treat it like a private key and never commit it to source control.
 
 ```sh
-trellis deploy create svc/orders-service
-trellis deploy provision svc/orders-service
+trellis svc orders-service create
+trellis svc orders-service apply --source .
+trellis svc orders-service provision
 ```
 
-Before starting the service, use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add the service contract boundary to the deployment envelope. During local development you can also start first and approve the pending expansion request that bootstrap creates.
+Before starting the service, apply the service contract boundary to the deployment envelope. During local development you can also start first and approve the pending expansion request that bootstrap creates.
 
 Now you can run your service:
 

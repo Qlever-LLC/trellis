@@ -1,29 +1,42 @@
-This guide walks through running the Trellis server, portal, console, and supporting services directly from the source tree. By the end you will have a local development environment equivalent to the [Server Setup](/guides/prepare-nats) guides, but running processes natively instead of in containers.
+This guide covers day-to-day development from a Trellis source checkout. It uses the same simple local setup as [Starting Trellis](/guides/starting-trellis): NATS runs in a container, while the Trellis runtime and Console run from source.
 
 ## What you need
 
 - Git
-- [Deno](https://deno.com) (v2+)
-- a Rust toolchain (`rustup`)
-- `podman` (for the NATS container only)
-- `systemctl --user` with Quadlet support
-- an OAuth application (GitHub) for local development
+- [Deno](https://deno.com) v2+
+- a Rust toolchain
+- `podman`
+- the `trellis` CLI installed (see [Install the Trellis CLI](/guides/install-trellis-cli))
 
-## 1. Clone the repository
+## 1. Prepare a local runtime bundle
+
+Generate local NATS, Trellis config, credentials, keys, and data directories:
+
+```sh
+trellis local init --out ~/trellis
+```
+
+Start NATS from that bundle:
+
+```sh
+podman run --replace --detach --name trellis-nats \
+  --publish 127.0.0.1:4222:4222 \
+  --publish 127.0.0.1:8080:8080 \
+  --publish 127.0.0.1:8222:8222 \
+  --volume "$HOME/trellis/nats/nats.conf:/etc/nats/nats.conf:ro,Z" \
+  --volume "$HOME/trellis/nats/jwt.conf:/etc/nats/jwt.conf:ro,Z" \
+  --volume "$HOME/trellis/nats/data:/data:Z" \
+  docker.io/library/nats:latest \
+  -c /etc/nats/nats.conf
+```
+
+The generated config is ready for local username/password login. You do not need a GitHub or OIDC application for the first local admin account.
+
+## 2. Clone and prepare the repo
 
 ```sh
 git clone https://github.com/qlever-llc/trellis.git
 cd trellis
-```
-
-## 2. Install dependencies
-
-Install the Deno workspace dependencies:
-
-```sh
-cd js
-deno install
-cd ..
 ```
 
 Generate contract artifacts from a clean checkout:
@@ -34,178 +47,45 @@ deno task prepare
 cd ..
 ```
 
-Then build the Trellis CLI from source:
+`deno task prepare` is bootstrap-safe because it runs through `trellis-generate`; you do not need a running Trellis instance to generate SDKs and manifests. Rust-first workflows can run the same repo-local generation step with `cargo xtask prepare`.
+
+During active contract work, run a watcher in a separate terminal:
 
 ```sh
-cd rust
-cargo build -p trellis-cli
-cd ..
+cd js
+deno task prepare:watch
 ```
 
-`deno task prepare` is bootstrap-safe because it runs through
-`trellis-generate`; you do not need a preinstalled `trellis` CLI to get the SDKs
-and manifests required for the main Rust workspace.
+The Rust workspace exposes the same workflow as `cargo xtask prepare-watch`.
 
-Rust-first workflows can run the same repo-local generation step with `cargo xtask prepare`.
-
-When you are actively editing contracts or files they import, run the watch form
-in a separate terminal instead of manually rerunning prepare after every edit:
+## 3. Apply shared infrastructure
 
 ```sh
-cargo xtask prepare-watch
-```
-
-The JS workspace exposes the same workflow as `cd js && deno task prepare:watch`.
-Watch mode observes the workspace broadly but prepares only affected contract
-entries when safe. It respects `.gitignore`, ignores `.git/`, `.worktrees/`,
-generated artifact directories, and file changes that are not TypeScript,
-JavaScript, or Rust source unless they are recognized project/discovery inputs.
-It falls back to full prepare for project manifests and discovery-shape changes,
-and asks you to restart the watcher after generator or tooling changes. If you
-need to diagnose a watch batch, call
-`trellis-generate prepare --watch --changes .` to print the event paths plus the
-watch decision and reason.
-
-The commands below use the installed `trellis` CLI directly.
-
-```sh
-trellis --version
-```
-
-## 3. Set up NATS
-
-NATS still runs in a container even for in-repo development. Follow the [Prepare NATS](/guides/prepare-nats) guide to get a running NATS server.
-
-Create a workspace directory for NATS state outside the repo:
-
-```sh
-mkdir -p ~/trellis/{config,keys,nsc,nkeys}
-chmod 700 ~/trellis/keys ~/trellis/nsc ~/trellis/nkeys
-```
-
-Complete all of the steps in the [Prepare NATS](/guides/prepare-nats) guide using `~/trellis` as your workspace root. When you are done you should have NATS running on `127.0.0.1:4222`.
-
-## 4. Generate the Trellis session key
-
-```sh
-trellis keygen \
-  --out ~/trellis/keys/trellis.seed \
-  --pubout ~/trellis/keys/trellis.pub
-```
-
-## 6. Collect the NATS values
-
-If you still have the shell variables from the NATS guide, skip this step.
-
-```sh
-cd ~/trellis
-
-NATS_AUTH_ISSUER_NKEY=$(./nsc.sh describe account -n AUTH --field sub | tr -d '"')
-NATS_AUTH_TARGET_NKEY=$(./nsc.sh describe account -n TRELLIS --field sub | tr -d '"')
-XKEY_PUB=$(./nsc.sh describe account -n AUTH -J | grep '"xkey"' | tr -d ' ",' | cut -d: -f2)
-```
-
-Read the signing seeds:
-
-```sh
-NATS_AUTH_ISSUER_SIGNING_SEED=$(cat ~/trellis/keys/auth-issuer-signing.nk)
-NATS_AUTH_TARGET_SIGNING_SEED=$(cat ~/trellis/keys/trellis-target-signing.nk)
-NATS_AUTH_SXKEY_SEED=$(cat ~/trellis/nkeys/keys/X/${XKEY_PUB:1:2}/${XKEY_PUB}.nk)
-```
-
-## 7. Configure the Trellis runtime
-
-Copy the example Trellis config in the source tree:
-
-```sh
-cd /path/to/trellis
-cp js/services/trellis/config.example.jsonc js/services/trellis/config.jsonc
-```
-
-Edit `js/services/trellis/config.jsonc` and fill in the values. When running from source, relative paths are resolved from `js/services/trellis/`.
-
-```json
-{
-  "web": {
-    "origins": ["http://localhost:5173", "http://localhost:5174"],
-    "publicOrigin": "http://localhost:3000"
-  },
-  "nats": {
-    "servers": "localhost",
-    "trellis": {
-      "credsPath": "/home/<you>/trellis/nkeys/creds/Trellis/TRELLIS/trellis.creds"
-    },
-    "auth": {
-      "credsPath": "/home/<you>/trellis/nkeys/creds/Trellis/AUTH/trellis.creds"
-    },
-    "sentinelCredsPath": "/home/<you>/trellis/nkeys/creds/Trellis/AUTH/sentinel.creds",
-    "authCallout": {
-      "issuer": {
-        "nkey": "<value from step 6>",
-        "signingSeedFile": ".local/secrets/auth-issuer-signing.seed"
-      },
-      "target": {
-        "nkey": "<value from step 6>",
-        "signingSeedFile": ".local/secrets/auth-target-signing.seed"
-      },
-      "sxSeedFile": ".local/secrets/auth-sx.seed"
-    }
-  },
-  "sessionKeySeedFile": ".local/secrets/session-key.seed",
-  "client": {
-    "natsServers": ["ws://localhost:8080"]
-  },
-  "oauth": {
-    "redirectBase": "http://localhost:3000/auth/callback",
-    "alwaysShowProviderChooser": true,
-    "providers": {
-      "github": {
-        "type": "github",
-        "clientId": "<your GitHub OAuth app client ID>",
-        "clientSecretFile": ".local/secrets/github-client-secret"
-      }
-    }
-  }
-}
-```
-
-`client.natsServers` is the websocket endpoint list the Trellis runtime returns to browser clients during browser auth/bootstrap, so apps can discover the correct realtime connection settings from the instance they signed into.
-
-Then start the runtime with the config path override:
-
-```sh
-TRELLIS_CONFIG=./config.jsonc deno task -c js/services/trellis/deno.json dev
-```
-
-## 8. Bootstrap NATS buckets
-
-```sh
-trellis bootstrap nats \
+trellis infra apply \
   --servers 127.0.0.1 \
-  --trellis-creds ~/trellis/nkeys/creds/Trellis/TRELLIS/trellis.creds \
-  --auth-creds ~/trellis/nkeys/creds/Trellis/AUTH/trellis.creds
+  --trellis-creds ~/trellis/nats/creds/trellis-auth.creds \
+  --auth-creds ~/trellis/nats/creds/auth-auth.creds
 ```
 
-## 9. Start the Trellis runtime
+## 4. Start the Trellis runtime
 
 ```sh
 cd js/services/trellis
-deno task dev
+TRELLIS_CONFIG="$HOME/trellis/trellis/config.jsonc" deno task dev
 ```
 
-The runtime starts on `http://localhost:3000` with file watching enabled. Code changes under `js/` will trigger an automatic restart. Trellis now exits explicitly after its signal shutdown path completes so watched restarts release the old HTTP port promptly instead of leaving the previous process behind.
+The runtime starts on `http://localhost:3000` with file watching enabled. Trellis serves the built-in portal from the source tree during this flow.
 
-Test it:
+## 5. Create and log in as an admin
+
+When Trellis starts for the first time, it prints an admin setup URL. Open that URL in your browser and create a local username and password. Then start the CLI login flow:
 
 ```sh
-curl -i http://localhost:3000/_trellis/portal
+trellis login http://localhost:3000
+trellis whoami
 ```
 
-An HTTP 200 is expected — it confirms the runtime is serving the built-in portal.
-
-## 10. Start the console app
-
-In a second terminal:
+## 6. Start Console
 
 ```sh
 cd js/apps/console
@@ -213,42 +93,22 @@ cp .env.example .env
 deno task dev
 ```
 
-The console starts on `http://localhost:5173` with Vite HMR.
+Open `http://localhost:5173` and log in with the local admin username and password.
 
-The built-in portal is authored in `js/portals/login` and is served by Trellis itself during normal development. You only need to run that project separately when actively working on the built-in portal UI.
+## Development workflow
 
-## 11. Create the first admin
+- **Runtime changes**: edit files under `js/services/trellis/` or `js/packages/`; the service watcher restarts automatically.
+- **Console changes**: edit files under `js/apps/console/`; Vite HMR applies changes in place.
+- **Contract changes**: run `cd js && deno task prepare`, or keep `cd js && deno task prepare:watch` running.
+- **CLI changes**: run `cargo build -p trellis-cli` in the `rust/` directory, then re-run `trellis ...` commands.
+- **Type checking**: run `deno task -c js/deno.json check`.
+- **Tests**: run `deno task -c js/deno.json test:contracts` or `deno task -c js/deno.json test:auth`.
 
-Before logging into the console, open the admin bootstrap URL printed by the auth
-service. The bootstrap flow creates the first Trellis account with a generated
-`userId`, links the sign-in identity you choose, and assigns the built-in
-`admin` capability group. The group resolves to the Trellis admin capability set
-in the Console and at authorization time.
-
-## 12. Log in with the CLI
-
-```sh
-trellis auth login http://localhost:3000
-```
-
-This CLI flow is detached-only. The command prints a portal URL and QR code for you to open or scan manually; it does not start a local callback listener or auto-open your browser.
-
-## 13. Verify
+## Verify
 
 ```sh
 curl http://127.0.0.1:8222/healthz
 curl -i http://localhost:3000/_trellis/portal
 curl -I http://localhost:5173/
-trellis auth status
+trellis whoami
 ```
-
-Open `http://localhost:5173` in your browser and complete the OAuth login with that same GitHub account. The browser will redirect through the built-in portal served by Trellis before returning to the console.
-
-## Development workflow
-
-- **Runtime changes** — edit files under `js/services/trellis/` or `js/packages/`. The `deno task dev` watcher restarts the process automatically.
-- **Console changes** — edit files under `js/apps/console/`. Vite HMR applies changes in-place.
-- **Contract changes** — run `cd js && deno task prepare` to regenerate SDKs with `trellis-generate`, or keep `cd js && deno task prepare:watch` running during active contract work. Watch mode narrows to affected contract entries when safe and ignores file changes that are not TypeScript, JavaScript, or Rust source unless they are recognized project/discovery inputs. Restart affected services after generated artifacts change.
-- **CLI changes** — run `cargo build -p trellis-cli` in the `rust/` directory, then re-run `trellis ...` commands from the repo root.
-- **Type checking** — run `deno task -c js/deno.json check` to type-check the full JS workspace.
-- **Tests** — run `deno task -c js/deno.json test:contracts` or `deno task -c js/deno.json test:auth`.

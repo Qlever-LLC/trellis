@@ -165,6 +165,104 @@ Deno.test("config path uses TRELLIS_CONFIG or the default path", () => {
   assertEquals(resolveConfigPath({}), "/etc/trellis/config.jsonc");
 });
 
+Deno.test("auth config allows local identity without federated providers", async () => {
+  await withTempConfig(
+    `{
+      "web": {
+        "origins": ["http://localhost:3000"],
+        "publicOrigin": "http://localhost:3000"
+      },
+      "auth": {
+        "localIdentity": {
+          "enabled": true
+        }
+      },
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080"]
+      },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": {}
+      }
+    }`,
+    async (configPath) => {
+      const cfg = await loadAuthConfigFromFile(configPath);
+
+      assertEquals(cfg.auth.localIdentity.enabled, true);
+      assertEquals(Object.keys(cfg.oauth.providers), []);
+    },
+  );
+});
+
+Deno.test("auth config rejects no local identity and no federated providers", async () => {
+  await withTempConfig(
+    `{
+      "web": {
+        "origins": ["http://localhost:3000"],
+        "publicOrigin": "http://localhost:3000"
+      },
+      "auth": {
+        "localIdentity": {
+          "enabled": false
+        }
+      },
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080"]
+      },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": {}
+      }
+    }`,
+    (configPath) => {
+      assertThrows(
+        () => loadAuthConfigFromFile(configPath),
+        Error,
+        "At least one auth provider must be configured when local identity is disabled",
+      );
+      return Promise.resolve();
+    },
+  );
+});
+
 Deno.test("auth config resolves NATS credential paths relative to config", async () => {
   await withTempConfig(
     `{

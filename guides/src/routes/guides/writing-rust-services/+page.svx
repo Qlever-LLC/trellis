@@ -229,8 +229,9 @@ cargo build --release
 Create a service deployment and provision one service instance. Before starting the service runtime, use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add the service contract boundary to the deployment envelope:
 
 ```sh
-trellis deploy create svc/orders-service
-trellis deploy provision svc/orders-service
+trellis svc orders-service create
+trellis svc orders-service apply --source .
+trellis svc orders-service provision
 ```
 
 Then run:
@@ -238,7 +239,7 @@ Then run:
 ```sh
 ORDERS_SERVICE_SESSION_KEY_SEED=<seed> \
 NATS_SERVERS=localhost \
-NATS_SENTINEL_CREDS=./path/to/sentinel.creds \
+NATS_SENTINEL_CREDS=$HOME/trellis/nats/creds/sentinel.creds \
 ./target/release/orders-service
 ```
 

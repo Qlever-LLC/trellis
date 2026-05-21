@@ -14,7 +14,7 @@ If you are developing a service locally and have the source checked out, see [In
 Create or refresh the local administrator session:
 
 ```sh
-trellis auth login http://localhost:3000
+trellis login http://localhost:3000
 ```
 
 This CLI flow is detached-only. The command prints a portal URL and QR code for you to open or scan manually; it does not start a local callback listener or auto-open your browser.
@@ -22,17 +22,18 @@ This CLI flow is detached-only. The command prints a portal URL and QR code for 
 Confirm the session is active:
 
 ```sh
-trellis auth status
+trellis whoami
 ```
 
 ## 2. Create the deployment from the image
 
 ```sh
-trellis deploy create svc/my-service
-trellis deploy provision svc/my-service
+trellis svc my-service create
+trellis svc my-service apply --image ghcr.io/my-org/my-service:1.2.3
+trellis svc my-service provision
 ```
 
-The CLI creates the service deployment, then generates a service instance key and provisions an instance. Before starting the service, use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add the contract boundary from the image artifact to the deployment envelope. The artifact lives at the path declared by the `io.trellis.contract.path` label, or `/trellis/contract.json` by default.
+The CLI creates the service deployment, applies the image contract boundary to the deployment envelope, then generates a service instance key and provisions an instance. The artifact lives at the path declared by the `io.trellis.contract.path` label, or `/trellis/contract.json` by default.
 
 The CLI will:
 
@@ -69,8 +70,7 @@ podman run --rm \
   -e MY_SERVICE_SESSION_KEY_SEED="<seed from provision>" \
   -e NATS_SERVERS=host.containers.internal \
   -e NATS_SENTINEL_CREDS=/run/creds/sentinel.creds \
-  -v /path/to/sentinel.creds:/run/creds/sentinel.creds:ro \
-  --network trellis.network \
+  -v "$HOME/trellis/nats/creds/sentinel.creds:/run/creds/sentinel.creds:ro,Z" \
   ghcr.io/my-org/my-service:1.2.3
 ```
 
@@ -78,7 +78,13 @@ For a permanent deployment, create a Quadlet unit for the service similar to the
 
 ## 5. Upgrade to a new version
 
-When you publish a new image, update the deployment envelope through the Console Envelopes page or `Auth.Envelopes.Expand`. Trellis validates the new boundary against the proposed active catalog, provisions any required resource changes before making it available, and keeps service instance keys the same. Restart the container with the new image tag after expanding the envelope. Shrink the envelope only after old containers no longer need the previous boundary.
+When you publish a new image, apply the new image contract before restarting the service:
+
+```sh
+trellis svc my-service apply --image ghcr.io/my-org/my-service:1.2.4
+```
+
+Trellis validates the new boundary against the proposed active catalog, provisions any required resource changes before making it available, and keeps service instance keys the same. Restart the container with the new image tag after applying the boundary. Shrink the envelope only after old containers no longer need the previous boundary.
 
 ## What the envelope actually grants
 
@@ -94,17 +100,16 @@ Trellis derives service access from:
 
 | Flag | Command | What it does |
 | --- | --- | --- |
-| `--namespace` | `deploy create svc/...` | Adds namespaces for the service deployment |
-| `--instance-seed` | `deploy provision svc/...` | Uses an existing service instance seed |
+| `--namespace` | `trellis svc <id> create` | Adds namespaces for the service deployment |
+| `--instance-seed` | `trellis svc <id> provision` | Uses an existing service instance seed |
 
 ## Practical deploy loop
 
-1. `trellis auth login http://localhost:3000` and follow the printed portal URL or QR code
-2. `trellis deploy create svc/my-service && trellis deploy provision svc/my-service`
+1. `trellis login http://localhost:3000` and follow the printed portal URL or QR code
+2. `trellis svc my-service create && trellis svc my-service apply --image ghcr.io/my-org/my-service:1.2.3 && trellis svc my-service provision`
 3. store the seed
-4. add the image contract boundary to the deployment envelope in the Console or with `Auth.Envelopes.Expand`
-5. start the container with the right env
-6. confirm the expected RPCs, events, and bindings work
+4. start the container with the right env
+5. confirm the expected RPCs, events, and bindings work
 
 Deployment envelope expansion and instance provisioning should happen before the container starts serving traffic. Service resource provisioning happens when the envelope expands; after the boundary is available on an enabled deployment, it is active for catalog and auth even before an instance connects. Service bootstrap validates that the presented contract evidence fits the deployment envelope and consumes the persisted bindings; it does not activate the catalog entry.
 

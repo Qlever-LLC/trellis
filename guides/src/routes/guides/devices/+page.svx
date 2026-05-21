@@ -125,7 +125,8 @@ and MAC remain the bearer setup artifact for handing the flow to a browser.
 Once the code shape is clear, create the server-side device deployment and expand its envelope with the device contract.
 
 ```sh
-trellis deploy create dev/my-device.standard --review-mode none
+trellis dev my-device.standard create --review-mode none
+trellis dev my-device.standard apply --source /path/to/my-device
 ```
 
 Notes:
@@ -150,10 +151,10 @@ An admin can approve a pending activation review using the CLI:
 
 ```sh
 # Find the pending review ID
-trellis deploy review list
+trellis dev my-device.standard reviews list
 
 # Approve it
-trellis deploy review approve dar_123456789
+trellis dev my-device.standard reviews approve dar_123456789
 ```
 
 After approval or rejection, Trellis completes the original
@@ -169,11 +170,10 @@ depend on a private runtime handle surviving the original handler or process.
 
 ## 5. Provision a device instance
 
-A specific device instance can be provisioned with `trellis deploy provision dev/<id>`. This generates a device root secret, derives the device keys, registers the instance with Trellis, and prints the provisioning values.
+A specific device instance can be provisioned with `trellis dev <id> provision`. This generates a device root secret, derives the device keys, registers the instance with Trellis, and prints the provisioning values.
 
 ```sh
-trellis deploy provision \
-  dev/my-device.standard \
+trellis dev my-device.standard provision \
   --name "Front Desk Reader" \
   --serial-number SN-123 \
   --model-number MX-10 \
@@ -190,8 +190,8 @@ In the console admin app, the device instances, activations, and reviews pages a
 To inspect provisioned instances later:
 
 ```sh
-trellis deploy instances dev
-trellis deploy instances dev --show-metadata
+trellis dev my-device.standard instances
+trellis dev my-device.standard instances --show-metadata
 ```
 
 The default table shows `name`, `serial`, and `model` when present. `--show-metadata` adds a column for the remaining opaque metadata.
@@ -221,8 +221,8 @@ Revocation also removes the device's ability to reconnect with previously fetche
 
 ```sh
 # Find the instance ID
-trellis deploy activation list
+trellis dev my-device.standard activations list
 
 # Revoke the device
-trellis deploy activation revoke dev_123456789
+trellis dev my-device.standard activations revoke dev_123456789
 ```

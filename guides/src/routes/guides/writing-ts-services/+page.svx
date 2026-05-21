@@ -533,8 +533,9 @@ Regenerate the SDK whenever the contract changes. This is the same pattern that 
 Create a service deployment and provision one service instance. The deployment envelope controls catalog/auth activation; the instance is for runtime availability:
 
 ```sh
-trellis deploy create svc/orders-service
-trellis deploy provision svc/orders-service
+trellis svc orders-service create
+trellis svc orders-service apply --source .
+trellis svc orders-service provision
 ```
 
 You can add the service contract boundary before starting the runtime through the

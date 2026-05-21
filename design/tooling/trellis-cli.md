@@ -108,7 +108,8 @@ These commands:
   images
 - validate canonical manifests against `trellis.contract.v1`
 - compute canonical JSON and digests
-- generate package-manager-specific SDK artifacts from the resolved contract inputs
+- generate package-manager-specific SDK artifacts from the resolved contract
+  inputs
 - preserve the current JSR TypeScript generated surface where practical
 - generate npm JavaScript packages natively from generated TypeScript sources;
   npm output does not require Deno or `dnt`
@@ -282,12 +283,13 @@ Operational command behavior:
 - `trellis local init` is the ergonomic local development bootstrap. It
   generates a runnable bundle containing local NATS operator/account/JWT
   artifacts, Trellis/Auth service credentials, auth-callout signing and xkey
-  seeds, sentinel credentials, `trellis/config.jsonc`, a local session seed,
-  placeholder local OAuth secret material, a local SQLite data directory, and a
-  root manifest. The generated Trellis config uses relative file paths so the
-  bundle can be moved as a directory, and command flags allow overriding the
-  public Trellis origin plus native and websocket NATS URLs when containers map
-  ports dynamically.
+  seeds, sentinel credentials, `trellis/config.jsonc`, a local session seed, a
+  local SQLite data directory, and a root manifest. The generated Trellis config
+  is local-identity-first: it enables username/password login and does not
+  require federated identity provider setup for the first local admin. The
+  generated Trellis config uses relative file paths so the bundle can be moved
+  as a directory, and command flags allow overriding the public Trellis origin
+  plus native and websocket NATS URLs when containers map ports dynamically.
 - `trellis infra apply` creates the shared event stream and Trellis-owned KV
   buckets needed before the runtime starts; these buckets are for OAuth state,
   pending auth, browser flows, active connection presence, and the public
@@ -296,11 +298,13 @@ Operational command behavior:
   production clusters
 - `trellis infra check` reports whether the shared runtime infrastructure is
   ready for Trellis services without creating or updating streams or buckets
-- `trellis init admin --identity <provider>:<subject>` bootstraps the initial
-  admin user and linked provider identity in Trellis service SQLite storage; by
-  default it writes `/var/lib/trellis/trellis.sqlite`; the seeded user receives
-  `capabilityGroups: ["admin"]` and no direct capabilities so first-admin
-  authority follows the same group model as later users
+- the normal first-admin path is the auth-owned admin bootstrap flow printed by
+  the Trellis server on first boot. That built-in portal creates a local
+  username/password admin and assigns `capabilityGroups: ["admin"]` with no
+  direct capabilities, so first-admin authority follows the same group model as
+  later users. `trellis init admin --identity <provider>:<subject>` remains an
+  offline initialization utility for explicit operator workflows, not the
+  beginner local setup path.
 - `trellis keys new` remains an explicit offline utility for operators who want
   to separate key generation from install
 - `trellis upgrade check` and `trellis upgrade install` replace the previous
@@ -337,8 +341,8 @@ The developer-facing CLI boundary is the contract source.
   source modules with Node
 - generated JSR packages target Deno/JSR consumers, while generated npm packages
   target Node/npm consumers and are produced without requiring Deno
-- npm package generation uses the Node TypeScript compiler (`tsc`), resolved from
-  the project, `PATH`, or `TRELLIS_TSC_BIN`
+- npm package generation uses the Node TypeScript compiler (`tsc`), resolved
+  from the project, `PATH`, or `TRELLIS_TSC_BIN`
 - Rust projects use `contracts/*.rs` source modules with a `contract_manifest()`
   function, or another explicitly selected function, returning
   `ContractManifest` or `Result<ContractManifest, ContractsError>`; those

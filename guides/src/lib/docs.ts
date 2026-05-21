@@ -403,21 +403,21 @@ export const guideDocs: DocEntry[] = [
   {
     title: "Install the Trellis CLI",
     description:
-      "Install the trellis command-line tool from a GitHub release or build it with Cargo.",
+      "Install the trellis command-line tool from a release, Cargo, or the current checkout.",
     href: "/guides/install-trellis-cli",
     section: "Server Setup",
   },
   {
-    title: "Prepare NATS",
+    title: "Start Local NATS",
     description:
-      "A running NATS server with the accounts, credentials, and signing keys that Trellis expects.",
+      "Generate local Trellis and NATS bootstrap files, then start NATS in a container.",
     href: "/guides/prepare-nats",
     section: "Server Setup",
   },
   {
-    title: "Starting Trellis",
+    title: "Start Trellis",
     description:
-      "A running Trellis instance with an admin account ready for development.",
+      "Run Trellis and Console from source against the generated local NATS bundle.",
     href: "/guides/starting-trellis",
     section: "Server Setup",
   },

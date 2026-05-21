@@ -132,20 +132,26 @@ const rawSchema = z.object({
   oauth: z.object({
     redirectBase: z.string(),
     alwaysShowProviderChooser: z.boolean().default(false),
-    providers: z
-      .record(
-        z.string().min(1),
-        z.discriminatedUnion("type", [
-          githubProviderSchema,
-          oidcProviderSchema,
-        ]),
-      )
-      .refine(
-        (providers: unknown) =>
-          Object.keys(providers as Record<string, unknown>).length > 0,
-        "At least one auth provider must be configured",
-      ),
+    providers: z.record(
+      z.string().min(1),
+      z.discriminatedUnion("type", [
+        githubProviderSchema,
+        oidcProviderSchema,
+      ]),
+    ),
   }),
+}).superRefine((raw, context) => {
+  if (
+    !raw.auth.localIdentity.enabled &&
+    Object.keys(raw.oauth.providers).length === 0
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["oauth", "providers"],
+      message:
+        "At least one auth provider must be configured when local identity is disabled",
+    });
+  }
 });
 
 export type GitHubProviderConfig = {

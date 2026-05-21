@@ -40,6 +40,19 @@ cargo install trellis-cli
 
 This builds from source and places the `trellis` binary in your Cargo bin directory (usually `~/.cargo/bin`).
 
+## Option C: Build the current checkout
+
+When working against unreleased docs or source, build the CLI from the repository checkout so the available commands match the code you are running:
+
+```sh
+git clone https://github.com/qlever-llc/trellis.git
+cd trellis
+cargo xtask prepare
+cargo install --path rust/crates/cli
+```
+
+`cargo xtask prepare` generates the SDK crates that the Rust workspace needs before `trellis-cli` is built.
+
 ## Verify
 
 ```sh
