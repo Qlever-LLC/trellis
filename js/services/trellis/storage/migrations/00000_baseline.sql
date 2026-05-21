@@ -74,10 +74,13 @@ CREATE TABLE `account_flows` (
 	`flow_id_hash` text NOT NULL,
 	`kind` text NOT NULL,
 	`target_user_id` text,
+	`target_identity_id` text,
+	`target_local_username` text,
 	`created_by_user_id` text,
 	`allowed_providers` text,
 	`capabilities` text,
 	`profile_hint` text,
+	`return_to` text,
 	`created_at` text NOT NULL,
 	`expires_at` text NOT NULL,
 	`consumed_at` text
@@ -283,6 +286,7 @@ CREATE TABLE IF NOT EXISTS `auth_login_portal_settings` (
 	`portal_id` text PRIMARY KEY NOT NULL,
 	`local_registration_enabled` integer NOT NULL,
 	`federated_registration_enabled` integer NOT NULL,
+	`allowed_federated_providers` text,
 	`self_registered_account_active` integer NOT NULL,
 	`updated_at` text NOT NULL
 );
@@ -346,6 +350,9 @@ CREATE TABLE IF NOT EXISTS `deployment_contract_evidence` (
 	`contract_json` text NOT NULL,
 	`first_seen_at` text NOT NULL,
 	`last_seen_at` text NOT NULL,
+	`ignored_at` text,
+	`ignored_by_json` text,
+	`ignore_reason` text,
 	PRIMARY KEY(`deployment_id`, `contract_digest`)
 );
 --> statement-breakpoint

@@ -8,34 +8,6 @@
       "when": 1777161600000,
       "tag": "00000_baseline",
       "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1778544000000,
-      "tag": "00001_login_portals",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1779148800000,
-      "tag": "00002_login_portal_provider_allowlists",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1779235200000,
-      "tag": "00003_dynamic_grant_override_groups",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1779321600000,
-      "tag": "00004_contract_evidence_quarantine",
-      "breakpoints": true
     }
   ]
 }
