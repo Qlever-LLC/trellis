@@ -1,7 +1,9 @@
-This guide turns on Trellis from the source tree. It uses the local files and NATS container from [Prepare NATS](/guides/prepare-nats), then starts Trellis with `deno task dev`.
+This guide generates the local files Trellis needs, starts NATS in a container, applies shared infrastructure, and runs Trellis from the source tree with `deno task dev`.
 
 By the end, you will have:
 
+- a local folder at `~/trellis` with generated Trellis and NATS files
+- a NATS container running on your machine
 - Trellis running at `http://localhost:3000`
 - the built-in setup page for creating your first admin account
 - Console running at `http://localhost:5173`
@@ -13,18 +15,80 @@ By the end, you will have:
 - [Deno](https://deno.com) v2+
 - a Rust toolchain, because local prepare tasks run the Rust generator
 - the `trellis` CLI installed (see [Install the Trellis CLI](/guides/install-trellis-cli))
-- the NATS container from [Prepare NATS](/guides/prepare-nats)
+- `podman`
 
-## 1. Check out the source tree
+The local bootstrap command uses a `nats-box` container internally to generate NATS operator, account, credential, signing-key, and resolver files. You do not need to configure NATS accounts, credentials, or signing keys by hand.
+
+## 1. Generate the local bundle
 
 ```sh
-git clone https://github.com/qlever-llc/trellis.git
+trellis local init --out ~/trellis
+```
+
+This creates a movable local bundle under `~/trellis`:
+
+| Path | Purpose |
+| --- | --- |
+| `manifest.json` | Generated bundle manifest with public keys and relative paths |
+| `nats/` | NATS config, resolver data, service credentials, and signing seeds |
+| `trellis/config.jsonc` | Trellis runtime config using relative file paths |
+| `trellis/session.seed` | Local Trellis runtime session key seed |
+| `trellis/data/` | Local Trellis SQLite data directory |
+
+Useful local flags:
+
+| Flag | Default | Use when |
+| --- | --- | --- |
+| `--container-runtime podman` | `auto` | You want to avoid runtime autodetection |
+| `--public-origin http://localhost:3000` | `http://localhost:3000` | Trellis is exposed on a different local origin |
+| `--nats-server-url nats://127.0.0.1:4222` | `nats://127.0.0.1:4222` | Server-side clients reach NATS somewhere else |
+| `--nats-websocket-url ws://localhost:8080` | `ws://localhost:8080` | Browser clients reach NATS somewhere else |
+
+## 2. Start NATS
+
+Run NATS from the generated config and resolver data:
+
+```sh
+podman run --replace --detach --name trellis-nats \
+  --publish 127.0.0.1:4222:4222 \
+  --publish 127.0.0.1:8080:8080 \
+  --publish 127.0.0.1:8222:8222 \
+  --volume "$HOME/trellis/nats/nats.conf:/etc/nats/nats.conf:ro,Z" \
+  --volume "$HOME/trellis/nats/jwt.conf:/etc/nats/jwt.conf:ro,Z" \
+  --volume "$HOME/trellis/nats/data:/data:Z" \
+  docker.io/library/nats:latest \
+  -c /etc/nats/nats.conf
+```
+
+The container publishes only loopback ports:
+
+| Port | Purpose |
+| --- | --- |
+| `4222` | Native NATS clients |
+| `8080` | Browser websocket clients |
+| `8222` | NATS monitoring and health |
+
+## 3. Verify NATS
+
+```sh
+curl http://127.0.0.1:8222/healthz
+```
+
+An HTTP 200 response means NATS is ready for the Trellis infrastructure bootstrap step.
+
+## 4. Check out the source tree
+
+```sh
+TRELLIS_VERSION="$(trellis --version)"
+TRELLIS_VERSION="${TRELLIS_VERSION#trellis }"
+TRELLIS_VERSION="${TRELLIS_VERSION%%+*}"
+git clone --branch "v${TRELLIS_VERSION#v}" --depth 1 https://github.com/qlever-llc/trellis.git
 cd trellis
 ```
 
-If you already have a checkout, use that directory instead.
+This checks out the release tag that matches your installed CLI. If you already have a checkout, use that directory instead.
 
-## 2. Apply shared infrastructure
+## 5. Apply shared infrastructure
 
 Create the Trellis event stream and auth-owned KV buckets in NATS:
 
@@ -44,7 +108,7 @@ trellis infra check \
   --auth-creds ~/trellis/nats/creds/auth-auth.creds
 ```
 
-## 3. Start Trellis from source
+## 6. Start Trellis from source
 
 In the source checkout:
 
@@ -57,15 +121,7 @@ Keep this terminal running. The task prepares generated artifacts, builds the bu
 
 On first boot, Trellis prints an admin setup URL because no admin account exists yet. You will use that link in the next step.
 
-Test the built-in portal endpoint from another terminal:
-
-```sh
-curl -i http://localhost:3000/_trellis/portal
-```
-
-An HTTP 200 response confirms that Trellis is serving the built-in portal.
-
-## 4. Create your first admin account
+## 7. Create your first admin account
 
 Find the admin setup URL in the Trellis server output. It looks like this:
 
@@ -73,15 +129,15 @@ Find the admin setup URL in the Trellis server output. It looks like this:
 http://localhost:3000/_trellis/portal/admin/bootstrap?flowId=...
 ```
 
-Open that URL in your browser and create a username and password. This creates the first local Trellis admin account.
+Open that URL in your browser and set the password for the initial local `admin` account.
 
-## 5. Log in with the CLI
+## 8. Log in with the CLI
 
 ```sh
 trellis login http://localhost:3000
 ```
 
-The CLI prints a portal URL and QR code. Open the URL, sign in with the local admin username and password you just created, approve the CLI contract, and wait for the command to complete.
+The CLI prints a portal URL and QR code. Open the URL, sign in with the local `admin` username and password you just set, approve the CLI contract, and wait for the command to complete.
 
 Confirm the stored admin session:
 
@@ -89,7 +145,7 @@ Confirm the stored admin session:
 trellis whoami
 ```
 
-## 6. Start the Console
+## 9. Start the Console
 
 In another terminal from the source checkout:
 
@@ -99,9 +155,9 @@ cp .env.example .env
 deno task dev
 ```
 
-Open `http://localhost:5173` and log in with the local admin username and password. The browser flow uses the built-in Trellis portal served by the source-run runtime.
+Open `http://localhost:5173` and log in with the local `admin` username and password. The browser flow uses the built-in Trellis portal served by the source-run runtime.
 
-## 7. Verify the local stack
+## 10. Verify the local stack
 
 ```sh
 curl http://127.0.0.1:8222/healthz

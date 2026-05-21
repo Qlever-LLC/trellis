@@ -1,0 +1,36 @@
+Every service and app in Trellis declares a **contract**: a source definition describing what the service does, what resources it needs, and what permissions it requires.
+
+A contract declares:
+
+- **RPCs** the service handles (request/reply operations)
+- **operations** the service exposes as caller-visible async workflows
+- **events** the service publishes or subscribes to
+- **feeds** the service exposes as authorized live streams for apps and services
+- **resources** the service needs Trellis to provision (KV buckets, stores, and job queues)
+- **dependencies** on other contracts via `uses`
+- **capabilities** required to call each operation
+
+Contracts are the source of truth for authorization. Trellis derives NATS subject permissions from deployment-owned service/device catalog entries plus identity-envelope-approved app, CLI, native, and device-user contract evidence. If an operation is not explicitly declared in an applicable contract, the participant cannot access it.
+
+## Contract kinds
+
+| Kind | Purpose |
+| --- | --- |
+| `service` | A backend process connected to NATS with a session key |
+| `app` | A browser client that connects via websocket |
+| `device` | An activated device participant provisioned through Trellis |
+| `cli` | A command-line tool |
+
+Portals are deployment-owned browser routing records, not a contract kind. A custom portal that calls Trellis after login uses a normal `app` contract. Activated devices use the same contract format as other Trellis participants. Provisioning mode lives in Trellis device deployments and instance records rather than in a special contract field.
+
+## Contract identity
+
+Each contract has a stable `id` like `graph@v1` or `trellis.auth@v1`. The `@vN` suffix is a major version; breaking changes require a new version. Within one lineage, multiple active digests may coexist during rollout as long as they remain semantically compatible.
+
+Cross-contract `uses` validation must resolve to compatible active surfaces, so compatible rollout is allowed but divergent active definitions for the same logical surface are rejected. Trellis compares resolved schema definitions, not only schema ref names: canonically equal schemas and optional fields that remain safely absent on the wire can coexist, while closed-object additions, required-field changes, and unproven schema changes fail closed.
+
+Contracts are content-addressed by a SHA-256 digest of a normalized runtime/interface projection derived from their canonical JSON form. Human-facing metadata such as `displayName`, `description`, exported-only schemas, and unused local schemas do not change the digest; callable surfaces, authorization requirements, resources, and reachable schemas do.
+
+## Generated contract artifacts
+
+The canonical exchange artifact is `trellis.contract.v1` JSON, generated from contract source during build and release. TypeScript projects typically edit the contract module directly, while the current Rust workflow keeps a checked-in manifest JSON alongside a `contracts/*.rs` wrapper that exports it through `include_str!(...)`.

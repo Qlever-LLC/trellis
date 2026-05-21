@@ -1,0 +1,71 @@
+<script lang="ts">
+  import LanguageTabs from "$lib/components/LanguageTabs.svelte";
+</script>
+
+Your service lives in its own repository, completely separate from the Trellis core. Create a standalone `orders-service` project in your language runtime:
+
+<LanguageTabs>
+{#snippet ts()}
+
+Create a new Deno project:
+
+```sh
+mkdir orders-service && cd orders-service
+deno init
+```
+
+Add the Trellis SDK and TypeBox, our schema library, as dependencies:
+
+```sh
+deno add npm:@qlever-llc/trellis npm:@sinclair/typebox
+```
+
+If you are using Node.js instead, use `npm`:
+
+```sh
+npm install @qlever-llc/trellis @sinclair/typebox
+```
+
+{/snippet}
+{#snippet rust()}
+
+Create a new Cargo binary project:
+
+```sh
+cargo new orders-service --bin
+cd orders-service
+mkdir contracts
+```
+
+Add the runtime, contract, and generated-SDK dependencies. Use the current Trellis release version for the Trellis crates:
+
+```toml
+[dependencies]
+anyhow = "1"
+async-nats = "0.41"
+bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+time = { version = "0.3", features = ["formatting"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+
+trellis-auth-adapters = "0.9"
+trellis-client = "0.9"
+trellis-contracts = "0.9"
+trellis-core-bootstrap = "0.9"
+trellis-sdk-auth = "0.9"
+trellis-service = "0.9"
+
+# Add this after the first prepare run creates the generated SDK crate.
+trellis-sdk-orders-service = { path = "generated/packages/cargo/orders-service" }
+```
+
+In the Trellis monorepo, these dependencies are workspace dependencies instead of published versions. Standalone services should use the published crate versions or a `[patch]` that points at a local Trellis checkout during development.
+
+{/snippet}
+</LanguageTabs>

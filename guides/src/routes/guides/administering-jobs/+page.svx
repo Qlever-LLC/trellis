@@ -10,7 +10,7 @@ This guide is for operators. If you are a service author, see [Jobs: TypeScript]
 the optional Trellis infrastructure service that implements its admin runtime
 behavior:
 
-- **KV projection** — a queryable read-optimized view of current job state derived from the JetStream source of truth
+- **SQL projection** — a queryable read-optimized view of current job state derived from the JetStream source of truth
 - **Global RPCs** — `Jobs.List`, `Jobs.Get`, `Jobs.Cancel`, `Jobs.Retry`, `Jobs.ReplayDLQ`, `Jobs.DismissDLQ`, `Jobs.ListServices`, `Jobs.Health`
 - **Janitor** — background cleanup of expired jobs and stale projection entries
 
@@ -27,8 +27,8 @@ const jobs = trellis.jobs();
 
 const pending = await jobs.list({
   service: "orders-service",
-  jobType: "reserve-inventory",
-  state: "pending",
+  type: "reserve-inventory",
+  state: ["pending"],
   limit: 50,
 });
 
@@ -41,8 +41,6 @@ for (const job of pending.entries) {
 
 ```ts
 const job = await jobs.get({
-  service: "orders-service",
-  jobType: "charge-payment",
   id: "job_abc123",
 });
 
@@ -60,8 +58,6 @@ from a job to related RPC, event, operation, and service logs.
 
 ```ts
 await jobs.cancel({
-  service: "orders-service",
-  jobType: "charge-payment",
   id: "job_abc123",
 });
 ```
@@ -78,8 +74,6 @@ A job enters the `failed` state when it has exhausted its automatic retries. Use
 
 ```ts
 await jobs.retry({
-  service: "orders-service",
-  jobType: "charge-payment",
   id: "job_abc123",
 });
 ```
@@ -96,8 +90,6 @@ The `dead` state is **not terminal** — dead jobs can be either replayed or dis
 
 ```ts
 await jobs.replayDLQ({
-  service: "orders-service",
-  jobType: "charge-payment",
   id: "job_abc123",
 });
 ```
@@ -108,8 +100,6 @@ This re-enqueues the job at `pending`.
 
 ```ts
 await jobs.dismissDLQ({
-  service: "orders-service",
-  jobType: "charge-payment",
   id: "job_abc123",
 });
 ```
@@ -133,6 +123,6 @@ trellis jobs workers --service orders-service
 The janitor is a background loop in the Jobs admin runtime that cleans up:
 
 - **Expired jobs** — jobs that exceeded their `defaultDeadlineMs` and have not completed; moved to `expired`
-- **Stale KV projection entries** — projection records whose underlying stream messages have been cleaned up
+- **Stale SQL projection entries** — projection records whose underlying stream messages have been cleaned up
 
 The janitor interval is operator-configurable via the Jobs admin runtime configuration. There is no fixed default — tune it based on your job volume and retention requirements. A shorter interval keeps the projection tighter; a longer interval reduces janitor overhead on high-volume deployments.

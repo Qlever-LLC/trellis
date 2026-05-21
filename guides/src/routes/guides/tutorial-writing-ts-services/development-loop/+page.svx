@@ -1,0 +1,42 @@
+<script lang="ts">
+  import LanguageTabs from "$lib/components/LanguageTabs.svelte";
+</script>
+
+Once the service is real, the loop is simple:
+
+<LanguageTabs>
+{#snippet ts()}
+
+1. Update schemas and the `defineServiceContract(...)` module
+2. Run `deno task prepare`, or keep `deno task prepare:watch` running
+3. Expand or shrink the deployment envelope if the contract boundary changed
+4. Restart the service
+
+{/snippet}
+{#snippet rust()}
+
+1. Update schemas and `contracts/service.rs`
+2. Run `trellis-generate prepare .`, or keep `trellis-generate prepare --watch --changes .` running
+3. Run `cargo fmt` and `cargo test` for the service crate
+4. Apply the service contract boundary with `trellis svc orders-service apply --source .`
+5. Expand or shrink the deployment envelope if the contract boundary changed
+6. Restart the service
+
+{/snippet}
+</LanguageTabs>
+
+If only handler implementation changed, you usually do not need a contract prepare or envelope change. If the public boundary changed, regenerate artifacts and update the envelope.
+
+Public boundary changes include schemas, RPCs, events, operations, resources, state, dependencies, and capabilities.
+
+Use the Console Envelopes page or the Trellis CLI `expansions` commands for envelope changes:
+
+```sh
+trellis svc orders-service expansions list
+trellis svc orders-service expansions approve <request-id> --reason local-dev
+trellis svc orders-service expansions reject <request-id> --reason not-needed
+```
+
+Congratulations. You now have a fully functional Trellis service. It connects, stores data, handles RPCs with access control, listens for events from other services, and publishes its own.
+
+Next, you can move long-running fulfillment work into the background with [Jobs: TypeScript](/guides/using-jobs-ts), or expose a caller-visible async workflow with progress updates using [Operations: TypeScript](/guides/using-operations-ts).

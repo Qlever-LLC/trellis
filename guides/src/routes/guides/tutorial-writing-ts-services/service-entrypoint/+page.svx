@@ -1,0 +1,145 @@
+<script lang="ts">
+  import LanguageTabs from "$lib/components/LanguageTabs.svelte";
+</script>
+
+Now write the code that actually runs the service. Both paths authenticate a service instance, present contract evidence, resolve deployment bindings, and connect to NATS; the Rust path currently exposes more of those runtime pieces directly.
+
+<LanguageTabs>
+{#snippet ts()}
+
+Open `main.ts`, which was created by `deno init`, and replace it with:
+
+```ts
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
+import { ordersService } from "./contracts/orders_service.ts";
+
+const service = await TrellisService.connect({
+  trellisUrl: Deno.env.get("TRELLIS_URL")!,
+  contract: ordersService,
+  name: "orders-service",
+  sessionKeySeed: Deno.env.get("ORDERS_SERVICE_SESSION_KEY_SEED")!,
+});
+
+console.log("Connected to Trellis!");
+```
+
+> **Node.js users:** Import from `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
+
+`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, verifies that the presented contract evidence fits the enabled deployment envelope, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved. Catalog activation comes from the enabled service deployment envelope and its active required dependency closure, so the contract can be active before this instance connects. If the deployment envelope does not cover the contract boundary yet, bootstrap creates or reuses a pending expansion request and waits while retrying.
+
+{/snippet}
+{#snippet rust()}
+
+Create `src/main.rs`:
+
+```rust
+use std::sync::Arc;
+
+use anyhow::Context;
+use clap::Parser;
+use trellis_auth_adapters::AuthRequestValidatorAdapter;
+use trellis_client::{ServiceConnectWithContractOptions, TrellisClient};
+use trellis_core_bootstrap::CoreBootstrapBinding;
+use trellis_sdk_orders_service::{CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON};
+use trellis_service::{run_multi_subject_service, Router};
+
+const SERVICE_NAME: &str = "orders-service";
+const REQUEST_TIMEOUT_MS: u64 = 5_000;
+
+#[derive(Debug, Parser)]
+struct Args {
+    #[arg(long, env = "TRELLIS_URL")]
+    trellis_url: String,
+
+    #[arg(long, env = "ORDERS_SERVICE_SESSION_KEY_SEED")]
+    seed: String,
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
+    let args = Args::parse();
+
+    let client = Arc::new(
+        TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+            trellis_url: &args.trellis_url,
+            contract_id: CONTRACT_ID,
+            contract_digest: CONTRACT_DIGEST,
+            contract_json: CONTRACT_JSON,
+            session_key_seed_base64url: &args.seed,
+            timeout_ms: REQUEST_TIMEOUT_MS,
+            retry_delay_ms: 1_000,
+            approval_timeout_ms: 300_000,
+        })
+        .await
+        .context("connect service")?,
+    );
+
+    let binding = service_bootstrap_binding(&client)?;
+    let validator = AuthRequestValidatorAdapter::new(Arc::clone(&client));
+    let router = Router::new();
+    let host = trellis_service::bootstrap_service_host(
+        SERVICE_NAME,
+        binding.bootstrap_binding(),
+        router,
+        validator,
+    );
+
+    tracing::info!("connected to Trellis");
+    run_multi_subject_service(client.nats().clone(), &[], host).await?;
+    Ok(())
+}
+
+fn service_bootstrap_binding(client: &TrellisClient) -> anyhow::Result<CoreBootstrapBinding> {
+    let binding = client
+        .service_bootstrap_binding()
+        .cloned()
+        .context("service bootstrap response did not include bindings")?;
+    Ok(CoreBootstrapBinding::new(serde_json::from_value(binding)?))
+}
+```
+
+`TrellisClient::connect_service_with_contract(...)` authenticates the service instance, presents the generated contract manifest, and waits if bootstrap creates a pending expansion request. `bootstrap_service_host(...)` wires the resolved bootstrap binding, request validator, and router into the NATS service loop.
+
+{/snippet}
+</LanguageTabs>
+
+Before we can run this, we need to create a deployment, provision a service instance, and add the contract boundary to the deployment envelope.
+
+Every Trellis service authenticates with a unique instance key. `trellis svc <id> provision` prints the private seed for that instance; treat it like a private key and never commit it to source control.
+
+```sh
+trellis svc orders-service create
+trellis svc orders-service apply --source .
+trellis svc orders-service provision
+```
+
+Before starting the service, apply the service contract boundary to the deployment envelope. During local development you can also start first and approve the pending expansion request that bootstrap creates.
+
+Now run your service:
+
+<LanguageTabs>
+{#snippet ts()}
+
+```sh
+TRELLIS_URL=http://localhost:3000 \
+ORDERS_SERVICE_SESSION_KEY_SEED=<seed-from-provision> \
+deno run --allow-net --allow-env main.ts
+```
+
+{/snippet}
+{#snippet rust()}
+
+```sh
+TRELLIS_URL=http://localhost:3000 \
+ORDERS_SERVICE_SESSION_KEY_SEED=<seed-from-provision> \
+cargo run
+```
+
+{/snippet}
+</LanguageTabs>
+
+You should see a connected log line. The service does not do anything yet, but it is alive on the network. Let's change that.

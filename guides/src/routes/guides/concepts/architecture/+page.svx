@@ -1,0 +1,56 @@
+Trellis is split into platform-owned runtime capabilities and domain-owned services. Services communicate over NATS, but public boundaries stay contract-owned instead of becoming raw subject strings or central registry entries.
+
+## Service categories
+
+Services usually fall into one primary category:
+
+| Category | Purpose | Examples |
+| --- | --- | --- |
+| Infrastructure | Platform capabilities for all services | Auth, Jobs |
+| Ingest | Pull external data and emit domain events | Zendesk, FoodLogiQ |
+| Repository | Persist and query domain data | Graph, Search |
+| Processing | Transform, enrich, or derive knowledge | Classification |
+| Egress | Push data to external systems | Laserfiche |
+
+A category describes the service's main responsibility. Any service may still subscribe to events for cache invalidation, projections, or local state.
+
+## Platform boundary
+
+Trellis platform code and cloud/domain code are intentionally separate.
+
+The Trellis platform repo owns:
+
+- runtime libraries and protocol helpers
+- the `trellis` runtime service
+- Trellis-owned contracts such as auth, health, jobs, and state
+- Jobs infrastructure
+- contract tooling and generated artifact workflows
+
+Cloud or domain repos own:
+
+- domain services
+- domain contracts
+- apps and portals outside the platform repo
+- domain models unless a Trellis-owned contract or shared runtime library needs them
+
+`@qlever-llc/trellis` is a runtime library, not a handwritten central registry for every service API. Service APIs are defined with the service that owns them and consumed through contract packages or generated SDKs.
+
+## Runtime ownership
+
+Trellis-owned contracts are implemented by the Trellis runtime even when their source lives in this repo. Domain contracts are implemented by the service principal that owns the domain behavior.
+
+This distinction matters because deployment authority is envelope-bound. A service, app, device, or CLI does not gain access because a package is installed or a helper exists. It gains access when its presented contract boundary fits the relevant identity or deployment envelope.
+
+## Public boundaries
+
+Public and cross-service boundaries should be modeled as contract-owned surfaces:
+
+- RPCs for bounded request/reply work
+- operations for caller-visible async workflows
+- events for state-change announcements
+- feeds for authorized live views
+- jobs for service-private background execution
+- state stores for Trellis-managed app memory
+- resources for provisioned service-owned storage
+
+Subsystem-owned runtime subjects may exist behind those surfaces, but ordinary callers should use the contract-owned API rather than raw NATS subject spaces.

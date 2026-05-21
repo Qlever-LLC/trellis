@@ -28,11 +28,11 @@
   />
 </svelte:head>
 
-<div class="space-y-8">
-  <section class="space-y-3">
-    <p class="text-sm text-base-content/60">API Reference</p>
+<div class="docs-shell">
+  <section class="space-y-3 border-b border-base-300 pb-5">
+    <p class="docs-section-label">API Reference</p>
     <h1 class="text-3xl font-semibold sm:text-4xl">Trellis API Reference</h1>
-    <p class="max-w-3xl text-sm leading-6 text-base-content/70">
+    <p class="docs-metadata max-w-3xl">
       Use guides for task-oriented walkthroughs, design docs for architecture and
       protocol decisions, and generated API reference when you need exact
       language-level symbols.
@@ -40,19 +40,19 @@
   </section>
 
   <section class="space-y-3">
-    <h2 class="text-sm font-semibold uppercase tracking-[0.12em] text-base-content/50">
+    <h2 class="docs-section-label">
       TypeScript
     </h2>
-    <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
+    <div class="docs-panel overflow-hidden">
       <ul class="divide-y divide-base-300">
         {#each typescriptDocs as doc (doc.href)}
           <li>
             <a
-              class="block px-4 py-4 hover:bg-base-200/40 sm:px-5"
+              class="docs-list-link px-4 py-4 sm:px-5"
               href={resolveDocHref(doc.href)}
             >
-              <h3 class="text-base font-semibold">{doc.title}</h3>
-              <p class="mt-1 text-sm leading-6 text-base-content/70">
+              <h3 class="docs-list-link-title">{doc.title}</h3>
+              <p class="docs-list-link-description mt-1">
                 {doc.description}
               </p>
             </a>
@@ -63,20 +63,20 @@
   </section>
 
   <section class="space-y-3">
-    <h2 class="text-sm font-semibold uppercase tracking-[0.12em] text-base-content/50">
+    <h2 class="docs-section-label">
       Rustdoc
     </h2>
-    <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
+    <div class="docs-panel overflow-hidden">
       <ul class="divide-y divide-base-300 sm:grid sm:grid-cols-2 sm:divide-x sm:divide-y-0">
         {#each rustDocs as doc (doc.href)}
           <li class="border-b border-base-300 sm:border-b-0">
             <a
-              class="block h-full px-4 py-4 hover:bg-base-200/40 sm:px-5"
+              class="docs-list-link h-full px-4 py-4 sm:px-5"
               href={resolveDocHref(doc.href)}
               rel="noreferrer"
             >
-              <h3 class="text-base font-semibold">{doc.title}</h3>
-              <p class="mt-1 text-sm leading-6 text-base-content/70">
+              <h3 class="docs-list-link-title">{doc.title}</h3>
+              <p class="docs-list-link-description mt-1">
                 {doc.description}
               </p>
             </a>
@@ -84,7 +84,7 @@
         {/each}
       </ul>
     </div>
-    <p class="text-sm leading-6 text-base-content/60">
+    <p class="docs-metadata">
       Pending published Rustdoc links: {pendingRustdocCrates.join(", ")}.
     </p>
   </section>

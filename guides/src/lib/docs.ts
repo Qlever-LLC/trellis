@@ -16,6 +16,7 @@ export interface SidebarDocEntry {
 export interface SidebarGroupEntry {
   kind: "group";
   label: string;
+  parent: DocEntry;
   docs: DocEntry[];
 }
 
@@ -335,22 +336,29 @@ export const apiReferenceOverviewDoc: DocEntry = {
 
 export const apiReferenceDocs: DocEntry[] = [
   {
-    title: "TypeScript API Reference",
+    title: "@qlever-llc/trellis",
     description:
-      "Generated TypeScript API documentation from public JSDoc comments.",
-    href: "/api/typescript/index.html",
+      "TypeScript Trellis client runtime, contract helpers, generated SDKs, and service APIs.",
+    href: "/api/typescript/trellis/index.ts/index.html",
+    section: "API Reference",
+  },
+  {
+    title: "@qlever-llc/trellis-svelte",
+    description: "Svelte integration APIs for Trellis browser applications.",
+    href: "/api/typescript/trellis-svelte/src/index.ts/index.html",
+    section: "API Reference",
+  },
+  {
+    title: "@qlever-llc/result",
+    description:
+      "Class-based Result and AsyncResult APIs for explicit TypeScript error handling.",
+    href: "/api/typescript/result/mod.ts/index.html",
     section: "API Reference",
   },
   {
     title: "trellis-client",
     description: "Rust SDK client API on docs.rs.",
     href: "https://docs.rs/trellis-client/latest/trellis_client/",
-    section: "Rustdoc",
-  },
-  {
-    title: "trellis-service",
-    description: "Rust service runtime API on docs.rs.",
-    href: "https://docs.rs/trellis-service/latest/trellis_service/",
     section: "Rustdoc",
   },
   {
@@ -378,6 +386,13 @@ export const apiReferenceDocs: DocEntry[] = [
     section: "Rustdoc",
   },
   {
+    title: "trellis-generate-runner",
+    description: "Version-pinned contract generator launcher API on docs.rs.",
+    href:
+      "https://docs.rs/trellis-generate-runner/latest/trellis_generate_runner/",
+    section: "Rustdoc",
+  },
+  {
     title: "trellis-cli",
     description: "Rust CLI crate API on docs.rs.",
     href: "https://docs.rs/trellis-cli/latest/trellis_cli/",
@@ -389,59 +404,240 @@ export const pendingRustdocCrates = [
   "trellis-auth-adapters",
   "trellis-jobs",
   "trellis-service-jobs",
+  "trellis-service",
   "trellis-core-bootstrap",
+  "trellis-integration-harness",
+  "trellis-local-bootstrap",
 ] as const;
 
-export const guideDocs: DocEntry[] = [
+const typescriptServiceTutorialGroup = "Write a service";
+
+const typescriptServiceTutorialDocs: DocEntry[] = [
+  {
+    title: "Tutorial: Write a service",
+    description:
+      "Build the same orders-service tutorial in TypeScript or Rust.",
+    href: "/guides/tutorial-writing-ts-services",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "Overview",
+  },
+  {
+    title: "Set up the project",
+    description:
+      "Create the standalone orders-service project and install Trellis dependencies.",
+    href: "/guides/tutorial-writing-ts-services/setup",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "1. Setup",
+  },
+  {
+    title: "Your first contract",
+    description:
+      "Define the smallest valid Trellis service contract for the selected language.",
+    href: "/guides/tutorial-writing-ts-services/first-contract",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "2. Contract",
+  },
+  {
+    title: "The service entry point",
+    description:
+      "Connect the service runtime, provision an instance, and run the service locally.",
+    href: "/guides/tutorial-writing-ts-services/service-entrypoint",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "3. Entry point",
+  },
+  {
+    title: "Adding a database",
+    description:
+      "Declare a service-owned KV bucket and open a typed KV client from the runtime binding.",
+    href: "/guides/tutorial-writing-ts-services/kv-store",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "4. KV store",
+  },
+  {
+    title: "Writing our first RPC",
+    description:
+      "Add the Orders.Create schemas, contract declaration, capability gate, and handler.",
+    href: "/guides/tutorial-writing-ts-services/first-rpc",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "5. First RPC",
+  },
+  {
+    title: "Retrieving an order with service errors",
+    description:
+      "Add Orders.Get schemas, a domain error, the contract declaration, and a typed read handler.",
+    href: "/guides/tutorial-writing-ts-services/retrieve-order",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "6. Retrieve order",
+  },
+  {
+    title: "Listening to the outside world",
+    description:
+      "Declare an auth event dependency and subscribe to Auth.Connections.Opened.",
+    href: "/guides/tutorial-writing-ts-services/listen-events",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "7. Listen for Events",
+  },
+  {
+    title: "Publishing your own events",
+    description:
+      "Declare and publish an Orders.Shipped event for downstream services.",
+    href: "/guides/tutorial-writing-ts-services/publish-events",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "8. Publish Events",
+  },
+  {
+    title: "Use a feed for filtered live views",
+    description:
+      "Expose caller-filtered live views instead of forwarding broad service events to browsers.",
+    href: "/guides/tutorial-writing-ts-services/feeds",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "9. Feeds",
+  },
+  {
+    title: "Handle graceful shutdown",
+    description:
+      "Stop the service cleanly on SIGTERM so local restarts and deployments drain work safely.",
+    href: "/guides/tutorial-writing-ts-services/shutdown",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "10. Shutdown",
+  },
+  {
+    title: "Prepare SDKs and contract artifacts",
+    description:
+      "Generate publishable client packages and service contract artifacts from the contract.",
+    href: "/guides/tutorial-writing-ts-services/contract-artifacts",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "11. SDKs and Artifacts",
+  },
+  {
+    title: "Declare optional dependencies",
+    description:
+      "Use optional uses for additive integrations that should not block service activation.",
+    href: "/guides/tutorial-writing-ts-services/optional-dependencies",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "12. Optional uses",
+  },
+  {
+    title: "Development loop",
+    description:
+      "Know when to regenerate artifacts, update the deployment envelope, and restart the service.",
+    href: "/guides/tutorial-writing-ts-services/development-loop",
+    section: "Getting started",
+    sidebarGroup: typescriptServiceTutorialGroup,
+    sidebarLabel: "13. Dev loop",
+  },
+];
+
+const conceptDocs: DocEntry[] = [
   {
     title: "Trellis Concepts",
     description:
-      "The core ideas behind Trellis, including contract-driven authorization and why Trellis capabilities are different from OAuth scopes.",
+      "The core ideas behind Trellis, including platform boundaries, contract-driven authority, transport surfaces, resources, and generated APIs.",
     href: "/guides/concepts",
     section: "Introduction",
   },
+  {
+    title: "Architecture",
+    description:
+      "Service categories, platform boundaries, runtime ownership, and public cross-service surfaces.",
+    href: "/guides/concepts/architecture",
+    section: "Trellis Concepts",
+  },
+  {
+    title: "Contracts",
+    description:
+      "Service and app contracts, contract identity, and generated artifacts.",
+    href: "/guides/concepts/contracts",
+    section: "Trellis Concepts",
+  },
+  {
+    title: "Envelopes",
+    description:
+      "Identity and deployment authority, boundary expansion, availability, liveness, grant overrides, and contract evidence.",
+    href: "/guides/concepts/envelopes",
+    section: "Trellis Concepts",
+  },
+  {
+    title: "Communication",
+    description:
+      "RPCs, operations, events, feeds, cross-contract dependencies, and surface availability.",
+    href: "/guides/concepts/communication",
+    section: "Trellis Concepts",
+  },
+  {
+    title: "Authentication and authorization",
+    description:
+      "Principals, session keys, browser login, portals, approvals, and capabilities.",
+    href: "/guides/concepts/authentication-and-authorization",
+    section: "Trellis Concepts",
+  },
+  {
+    title: "Resources",
+    description:
+      "KV buckets, store resources, public app state, and runtime stream semantics.",
+    href: "/guides/concepts/resources",
+    section: "Trellis Concepts",
+  },
+  {
+    title: "Files and transfers",
+    description:
+      "Public file APIs, service-owned stores, and operation-native byte transfer.",
+    href: "/guides/concepts/files-and-transfers",
+    section: "Trellis Concepts",
+  },
+  {
+    title: "Type system and errors",
+    description:
+      "Schemas, validation, declared errors, Result values, pagination, and stable storage identity.",
+    href: "/guides/concepts/type-system-and-errors",
+    section: "Trellis Concepts",
+  },
+  {
+    title: "Devices and activation",
+    description:
+      "Preregistered devices, activation portals, device deployments, review policy, and online credentials.",
+    href: "/guides/concepts/devices-and-activation",
+    section: "Trellis Concepts",
+  },
+  {
+    title: "Jobs",
+    description:
+      "Service-private background execution and when to use operations instead.",
+    href: "/guides/concepts/jobs",
+    section: "Trellis Concepts",
+  },
+];
+
+export const guideDocs: DocEntry[] = [
+  ...conceptDocs,
   {
     title: "Install the Trellis CLI",
     description:
       "Install the trellis command-line tool from a release, Cargo, or the current checkout.",
     href: "/guides/install-trellis-cli",
-    section: "Server Setup",
+    section: "Installing Trellis",
   },
   {
-    title: "Start Local NATS",
+    title: "Installing Trellis",
     description:
-      "Generate local Trellis and NATS bootstrap files, then start NATS in a container.",
-    href: "/guides/prepare-nats",
-    section: "Server Setup",
-  },
-  {
-    title: "Start Trellis",
-    description:
-      "Run Trellis and Console from source against the generated local NATS bundle.",
+      "Generate a local NATS bundle, then run Trellis and Console from source.",
     href: "/guides/starting-trellis",
-    section: "Server Setup",
+    section: "Installing Trellis",
   },
-  {
-    title: "Tutorial: Write a TypeScript service",
-    description:
-      "A step-by-step tutorial building a working backend service that connects to Trellis, handles RPCs, and stores data.",
-    href: "/guides/tutorial-writing-ts-services",
-    section: "Getting started",
-  },
-  {
-    title: "Reference: Write a TypeScript service",
-    description:
-      "A dense, comprehensive reference covering all aspects of writing a TypeScript service.",
-    href: "/guides/writing-ts-services",
-    section: "Getting started",
-  },
-  {
-    title: "Write a Rust service",
-    description:
-      "A working Rust backend service that connects to Trellis, handles RPCs, and subscribes to events.",
-    href: "/guides/writing-rust-services",
-    section: "Getting started",
-  },
+  ...typescriptServiceTutorialDocs,
   {
     title: "Jobs: TypeScript",
     description:
@@ -601,8 +797,14 @@ function guideSidebarItemsForSection(docs: DocEntry[]): SidebarItem[] {
 
     const existingIndex = groupIndexes.get(doc.sidebarGroup);
     if (existingIndex === undefined) {
+      const docs = doc.sidebarLabel === "Overview" ? [] : [doc];
       groupIndexes.set(doc.sidebarGroup, items.length);
-      items.push({ kind: "group", label: doc.sidebarGroup, docs: [doc] });
+      items.push({
+        kind: "group",
+        label: doc.sidebarGroup,
+        parent: doc,
+        docs,
+      });
       continue;
     }
 
@@ -616,14 +818,17 @@ function guideSidebarItemsForSection(docs: DocEntry[]): SidebarItem[] {
 }
 
 export function guideSidebarBySection(): GuideSidebarSection[] {
+  const sidebarDocs = guideDocs.filter((doc) =>
+    !doc.href.startsWith("/guides/concepts")
+  );
   const orderedSections = Array.from(
-    new Set(guideDocs.map((doc) => doc.section)),
+    new Set(sidebarDocs.map((doc) => doc.section)),
   );
 
   return orderedSections.map((section) => ({
     section,
     items: guideSidebarItemsForSection(
-      guideDocs.filter((doc) => doc.section === section),
+      sidebarDocs.filter((doc) => doc.section === section),
     ),
   }));
 }

@@ -78,7 +78,7 @@ The runtime starts on `http://localhost:3000` with file watching enabled. Trelli
 
 ## 5. Create and log in as an admin
 
-When Trellis starts for the first time, it prints an admin setup URL. Open that URL in your browser and create a local username and password. Then start the CLI login flow:
+When Trellis starts for the first time, it creates the initial local `admin` identity and prints an admin setup URL. Open that URL in your browser and set the password. Then start the CLI login flow:
 
 ```sh
 trellis login http://localhost:3000

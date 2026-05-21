@@ -1,0 +1,45 @@
+<script lang="ts">
+  import LanguageTabs from "$lib/components/LanguageTabs.svelte";
+</script>
+
+Add shutdown handling so local restarts and production deployments do not leave background work or in-flight messages behind.
+
+<LanguageTabs>
+{#snippet ts()}
+
+Explicitly exiting after `service.stop()` also keeps `deno task dev` or other watched local dev restarts from leaving the old process around.
+
+```ts
+Deno.addSignalListener("SIGTERM", async () => {
+  await service.stop();
+  Deno.exit(0);
+});
+```
+
+For Node.js, use `process.on("SIGTERM", ...)`.
+
+{/snippet}
+{#snippet rust()}
+
+For local development, `ctrl_c` is enough:
+
+```rust
+tokio::signal::ctrl_c().await?;
+```
+
+For production deployments, also listen for `SIGTERM` and stop background tasks before exiting:
+
+```rust
+use tokio::signal::unix::{signal, SignalKind};
+
+let mut sigterm = signal(SignalKind::terminate())?;
+tokio::select! {
+    _ = sigterm.recv() => {}
+    _ = tokio::signal::ctrl_c() => {}
+}
+```
+
+If your service spawns event listeners, feed workers, transfer endpoints, or job workers, keep their `JoinHandle`s or stop handles and abort or drain them here. The low-level Rust service runner owns the NATS request-loop task you await; background work you create is your responsibility.
+
+{/snippet}
+</LanguageTabs>

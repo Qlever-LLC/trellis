@@ -1,0 +1,124 @@
+<script lang="ts">
+  import LanguageTabs from "$lib/components/LanguageTabs.svelte";
+</script>
+
+Now let's close the loop and have our service publish events. We will emit an `Orders.Shipped` event so downstream services, such as a warehouse system, notifications service, or billing system, can react without being coupled directly to us.
+
+<LanguageTabs>
+{#snippet ts()}
+
+Add the event schema to `schemas.ts`:
+
+```ts
+export const OrderShippedEvent = Type.Object({
+  orderId: Type.String(),
+  customerId: Type.String(),
+  shippedAt: Type.String({ format: "date-time" }),
+});
+export type OrderShippedEvent = Static<typeof OrderShippedEvent>;
+```
+
+Register the event in `contracts/orders_service.ts`:
+
+```ts
+import * as schemas from "../schemas.ts";
+
+// ...
+
+// In the first defineServiceContract argument:
+{ schemas }
+
+// In the returned contract body:
+  events: {
+    "Orders.Shipped": {
+      version: "v1",
+      event: ref.schema("OrderShippedEvent"),
+      capabilities: { publish: ["service"], subscribe: ["service"] },
+    },
+  },
+```
+
+The `capabilities` here mean: only `service`-tier principals may publish or subscribe. Other services that list `Orders.Shipped` in their own `uses` blocks will receive the events automatically.
+
+Now publish the event from `main.ts`. Here we call it after marking an order as fulfilled. You would do this wherever your fulfillment logic lives:
+
+```ts
+await service.trellis.publish("Orders.Shipped", {
+  orderId,
+  customerId,
+  shippedAt: new Date().toISOString(),
+});
+```
+
+`publish` validates the payload against `OrderShippedEvent` before sending. If the shape is wrong, it returns a `Result.err(...)` rather than silently dropping the event.
+
+{/snippet}
+{#snippet rust()}
+
+Add the schema and event declaration:
+
+```rust
+fn order_shipped_event_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["orderId", "customerId", "shippedAt"],
+        "properties": {
+            "orderId": { "type": "string" },
+            "customerId": { "type": "string" },
+            "shippedAt": { "type": "string", "format": "date-time" }
+        }
+    })
+}
+
+.schema("OrderShippedEvent", order_shipped_event_schema())
+.event(
+    "Orders.Shipped",
+    trellis_contracts::event("v1", "events.v1.Orders.Shipped", "OrderShippedEvent")
+        .with_publish_capabilities(["service"])
+        .with_subscribe_capabilities(["service"]),
+)
+```
+
+After prepare, the generated SDK exposes an event type and server-side publish helper. Add a publisher to `AppContext`:
+
+```rust
+use trellis_service::EventPublisher;
+
+#[derive(Debug, Clone)]
+pub struct AppContext {
+    pub orders: NatsKvResourceClient,
+    pub publisher: EventPublisher,
+}
+```
+
+Create it from the authenticated NATS client:
+
+```rust
+let context = Arc::new(AppContext {
+    orders,
+    publisher: EventPublisher::new(client.nats().clone()),
+});
+```
+
+Publish from your fulfillment logic:
+
+```rust
+use trellis_sdk_orders_service::types::OrderShippedEvent;
+
+server::publish_orders_shipped(
+    &context.publisher,
+    &OrderShippedEvent {
+        order_id,
+        customer_id,
+        shipped_at: now_iso(),
+    },
+)
+.await?;
+```
+
+The publisher serializes and validates through the generated event descriptor before sending to NATS.
+
+{/snippet}
+</LanguageTabs>
+
+Upgrade the contract and restart.

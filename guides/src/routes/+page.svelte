@@ -21,27 +21,27 @@
   />
 </svelte:head>
 
-<div class="space-y-8">
-  <section class="space-y-3">
-    <p class="text-sm text-base-content/60">Documentation</p>
+<div class="docs-shell">
+  <section class="space-y-3 border-b border-base-300 pb-5">
+    <p class="docs-section-label">Documentation</p>
     <h1 class="text-3xl font-semibold sm:text-4xl">Trellis Documentation</h1>
   </section>
 
   {#each groups as group (group.section)}
     <section class="space-y-3">
-      <h2 class="text-sm font-semibold uppercase tracking-[0.12em] text-base-content/50">
+      <h2 class="docs-section-label">
         {group.section}
       </h2>
-      <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
+      <div class="docs-panel overflow-hidden">
         <ul class="divide-y divide-base-300">
           {#each group.docs as doc (doc.href)}
             <li>
               <a
-                class="block px-4 py-4 hover:bg-base-200/40 sm:px-5"
+                class="docs-list-link px-4 py-4 sm:px-5"
                 href={resolveDocHref(doc.href)}
               >
-                <h3 class="text-base font-semibold">{doc.title}</h3>
-                <p class="mt-1 text-sm leading-6 text-base-content/70">
+                <h3 class="docs-list-link-title">{doc.title}</h3>
+                <p class="docs-list-link-description mt-1">
                   {doc.description}
                 </p>
               </a>

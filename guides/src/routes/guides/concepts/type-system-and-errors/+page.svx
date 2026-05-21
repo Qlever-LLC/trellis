@@ -1,0 +1,41 @@
+Trellis uses contract-owned schemas and explicit expected-failure modeling so services, apps, CLIs, and generated SDKs share the same wire contract.
+
+## Schemas
+
+Contract source defines input, output, event, job, state, resource, and error payload schemas. The emitted `trellis.contract.v1` manifest is the canonical cross-language artifact.
+
+In TypeScript, services typically use schema helpers and `ref.schema(...)` references inside contract builders. In generated artifacts, those references become language-neutral schema names and embedded JSON Schema values.
+
+Schemas are not just TypeScript type hints. They are used for manifest validation, runtime validation, generated DTOs, generated docs, and cross-contract compatibility checks.
+
+## Schema validation
+
+Runtime validation protects contract boundaries. A caller should not assume that local static types are enough, because data crosses process and language boundaries over NATS.
+
+Trellis validates schema-backed inputs and outputs at the edges where runtime contracts require it. Validation failures are expected contract failures and should be modeled clearly rather than surfacing as ambiguous transport errors.
+
+## Declared errors
+
+Contracts can declare expected error types. Those errors become part of the public API surface in the same way input and output schemas do.
+
+Declared errors let generated SDKs and documentation tell callers which failures they should handle. Service-local failures that callers can reasonably act on should be declared. Unexpected infrastructure failures should remain unexpected errors.
+
+## Result values
+
+Expected failures use `Result`-style modeling rather than thrown exceptions.
+
+In TypeScript, public APIs use `Result<T, E>` or `AsyncResult<T, E>`. In Rust, public APIs return Rust `Result` values. The shape differs by language, but the semantics are the same: expected failures are values, not control-flow exceptions.
+
+This applies to RPC handlers, client helpers, operation helpers, file transfer helpers, and service runtime operations.
+
+## Pagination shapes
+
+List APIs should use standard page request and page response schemas rather than inventing bespoke list shapes for every service.
+
+The common model keeps offset, limit, count, entries, and next offset semantics consistent across generated SDKs and UI code. Domain-specific filters can be added beside the standard page fields.
+
+## Storage identity
+
+Storage identity should be explicit and stable. Data stored in KV, state, or service-owned stores should preserve enough identity information for migrations, conflict checks, and ownership decisions.
+
+Do not rely on incidental TypeScript object shape or display labels as storage identity. Contract ids, lineages, named stores, schema names, and version provenance are the stable concepts.

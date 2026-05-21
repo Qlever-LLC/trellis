@@ -1,0 +1,164 @@
+<script lang="ts">
+  import LanguageTabs from "$lib/components/LanguageTabs.svelte";
+</script>
+
+Direct event subscriptions are a good fit for service-side processing where event-type authorization is enough. Browser apps usually need something narrower: a live view filtered by the caller's domain permissions.
+
+Expose a feed for that case. The feed is part of the service contract, just like RPCs and events.
+
+<LanguageTabs>
+{#snippet ts()}
+
+First, add feed schemas to `schemas.ts`:
+
+```ts
+export const OrdersLiveRequest = Type.Object({
+  customerId: Type.Optional(Type.String()),
+});
+
+export const OrdersLiveEvent = Type.Union([
+  Type.Object({
+    name: Type.Literal("Orders.Shipped"),
+    event: OrderShippedEvent,
+  }),
+]);
+```
+
+Then declare the feed in `contracts/orders_service.ts`:
+
+```ts
+import * as schemas from "../schemas.ts";
+
+// ...
+
+// In the first defineServiceContract argument:
+{ schemas }
+
+// In the returned contract body:
+  feeds: {
+    "Orders.Live": {
+      version: "v1",
+      input: ref.schema("OrdersLiveRequest"),
+      event: ref.schema("OrdersLiveEvent"),
+      capabilities: { subscribe: ["orders.read"] },
+    },
+  },
+```
+
+Now handle the feed in `main.ts`. This example listens to the service's own order events and only emits frames the caller is allowed to see:
+
+```ts
+await service.feed("Orders.Live").handle(async ({ input, caller, emit, signal }) => {
+  const visibleCustomerIds = await listCustomersVisibleTo(caller);
+
+  await service.trellis.event(
+    "Orders.Shipped",
+    {},
+    async (event) => {
+      if (input.customerId && event.customerId !== input.customerId) {
+        return;
+      }
+      if (!visibleCustomerIds.has(event.customerId)) {
+        return;
+      }
+
+      return emit({ name: "Orders.Shipped", event });
+    },
+    { mode: "ephemeral", replay: "new", signal },
+  ).orThrow();
+
+  await new Promise<void>((resolve) => {
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
+});
+```
+
+The feed handler receives an authenticated `caller`. Your service is still responsible for checking the requested filter and every emitted frame.
+
+{/snippet}
+{#snippet rust()}
+
+Add feed schemas:
+
+```rust
+fn orders_live_request_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "customerId": { "type": "string" }
+        }
+    })
+}
+
+fn orders_live_event_schema() -> Value {
+    json!({
+        "anyOf": [{
+            "type": "object",
+            "required": ["name", "event"],
+            "properties": {
+                "name": { "type": "string", "const": "Orders.Shipped" },
+                "event": order_shipped_event_schema()
+            }
+        }]
+    })
+}
+
+.schema("OrdersLiveRequest", orders_live_request_schema())
+.schema("OrdersLiveEvent", orders_live_event_schema())
+.feed(
+    "Orders.Live",
+    trellis_contracts::feed(
+        "v1",
+        "feeds.v1.Orders.Live",
+        "OrdersLiveRequest",
+        "OrdersLiveEvent",
+    )
+    .with_subscribe_capabilities(["orders.read"]),
+)
+```
+
+Register a feed handler. Rust feed handlers return a stream of typed events:
+
+```rust
+use futures_util::{stream, Stream};
+use trellis_sdk_orders_service::types::{OrdersLiveEvent, OrdersLiveRequest};
+
+fn orders_live_stream(
+    context: Arc<AppContext>,
+    input: OrdersLiveRequest,
+) -> impl Stream<Item = Result<OrdersLiveEvent, trellis_service::ServerError>> + Send + 'static {
+    stream::try_unfold((context, input), |(context, input)| async move {
+        let mut updates = context.orders.watch(">").await?;
+
+        while let Some(entry) = updates.next().await {
+            let entry = entry?;
+            let order: Order = serde_json::from_slice(&entry.value)?;
+            if input.customer_id.as_ref().is_some_and(|id| id != &order.customer_id) {
+                continue;
+            }
+
+            let event = OrdersLiveEvent {
+                name: "Orders.Shipped".to_string(),
+                event: serde_json::to_value(order)?,
+            };
+            return Ok(Some((event, (context, input))));
+        }
+
+        Ok(None)
+    })
+}
+
+server::register_orders_live(&mut router, {
+    let context = Arc::clone(&context);
+    move |_ctx, input| orders_live_stream(Arc::clone(&context), input)
+});
+```
+
+The feed handler receives authenticated request context through `RequestContext`. Your service is still responsible for checking requested filters and every emitted frame.
+
+Add `feeds.v1.Orders.Live` to `SERVICE_SUBJECTS`.
+
+{/snippet}
+</LanguageTabs>
+
+Upgrade the contract and restart.

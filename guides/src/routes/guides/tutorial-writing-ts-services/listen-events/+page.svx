@@ -1,0 +1,84 @@
+<script lang="ts">
+  import LanguageTabs from "$lib/components/LanguageTabs.svelte";
+</script>
+
+Our service shouldn't exist in a vacuum. Let's say we want to know whenever a user logs into Trellis so we can warm up their cache or log the activity.
+
+Events from other services are gated by your contract's `uses` block. Open `contracts/orders_service.ts` and update the contract builder output:
+
+<LanguageTabs>
+{#snippet ts()}
+
+```ts
+import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
+
+uses: {
+  required: {
+    auth: auth.use({
+      events: { subscribe: ["Auth.Connections.Opened"] },
+    }),
+  },
+},
+```
+
+`auth.use(...)` explicitly declares the auth surface this service needs. In this example, the service subscribes to `Auth.Connections.Opened` events from the auth service.
+
+Now subscribe to the event in `main.ts`:
+
+```ts
+import { ok } from "@qlever-llc/trellis";
+
+await service.trellis.event("Auth.Connections.Opened", {}, async (event) => {
+  const e = event as { sessionKey: string };
+  console.info("connection opened", { sessionKey: e.sessionKey });
+  return ok(undefined);
+});
+```
+
+Returning `ok(undefined)` acknowledges the message. If your handler returns `err(...)`, Trellis will NAK the delivery and redeliver it, which is useful for transient failures like a downstream service being temporarily unavailable.
+
+{/snippet}
+{#snippet rust()}
+
+Add the auth contract use to the service manifest:
+
+```rust
+use trellis_contracts::use_contract;
+
+.use_ref(
+    "auth",
+    use_contract("trellis.auth@v1")
+        .with_event_subscribe(["Auth.Connections.Opened"]),
+)
+```
+
+Then subscribe with the auth SDK descriptor:
+
+```rust
+use futures_util::StreamExt;
+use trellis_client::{EventReplayPolicy, EventSubscribeOptions, EventSubscriptionMode};
+use trellis_sdk_auth::events::AuthConnectionsOpenedEventDescriptor;
+
+let mut auth_events = client
+    .subscribe_messages::<AuthConnectionsOpenedEventDescriptor>(EventSubscribeOptions {
+        mode: EventSubscriptionMode::Ephemeral,
+        replay: EventReplayPolicy::New,
+        durable_name: None,
+    })
+    .await?;
+
+tokio::spawn(async move {
+    while let Some(message) = auth_events.next().await {
+        let message = message?;
+        let event = message.decode()?;
+        tracing::info!(event = ?event, "auth connection opened");
+        message.ack().await?;
+    }
+    Ok::<(), trellis_client::TrellisClientError>(())
+});
+```
+
+{/snippet}
+</LanguageTabs>
+
+Upgrade the contract and restart.

@@ -1,0 +1,9 @@
+Jobs are service-private background execution. They are useful for work that should continue independently of a caller-facing request and may need retry, progress tracking, or dead-letter handling.
+
+`@qlever-llc/trellis-jobs` provides a service-private job queue with retry, progress tracking, and dead-letter handling. Jobs use a stream-first architecture: JetStream is the source of truth, and the Jobs admin runtime keeps a SQL projection for queries.
+
+Job states: `pending` → `active` → `completed` / `failed` / `retry` / `cancelled` / `expired` / `dead`
+
+Services process their own jobs via their own JetStream consumer. A central Jobs admin runtime handles global queries, janitor cleanup, and the SQL projection for the built-in Jobs API.
+
+Jobs are not visible to callers. If you need a caller-observable async workflow, use an operation instead.

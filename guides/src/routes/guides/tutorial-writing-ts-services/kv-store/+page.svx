@@ -1,0 +1,150 @@
+<script lang="ts">
+  import LanguageTabs from "$lib/components/LanguageTabs.svelte";
+</script>
+
+Connecting is a good start, but let's actually store some orders. In Trellis, you don't provision databases or juggle connection strings in service code. You ask for a Key-Value bucket in your contract and Trellis provisions it when the deployment envelope expands to include that resource boundary.
+
+First, define what an `Order` looks like and add a service-owned `orders` KV resource.
+
+<LanguageTabs>
+{#snippet ts()}
+
+Create `schemas.ts`:
+
+```ts
+import { type Static, Type } from "@sinclair/typebox";
+
+export const Order = Type.Object({
+  orderId: Type.String(),
+  customerId: Type.String(),
+  status: Type.Union([
+    Type.Literal("pending"),
+    Type.Literal("shipped"),
+    Type.Literal("failed"),
+  ]),
+  items: Type.Array(Type.Object({
+    productId: Type.String(),
+    quantity: Type.Number({ minimum: 1 }),
+  })),
+  createdAt: Type.String({ format: "date-time" }),
+});
+export type Order = Static<typeof Order>;
+```
+
+Next, open `contracts/orders_service.ts` and update the `resources` section to request a bucket named `orders`. This uses the default `required: true`, so deploy fails if Trellis cannot provision or bind the bucket:
+
+```ts
+  resources: {
+    kv: {
+      orders: {
+        purpose: "Store order records",
+        history: 1,
+        ttlMs: 0,
+      },
+    },
+  },
+```
+
+Finally, back in `main.ts`, open the KV store right after `TrellisService.connect(...)`. The `service.kv.orders` handle was already resolved when we connected. We just need to bind a typed client to it:
+
+```ts
+import { isErr } from "@qlever-llc/trellis";
+import { Order } from "./schemas.ts";
+
+// After TrellisService.connect(...)
+const kvResult = await service.kv.orders.open(Order).take();
+if (isErr(kvResult)) throw kvResult.error;
+const startupOrdersKV = kvResult;
+```
+
+`startupOrdersKV` is now a fully typed `TypedKV<Order>` for any startup work such as seeding or health checks. Handler code does not need this variable; typed handlers receive `trellis.kv.orders` in their method parameters.
+
+> The `.take()` / `isErr(...)` pattern shows up throughout Trellis. Rather than throwing exceptions, Trellis returns `Result<T, E>` values. Call `.take()` to get either the success value or error value, then use `isErr(value)` before using the value.
+
+{/snippet}
+{#snippet rust()}
+
+Add an `Order` schema helper in `contracts/service.rs`:
+
+```rust
+fn order_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["orderId", "customerId", "status", "items", "createdAt"],
+        "properties": {
+            "orderId": { "type": "string" },
+            "customerId": { "type": "string" },
+            "status": {
+                "anyOf": [
+                    { "type": "string", "const": "pending" },
+                    { "type": "string", "const": "shipped" },
+                    { "type": "string", "const": "failed" }
+                ]
+            },
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["productId", "quantity"],
+                    "properties": {
+                        "productId": { "type": "string" },
+                        "quantity": { "type": "number", "minimum": 1 }
+                    }
+                }
+            },
+            "createdAt": { "type": "string", "format": "date-time" }
+        }
+    })
+}
+```
+
+Add the schema and KV resource to `contract_manifest()`:
+
+```rust
+use trellis_contracts::kv;
+
+pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
+    ContractManifestBuilder::new(
+        "orders-service@v1",
+        "Orders Service",
+        "A simple service for managing orders.",
+        ContractKind::Service,
+    )
+    .schema("Order", order_schema())
+    .kv_resource(
+        "orders",
+        kv("Store order records", "Order")
+            .required(true)
+            .history(1)
+            .ttl_ms(0),
+    )
+    .build()
+}
+```
+
+After preparing artifacts and applying the contract boundary, open the resolved resource binding from bootstrap:
+
+```rust
+use trellis_service::{NatsKvResourceClient, ResourceRuntimeClient, ServiceResourceBindings};
+
+async fn open_orders_kv(
+    client: &TrellisClient,
+    resources: &ServiceResourceBindings,
+) -> anyhow::Result<NatsKvResourceClient> {
+    let binding = resources
+        .kv
+        .get("orders")
+        .context("service bootstrap did not include orders KV binding")?;
+    Ok(client.nats().open_kv(binding).await?)
+}
+```
+
+{/snippet}
+</LanguageTabs>
+
+Because we changed the contract, expand the deployment envelope through the Console Envelopes page or the Trellis CLI `expansions` commands so Trellis provisions the required new bucket:
+
+```sh
+trellis svc orders-service expansions list
+trellis svc orders-service expansions approve <request-id> --reason local-dev
+```

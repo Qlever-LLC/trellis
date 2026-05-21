@@ -1,6 +1,6 @@
 This guide walks through the intended Trellis device flow for a TypeScript device. The device has its own durable identity, may be activated through the built-in Trellis portal (`trellis.portal.activation@v1`) or a custom device portal, and can support both online approval and offline confirmation-code entry.
 
-Before starting, review [Trellis Concepts](/guides/concepts) and [Tutorial: Write a TypeScript service](/guides/tutorial-writing-ts-services) for background on contracts, auth, and packages.
+Before starting, review [Trellis Concepts](/guides/concepts) and [Tutorial: Write a service](/guides/tutorial-writing-ts-services) for background on contracts, auth, and packages.
 
 ## What you need
 
@@ -132,7 +132,7 @@ trellis dev my-device.standard apply --source /path/to/my-device
 Notes:
 
 - the `dev/<id>` reference names the admin-chosen deployment for this device line or rollout policy
-- use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add the contract boundary to the deployment envelope
+- use the Console Envelopes page or the Trellis CLI expansion commands to add the contract boundary to the deployment envelope
 - `--review-mode required` enables the device-review gate instead of immediate activation
 - registered devices connect only when the presented contract evidence fits the enabled device deployment envelope
 
@@ -198,9 +198,9 @@ The default table shows `name`, `serial`, and `model` when present. `--show-meta
 
 ## 6. Roll out a new contract boundary
 
-Use the Console Envelopes page or `Auth.Envelopes.Expand` to add the new device
-contract boundary to the deployment envelope before rolling out runtimes that
-present it.
+Use the Console Envelopes page or the Trellis CLI expansion commands to add the
+new device contract boundary to the deployment envelope before rolling out
+runtimes that present it.
 
 Trellis stores deployment evidence for audit, but full manifest lookup comes
 from built-in contracts or the global contract store. Authority is the modeled

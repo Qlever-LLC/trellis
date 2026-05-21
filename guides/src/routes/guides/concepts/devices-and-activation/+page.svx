@@ -1,0 +1,50 @@
+Activated devices are first-class Trellis principals. They are preregistered against deployment-owned device records, activated through a portal flow, and later connect with their own durable identity key.
+
+## Preregistered devices
+
+Known device activation starts from a preregistered device instance record.
+
+The expected lifecycle is:
+
+1. an admin or manufacturing process provisions the device instance by `publicIdentityKey` and `activationKey`
+2. the instance is attached to a device deployment
+3. a user activates the device through an authenticated portal flow
+4. the activated device reconnects later by asking Trellis for current connect info
+
+Unknown or self-registering devices may be added later as an extension, but they are not the primary v1 model.
+
+## Device identity
+
+Each activated device is its own Trellis principal.
+
+- the device later authenticates with its own identity key, not as the user who activated it
+- the user identity and the device identity are intentionally separate
+- a short confirmation code is only a local setup signal; it is never the device's online credential
+
+Devices derive purpose-specific keys from a root secret. The identity key becomes the online credential. The activation key is used only for QR MACs and optional offline confirmation.
+
+Trellis stores the public identity key plus activation-only secret material. It does not need the device root secret.
+
+## Device deployments
+
+A device deployment is a deployment-owned record used during activation and online auth. It defines the envelope, reviewed contract evidence, review policy, and disabled state for the devices attached to it.
+
+Activated devices present contract evidence at runtime. Trellis checks that the derived required boundary fits the deployment envelope before granting NATS access.
+
+## Activation portals
+
+Device activation uses a browser portal. The built-in activation portal is Trellis-owned, but deployments can configure device-specific portal routing.
+
+The activation portal is still a browser web app. If it calls Trellis after login, it acts as the logged-in user, not as a service and not as the device.
+
+## Review policy
+
+Device deployments may require review before a device becomes usable online. Review policy is deployment-owned, which means operators can decide whether activation is automatic, manually reviewed, or disabled for a deployment.
+
+Review gates activation. It does not replace the device's later runtime proof. Once online, the activated device must still authenticate with its own identity key and present contract evidence that fits the deployment envelope.
+
+## Online credentials
+
+The durable online credential is the device identity key. Activation-only material is not an online password and should not be treated as reusable runtime auth.
+
+This separation lets setup flows use QR codes or local confirmation codes without turning those setup artifacts into long-lived credentials.

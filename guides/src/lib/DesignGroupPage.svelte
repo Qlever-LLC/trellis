@@ -1,7 +1,6 @@
 <script lang="ts">
-  
   import { error } from "@sveltejs/kit";
-import { base } from "$app/paths";
+  import { base } from "$app/paths";
   import { getDesignGroup, getDocsForDesignGroup } from "$lib/docs";
 
   interface Props {
@@ -31,16 +30,16 @@ import { base } from "$app/paths";
   <div class="grid gap-4 sm:grid-cols-2">
     {#each docs as doc (doc.href)}
       <a
-        class="rounded-box border border-base-300 bg-base-100 p-4 transition-colors hover:bg-base-200/40"
+        class="docs-list-link docs-panel p-4"
         href={resolveDocHref(doc.href)}
       >
-        <h2 class="text-base font-semibold text-base-content">{doc.title}</h2>
-        <p class="mt-2 text-sm leading-6 text-base-content/70">
+        <h2 class="docs-list-link-title">{doc.title}</h2>
+        <p class="docs-list-link-description mt-2">
           {doc.description}
         </p>
       </a>
     {:else}
-      <div class="rounded-box border border-dashed border-base-300 bg-base-100 p-4 text-sm text-base-content/60 sm:col-span-2">
+      <div class="docs-panel border-dashed p-4 text-sm text-base-content/60 sm:col-span-2">
         No design docs are available in this group yet.
       </div>
     {/each}
