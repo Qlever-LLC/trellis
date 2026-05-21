@@ -42,9 +42,11 @@ export async function buildSourcePackage(options: BuildSourcePackageOptions) {
   const outDir = "./npm";
   const dependencies = resolveInternalNpmDependenciesForBuild(
     options.dependencies,
+    version,
   );
   const peerDependencies = resolveInternalNpmDependenciesForBuild(
     options.peerDependencies,
+    version,
   );
 
   await emptyDir(outDir);

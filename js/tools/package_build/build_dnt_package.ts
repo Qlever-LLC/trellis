@@ -136,12 +136,15 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
     : join(packageDir, "npm");
   const npmInstallDeps = resolveInternalNpmDependenciesForBuild(
     options.npmInstallDeps,
+    version,
   );
   const dependencies = resolveInternalNpmDependenciesForBuild(
     options.dependencies,
+    version,
   );
   const peerDependencies = resolveInternalNpmDependenciesForBuild(
     options.peerDependencies,
+    version,
   );
 
   await emptyDir(outDir);

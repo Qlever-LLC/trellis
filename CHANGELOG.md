@@ -8,7 +8,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.9.0-rc.1] - 2026-05-21
+## [0.9.0-rc.2] - 2026-05-21
 
 ### Added
 
@@ -112,6 +112,10 @@ and this project adheres to
   that use the JavaScript workspace `node_modules` directory.
 - Fixed npm package export normalization so the `@qlever-llc/trellis/generate`
   subpath remains available in freshly built publish artifacts.
+- Fixed prerelease npm smoke validation to invoke the packed Trellis CLI by its
+  exact prerelease version when Deno resolves manual `node_modules` packages.
+- Fixed the Rust auth agent-flow polling test timeout so slower CI runners do
+  not fail before the mocked redirect status is observed.
 
 ## [0.8.4] - 2026-05-07
 

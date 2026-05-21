@@ -461,7 +461,7 @@ async fn agent_flow_polling_waits_for_redirect_status() {
         &format!("http://{address}"),
         "flow_123",
         std::time::Duration::from_millis(5),
-        std::time::Duration::from_secs(1),
+        std::time::Duration::from_secs(10),
     )
     .await
     .expect("poll flow");

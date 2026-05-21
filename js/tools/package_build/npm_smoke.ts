@@ -361,7 +361,7 @@ await run("deno", [
   "run",
   "--node-modules-dir=manual",
   "-A",
-  "npm:@qlever-llc/trellis",
+  `npm:@qlever-llc/trellis@${trellisPackage.packageJson.version}`,
   "--version",
 ], { cwd: projectDir, env: { TRELLIS_GENERATE_BIN: fakeGenerator } });
 

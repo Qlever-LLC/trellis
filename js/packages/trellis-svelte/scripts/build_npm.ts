@@ -32,15 +32,24 @@ const sourceFiles = [
   "src/components/TrellisProvider.types.ts",
 ];
 
-const dependencies = resolveInternalNpmDependenciesForBuild({
-  "@nats-io/nats-core": "^3.3.1",
-  "@qlever-llc/result": "^0.9.0",
-  "@qlever-llc/trellis": "^0.9.0",
-  typebox: "^1.0.15",
-});
-const peerDependencies = resolveInternalNpmDependenciesForBuild({
-  svelte: "^5.0.0",
-});
+const denoConfig = JSON.parse(await Deno.readTextFile("./deno.json"));
+const name = denoConfig.name as string;
+const version = resolvePackageBuildVersion(denoConfig.version as string);
+const dependencies = resolveInternalNpmDependenciesForBuild(
+  {
+    "@nats-io/nats-core": "^3.3.1",
+    "@qlever-llc/result": "^0.9.0",
+    "@qlever-llc/trellis": "^0.9.0",
+    typebox: "^1.0.15",
+  },
+  version,
+);
+const peerDependencies = resolveInternalNpmDependenciesForBuild(
+  {
+    svelte: "^5.0.0",
+  },
+  version,
+);
 
 function rewriteRuntimeImports(code: string): string {
   return code
@@ -113,10 +122,6 @@ async function buildRuntimeFile(sourceFile: string): Promise<void> {
 
   await writeFile(destination, rewritten);
 }
-
-const denoConfig = JSON.parse(await Deno.readTextFile("./deno.json"));
-const name = denoConfig.name as string;
-const version = resolvePackageBuildVersion(denoConfig.version as string);
 
 await emptyDir(outDir);
 
