@@ -23,10 +23,13 @@ use trellis_contracts::{
 use trellis_core_bootstrap::CoreBootstrapBinding;
 use trellis_sdk_auth::client::AuthClient as SdkAuthClient;
 use trellis_sdk_auth::types::{
-    AuthEnvelopeExpansionsApproveRequest, AuthEnvelopeExpansionsListRequest,
-    AuthEnvelopesExpandRequest,
+    AuthCatalogIssuesResolveRequest, AuthEnvelopeExpansionsApproveRequest,
+    AuthEnvelopeExpansionsListRequest, AuthEnvelopesExpandRequest,
 };
-use trellis_sdk_core::types::TrellisBindingsGetResponseBinding;
+use trellis_sdk_core::client::CoreClient;
+use trellis_sdk_core::types::{
+    TrellisBindingsGetResponseBinding, TrellisCatalogResponseCatalogIssuesItem,
+};
 use trellis_service::{
     ConnectedService, KvResourceEntry, KvResourceHandle, KvResourceOperation, NatsKvResourceClient,
     NatsStoreResourceClient, RequestValidator, Router, ServerError, StoreResourceHandle,
@@ -519,6 +522,7 @@ pub(crate) async fn run_resources_fixture(
             .await
             .into_diagnostic()?;
         let auth_client = trellis_auth::AuthClient::new(&admin_client);
+        let core_client = CoreClient::new(&admin_client);
         auth_client
             .create_service_deployment(HARNESS_DEPLOYMENT_ID, vec!["harness".to_string()])
             .await
@@ -533,13 +537,29 @@ pub(crate) async fn run_resources_fixture(
             .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
                 contract: contract_json_object(&stale_service_contract_json)?,
                 deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-                expected_digest: stale_contract_digest,
+                expected_digest: stale_contract_digest.clone(),
             })
             .await
             .into_diagnostic()?;
 
         let service_contract_json = harness_service_contract_json()?;
         let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
+        sdk_auth_client
+            .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+                contract: contract_json_object(&service_contract_json)?,
+                deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
+                expected_digest: contract_digest.clone(),
+            })
+            .await
+            .into_diagnostic()?;
+        resolve_forced_update(
+            &sdk_auth_client,
+            &core_client,
+            HARNESS_CONTRACT_ID,
+            &stale_contract_digest,
+            &contract_digest,
+        )
+        .await?;
         assert_pending_resource_service_approval(
             trellis_url,
             &auth_client,
@@ -550,14 +570,6 @@ pub(crate) async fn run_resources_fixture(
             trellis_creds,
         )
         .await?;
-        sdk_auth_client
-            .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
-                contract: contract_json_object(&service_contract_json)?,
-                deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-                expected_digest: contract_digest.clone(),
-            })
-            .await
-            .into_diagnostic()?;
 
         let (rust_service_seed, rust_service_key) = generate_session_keypair();
         auth_client
@@ -755,6 +767,101 @@ async fn wait_for_pending_resource_expansion_requests(
         if tokio::time::Instant::now() >= deadline {
             return Err(miette!(
                 "timed out waiting for pending resource envelope expansion request"
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+async fn resolve_forced_update(
+    auth_client: &SdkAuthClient<'_>,
+    core_client: &CoreClient<'_>,
+    contract_id: &str,
+    old_digest: &str,
+    new_digest: &str,
+) -> Result<()> {
+    let issue = wait_for_forced_update_issue(core_client, contract_id, old_digest).await?;
+    let resolved = auth_client
+        .auth_catalog_issues_resolve(&AuthCatalogIssuesResolveRequest {
+            issue_id: issue.issue_id.clone(),
+            action: json!("force-replace"),
+        })
+        .await
+        .into_diagnostic()?;
+    if !resolved.success || resolved.deleted_evidence.is_empty() {
+        return Err(miette!(
+            "Auth.CatalogIssues.Resolve did not replace forced update {}",
+            issue.issue_id
+        ));
+    }
+    wait_for_forced_update_clear(core_client, contract_id, new_digest).await
+}
+
+async fn wait_for_forced_update_issue(
+    core_client: &CoreClient<'_>,
+    contract_id: &str,
+    expected_effective_digest: &str,
+) -> Result<TrellisCatalogResponseCatalogIssuesItem> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let catalog = core_client.trellis_catalog().await.into_diagnostic()?;
+        let active_digest = catalog
+            .catalog
+            .contracts
+            .iter()
+            .find(|contract| contract.id == contract_id)
+            .map(|contract| contract.digest.as_str());
+        if active_digest != Some(expected_effective_digest) {
+            return Err(miette!(
+                "catalog effective digest for {contract_id} was {:?}, expected {expected_effective_digest}",
+                active_digest
+            ));
+        }
+        if let Some(issue) = catalog
+            .catalog
+            .issues
+            .unwrap_or_default()
+            .into_iter()
+            .find(|issue| issue.contract_id.as_deref() == Some(contract_id))
+        {
+            return Ok(issue);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(miette!(
+                "timed out waiting for forced update issue for {contract_id}"
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+async fn wait_for_forced_update_clear(
+    core_client: &CoreClient<'_>,
+    contract_id: &str,
+    expected_active_digest: &str,
+) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let catalog = core_client.trellis_catalog().await.into_diagnostic()?;
+        let active_digest = catalog
+            .catalog
+            .contracts
+            .iter()
+            .find(|contract| contract.id == contract_id)
+            .map(|contract| contract.digest.as_str());
+        let has_issue = catalog
+            .catalog
+            .issues
+            .unwrap_or_default()
+            .into_iter()
+            .any(|issue| issue.contract_id.as_deref() == Some(contract_id));
+        if active_digest == Some(expected_active_digest) && !has_issue {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(miette!(
+                "timed out waiting for forced update for {contract_id} to activate {expected_active_digest}; active digest was {:?}, issue present: {has_issue}",
+                active_digest
             ));
         }
         tokio::time::sleep(Duration::from_millis(250)).await;

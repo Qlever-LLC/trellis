@@ -24,10 +24,7 @@ Deno.test("workspace npm build task only builds the supported published packages
 Deno.test("release workflows use generated package-manager targets", async () => {
   for (
     const workflow of [
-      "publish-crates.yml",
-      "publish-images.yml",
-      "publish-npm.yml",
-      "release-cli.yml",
+      "release.yml",
       "pages.yml",
     ]
   ) {

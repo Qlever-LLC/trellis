@@ -8,6 +8,45 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.0-rc.5] - 2026-05-22
+
+### Added
+
+- Added Forced Contract Update handling for active contract digest conflicts,
+  including operator review, keep/accept resolution paths, and service runtime
+  waiting while updates are pending.
+- Added Console review and confirmation surfaces for Forced Contract Updates,
+  including current/proposed contract comparison details.
+- Added cleanup for pending service-originated envelope expansion requests when
+  the requesting service disconnects.
+
+### Changed
+
+- Consolidated the GitHub release pipelines for release preparation, CLI assets,
+  npm, crates, images, and JSR dry-runs into the unified `Release` workflow.
+- Changed active catalog semantics so one `contractId` has at most one current
+  active digest; resolving a Forced Contract Update now deletes non-selected
+  evidence instead of retaining ignored or quarantined evidence.
+- Changed service bootstrap and runtime handling for same-contract digest
+  conflicts to report `contract_catalog_issue` and retry while the catalog issue
+  is unresolved.
+- Renamed Console and admin wording from repair-oriented catalog language to
+  Forced Contract Update language.
+- Changed generated auth identifiers to use ULID-based user, browser-flow,
+  device-flow, and device activation review IDs.
+
+### Fixed
+
+- Fixed local self-registration username conflicts to return `username_taken`
+  and present a user-facing "That username is already in use" message.
+- Fixed `AuthError` serialization and deserialization to preserve explicit
+  human-readable messages.
+- Fixed legacy ignored contract-evidence metadata handling during reconnects so
+  it is cleared under the Forced Contract Update model.
+- Fixed GitHub Pages builds to prefer cached or published `trellis-generate`
+  release assets while falling back to building from source when assets are not
+  available yet.
+
 ## [0.9.0-rc.4] - 2026-05-21
 
 ### Added
