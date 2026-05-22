@@ -1304,35 +1304,25 @@ export class SqlDeploymentContractEvidenceRepository {
       });
   }
 
-  /** Marks selected deployment contract evidence rows as ignored without deleting history. */
-  async ignoreEvidence(args: {
-    deploymentIds: Iterable<string>;
+  /** Deletes selected deployment contract evidence rows for one contract id. */
+  async deleteEvidence(args: {
+    contractId: string;
     contractDigests: Iterable<string>;
-    ignoredAt: string;
-    ignoredBy: Record<string, unknown>;
-    reason: string;
   }): Promise<DeploymentContractEvidence[]> {
-    const deploymentIds = [...new Set(args.deploymentIds)];
     const contractDigests = [...new Set(args.contractDigests)];
-    if (deploymentIds.length === 0 || contractDigests.length === 0) return [];
-    await this.#db.update(deploymentContractEvidence).set({
-      ignoredAt: args.ignoredAt,
-      ignoredByJson: JSON.stringify(args.ignoredBy),
-      ignoreReason: args.reason,
-    }).where(and(
-      inArray(deploymentContractEvidence.deploymentId, deploymentIds),
+    if (contractDigests.length === 0) return [];
+    const where = and(
+      eq(deploymentContractEvidence.contractId, args.contractId),
       inArray(deploymentContractEvidence.contractDigest, contractDigests),
-    ));
+    );
     const rows = await this.#db.select().from(deploymentContractEvidence).where(
-      and(
-        inArray(deploymentContractEvidence.deploymentId, deploymentIds),
-        inArray(deploymentContractEvidence.contractDigest, contractDigests),
-      ),
+      where,
     ).orderBy(
       deploymentContractEvidence.deploymentId,
       deploymentContractEvidence.contractId,
       deploymentContractEvidence.contractDigest,
     );
+    await this.#db.delete(deploymentContractEvidence).where(where);
     return rows.map((row) => decodeContractEvidenceRow(row));
   }
 
@@ -1566,6 +1556,51 @@ export class SqlEnvelopeExpansionRequestRepository {
       ),
     ).returning({ requestId: envelopeExpansionRequests.requestId });
     return updated.length > 0;
+  }
+
+  /** Deletes pending service-originated expansion requests for one requester instance. */
+  async deletePendingServiceRequestsByRequesterInstanceId(
+    instanceId: string,
+  ): Promise<number> {
+    const pendingServiceRows = await this.#db.select().from(
+      envelopeExpansionRequests,
+    ).where(
+      and(
+        eq(envelopeExpansionRequests.requestedByKind, "service"),
+        eq(envelopeExpansionRequests.state, "pending"),
+      ),
+    );
+    const requestIds = pendingServiceRows.flatMap((row) => {
+      const requestedBy = parseJsonField(
+        "envelope expansion requester",
+        row.requestedByJson,
+      );
+      return typeof requestedBy === "object" && requestedBy !== null &&
+          "instanceId" in requestedBy && requestedBy.instanceId === instanceId
+        ? [row.requestId]
+        : [];
+    });
+    if (requestIds.length === 0) return 0;
+
+    await this.#db.transaction(async (tx) => {
+      await tx.delete(envelopeExpansionRequestContracts).where(
+        inArray(envelopeExpansionRequestContracts.requestId, requestIds),
+      );
+      await tx.delete(envelopeExpansionRequestSurfaces).where(
+        inArray(envelopeExpansionRequestSurfaces.requestId, requestIds),
+      );
+      await tx.delete(envelopeExpansionRequestResources).where(
+        inArray(envelopeExpansionRequestResources.requestId, requestIds),
+      );
+      await tx.delete(envelopeExpansionRequestCapabilities).where(
+        inArray(envelopeExpansionRequestCapabilities.requestId, requestIds),
+      );
+      await tx.delete(envelopeExpansionRequests).where(
+        inArray(envelopeExpansionRequests.requestId, requestIds),
+      );
+    });
+
+    return requestIds.length;
   }
 
   /** Returns expansion requests for one deployment ordered by creation time and id. */

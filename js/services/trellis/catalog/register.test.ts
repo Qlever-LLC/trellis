@@ -44,7 +44,7 @@ Deno.test("registerCatalog mounts all catalog RPCs when active contract refresh 
     {
       fields: { error: refreshError },
       message:
-        "Active contract catalog is degraded; admin repair RPCs will still be mounted",
+        "Active contract catalog is degraded; forced update admin RPCs will still be mounted",
     },
   ]);
 });

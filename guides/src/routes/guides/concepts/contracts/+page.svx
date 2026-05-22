@@ -25,11 +25,13 @@ Portals are deployment-owned browser routing records, not a contract kind. A cus
 
 ## Contract identity
 
-Each contract has a stable `id` like `graph@v1` or `trellis.auth@v1`. The `@vN` suffix is a major version; breaking changes require a new version. Within one lineage, multiple active digests may coexist during rollout as long as they remain semantically compatible.
+Each contract has a stable `id` like `graph@v1` or `trellis.auth@v1`. The `@vN` suffix is a major version; breaking changes require a new version. Within one Trellis runtime, a contract id is globally unique and the active catalog has at most one current digest for that id.
 
 Cross-contract `uses` validation must resolve to compatible active surfaces, so compatible rollout is allowed but divergent active definitions for the same logical surface are rejected. Trellis compares resolved schema definitions, not only schema ref names: canonically equal schemas and optional fields that remain safely absent on the wire can coexist, while closed-object additions, required-field changes, and unproven schema changes fail closed.
 
 Contracts are content-addressed by a SHA-256 digest of a normalized runtime/interface projection derived from their canonical JSON form. Human-facing metadata such as `displayName`, `description`, exported-only schemas, and unused local schemas do not change the digest; callable surfaces, authorization requirements, resources, and reachable schemas do.
+
+If a service presents a different digest for an already-active contract id, Trellis creates a pending **Forced Contract Update**. A Forced Update is destructive, similar to a force push: the admin chooses the current or proposed digest, and Trellis deletes non-selected active evidence rather than keeping it as quarantine or repair history. Repeated service restarts while the decision is pending coalesce into the same Forced Update for that contract id.
 
 ## Generated contract artifacts
 

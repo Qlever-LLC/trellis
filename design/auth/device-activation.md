@@ -456,11 +456,11 @@ Auth validates:
 4. the presented contract evidence derives a required boundary that fits the
    device deployment envelope
 
-This lets old and new device evidence coexist during rollout while keeping
-validation explicit. Activation is not the runtime gate by itself: registration,
-lifecycle state, and envelope fit remain mandatory. Admin/review-approved setup
-sessions do not create or mutate activation records; activation remains the
-separate step that adds user-delegated authority.
+This keeps validation explicit while preserving the one-current-digest active
+catalog rule for each contract id. Activation is not the runtime gate by itself:
+registration, lifecycle state, and envelope fit remain mandatory.
+Admin/review-approved setup sessions do not create or mutate activation records;
+activation remains the separate step that adds user-delegated authority.
 
 Lifecycle events are:
 

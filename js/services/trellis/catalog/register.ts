@@ -82,7 +82,7 @@ export async function registerCatalog(
   } catch (error) {
     deps.logger.warn(
       { error },
-      "Active contract catalog is degraded; admin repair RPCs will still be mounted",
+      "Active contract catalog is degraded; forced update admin RPCs will still be mounted",
     );
   }
 

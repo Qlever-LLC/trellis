@@ -29,6 +29,7 @@ import {
   validateServiceDeploymentRequest,
 } from "./shared.ts";
 import { type AdminRpcDeps, createDeviceAdminHandlers } from "./rpc.ts";
+import type { ActiveCatalogIssue } from "../../catalog/runtime.ts";
 import {
   createAuthDeploymentsServiceCreateHandler,
   createAuthDeploymentsServiceDisableHandler,
@@ -1996,6 +1997,8 @@ function deviceAdminDeps(args: {
     { deploymentId: string; disabled?: boolean }
   >;
   deploymentContractEvidence?: DeploymentContractEvidenceRecord[];
+  activeCatalogIssues?: ActiveCatalogIssue[];
+  deletedEvidence?: DeploymentContractEvidenceRecord[];
   serviceInstances?: Array<{ currentContractDigest?: string | null }>;
   approvalDigests?: string[];
   envelopePuts?: Array<{
@@ -2233,6 +2236,22 @@ function deviceAdminDeps(args: {
         (args.deploymentContractEvidence ?? []).filter((record) =>
           record.deploymentId === deploymentId
         ),
+      deleteEvidence: async ({ contractId, contractDigests }) => {
+        const requested = new Set(contractDigests);
+        const deleted = (args.deploymentContractEvidence ?? []).filter(
+          (record) =>
+            record.contractId === contractId &&
+            requested.has(record.contractDigest),
+        );
+        args.deletedEvidence?.push(...deleted);
+        args.deploymentContractEvidence =
+          (args.deploymentContractEvidence ?? [])
+            .filter((record) =>
+              record.contractId !== contractId ||
+              !requested.has(record.contractDigest)
+            );
+        return deleted;
+      },
     },
     deviceInstanceStorage: {
       get: async (instanceId) =>
@@ -2344,6 +2363,9 @@ function deviceAdminDeps(args: {
       },
     },
     userStorage: { get: async () => undefined },
+    getActiveCatalogIssues: args.activeCatalogIssues
+      ? async () => args.activeCatalogIssues ?? []
+      : undefined,
     installDeviceContract: args.installDeviceContract ?? (async () => ({
       id: "reader@v1",
       digest: "digest-b",
@@ -2364,6 +2386,55 @@ function deviceAdminDeps(args: {
     getActivationReviews: () => activationReviews,
   };
 }
+
+Deno.test("Auth.CatalogIssues.Resolve deletes non-selected evidence", async () => {
+  const deletedEvidence: DeploymentContractEvidenceRecord[] = [];
+  let refreshCount = 0;
+  const current = deploymentEvidence("svc-a", "digest-current", "billing@v1");
+  const proposed = deploymentEvidence("svc-b", "digest-proposed", "billing@v1");
+  const { deps } = deviceAdminDeps({
+    deploymentContractEvidence: [current, proposed],
+    deletedEvidence,
+    activeCatalogIssues: [{
+      issueId: "issue-1",
+      kind: "incompatible-active-contract",
+      contractId: "billing@v1",
+      digest: "digest-proposed",
+      message: "forced update pending",
+      deploymentIds: ["svc-b"],
+      effectiveDigests: ["digest-current"],
+      conflictingDigest: "digest-proposed",
+      conflictingDigests: ["digest-proposed"],
+      effectiveDeploymentIds: ["svc-a"],
+      conflictingDeploymentIds: ["svc-b"],
+      actions: [{
+        action: "force-replace",
+        label: "Force replace current contract",
+        description: "Delete current evidence.",
+        risk: "dangerous",
+        deploymentIds: ["svc-a"],
+        digests: ["digest-current"],
+      }],
+    }],
+    refreshActiveContracts: async () => {
+      refreshCount += 1;
+    },
+  });
+
+  const result = await createDeviceAdminHandlers(deps).resolveCatalogIssue({
+    input: { issueId: "issue-1", action: "force-replace" },
+    context: adminContext,
+  });
+
+  assert(result.isOk());
+  const value = result.take();
+  if (!("deletedEvidence" in value)) {
+    throw new Error("expected catalog issue resolution response");
+  }
+  assertEquals(deletedEvidence, [current]);
+  assertEquals(value.deletedEvidence, [current]);
+  assertEquals(refreshCount, 1);
+});
 
 Deno.test("Auth.Deployments.Enable device validates staged deployment before persisting", async () => {
   const original: DeviceDeployment = {

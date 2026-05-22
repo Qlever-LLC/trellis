@@ -118,6 +118,11 @@ creates an envelope expansion request for the missing delta. Approval expands an
 envelope; it does not approve contract digest lists. Optional boundaries are
 used only when both available and authorized.
 
+Envelope expansion is distinct from Forced Contract Update. A Forced Contract
+Update chooses the one current digest for a globally unique `contractId`; it
+does not expand an envelope or retain non-selected evidence as quarantine or
+repair history.
+
 Non-envelope prerequisites stay separate from envelopes:
 
 - session, service, device, and activation proof verification
@@ -527,10 +532,11 @@ Rules:
   built-in Trellis contracts or the global contract store; deployment evidence
   records are used to discover approved digests and surfaces, not to hydrate
   manifests.
-- for a single deployment and contract id, the active projection uses
-  non-ignored reviewed evidence rows covered by the enabled deployment envelope;
-  ignored same-id digests remain audit history and reconnects for them fail with
-  `contract_changed`.
+- across the runtime, the active catalog projection contains at most one current
+  digest for each `contractId`; Forced Contract Update resolution deletes
+  non-selected same-id evidence, and reconnects for non-current digests fail
+  with `contract_changed` or wait behind `contract_activation_pending` while the
+  Forced Update is pending.
 - user approval planning collects required capability keys from declared RPC,
   operation, and event capability lists and attaches the owning contract's
   capability metadata when available

@@ -230,14 +230,14 @@ Rules:
 - a breaking contract revision MUST use a new `@vN` suffix
 - Trellis-owned contracts, including Trellis-owned app contracts, SHOULD use the
   `trellis.` prefix so ownership is visible from the stable lineage id
-- a deployment MAY have multiple active digests for the same `id` during rollout
-  or mixed-firmware operation
-- all concurrently active digests for the same `id` MUST remain semantically
-  compatible within that lineage, so mixed-version callers and service instances
-  can keep working during rollout
-- operator replace workflows MAY remove the old active digest for an unreleased
-  or otherwise coordinated deployment before activating a breaking same-lineage
-  digest; this replaces deployment activation, not the stored digest record
+- within one Trellis runtime, each `id` is globally unique and the active
+  catalog projection has at most one current digest for that `id`
+- a new digest for the same `id` must be activated by normal envelope review
+  when only the boundary changes, or by a Forced Contract Update when it must
+  replace a different current digest
+- Forced Contract Update deletes non-selected active evidence for the `id`; it
+  is not quarantine, repair history, or a compatibility lane for multiple
+  current digests
 
 ### 6.1) Contract digest projection
 
@@ -281,10 +281,9 @@ Rules:
 - digest-stable metadata edits may update catalog display information without
   requiring new runtime permissions or new app approvals, but capability
   metadata edits are not digest-stable
-- multiple active digests for one `id` remain valid only while active compatible
-  digest validation can produce an additive, unambiguous surface projection
-- install records bind one exact digest to one service principal public key,
-  even when multiple digests in the same lineage are active at once
+- the active catalog projection MUST NOT publish multiple current digests for
+  one `id`
+- install records bind one exact digest to one service principal public key
 
 Manifest normalization is separate from digest projection:
 
@@ -304,16 +303,16 @@ Manifest normalization is separate from digest projection:
   manifest normalization and digest projection/conformance vectors in the same
   change whenever the field has runtime or authority semantics
 
-This allows rolling upgrades where some service instances still run the old
-digest while newer instances have already switched to the new digest. The same
-model also covers preregistered activated devices whose firmware revisions map
-to different digests within one device lineage.
+This allows Trellis to validate a proposed replacement before it becomes the
+single current digest for the `id`. Preregistered device firmware revisions that
+map to different digests in one device lineage still resolve through the same
+one-current-digest active catalog rule.
 
-Concurrent-digest compatibility within one lineage is defined by the owned
-communication surface:
+Same-lineage replacement compatibility is defined by the owned communication
+surface:
 
 - `rpc`, `operations`, `events`, and `jobs` MUST evolve additively while
-  multiple digests in the same lineage are active
+  replacement compatibility is being validated
 - `uses`, metadata, and other non-owned sections MAY vary by digest as long as
   the presented contract evidence still validates successfully and dependency
   resolution against active catalogs stays unambiguous
@@ -325,8 +324,8 @@ communication surface:
   not to the digest, so compatible service updates do not lose durable data
   solely because the contract digest changed
 - `jobs` are part of the owned execution surface and follow the same additive
-  compatibility expectations as other owned contract sections while multiple
-  digests in one lineage coexist
+  compatibility expectations as other owned contract sections during replacement
+  validation
 
 Active-compatible evolution means:
 
@@ -342,11 +341,11 @@ Active-compatible evolution means:
 - a new digest MAY add new declared errors or new capabilities for newly added
   owned surfaces
 - a new digest MUST NOT remove or rename an existing owned RPC, operation,
-  event, or job queue while old and new digests coexist
+  event, or job queue during compatible replacement validation
 - a new digest MUST NOT move an existing owned surface to a different subject
-  while old and new digests coexist
+  during compatible replacement validation
 - a new digest MUST NOT change an existing schema in a breaking way while old
-  and new digests coexist
+  and new digests are compared for replacement
 
 Active-compatible projection verifies duplicate same-lineage surfaces by
 resolving their schema refs against each digest's `schemas` map. Projection MAY
@@ -382,10 +381,9 @@ Breaking schema changes include:
 
 If a rollout needs one of those breaking changes, it MUST use a new contract
 `id` / major version rather than a second active digest in the same lineage.
-During early unreleased development, an operator MAY use deployment replace mode
-to activate a new same-lineage digest only when the replaced digest is removed
-from the active catalog/evidence set and no incompatible same-lineage digest
-remains concurrently active.
+During early unreleased development, an operator MAY use Forced Contract Update
+to activate a new same-lineage digest only by deleting the non-selected active
+evidence so no incompatible same-lineage digest remains current.
 
 ### 6.2) Capability metadata and global keys
 
@@ -1042,12 +1040,13 @@ Catalog rules:
 
 - the catalog contains only active contracts for the current deployment
 - entries are keyed by digest and include `id`, `displayName`, and `description`
-- a catalog MAY contain multiple digests for the same `id` when enabled
-  deployments contribute different non-ignored evidence rows for that contract
-  id
-- within one deployment and contract id, all non-ignored reviewed evidence rows
-  covered by an enabled envelope contribute active digests; ignored same-id
-  evidence remains audit history and rollout context
+- a catalog MUST contain at most one current digest for each `id`, even when
+  enabled deployments have submitted evidence for different digests of that
+  contract id
+- within one deployment and contract id, only the selected current evidence can
+  contribute an active digest; Forced Contract Update resolution deletes
+  non-selected evidence rather than retaining it as active quarantine or repair
+  history
 - catalog ordering is not semantically significant, but implementations SHOULD
   return a stable order for diffability and testing
 - active catalog refresh is fail-closed: failure to query the bounded set of
@@ -1070,12 +1069,11 @@ Catalog rules:
   durable active set, so incompatible boundaries fail before partial catalog
   state is persisted or exposed to callers
 - active service boundaries and digests are derived from enabled service
-  deployment envelopes plus matching non-ignored deployment evidence, not from
-  service deployment rows, service instances, or their current runtime evidence
-  fields
+  deployment envelopes plus selected deployment evidence, not from service
+  deployment rows, service instances, or their current runtime evidence fields
 - active device boundaries and digests are derived from enabled device
-  deployment envelopes plus matching non-ignored deployment evidence, not from
-  device deployment rows or per-device current-contract fields
+  deployment envelopes plus selected deployment evidence, not from device
+  deployment rows or per-device current-contract fields
 - deployment enable/disable validation MUST stage the matching deployment
   envelope state, because deployment-envelope enabled state determines whether
   that deployment's evidence can contribute to the active set
@@ -1155,6 +1153,14 @@ runtime discovery RPC set.
   bootstrap stores the contract evidence, creates a pending envelope expansion
   request for the missing delta, and returns `envelope_expansion_required` so
   the service runtime can wait and retry
+- pending service-originated envelope expansion requests are keyed by requester
+  connection and requested delta; repeated requests from the same connected
+  requester are deduplicated, and requests created by that requester are removed
+  when it disconnects
+- if the presented digest has the same `contractId` as a different active
+  digest, bootstrap creates or reuses one pending Forced Contract Update for
+  that `contractId` and returns `contract_activation_pending` until an admin
+  keeps the current digest or forces the proposed digest to replace it
 - when the deployment envelope fits but the required dependency closure is not
   active yet, bootstrap returns `contract_activation_pending`; service runtimes
   wait and retry rather than receiving runtime credentials
@@ -1214,9 +1220,12 @@ The `trellis` runtime service MUST:
 - store reviewed deployment evidence by digest; any redundant contract JSON in
   evidence records is historical/review evidence only, not a manifest lookup
   fallback
-- use non-ignored reviewed evidence rows covered by enabled deployment envelopes
-  when projecting active digests; ignored rows remain audit history and rollout
-  context
+- treat `contractId` as globally unique within one Trellis runtime and project
+  at most one current active digest for each `contractId`
+- use reviewed evidence rows covered by enabled deployment envelopes when
+  projecting active digests; Forced Contract Update resolution deletes
+  non-selected evidence instead of retaining it as active quarantine, repair, or
+  ignored rollout history
 - maintain durable deployment envelope/evidence rows for the deployment and
   publish an in-memory active catalog only as a fail-closed projection
 - reject active subject collisions across operations, RPCs, and events using the
@@ -1270,16 +1279,29 @@ Operationally, envelope expansion fails if any of these conditions is true:
 - optional KV or store resources that cannot be provisioned are skipped and do
   not appear in installed bindings
 
-Rollout rule:
+Forced Contract Update rule:
 
-- when a deployment rolls from one digest to another for the same contract `id`,
-  both non-ignored evidence rows may remain active while the deployment envelope
-  covers them
-- multiple digests for the same contract `id` may still be active across one or
-  more enabled deployments during a rollout
-- each service instance still presents one exact contract digest at any moment
-- service instances that present ignored or envelope-incompatible evidence are
-  rejected with `contract_changed`
+- `contractId` is globally unique within one Trellis runtime, so the active
+  catalog projection MUST contain at most one current digest for a `contractId`
+- when evidence for a different digest of the same `contractId` appears while a
+  current digest is active, Trellis reports one pending Forced Contract Update
+  for that `contractId`; repeated service restarts while waiting coalesce into
+  that pending update instead of creating duplicate review items
+- accepting a Forced Update is force-push-like and destructive: Trellis deletes
+  all non-selected active evidence for that `contractId`, then refreshes the
+  active catalog with the selected digest
+- rejecting or keeping the current digest deletes the proposed non-selected
+  evidence so the current digest remains the only active digest for that
+  `contractId`
+- deleted non-selected evidence is not retained in active evidence as
+  quarantine, repair history, or rollback authority; operators must resubmit
+  evidence if they later want to reintroduce that digest
+- each service instance still presents one exact contract digest at any moment,
+  and instances that present a non-current or envelope-incompatible digest are
+  rejected with `contract_changed` or held with `contract_activation_pending`
+- envelope expansion remains a separate review path for missing boundaries;
+  Forced Contract Update chooses one digest for an already-global `contractId`
+  and does not by itself expand the deployment envelope
 
 Subject collision rule:
 
@@ -1289,9 +1311,9 @@ Subject collision rule:
 - templated event subjects compare by the wildcard subject produced by replacing
   each template token with `*`, not by the literal JSON Pointer tokens in the
   template
-- overlapping subjects for the same operation/RPC/event surface across different
-  digests in the same lineage are allowed so rolling upgrades do not break
-  mixed-version deployments
+- overlapping subjects for the same operation/RPC/event surface across candidate
+  replacement digests in the same lineage are allowed during validation only
+  when the resulting selected current digest remains unambiguous
 
 This keeps routing, discovery, and permission derivation unambiguous.
 

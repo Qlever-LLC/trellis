@@ -23,7 +23,7 @@ export const routeTitles = {
   "/admin/sessions/revoke": "Revoke Session",
   "/admin/sessions/kick": "Kick Connection",
   "/admin/services/new": "Create Service Deployment",
-  "/admin/services/repair": "Repair Service Catalog",
+  "/admin/services/repair": "Forced Contract Update",
   "/admin/devices/profiles/new": "Create Device Deployment",
   "/admin/devices/profiles/disable": "Disable Device Deployment",
   "/admin/devices/instances/provision": "Provision Device Instance",

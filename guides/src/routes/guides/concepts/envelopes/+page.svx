@@ -12,6 +12,8 @@ If the required boundary fits, a participant may bind or connect once non-envelo
 
 Approval expands an envelope. It does not approve an arbitrary list of contract digests. Contract evidence records what was reviewed and presented, while the envelope remains the authority set.
 
+Envelope expansion is separate from **Forced Contract Update**. Expansion reviews a missing boundary delta. A Forced Update chooses the single current digest for an already-global contract id and deletes non-selected active evidence instead of keeping it as quarantine or repair history.
+
 ## Identity envelopes
 
 An identity envelope is bound to a user-facing or session-keyed identity, such as:
@@ -33,6 +35,8 @@ Deployment envelopes answer what is available in the deployment at all. Service 
 A boundary is the contract-derived set of surfaces, resources, dependencies, and capabilities a participant asks to use.
 
 A delta is the missing part of that boundary. When a contract asks for a required dependency, resource, or capability that is not yet available, Trellis records the delta for review and envelope expansion.
+
+Service-originated pending envelope expansion requests are deduplicated for the connected requester and removed when that requester disconnects. If the same service keeps restarting while a Forced Update is pending for its contract id, those starts coalesce into the same pending Forced Update rather than new envelope expansion requests.
 
 Required boundaries fail closed. Optional boundaries are used only when they are both available and authorized.
 

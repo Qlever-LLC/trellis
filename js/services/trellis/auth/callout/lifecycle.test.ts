@@ -1,7 +1,10 @@
 import { decode } from "@nats-io/jwt";
+import { AsyncResult } from "@qlever-llc/result";
 import { assertEquals } from "@std/assert";
 
 import { __testing__ } from "./callout.ts";
+import { connectionKey } from "../session/connections.ts";
+import type { ServiceSession } from "../schemas.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -17,6 +20,27 @@ const TEST_USER_NKEY =
   "UDM3SEDFGZJJPBMGMP4RPLV76Z5KOXZ44G2HQY4JHROQML63QXFT2D4D";
 const TEST_SERVER_ID_NKEY =
   "NBEE7XM6PNMN463MJZLLOL2T7L7Q7NI4ZXVRT5LBZDYX2C5PI7LW2FE2";
+
+function createServiceSession(
+  overrides: Partial<ServiceSession> = {},
+): ServiceSession {
+  return {
+    type: "service",
+    trellisId: "service:svc-a",
+    origin: "trellis.service",
+    id: "svc-a",
+    email: "svc-a@example.com",
+    name: "svc-a",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    lastAuth: new Date("2026-01-01T00:00:00.000Z"),
+    instanceId: "svc-instance-a",
+    deploymentId: "svc-a",
+    instanceKey: "service-key-a",
+    currentContractId: "svc.contract@v1",
+    currentContractDigest: "sha256-a",
+    ...overrides,
+  };
+}
 
 function responseMessage() {
   let response: string | Uint8Array | undefined;
@@ -111,4 +135,60 @@ Deno.test("auth callout error responder sends blank response without complete co
 
   assertEquals(recorder.response, "");
   assertEquals(sealCalled, false);
+});
+
+Deno.test("disconnect cleanup deletes pending expansion requests for service sessions", async () => {
+  const sessionKey = "session-a";
+  const key = connectionKey(sessionKey, "scope-a", TEST_USER_NKEY);
+  const deletedConnections: string[] = [];
+  const cancelledInstances: string[] = [];
+  const publishedEvents: unknown[] = [];
+
+  await __testing__.processDisconnectMessage({
+    connectionsKV: {
+      delete: (deletedKey) => {
+        deletedConnections.push(deletedKey);
+        return AsyncResult.ok(undefined);
+      },
+      keys: () =>
+        AsyncResult.ok((async function* () {
+          yield key;
+        })()),
+    },
+    envelopeExpansionRequestStorage: {
+      async deletePendingServiceRequestsByRequesterInstanceId(instanceId) {
+        cancelledInstances.push(instanceId);
+        return 1;
+      },
+    },
+    logger: {
+      trace: () => undefined,
+      debug: () => undefined,
+      info: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+    },
+    message: {
+      subject: "$SYS.ACCOUNT.T.DISCONNECT",
+      string: () => JSON.stringify({ client: { user_nkey: TEST_USER_NKEY } }),
+    },
+    sessionStorage: {
+      getOneBySessionKey: async () => createServiceSession(),
+    },
+    trellis: {
+      publish: (_event, payload) => {
+        publishedEvents.push(payload);
+        return AsyncResult.ok(undefined);
+      },
+    },
+  });
+
+  assertEquals(cancelledInstances, ["svc-instance-a"]);
+  assertEquals(deletedConnections, [key]);
+  assertEquals(publishedEvents, [{
+    origin: "trellis.service",
+    id: "svc-a",
+    sessionKey,
+    userNkey: TEST_USER_NKEY,
+  }]);
 });

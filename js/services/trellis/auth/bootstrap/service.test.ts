@@ -286,7 +286,12 @@ async function createApp(args: {
         get: async (_deploymentId, digest) =>
           evidence.find((record) => record.contractDigest === digest),
         put: async (record) => {
-          evidence.push(record);
+          const index = evidence.findIndex((stored) =>
+            stored.deploymentId === record.deploymentId &&
+            stored.contractDigest === record.contractDigest
+          );
+          if (index >= 0) evidence[index] = record;
+          else evidence.push(record);
         },
         listByDeployment: async (deploymentId) =>
           evidence.filter((record) => record.deploymentId === deploymentId),
@@ -440,6 +445,7 @@ Deno.test("POST /bootstrap/service rejects stale same-contract digest", async ()
       },
     ],
   });
+  setup.contracts.setActiveTestDigests([newContract.digest]);
 
   const response = await setup.bootstrap({
     contractId: oldContract.contract.id,
@@ -449,13 +455,13 @@ Deno.test("POST /bootstrap/service rejects stale same-contract digest", async ()
 
   assertEquals(response.status, 409);
   const body = await response.json();
-  assertEquals(body.reason, "contract_changed");
+  assertEquals(body.reason, "contract_catalog_issue");
   assertEquals(body.activeContractDigest, newContract.digest);
   assertEquals(setup.services, []);
   assertEquals(setup.evidence.length, 2);
 });
 
-Deno.test("POST /bootstrap/service rejects quarantined same-contract digest", async () => {
+Deno.test("POST /bootstrap/service records same-contract proposal as forced update", async () => {
   const oldContract = await validatedContract(baseContract());
   const newContract = await validatedContract(expandedContract());
   const setup = await createApp({
@@ -495,14 +501,14 @@ Deno.test("POST /bootstrap/service rejects quarantined same-contract digest", as
 
   assertEquals(response.status, 409);
   const body = await response.json();
-  assertEquals(body.reason, "contract_changed");
+  assertEquals(body.reason, "contract_catalog_issue");
   assertEquals(body.activeContractDigest, oldContract.digest);
   assertEquals(setup.services, []);
   assertEquals(setup.evidence.length, 2);
-  assertEquals(setup.evidence[1]?.ignoredAt, "2026-01-01T00:00:02.000Z");
+  assertEquals(setup.evidence[1]?.ignoredAt, undefined);
 });
 
-Deno.test("POST /bootstrap/service preserves quarantine metadata on reconnect", async () => {
+Deno.test("POST /bootstrap/service clears legacy quarantine metadata on reconnect", async () => {
   const contract = await validatedContract(expandedContract());
   const setup = await createApp({
     envelopeBoundary: await contractBoundary(
@@ -533,9 +539,9 @@ Deno.test("POST /bootstrap/service preserves quarantine metadata on reconnect", 
 
   assertEquals(response.status, 200);
   assertEquals(setup.evidence.length, 1);
-  assertEquals(setup.evidence[0]?.ignoredAt, "2026-01-01T00:00:01.000Z");
-  assertEquals(setup.evidence[0]?.ignoredBy, { userId: "admin" });
-  assertEquals(setup.evidence[0]?.ignoreReason, "test repair");
+  assertEquals(setup.evidence[0]?.ignoredAt, undefined);
+  assertEquals(setup.evidence[0]?.ignoredBy, undefined);
+  assertEquals(setup.evidence[0]?.ignoreReason, undefined);
 });
 
 Deno.test("POST /bootstrap/service accepts older digest when it remains effective", async () => {

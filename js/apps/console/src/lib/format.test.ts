@@ -2,6 +2,10 @@ import { equal } from "node:assert/strict";
 
 import { errorMessage } from "./format.ts";
 
+declare const Deno: {
+  test(name: string, fn: () => void): void;
+};
+
 Deno.test("errorMessage prefers explicit server messages", () => {
   equal(
     errorMessage({

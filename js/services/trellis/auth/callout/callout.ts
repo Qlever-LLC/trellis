@@ -69,6 +69,7 @@ import type {
   SqlDeploymentEnvelopeRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
+  SqlEnvelopeExpansionRequestRepository,
   SqlIdentityEnvelopeRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
@@ -500,84 +501,36 @@ function refreshServiceSessionFromInstance(args: {
 
 export function startDisconnectCleanup(deps: {
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
+  envelopeExpansionRequestStorage: Pick<
+    SqlEnvelopeExpansionRequestRepository,
+    "deletePendingServiceRequestsByRequesterInstanceId"
+  >;
   logger: AuthRuntimeDeps["logger"];
   natsSystem: AuthRuntimeDeps["natsSystem"];
   sessionStorage: AuthRuntimeDeps["sessionStorage"];
   trellis: AuthRuntimeDeps["trellis"];
 }): BackgroundTaskHandle {
-  const { connectionsKV, logger, natsSystem, sessionStorage, trellis } = deps;
+  const {
+    connectionsKV,
+    envelopeExpansionRequestStorage,
+    logger,
+    natsSystem,
+    sessionStorage,
+    trellis,
+  } = deps;
   const disconnectSub = natsSystem.subscribe("$SYS.ACCOUNT.*.DISCONNECT");
   let stopping = false;
   const task = (async () => {
     try {
       for await (const message of disconnectSub) {
-        let data: { client?: { user_nkey?: string } };
-        try {
-          data = Value.Parse(
-            NatsDisconnectEventSchema,
-            JSON.parse(message.string()),
-          ) as {
-            client?: { user_nkey?: string };
-          };
-        } catch {
-          continue;
-        }
-
-        const userNkey = data.client?.user_nkey;
-        logger.trace(
-          { event: "NatsDisconnect", subject: message.subject, userNkey },
-          "Processing NATS disconnect",
-        );
-        if (typeof userNkey !== "string" || userNkey.length === 0) continue;
-
-        const keys = await connectionsKV.keys(
-          connectionFilterForUserNkey(userNkey),
-        ).take();
-        if (isErr(keys)) continue;
-
-        for await (const key of keys) {
-          const parsedKey = parseConnectionKey(key);
-          if (!parsedKey) {
-            logger.warn(
-              { key },
-              "Skipping unparsable disconnect connection key",
-            );
-            continue;
-          }
-          if (parsedKey.userNkey !== userNkey) continue;
-
-          const sessionValue = await sessionStorage.getOneBySessionKey(
-            parsedKey.sessionKey,
-          );
-          if (sessionValue) {
-            if (sessionValue.type !== "device") {
-              (
-                await trellis.publish("Auth.Connections.Closed", {
-                  origin: sessionValue.type === "user"
-                    ? sessionValue.identity.provider
-                    : sessionValue.origin,
-                  id: sessionValue.type === "user"
-                    ? sessionValue.identity.subject
-                    : sessionValue.id,
-                  sessionKey: parsedKey.sessionKey,
-                  userNkey,
-                })
-              ).inspectErr((error: unknown) =>
-                logger.warn(
-                  { error },
-                  "Failed to publish Auth.Connections.Closed",
-                )
-              );
-            }
-          }
-
-          (await connectionsKV.delete(key)).inspectErr((error: unknown) =>
-            logger.warn(
-              { error, key },
-              "Failed to delete disconnect connection",
-            )
-          );
-        }
+        await processDisconnectMessage({
+          connectionsKV,
+          envelopeExpansionRequestStorage,
+          logger,
+          message,
+          sessionStorage,
+          trellis,
+        });
       }
     } catch (error) {
       if (!stopping) {
@@ -593,6 +546,102 @@ export function startDisconnectCleanup(deps: {
       await task;
     },
   };
+}
+
+async function processDisconnectMessage(deps: {
+  connectionsKV: Pick<AuthRuntimeDeps["connectionsKV"], "delete" | "keys">;
+  envelopeExpansionRequestStorage: Pick<
+    SqlEnvelopeExpansionRequestRepository,
+    "deletePendingServiceRequestsByRequesterInstanceId"
+  >;
+  logger: AuthRuntimeDeps["logger"];
+  message: { subject: string; string(): string };
+  sessionStorage: Pick<
+    AuthRuntimeDeps["sessionStorage"],
+    "getOneBySessionKey"
+  >;
+  trellis: Pick<AuthRuntimeDeps["trellis"], "publish">;
+}): Promise<void> {
+  const {
+    connectionsKV,
+    envelopeExpansionRequestStorage,
+    logger,
+    message,
+    sessionStorage,
+    trellis,
+  } = deps;
+  let data: { client?: { user_nkey?: string } };
+  try {
+    data = Value.Parse(
+      NatsDisconnectEventSchema,
+      JSON.parse(message.string()),
+    );
+  } catch {
+    return;
+  }
+
+  const userNkey = data.client?.user_nkey;
+  logger.trace(
+    { event: "NatsDisconnect", subject: message.subject, userNkey },
+    "Processing NATS disconnect",
+  );
+  if (typeof userNkey !== "string" || userNkey.length === 0) return;
+
+  const keys = await connectionsKV.keys(
+    connectionFilterForUserNkey(userNkey),
+  ).take();
+  if (isErr(keys)) return;
+
+  for await (const key of keys) {
+    const parsedKey = parseConnectionKey(key);
+    if (!parsedKey) {
+      logger.warn(
+        { key },
+        "Skipping unparsable disconnect connection key",
+      );
+      continue;
+    }
+    if (parsedKey.userNkey !== userNkey) continue;
+
+    const sessionValue = await sessionStorage.getOneBySessionKey(
+      parsedKey.sessionKey,
+    );
+    if (sessionValue) {
+      if (sessionValue.type !== "device") {
+        (
+          await trellis.publish("Auth.Connections.Closed", {
+            origin: sessionValue.type === "user"
+              ? sessionValue.identity.provider
+              : sessionValue.origin,
+            id: sessionValue.type === "user"
+              ? sessionValue.identity.subject
+              : sessionValue.id,
+            sessionKey: parsedKey.sessionKey,
+            userNkey,
+          })
+        ).inspectErr((error: unknown) =>
+          logger.warn(
+            { error },
+            "Failed to publish Auth.Connections.Closed",
+          )
+        );
+      }
+
+      if (sessionValue.type === "service") {
+        await envelopeExpansionRequestStorage
+          .deletePendingServiceRequestsByRequesterInstanceId(
+            sessionValue.instanceId,
+          );
+      }
+    }
+
+    (await connectionsKV.delete(key)).inspectErr((error: unknown) =>
+      logger.warn(
+        { error, key },
+        "Failed to delete disconnect connection",
+      )
+    );
+  }
 }
 
 export function startAuthCallout(
@@ -1279,6 +1328,7 @@ export function startAuthCallout(
 export const __testing__ = {
   AUTH_CALLOUT_INTERNAL_ERROR,
   respondAuthCalloutError,
+  processDisconnectMessage,
   resolveDeviceRuntimeGrant,
   refreshServiceSessionFromInstance,
   validateServiceRuntimeDigest,

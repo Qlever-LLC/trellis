@@ -1173,7 +1173,7 @@ export const AuthCatalogIssuesResolveResponseSchema = Type.Object({
     Type.Literal("keep-current"),
     Type.Literal("force-replace"),
   ]),
-  ignoredEvidence: Type.Array(DeploymentContractEvidenceSchema),
+  deletedEvidence: Type.Array(DeploymentContractEvidenceSchema),
 });
 
 export const AuthDeploymentsEnableSchema = Type.Object({

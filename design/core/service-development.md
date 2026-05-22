@@ -233,9 +233,10 @@ Rules:
 - service-local transportable RPC errors should be declared in the contract's
   top-level `errors` map through `defineError(...)` generated classes rather
   than by overloading shared built-in errors for domain-specific failures
-- if the service later needs remote APIs, add SDK `use(...)` helper results under
-  `uses.required` or `uses.optional`; aliases directly under `uses` are invalid,
-  and services must not hand-write remote contract ids or raw method strings
+- if the service later needs remote APIs, add SDK `use(...)` helper results
+  under `uses.required` or `uses.optional`; aliases directly under `uses` are
+  invalid, and services must not hand-write remote contract ids or raw method
+  strings
 
 Behavior:
 
@@ -259,6 +260,16 @@ Behavior:
   bootstrap records the presented contract evidence, creates a pending envelope
   expansion request for the missing delta, and asks the service runtime to retry
   until an admin approves or rejects the request
+- service-originated pending envelope expansion requests are deduplicated while
+  the requester stays connected and are removed if that requester disconnects
+- if the service presents a digest for a `contractId` that already has a
+  different current active digest, Trellis creates or reuses one pending Forced
+  Contract Update for that `contractId`; repeated service restarts while waiting
+  coalesce into the same pending update
+- accepting a Forced Update deletes all non-selected active evidence for that
+  `contractId`; keeping the current digest deletes the proposal. Forced Update
+  is separate from envelope expansion and does not retain deleted evidence as
+  quarantine or repair history.
 - once the envelope fits, bootstrap first verifies that required `uses`
   dependencies resolve against the active catalog. If the approved dependency
   closure is still incomplete, bootstrap returns `contract_activation_pending`

@@ -85,6 +85,12 @@
     name: string;
     schema: ContractSchema;
   };
+  type JsonTokenKind = "plain" | "key" | "string" | "number" | "boolean" | "null";
+  type JsonToken = {
+    key: string;
+    kind: JsonTokenKind;
+    text: string;
+  };
   type Tab = "instances" | "rpc" | "events" | "operations" | "schemas" | "resources" | "capabilities" | "dependencies" | "jobs" | "heartbeats";
   type ContractRef = `${string}:${string}`;
   type ContractRefDeploymentIds = Record<string, readonly string[]>;
@@ -353,20 +359,33 @@
     return JSON.stringify(value, null, 2) ?? "null";
   }
 
-  function escapeHtml(value: string): string {
-    return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  function jsonTokenClass(kind: JsonTokenKind): string | undefined {
+    if (kind === "plain") return undefined;
+    return `json-${kind}`;
   }
 
-  function highlightJson(json: string): string {
-    return escapeHtml(json).replace(
-      /(&quot;(?:\\.|[^&])*?&quot;)(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
-      (match, quoted: string | undefined, colon: string | undefined) => {
-        if (quoted) return colon ? `<span class="json-key">${quoted}</span>${colon}` : `<span class="json-string">${quoted}</span>`;
-        if (match === "true" || match === "false") return `<span class="json-boolean">${match}</span>`;
-        if (match === "null") return `<span class="json-null">${match}</span>`;
-        return `<span class="json-number">${match}</span>`;
-      },
-    );
+  function jsonTokens(json: string): JsonToken[] {
+    const tokens: JsonToken[] = [];
+    const pattern = /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+    let offset = 0;
+    for (const match of json.matchAll(pattern)) {
+      const index = match.index ?? 0;
+      if (index > offset) tokens.push({ key: `plain:${offset}`, kind: "plain", text: json.slice(offset, index) });
+      const [text, quoted, colon] = match;
+      if (quoted) {
+        tokens.push({ key: `token:${index}`, kind: colon ? "key" : "string", text: quoted });
+        if (colon) tokens.push({ key: `colon:${index}`, kind: "plain", text: colon });
+      } else if (text === "true" || text === "false") {
+        tokens.push({ key: `token:${index}`, kind: "boolean", text });
+      } else if (text === "null") {
+        tokens.push({ key: `token:${index}`, kind: "null", text });
+      } else {
+        tokens.push({ key: `token:${index}`, kind: "number", text });
+      }
+      offset = index + text.length;
+    }
+    if (offset < json.length) tokens.push({ key: `plain:${offset}`, kind: "plain", text: json.slice(offset) });
+    return tokens;
   }
 
   function healthServiceMatchesContractRefs(service: HealthServiceView, refs: readonly ContractRef[]): boolean {
@@ -632,6 +651,37 @@
     }
   }
 
+  async function refreshAuthorityReviewData() {
+    catalogIssueError = null;
+    const [envelopesRes, expansionRequestsRes, catalogRes] = await Promise.all([
+      trellis.request("Auth.Envelopes.List", { limit: 500, offset: 0 }).take(),
+      trellis.request("Auth.EnvelopeExpansions.List", { state: "pending", limit: 500, offset: 0 }).take(),
+      coreRequest("Trellis.Catalog", {}).take(),
+    ]);
+
+    if (isErr(envelopesRes)) {
+      error = errorMessage(envelopesRes);
+    } else {
+      envelopes = (envelopesRes.entries ?? []).filter((envelope) => envelope.kind === "service");
+    }
+
+    if (isErr(expansionRequestsRes)) {
+      error = errorMessage(expansionRequestsRes);
+    } else {
+      expansionRequests = expansionRequestsRes.entries ?? [];
+    }
+
+    if (isErr(catalogRes)) {
+      catalogIssueError = errorMessage(catalogRes);
+      catalogContracts = [];
+      catalogIssues = [];
+    } else {
+      catalogContracts = catalogRes.catalog.contracts ?? [];
+      const issues = objectRecord(catalogRes.catalog)?.issues;
+      catalogIssues = Array.isArray(issues) ? issues as CatalogIssue[] : [];
+    }
+  }
+
   async function handleServiceInstanceAction(instance: ServiceInstance, action: ServiceInstanceAction) {
     if (action === "disable" || action === "remove") {
       const confirmed = await confirmationModal?.confirm({
@@ -698,7 +748,8 @@
         `${action === "approve" ? "Approved" : "Rejected"} envelope expansion for ${request.deploymentId}.`,
         "Authority request updated",
       );
-      await load();
+      expansionRequests = expansionRequests.filter((entry) => entry.requestId !== request.requestId);
+      await refreshAuthorityReviewData();
     } catch (cause) {
       error = errorMessage(cause);
     } finally {
@@ -832,12 +883,12 @@
             <div class="flex flex-wrap items-center justify-between gap-2">
               <span>
                 {#if catalogIssueError}
-                  Active catalog issues unavailable: {catalogIssueError}
+                  Forced update status unavailable: {catalogIssueError}
                 {:else}
-                  <strong>{catalogIssues.length}</strong> active catalog issue{catalogIssues.length === 1 ? "" : "s"} need repair
+                  <strong>{catalogIssues.length}</strong> forced contract update{catalogIssues.length === 1 ? "" : "s"} need review
                 {/if}
               </span>
-              <a class="btn btn-error btn-outline btn-xs" href={resolve("/admin/services/repair")}>Open repair</a>
+              <a class="btn btn-error btn-outline btn-xs" href={resolve("/admin/services/repair")}>Open forced update</a>
             </div>
           </div>
         {/if}
@@ -985,10 +1036,10 @@
                                             {#if panel.schemaName}<span class="trellis-identifier normal-case">{panel.schemaName}</span>{/if}
                                           </div>
                                           {#if panel.schema}
-                                            <pre class="json-block">{@html highlightJson(jsonString(panel.schema))}</pre>
+                                            <pre class="json-block">{#each jsonTokens(jsonString(panel.schema)) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</pre>
                                             {#if panel.example !== null}
                                               <div class="mt-2 text-xs font-medium uppercase tracking-wide text-base-content/60">Example</div>
-                                              <pre class="json-block mt-1">{@html highlightJson(jsonString(panel.example))}</pre>
+                                              <pre class="json-block mt-1">{#each jsonTokens(jsonString(panel.example)) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</pre>
                                             {/if}
                                           {:else}
                                             <p class="text-xs text-base-content/60">No schema is declared.</p>
@@ -1027,7 +1078,7 @@
                         <span class="trellis-identifier font-medium">{row.name}</span>
                         <span class="badge badge-outline badge-xs trellis-identifier">{row.contractId}</span>
                       </div>
-                      <pre class="json-block">{@html highlightJson(jsonString(row.schema))}</pre>
+                      <pre class="json-block">{#each jsonTokens(jsonString(row.schema)) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</pre>
                     </div>
                   {/each}
                 </div>

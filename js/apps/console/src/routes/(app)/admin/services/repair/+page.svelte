@@ -70,7 +70,7 @@
     success: true;
     issueId: string;
     action: CatalogIssueAction["action"];
-    ignoredEvidence: unknown[];
+    deletedEvidence: unknown[];
   };
   type CatalogOutput = {
     catalog: {
@@ -95,7 +95,6 @@
   let error = $state<string | null>(null);
   let manifestError = $state<string | null>(null);
   let pendingAction = $state<CatalogIssueAction["action"] | null>(null);
-  let confirmation = $state("");
   let deployments = $state.raw<Deployment[]>([]);
   let issues = $state.raw<CatalogIssue[]>([]);
   let manifests = $state.raw<Record<string, ContractManifest>>({});
@@ -110,6 +109,11 @@
   const conflictingDeployments = $derived(selectedIssue ? uniqueValues(selectedIssue.conflictingDeploymentIds ?? selectedIssue.deploymentIds) : []);
   const surfaceDiffs = $derived(selectedIssue ? buildSurfaceDiffs(effectiveDigests, conflictingDigests) : []);
   const schemaDiffs = $derived(selectedIssue ? buildSchemaDiffs(effectiveDigests, conflictingDigests) : []);
+  const forcedUpdateActions = $derived(selectedIssue
+    ? selectedIssue.actions
+      .filter((action) => action.action === "force-replace" || action.action === "keep-current")
+      .toSorted((left, right) => actionSortOrder(left.action) - actionSortOrder(right.action))
+    : []);
 
   function uniqueValues(values: readonly (string | undefined)[]): string[] {
     return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
@@ -130,25 +134,30 @@
   }
 
   function actionCopy(action: CatalogIssueAction): string {
-    if (action.action === "keep-current") return "Preserves the existing contract and quarantines the new contract evidence.";
-    return "Replaces the existing contract with the new contract. Old services may fail to reconnect.";
+    if (action.action === "keep-current") return "Do not accept the proposed forced update. The current contract remains active.";
+    return "Accept the forced update and replace the current contract evidence for this contract ID.";
   }
 
   function actionLabel(action: CatalogIssueAction): string {
-    if (action.action === "keep-current") return "Keep existing contract";
-    if (action.action === "force-replace") return "Replace with new contract";
+    if (action.action === "keep-current") return "Do not accept update";
+    if (action.action === "force-replace") return "Accept";
     return action.label;
+  }
+
+  function actionSortOrder(action: CatalogIssueAction["action"]): number {
+    if (action === "force-replace") return 0;
+    return 1;
   }
 
   function issueSummary(issue: CatalogIssue): string {
     if (issue.kind === "incompatible-active-contract") {
-      return `Two active versions of ${issue.contractId ?? "this contract"} describe the same API differently. Keep the existing contract or replace it with the new one.`;
+      return `A forced contract update is pending for ${issue.contractId ?? "this contract"}. Accepting it destructively replaces the current contract evidence for that contract ID.`;
     }
-    return `This catalog issue affects ${issue.contractId ?? "a contract"}. Review the existing and new contract evidence before choosing a repair action.`;
+    return `This forced contract update affects ${issue.contractId ?? "a contract"}. Review the current and proposed contract evidence before choosing whether to accept it.`;
   }
 
   function issueTitle(issue: CatalogIssue): string {
-    if (issue.kind === "incompatible-active-contract") return "Contract version conflict";
+    if (issue.kind === "incompatible-active-contract") return "Forced Contract Update";
     return issue.kind.replaceAll("-", " ");
   }
 
@@ -383,14 +392,12 @@
 
   async function resolveIssue(action: CatalogIssueAction) {
     if (!selectedIssue) return;
-    if (action.risk === "dangerous" && confirmation.trim().toLowerCase() !== "force replace") return;
     pendingAction = action.action;
     error = null;
     try {
       const response = await catalogIssueResolveRequest("Auth.CatalogIssues.Resolve", { issueId: selectedIssue.issueId, action: action.action }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
-      notifications.success(`${action.label} applied to catalog issue ${selectedIssue.issueId}.`, "Catalog repaired");
-      confirmation = "";
+      notifications.success(`${actionLabel(action)} applied to forced contract update ${selectedIssue.issueId}.`, "Forced update resolved");
       await load();
     } catch (cause) {
       error = errorMessage(cause);
@@ -401,14 +408,28 @@
 
   async function requestResolveIssue(action: CatalogIssueAction) {
     if (!selectedIssue) return;
-    if (action.risk === "dangerous") {
+    if (action.action === "force-replace") {
+      const contractId = selectedIssue.contractId;
+      if (!contractId) {
+        error = "Cannot accept a forced contract update without a contract ID.";
+        return;
+      }
       const confirmed = await confirmationModal?.confirm({
-        title: "Replace with new contract?",
-        message: "This is a dangerous repair action. Old services that still publish the existing contract may fail to reconnect.",
+        title: "Accept forced contract update?",
+        message: "This destructively replaces the current catalog evidence for this contract ID. Services still using the current contract may fail to reconnect.",
         confirmLabel: actionLabel(action),
-        targetLabel: "Catalog issue ID",
+        targetLabel: "Contract ID",
+        targetName: contractId,
+        expectedValue: contractId,
+      });
+      if (!confirmed) return;
+    } else if (action.action === "keep-current") {
+      const confirmed = await confirmationModal?.confirm({
+        title: "Do not accept forced update?",
+        message: "The current contract remains active and the proposed update is not accepted.",
+        confirmLabel: actionLabel(action),
+        targetLabel: "Forced update",
         targetName: selectedIssue.issueId,
-        expectedValue: selectedIssue.issueId,
       });
       if (!confirmed) return;
     }
@@ -421,7 +442,7 @@
 </script>
 
 <section class="space-y-4">
-  <PageToolbar title="Repair service catalog" description="Resolve active catalog compatibility issues without manually disabling deployments.">
+  <PageToolbar title="Forced Contract Update" description="Review pending forced contract updates and decide whether to accept them for active service contracts.">
     {#snippet actions()}
       <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
       <a class="btn btn-ghost btn-sm" href={resolve("/admin/services")}>Back to services</a>
@@ -436,9 +457,9 @@
   {/if}
 
   {#if loading}
-    <Panel><LoadingState label="Loading catalog issues" /></Panel>
+    <Panel><LoadingState label="Loading forced contract updates" /></Panel>
   {:else if issues.length === 0}
-    <EmptyState title="No catalog issues" description="The active service catalog has no repairable compatibility issues." />
+    <EmptyState title="No forced contract updates" description="The active service catalog has no pending forced contract updates." />
   {:else if selectedIssue}
     <div class="grid gap-4 xl:grid-cols-[18rem_minmax(0,1fr)]">
       <Panel title="Issues" eyebrow={`${issues.length} active`}>
@@ -450,7 +471,7 @@
                 "w-full min-w-0 rounded-box border p-3 text-left text-sm transition-colors",
                 selectedIssue.issueId === issue.issueId ? "border-error bg-error/10" : "border-base-300 bg-base-100 hover:border-base-content/20",
               ]}
-              onclick={() => { selectedIssueId = issue.issueId; confirmation = ""; }}
+              onclick={() => { selectedIssueId = issue.issueId; }}
             >
               <div class="font-medium">{issueTitle(issue)}</div>
               <div class="mt-2 flex flex-wrap gap-1">
@@ -464,7 +485,7 @@
       </Panel>
 
       <div class="min-w-0 space-y-4">
-        <Panel title="Compatibility issue" eyebrow="Catalog repair">
+        <Panel title="Forced Contract Update" eyebrow="Catalog update">
           <div class="space-y-4">
             <div class="rounded-box border border-error/25 bg-error/10 p-3 text-sm">
               <div class="break-words font-medium [overflow-wrap:anywhere]">{issueSummary(selectedIssue)}</div>
@@ -472,12 +493,12 @@
 
             <div class="grid gap-3 md:grid-cols-2">
               <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
-                <div class="text-xs font-semibold uppercase text-base-content/60">Existing contract</div>
+                <div class="text-xs font-semibold uppercase text-base-content/60">Current contract</div>
                 <div class="mt-2 trellis-token-list">
                   {#each effectiveDigests as digest (digest)}
                     <span class="badge badge-outline badge-sm trellis-identifier break-all" title={digest}>{formatDigest(digest)}</span>
                   {:else}
-                    <span class="text-sm text-base-content/50">No existing digest</span>
+                    <span class="text-sm text-base-content/50">No current digest</span>
                   {/each}
                 </div>
                 <div class="mt-2 trellis-token-list">
@@ -487,12 +508,12 @@
                 </div>
               </div>
               <div class="rounded-box border border-warning/30 bg-warning/10 p-3">
-                <div class="text-xs font-semibold uppercase text-base-content/60">New contract</div>
+                <div class="text-xs font-semibold uppercase text-base-content/60">Proposed update</div>
                 <div class="mt-2 trellis-token-list">
                   {#each conflictingDigests as digest (digest)}
                     <span class="badge badge-warning badge-outline badge-sm trellis-identifier break-all" title={digest}>{formatDigest(digest)}</span>
                   {:else}
-                    <span class="text-sm text-base-content/50">No new digest</span>
+                    <span class="text-sm text-base-content/50">No proposed digest</span>
                   {/each}
                 </div>
                 <div class="mt-2 trellis-token-list">
@@ -523,19 +544,19 @@
                         <div class="space-y-2 text-xs">
                           <div class="flex items-center justify-between gap-2">
                             <span class="font-medium">{changeNoun(row.change)} definition diff</span>
-                            <span class="text-base-content/50">- existing / + new</span>
+                            <span class="text-base-content/50">- current / + proposed</span>
                           </div>
                           <pre class="diff-block">{#each definitionDiffLines(row) as line (line.key)}<span class={diffLineClass(line.kind)}><span class="diff-prefix">{diffLinePrefix(line.kind)}</span><span class="diff-content">{#each jsonTokens(line.content) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</span></span>{/each}</pre>
                           <div class="grid gap-2 xl:grid-cols-2">
                             {#if row.current}
                               <details class="collapse collapse-arrow border border-base-300 bg-base-100">
-                                <summary class="collapse-title min-h-0 px-3 py-2 text-xs font-medium">Full Existing JSON</summary>
+                                <summary class="collapse-title min-h-0 px-3 py-2 text-xs font-medium">Full Current JSON</summary>
                                 <div class="collapse-content px-3 pb-3"><pre class="json-block">{#each jsonLines(row.current) as jsonLine (jsonLine.key)}<span class="json-line">{#each jsonTokens(jsonLine.content) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</span>{/each}</pre></div>
                               </details>
                             {/if}
                             {#if row.conflicting}
                               <details class="collapse collapse-arrow border border-base-300 bg-base-100">
-                                <summary class="collapse-title min-h-0 px-3 py-2 text-xs font-medium">Full New JSON</summary>
+                                <summary class="collapse-title min-h-0 px-3 py-2 text-xs font-medium">Full Proposed JSON</summary>
                                 <div class="collapse-content px-3 pb-3"><pre class="json-block">{#each jsonLines(row.conflicting) as jsonLine (jsonLine.key)}<span class="json-line">{#each jsonTokens(jsonLine.content) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</span>{/each}</pre></div>
                               </details>
                             {/if}
@@ -564,19 +585,19 @@
                         <div class="space-y-2 text-xs">
                           <div class="flex items-center justify-between gap-2">
                             <span class="font-medium">{changeNoun(row.change)} schema diff</span>
-                            <span class="text-base-content/50">- existing / + new</span>
+                            <span class="text-base-content/50">- current / + proposed</span>
                           </div>
                           <pre class="diff-block">{#each definitionDiffLines(row) as line (line.key)}<span class={diffLineClass(line.kind)}><span class="diff-prefix">{diffLinePrefix(line.kind)}</span><span class="diff-content">{#each jsonTokens(line.content) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</span></span>{/each}</pre>
                           <div class="grid gap-2 xl:grid-cols-2">
                             {#if row.current}
                               <details class="collapse collapse-arrow border border-base-300 bg-base-100">
-                                <summary class="collapse-title min-h-0 px-3 py-2 text-xs font-medium">Full Existing JSON</summary>
+                                <summary class="collapse-title min-h-0 px-3 py-2 text-xs font-medium">Full Current JSON</summary>
                                 <div class="collapse-content px-3 pb-3"><pre class="json-block">{#each jsonLines(row.current) as jsonLine (jsonLine.key)}<span class="json-line">{#each jsonTokens(jsonLine.content) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</span>{/each}</pre></div>
                               </details>
                             {/if}
                             {#if row.conflicting}
                               <details class="collapse collapse-arrow border border-base-300 bg-base-100">
-                                <summary class="collapse-title min-h-0 px-3 py-2 text-xs font-medium">Full New JSON</summary>
+                                <summary class="collapse-title min-h-0 px-3 py-2 text-xs font-medium">Full Proposed JSON</summary>
                                 <div class="collapse-content px-3 pb-3"><pre class="json-block">{#each jsonLines(row.conflicting) as jsonLine (jsonLine.key)}<span class="json-line">{#each jsonTokens(jsonLine.content) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</span>{/each}</pre></div>
                               </details>
                             {/if}
@@ -593,15 +614,14 @@
           </div>
         </Panel>
 
-        <Panel title="Repair action" eyebrow="Choose one">
+        <Panel title="Forced update decision" eyebrow="Choose one">
           <div class="grid gap-3 md:grid-cols-2">
-            {#each selectedIssue.actions as action (`${selectedIssue.issueId}:${action.action}`)}
+            {#each forcedUpdateActions as action (`${selectedIssue.issueId}:${action.action}`)}
               <div class={["rounded-box border p-3", action.risk === "recommended" ? "border-success/30 bg-success/10" : "border-error/30 bg-error/10"]}>
                 <div class="flex items-start justify-between gap-2">
                   <div>
                     <h3 class="font-semibold">{actionLabel(action)}</h3>
                     <p class="mt-1 text-sm text-base-content/70">{actionCopy(action)}</p>
-                    <p class="mt-1 text-xs text-base-content/60">Backend action: {action.description}</p>
                   </div>
                   <span class={["badge badge-sm", action.risk === "recommended" ? "badge-success" : "badge-error"]}>{action.risk}</span>
                 </div>
@@ -610,17 +630,11 @@
                     <span class="badge badge-outline badge-xs trellis-identifier break-all" title={digest}>{formatDigest(digest)}</span>
                   {/each}
                 </div>
-                {#if action.risk === "dangerous"}
-                  <label class="form-control mt-3 gap-1">
-                    <span class="label-text text-xs">Type "force replace" to confirm</span>
-                    <input class="input input-bordered input-sm" bind:value={confirmation} aria-label="Force replace confirmation" />
-                  </label>
-                {/if}
                 <div class="mt-3 flex justify-end">
                   <button
                     type="button"
                     class={["btn btn-sm", action.risk === "recommended" ? "btn-success" : "btn-error"]}
-                    disabled={pendingAction !== null || (action.risk === "dangerous" && confirmation.trim().toLowerCase() !== "force replace")}
+                    disabled={pendingAction !== null}
                     onclick={() => void requestResolveIssue(action)}
                   >
                     {pendingAction === action.action ? "Applying..." : actionLabel(action)}

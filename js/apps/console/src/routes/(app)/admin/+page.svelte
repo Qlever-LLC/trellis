@@ -96,14 +96,14 @@
     { label: "Sessions", value: sessionCount },
     { label: "Connections", value: connectionCount },
     { label: "Jobs", value: totalJobCount, badge: `${activeJobCount} active`, badgeClass: "badge-success" },
-    { label: "Warnings", value: catalogWarningCount, detail: catalogIssueError ? "Catalog unavailable" : "catalog repair" },
+    { label: "Warnings", value: catalogWarningCount, detail: catalogIssueError ? "Catalog unavailable" : "forced updates" },
   ]);
 
   function firstCatalogIssueSummary(issue: CatalogIssue): string {
     if (issue.kind === "incompatible-active-contract") {
       return `Two active versions of ${issue.contractId ?? "a contract"} describe the same API differently.`;
     }
-    return `A catalog repair issue affects ${issue.contractId ?? "a contract"}.`;
+    return `A forced contract update affects ${issue.contractId ?? "a contract"}.`;
   }
 
   function toOverviewInstance(instance: ServiceInstance): OverviewInstance {
@@ -248,16 +248,16 @@
     {#if catalogIssues.length > 0 || catalogIssueError}
       <div class="alert alert-warning mb-4 items-start">
         <div class="min-w-0">
-          <div class="font-medium">Service catalog repair needed</div>
+          <div class="font-medium">Forced Contract Update needed</div>
           <div class="mt-1 text-sm">
             {#if catalogIssueError}
-              Catalog repair status is unavailable: {catalogIssueError}
+              Forced update status is unavailable: {catalogIssueError}
             {:else if catalogIssues[0]}
-              {firstCatalogIssueSummary(catalogIssues[0])} Review whether to keep the existing contract or replace it with the new one.
+              {firstCatalogIssueSummary(catalogIssues[0])} Review whether to accept the forced update.
             {/if}
           </div>
         </div>
-        <a class="btn btn-warning btn-outline btn-sm" href={resolve("/admin/services/repair")}>Open repair</a>
+        <a class="btn btn-warning btn-outline btn-sm" href={resolve("/admin/services/repair")}>Open forced update</a>
       </div>
     {/if}
 

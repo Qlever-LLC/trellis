@@ -73,7 +73,7 @@ Contracts must declare dependencies with grouped `uses.required` and `uses.optio
 
 If a dependency is not declared in `uses`, Trellis will not grant that cross-contract access when the contract boundary is added to the deployment envelope.
 
-Approved service boundaries only become runtime-active when the full required dependency closure resolves as active; until then service bootstrap waits instead of receiving NATS credentials. When a dependency resolves to multiple active digests in the same contract lineage, Trellis only merges additive compatible surfaces. Divergent duplicate RPC, operation, event, feed, or job descriptors fail validation instead of producing ambiguous permissions.
+Approved service boundaries only become runtime-active when the full required dependency closure resolves as active; until then service bootstrap waits instead of receiving NATS credentials. The active catalog has at most one current digest per contract id. If a service presents a different digest for an already-current contract id, Trellis waits for a Forced Contract Update decision instead of merging multiple active digests into ambiguous permissions.
 
 ## Surface availability
 

@@ -229,24 +229,6 @@ function emptyBoundary(): EnvelopeBoundary {
   return { contracts: [], surfaces: [], capabilities: [], resources: [] };
 }
 
-function latestEvidenceForContract(
-  evidence: Iterable<DeploymentContractEvidence>,
-  contractId: string,
-): DeploymentContractEvidence | undefined {
-  let latest: DeploymentContractEvidence | undefined;
-  for (const record of evidence) {
-    if (record.contractId !== contractId) continue;
-    if (
-      !latest || record.lastSeenAt > latest.lastSeenAt ||
-      (record.lastSeenAt === latest.lastSeenAt &&
-        record.firstSeenAt > latest.firstSeenAt)
-    ) {
-      latest = record;
-    }
-  }
-  return latest;
-}
-
 function mergeBoundaries(...boundaries: EnvelopeBoundary[]): EnvelopeBoundary {
   return computeEnvelopeDelta(emptyBoundary(), {
     contracts: boundaries.flatMap((boundary) => boundary.contracts),
@@ -424,13 +406,6 @@ function contractEvidenceRecord(input: {
     contract: { ...input.contract },
     firstSeenAt: input.existing?.firstSeenAt ?? input.now,
     lastSeenAt: input.now,
-    ...(input.existing?.ignoredAt
-      ? {
-        ignoredAt: input.existing.ignoredAt,
-        ignoredBy: input.existing.ignoredBy ?? null,
-        ignoreReason: input.existing.ignoreReason ?? null,
-      }
-      : {}),
   };
 }
 
@@ -672,87 +647,40 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    if (existingEvidence) {
-      const latestEvidence = latestEvidenceForContract(
-        await deps.deploymentContractEvidenceStorage.listByDeployment(
-          service.deploymentId,
-        ),
-        contract.id,
-      );
-      const activeEntries = (await deps.contracts.getActiveEntries()).filter(
-        (entry) => entry.contract.id === contract.id,
-      );
-      const effectiveDigests = new Set(
-        activeEntries.map((entry) => entry.digest),
-      );
-      const issue = latestEvidence?.contractDigest === request.contractDigest &&
-          !effectiveDigests.has(request.contractDigest) &&
-          deps.contracts.getActiveCatalogIssues
+    const activeEntries = (await deps.contracts.getActiveEntries()).filter(
+      (entry) => entry.contract.id === contract.id,
+    );
+    const effectiveDigests = new Set(
+      activeEntries.map((entry) => entry.digest),
+    );
+    if (
+      activeEntries.length > 0 && !effectiveDigests.has(request.contractDigest)
+    ) {
+      await deps.deploymentContractEvidenceStorage.put(contractEvidence);
+      const issue = deps.contracts.getActiveCatalogIssues
         ? (await deps.contracts.getActiveCatalogIssues()).find((candidate) =>
-          candidate.digest === request.contractDigest ||
-          candidate.conflictingDigests?.includes(request.contractDigest)
+          candidate.contractId === request.contractId &&
+          (candidate.digest === request.contractDigest ||
+            candidate.conflictingDigests?.includes(request.contractDigest))
         )
         : undefined;
-      if (issue) {
-        return c.json(
-          bootstrapFailure(
-            "contract_catalog_issue",
-            `Service contract '${request.contractId}' digest '${request.contractDigest}' is blocked by an active catalog issue. Repair the catalog issue in Console before starting this service.${
-              issue ? ` ${issue.message}` : ""
-            }`,
-            {
-              instanceId: service.instanceId,
-              deploymentId: service.deploymentId,
-              contractId: request.contractId,
-              contractDigest: request.contractDigest,
-              ...(issue ? { issueId: issue.issueId } : {}),
-            },
-          ),
-          409,
-        );
-      }
-      if (
-        existingEvidence.ignoredAt &&
-        !effectiveDigests.has(request.contractDigest)
-      ) {
-        const activeContractDigest = activeEntries[0]?.digest;
-        if (activeContractDigest) {
-          return c.json(
-            bootstrapFailure(
-              "contract_changed",
-              `Service deployment '${service.deploymentId}' has quarantined evidence for contract '${request.contractId}'. Restart with the active contract digest.`,
-              {
-                instanceId: service.instanceId,
-                deploymentId: service.deploymentId,
-                contractId: request.contractId,
-                contractDigest: request.contractDigest,
-                activeContractDigest,
-              },
-            ),
-            409,
-          );
-        }
-      }
-      if (
-        latestEvidence &&
-        latestEvidence.contractDigest !== request.contractDigest &&
-        !effectiveDigests.has(request.contractDigest)
-      ) {
-        return c.json(
-          bootstrapFailure(
-            "contract_changed",
-            `Service deployment '${service.deploymentId}' has newer evidence for contract '${request.contractId}'. Restart with the active contract digest.`,
-            {
-              instanceId: service.instanceId,
-              deploymentId: service.deploymentId,
-              contractId: request.contractId,
-              contractDigest: request.contractDigest,
-              activeContractDigest: latestEvidence.contractDigest,
-            },
-          ),
-          409,
-        );
-      }
+      return c.json(
+        bootstrapFailure(
+          "contract_catalog_issue",
+          `Service contract '${request.contractId}' digest '${request.contractDigest}' is pending a forced catalog update. Resolve the catalog issue in Console before starting this service.${
+            issue ? ` ${issue.message}` : ""
+          }`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: service.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+            activeContractDigest: activeEntries[0]?.digest,
+            ...(issue ? { issueId: issue.issueId } : {}),
+          },
+        ),
+        409,
+      );
     }
 
     let capabilities: string[];

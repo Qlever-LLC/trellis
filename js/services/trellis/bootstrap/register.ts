@@ -146,6 +146,7 @@ export async function registerControlPlane(deps: {
     userStorage,
     contractApprovalStorage,
     deploymentEnvelopeStorage,
+    envelopeExpansionRequestStorage,
     deviceActivationStorage,
     deviceDeploymentStorage,
     deviceInstanceStorage,

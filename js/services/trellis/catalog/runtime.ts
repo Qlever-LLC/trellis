@@ -141,7 +141,7 @@ function stableIssueId(args: {
   ].join(":");
 }
 
-function quarantineAction(args: {
+function catalogIssueAction(args: {
   action: "keep-current" | "force-replace";
   risk: "recommended" | "dangerous";
   label: string;
@@ -718,6 +718,7 @@ export function createContractsModule(opts: {
     digest: string;
     contractId?: string;
     firstSeenAt?: string;
+    lastSeenAt?: string;
     deploymentIds: string[];
     deploymentFirstSeenAt: Record<string, string>;
   };
@@ -771,6 +772,12 @@ export function createContractsModule(opts: {
         evidence.firstSeenAt < record.firstSeenAt
       ) {
         record.firstSeenAt = evidence.firstSeenAt;
+      }
+      if (
+        record.lastSeenAt === undefined ||
+        evidence.lastSeenAt > record.lastSeenAt
+      ) {
+        record.lastSeenAt = evidence.lastSeenAt;
       }
       const deploymentFirstSeenAt = record.deploymentFirstSeenAt[
         evidence.deploymentId
@@ -842,6 +849,18 @@ export function createContractsModule(opts: {
       left.digest.localeCompare(right.digest);
   }
 
+  function latestActiveEvidence(
+    entries: Array<ActiveDigestEvidence & ContractEntry>,
+  ): ActiveDigestEvidence & ContractEntry {
+    const sorted = [...entries].sort((left, right) =>
+      (left.lastSeenAt ?? "").localeCompare(right.lastSeenAt ?? "") ||
+      activeDigestEvidenceCompare(left, right)
+    );
+    const latest = sorted[sorted.length - 1];
+    if (!latest) throw new Error("expected active evidence entry");
+    return latest;
+  }
+
   type EffectiveActiveEntry = ActiveDigestEvidence & ContractEntry;
 
   function selectEffectiveCompatibleEntries(
@@ -857,162 +876,85 @@ export function createContractsModule(opts: {
       byContractId.set(candidate.contract.id, entries);
     }
 
-    type IncompatibleActiveCandidate = {
-      entry: ActiveDigestEvidence & ContractEntry;
-      errorMessage: string;
-    };
-
     const effective: EffectiveActiveEntry[] = [];
     const issues: ActiveCatalogIssue[] = [];
     for (const entries of byContractId.values()) {
       entries.sort(activeDigestEvidenceCompare);
-      const accepted: Array<ActiveDigestEvidence & ContractEntry> = [];
-      const conflicts: IncompatibleActiveCandidate[] = [];
-      for (const candidate of entries) {
-        const currentCandidate = currentDeploymentEvidenceCandidate(
-          accepted,
-          candidate,
-        );
-        if (!currentCandidate) continue;
-        try {
-          validateActiveContractCompatibility([...accepted, currentCandidate]);
-          replaceDeploymentEvidence(accepted, currentCandidate);
-          accepted.push(currentCandidate);
-        } catch (error) {
-          conflicts.push({
-            entry: currentCandidate,
-            errorMessage: getErrorMessage(error),
-          });
-        }
-      }
-      if (conflicts.length > 0) {
-        const selected = conflicts[conflicts.length - 1];
-        if (!selected) continue;
-        const effectiveDigests = accepted.map((entry) => entry.digest);
-        const effectiveDeploymentIds = sortUnique(
-          accepted.flatMap((entry) => entry.deploymentIds),
-        );
+      const current = entries[0];
+      if (!current) continue;
+      const conflictingEntries = entries.slice(1);
+      if (conflictingEntries.length > 0) {
+        const proposed = latestActiveEvidence(conflictingEntries);
+        const effectiveDigests = [current.digest];
+        const effectiveDeploymentIds = sortUnique(current.deploymentIds);
         const conflictingDigests = sortUnique(
-          conflicts.map(({ entry }) => entry.digest),
+          conflictingEntries.map((entry) => entry.digest),
         );
         const conflictingDeploymentIds = sortUnique(
-          conflicts.flatMap(({ entry }) => entry.deploymentIds),
+          conflictingEntries.flatMap((entry) => entry.deploymentIds),
         );
-        const forceReplaceSiblingConflicts = conflicts
-          .filter((conflict) => conflict !== selected)
-          .filter(({ entry }) => {
-            try {
-              validateActiveContractCompatibility([selected.entry, entry]);
-              return false;
-            } catch {
-              return true;
-            }
-          });
-        const forceReplaceDeploymentIds = sortUnique([
-          ...effectiveDeploymentIds,
-          ...forceReplaceSiblingConflicts.flatMap(({ entry }) =>
-            entry.deploymentIds
-          ),
-        ]);
-        const forceReplaceDigests = [
-          ...effectiveDigests,
-          ...forceReplaceSiblingConflicts.map(({ entry }) => entry.digest),
-        ];
+        const forceReplaceEntries = entries.filter((entry) =>
+          entry.digest !== proposed.digest
+        );
+        const forceReplaceDeploymentIds = sortUnique(
+          forceReplaceEntries.flatMap((entry) => entry.deploymentIds),
+        );
+        const forceReplaceDigests = sortUnique(
+          forceReplaceEntries.map((entry) => entry.digest),
+        );
+        let conflictMessage = "same contract id already has an active digest";
+        try {
+          validateActiveContractCompatibility([current, proposed]);
+        } catch (error) {
+          conflictMessage = getErrorMessage(error);
+        }
         issues.push({
           issueId: stableIssueId({
             kind: "incompatible-active-contract",
-            contractId: selected.entry.contract.id,
-            digest: selected.entry.digest,
+            contractId: proposed.contract.id,
+            digest: proposed.digest,
             effectiveDigests,
             conflictingDigests,
           }),
           kind: "incompatible-active-contract",
-          contractId: selected.entry.contract.id,
-          digest: selected.entry.digest,
+          contractId: proposed.contract.id,
+          digest: proposed.digest,
           message:
-            `Active contract digest '${selected.entry.digest}' for '${selected.entry.contract.id}' conflicts with effective digest '${
+            `Active contract digest '${proposed.digest}' for '${proposed.contract.id}' conflicts with effective digest '${
               effectiveDigests[0]
-            }' (${selected.errorMessage})`,
+            }' (${conflictMessage})`,
           deploymentIds: conflictingDeploymentIds,
           effectiveDigests,
-          conflictingDigest: selected.entry.digest,
+          conflictingDigest: proposed.digest,
           conflictingDigests,
           effectiveDeploymentIds,
           conflictingDeploymentIds,
           actions: [
-            quarantineAction({
+            catalogIssueAction({
               action: "keep-current",
               risk: "recommended",
               label: "Keep current effective contract",
               description:
-                "Quarantine the conflicting deployment evidence so the current effective digest remains active.",
+                "Delete the conflicting deployment evidence so the current effective digest remains active.",
               deploymentIds: conflictingDeploymentIds,
               digests: conflictingDigests,
             }),
-            quarantineAction({
+            catalogIssueAction({
               action: "force-replace",
               risk: "dangerous",
               label: "Force replace current contract",
               description:
-                "Quarantine the current effective deployment evidence so the conflicting digest can become active.",
+                "Delete all non-selected deployment evidence so the proposed digest becomes active.",
               deploymentIds: forceReplaceDeploymentIds,
               digests: forceReplaceDigests,
             }),
           ],
         });
       }
-      effective.push(...accepted);
+      effective.push(current);
     }
     effective.sort((left, right) => left.digest.localeCompare(right.digest));
     return { entries: effective, issues };
-  }
-
-  function currentDeploymentEvidenceCandidate(
-    accepted: Array<ActiveDigestEvidence & ContractEntry>,
-    candidate: ActiveDigestEvidence & ContractEntry,
-  ): (ActiveDigestEvidence & ContractEntry) | undefined {
-    if (candidate.deploymentIds.length === 0) return candidate;
-    const deploymentIds = candidate.deploymentIds.filter((deploymentId) => {
-      const candidateSeenAt = candidate.deploymentFirstSeenAt[deploymentId] ??
-        candidate.firstSeenAt ?? "";
-      return !accepted.some((entry) =>
-        entry.contract.id === candidate.contract.id &&
-        entry.deploymentIds.includes(deploymentId) &&
-        (entry.deploymentFirstSeenAt[deploymentId] ?? entry.firstSeenAt ??
-            "") >=
-          candidateSeenAt
-      );
-    });
-    if (deploymentIds.length === 0) return undefined;
-    if (deploymentIds.length === candidate.deploymentIds.length) {
-      return candidate;
-    }
-    return { ...candidate, deploymentIds };
-  }
-
-  function replaceDeploymentEvidence(
-    accepted: Array<ActiveDigestEvidence & ContractEntry>,
-    candidate: ActiveDigestEvidence & ContractEntry,
-  ): void {
-    if (candidate.deploymentIds.length === 0) return;
-    const supersededDeployments = new Set(candidate.deploymentIds);
-    for (let index = accepted.length - 1; index >= 0; index -= 1) {
-      const entry = accepted[index];
-      if (entry.contract.id !== candidate.contract.id) continue;
-      const deploymentIds = entry.deploymentIds.filter((deploymentId) =>
-        !supersededDeployments.has(deploymentId) ||
-        ((candidate.deploymentFirstSeenAt[deploymentId] ??
-          candidate.firstSeenAt ?? "") <=
-          (entry.deploymentFirstSeenAt[deploymentId] ?? entry.firstSeenAt ??
-            ""))
-      );
-      if (deploymentIds.length === entry.deploymentIds.length) continue;
-      if (deploymentIds.length === 0) {
-        accepted.splice(index, 1);
-      } else {
-        accepted[index] = { ...entry, deploymentIds };
-      }
-    }
   }
 
   function activeUseIssue(
@@ -1034,12 +976,12 @@ export function createContractsModule(opts: {
         })`,
       deploymentIds: entry.deploymentIds,
       actions: entry.deploymentIds.length === 0 ? [] : [
-        quarantineAction({
+        catalogIssueAction({
           action: "keep-current",
           risk: "recommended",
-          label: "Quarantine invalid active uses",
+          label: "Remove invalid active uses",
           description:
-            "Quarantine this digest's deployment evidence so active dependencies can be repaired.",
+            "Delete this digest's deployment evidence so active dependencies can be repaired.",
           deploymentIds: entry.deploymentIds,
           digests: [entry.digest],
         }),

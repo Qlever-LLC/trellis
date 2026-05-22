@@ -19,6 +19,7 @@ import type {
   SqlDeploymentEnvelopeRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
+  SqlEnvelopeExpansionRequestRepository,
   SqlIdentityEnvelopeRepository,
   SqlSessionRepository,
   SqlUserProjectionRepository,
@@ -60,6 +61,7 @@ export function startControlPlaneBackgroundTasks(opts: {
   userStorage: SqlUserProjectionRepository;
   contractApprovalStorage: SqlIdentityEnvelopeRepository;
   deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+  envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
   deviceInstanceStorage: AuthRuntimeDeps["deviceInstanceStorage"];
@@ -82,6 +84,7 @@ export function startControlPlaneBackgroundTasks(opts: {
   const serviceLookup = createServiceLookup(opts);
   const disconnectCleanup = startDisconnectCleanup({
     connectionsKV: opts.connectionsKV,
+    envelopeExpansionRequestStorage: opts.envelopeExpansionRequestStorage,
     logger: opts.logger,
     natsSystem: opts.natsSystem,
     sessionStorage: opts.sessionStorage,

@@ -150,9 +150,9 @@ pub(crate) async fn run_catalog_repair_fixture(
         })
         .await
         .into_diagnostic()?;
-    if !repair.success || repair.ignored_evidence.is_empty() {
+    if !repair.success || repair.deleted_evidence.is_empty() {
         return Err(miette!(
-            "Auth.CatalogIssues.Resolve did not report ignored evidence for {}",
+            "Auth.CatalogIssues.Resolve did not report deleted evidence for {}",
             issue.issue_id
         ));
     }

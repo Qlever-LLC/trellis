@@ -79,7 +79,7 @@ Deno.test("control panel titles cover new admin routes", () => {
   deepEqual(getPageTitle("/admin/services"), "Services");
   deepEqual(
     getPageTitle("/admin/services/repair"),
-    "Repair Service Catalog",
+    "Forced Contract Update",
   );
   deepEqual(getPageTitle("/admin/devices"), "Devices");
   deepEqual(getPageTitle("/admin/jobs"), "Jobs");

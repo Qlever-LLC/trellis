@@ -983,6 +983,22 @@ for the durable deployment record:
   absent from the requested delta and grant no authority. If they later become
   active, a fresh reconnect requests a normal expansion before receiving that
   optional authority.
+- service-originated pending envelope expansion requests are deduplicated for
+  the connected requester and requested delta, and requests created by that
+  requester are removed when the requester disconnects. Envelope expansion stays
+  separate from Forced Contract Update.
+- if service bootstrap presents a digest for a `contractId` that already has a
+  different current active digest, auth reports or reuses one pending Forced
+  Contract Update for that `contractId`. Repeated restarts while waiting
+  coalesce into that pending update.
+- Forced Contract Update resolution uses the current admin RPC
+  `Auth.CatalogIssues.Resolve` with `keep-current` or `force-replace`. The
+  conceptual user-facing action is a Forced Update; the backend RPC name remains
+  catalog-issue resolution.
+- resolving a Forced Update is force-push-like and destructive: Trellis deletes
+  non-selected active evidence for that `contractId` instead of retaining it as
+  quarantine, repair history, or rollback authority, then refreshes the active
+  catalog so there is at most one current digest for the `contractId`.
 - if the deployment envelope fits but the required dependency closure is not
   active, service bootstrap returns `contract_activation_pending` and must not
   persist liveness state, resource bindings, or active deployment evidence for

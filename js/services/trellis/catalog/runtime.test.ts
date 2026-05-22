@@ -873,7 +873,7 @@ Deno.test("contracts runtime degrades divergent active compatible digests", asyn
             action: "keep-current",
             label: "Keep current effective contract",
             description:
-              "Quarantine the conflicting deployment evidence so the current effective digest remains active.",
+              "Delete the conflicting deployment evidence so the current effective digest remains active.",
             risk: "recommended",
             deploymentIds: ["service.default"],
             digests: [secondInstalled.digest],
@@ -882,7 +882,7 @@ Deno.test("contracts runtime degrades divergent active compatible digests", asyn
             action: "force-replace",
             label: "Force replace current contract",
             description:
-              "Quarantine the current effective deployment evidence so the conflicting digest can become active.",
+              "Delete all non-selected deployment evidence so the proposed digest becomes active.",
             risk: "dangerous",
             deploymentIds: ["service.default"],
             digests: [firstInstalled.digest],
@@ -900,12 +900,9 @@ Deno.test("contracts runtime degrades divergent active compatible digests", asyn
         testServiceDeployment("service.default", ["Billing"], true),
       ],
     });
-    await deploymentContractEvidenceStorage.ignoreEvidence({
-      deploymentIds: ["service.default"],
+    await deploymentContractEvidenceStorage.deleteEvidence({
+      contractId: "billing@v1",
       contractDigests: [secondInstalled.digest],
-      ignoredAt: "2026-01-01T00:00:02.000Z",
-      ignoredBy: { userId: "admin" },
-      reason: "test repair",
     });
     await module.refreshActiveContracts();
     assertEquals(await module.getActiveCatalogIssues(), []);
@@ -1000,7 +997,7 @@ Deno.test("contracts runtime groups same-lineage active incompatibilities into o
               action: "keep-current",
               label: "Keep current effective contract",
               description:
-                "Quarantine the conflicting deployment evidence so the current effective digest remains active.",
+                "Delete the conflicting deployment evidence so the current effective digest remains active.",
               risk: "recommended",
               deploymentIds: ["service.default", "service.other"],
               digests: conflictingDigests,
@@ -1009,7 +1006,7 @@ Deno.test("contracts runtime groups same-lineage active incompatibilities into o
               action: "force-replace",
               label: "Force replace current contract",
               description:
-                "Quarantine the current effective deployment evidence so the conflicting digest can become active.",
+                "Delete all non-selected deployment evidence so the proposed digest becomes active.",
               risk: "dangerous",
               deploymentIds: ["service.default"],
               digests: [firstInstalled.digest, secondInstalled.digest].sort((
@@ -1021,12 +1018,9 @@ Deno.test("contracts runtime groups same-lineage active incompatibilities into o
         },
       ]);
 
-      await evidence.ignoreEvidence({
-        deploymentIds: ["service.default", "service.other"],
+      await evidence.deleteEvidence({
+        contractId: "billing@v1",
         contractDigests: conflictingDigests,
-        ignoredAt: "2026-01-01T00:00:03.000Z",
-        ignoredBy: { userId: "admin" },
-        reason: "test keep current repair",
       });
       await module.refreshActiveContracts();
       assertEquals(await module.getActiveCatalogIssues(), []);
@@ -1034,7 +1028,7 @@ Deno.test("contracts runtime groups same-lineage active incompatibilities into o
   );
 });
 
-Deno.test("contracts runtime force replace activates newest grouped conflict in one repair", async () => {
+Deno.test("contracts runtime forced update activates newest grouped conflict", async () => {
   await withContractsModule(
     async (module, _contracts, deployments, evidence, envelopes) => {
       const first = makeOperationContract(
@@ -1100,12 +1094,9 @@ Deno.test("contracts runtime force replace activates newest grouped conflict in 
       );
       if (!forceReplace) throw new Error("expected force-replace action");
 
-      await evidence.ignoreEvidence({
-        deploymentIds: forceReplace.deploymentIds,
+      await evidence.deleteEvidence({
+        contractId: "billing@v1",
         contractDigests: forceReplace.digests,
-        ignoredAt: "2026-01-01T00:00:03.000Z",
-        ignoredBy: { userId: "admin" },
-        reason: "test force replace repair",
       });
       await module.refreshActiveContracts();
 
@@ -1120,19 +1111,22 @@ Deno.test("contracts runtime force replace activates newest grouped conflict in 
   );
 });
 
-Deno.test("contracts runtime lets newer compatible deployment evidence supersede older evidence", async () => {
+Deno.test("contracts runtime keeps one active digest for compatible duplicate evidence", async () => {
   await withContractsModule(
     async (module, _contracts, deployments, evidence, envelopes) => {
       const first = makeOperationContract(
         "billing@v1",
         "operations.v1.Billing.Refund",
       );
-      first.description = "First compatible billing contract.";
       const second = makeOperationContract(
         "billing@v1",
         "operations.v1.Billing.Refund",
       );
-      second.description = "Second compatible billing contract.";
+      second.schemas = {
+        ...second.schemas,
+        Extra: { type: "string" },
+      };
+      second.exports = { schemas: ["Extra"] };
       const firstInstalled = await module.installServiceContract(first);
       const secondInstalled = await module.installServiceContract(second);
 

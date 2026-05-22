@@ -564,6 +564,24 @@ Deno.test("portal routes, grant overrides, resources, and evidence support creat
       (await contractEvidence.listByDeployment("svc-a"))[0]?.lastSeenAt,
       "2026-05-07T00:00:02.000Z",
     );
+    await contractEvidence.put({
+      ...evidence,
+      contractDigest: "sha256-app-next",
+      lastSeenAt: "2026-05-07T00:00:03.000Z",
+    });
+    const deleted = await contractEvidence.deleteEvidence({
+      contractId: "app@v1",
+      contractDigests: ["sha256-app"],
+    });
+    assertEquals(deleted.map((record) => record.contractDigest), [
+      "sha256-app",
+    ]);
+    assertEquals(
+      (await contractEvidence.listByContractId("app@v1")).map((record) =>
+        record.contractDigest
+      ),
+      ["sha256-app-next"],
+    );
   });
 });
 
@@ -628,6 +646,53 @@ Deno.test("pending expansion request insert reuses equivalent pending rows", asy
         request.requestId
       ),
       ["req-first", "req-third"],
+    );
+  });
+});
+
+Deno.test("pending service expansion requests can be deleted by requester instance", async () => {
+  await withEnvelopeRepositories(async ({ expansionRequests }) => {
+    await expansionRequests.putPending(makeExpansionRequest({
+      requestId: "req-service-a",
+      requestedBy: { instanceId: "svc-instance-a" },
+    }));
+    await expansionRequests.putPending(makeExpansionRequest({
+      requestId: "req-service-b",
+      requestedBy: { instanceId: "svc-instance-b" },
+      contractDigest: "sha256-b",
+      createdAt: "2026-05-07T00:00:03.000Z",
+    }));
+    await expansionRequests.put(makeExpansionRequest({
+      requestId: "req-service-a-approved",
+      requestedBy: { instanceId: "svc-instance-a" },
+      contractDigest: "sha256-approved",
+      state: "approved",
+      createdAt: "2026-05-07T00:00:04.000Z",
+      decidedAt: "2026-05-07T00:00:05.000Z",
+      decidedBy: { type: "user", id: "admin" },
+      decisionReason: "approved",
+    }));
+    await expansionRequests.put(makeExpansionRequest({
+      requestId: "req-user-a",
+      requestedByKind: "user",
+      requestedBy: { instanceId: "svc-instance-a" },
+      contractDigest: "sha256-user",
+      createdAt: "2026-05-07T00:00:06.000Z",
+    }));
+
+    assertEquals(
+      await expansionRequests.deletePendingServiceRequestsByRequesterInstanceId(
+        "svc-instance-a",
+      ),
+      1,
+    );
+
+    assertEquals(await expansionRequests.get("req-service-a"), undefined);
+    assertEquals(
+      (await expansionRequests.listByDeployment("svc-a")).map((request) =>
+        request.requestId
+      ),
+      ["req-service-b", "req-service-a-approved", "req-user-a"],
     );
   });
 });

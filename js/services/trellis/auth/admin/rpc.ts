@@ -233,7 +233,7 @@ export type AdminRpcDeps = {
     & Partial<
       Pick<
         SqlDeploymentContractEvidenceRepository,
-        "listByDigests" | "ignoreEvidence"
+        "listByDigests" | "deleteEvidence"
       >
     >;
   deviceInstanceStorage: {
@@ -321,17 +321,6 @@ function bindAdminRpcHandler<Args, Response>(
   return (args) => handler(args, deps);
 }
 
-function authCallerEvidenceActor(caller: RpcUser): Record<string, unknown> {
-  if (caller.type !== "user") {
-    return { participantKind: caller.type };
-  }
-  return {
-    participantKind: caller.participantKind,
-    userId: caller.userId,
-    identity: caller.identity,
-  };
-}
-
 async function authResolveCatalogIssueHandler(
   { input: req, context: { caller } }: {
     input: CatalogIssueResolveRequest;
@@ -343,7 +332,7 @@ async function authResolveCatalogIssueHandler(
     success: true;
     issueId: string;
     action: "keep-current" | "force-replace";
-    ignoredEvidence: Awaited<
+    deletedEvidence: Awaited<
       ReturnType<
         NonNullable<
           AdminRpcDeps["deploymentContractEvidenceStorage"]
@@ -363,11 +352,11 @@ async function authResolveCatalogIssueHandler(
       }),
     );
   }
-  if (!ctx.deploymentContractEvidenceStorage?.ignoreEvidence) {
+  if (!ctx.deploymentContractEvidenceStorage?.deleteEvidence) {
     return Result.err(
       new UnexpectedError({
         cause: new Error(
-          "catalog issue resolution requires deploymentContractEvidenceStorage.ignoreEvidence",
+          "catalog issue resolution requires deploymentContractEvidenceStorage.deleteEvidence",
         ),
       }),
     );
@@ -390,20 +379,23 @@ async function authResolveCatalogIssueHandler(
         action: req.action,
       });
     }
-    const ignoredEvidence = await ctx.deploymentContractEvidenceStorage
-      .ignoreEvidence({
-        deploymentIds: action.deploymentIds,
+    if (!issue.contractId) {
+      return invalidRequest({
+        issueId: req.issueId,
+        action: req.action,
+      });
+    }
+    const deletedEvidence = await ctx.deploymentContractEvidenceStorage
+      .deleteEvidence({
+        contractId: issue.contractId,
         contractDigests: action.digests,
-        ignoredAt: new Date().toISOString(),
-        ignoredBy: authCallerEvidenceActor(caller),
-        reason: `Resolved catalog issue ${req.issueId} with ${req.action}`,
       });
     await ctx.refreshActiveContracts();
     return Result.ok({
       success: true,
       issueId: req.issueId,
       action: req.action,
-      ignoredEvidence,
+      deletedEvidence,
     });
   } catch (error) {
     return Result.err(new UnexpectedError({ cause: toError(error) }));
