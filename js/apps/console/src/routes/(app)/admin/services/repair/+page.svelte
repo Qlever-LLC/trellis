@@ -1,6 +1,5 @@
 <script lang="ts">
   import { isErr, type BaseError, type Result } from "@qlever-llc/result";
-  import type { AuthDeploymentsListOutput } from "@qlever-llc/trellis/sdk/auth";
   import type { TrellisContractGetOutput } from "@qlever-llc/trellis/sdk/core";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -14,7 +13,6 @@
   import { getNotifications } from "$lib/notifications.svelte";
   import { getTrellis } from "$lib/trellis";
 
-  type Deployment = Extract<AuthDeploymentsListOutput["entries"][number], { kind: "service" }>;
   type CatalogIssueAction = {
     action: "keep-current" | "force-replace";
     label: string;
@@ -95,18 +93,14 @@
   let error = $state<string | null>(null);
   let manifestError = $state<string | null>(null);
   let pendingAction = $state<CatalogIssueAction["action"] | null>(null);
-  let deployments = $state.raw<Deployment[]>([]);
   let issues = $state.raw<CatalogIssue[]>([]);
   let manifests = $state.raw<Record<string, ContractManifest>>({});
   let selectedIssueId = $state(page.url.searchParams.get("issue") ?? "");
   let confirmationModal: ConfirmationModal | undefined = $state();
 
   const selectedIssue = $derived(issues.find((issue) => issue.issueId === selectedIssueId) ?? issues[0] ?? null);
-  const activeDeploymentIds = $derived(new Set(deployments.filter((deployment) => !deployment.disabled).map((deployment) => deployment.deploymentId)));
   const effectiveDigests = $derived(selectedIssue ? uniqueValues(selectedIssue.effectiveDigests ?? []) : []);
   const conflictingDigests = $derived(selectedIssue ? uniqueValues([...(selectedIssue.conflictingDigests ?? []), selectedIssue.conflictingDigest]) : []);
-  const effectiveDeployments = $derived(selectedIssue ? uniqueValues(selectedIssue.effectiveDeploymentIds ?? selectedIssue.deploymentIds) : []);
-  const conflictingDeployments = $derived(selectedIssue ? uniqueValues(selectedIssue.conflictingDeploymentIds ?? selectedIssue.deploymentIds) : []);
   const surfaceDiffs = $derived(selectedIssue ? buildSurfaceDiffs(effectiveDigests, conflictingDigests) : []);
   const schemaDiffs = $derived(selectedIssue ? buildSchemaDiffs(effectiveDigests, conflictingDigests) : []);
   const forcedUpdateActions = $derived(selectedIssue
@@ -358,14 +352,9 @@
     error = null;
     manifestError = null;
     try {
-      const [catalogRes, deploymentsRes] = await Promise.all([
-        coreRequest("Trellis.Catalog", {}).take(),
-        trellis.request("Auth.Deployments.List", { kind: "service", disabled: false, limit: 500, offset: 0 }).take(),
-      ]);
+      const catalogRes = await coreRequest("Trellis.Catalog", {}).take();
       if (isErr(catalogRes)) { error = errorMessage(catalogRes); return; }
-      if (isErr(deploymentsRes)) { error = errorMessage(deploymentsRes); return; }
 
-      deployments = (deploymentsRes.entries ?? []).filter((deployment): deployment is Deployment => deployment.kind === "service");
       issues = catalogRes.catalog.issues ?? [];
       if (selectedIssueId && !issues.some((issue) => issue.issueId === selectedIssueId)) selectedIssueId = "";
       if (!selectedIssueId) selectedIssueId = issues[0]?.issueId ?? "";
@@ -489,39 +478,6 @@
           <div class="space-y-4">
             <div class="rounded-box border border-error/25 bg-error/10 p-3 text-sm">
               <div class="break-words font-medium [overflow-wrap:anywhere]">{issueSummary(selectedIssue)}</div>
-            </div>
-
-            <div class="grid gap-3 md:grid-cols-2">
-              <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
-                <div class="text-xs font-semibold uppercase text-base-content/60">Current contract</div>
-                <div class="mt-2 trellis-token-list">
-                  {#each effectiveDigests as digest (digest)}
-                    <span class="badge badge-outline badge-sm trellis-identifier break-all" title={digest}>{formatDigest(digest)}</span>
-                  {:else}
-                    <span class="text-sm text-base-content/50">No current digest</span>
-                  {/each}
-                </div>
-                <div class="mt-2 trellis-token-list">
-                  {#each effectiveDeployments as deploymentId (deploymentId)}
-                    <span class={["badge badge-xs trellis-identifier", activeDeploymentIds.has(deploymentId) ? "badge-outline" : "badge-neutral"]}>{deploymentId}</span>
-                  {/each}
-                </div>
-              </div>
-              <div class="rounded-box border border-warning/30 bg-warning/10 p-3">
-                <div class="text-xs font-semibold uppercase text-base-content/60">Proposed update</div>
-                <div class="mt-2 trellis-token-list">
-                  {#each conflictingDigests as digest (digest)}
-                    <span class="badge badge-warning badge-outline badge-sm trellis-identifier break-all" title={digest}>{formatDigest(digest)}</span>
-                  {:else}
-                    <span class="text-sm text-base-content/50">No proposed digest</span>
-                  {/each}
-                </div>
-                <div class="mt-2 trellis-token-list">
-                  {#each conflictingDeployments as deploymentId (deploymentId)}
-                    <span class={["badge badge-xs trellis-identifier", activeDeploymentIds.has(deploymentId) ? "badge-warning badge-outline" : "badge-neutral"]}>{deploymentId}</span>
-                  {/each}
-                </div>
-              </div>
             </div>
           </div>
         </Panel>
