@@ -8,6 +8,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.0-rc.9] - 2026-05-22
+
+### Fixed
+
+- Fixed macOS CLI release builds to force-refresh generated Rust SDK manifests
+  before building, preventing Linux runner absolute paths from leaking into
+  Darwin builds.
+- Opted release and Pages workflows into Node.js 24 for JavaScript actions to
+  avoid the GitHub Actions Node 20 deprecation warning.
+
 ## [0.9.0-rc.8] - 2026-05-22
 
 ### Fixed

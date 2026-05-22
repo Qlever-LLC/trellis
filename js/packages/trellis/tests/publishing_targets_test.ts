@@ -44,11 +44,19 @@ Deno.test("release workflows use generated package-manager targets", async () =>
   );
   assertStringIncludes(
     releaseWorkflow,
-    "cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .",
+    "cargo run --manifest-path rust/tools/generate/Cargo.toml -- -f prepare --no-npm .",
+  );
+  assertStringIncludes(
+    releaseWorkflow,
+    'grep -R "/home/runner/work/trellis/trellis" generated/packages/cargo/*/Cargo.toml',
   );
   assertStringIncludes(
     releaseWorkflow,
     "denoland/setup-deno@v2",
+  );
+  assertStringIncludes(
+    releaseWorkflow,
+    "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true",
   );
 });
 
@@ -67,6 +75,7 @@ Deno.test("pages workflow cleans generator fallback temp dirs explicitly", async
     source,
     "Published trellis-generate checksum is not available",
   );
+  assertStringIncludes(source, "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true");
 });
 
 Deno.test("trellis package exports the first-party SDK subpaths", async () => {

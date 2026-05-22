@@ -29,6 +29,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   DENO_VERSION: 2.7.14
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   NODE_VERSION: 24
   REGISTRY: ghcr.io
   RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag || '' }}
@@ -290,7 +291,14 @@ jobs:
             rust/tools/generate -> target
 
       - name: Refresh generated Rust SDK paths
-        run: cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo run --manifest-path rust/tools/generate/Cargo.toml -- -f prepare --no-npm .
+          if grep -R "/home/runner/work/trellis/trellis" generated/packages/cargo/*/Cargo.toml; then
+            echo "::error::generated Rust SDK manifests still contain Linux runner paths"
+            exit 1
+          fi
 
       - name: Build release binaries
         shell: bash
