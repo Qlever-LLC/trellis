@@ -1153,6 +1153,109 @@ Deno.test("TrellisService.connect waits for pending contract activation", async 
   }
 });
 
+Deno.test("TrellisService.connect waits for pending contract catalog issue", async () => {
+  const originalFetch = globalThis.fetch;
+  const testLogger = createTestLogger();
+  const requestBodies: Array<Record<string, unknown>> = [];
+  let fetchCount = 0;
+
+  try {
+    globalThis.fetch = ((_input, init) => {
+      fetchCount += 1;
+      if (typeof init?.body !== "string") {
+        throw new Error("bootstrap request body should be JSON");
+      }
+      requestBodies.push(JSON.parse(init.body) as Record<string, unknown>);
+      if (fetchCount === 1) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              reason: "contract_catalog_issue",
+              message:
+                "Service contract 'trellis.core@v1' has a pending forced update.",
+              deploymentId: "demo-js",
+              issueId: "issue_123",
+              activeContractDigest: "digest_active",
+            }),
+            {
+              status: 409,
+              headers: {
+                "Content-Type": "application/json",
+                "Retry-After": "0",
+              },
+            },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            status: "ready",
+            serverNow: 1_700_000_120,
+            connectInfo: {
+              sessionKey: "session-key",
+              contractId: core.CONTRACT_ID,
+              contractDigest: core.CONTRACT_DIGEST,
+              transports: {
+                native: { natsServers: ["nats://127.0.0.1:4222"] },
+              },
+              transport: {
+                sentinel: { jwt: "jwt", seed: "seed" },
+              },
+              auth: {
+                mode: "service_identity",
+                iatSkewSeconds: 30,
+              },
+            },
+            binding: {
+              contractId: core.CONTRACT_ID,
+              digest: core.CONTRACT_DIGEST,
+              resources: { kv: {} },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    }) as typeof fetch;
+
+    await assertRejects(
+      () =>
+        TrellisService.connect({
+          trellisUrl: "https://trellis.example.com",
+          contract: core,
+          name: "svc",
+          sessionKeySeed: TEST_SEED,
+          server: { log: testLogger.logger },
+        }, {
+          connect: (): Promise<NatsConnection> =>
+            Promise.reject(new Error("stop-after-bootstrap")),
+        }).orThrow(),
+      TransportError,
+      "Trellis could not open the service runtime connection.",
+    );
+    assertEquals(fetchCount, 2);
+    assertEquals("contract" in requestBodies[0], false);
+    assertEquals(requestBodies[1].contract, core.CONTRACT);
+    assertEquals(testLogger.infoCalls, [[
+      {
+        service: "svc",
+        deploymentId: "demo-js",
+        issueId: "issue_123",
+        activeContractDigest: "digest_active",
+        contractId: core.CONTRACT_ID,
+        contractDigest: core.CONTRACT_DIGEST,
+        retryDelayMs: 0,
+      },
+      "Service contract catalog issue pending; waiting for forced update resolution",
+    ]]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("internal service connect accepts log false", async () => {
   const service = await connectTrellisServiceInternal("svc", {
     sessionKeySeed: TEST_SEED,

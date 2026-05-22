@@ -180,6 +180,8 @@ type ServiceBootstrapFailure = {
   serverNow?: number;
   requestId?: string;
   deploymentId?: string;
+  issueId?: string;
+  activeContractDigest?: string;
 };
 
 const DEFAULT_BOOTSTRAP_PENDING_RETRY_MS = 5_000;
@@ -528,6 +530,29 @@ async function fetchServiceBootstrapInfo(args: {
               retryDelayMs,
             },
             "Service contract activation pending; waiting for dependency closure",
+          );
+        }
+        await delay(retryDelayMs);
+        includeContract = true;
+        continue;
+      }
+      if (failure.reason === "contract_catalog_issue") {
+        const retryDelayMs = bootstrapRetryDelayMs(settled.response);
+        const pendingKey = failure.issueId ??
+          `${failure.activeContractDigest ?? "unknown"}:${args.contractDigest}`;
+        if (!loggedPendingRequests.has(pendingKey)) {
+          loggedPendingRequests.add(pendingKey);
+          args.log.info(
+            {
+              service: args.serviceName,
+              deploymentId: failure.deploymentId,
+              issueId: failure.issueId,
+              activeContractDigest: failure.activeContractDigest,
+              contractId: args.contractId,
+              contractDigest: args.contractDigest,
+              retryDelayMs,
+            },
+            "Service contract catalog issue pending; waiting for forced update resolution",
           );
         }
         await delay(retryDelayMs);
