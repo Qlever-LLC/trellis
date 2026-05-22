@@ -364,6 +364,13 @@ await run("deno", [
   `npm:@qlever-llc/trellis@${trellisPackage.packageJson.version}`,
   "--version",
 ], { cwd: projectDir, env: { TRELLIS_GENERATE_BIN: fakeGenerator } });
+await run("deno", [
+  "run",
+  "--node-modules-dir=manual",
+  "-A",
+  `npm:@qlever-llc/trellis@${trellisPackage.packageJson.version}/generate`,
+  "--version",
+], { cwd: projectDir, env: { TRELLIS_GENERATE_BIN: fakeGenerator } });
 
 console.log(
   `NPM smoke passed for ${tarballs.map((path) => basename(path)).join(", ")}`,

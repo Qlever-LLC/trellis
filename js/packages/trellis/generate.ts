@@ -12,18 +12,34 @@ type PackageManifest = {
   version?: unknown;
 };
 
+type CommandStatus = {
+  success: boolean;
+  code: number;
+};
+
 async function main(): Promise<void> {
   const localRepoRoot = await findLocalTrellisRepoRoot();
   if (localRepoRoot) {
-    await runLocalGenerator(localRepoRoot, Deno.args);
+    await runLocalGenerator(localRepoRoot, denoRuntime().args);
     return;
   }
 
   const packageVersion = await readPackageVersion();
-  const binary = Deno.env.get("TRELLIS_GENERATE_BIN")?.trim() ||
+  const binary = denoRuntime().env.get("TRELLIS_GENERATE_BIN")?.trim() ||
     await ensureCachedReleaseBinary(packageVersion);
   await verifyBinaryVersion(binary, packageVersion);
-  await runBinary(binary, Deno.args);
+  await runBinary(binary, denoRuntime().args);
+}
+
+function denoRuntime(): typeof Deno {
+  const getGlobalThis = Function("return globalThis") as () => {
+    Deno?: typeof Deno;
+  };
+  const deno = getGlobalThis().Deno;
+  if (!deno) {
+    throw new Error("@qlever-llc/trellis/generate requires the Deno runtime");
+  }
+  return deno;
 }
 
 async function findLocalTrellisRepoRoot(): Promise<string | undefined> {
@@ -43,7 +59,7 @@ async function findLocalTrellisRepoRoot(): Promise<string | undefined> {
 async function runLocalGenerator(
   repoRoot: string,
   args: string[],
-): Promise<never> {
+): Promise<void> {
   return await runCommand("cargo", [
     "run",
     "--manifest-path",
@@ -56,16 +72,31 @@ async function runLocalGenerator(
 }
 
 async function readPackageVersion(): Promise<string> {
-  const manifestUrl = new URL("./deno.json", import.meta.url);
-  const manifest = JSON.parse(
-    await Deno.readTextFile(manifestUrl),
-  ) as PackageManifest;
+  const manifest = await readFirstManifest([
+    new URL("./deno.json", import.meta.url),
+    new URL("../../../package.json", import.meta.url),
+  ]);
   if (typeof manifest.version !== "string" || !manifest.version.trim()) {
     throw new Error(
       "@qlever-llc/trellis package manifest does not declare a version",
     );
   }
   return manifest.version.trim();
+}
+
+async function readFirstManifest(urls: URL[]): Promise<PackageManifest> {
+  const deno = denoRuntime();
+  for (const url of urls) {
+    try {
+      return JSON.parse(await deno.readTextFile(url)) as PackageManifest;
+    } catch (error) {
+      if (error instanceof deno.errors.NotFound) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("@qlever-llc/trellis package manifest was not found");
 }
 
 async function ensureCachedReleaseBinary(version: string): Promise<string> {
@@ -76,7 +107,8 @@ async function ensureCachedReleaseBinary(version: string): Promise<string> {
     return binary;
   }
 
-  await Deno.mkdir(cacheDir, { recursive: true });
+  const deno = denoRuntime();
+  await deno.mkdir(cacheDir, { recursive: true });
   const tag = `v${version}`;
   const archiveName = `${BIN_NAME}-${tag}-${target}.tar.gz`;
   const archiveUrl =
@@ -92,24 +124,25 @@ async function ensureCachedReleaseBinary(version: string): Promise<string> {
   await verifyChecksum(archive, checksumText, archiveUrl);
 
   const archivePath = joinPath(cacheDir, archiveName);
-  await Deno.writeFile(archivePath, archive);
+  await deno.writeFile(archivePath, archive);
   await runCommandChecked("tar", ["-xzf", archivePath, "-C", cacheDir]);
-  await Deno.chmod(binary, 0o755);
+  await deno.chmod(binary, 0o755);
   return binary;
 }
 
 function releaseTarget(): string {
-  if (SUPPORTED_TARGETS.has(Deno.build.target)) {
-    return Deno.build.target;
+  const deno = denoRuntime();
+  if (SUPPORTED_TARGETS.has(deno.build.target)) {
+    return deno.build.target;
   }
 
-  const buildArch: string = Deno.build.arch;
+  const buildArch: string = deno.build.arch;
   const arch = buildArch === "x86_64" || buildArch === "x64"
     ? "x86_64"
     : buildArch;
-  const os = Deno.build.os === "darwin"
+  const os = deno.build.os === "darwin"
     ? "apple-darwin"
-    : Deno.build.os === "linux"
+    : deno.build.os === "linux"
     ? "unknown-linux-gnu"
     : undefined;
   const target = os ? `${arch}-${os}` : undefined;
@@ -118,20 +151,21 @@ function releaseTarget(): string {
   }
 
   throw new Error(
-    `no ${BIN_NAME} release binary is available for ${Deno.build.target}`,
+    `no ${BIN_NAME} release binary is available for ${deno.build.target}`,
   );
 }
 
 function cacheRoot(): string {
-  const explicit = Deno.env.get("TRELLIS_GENERATE_CACHE")?.trim();
+  const deno = denoRuntime();
+  const explicit = deno.env.get("TRELLIS_GENERATE_CACHE")?.trim();
   if (explicit) {
     return explicit;
   }
-  const xdg = Deno.env.get("XDG_CACHE_HOME")?.trim();
+  const xdg = deno.env.get("XDG_CACHE_HOME")?.trim();
   if (xdg) {
     return joinPath(xdg, "trellis", BIN_NAME);
   }
-  const home = Deno.env.get("HOME")?.trim();
+  const home = deno.env.get("HOME")?.trim();
   if (!home) {
     throw new Error(
       "HOME or TRELLIS_GENERATE_CACHE must be set to cache trellis-generate",
@@ -183,7 +217,8 @@ async function verifyBinaryVersion(
   binary: string,
   expectedVersion: string,
 ): Promise<void> {
-  const output = await new Deno.Command(binary, {
+  const Command = denoRuntime().Command;
+  const output = await new Command(binary, {
     args: ["--version"],
     stdout: "piped",
     stderr: "piped",
@@ -211,7 +246,7 @@ function normalizeVersion(version: string): string {
   return version.trim().replace(/^v/, "").split("+")[0];
 }
 
-async function runBinary(binary: string, args: string[]): Promise<never> {
+async function runBinary(binary: string, args: string[]): Promise<void> {
   return await runCommand(binary, args);
 }
 
@@ -219,9 +254,9 @@ async function runCommand(
   command: string,
   args: string[],
   options: { cwd?: string } = {},
-): Promise<never> {
+): Promise<void> {
   const status = await spawnCommand(command, args, options);
-  Deno.exit(status.code);
+  denoRuntime().exit(status.code);
 }
 
 async function runCommandChecked(
@@ -239,8 +274,9 @@ async function spawnCommand(
   command: string,
   args: string[],
   options: { cwd?: string } = {},
-): Promise<Deno.CommandStatus> {
-  const status = await new Deno.Command(command, {
+): Promise<CommandStatus> {
+  const Command = denoRuntime().Command;
+  const status = await new Command(command, {
     args,
     cwd: options.cwd,
     stdin: "inherit",
@@ -251,11 +287,12 @@ async function spawnCommand(
 }
 
 async function pathExists(path: string): Promise<boolean> {
+  const deno = denoRuntime();
   try {
-    await Deno.stat(path);
+    await deno.stat(path);
     return true;
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    if (error instanceof deno.errors.NotFound) {
       return false;
     }
     throw error;
@@ -285,6 +322,6 @@ function joinPath(...parts: string[]): string {
 if (import.meta.main) {
   main().catch((error) => {
     console.error(error);
-    Deno.exit(1);
+    denoRuntime().exit(1);
   });
 }
