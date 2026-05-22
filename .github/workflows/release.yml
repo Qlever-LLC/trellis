@@ -295,10 +295,6 @@ jobs:
         run: |
           set -euo pipefail
           cargo run --manifest-path rust/tools/generate/Cargo.toml -- -f prepare --no-npm .
-          if grep -R "/home/runner/work/trellis/trellis" generated/packages/cargo/*/Cargo.toml; then
-            echo "::error::generated Rust SDK manifests still contain Linux runner paths"
-            exit 1
-          fi
 
       - name: Build release binaries
         shell: bash

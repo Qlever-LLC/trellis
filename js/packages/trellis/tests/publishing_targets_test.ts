@@ -48,10 +48,6 @@ Deno.test("release workflows use generated package-manager targets", async () =>
   );
   assertStringIncludes(
     releaseWorkflow,
-    'grep -R "/home/runner/work/trellis/trellis" generated/packages/cargo/*/Cargo.toml',
-  );
-  assertStringIncludes(
-    releaseWorkflow,
     "denoland/setup-deno@v2",
   );
   assertStringIncludes(

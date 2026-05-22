@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.0-rc.10] - 2026-05-22
+
+### Fixed
+
+- Removed the brittle generated SDK path guard from CLI release builds while
+  keeping forced SDK regeneration so each runner rewrites local paths before
+  compiling.
+
 ## [0.9.0-rc.9] - 2026-05-22
 
 ### Fixed
