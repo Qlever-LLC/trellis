@@ -52,6 +52,23 @@ Deno.test("release workflows use generated package-manager targets", async () =>
   );
 });
 
+Deno.test("pages workflow cleans generator fallback temp dirs explicitly", async () => {
+  const source = await Deno.readTextFile(
+    new URL("../../../../.github/workflows/pages.yml", import.meta.url),
+  );
+
+  assertEquals(source.includes("trap cleanup_temp RETURN"), false);
+  assertStringIncludes(source, "cleanup_temp");
+  assertStringIncludes(
+    source,
+    "Published trellis-generate archive is not available",
+  );
+  assertStringIncludes(
+    source,
+    "Published trellis-generate checksum is not available",
+  );
+});
+
 Deno.test("trellis package exports the first-party SDK subpaths", async () => {
   const source = await Deno.readTextFile(
     new URL("../deno.json", import.meta.url),

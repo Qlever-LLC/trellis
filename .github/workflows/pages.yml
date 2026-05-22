@@ -98,16 +98,17 @@ jobs:
               cleanup_temp() {
                 rm -rf "${temp_dir}"
               }
-              trap cleanup_temp RETURN
 
               local release_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}"
               echo "Trying published trellis-generate ${tag} for ${repo_root}"
               if ! curl --fail --location --silent --show-error --output "${temp_dir}/${archive}" "${release_url}/${archive}"; then
                 echo "Published trellis-generate archive is not available for ${tag}; falling back to cargo"
+                cleanup_temp
                 return 1
               fi
               if ! curl --fail --location --silent --show-error --output "${temp_dir}/${checksum}" "${release_url}/${checksum}"; then
                 echo "Published trellis-generate checksum is not available for ${tag}; falling back to cargo"
+                cleanup_temp
                 return 1
               fi
 
@@ -117,13 +118,13 @@ jobs:
               actual="${actual%% *}"
               if [ "${actual}" != "${expected}" ]; then
                 echo "Checksum mismatch for ${archive}; falling back to cargo"
+                cleanup_temp
                 return 1
               fi
 
               mkdir -p "${cache_dir}"
               tar -xzf "${temp_dir}/${archive}" -C "${cache_dir}"
               chmod +x "${binary}"
-              trap - RETURN
               cleanup_temp
             else
               echo "Using cached trellis-generate ${tag} for ${repo_root}"

@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.0-rc.8] - 2026-05-22
+
+### Fixed
+
+- Fixed GitHub Pages release-site generation fallback cleanup so missing or
+  delayed `trellis-generate` release assets no longer leave a stale `RETURN`
+  trap that fails under `set -u`.
+
 ## [0.9.0-rc.7] - 2026-05-22
 
 ### Fixed
