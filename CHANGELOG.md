@@ -8,7 +8,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.9.0-rc.2] - 2026-05-21
+## [0.9.0-rc.3] - 2026-05-21
 
 ### Added
 
@@ -114,6 +114,9 @@ and this project adheres to
   subpath remains available in freshly built publish artifacts.
 - Fixed prerelease npm smoke validation to invoke the packed Trellis CLI by its
   exact prerelease version when Deno resolves manual `node_modules` packages.
+- Fixed Rust crate prerelease publishing order so registry-verified crates are
+  published only after their internal Trellis dependencies are visible in the
+  crates.io index.
 - Fixed the Rust auth agent-flow polling test timeout so slower CI runners do
   not fail before the mocked redirect status is observed.
 

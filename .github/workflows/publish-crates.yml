@@ -109,10 +109,27 @@ jobs:
             curl --silent --show-error --fail "https://crates.io/api/v1/crates/${crate}/${version}" >/dev/null 2>&1
           }
 
+          wait_for_crate_index() {
+            local crate="$1"
+            local version="$2"
+
+            for attempt in {1..30}; do
+              if cargo info "${crate}@${version}" >/dev/null 2>&1; then
+                return 0
+              fi
+              echo "Waiting for ${crate}@${version} to appear in the crates.io index (${attempt}/30)"
+              sleep 10
+            done
+
+            echo "::error::${crate}@${version} did not appear in the crates.io index"
+            return 1
+          }
+
           record_skip() {
             local crate="$1"
             echo "Skipping ${crate}@${workspace_version} (already published)"
             skipped+=("${crate}@${workspace_version}")
+            wait_for_crate_index "$crate" "$workspace_version"
           }
 
           record_publish() {
@@ -135,6 +152,7 @@ jobs:
 
             if [ "$status" -eq 0 ]; then
               record_publish "$crate"
+              wait_for_crate_index "$crate" "$workspace_version"
               return 0
             fi
 
@@ -174,11 +192,12 @@ jobs:
             cargo run --manifest-path tools/generate/Cargo.toml --bin trellis-generate -- generate cargo --source ../js/services/trellis/contracts/trellis_core.ts --out ../generated/packages/cargo/trellis-core --crate-name trellis-sdk-core --runtime-source registry
           }
 
-          # Publish crates that the generated Rust SDKs depend on before
-          # rewriting those SDK manifests to use registry dependencies.
-          publish_workspace_crate trellis-client
+          # Publish foundational crates before dependents because cargo publish
+          # verifies registry dependencies, not unpublished workspace paths.
           publish_workspace_crate trellis-contracts
+          publish_workspace_crate trellis-client
           publish_workspace_crate trellis-service
+          publish_workspace_crate trellis-local-bootstrap
 
           publish_workspace_crate trellis-codegen-rust
           publish_workspace_crate trellis-codegen-ts
