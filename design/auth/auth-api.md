@@ -327,6 +327,8 @@ Rules:
 - portal registration UI is gated by auth-owned flow state; clients MUST use
   `registration.localIdentity` and `registration.federatedIdentity` rather than
   inferring registration availability from provider lists or local UI defaults
+- browser-visible `flowId` values are ULIDs; they are identifiers, not bearer
+  secrets
 - framework-neutral browser helpers and thin framework wrappers may hide the
   fetch and redirect plumbing, but exact helper declarations belong in the
   generated `/api` reference rather than in design docs
@@ -363,6 +365,9 @@ Rules:
   credential, and pending browser auth state atomically for the active flow
 - duplicate local usernames and unavailable local registration are expected
   caller-visible failures, not unexpected server errors
+- duplicate local usernames return `409` with `error: "username_taken"`; email
+  uniqueness is not enforced by this endpoint and portals MUST NOT infer an
+  `email_taken` error
 
 ### POST /auth/flow/:flowId/approval
 
@@ -1532,6 +1537,12 @@ creates the account and its initial local username identity. Each Trellis
 account may have at most one local username/password identity; it may have many
 linked OIDC identities.
 
+Trellis-generated user ids use the `usr_` prefix followed by a ULID. If local
+username creation fails because the username already belongs to another local
+identity, `Auth.Users.Create` returns an `AuthError` with
+`reason: "username_taken"` and a human-readable message. Generated user-id
+collisions are unexpected internal failures, not user-actionable form errors.
+
 Admin bootstrap creates or reuses the initial local `admin` account and local
 identity before issuing a password-reset URL for that identity. Bootstrap admin
 accounts assign the built-in `admin` group by storing
@@ -1647,6 +1658,7 @@ Rules:
 - the returned `url` is intended for clients such as the Console profile to open
   the account-link flow directly; users should not need to copy a generated link
   by hand
+- the returned `flowId` is a ULID
 - completing the flow may add another OIDC identity to the account
 - completing a local username/password link is allowed only when the target
   account has no existing local identity
@@ -1710,6 +1722,7 @@ Rules:
 
 - this is an admin RPC and requires fresh primary authentication
 - the flow targets the supplied `userId`
+- the returned `flowId` is a ULID
 - the target user must already have exactly one local identity; reset creation
   fails rather than allowing the link holder to choose a username
 - the same durable flow kind covers first-time credential setup for an existing

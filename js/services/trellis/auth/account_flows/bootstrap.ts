@@ -1,6 +1,8 @@
+import { ulid } from "ulid";
+
 import type { AuthLogger } from "../runtime_deps.ts";
 import type { AccountFlow, UserAccount, UserIdentity } from "../schemas.ts";
-import { hashKey, randomToken } from "../crypto.ts";
+import { hashKey } from "../crypto.ts";
 import { identityIdForProviderSubject } from "../identity.ts";
 import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolvesActiveAdmin } from "../capability_groups.ts";
@@ -118,7 +120,7 @@ export async function ensureAdminBootstrapFlow(args: {
     ? await args.accountStorage.get(existingIdentity.userId)
     : undefined;
   const account: UserAccount = existingAccount ?? {
-    userId: `usr_${randomToken(18)}`,
+    userId: `usr_${ulid()}`,
     name: username,
     email: null,
     active: true,
@@ -150,7 +152,7 @@ export async function ensureAdminBootstrapFlow(args: {
   await args.accountStorage.put(adminAccount);
   await args.userIdentityStorage.put(identity);
 
-  const flowId = randomToken(32);
+  const flowId = ulid();
   const expiresAt = new Date(now.getTime() + ADMIN_BOOTSTRAP_TTL_MS);
   const flow: AccountFlow = {
     flowIdHash: await hashKey(flowId),

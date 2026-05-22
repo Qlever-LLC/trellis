@@ -158,6 +158,19 @@ Deno.test({
       );
     });
 
+    await t.step("AuthError preserves explicit human messages", () => {
+      const error = new AuthError({
+        reason: "username_taken",
+        message: "That username is already in use.",
+        context: { username: "ada" },
+      });
+      const serialized = error.toSerializable();
+
+      assertEquals(serialized.message, "That username is already in use.");
+      assertEquals(serialized.reason, "username_taken");
+      assertEquals(serialized.context?.username, "ada");
+    });
+
     await t.step("ValidationError omits traceId when no span is active", () => {
       const error = new ValidationError({
         errors: [{ path: "/name", message: "too short" }],

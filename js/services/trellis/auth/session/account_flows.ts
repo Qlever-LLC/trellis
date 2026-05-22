@@ -1,5 +1,6 @@
 import { isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
+import { ulid } from "ulid";
 
 import type { AuthLogger } from "../runtime_deps.ts";
 import type {
@@ -15,7 +16,7 @@ import type {
   SqlUserAccountRepository,
 } from "../storage.ts";
 import { requireAdminFreshAuth } from "../admin/shared.ts";
-import { hashKey, randomToken } from "../crypto.ts";
+import { hashKey } from "../crypto.ts";
 import {
   createLocalCredentialPassword,
   verifyLocalCredentialPassword,
@@ -70,7 +71,6 @@ type PasswordChangeInput = {
 const DEFAULT_ACCOUNT_FLOW_TTL_SECONDS = 24 * 60 * 60;
 const MIN_ACCOUNT_FLOW_TTL_SECONDS = 60;
 const MAX_ACCOUNT_FLOW_TTL_SECONDS = 30 * 24 * 60 * 60;
-const ACCOUNT_FLOW_TOKEN_BYTES = 32;
 
 export type LocalPasswordResetFlowBinding = {
   localIdentityId: string;
@@ -165,7 +165,7 @@ async function createAccountFlow(args: {
 
   const now = args.now ?? new Date();
   const expiresAt = expiresAtFrom(now, args.input.expiresInSeconds);
-  const flowId = randomToken(ACCOUNT_FLOW_TOKEN_BYTES);
+  const flowId = ulid();
   const flow: AccountFlow = {
     flowIdHash: await hashKey(flowId),
     kind: args.kind,

@@ -118,6 +118,7 @@ export const BUILTIN_RPC_ERRORS = {
     fromSerializable(data: AuthErrorData) {
       return new AuthError({
         reason: data.reason,
+        message: data.message,
         id: data.id,
         context: data.context,
       });

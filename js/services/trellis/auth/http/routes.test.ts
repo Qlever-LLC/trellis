@@ -1799,6 +1799,54 @@ Deno.test({
 });
 
 Deno.test({
+  name: "auth HTTP local self-registration reports username conflicts",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes(
+      {
+        flowId: "flow-register-conflict",
+        authToken: undefined,
+        sessionKey: "session-local",
+        redirectTo: "http://localhost:5173/app",
+        contract: { id: "client.example@v1" },
+      },
+      {},
+      {},
+      {
+        loginPortalStorage: {
+          resolveForApp: () =>
+            Promise.resolve({
+              portal: portalRecord,
+              settings: portalSettings,
+              defaultCapabilities: [],
+              defaultCapabilityGroups: [],
+            }),
+          registerLocalIdentity: () =>
+            Promise.resolve({ ok: false as const, error: "identity_conflict" }),
+        },
+      },
+    );
+
+    const response = await app.request(
+      "http://trellis/auth/flow/flow-register-conflict/register/local",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: "alex",
+          password: "correct horse battery staple",
+          name: "Alex Local",
+          email: "alex@example.com",
+        }),
+      },
+    );
+
+    assertEquals(response.status, 409);
+    assertEquals(await response.json(), { error: "username_taken" });
+  },
+});
+
+Deno.test({
   name: "auth HTTP local self-registration returns password policy errors",
   sanitizeResources: false,
   fn: async () => {

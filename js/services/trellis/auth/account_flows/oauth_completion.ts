@@ -1,4 +1,6 @@
-import { hashKey, randomToken } from "../crypto.ts";
+import { ulid } from "ulid";
+
+import { hashKey } from "../crypto.ts";
 import { identityIdForProviderSubject } from "../identity.ts";
 import type { OAuth2User } from "../providers/oauth2_user.ts";
 import type { AccountFlow, UserAccount, UserIdentity } from "../schemas.ts";
@@ -218,7 +220,7 @@ export async function completeAccountFlowOAuth(
     return await completeTargetAccountOAuth(options, flow, flowIdHash, now);
   }
 
-  const userId = `usr_${randomToken(18)}`;
+  const userId = `usr_${ulid()}`;
   const account: UserAccount = {
     userId,
     name: profileName(options.user),

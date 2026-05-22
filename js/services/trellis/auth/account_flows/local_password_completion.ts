@@ -1,4 +1,6 @@
-import { hashKey, randomToken } from "../crypto.ts";
+import { ulid } from "ulid";
+
+import { hashKey } from "../crypto.ts";
 import { identityIdForProviderSubject } from "../identity.ts";
 import {
   createLocalCredentialPassword,
@@ -391,7 +393,7 @@ export async function completeAdminBootstrapLocalPassword(
     );
   }
 
-  const userId = `usr_${randomToken(18)}`;
+  const userId = `usr_${ulid()}`;
   if (!options.username) return { ok: false, error: "local_username_mismatch" };
 
   const passwordPolicyError = validateRequestedPassword(options);

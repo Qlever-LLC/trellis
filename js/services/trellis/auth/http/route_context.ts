@@ -1,12 +1,12 @@
 import { HTTPException } from "@hono/hono/http-exception";
 import { isErr } from "@qlever-llc/result";
 import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
+import { ulid } from "ulid";
 
 import type { Config } from "../../config.ts";
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
-import { randomToken } from "../crypto.ts";
 import { OAuth2CodeRequest, OAuth2CodeResponse } from "../oauth.ts";
 import type { Provider } from "../providers/index.ts";
 import { createProviders } from "../providers/registry.ts";
@@ -669,7 +669,7 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
       });
     }
 
-    const flowId = randomToken(16);
+    const flowId = ulid();
     await saveBrowserFlow({
       flowId,
       kind: "login",

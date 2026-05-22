@@ -213,10 +213,10 @@ Deno.test("submitLocalRegistration throws formatted response errors", async () =
         },
         () =>
           Promise.resolve(
-            Response.json({ error: "email_taken" }, { status: 409 }),
+            Response.json({ error: "username_taken" }, { status: 409 }),
           ),
       ),
     Error,
-    "That email is already in use.",
+    "That username is already in use.",
   );
 });

@@ -37,6 +37,8 @@ function formatAuthReason(reason: unknown): string | null {
       return "Your session could not be verified. Sign in again.";
     case "user_not_found":
       return "That user account could not be found.";
+    case "username_taken":
+      return "That username is already in use.";
     case "user_inactive":
       return "This account is inactive. Contact an administrator.";
     case "forbidden":

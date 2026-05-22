@@ -513,7 +513,8 @@ Deno.test("Auth.Users.Create rejects duplicate local usernames", async () => {
 
   const value = result.take();
   assert(isErr(value));
-  assertEquals(value.error.reason, "identity_already_exists");
+  assertEquals(value.error.reason, "username_taken");
+  assertEquals(value.error.message, "That username is already in use.");
   assertEquals(value.error.toSerializable().context?.username, "grace");
 });
 

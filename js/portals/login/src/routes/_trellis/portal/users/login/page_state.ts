@@ -97,9 +97,6 @@ export function localRegistrationErrorMessage(
   if (errorCode === "username_taken") {
     return "That username is already in use.";
   }
-  if (errorCode === "email_taken") {
-    return "That email is already in use.";
-  }
   if (errorCode === "registration_unavailable") {
     return "Account creation is not available for this sign-in request.";
   }

@@ -3,6 +3,7 @@ import { HTTPException } from "@hono/hono/http-exception";
 import { AsyncResult, isErr } from "@qlever-llc/result";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { ulid } from "ulid";
 
 import { planUserContractApproval } from "../approval/plan.ts";
 import {
@@ -493,10 +494,15 @@ export function registerBrowserAuthRoutes(
       active: selectedPortal.settings.selfRegisteredAccountActive,
       capabilities: selectedPortal.defaultCapabilities,
       capabilityGroups: selectedPortal.defaultCapabilityGroups,
-      userId: `usr_${randomToken(16)}`,
+      userId: `usr_${ulid()}`,
       passwordMinLength: config.auth.localIdentity.passwordPolicy.minLength,
     });
-    if (!result.ok) return c.json({ error: result.error }, 409);
+    if (!result.ok) {
+      if (result.error === "identity_conflict") {
+        return c.json({ error: "username_taken" }, 409);
+      }
+      throw new Error("Generated user id collision during local registration");
+    }
 
     await createPendingAuthForIdentity({
       context,
@@ -626,9 +632,16 @@ export function registerBrowserAuthRoutes(
         active: selectedPortal.settings.selfRegisteredAccountActive,
         capabilities: selectedPortal.defaultCapabilities,
         capabilityGroups: selectedPortal.defaultCapabilityGroups,
-        userId: `usr_${randomToken(16)}`,
+        userId: `usr_${ulid()}`,
       });
-      if (!result.ok) throw error;
+      if (!result.ok) {
+        if (result.error === "account_conflict") {
+          throw new Error(
+            "Generated user id collision during federated registration",
+          );
+        }
+        throw error;
+      }
       return {
         account: result.account,
         identity: result.identity,

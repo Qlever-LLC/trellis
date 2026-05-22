@@ -26,4 +26,8 @@ Deno.test("errorMessage renders auth reasons as actionable copy", () => {
     errorMessage({ error: { remoteError: { reason: "session_not_found" } } }),
     "Your session has expired. Sign in again.",
   );
+  equal(
+    errorMessage({ error: { remoteError: { reason: "username_taken" } } }),
+    "That username is already in use.",
+  );
 });

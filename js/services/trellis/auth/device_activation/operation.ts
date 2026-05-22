@@ -1,10 +1,10 @@
 import { AuthError } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
 import type { StaticDecode } from "typebox";
+import { ulid } from "ulid";
 
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import { type AuthLogger, type AuthRuntimeDeps } from "../runtime_deps.ts";
-import { randomToken } from "../crypto.ts";
 import {
   AuthRequestsValidateResponseSchema,
   deriveDeviceConfirmationCode,
@@ -520,7 +520,7 @@ export function createResolveDeviceUserAuthoritiesHandler(
         requestedAt,
       });
       const review: DeviceActivationReviewRecord = {
-        reviewId: `dar_${randomToken(12)}`,
+        reviewId: `dar_${ulid()}`,
         operationId: op.id,
         flowId: flow.flowId,
         instanceId: instance.instanceId,

@@ -1,5 +1,6 @@
 import type { Context, Hono } from "@hono/hono";
 import { AsyncResult, isErr } from "@qlever-llc/result";
+import { ulid } from "ulid";
 
 import {
   deriveDeviceConfirmationCode,
@@ -19,7 +20,6 @@ import type {
   SqlDeploymentEnvelopeRepository,
   SqlDeploymentPortalRouteRepository,
 } from "../storage.ts";
-import { randomToken } from "../crypto.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
 import { isDeviceProofIatFresh } from "./shared.ts";
 
@@ -269,7 +269,7 @@ async function createDeviceActivationRequest(
   }
 
   const now = new Date();
-  const flowId = randomToken(16);
+  const flowId = ulid();
   const putResult = await deps.browserFlowsKV.put(flowId, {
     flowId,
     kind: "device_activation",

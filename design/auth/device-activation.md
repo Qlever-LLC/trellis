@@ -224,7 +224,7 @@ account creation.
 
 ```json
 {
-  "flowId": "flow_...",
+  "flowId": "01KS755ZXTHRWQEXM1VGAMM7BF",
   "kind": "device_activation",
   "deviceActivation": {
     "instanceId": "dev_...",
@@ -283,8 +283,8 @@ Rules:
 
 ```json
 {
-  "reviewId": "dar_...",
-  "flowId": "flow_...",
+  "reviewId": "dar_01KS755ZXTHRWQEXM1VGAMM7BG",
+  "flowId": "01KS755ZXTHRWQEXM1VGAMM7BF",
   "instanceId": "dev_...",
   "publicIdentityKey": "<base64url>",
   "deploymentId": "reader.default",
@@ -294,6 +294,9 @@ Rules:
   "reason": null
 }
 ```
+
+Device activation browser `flowId` values are ULIDs. Review ids use `dar_`
+followed by a ULID.
 
 `DeviceActivationRecord` is the final auth decision for that instance once
 activation is granted. It also keeps the activating user identity when the

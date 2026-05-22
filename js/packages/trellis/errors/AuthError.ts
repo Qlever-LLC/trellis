@@ -14,6 +14,7 @@ export const AuthErrorDataSchema = Type.Object({
     Type.Literal("invalid_signature"),
     Type.Literal("user_not_found"),
     Type.Literal("user_already_exists"),
+    Type.Literal("username_taken"),
     Type.Literal("identity_already_exists"),
     Type.Literal("identity_not_found"),
     Type.Literal("user_inactive"),
@@ -56,12 +57,13 @@ export class AuthError extends TrellisError<AuthErrorData> {
   constructor(
     options: ErrorOptions & {
       reason: AuthErrorData["reason"];
+      message?: string;
       context?: Record<string, unknown>;
       id?: string;
     },
   ) {
-    const { reason, ...baseOptions } = options;
-    super(`Auth failed: ${reason}`, baseOptions);
+    const { reason, message, ...baseOptions } = options;
+    super(message ?? `Auth failed: ${reason}`, baseOptions);
     this.reason = reason;
   }
 

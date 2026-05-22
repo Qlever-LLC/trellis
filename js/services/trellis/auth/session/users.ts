@@ -124,6 +124,13 @@ function createUserError(
     | { ok: false; error: "user_already_exists" },
   context: Record<string, unknown>,
 ): AuthError {
+  if (result.error === "identity_already_exists") {
+    return new AuthError({
+      reason: "username_taken",
+      message: "That username is already in use.",
+      context,
+    });
+  }
   return new AuthError({
     reason: result.error,
     context,

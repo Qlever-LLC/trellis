@@ -477,16 +477,19 @@ clients may surface the same `AuthError` directly.
 
 The portal-owned browser login UX uses `flowId` as the browser-visible
 identifier and keeps `authToken` internal to the Trellis runtime service.
-Trellis ships a built-in portal served by the Trellis HTTP server from static
-assets. Login portal records and route selectors are global auth-owned routing
-config; the built-in login portal record is visible, non-removable, and
-non-replaceable. Device deployments may carry deployment-owned portal-route
-metadata for device flows. Neither form is standalone portal authority. Device
-activation uses the same browser-visible `flowId` concept with
-`kind: "device_activation"` flow records rather than a separate public
-identifier. Portals are web apps, not service-authenticated principals; if a
-portal later continues as a Trellis app after login, it does so under a normal
-user session.
+`flowId` values are ULIDs because they are identifiers, not bearer secrets;
+`authToken` remains an auth-service generated bearer token and is stored only by
+hash. Trellis-generated account ids use `usr_` plus a ULID, and auth-owned
+review ids use their semantic prefix plus a ULID. Trellis ships a built-in
+portal served by the Trellis HTTP server from static assets. Login portal
+records and route selectors are global auth-owned routing config; the built-in
+login portal record is visible, non-removable, and non-replaceable. Device
+deployments may carry deployment-owned portal-route metadata for device flows.
+Neither form is standalone portal authority. Device activation uses the same
+browser-visible `flowId` concept with `kind: "device_activation"` flow records
+rather than a separate public identifier. Portals are web apps, not
+service-authenticated principals; if a portal later continues as a Trellis app
+after login, it does so under a normal user session.
 
 Flow summary:
 
@@ -532,8 +535,8 @@ Runtime storage responsibilities:
 | `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"`                                                                                                                                                                                     | Browser-flow TTL                             |
 | `trellis_connections` KV   | Active connection presence keyed by session, principal, and NATS user key                                                                                                                                                                                                            | Connection TTL                               |
 
-Ephemeral tokens (`state`, `authToken`) are stored by `hash(token)` rather than
-raw token value.
+Ephemeral bearer tokens (`state`, `authToken`) are stored by `hash(token)`
+rather than raw token value.
 
 Browser flows are keyed by raw `flowId` because the flow identifier is
 browser-visible and used to fetch auth-owned portal state. Device activation
