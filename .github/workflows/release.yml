@@ -210,12 +210,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          npm_tag=latest
+          if [[ "${RELEASE_TAG}" == *-* ]]; then
+            npm_tag=rc
+          fi
           for pkg in \
             js/packages/result/npm \
             js/packages/trellis/npm \
             js/packages/trellis-svelte/npm
           do
-            npm publish --dry-run --access public "$pkg"
+            npm publish --dry-run --access public --tag "$npm_tag" "$pkg"
           done
 
       - name: Dry-run JSR publishing
@@ -279,6 +283,9 @@ jobs:
           workspaces: |
             rust -> target
             rust/tools/generate -> target
+
+      - name: Refresh generated Rust SDK paths
+        run: cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
 
       - name: Build release binaries
         shell: bash

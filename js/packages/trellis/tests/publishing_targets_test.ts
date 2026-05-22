@@ -22,6 +22,7 @@ Deno.test("workspace npm build task only builds the supported published packages
 });
 
 Deno.test("release workflows use generated package-manager targets", async () => {
+  let releaseWorkflow = "";
   for (
     const workflow of [
       "release.yml",
@@ -34,7 +35,17 @@ Deno.test("release workflows use generated package-manager targets", async () =>
 
     assertEquals(source.includes("generated/rust/sdks"), false, workflow);
     assertEquals(source.includes("generate rust"), false, workflow);
+    if (workflow === "release.yml") releaseWorkflow = source;
   }
+
+  assertStringIncludes(
+    releaseWorkflow,
+    'npm publish --dry-run --access public --tag "$npm_tag" "$pkg"',
+  );
+  assertStringIncludes(
+    releaseWorkflow,
+    "cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .",
+  );
 });
 
 Deno.test("trellis package exports the first-party SDK subpaths", async () => {

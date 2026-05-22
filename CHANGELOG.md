@@ -8,6 +8,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.0-rc.6] - 2026-05-22
+
+### Fixed
+
+- Fixed prerelease npm dry-run validation to pass the `rc` dist-tag for
+  prerelease package versions.
+- Fixed macOS CLI release builds to refresh generated Rust SDK local dependency
+  paths on each runner instead of reusing Linux absolute paths from the prepared
+  release artifact.
+
 ## [0.9.0-rc.5] - 2026-05-22
 
 ### Added
