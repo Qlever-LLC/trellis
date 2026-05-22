@@ -1,0 +1,886 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish release artifacts and packages"
+        required: false
+        default: false
+        type: boolean
+      tag:
+        description: "Tag to publish when running manually (for example v0.9.0-rc.1)"
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - ".dockerignore"
+      - ".github/workflows/release.yml"
+      - "CHANGELOG.md"
+      - "art/**"
+      - "js/**"
+      - "rust/**"
+      - "scripts/**"
+      - "xtask/**"
+
+env:
+  CARGO_TERM_COLOR: always
+  DENO_VERSION: 2.7.14
+  NODE_VERSION: 24
+  REGISTRY: ghcr.io
+  RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag || '' }}
+  SHOULD_PUBLISH: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish == true && inputs.tag != '') }}
+
+jobs:
+  prepare-release:
+    name: Prepare release workspace
+    runs-on: ubuntu-latest
+    outputs:
+      release-tag: ${{ steps.release.outputs.tag }}
+      release-version: ${{ steps.release.outputs.version }}
+      release-base-version: ${{ steps.release.outputs.base-version }}
+      should-publish: ${{ steps.release.outputs.should-publish }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust -> target
+            rust/tools/generate -> target
+
+      - name: Bootstrap generated SDK artifacts
+        run: cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
+
+      - name: Prepare release version
+        run: cargo run --manifest-path xtask/Cargo.toml -- release prepare --tag "${RELEASE_TAG}"
+
+      - name: Capture release outputs
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${RELEASE_TAG}"
+          version=""
+          base_version=""
+          if [ -n "$tag" ]; then
+            version="${tag#v}"
+            base_version="${version%%[-+]*}"
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "base-version=${base_version}" >> "$GITHUB_OUTPUT"
+          echo "should-publish=${SHOULD_PUBLISH}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${RELEASE_TAG}" ]; then
+            cargo run --manifest-path xtask/Cargo.toml -- release verify --version "${RELEASE_TAG#v}"
+          else
+            cargo run --manifest-path xtask/Cargo.toml -- release verify
+          fi
+
+      - name: Generate release SDK artifacts
+        run: cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
+
+      - name: Write release notes
+        if: env.RELEASE_TAG != ''
+        run: cargo run --manifest-path xtask/Cargo.toml -- release write-notes --tag "${RELEASE_TAG}" --output "${{ github.workspace }}/dist/release-notes.md"
+
+      - name: Upload prepared release workspace
+        uses: actions/upload-artifact@v4
+        with:
+          name: prepared-release
+          include-hidden-files: true
+          path: |
+            .dockerignore
+            CHANGELOG.md
+            art
+            generated
+            js
+            rust
+            scripts
+            xtask
+            !**/.svelte-kit/**
+            !**/node_modules/**
+            !**/target/**
+
+      - name: Upload release notes
+        if: env.RELEASE_TAG != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: dist/release-notes.md
+
+  verify-rust:
+    name: Verify Rust packages
+    needs: prepare-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download prepared release workspace
+        uses: actions/download-artifact@v4
+        with:
+          name: prepared-release
+          path: .
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust -> target
+            rust/tools/generate -> target
+
+      - name: Run Rust tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${RELEASE_TAG}" ]; then
+            cargo test --workspace
+            cargo test --manifest-path tools/generate/Cargo.toml
+          else
+            cargo test --workspace --locked
+            cargo test --manifest-path tools/generate/Cargo.toml --locked
+          fi
+        working-directory: rust
+
+  verify-js:
+    name: Verify npm and JSR packages
+    needs: prepare-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download prepared release workspace
+        uses: actions/download-artifact@v4
+        with:
+          name: prepared-release
+          path: .
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build publishable npm packages
+        run: deno task packages:build:npm
+        working-directory: js
+
+      - name: Smoke test packed npm packages
+        run: deno task smoke:npm
+        working-directory: js
+
+      - name: Dry-run npm publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pkg in \
+            js/packages/result/npm \
+            js/packages/trellis/npm \
+            js/packages/trellis-svelte/npm
+          do
+            npm publish --dry-run --access public "$pkg"
+          done
+
+      - name: Dry-run JSR publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pkg in \
+            js/packages/result \
+            js/packages/trellis
+          do
+            (cd "$pkg" && deno publish --dry-run --allow-slow-types --allow-dirty)
+          done
+
+      - name: Upload npm package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-packages
+          path: |
+            js/packages/result/npm
+            js/packages/trellis/npm
+            js/packages/trellis-svelte/npm
+            dist/npm
+
+  build-cli:
+    name: Build ${{ matrix.target }} CLI
+    needs: prepare-release
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: macos-14
+            target: x86_64-apple-darwin
+          - runner: macos-14
+            target: aarch64-apple-darwin
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download prepared release workspace
+        uses: actions/download-artifact@v4
+        with:
+          name: prepared-release
+          path: .
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add target toolchain
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust -> target
+            rust/tools/generate -> target
+
+      - name: Build release binaries
+        shell: bash
+        env:
+          TRELLIS_OFFICIAL_BUILD: "1"
+          TRELLIS_BUILD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${RELEASE_TAG}" ]; then
+            cargo build -p trellis-cli --release --target ${{ matrix.target }}
+            cargo build --manifest-path tools/generate/Cargo.toml --release --target ${{ matrix.target }}
+          else
+            cargo build -p trellis-cli --release --locked --target ${{ matrix.target }}
+            cargo build --manifest-path tools/generate/Cargo.toml --release --locked --target ${{ matrix.target }}
+          fi
+        working-directory: rust
+
+      - name: Package CLI archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG:-${GITHUB_REF_NAME:-dev}}"
+          target="${{ matrix.target }}"
+          archive_version="${version//\//-}"
+          staging="dist/${target}"
+          mkdir -p "$staging"
+
+          cp "rust/target/${target}/release/trellis" "$staging/trellis"
+          archive="trellis-${archive_version}-${target}.tar.gz"
+          tar -C "$staging" -czf "dist/$archive" trellis
+          shasum -a 256 "dist/$archive" > "dist/checksum-${archive_version}-${target}-trellis.sha256"
+
+          cp "rust/tools/generate/target/${target}/release/trellis-generate" "$staging/trellis-generate"
+          archive="trellis-generate-${archive_version}-${target}.tar.gz"
+          tar -C "$staging" -czf "dist/$archive" trellis-generate
+          shasum -a 256 "dist/$archive" > "dist/checksum-${archive_version}-${target}-trellis-generate.sha256"
+
+      - name: Upload packaged CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trellis-cli-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+
+  verify-images:
+    name: Verify ${{ matrix.image }} image
+    needs: prepare-release
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: trellis
+            file: js/services/trellis/Containerfile
+            title: trellis
+            description: Trellis service runtime
+            contract-path: /trellis/contract.json
+          - image: console
+            file: js/apps/console/Containerfile
+            title: console
+            description: Trellis administrative web console
+            contract-path: ""
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download prepared release workspace
+        uses: actions/download-artifact@v4
+        with:
+          name: prepared-release
+          path: .
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Dry-run image build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          platforms: linux/amd64,linux/arm64
+          push: false
+          build-args: |
+            TRELLIS_VERSION=${{ env.RELEASE_TAG }}
+            TRELLIS_REVISION=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            io.trellis.contract.path=${{ matrix.contract-path }}
+
+  release-gate:
+    name: Release gate
+    needs:
+      - verify-rust
+      - verify-js
+      - build-cli
+      - verify-images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Confirm release verification passed
+        run: printf 'Release verification passed.\n'
+
+  github-release:
+    name: Publish GitHub release
+    if: needs.prepare-release.outputs.should-publish == 'true'
+    needs:
+      - prepare-release
+      - release-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download packaged CLI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: trellis-cli-*
+          merge-multiple: true
+
+      - name: Download release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: dist
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.TRELLIS_RELEASE_TOKEN || github.token }}
+          tag_name: ${{ needs.prepare-release.outputs.release-tag }}
+          target_commitish: ${{ github.sha }}
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
+          body_path: dist/release-notes.md
+          prerelease: ${{ contains(needs.prepare-release.outputs.release-tag, '-') }}
+
+  publish-crates:
+    name: Publish Rust crates
+    if: needs.prepare-release.outputs.should-publish == 'true'
+    needs:
+      - prepare-release
+      - release-gate
+      - github-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download prepared release workspace
+        uses: actions/download-artifact@v4
+        with:
+          name: prepared-release
+          path: .
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust -> target
+            rust/tools/generate -> target
+
+      - name: Authenticate with crates.io
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish crates
+        shell: bash
+        working-directory: rust
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          workspace_version="$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f 2)"
+          published=()
+          skipped=()
+
+          crate_exists() {
+            local crate="$1"
+            local version="$2"
+            curl --silent --show-error --fail "https://crates.io/api/v1/crates/${crate}/${version}" >/dev/null 2>&1
+          }
+
+          wait_for_crate_index() {
+            local crate="$1"
+            local version="$2"
+
+            for attempt in {1..30}; do
+              if cargo info "${crate}@${version}" >/dev/null 2>&1; then
+                return 0
+              fi
+              printf 'Waiting for %s@%s to appear in the crates.io index (%s/30)\n' "$crate" "$version" "$attempt"
+              sleep 10
+            done
+
+            echo "::error::${crate}@${version} did not appear in the crates.io index"
+            return 1
+          }
+
+          record_skip() {
+            local crate="$1"
+            echo "Skipping ${crate}@${workspace_version} (already published)"
+            skipped+=("${crate}@${workspace_version}")
+            wait_for_crate_index "$crate" "$workspace_version"
+          }
+
+          record_publish() {
+            local crate="$1"
+            published+=("${crate}@${workspace_version}")
+          }
+
+          run_publish() {
+            local crate="$1"
+            shift
+            local output
+            local status
+
+            cargo publish --allow-dirty --dry-run "$@"
+
+            set +e
+            output=$(cargo publish --allow-dirty "$@" 2>&1)
+            status=$?
+            set -e
+
+            printf '%s\n' "$output"
+
+            if [ "$status" -eq 0 ]; then
+              record_publish "$crate"
+              wait_for_crate_index "$crate" "$workspace_version"
+              return 0
+            fi
+
+            if printf '%s\n' "$output" | grep -Fq "already exists on crates.io index"; then
+              record_skip "$crate"
+              return 0
+            fi
+
+            return "$status"
+          }
+
+          publish_workspace_crate() {
+            local crate="$1"
+
+            if crate_exists "$crate" "$workspace_version"; then
+              record_skip "$crate"
+              return 0
+            fi
+
+            run_publish "$crate" -p "$crate"
+          }
+
+          publish_generated_crate() {
+            local manifest="$1"
+            local crate="$2"
+
+            if crate_exists "$crate" "$workspace_version"; then
+              record_skip "$crate"
+              return 0
+            fi
+
+            run_publish "$crate" --manifest-path "$manifest"
+          }
+
+          generate_publishable_sdk_crates() {
+            cargo run --manifest-path tools/generate/Cargo.toml --bin trellis-generate -- generate cargo --source ../js/services/trellis/contracts/trellis_auth.ts --out ../generated/packages/cargo/auth --crate-name trellis-sdk-auth --runtime-source registry
+            cargo run --manifest-path tools/generate/Cargo.toml --bin trellis-generate -- generate cargo --source ../js/services/trellis/contracts/trellis_core.ts --out ../generated/packages/cargo/trellis-core --crate-name trellis-sdk-core --runtime-source registry
+          }
+
+          publish_workspace_crate trellis-contracts
+          publish_workspace_crate trellis-client
+          publish_workspace_crate trellis-service
+          publish_workspace_crate trellis-local-bootstrap
+
+          publish_workspace_crate trellis-codegen-rust
+          publish_workspace_crate trellis-codegen-ts
+          publish_workspace_crate trellis-generate-runner
+
+          generate_publishable_sdk_crates
+
+          publish_generated_crate ../generated/packages/cargo/auth/Cargo.toml trellis-sdk-auth
+          publish_generated_crate ../generated/packages/cargo/trellis-core/Cargo.toml trellis-sdk-core
+
+          publish_workspace_crate trellis-auth
+          publish_workspace_crate trellis-cli
+
+          echo "Published ${#published[@]} crate(s)"
+          for item in "${published[@]}"; do
+            echo "  published: $item"
+          done
+
+          echo "Skipped ${#skipped[@]} crate(s)"
+          for item in "${skipped[@]}"; do
+            echo "  skipped: $item"
+          done
+
+  publish-npm:
+    name: Publish npm packages
+    if: needs.prepare-release.outputs.should-publish == 'true'
+    needs:
+      - prepare-release
+      - github-release
+      - verify-js
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download prepared release workspace
+        uses: actions/download-artifact@v4
+        with:
+          name: prepared-release
+          path: .
+
+      - name: Download npm package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-packages
+          path: .
+
+      - name: Configure npm registry auth
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+
+      - name: Publish packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm_tag=latest
+          published=()
+          skipped=()
+
+          package_already_exists() {
+            local package_name="$1"
+            local package_version="$2"
+            npm view "${package_name}@${package_version}" version >/dev/null 2>&1
+          }
+
+          publish_or_skip() {
+            local pkg="$1"
+            local name="$2"
+            local version="$3"
+            local output
+            local status
+
+            if package_already_exists "$name" "$version"; then
+              echo "Skipping $name@$version (already published)"
+              skipped+=("$name@$version")
+              return 0
+            fi
+
+            set +e
+            output=$(npm publish --access public --tag "$npm_tag" "$pkg" 2>&1)
+            status=$?
+            set -e
+
+            printf '%s\n' "$output"
+
+            if [ "$status" -eq 0 ]; then
+              published+=("$name@$version")
+              return 0
+            fi
+
+            if printf '%s\n' "$output" | grep -Eqi 'cannot publish over|previously published version|cannot modify pre-existing version|you cannot publish over'; then
+              echo "Skipping $name@$version (already published)"
+              skipped+=("$name@$version")
+              return 0
+            fi
+
+            return "$status"
+          }
+
+          if [[ "${RELEASE_TAG}" == *-* ]]; then
+            npm_tag=rc
+          fi
+
+          packages=(
+            js/packages/result/npm
+            js/packages/trellis/npm
+            js/packages/trellis-svelte/npm
+          )
+          for pkg in "${packages[@]}"; do
+            package_json="$pkg/package.json"
+            name=$(node -p "require('./${package_json}').name")
+            version=$(node -p "require('./${package_json}').version")
+            publish_or_skip "$pkg" "$name" "$version"
+          done
+
+          echo "Published ${#published[@]} package(s)"
+          for item in "${published[@]}"; do
+            echo "  published: $item"
+          done
+
+          echo "Skipped ${#skipped[@]} package(s)"
+          for item in "${skipped[@]}"; do
+            echo "  skipped: $item"
+          done
+
+  publish-jsr:
+    name: Publish JSR packages
+    # Keep JSR release wiring in place, but do not publish until the packages are
+    # linked to this repository in JSR settings.
+    if: ${{ false && needs.prepare-release.outputs.should-publish == 'true' }}
+    needs:
+      - prepare-release
+      - github-release
+      - verify-js
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download prepared release workspace
+        uses: actions/download-artifact@v4
+        with:
+          name: prepared-release
+          path: .
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+
+      - name: Publish JSR packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          published=()
+          skipped=()
+
+          package_field() {
+            local manifest="$1"
+            local field="$2"
+            deno eval --allow-read 'const manifest = JSON.parse(await Deno.readTextFile(Deno.args[0])); console.log(manifest[Deno.args[1]]);' "$manifest" "$field"
+          }
+
+          jsr_package_exists() {
+            local package_name="$1"
+            local package_version="$2"
+            deno info "jsr:${package_name}@${package_version}" >/dev/null 2>&1
+          }
+
+          wait_for_jsr_package() {
+            local package_name="$1"
+            local package_version="$2"
+
+            for attempt in {1..30}; do
+              if jsr_package_exists "$package_name" "$package_version"; then
+                return 0
+              fi
+              printf 'Waiting for %s@%s to appear on JSR (%s/30)\n' "$package_name" "$package_version" "$attempt"
+              sleep 10
+            done
+
+            echo "::error::${package_name}@${package_version} did not appear on JSR"
+            return 1
+          }
+
+          publish_or_skip() {
+            local package_dir="$1"
+            local manifest="${package_dir}/deno.json"
+            local package_name
+            local package_version
+            package_name="$(package_field "$manifest" name)"
+            package_version="$(package_field "$manifest" version)"
+
+            if jsr_package_exists "$package_name" "$package_version"; then
+              echo "Skipping ${package_name}@${package_version} (already published)"
+              skipped+=("${package_name}@${package_version}")
+              wait_for_jsr_package "$package_name" "$package_version"
+              return 0
+            fi
+
+            (cd "$package_dir" && deno publish --allow-slow-types --allow-dirty)
+            published+=("${package_name}@${package_version}")
+            wait_for_jsr_package "$package_name" "$package_version"
+          }
+
+          publish_or_skip js/packages/result
+          publish_or_skip js/packages/trellis
+
+          echo "Published ${#published[@]} JSR package(s)"
+          for item in "${published[@]}"; do
+            echo "  published: $item"
+          done
+
+          echo "Skipped ${#skipped[@]} JSR package(s)"
+          for item in "${skipped[@]}"; do
+            echo "  skipped: $item"
+          done
+
+  publish-images:
+    name: Publish ${{ matrix.image }} image
+    if: needs.prepare-release.outputs.should-publish == 'true'
+    needs:
+      - prepare-release
+      - release-gate
+      - github-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: trellis
+            file: js/services/trellis/Containerfile
+            title: trellis
+            description: Trellis service runtime
+            contract-path: /trellis/contract.json
+          - image: console
+            file: js/apps/console/Containerfile
+            title: console
+            description: Trellis administrative web console
+            contract-path: ""
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download prepared release workspace
+        uses: actions/download-artifact@v4
+        with:
+          name: prepared-release
+          path: .
+
+      - name: Normalize image owner
+        id: owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "value=$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=${{ env.RELEASE_TAG }},enable=${{ env.RELEASE_TAG != '' }}
+            type=sha,prefix=sha-
+            type=raw,value=rc,enable=${{ env.RELEASE_TAG != '' && contains(env.RELEASE_TAG, '-') }}
+            type=raw,value=latest,enable=${{ env.RELEASE_TAG != '' && !contains(env.RELEASE_TAG, '-') }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            TRELLIS_VERSION=${{ env.RELEASE_TAG }}
+            TRELLIS_REVISION=${{ github.sha }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            io.trellis.contract.path=${{ matrix.contract-path }}

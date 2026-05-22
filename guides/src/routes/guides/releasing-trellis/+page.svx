@@ -64,13 +64,28 @@ That single tag drives:
 - Rust crate publication
 - OCI image publication
 
+JSR publication is wired into the workflow but currently disabled while the JSR packages are being set up.
+
 Release-managed JS packages and Rust crates use one checked-in base version. Stable releases usually bump that checked-in base version. Prerelease tags use a suffix such as `-rc.1`; they normally keep the checked-in base version unchanged.
 
-The GitHub release workflows run the same Rust release tooling used locally:
+The GitHub `Release` workflow runs the same Rust release tooling used locally:
 
 - `release prepare --tag <tag>` rewrites publishable versions for the tagged build
 - `release verify` checks release metadata before publishing
 - `release write-notes` extracts the matching `CHANGELOG.md` section for GitHub release notes
+
+The workflow prepares the release workspace once, uploads it as an artifact, and reuses it for Rust tests, npm and JSR package checks, CLI binary builds, image dry-runs, and publish jobs. Publishing only starts after the release gate passes.
+
+The `Deploy Site to GitHub Pages` workflow is separate from release publishing. It builds the released and current guide/console sites, prefers a cached or published `trellis-generate` binary for speed, and falls back to building `trellis-generate` from source when the matching release asset is not available yet. This avoids races while a new release tag is still building its CLI assets.
+
+The staged JSR publish set is:
+
+- `@qlever-llc/result`
+- `@qlever-llc/trellis`
+
+The workflow still runs JSR dry-runs for those packages so package shape issues are caught early. The `publish-jsr` job is disabled until those packages are linked to this repository in JSR settings.
+
+`@qlever-llc/trellis-svelte` is published to npm, but is not staged for JSR because the current source package exports `.svelte` components that `deno publish` cannot analyze directly.
 
 ## 1. Pick the release
 
@@ -201,6 +216,8 @@ If packaging changed, add the relevant package or image smoke checks before comm
 ```sh
 cargo run --manifest-path xtask/Cargo.toml -- build --workspace --release
 deno task -c js/deno.json build:npm
+(cd js/packages/result && deno publish --dry-run --allow-slow-types --allow-dirty)
+(cd js/packages/trellis && deno publish --dry-run --allow-slow-types --allow-dirty)
 docker build -f js/services/trellis/Containerfile .
 docker build -f js/apps/console/Containerfile .
 ```
@@ -234,9 +251,12 @@ Push the release commit before creating the tag:
 git push origin main
 ```
 
-Then manually trigger the relevant GitHub Actions workflows from the GitHub UI and wait for them to pass. This catches workflow, packaging, or environment issues before the release tag starts the publish flow.
+Then manually trigger the `Release` workflow from the GitHub UI and wait for it to pass. Use:
 
-At minimum, trigger the release verification workflows that correspond to the artifacts you intend to publish. If a workflow cannot be run manually, confirm the equivalent branch workflow has passed for the release commit before tagging.
+- `tag`: `$RELEASE_TAG`
+- `publish`: `false`
+
+This exercises the tag-specific release preparation, package dry-runs, CLI builds, and image dry-runs without publishing. If the workflow cannot be run manually, confirm the equivalent branch or pull request `Release` workflow has passed for the release commit before tagging.
 
 ## 8. Tag the release
 
@@ -259,6 +279,18 @@ After the tag lands, GitHub Actions will publish:
 - crates.io crates
 - GHCR images
 
+JSR package publication remains disabled until JSR package setup is complete.
+
+The unified `Release` workflow publishes in gated stages:
+
+- `prepare-release` rewrites publishable versions, verifies release metadata, generates SDK artifacts, writes release notes, and uploads the prepared workspace
+- `verify-rust`, `verify-js`, `build-cli`, and `verify-images` validate the release before publication
+- `github-release` publishes CLI archives and checksums first
+- `publish-crates`, `publish-npm`, and `publish-images` publish downstream artifacts after the GitHub release exists
+- `publish-jsr` is present but disabled until JSR package setup is complete
+
+The workflow is idempotent where practical: npm and crates.io publish steps skip versions that already exist. A registry publish is still not an atomic transaction across registries, so if a late publish step fails, inspect the workflow logs and rerun the workflow after fixing the underlying registry or workflow issue.
+
 ## 10. Verify the published release
 
 Check that the GitHub release body matches the intended changelog section and that the expected artifacts were attached.
@@ -269,6 +301,8 @@ Then verify the downstream publishes you care about:
 - crates.io shows the expected crate versions
 - GHCR images have the expected tags such as `$RELEASE_TAG`, `latest`, or `rc`
 - the CLI archive checksums are present and match the published artifacts
+
+When JSR publishing is enabled later, also verify the JSR packages have the expected version.
 
 ## 11. Prepare for the next cycle
 
