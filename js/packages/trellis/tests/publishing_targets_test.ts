@@ -46,6 +46,10 @@ Deno.test("release workflows use generated package-manager targets", async () =>
     releaseWorkflow,
     "cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .",
   );
+  assertStringIncludes(
+    releaseWorkflow,
+    "denoland/setup-deno@v2",
+  );
 });
 
 Deno.test("trellis package exports the first-party SDK subpaths", async () => {

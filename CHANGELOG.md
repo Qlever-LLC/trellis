@@ -8,6 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.0-rc.7] - 2026-05-22
+
+### Fixed
+
+- Fixed CLI release builds to install Deno on each build runner before
+  refreshing generated Rust SDK paths.
+
 ## [0.9.0-rc.6] - 2026-05-22
 
 ### Fixed
