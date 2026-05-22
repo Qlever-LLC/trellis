@@ -10,4 +10,3 @@ publish = false
 clap = { version = "4.6.0", features = ["derive"] }
 miette = { version = "7.6.0", features = ["fancy"] }
 trellis-generate-runner = { path = "../crates/generate-runner" }
-trellis-integration-harness = { path = "../crates/integration-harness" }

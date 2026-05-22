@@ -5,9 +5,58 @@ use std::process::{Command, ExitCode};
 
 use clap::Parser;
 use miette::{IntoDiagnostic, Result, WrapErr};
-use trellis_integration_harness::IntegrationArgs;
 
 mod release;
+
+#[derive(Debug, Clone, Default, Eq, Parser, PartialEq)]
+#[command(name = "integration", about = "Run the Trellis integration harness")]
+struct IntegrationArgs {
+    #[arg(long)]
+    /// Print known failing integration cases and exit.
+    list_known_failures: bool,
+
+    #[arg(long)]
+    /// Print required integration coverage areas and exit.
+    list_required_coverage: bool,
+
+    #[arg(long)]
+    /// Fail when any known failing integration cases are still registered.
+    strict_known_failures: bool,
+
+    #[arg(long)]
+    /// Preserve the temporary integration workdir after the command exits.
+    keep_workdir: bool,
+
+    #[arg(long)]
+    /// Skip the prepare workflow before bootstrapping integration dependencies.
+    skip_prepare: bool,
+}
+
+impl IntegrationArgs {
+    fn requires_prepare(&self) -> bool {
+        !self.skip_prepare && !self.list_known_failures && !self.list_required_coverage
+    }
+
+    fn forwarded_args(&self) -> Vec<&'static str> {
+        let mut args = Vec::new();
+        if self.list_known_failures {
+            args.push("--list-known-failures");
+        }
+        if self.list_required_coverage {
+            args.push("--list-required-coverage");
+        }
+        if self.strict_known_failures {
+            args.push("--strict-known-failures");
+        }
+        if self.keep_workdir {
+            args.push("--keep-workdir");
+        }
+        if self.skip_prepare {
+            args.push("--skip-prepare");
+        }
+        args
+    }
+}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 enum XtaskCommand {
@@ -33,7 +82,7 @@ fn run() -> Result<()> {
         XtaskCommand::Prepare => run_prepare(),
         XtaskCommand::PrepareWatch => run_prepare_watch(),
         XtaskCommand::Build(args) => run_build(&args),
-        XtaskCommand::Integration(args) => trellis_integration_harness::run(args, run_prepare),
+        XtaskCommand::Integration(args) => run_integration(&args),
         XtaskCommand::Release(command) => release::run_release(&repo_root()?, command),
     }
 }
@@ -130,6 +179,40 @@ fn run_build(args: &[String]) -> Result<()> {
     } else {
         Err(miette::miette!(
             "build workflow failed with status {status}"
+        ))
+    }
+}
+
+fn run_integration(args: &IntegrationArgs) -> Result<()> {
+    if args.requires_prepare() {
+        run_prepare()?;
+    }
+
+    let repo_root = repo_root()?;
+    let mut spec = Command::new("cargo");
+    spec.current_dir(&repo_root)
+        .arg("run")
+        .arg("--manifest-path")
+        .arg(repo_root.join("rust/crates/integration-harness/Cargo.toml"))
+        .arg("--bin")
+        .arg("trellis-integration-harness")
+        .arg("--");
+    for arg in args.forwarded_args() {
+        spec.arg(arg);
+    }
+    if !args.skip_prepare {
+        spec.arg("--skip-prepare");
+    }
+    let status = spec
+        .status()
+        .into_diagnostic()
+        .wrap_err("failed to run integration harness")?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(miette::miette!(
+            "integration harness failed with status {status}"
         ))
     }
 }
