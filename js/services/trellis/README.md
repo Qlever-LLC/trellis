@@ -238,10 +238,9 @@ This follows `design/contracts/trellis-contracts-catalog.md`.
   contract id.
 - The auth HTTP flow and the NATS auth callout are separate layers and should
   stay organized separately even though they share session-proof helpers.
-- Multiple active compatible digests per contract id are required. Trellis
-  admins may not control every remote service or device firmware rollout, so
-  catalog and permission code must tolerate concurrent active revisions in one
-  lineage.
+- Only one current digest per contract id may be active. Forced Contract Update
+  resolution chooses the current digest and removes non-selected evidence rather
+  than keeping compatibility lanes for concurrent active revisions.
 - User/app runtime permissions come from the approved exact digest plus declared
   `uses`; service/device runtime permissions come from active installed digests.
   Neither path uses a handwritten service registry or currently bound user

@@ -15,6 +15,21 @@ members = [
   "crates/client",
   "crates/cli",
 ]
+default-members = [
+  "crates/auth",
+  "crates/auth-adapters",
+  "crates/core-bootstrap",
+  "crates/local-bootstrap",
+  "crates/jobs",
+  "crates/service-jobs",
+  "crates/service",
+  "crates/contracts",
+  "crates/codegen-ts",
+  "crates/codegen-rust",
+  "crates/generate-runner",
+  "crates/client",
+  "crates/cli",
+]
 resolver = "2"
 
 [workspace.package]

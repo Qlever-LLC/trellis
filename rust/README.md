@@ -38,7 +38,8 @@ Before `cargo build` or `cargo install --path rust/crates/cli`, run
 `cargo xtask prepare` so the generated Rust SDK crates under
 `generated/packages/cargo/` exist. If you are doing a normal Rust build from the
 repo, prefer `cargo xtask build`, which runs `prepare` first and then invokes
-`cargo build`.
+the default Rust workspace build. The default build excludes the live
+`trellis-integration-harness`; run `cargo xtask integration` for that suite.
 
 ## Known 0.9.x Rust Gaps
 

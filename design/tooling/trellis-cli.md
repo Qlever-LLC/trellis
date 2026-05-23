@@ -84,7 +84,9 @@ print the event paths plus the watch decision and reason.
 Rust contributors should run `cargo xtask prepare` before `cargo build` or
 `cargo install --path rust/crates/cli`, because the Rust workspace depends on
 generated SDK crates under `generated/packages/cargo/`. `cargo xtask build` is a
-convenience wrapper that runs `prepare` first and then invokes `cargo build`.
+convenience wrapper that runs `prepare` first and then invokes the default Rust
+workspace build. That default build excludes the live integration harness; use
+`cargo xtask integration` for the full live suite.
 
 `trellis-generate` still owns the explicit source-to-artifact interface for repo
 scripts, wrappers, and CI:

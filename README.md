@@ -76,7 +76,9 @@ local tasks and wrappers.
 If you build or install Rust binaries from this repo directly, run
 `cargo xtask prepare` first so the generated Rust SDK crates under
 `generated/packages/cargo/` exist. `cargo xtask build` is the convenient
-Rust-side wrapper for `prepare` followed by `cargo build`. Use
+Rust-side wrapper for `prepare` followed by the default Rust workspace build.
+The default build excludes the live integration harness; run
+`cargo xtask integration` when you need that coverage. Use
 `cargo xtask prepare-watch` during active contract development. Watch mode
 watches broadly, ignores file changes that are not TypeScript, JavaScript, or
 Rust source unless they are recognized project/discovery inputs, prepares only

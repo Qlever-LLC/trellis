@@ -22,6 +22,53 @@ const DEFAULT_NATS_SERVER_URL: &str = "nats://127.0.0.1:4222";
 const DEFAULT_NATS_WEBSOCKET_URL: &str = "ws://localhost:8080";
 const DEFAULT_PUBLIC_ORIGIN: &str = "http://localhost:3000";
 const WORK_DIR: &str = "/work";
+const MINIMUM_NSC_VERSION: NscVersion = NscVersion {
+    major: 2,
+    minor: 12,
+    patch: 2,
+};
+
+/// Parsed `nsc --version` value.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct NscVersion {
+    major: u32,
+    minor: u32,
+    patch: u32,
+}
+
+impl NscVersion {
+    fn parse(output: &str) -> Option<Self> {
+        let mut parts = output.trim().split_whitespace();
+        if parts.next()? != "nsc" || parts.next()? != "version" {
+            return None;
+        }
+
+        let version = parts.next()?;
+        if parts.next().is_some() {
+            return None;
+        }
+
+        let mut version_parts = version.split('.');
+        let major = version_parts.next()?.parse().ok()?;
+        let minor = version_parts.next()?.parse().ok()?;
+        let patch = version_parts.next()?.parse().ok()?;
+        if version_parts.next().is_some() {
+            return None;
+        }
+
+        Some(Self {
+            major,
+            minor,
+            patch,
+        })
+    }
+}
+
+impl fmt::Display for NscVersion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
 
 /// Runtime used to execute the nats-box image for local NATS bootstrap generation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -290,6 +337,26 @@ pub enum LocalBootstrapError {
         status: String,
         stderr: String,
     },
+    /// The `nsc --version` container command failed.
+    #[error("{program} failed checking nsc version in {image} with status {status}: {stderr}")]
+    NscVersionCommandFailed {
+        program: String,
+        image: String,
+        status: String,
+        stderr: String,
+    },
+    /// The `nsc --version` output did not match the expected format.
+    #[error("could not parse nsc version from {image}: {output}")]
+    NscVersionUnparseable { image: String, output: String },
+    /// The selected nats-box image contains an unsupported `nsc` version.
+    #[error(
+        "nsc version {actual} in {image} is unsupported; minimum required version is {minimum}"
+    )]
+    UnsupportedNscVersion {
+        image: String,
+        actual: NscVersion,
+        minimum: NscVersion,
+    },
     /// An expected value was missing from generated nsc metadata.
     #[error("missing generated {0}")]
     MissingGeneratedValue(&'static str),
@@ -307,7 +374,15 @@ pub fn generate_local_nats_bootstrap(
 ) -> Result<LocalNatsBootstrapManifest, LocalBootstrapError> {
     validate_output_dir(&options.out, options.force)?;
     let runtime = resolve_container_runtime(options.container_runtime)?;
+    check_nsc_version(runtime, &options.nats_box_image)?;
 
+    generate_local_nats_bootstrap_with_runtime(options, runtime)
+}
+
+fn generate_local_nats_bootstrap_with_runtime(
+    options: &LocalNatsBootstrapOptions,
+    runtime: ContainerRuntime,
+) -> Result<LocalNatsBootstrapManifest, LocalBootstrapError> {
     if options.out.exists() && options.force {
         fs::remove_dir_all(&options.out)?;
     }
@@ -327,6 +402,9 @@ pub fn generate_local_trellis_bootstrap(
     options: &LocalTrellisBootstrapOptions,
 ) -> Result<LocalTrellisBootstrapManifest, LocalBootstrapError> {
     validate_output_dir(&options.out, options.force)?;
+    let runtime = resolve_container_runtime(options.container_runtime)?;
+    check_nsc_version(runtime, &options.nats_box_image)?;
+
     if options.out.exists() && options.force {
         fs::remove_dir_all(&options.out)?;
     }
@@ -345,7 +423,7 @@ pub fn generate_local_trellis_bootstrap(
     nats_options.trellis_account = options.trellis_account.clone();
     nats_options.server_name = options.server_name.clone();
 
-    let nats_manifest = generate_local_nats_bootstrap(&nats_options)?;
+    let nats_manifest = generate_local_nats_bootstrap_with_runtime(&nats_options, runtime)?;
     fs::write(
         trellis_out.join("config.jsonc"),
         render_trellis_config(options, &nats_manifest),
@@ -510,9 +588,7 @@ fn run_nsc_container(
     runtime: ContainerRuntime,
 ) -> Result<(), LocalBootstrapError> {
     let mount = container_mount(&options.out, runtime);
-    let program = runtime
-        .command_name()
-        .expect("resolved container runtime should have a program");
+    let program = container_runtime_program(runtime)?;
     let output = Command::new(program)
         .args(["run", "--rm", "-v"])
         .arg(mount)
@@ -532,6 +608,46 @@ fn run_nsc_container(
             .map_or_else(|| "signal".to_string(), |code| code.to_string()),
         stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
     })
+}
+
+fn check_nsc_version(runtime: ContainerRuntime, image: &str) -> Result<(), LocalBootstrapError> {
+    let program = container_runtime_program(runtime)?;
+    let output = Command::new(program)
+        .args(["run", "--rm", image, "nsc", "--version"])
+        .stdin(Stdio::null())
+        .output()?;
+
+    if !output.status.success() {
+        return Err(LocalBootstrapError::NscVersionCommandFailed {
+            program: program.to_string(),
+            image: image.to_string(),
+            status: output
+                .status
+                .code()
+                .map_or_else(|| "signal".to_string(), |code| code.to_string()),
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        });
+    }
+
+    check_nsc_version_output(image, String::from_utf8_lossy(&output.stdout).trim())
+}
+
+fn check_nsc_version_output(image: &str, output: &str) -> Result<(), LocalBootstrapError> {
+    let actual =
+        NscVersion::parse(output).ok_or_else(|| LocalBootstrapError::NscVersionUnparseable {
+            image: image.to_string(),
+            output: output.to_string(),
+        })?;
+
+    if actual < MINIMUM_NSC_VERSION {
+        return Err(LocalBootstrapError::UnsupportedNscVersion {
+            image: image.to_string(),
+            actual,
+            minimum: MINIMUM_NSC_VERSION,
+        });
+    }
+
+    Ok(())
 }
 
 fn render_nsc_script(options: &LocalNatsBootstrapOptions) -> String {
@@ -849,6 +965,14 @@ fn command_exists(program: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
+fn container_runtime_program(
+    runtime: ContainerRuntime,
+) -> Result<&'static str, LocalBootstrapError> {
+    runtime
+        .command_name()
+        .ok_or(LocalBootstrapError::ContainerRuntimeNotFound)
+}
+
 fn container_mount(out: &Path, runtime: ContainerRuntime) -> OsString {
     let suffix = if runtime == ContainerRuntime::Podman {
         ":/work:Z"
@@ -998,6 +1122,64 @@ mod tests {
             "SYSTEM_USER=$(nsc describe user --account \"$SYSTEM_ACCOUNT_NAME\" --name system --field sub"
         ));
         assert!(script.contains("\"systemUserPublicKey\": \"${SYSTEM_USER}\""));
+    }
+
+    #[test]
+    fn nsc_version_parse_accepts_expected_output() {
+        assert_eq!(
+            NscVersion::parse("nsc version 2.12.2"),
+            Some(NscVersion {
+                major: 2,
+                minor: 12,
+                patch: 2,
+            })
+        );
+        assert_eq!(
+            NscVersion::parse("nsc version 2.13.0\n"),
+            Some(NscVersion {
+                major: 2,
+                minor: 13,
+                patch: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn nsc_version_parse_rejects_unexpected_output() {
+        assert_eq!(NscVersion::parse("2.12.2"), None);
+        assert_eq!(NscVersion::parse("nsc 2.12.2"), None);
+        assert_eq!(NscVersion::parse("nsc version 2.12"), None);
+        assert_eq!(NscVersion::parse("nsc version 2.12.2 extra"), None);
+    }
+
+    #[test]
+    fn nsc_version_check_accepts_minimum_and_newer_versions() {
+        check_nsc_version_output("nats-box:test", "nsc version 2.12.2")
+            .expect("minimum version should pass");
+        check_nsc_version_output("nats-box:test", "nsc version 2.13.0")
+            .expect("newer version should pass");
+    }
+
+    #[test]
+    fn nsc_version_check_rejects_older_version_with_clear_error() {
+        let error = check_nsc_version_output("nats-box:test", "nsc version 2.12.1")
+            .expect_err("older version should fail");
+
+        assert_eq!(
+            error.to_string(),
+            "nsc version 2.12.1 in nats-box:test is unsupported; minimum required version is 2.12.2"
+        );
+    }
+
+    #[test]
+    fn nsc_version_check_rejects_unparseable_output_with_image_name() {
+        let error = check_nsc_version_output("nats-box:test", "nsc 2.12.2")
+            .expect_err("unparseable version should fail");
+
+        assert_eq!(
+            error.to_string(),
+            "could not parse nsc version from nats-box:test: nsc 2.12.2"
+        );
     }
 
     #[test]
