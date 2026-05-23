@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use miette::{miette, IntoDiagnostic, Result};
 
 use crate::admin::{run_admin_api_fixture, run_password_change_fixture};
@@ -5,12 +7,17 @@ use crate::app_identity_approval::run_app_identity_approval_fixture;
 use crate::browser::{complete_admin_bootstrap, complete_local_login, BrowserContainer};
 use crate::catalog_repair::{
     run_catalog_repair_fixture, verify_catalog_repair_persistence_after_restart,
+    CatalogRepairPersistenceCheck,
 };
-use crate::cli::IntegrationArgs;
-use crate::container::IntegrationWorkdir;
+use crate::cli::{IntegrationArgs, ListCommand};
+use crate::container::{ContainerBackend, IntegrationWorkdir};
 use crate::device_activation::run_device_activation_fixture;
 use crate::events::run_events_fixture;
 use crate::feeds::run_feeds_fixture;
+use crate::fixture::{
+    integration_fixtures, print_fixtures, select_run_fixtures, write_fixture_junit,
+    write_fixture_reports, FixtureRunReport,
+};
 use crate::health::run_health_fixture;
 use crate::jobs::run_jobs_fixture;
 use crate::nats::{
@@ -31,6 +38,8 @@ use crate::service_approval::run_service_approval_fixture;
 use crate::state::run_state_fixture;
 use crate::transfer::run_transfer_fixture;
 use serde_json::to_string;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 use trellis_contracts::{use_contract, ContractKind, ContractManifestBuilder};
 use trellis_local_bootstrap::{
     generate_local_trellis_bootstrap, ContainerRuntime, LocalTrellisBootstrapOptions,
@@ -104,8 +113,19 @@ pub(crate) fn admin_setup_contract_json() -> Result<String> {
 
 /// Run the Trellis integration harness using the supplied prepare workflow hook.
 pub fn run(args: IntegrationArgs, prepare: impl FnOnce() -> Result<()>) -> Result<()> {
+    init_tracing();
     let runner = IntegrationRunner::new(args);
     runner.run(prepare)
+}
+
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("trellis_integration_harness=info"));
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .try_init();
 }
 
 #[derive(Debug)]
@@ -131,36 +151,50 @@ impl IntegrationRunner {
     async fn run_async(&self, prepare: impl FnOnce() -> Result<()>) -> Result<()> {
         let known_failures = known_integration_failures();
         let required_coverage = required_integration_coverage();
-        self.report_inventory(&known_failures, &required_coverage)?;
-        if self.args.list_known_failures || self.args.list_required_coverage {
+        if self.report_inventory(&known_failures, &required_coverage)? {
             return Ok(());
         }
+        let run_args = self
+            .args
+            .run_args()
+            .ok_or_else(|| miette!("integration command is not runnable"))?;
+        let selected_fixtures = select_run_fixtures(run_args)?;
 
-        if self.args.skip_prepare {
-            eprintln!("integration preflight: skipping prepare workflow");
+        if run_args.skip_prepare {
+            info!("integration preflight: skipping prepare workflow");
         } else {
             prepare()?;
         }
-        let workdir = IntegrationWorkdir::create(self.args.keep_workdir)?;
+        let workdir = IntegrationWorkdir::create(run_args.keep_workdir)?;
         let container_runtime_name = self.detect_container_runtime()?;
-        eprintln!(
+        let container_backend = ContainerBackend::new(container_runtime_name);
+        info!(
             "integration preflight: using {container_runtime_name} for rootless NATS/Trellis stack containers"
         );
-        eprintln!(
+        info!(
             "integration preflight: temporary workdir {}",
             workdir.path().display()
         );
         if workdir.keep() {
-            eprintln!("integration preflight: preserving temporary workdir");
+            info!("integration preflight: preserving temporary workdir");
         }
+        let browser_artifact_dir = workdir.path().join("browser-artifacts");
+        std::env::set_var(
+            "TRELLIS_INTEGRATION_BROWSER_ARTIFACT_DIR",
+            &browser_artifact_dir,
+        );
+        info!(
+            "integration preflight: browser failure artifacts {}",
+            browser_artifact_dir.display()
+        );
         let trellis_port = reserve_local_port()?;
-        let browser = BrowserContainer::start(&self.process_runner, container_runtime_name).await?;
+        let browser = BrowserContainer::start(&self.process_runner, container_backend).await?;
         let browser_trellis_origin = browser.trellis_origin(trellis_port);
-        eprintln!(
+        info!(
             "integration preflight: browser WebDriver {}",
             browser.webdriver_url()
         );
-        eprintln!("integration preflight: browser Trellis origin {browser_trellis_origin}");
+        info!("integration preflight: browser Trellis origin {browser_trellis_origin}");
         let mut bootstrap_options = LocalTrellisBootstrapOptions::new(workdir.path());
         bootstrap_options.container_runtime = container_runtime(container_runtime_name)?;
         bootstrap_options.trellis_port = trellis_port;
@@ -173,14 +207,10 @@ impl IntegrationRunner {
             .parent()
             .ok_or_else(|| miette!("bootstrap NATS manifest path has no parent"))?;
 
-        let nats = NatsContainer::start(
-            &self.process_runner,
-            container_runtime_name,
-            &workdir,
-            nats_dir,
-        )?;
-        eprintln!("integration preflight: NATS server {}", nats.server_url());
-        eprintln!(
+        let nats =
+            NatsContainer::start(&self.process_runner, container_backend, &workdir, nats_dir)?;
+        info!("integration preflight: NATS server {}", nats.server_url());
+        info!(
             "integration preflight: NATS websocket {}",
             nats.websocket_url()
         );
@@ -193,26 +223,27 @@ impl IntegrationRunner {
         ensure_event_stream(&nats.server_url(), &nats_dir.join(trellis_creds)).await?;
         ensure_jobs_shared_streams(&nats.server_url(), &nats_dir.join(trellis_creds)).await?;
         let portal = build_login_portal(&self.process_runner, &workdir, &browser_trellis_origin)?;
-        eprintln!(
+        info!(
             "integration preflight: portal build {}",
             portal.build_dir().display()
         );
-        let trellis_runtime = TrellisRuntime::start(
+        let mut trellis_runtime = TrellisRuntime::start(
             &workdir,
             &manifest,
             bootstrap_options.clone(),
             &nats.server_url(),
             &nats.websocket_url(),
             portal.build_dir(),
-        )?;
-        eprintln!(
+        )
+        .await?;
+        info!(
             "integration preflight: Trellis runtime {}",
             trellis_runtime.public_url()
         );
         let bootstrap_url = std::fs::read_to_string(trellis_runtime.stdout_log())
             .map_err(|error| miette!("failed to read Trellis stdout log: {error}"))
             .and_then(|log| extract_bootstrap_url_from_log(&log))?;
-        eprintln!("integration preflight: completing admin bootstrap through portal");
+        info!("integration preflight: completing admin bootstrap through portal");
         let driver = browser.driver().await?;
         let admin_result = complete_admin_bootstrap(
             &driver,
@@ -229,10 +260,10 @@ impl IntegrationRunner {
             .map_err(|error| miette!("failed to stop WebDriver session: {error}"));
         admin_result?;
         quit_result?;
-        eprintln!("integration preflight: admin bootstrap completed through portal");
+        info!("integration preflight: admin bootstrap completed through portal");
 
         let host_trellis_origin = format!("http://127.0.0.1:{trellis_port}");
-        eprintln!("integration preflight: starting delegated Rust agent login");
+        info!("integration preflight: starting delegated Rust agent login");
         let admin_setup_contract_json = admin_setup_contract_json()?;
         let challenge = trellis_auth::start_agent_login(&trellis_auth::StartAgentLoginOpts {
             trellis_url: &host_trellis_origin,
@@ -260,135 +291,261 @@ impl IntegrationRunner {
                 outcome.user.identity.subject
             ));
         }
-        eprintln!(
+        info!(
             "integration preflight: delegated Rust agent login returned admin userId={}",
             outcome.user.user_id
         );
-        eprintln!("integration preflight: running direct primary admin/public API fixture");
-        let admin_api_passing_cases =
-            run_admin_api_fixture(&host_trellis_origin, &outcome, &browser).await?;
-        eprintln!("integration preflight: direct primary admin/public API fixture passed");
-        eprintln!("integration preflight: running device activation fixture");
-        let device_activation_passing_cases =
-            run_device_activation_fixture(&host_trellis_origin, &outcome, &browser).await?;
-        eprintln!("integration preflight: device activation fixture passed");
-        let restored_outcome = reauth_contract(
-            &outcome.state,
-            &admin_setup_contract_json,
-            &host_trellis_origin,
-            &browser,
-        )
-        .await?;
-        eprintln!("integration preflight: running Rust RPC fixture");
-        let rpc_passing_cases =
-            run_rpc_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
-        eprintln!("integration preflight: Rust/TypeScript RPC fixture passed");
-        eprintln!("integration preflight: running service startup approval fixture");
-        let service_approval_passing_cases =
-            run_service_approval_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
-        eprintln!("integration preflight: service startup approval fixture passed");
-        eprintln!("integration preflight: running app identity-envelope approval fixture");
-        let app_identity_approval_passing_cases = run_app_identity_approval_fixture(
-            &host_trellis_origin,
-            &browser_trellis_origin,
-            &restored_outcome,
-            &browser,
-        )
-        .await?;
-        eprintln!("integration preflight: app identity-envelope approval fixture passed");
-        eprintln!("integration preflight: running optional uses dependency fixture");
-        let optional_uses_passing_cases =
-            run_optional_uses_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
-        eprintln!("integration preflight: optional uses dependency fixture passed");
-        eprintln!("integration preflight: running Rust/TypeScript operations fixture");
-        let operations_passing_cases =
-            run_operations_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
-        eprintln!("integration preflight: Rust/TypeScript operations fixture passed");
-        eprintln!("integration preflight: running Rust/TypeScript events fixture");
-        let events_passing_cases =
-            run_events_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
-        eprintln!("integration preflight: Rust/TypeScript events fixture passed");
-        eprintln!("integration preflight: running Rust health heartbeat fixture");
-        let health_passing_cases =
-            run_health_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
-        eprintln!("integration preflight: Rust health heartbeat fixture passed");
-        eprintln!("integration preflight: running Rust/TypeScript state fixture");
-        let state_passing_cases =
-            run_state_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
-        eprintln!("integration preflight: Rust/TypeScript state fixture passed");
-        eprintln!("integration preflight: running Rust/TypeScript transfer fixture");
-        let transfer_passing_cases =
-            run_transfer_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
-        eprintln!("integration preflight: Rust/TypeScript transfer fixture passed");
-        eprintln!("integration preflight: running Rust/TypeScript feeds fixture");
-        let feeds_passing_cases =
-            run_feeds_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
-        eprintln!("integration preflight: Rust/TypeScript feeds fixture passed");
-        eprintln!("integration preflight: running Rust/TypeScript resources fixture");
-        let resources_passing_cases = run_resources_fixture(
-            &host_trellis_origin,
-            &nats.server_url(),
-            &nats_dir.join(trellis_creds),
-            &restored_outcome,
-            &browser,
-        )
-        .await?;
-        eprintln!("integration preflight: Rust/TypeScript resources fixture passed");
-        eprintln!("integration preflight: running Rust Jobs public API fixture");
-        let jobs_passing_cases =
-            run_jobs_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
-        eprintln!("integration preflight: Rust Jobs public API fixture passed");
-        eprintln!("integration preflight: running active catalog repair fixture");
-        let (catalog_repair_passing_cases, catalog_repair_persistence_check) =
-            run_catalog_repair_fixture(&host_trellis_origin, &restored_outcome, &browser).await?;
-        eprintln!("integration preflight: active catalog repair fixture passed");
-        assert_jobs_shared_streams(&nats.server_url(), &nats_dir.join(trellis_creds)).await?;
-        eprintln!("integration preflight: shared Jobs streams are present");
-        eprintln!("integration preflight: restarting Trellis runtime for catalog repair persistence check");
-        drop(trellis_runtime);
-        let trellis_runtime = TrellisRuntime::start(
-            &workdir,
-            &manifest,
-            bootstrap_options,
-            &nats.server_url(),
-            &nats.websocket_url(),
-            portal.build_dir(),
-        )?;
-        eprintln!(
-            "integration preflight: Trellis runtime restarted {}",
-            trellis_runtime.public_url()
-        );
-        let catalog_repair_restart_passing_cases = verify_catalog_repair_persistence_after_restart(
-            &restored_outcome,
-            &catalog_repair_persistence_check,
-        )
-        .await?;
-        eprintln!("integration preflight: active catalog repair persistence check passed");
-        eprintln!("integration preflight: running password change fixture");
-        let password_change_passing_cases = run_password_change_fixture(&restored_outcome).await?;
-        eprintln!("integration preflight: password change fixture passed");
-        let passing_cases = admin_api_passing_cases
-            + device_activation_passing_cases
-            + rpc_passing_cases
-            + service_approval_passing_cases
-            + app_identity_approval_passing_cases
-            + optional_uses_passing_cases
-            + operations_passing_cases
-            + events_passing_cases
-            + health_passing_cases
-            + state_passing_cases
-            + transfer_passing_cases
-            + feeds_passing_cases
-            + resources_passing_cases
-            + jobs_passing_cases
-            + catalog_repair_passing_cases
-            + catalog_repair_restart_passing_cases
-            + password_change_passing_cases;
+        let mut reports = Vec::new();
+        let mut catalog_repair_persistence_check: Option<CatalogRepairPersistenceCheck> = None;
+        let mut executed_runner_ids = BTreeSet::new();
+        for fixture in &selected_fixtures {
+            if !executed_runner_ids.insert(fixture.runner_id) {
+                continue;
+            }
+
+            info!(
+                fixture.id,
+                fixture.title,
+                fixture.runner_id,
+                fixture.runner_title,
+                "integration fixture starting"
+            );
+            let passing_cases = match fixture.runner_id {
+                "admin-api" => {
+                    run_admin_api_fixture(&host_trellis_origin, &outcome, &browser).await?
+                }
+                "device-activation" => {
+                    run_device_activation_fixture(&host_trellis_origin, &outcome, &browser).await?
+                }
+                "rpc" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_rpc_fixture(&host_trellis_origin, &admin_login, &browser).await?
+                }
+                "service-approval" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_service_approval_fixture(&host_trellis_origin, &admin_login, &browser)
+                        .await?
+                }
+                "app-identity-approval" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_app_identity_approval_fixture(
+                        &host_trellis_origin,
+                        &browser_trellis_origin,
+                        &admin_login,
+                        &browser,
+                    )
+                    .await?
+                }
+                "optional-uses" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_optional_uses_fixture(&host_trellis_origin, &admin_login, &browser).await?
+                }
+                "operations" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_operations_fixture(&host_trellis_origin, &admin_login, &browser).await?
+                }
+                "events" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_events_fixture(&host_trellis_origin, &admin_login, &browser).await?
+                }
+                "health" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_health_fixture(&host_trellis_origin, &admin_login, &browser).await?
+                }
+                "state" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_state_fixture(&host_trellis_origin, &admin_login, &browser).await?
+                }
+                "transfer" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_transfer_fixture(&host_trellis_origin, &admin_login, &browser).await?
+                }
+                "feeds" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_feeds_fixture(&host_trellis_origin, &admin_login, &browser).await?
+                }
+                "resources" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_resources_fixture(
+                        &host_trellis_origin,
+                        &nats.server_url(),
+                        &nats_dir.join(trellis_creds),
+                        &admin_login,
+                        &browser,
+                    )
+                    .await?
+                }
+                "jobs" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_jobs_fixture(&host_trellis_origin, &admin_login, &browser).await?
+                }
+                "catalog-repair" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    let (passing_cases, persistence_check) =
+                        run_catalog_repair_fixture(&host_trellis_origin, &admin_login, &browser)
+                            .await?;
+                    catalog_repair_persistence_check = Some(persistence_check);
+                    passing_cases
+                }
+                "catalog-repair-restart" => {
+                    let persistence_check = catalog_repair_persistence_check.as_ref().ok_or_else(|| {
+                        miette!(
+                            "catalog-repair-restart requires catalog-repair to run first so it can create the persistence check"
+                        )
+                    })?;
+                    assert_jobs_shared_streams(&nats.server_url(), &nats_dir.join(trellis_creds))
+                        .await?;
+                    info!("integration preflight: shared Jobs streams are present");
+                    info!("integration preflight: restarting Trellis runtime for catalog repair persistence check");
+                    drop(trellis_runtime);
+                    trellis_runtime = TrellisRuntime::start(
+                        &workdir,
+                        &manifest,
+                        bootstrap_options.clone(),
+                        &nats.server_url(),
+                        &nats.websocket_url(),
+                        portal.build_dir(),
+                    )
+                    .await?;
+                    info!(
+                        "integration preflight: Trellis runtime restarted {}",
+                        trellis_runtime.public_url()
+                    );
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    verify_catalog_repair_persistence_after_restart(&admin_login, persistence_check)
+                        .await?
+                }
+                "password-change" => {
+                    let admin_login = fresh_admin_login(
+                        &outcome,
+                        &admin_setup_contract_json,
+                        &host_trellis_origin,
+                        &browser,
+                    )
+                    .await?;
+                    run_password_change_fixture(&admin_login).await?
+                }
+                other => {
+                    return Err(miette!(
+                        "unsupported integration fixture runner id `{other}`"
+                    ))
+                }
+            };
+            info!(
+                fixture.id,
+                fixture.title, passing_cases, "integration fixture passed"
+            );
+            let selected_fixture_ids = selected_fixtures
+                .iter()
+                .filter(|selected| selected.runner_id == fixture.runner_id)
+                .map(|selected| selected.id)
+                .collect();
+            reports.push(FixtureRunReport::new(
+                fixture,
+                passing_cases,
+                selected_fixture_ids,
+            ));
+        }
+
+        let passing_cases: usize = reports.iter().map(|report| report.cases).sum();
+        write_fixture_reports(run_args.format, &reports);
+        if let Some(junit_path) = &run_args.junit {
+            write_fixture_junit(junit_path, &reports)?;
+            eprintln!(
+                "integration result: wrote JUnit report {}",
+                junit_path.display()
+            );
+        }
         print_required_coverage(&required_coverage);
         print_known_failures(&known_failures);
         eprintln!(
-            "integration result: {} passing case(s), {} required coverage area(s), {} known failing case(s)",
+            "integration result: {} passing case(s) across {} fixture(s), {} required coverage area(s), {} known failing case(s)",
             passing_cases,
+            reports.len(),
             required_coverage.len(),
             known_failures.len()
         );
@@ -400,17 +557,28 @@ impl IntegrationRunner {
         &self,
         known_failures: &[KnownFailure],
         required_coverage: &[RequiredCoverage],
-    ) -> Result<()> {
-        if self.args.list_known_failures {
-            print_known_failures(known_failures);
-            return Ok(());
-        }
-        if self.args.list_required_coverage {
-            print_required_coverage(required_coverage);
-            return Ok(());
+    ) -> Result<bool> {
+        match self.args.list_target() {
+            Some(ListCommand::Coverage) => {
+                print_required_coverage(required_coverage);
+                return Ok(true);
+            }
+            Some(ListCommand::Fixtures) => {
+                print_fixtures(&integration_fixtures());
+                return Ok(true);
+            }
+            Some(ListCommand::KnownFailures) => {
+                print_known_failures(known_failures);
+                return Ok(true);
+            }
+            None => {}
         }
 
-        if self.args.strict_known_failures && !known_failures.is_empty() {
+        let run_args = self
+            .args
+            .run_args()
+            .ok_or_else(|| miette!("integration command is not runnable"))?;
+        if run_args.strict_known_failures && !known_failures.is_empty() {
             print_known_failures(known_failures);
             return Err(miette!(
                 "integration suite has {} known failing case(s)",
@@ -418,7 +586,7 @@ impl IntegrationRunner {
             ));
         }
 
-        Ok(())
+        Ok(false)
     }
 
     fn detect_container_runtime(&self) -> Result<&'static str> {
@@ -434,6 +602,15 @@ impl IntegrationRunner {
             "integration requires podman or docker; local nats-server is intentionally not used"
         ))
     }
+}
+
+async fn fresh_admin_login(
+    outcome: &trellis_auth::AdminLoginOutcome,
+    contract_json: &str,
+    trellis_url: &str,
+    browser: &BrowserContainer,
+) -> Result<trellis_auth::AdminLoginOutcome> {
+    reauth_contract(&outcome.state, contract_json, trellis_url, browser).await
 }
 
 fn container_runtime(runtime: &str) -> Result<ContainerRuntime> {

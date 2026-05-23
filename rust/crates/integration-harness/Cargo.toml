@@ -32,6 +32,6 @@ trellis-service = { path = "../service" }
 trellis-service-jobs = { path = "../service-jobs" }
 time.workspace = true
 serde.workspace = true
-
-[dev-dependencies]
 tempfile = "3.27.0"
+tracing.workspace = true
+tracing-subscriber.workspace = true

@@ -23,6 +23,7 @@ use trellis_service::{bootstrap_service_host, BootstrapBinding, Router};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
+use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
 use crate::workspace::repo_root;
 
 const HARNESS_DEPLOYMENT_ID: &str = "harness.feeds";
@@ -100,191 +101,6 @@ fn harness_caller_contract_json() -> Result<String> {
     serde_json::to_string(&manifest)
         .map_err(|error| miette!("failed to serialize feeds harness caller contract: {error}"))
 }
-
-const TS_SERVICE_SCRIPT: &str = r#"import { defineServiceContract } from "@qlever-llc/trellis";
-import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { TrellisService } from "@qlever-llc/trellis/service/deno";
-import { Type } from "typebox";
-
-const schemas = {
-  FeedInput: Type.Object({ topic: Type.String() }),
-  FeedEvent: Type.Object({ message: Type.String(), topic: Type.String(), traceparent: Type.Optional(Type.String()) }),
-} as const;
-
-const contract = defineServiceContract({ schemas }, (ref) => ({
-  id: "trellis.integration-harness.feeds@v1",
-  displayName: "Trellis Integration Harness Feeds",
-  description: "Harness-owned service contract for full-stack Rust/TypeScript feed verification.",
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
-    },
-  },
-  feeds: {
-    "Harness.Rust.Feed": { version: "v1", subject: "feeds.v1.Harness.Rust.Feed", input: ref.schema("FeedInput"), event: ref.schema("FeedEvent"), capabilities: { subscribe: [] } },
-    "Harness.Ts.Feed": { version: "v1", subject: "feeds.v1.Harness.Ts.Feed", input: ref.schema("FeedInput"), event: ref.schema("FeedEvent"), capabilities: { subscribe: [] } },
-  },
-}));
-
-const expectedDigest = Deno.env.get("HARNESS_CONTRACT_DIGEST");
-if (contract.CONTRACT_DIGEST !== expectedDigest) {
-  throw new Error(`contract digest mismatch: ${contract.CONTRACT_DIGEST} !== ${expectedDigest}`);
-}
-
-const service = await TrellisService.connect({
-  trellisUrl: Deno.env.get("TRELLIS_URL")!,
-  contract,
-  name: "harness-feeds-ts",
-  sessionKeySeed: Deno.env.get("HARNESS_TS_SERVICE_SEED")!,
-  server: { log: false },
-}).orThrow();
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-await service.feed("Harness.Ts.Feed").handle(async ({ input, emit }) => {
-  if (input.topic.startsWith("slow-")) await sleep(500);
-  await emit({ message: `ts-feed:${input.topic}`, topic: input.topic }).orThrow();
-});
-console.log("TS_FEEDS_SERVICE_READY");
-
-await new Promise<void>(() => {});
-"#;
-
-const TS_CLIENT_SCRIPT: &str = r#"import { defineAgentContract, defineServiceContract, TrellisClient } from "@qlever-llc/trellis";
-import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { trace } from "@qlever-llc/trellis/tracing";
-import { Type } from "typebox";
-
-new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
-}).register();
-
-const schemas = {
-  FeedInput: Type.Object({ topic: Type.String() }),
-  FeedEvent: Type.Object({ message: Type.String(), topic: Type.String(), traceparent: Type.Optional(Type.String()) }),
-} as const;
-
-const harness = defineServiceContract({ schemas }, (ref) => ({
-  id: "trellis.integration-harness.feeds@v1",
-  displayName: "Trellis Integration Harness Feeds",
-  description: "Harness-owned service contract for full-stack Rust/TypeScript feed verification.",
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
-    },
-  },
-  feeds: {
-    "Harness.Rust.Feed": { version: "v1", subject: "feeds.v1.Harness.Rust.Feed", input: ref.schema("FeedInput"), event: ref.schema("FeedEvent"), capabilities: { subscribe: [] } },
-    "Harness.Ts.Feed": { version: "v1", subject: "feeds.v1.Harness.Ts.Feed", input: ref.schema("FeedInput"), event: ref.schema("FeedEvent"), capabilities: { subscribe: [] } },
-  },
-}));
-
-const contract = defineAgentContract(() => ({
-  id: "trellis.integration-feeds-agent@v1",
-  displayName: "Trellis Integration Feeds Agent",
-  description: "Verify delegated Rust agent login and harness feed subscriptions.",
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-      harness: harness.use({ feeds: { subscribe: ["Harness.Rust.Feed", "Harness.Ts.Feed"] } }),
-    },
-  },
-}));
-
-const expectedDigest = Deno.env.get("HARNESS_CALLER_CONTRACT_DIGEST");
-if (contract.CONTRACT_DIGEST !== expectedDigest) {
-  throw new Error(`caller contract digest mismatch: ${contract.CONTRACT_DIGEST} !== ${expectedDigest}`);
-}
-
-const client = await TrellisClient.connect({
-  trellisUrl: Deno.env.get("TRELLIS_URL")!,
-  contract,
-  auth: { mode: "session_key", sessionKeySeed: Deno.env.get("HARNESS_CALLER_SESSION_SEED")!, redirectTo: "/_trellis/portal/users/login" },
-  log: false,
-}).orThrow();
-
-type FeedName = "Harness.Rust.Feed" | "Harness.Ts.Feed";
-
-async function firstAsyncIterableValue<T>(stream: AsyncIterable<T>): Promise<T> {
-  for await (const event of stream) return event;
-  throw new Error("feed ended before first event");
-}
-
-async function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(`${label} timed out`)), 10000);
-      }),
-    ]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-  }
-}
-
-async function assertFeed(feed: FeedName, topic: string, expectedMessage: string) {
-  const controller = new AbortController();
-  try {
-    const stream = await client.feed(feed).input({ topic }).subscribe({ signal: controller.signal }).orThrow();
-    const event = await withTimeout(firstAsyncIterableValue(stream), `${feed} first event`) as { message?: string; topic?: string };
-    if (event.message !== expectedMessage || event.topic !== topic) {
-      throw new Error(`${feed} returned ${JSON.stringify(event)}`);
-    }
-  } finally {
-    controller.abort();
-  }
-}
-
-async function assertConcurrentFeeds(feed: FeedName, prefix: string, expectedPrefix: string) {
-  const started = performance.now();
-  await Promise.all([
-    assertFeed(feed, `slow-${prefix}-a`, `${expectedPrefix}:slow-${prefix}-a`),
-    assertFeed(feed, `slow-${prefix}-b`, `${expectedPrefix}:slow-${prefix}-b`),
-  ]);
-  const elapsed = performance.now() - started;
-  if (elapsed > 1500) {
-    throw new Error(`${feed} concurrent feeds took ${elapsed}ms`);
-  }
-}
-
-async function assertTraceFeed() {
-  let expectedTraceId = "";
-  await trace.getTracer("trellis-integration-feeds").startActiveSpan("subscribe traced feed", async (span) => {
-    expectedTraceId = span.spanContext().traceId;
-    try {
-      const controller = new AbortController();
-      try {
-        const stream = await client.feed("Harness.Rust.Feed").input({ topic: "ts-client-rust-feed-trace" }).subscribe({ signal: controller.signal }).orThrow();
-        const event = await withTimeout(firstAsyncIterableValue(stream), "Harness.Rust.Feed trace first event") as { message?: string; topic?: string; traceparent?: string };
-        if (event.message !== "rust-feed:ts-client-rust-feed-trace" || event.topic !== "ts-client-rust-feed-trace") {
-          throw new Error(`Harness.Rust.Feed trace returned ${JSON.stringify(event)}`);
-        }
-        if (event.traceparent === undefined || !event.traceparent.includes(expectedTraceId)) {
-          throw new Error(`Harness.Rust.Feed traceparent ${event.traceparent} did not include ${expectedTraceId}`);
-        }
-      } finally {
-        controller.abort();
-      }
-    } finally {
-      span.end();
-    }
-  });
-}
-
-await assertFeed("Harness.Rust.Feed", "ts-client-rust-feed", "rust-feed:ts-client-rust-feed");
-await assertFeed("Harness.Ts.Feed", "ts-client-ts-feed", "ts-feed:ts-client-ts-feed");
-await assertConcurrentFeeds("Harness.Rust.Feed", "ts-client-rust-feed", "rust-feed");
-await assertConcurrentFeeds("Harness.Ts.Feed", "ts-client-ts-feed", "ts-feed");
-await assertTraceFeed();
-await client.natsConnection.drain();
-console.log("TS_FEEDS_CLIENT_OK");
-"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct HarnessFeedInput {
@@ -729,9 +545,8 @@ struct TsServiceProcess {
 impl TsServiceProcess {
     fn start(trellis_url: &str, contract_digest: &str, service_seed: &str) -> Result<Self> {
         let repo = repo_root()?;
-        let script_path = write_ts_fixture_script("feeds-service", TS_SERVICE_SCRIPT)?;
-        let stdout_log = script_path.with_extension("stdout.log");
-        let stderr_log = script_path.with_extension("stderr.log");
+        let script_path = deno_fixture_path("feeds/service.ts")?;
+        let (stdout_log, stderr_log) = deno_fixture_log_paths("feeds-service")?;
         let stdout = File::create(&stdout_log)
             .into_diagnostic()
             .map_err(|error| miette!("failed to create TS feeds service stdout log: {error}"))?;
@@ -805,7 +620,7 @@ impl Drop for TsServiceProcess {
 
 async fn run_ts_client(trellis_url: &str, caller_session_seed: &str) -> Result<()> {
     let repo = repo_root()?;
-    let script_path = write_ts_fixture_script("feeds-client", TS_CLIENT_SCRIPT)?;
+    let script_path = deno_fixture_path("feeds/client.ts")?;
     let caller_contract_json = harness_caller_contract_json()?;
     let caller_digest = digest_contract_json(&caller_contract_json).into_diagnostic()?;
     let output = std::process::Command::new("deno")
@@ -841,34 +656,17 @@ async fn run_ts_client(trellis_url: &str, caller_session_seed: &str) -> Result<(
     Ok(())
 }
 
-fn write_ts_fixture_script(name: &str, contents: &str) -> Result<PathBuf> {
-    let path = std::env::temp_dir().join(format!(
-        "trellis-integration-{name}-{}-{}.ts",
-        std::process::id(),
-        unique_suffix()
-    ));
-    std::fs::write(&path, contents)
-        .into_diagnostic()
-        .map_err(|error| {
-            miette!(
-                "failed to write TS feeds fixture script {}: {error}",
-                path.display()
-            )
-        })?;
-    Ok(path)
+fn current_iat() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
 }
 
 fn unique_suffix() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
-        .unwrap_or_default()
-}
-
-fn current_iat() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
         .unwrap_or_default()
 }
 

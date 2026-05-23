@@ -5,6 +5,13 @@ pub(crate) struct RequiredCoverage {
     expectation: &'static str,
 }
 
+#[cfg(test)]
+impl RequiredCoverage {
+    pub(crate) fn id(&self) -> &'static str {
+        self.id
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct KnownFailure {
     id: &'static str,

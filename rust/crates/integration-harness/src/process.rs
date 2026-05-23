@@ -1,8 +1,10 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::process::{Command, ExitStatus, Output};
+use std::process::{Command, ExitStatus, Output, Stdio};
 
 use miette::{IntoDiagnostic, Result, WrapErr};
+
+const OUTPUT_TAIL_BYTES: usize = 4096;
 
 #[derive(Debug, Default)]
 pub(crate) struct ProcessRunner;
@@ -11,6 +13,8 @@ impl ProcessRunner {
     pub(crate) fn status(&self, spec: &CommandSpec) -> Result<ExitStatus> {
         let mut command = spec.command();
         command
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()
             .into_diagnostic()
             .wrap_err_with(|| format!("failed to run command `{}`", spec.display_command()))
@@ -23,6 +27,28 @@ impl ProcessRunner {
             .into_diagnostic()
             .wrap_err_with(|| format!("failed to run command `{}`", spec.display_command()))
     }
+}
+
+pub(crate) fn command_output_failure_message(
+    context: &str,
+    spec: &CommandSpec,
+    output: &Output,
+) -> String {
+    format!(
+        "{context}: command `{}` exited with status {}\nstdout tail:\n{}\nstderr tail:\n{}",
+        spec.display_command(),
+        output.status,
+        output_tail(&output.stdout),
+        output_tail(&output.stderr)
+    )
+}
+
+fn output_tail(output: &[u8]) -> String {
+    if output.is_empty() {
+        return "<empty>".to_string();
+    }
+    let start = output.len().saturating_sub(OUTPUT_TAIL_BYTES);
+    String::from_utf8_lossy(&output[start..]).trim().to_string()
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -116,5 +142,21 @@ mod tests {
         assert_eq!(spec.envs().len(), 1);
         assert_eq!(spec.envs()[0].0, "TRELLIS_CONFIG");
         assert_eq!(spec.envs()[0].1, "/tmp/config.jsonc");
+    }
+
+    #[test]
+    fn command_output_failure_message_includes_command_status_and_output() {
+        let spec = CommandSpec::new("container-runtime").arg("run");
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("printf stdout; printf stderr >&2; exit 7")
+            .output()
+            .expect("run shell");
+
+        let message = super::command_output_failure_message("failed", &spec, &output);
+
+        assert!(message.contains("failed: command `container-runtime run` exited with status"));
+        assert!(message.contains("stdout"));
+        assert!(message.contains("stderr"));
     }
 }

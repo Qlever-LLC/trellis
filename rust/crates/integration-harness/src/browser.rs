@@ -1,11 +1,12 @@
-use std::time::Duration;
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use miette::{miette, IntoDiagnostic, Result};
+use miette::{miette, IntoDiagnostic, Result, WrapErr};
 use thirtyfour::prelude::*;
 
-use crate::container::unique_container_name;
+use crate::container::{unique_container_name, ContainerBackend};
 use crate::nats::{inspect_container_port, remove_container, wait_for_tcp_ready};
-use crate::process::{CommandSpec, ProcessRunner};
+use crate::process::{command_output_failure_message, CommandSpec, ProcessRunner};
 
 const CHROMIUM_IMAGE: &str = "docker.io/selenium/standalone-chromium";
 
@@ -20,10 +21,10 @@ pub(crate) struct BrowserContainer {
 impl BrowserContainer {
     pub(crate) async fn start(
         process_runner: &ProcessRunner,
-        runtime: &'static str,
+        backend: ContainerBackend,
     ) -> Result<Self> {
         let name = unique_container_name("browser")?;
-        let mut spec = CommandSpec::new(runtime)
+        let mut spec = CommandSpec::new(backend.program())
             .arg("run")
             .arg("--detach")
             .arg("--name")
@@ -32,7 +33,7 @@ impl BrowserContainer {
             .arg("127.0.0.1::4444")
             .arg("--shm-size")
             .arg("2g");
-        if runtime == "docker" {
+        if backend.is_docker() {
             spec = spec
                 .arg("--add-host")
                 .arg("host.docker.internal:host-gateway");
@@ -42,32 +43,31 @@ impl BrowserContainer {
         let output = process_runner.output(&spec)?;
         if !output.status.success() {
             return Err(miette!(
-                "failed to start browser container with status {}: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
+                "{}",
+                command_output_failure_message("failed to start browser container", &spec, &output)
             ));
         }
 
-        let webdriver_port = match inspect_container_port(process_runner, runtime, &name, 4444) {
+        let webdriver_port = match inspect_container_port(process_runner, backend, &name, 4444) {
             Ok(port) => port,
             Err(error) => {
-                remove_container(runtime, &name);
+                remove_container(backend, &name);
                 return Err(error);
             }
         };
         if let Err(error) = wait_for_tcp_ready(webdriver_port, Duration::from_secs(45)) {
-            remove_container(runtime, &name);
+            remove_container(backend, &name);
             return Err(error);
         }
 
         let container = Self {
-            runtime,
+            runtime: backend.program(),
             name,
             webdriver_url: format!("http://127.0.0.1:{webdriver_port}"),
-            host_origin: browser_host_origin(runtime),
+            host_origin: browser_host_origin(backend),
         };
         if let Err(error) = container.wait_for_webdriver().await {
-            remove_container(runtime, &container.name);
+            remove_container(backend, &container.name);
             return Err(error);
         }
         Ok(container)
@@ -112,7 +112,7 @@ impl BrowserContainer {
 
 impl Drop for BrowserContainer {
     fn drop(&mut self) {
-        remove_container(self.runtime, &self.name);
+        remove_container(ContainerBackend::new(self.runtime), &self.name);
     }
 }
 
@@ -246,9 +246,11 @@ async fn find_element(
                     .source()
                     .await
                     .unwrap_or_else(|_| "<unavailable>".to_string());
+                let artifact_note = write_browser_artifacts(driver, selector).await;
                 return Err(miette!(
-                    "timed out waiting for browser element `{selector}`: {error}; page source: {}",
-                    source.chars().take(2000).collect::<String>()
+                    "timed out waiting for browser element `{selector}`: {error}; page source: {}; {}",
+                    source.chars().take(2000).collect::<String>(),
+                    artifact_note
                 ));
             }
             Err(_) => tokio::time::sleep(Duration::from_millis(250)).await,
@@ -268,18 +270,108 @@ async fn wait_for_page_text(driver: &WebDriver, needles: &[&str], timeout: Durat
                 .source()
                 .await
                 .unwrap_or_else(|_| "<unavailable>".to_string());
+            let artifact_note = write_browser_artifacts(driver, &needles.join("-or-")).await;
             return Err(miette!(
-                "timed out waiting for browser page text: {}; page source: {}",
+                "timed out waiting for browser page text: {}; page source: {}; {}",
                 needles.join(" or "),
-                source.chars().take(2000).collect::<String>()
+                source.chars().take(2000).collect::<String>(),
+                artifact_note
             ));
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
 }
 
-fn browser_host_origin(runtime: &str) -> String {
-    if runtime == "docker" {
+async fn write_browser_artifacts(driver: &WebDriver, label: &str) -> String {
+    match try_write_browser_artifacts(driver, label).await {
+        Ok(path) => format!("browser artifacts: {}", path.display()),
+        Err(error) => format!("browser artifact capture failed: {error}"),
+    }
+}
+
+async fn try_write_browser_artifacts(driver: &WebDriver, label: &str) -> Result<PathBuf> {
+    let root = std::env::var_os("TRELLIS_INTEGRATION_BROWSER_ARTIFACT_DIR")
+        .map(PathBuf::from)
+        .ok_or_else(|| miette!("TRELLIS_INTEGRATION_BROWSER_ARTIFACT_DIR is not set"))?;
+    std::fs::create_dir_all(&root)
+        .into_diagnostic()
+        .wrap_err_with(|| {
+            format!(
+                "failed to create browser artifact directory {}",
+                root.display()
+            )
+        })?;
+    let dir = root.join(format!(
+        "{}-{}",
+        unique_artifact_suffix()?,
+        sanitize_artifact_label(label)
+    ));
+    std::fs::create_dir_all(&dir)
+        .into_diagnostic()
+        .wrap_err_with(|| {
+            format!(
+                "failed to create browser artifact directory {}",
+                dir.display()
+            )
+        })?;
+
+    let url = driver
+        .current_url()
+        .await
+        .map(|url| url.to_string())
+        .unwrap_or_else(|error| format!("<unavailable: {error}>"));
+    std::fs::write(dir.join("url.txt"), url)
+        .into_diagnostic()
+        .wrap_err("failed to write browser URL artifact")?;
+
+    let source = driver
+        .source()
+        .await
+        .unwrap_or_else(|error| format!("<unavailable: {error}>"));
+    std::fs::write(dir.join("page.html"), source)
+        .into_diagnostic()
+        .wrap_err("failed to write browser page source artifact")?;
+
+    if let Ok(screenshot) = driver.screenshot_as_png().await {
+        std::fs::write(dir.join("screenshot.png"), screenshot)
+            .into_diagnostic()
+            .wrap_err("failed to write browser screenshot artifact")?;
+    }
+
+    Ok(dir)
+}
+
+fn sanitize_artifact_label(label: &str) -> String {
+    let mut sanitized = String::new();
+    let mut previous_was_dash = false;
+    for character in label.chars() {
+        let safe = matches!(character, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-');
+        if safe {
+            sanitized.push(character);
+            previous_was_dash = false;
+        } else if !previous_was_dash {
+            sanitized.push('-');
+            previous_was_dash = true;
+        }
+    }
+    let sanitized = sanitized.trim_matches('-');
+    if sanitized.is_empty() {
+        "browser".to_string()
+    } else {
+        sanitized.to_string()
+    }
+}
+
+fn unique_artifact_suffix() -> Result<u128> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .into_diagnostic()
+        .wrap_err("system clock is before UNIX epoch")?
+        .as_nanos())
+}
+
+fn browser_host_origin(backend: ContainerBackend) -> String {
+    if backend.is_docker() {
         "host.docker.internal".to_string()
     } else {
         "host.containers.internal".to_string()
@@ -288,11 +380,27 @@ fn browser_host_origin(runtime: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::browser_host_origin;
+    use super::{browser_host_origin, sanitize_artifact_label};
+    use crate::container::ContainerBackend;
 
     #[test]
     fn browser_host_origin_uses_runtime_specific_host_gateway() {
-        assert_eq!(browser_host_origin("docker"), "host.docker.internal");
-        assert_eq!(browser_host_origin("podman"), "host.containers.internal");
+        assert_eq!(
+            browser_host_origin(ContainerBackend::new("docker")),
+            "host.docker.internal"
+        );
+        assert_eq!(
+            browser_host_origin(ContainerBackend::new("podman")),
+            "host.containers.internal"
+        );
+    }
+
+    #[test]
+    fn artifact_labels_are_filesystem_safe() {
+        assert_eq!(
+            sanitize_artifact_label("input[autocomplete='name']"),
+            "input-autocomplete-name"
+        );
+        assert_eq!(sanitize_artifact_label("///"), "browser");
     }
 }

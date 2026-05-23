@@ -21,6 +21,7 @@ use trellis_sdk_auth::types::AuthEnvelopesExpandRequest;
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
+use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
 use crate::workspace::repo_root;
 
 const HARNESS_DEPLOYMENT_ID: &str = "harness.events";
@@ -140,393 +141,6 @@ fn harness_publish_only_contract_json() -> Result<String> {
     serde_json::to_string(&manifest)
         .map_err(|error| miette!("failed to serialize events publish-only contract: {error}"))
 }
-
-const TS_SUBSCRIBER_SCRIPT: &str = r#"import { defineAgentContract, defineServiceContract, ok, TrellisClient } from "@qlever-llc/trellis";
-import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { Type } from "typebox";
-
-const schemas = {
-  EventPayload: Type.Object({
-    message: Type.String(),
-    header: Type.Optional(Type.Object({ id: Type.String(), time: Type.String() })),
-  }),
-} as const;
-
-const harness = defineServiceContract({ schemas }, (ref) => ({
-  id: "trellis.integration-harness.events@v1",
-  displayName: "Trellis Integration Harness Events",
-  description: "Harness-owned service contract for full-stack Rust/TypeScript event verification.",
-  events: {
-    "Harness.Rust.Event": { version: "v1", subject: "events.v1.Harness.Rust.Event", event: ref.schema("EventPayload"), capabilities: { publish: [], subscribe: [] } },
-    "Harness.Ts.Event": { version: "v1", subject: "events.v1.Harness.Ts.Event", event: ref.schema("EventPayload"), capabilities: { publish: [], subscribe: [] } },
-  },
-}));
-
-const contract = defineAgentContract(() => ({
-  id: "trellis.integration-events-agent@v1",
-  displayName: "Trellis Integration Agent",
-  description: "Verify delegated Rust agent login and harness event publish/subscribe.",
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-      harness: harness.use({ events: { publish: ["Harness.Rust.Event", "Harness.Ts.Event"], subscribe: ["Harness.Rust.Event", "Harness.Ts.Event"] } }),
-    },
-  },
-}));
-
-const expectedDigest = Deno.env.get("HARNESS_CALLER_CONTRACT_DIGEST");
-if (contract.CONTRACT_DIGEST !== expectedDigest) {
-  throw new Error(`caller contract digest mismatch: ${contract.CONTRACT_DIGEST} !== ${expectedDigest}`);
-}
-
-const client = await TrellisClient.connect({
-  trellisUrl: Deno.env.get("TRELLIS_URL")!,
-  contract,
-  auth: { mode: "session_key", sessionKeySeed: Deno.env.get("HARNESS_CALLER_SESSION_SEED")!, redirectTo: "/_trellis/portal/users/login" },
-  log: false,
-}).orThrow();
-
-const controller = new AbortController();
-const expected = Deno.env.get("HARNESS_EXPECTED_MESSAGE")!;
-const received = new Promise<void>((resolve, reject) => {
-  const timeout = setTimeout(() => reject(new Error("timed out waiting for TS subscriber event")), 10000);
-  void client.event("Harness.Rust.Event", {}, (event) => {
-    const message = (event as { message?: string }).message;
-    const header = (event as { header?: { id?: unknown; time?: unknown } }).header;
-    if (message !== expected) reject(new Error(`unexpected event ${JSON.stringify(event)}`));
-    if (typeof header?.id !== "string" || typeof header.time !== "string") reject(new Error(`missing event header ${JSON.stringify(event)}`));
-    clearTimeout(timeout);
-    resolve();
-    return ok(undefined);
-  }, { mode: "ephemeral", replay: "new", signal: controller.signal }).orThrow();
-});
-console.log("TS_EVENTS_SUBSCRIBER_READY");
-await received;
-controller.abort();
-await client.natsConnection.drain();
-console.log("TS_EVENTS_SUBSCRIBER_OK");
-"#;
-
-const TS_PUBLISHER_SCRIPT: &str = r#"import { defineAgentContract, defineServiceContract, TrellisClient } from "@qlever-llc/trellis";
-import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { Type } from "typebox";
-
-const schemas = {
-  EventPayload: Type.Object({
-    message: Type.String(),
-    header: Type.Optional(Type.Object({ id: Type.String(), time: Type.String() })),
-  }),
-} as const;
-const harness = defineServiceContract({ schemas }, (ref) => ({
-  id: "trellis.integration-harness.events@v1",
-  displayName: "Trellis Integration Harness Events",
-  description: "Harness-owned service contract for full-stack Rust/TypeScript event verification.",
-  events: {
-    "Harness.Rust.Event": { version: "v1", subject: "events.v1.Harness.Rust.Event", event: ref.schema("EventPayload"), capabilities: { publish: [], subscribe: [] } },
-    "Harness.Ts.Event": { version: "v1", subject: "events.v1.Harness.Ts.Event", event: ref.schema("EventPayload"), capabilities: { publish: [], subscribe: [] } },
-  },
-}));
-const contract = defineAgentContract(() => ({
-  id: "trellis.integration-events-agent@v1",
-  displayName: "Trellis Integration Agent",
-  description: "Verify delegated Rust agent login and harness event publish/subscribe.",
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-      harness: harness.use({ events: { publish: ["Harness.Rust.Event", "Harness.Ts.Event"], subscribe: ["Harness.Rust.Event", "Harness.Ts.Event"] } }),
-    },
-  },
-}));
-if (contract.CONTRACT_DIGEST !== Deno.env.get("HARNESS_CALLER_CONTRACT_DIGEST")) throw new Error("caller contract digest mismatch");
-const client = await TrellisClient.connect({
-  trellisUrl: Deno.env.get("TRELLIS_URL")!,
-  contract,
-  auth: { mode: "session_key", sessionKeySeed: Deno.env.get("HARNESS_CALLER_SESSION_SEED")!, redirectTo: "/_trellis/portal/users/login" },
-  log: false,
-}).orThrow();
-await client.publish("Harness.Ts.Event", { message: Deno.env.get("HARNESS_MESSAGE")! }).orThrow();
-await client.natsConnection.drain();
-console.log("TS_EVENTS_PUBLISHER_OK");
-"#;
-
-const TS_TRACE_PUBLISHER_SCRIPT: &str = r#"import { defineAgentContract, defineServiceContract, TrellisClient } from "@qlever-llc/trellis";
-import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { trace } from "@qlever-llc/trellis/tracing";
-import { Type } from "typebox";
-
-new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
-}).register();
-
-const schemas = {
-  EventPayload: Type.Object({
-    message: Type.String(),
-    header: Type.Optional(Type.Object({ id: Type.String(), time: Type.String() })),
-  }),
-} as const;
-const harness = defineServiceContract({ schemas }, (ref) => ({
-  id: "trellis.integration-harness.events@v1",
-  displayName: "Trellis Integration Harness Events",
-  description: "Harness-owned service contract for full-stack Rust/TypeScript event verification.",
-  events: {
-    "Harness.Rust.Event": { version: "v1", subject: "events.v1.Harness.Rust.Event", event: ref.schema("EventPayload"), capabilities: { publish: [], subscribe: [] } },
-    "Harness.Ts.Event": { version: "v1", subject: "events.v1.Harness.Ts.Event", event: ref.schema("EventPayload"), capabilities: { publish: [], subscribe: [] } },
-  },
-}));
-const contract = defineAgentContract(() => ({
-  id: "trellis.integration-events-agent@v1",
-  displayName: "Trellis Integration Agent",
-  description: "Verify delegated Rust agent login and harness event publish/subscribe.",
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-      harness: harness.use({ events: { publish: ["Harness.Rust.Event", "Harness.Ts.Event"], subscribe: ["Harness.Rust.Event", "Harness.Ts.Event"] } }),
-    },
-  },
-}));
-if (contract.CONTRACT_DIGEST !== Deno.env.get("HARNESS_CALLER_CONTRACT_DIGEST")) throw new Error("caller contract digest mismatch");
-const client = await TrellisClient.connect({
-  trellisUrl: Deno.env.get("TRELLIS_URL")!,
-  contract,
-  auth: { mode: "session_key", sessionKeySeed: Deno.env.get("HARNESS_CALLER_SESSION_SEED")!, redirectTo: "/_trellis/portal/users/login" },
-  log: false,
-}).orThrow();
-let traceId = "";
-await trace.getTracer("trellis-integration-events").startActiveSpan("publish traced event", async (span) => {
-  traceId = span.spanContext().traceId;
-  try {
-    await client.publish("Harness.Ts.Event", { message: Deno.env.get("HARNESS_MESSAGE")! }).orThrow();
-  } finally {
-    span.end();
-  }
-});
-await client.natsConnection.drain();
-console.log(`TS_EVENTS_TRACE_ID ${traceId}`);
-console.log("TS_EVENTS_TRACE_PUBLISHER_OK");
-"#;
-
-const TS_SELF_SCRIPT: &str = r#"import { defineAgentContract, defineServiceContract, ok, TrellisClient } from "@qlever-llc/trellis";
-import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { Type } from "typebox";
-
-const schemas = {
-  EventPayload: Type.Object({
-    message: Type.String(),
-    header: Type.Optional(Type.Object({ id: Type.String(), time: Type.String() })),
-  }),
-} as const;
-const harness = defineServiceContract({ schemas }, (ref) => ({
-  id: "trellis.integration-harness.events@v1",
-  displayName: "Trellis Integration Harness Events",
-  description: "Harness-owned service contract for full-stack Rust/TypeScript event verification.",
-  events: {
-    "Harness.Rust.Event": { version: "v1", subject: "events.v1.Harness.Rust.Event", event: ref.schema("EventPayload"), capabilities: { publish: [], subscribe: [] } },
-    "Harness.Ts.Event": { version: "v1", subject: "events.v1.Harness.Ts.Event", event: ref.schema("EventPayload"), capabilities: { publish: [], subscribe: [] } },
-  },
-}));
-const contract = defineAgentContract(() => ({
-  id: "trellis.integration-events-agent@v1",
-  displayName: "Trellis Integration Agent",
-  description: "Verify delegated Rust agent login and harness event publish/subscribe.",
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-      harness: harness.use({ events: { publish: ["Harness.Rust.Event", "Harness.Ts.Event"], subscribe: ["Harness.Rust.Event", "Harness.Ts.Event"] } }),
-    },
-  },
-}));
-if (contract.CONTRACT_DIGEST !== Deno.env.get("HARNESS_CALLER_CONTRACT_DIGEST")) throw new Error("caller contract digest mismatch");
-const client = await TrellisClient.connect({
-  trellisUrl: Deno.env.get("TRELLIS_URL")!,
-  contract,
-  auth: { mode: "session_key", sessionKeySeed: Deno.env.get("HARNESS_CALLER_SESSION_SEED")!, redirectTo: "/_trellis/portal/users/login" },
-  log: false,
-}).orThrow();
-const controller = new AbortController();
-const message = "ts-publish-ts-subscribe";
-const received = new Promise<void>((resolve, reject) => {
-  const timeout = setTimeout(() => reject(new Error("timed out waiting for TS self event")), 10000);
-  void client.event("Harness.Ts.Event", {}, (event) => {
-    const header = (event as { header?: { id?: unknown; time?: unknown } }).header;
-    if ((event as { message?: string }).message !== message) reject(new Error(`unexpected self event ${JSON.stringify(event)}`));
-    if (typeof header?.id !== "string" || typeof header.time !== "string") reject(new Error(`missing self event header ${JSON.stringify(event)}`));
-    clearTimeout(timeout);
-    resolve();
-    return ok(undefined);
-  }, { mode: "ephemeral", replay: "new", signal: controller.signal }).orThrow();
-});
-await new Promise((resolve) => setTimeout(resolve, 250));
-await client.publish("Harness.Ts.Event", { message }).orThrow();
-await received;
-controller.abort();
-await client.natsConnection.drain();
-console.log("TS_EVENTS_SELF_OK");
-"#;
-
-const TS_DENIED_PUBLISH_SCRIPT: &str = r#"import { defineAgentContract, defineServiceContract, TrellisClient } from "@qlever-llc/trellis";
-import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { Type } from "typebox";
-
-const schemas = {
-  EventPayload: Type.Object({
-    message: Type.String(),
-    header: Type.Optional(Type.Object({ id: Type.String(), time: Type.String() })),
-  }),
-} as const;
-const harness = defineServiceContract({ schemas }, (ref) => ({
-  id: "trellis.integration-harness.events@v1",
-  displayName: "Trellis Integration Harness Events",
-  description: "Harness-owned service contract for full-stack Rust/TypeScript event verification.",
-  events: {
-    "Harness.Rust.Event": { version: "v1", subject: "events.v1.Harness.Rust.Event", event: ref.schema("EventPayload"), capabilities: { publish: [], subscribe: [] } },
-    "Harness.Ts.Event": { version: "v1", subject: "events.v1.Harness.Ts.Event", event: ref.schema("EventPayload"), capabilities: { publish: [], subscribe: [] } },
-  },
-}));
-const contract = defineAgentContract(() => ({
-  id: "trellis.integration-events-subscribe-agent@v1",
-  displayName: "Trellis Integration Events Subscriber",
-  description: "Verify event publish is denied without publish permission.",
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-      harness: harness.use({ events: { subscribe: ["Harness.Rust.Event", "Harness.Ts.Event"] } }),
-    },
-  },
-}));
-if (contract.CONTRACT_DIGEST !== Deno.env.get("HARNESS_CALLER_CONTRACT_DIGEST")) throw new Error("caller contract digest mismatch");
-const client = await TrellisClient.connect({
-  trellisUrl: Deno.env.get("TRELLIS_URL")!,
-  contract,
-  auth: { mode: "session_key", sessionKeySeed: Deno.env.get("HARNESS_CALLER_SESSION_SEED")!, redirectTo: "/_trellis/portal/users/login" },
-  log: false,
-}).orThrow();
-let publishSucceeded = false;
-try {
-  await client.publish("Harness.Ts.Event", { message: "ts-denied-publish" }).orThrow();
-  publishSucceeded = true;
-} catch (_error) {
-  // Expected: the contract only grants event subscribe permission.
-}
-await client.natsConnection.drain();
-if (publishSucceeded) {
-  throw new Error("TS event publish unexpectedly succeeded without publish permission");
-}
-console.log("TS_EVENTS_DENIED_PUBLISH_OK");
-"#;
-
-const TS_BEHAVIOR_SCRIPT: &str = r#"import { jetstream } from "@nats-io/jetstream";
-import { defineAgentContract, defineServiceContract, err, ok, TrellisClient, UnexpectedError } from "@qlever-llc/trellis";
-import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { Type } from "typebox";
-
-const schemas = {
-  EventPayload: Type.Object({
-    message: Type.String(),
-    header: Type.Optional(Type.Object({ id: Type.String(), time: Type.String() })),
-  }),
-} as const;
-const harness = defineServiceContract({ schemas }, (ref) => ({
-  id: "trellis.integration-harness.events@v1",
-  displayName: "Trellis Integration Harness Events",
-  description: "Harness-owned service contract for full-stack Rust/TypeScript event verification.",
-  events: {
-    "Harness.Rust.Event": { version: "v1", subject: "events.v1.Harness.Rust.Event", event: ref.schema("EventPayload"), capabilities: { publish: [], subscribe: [] } },
-    "Harness.Ts.Event": { version: "v1", subject: "events.v1.Harness.Ts.Event", event: ref.schema("EventPayload"), capabilities: { publish: [], subscribe: [] } },
-  },
-}));
-const contract = defineAgentContract(() => ({
-  id: "trellis.integration-events-agent@v1",
-  displayName: "Trellis Integration Agent",
-  description: "Verify delegated Rust agent login and harness event publish/subscribe.",
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-      harness: harness.use({ events: { publish: ["Harness.Rust.Event", "Harness.Ts.Event"], subscribe: ["Harness.Rust.Event", "Harness.Ts.Event"] } }),
-    },
-  },
-}));
-if (contract.CONTRACT_DIGEST !== Deno.env.get("HARNESS_CALLER_CONTRACT_DIGEST")) throw new Error("caller contract digest mismatch");
-const client = await TrellisClient.connect({
-  trellisUrl: Deno.env.get("TRELLIS_URL")!,
-  contract,
-  auth: { mode: "session_key", sessionKeySeed: Deno.env.get("HARNESS_CALLER_SESSION_SEED")!, redirectTo: "/_trellis/portal/users/login" },
-  log: false,
-}).orThrow();
-
-function waitFor(condition: () => boolean, description: string): Promise<void> {
-  const started = Date.now();
-  return new Promise((resolve, reject) => {
-    const interval = setInterval(() => {
-      if (condition()) {
-        clearInterval(interval);
-        resolve();
-      } else if (Date.now() - started > 10000) {
-        clearInterval(interval);
-        reject(new Error(`timed out waiting for ${description}`));
-      }
-    }, 25);
-  });
-}
-
-const testCase = Deno.env.get("HARNESS_EVENT_CASE");
-if (testCase === "durable-resubscribe") {
-  const durableName = `ts-events-durable-${Deno.env.get("HARNESS_MESSAGE")}`;
-  await client.event("Harness.Rust.Event", {}, () => ok(undefined), { durableName }).orThrow();
-  await client.natsConnection.flush();
-  await client.natsConnection.drain();
-  const second = await TrellisClient.connect({
-    trellisUrl: Deno.env.get("TRELLIS_URL")!,
-    contract,
-    auth: { mode: "session_key", sessionKeySeed: Deno.env.get("HARNESS_CALLER_SESSION_SEED")!, redirectTo: "/_trellis/portal/users/login" },
-    log: false,
-  }).orThrow();
-  await second.event("Harness.Rust.Event", {}, () => ok(undefined), { durableName }).orThrow();
-  await second.natsConnection.drain();
-} else if (testCase === "handler-nak") {
-  let attempts = 0;
-  await client.event("Harness.Rust.Event", {}, () => {
-    attempts += 1;
-    if (attempts === 1) return err(new UnexpectedError({ cause: new Error("fail once") }));
-    return ok(undefined);
-  }, { durableName: `ts-events-nak-${Deno.env.get("HARNESS_MESSAGE")}`, replay: "new" }).orThrow();
-  await client.natsConnection.flush();
-  await client.publish("Harness.Rust.Event", { message: Deno.env.get("HARNESS_MESSAGE")! }).orThrow();
-  await waitFor(() => attempts >= 2, "TS event redelivery after NAK");
-  await client.natsConnection.drain();
-} else if (testCase === "invalid-term") {
-  let calls = 0;
-  await client.event("Harness.Rust.Event", {}, () => {
-    calls += 1;
-    return ok(undefined);
-  }, { durableName: `ts-events-invalid-${Deno.env.get("HARNESS_MESSAGE")}`, replay: "new" }).orThrow();
-  await client.natsConnection.flush();
-  await jetstream(client.natsConnection).publish("events.v1.Harness.Rust.Event", JSON.stringify({ header: { id: "invalid", time: "2026-05-13T00:00:00.000Z" } }));
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  if (calls !== 0) throw new Error(`invalid event reached TS handler ${calls} time(s)`);
-  await client.natsConnection.drain();
-} else if (testCase === "ephemeral-abort") {
-  const controller = new AbortController();
-  const received: string[] = [];
-  await client.event("Harness.Rust.Event", {}, (event) => {
-    received.push((event as { message: string }).message);
-    return ok(undefined);
-  }, { mode: "ephemeral", replay: "new", signal: controller.signal }).orThrow();
-  await client.natsConnection.flush();
-  await client.publish("Harness.Rust.Event", { message: "first" }).orThrow();
-  await waitFor(() => received.length === 1, "TS ephemeral first event");
-  controller.abort();
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  await client.publish("Harness.Rust.Event", { message: "second" }).orThrow();
-  await new Promise((resolve) => setTimeout(resolve, 250));
-  if (received.join(",") !== "first") throw new Error(`unexpected TS ephemeral events ${received.join(",")}`);
-  await client.natsConnection.drain();
-} else {
-  throw new Error(`unknown HARNESS_EVENT_CASE ${testCase}`);
-}
-console.log("TS_EVENTS_BEHAVIOR_OK");
-"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct HarnessEventHeader {
@@ -1164,9 +778,8 @@ struct TsSubscriberProcess {
 impl TsSubscriberProcess {
     fn start(trellis_url: &str, caller_session_seed: &str, expected_message: &str) -> Result<Self> {
         let repo = repo_root()?;
-        let script_path = write_ts_fixture_script("events-subscriber", TS_SUBSCRIBER_SCRIPT)?;
-        let stdout_log = script_path.with_extension("stdout.log");
-        let stderr_log = script_path.with_extension("stderr.log");
+        let script_path = deno_fixture_path("events/subscriber.ts")?;
+        let (stdout_log, stderr_log) = deno_fixture_log_paths("events-subscriber")?;
         let stdout = File::create(&stdout_log)
             .into_diagnostic()
             .map_err(|error| {
@@ -1259,7 +872,7 @@ async fn run_ts_publisher(
 ) -> Result<()> {
     run_ts_script(
         "events-publisher",
-        TS_PUBLISHER_SCRIPT,
+        "events/publisher.ts",
         trellis_url,
         caller_session_seed,
         Some(message),
@@ -1275,7 +888,7 @@ async fn run_ts_trace_publisher(
 ) -> Result<String> {
     let output = run_ts_script_capture(
         "events-trace-publisher",
-        TS_TRACE_PUBLISHER_SCRIPT,
+        "events/trace-publisher.ts",
         trellis_url,
         caller_session_seed,
         &caller_contract_digest()?,
@@ -1294,7 +907,7 @@ async fn run_ts_trace_publisher(
 async fn run_ts_self_client(trellis_url: &str, caller_session_seed: &str) -> Result<()> {
     run_ts_script(
         "events-self",
-        TS_SELF_SCRIPT,
+        "events/self.ts",
         trellis_url,
         caller_session_seed,
         None,
@@ -1306,7 +919,7 @@ async fn run_ts_self_client(trellis_url: &str, caller_session_seed: &str) -> Res
 async fn run_ts_denied_publish(trellis_url: &str, caller_session_seed: &str) -> Result<()> {
     run_ts_script_with_digest(
         "events-denied-publish",
-        TS_DENIED_PUBLISH_SCRIPT,
+        "events/denied-publish.ts",
         trellis_url,
         caller_session_seed,
         &digest_contract_json(&harness_subscribe_only_contract_json()?).into_diagnostic()?,
@@ -1323,7 +936,7 @@ async fn run_ts_event_behavior(
     message: &str,
 ) -> Result<()> {
     let repo = repo_root()?;
-    let script_path = write_ts_fixture_script(&format!("events-{case_name}"), TS_BEHAVIOR_SCRIPT)?;
+    let script_path = deno_fixture_path("events/behavior.ts")?;
     let output = std::process::Command::new("deno")
         .arg("run")
         .arg("-c")
@@ -1361,7 +974,7 @@ async fn run_ts_event_behavior(
 
 async fn run_ts_script(
     name: &str,
-    script: &str,
+    fixture_path: &str,
     trellis_url: &str,
     caller_session_seed: &str,
     message: Option<&str>,
@@ -1369,7 +982,7 @@ async fn run_ts_script(
 ) -> Result<()> {
     run_ts_script_with_digest(
         name,
-        script,
+        fixture_path,
         trellis_url,
         caller_session_seed,
         &caller_contract_digest()?,
@@ -1381,7 +994,7 @@ async fn run_ts_script(
 
 async fn run_ts_script_with_digest(
     name: &str,
-    script: &str,
+    fixture_path: &str,
     trellis_url: &str,
     caller_session_seed: &str,
     caller_digest: &str,
@@ -1390,7 +1003,7 @@ async fn run_ts_script_with_digest(
 ) -> Result<()> {
     run_ts_script_capture(
         name,
-        script,
+        fixture_path,
         trellis_url,
         caller_session_seed,
         caller_digest,
@@ -1403,7 +1016,7 @@ async fn run_ts_script_with_digest(
 
 async fn run_ts_script_capture(
     name: &str,
-    script: &str,
+    fixture_path: &str,
     trellis_url: &str,
     caller_session_seed: &str,
     caller_digest: &str,
@@ -1411,7 +1024,7 @@ async fn run_ts_script_capture(
     ok_marker: &str,
 ) -> Result<String> {
     let repo = repo_root()?;
-    let script_path = write_ts_fixture_script(name, script)?;
+    let script_path = deno_fixture_path(fixture_path)?;
     let mut command = std::process::Command::new("deno");
     command
         .arg("run")
@@ -1452,30 +1065,6 @@ async fn run_ts_script_capture(
 
 fn caller_contract_digest() -> Result<String> {
     digest_contract_json(&harness_caller_contract_json()?).into_diagnostic()
-}
-
-fn write_ts_fixture_script(name: &str, contents: &str) -> Result<PathBuf> {
-    let path = std::env::temp_dir().join(format!(
-        "trellis-integration-{name}-{}-{}.ts",
-        std::process::id(),
-        unique_suffix()
-    ));
-    std::fs::write(&path, contents)
-        .into_diagnostic()
-        .map_err(|error| {
-            miette!(
-                "failed to write TS events fixture script {}: {error}",
-                path.display()
-            )
-        })?;
-    Ok(path)
-}
-
-fn unique_suffix() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default()
 }
 
 fn contract_json_object(contract_json: &str) -> Result<BTreeMap<String, Value>> {

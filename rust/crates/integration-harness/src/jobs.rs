@@ -41,6 +41,7 @@ use trellis_service_jobs::{run_janitor_once, JobsServiceMode, SqliteJobsStore};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
+use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
 use crate::workspace::repo_root;
 
 const JOBS_DEPLOYMENT_ID: &str = "harness.jobs-admin";
@@ -104,136 +105,6 @@ fn local_jobs_service_contract_json() -> Result<String> {
     serde_json::to_string(&manifest)
         .map_err(|error| miette!("failed to serialize service-local Jobs contract: {error}"))
 }
-
-const TS_LOCAL_JOBS_SERVICE_SCRIPT: &str = r#"import { defineServiceContract } from "@qlever-llc/trellis";
-import { Result } from "@qlever-llc/result";
-import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { sdk as health } from "@qlever-llc/trellis/sdk/health";
-import { TrellisService } from "@qlever-llc/trellis/service/deno";
-import { Type } from "typebox";
-
-const schemas = {
-  JobPayload: Type.Object({ documentId: Type.String() }),
-  JobResult: Type.Object({
-    documentId: Type.String(),
-    processedBy: Type.String(),
-    requestId: Type.Optional(Type.String()),
-    traceId: Type.Optional(Type.String()),
-    traceparent: Type.Optional(Type.String()),
-  }),
-} as const;
-
-const contract = defineServiceContract({ schemas }, (ref) => ({
-  id: "trellis.integration-harness.jobs-local@v1",
-  displayName: "Trellis Integration Harness Service-Local Jobs",
-  description: "Harness-owned service contract for full-stack service-local Jobs verification.",
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
-      health: health.use({ events: { publish: ["Health.Heartbeat"] } }),
-    },
-  },
-  jobs: {
-    rustProcess: {
-      payload: ref.schema("JobPayload"),
-      result: ref.schema("JobResult"),
-    },
-    rustShutdown: {
-      payload: ref.schema("JobPayload"),
-      result: ref.schema("JobResult"),
-    },
-    tsProcess: {
-      payload: ref.schema("JobPayload"),
-      result: ref.schema("JobResult"),
-    },
-  },
-}));
-
-const expectedDigest = Deno.env.get("HARNESS_CONTRACT_DIGEST");
-if (contract.CONTRACT_DIGEST !== expectedDigest) {
-  throw new Error(`contract digest mismatch: ${contract.CONTRACT_DIGEST} !== ${expectedDigest}`);
-}
-
-const service = await TrellisService.connect({
-  trellisUrl: Deno.env.get("TRELLIS_URL")!,
-  contract,
-  name: "harness-local-jobs-ts",
-  sessionKeySeed: Deno.env.get("HARNESS_TS_SERVICE_SEED")!,
-  server: { log: false },
-}).orThrow();
-
-service.jobs.tsProcess.handle(async ({ job }) => {
-  const contextResult = {
-    requestId: job.context.requestId,
-    traceId: job.context.traceId,
-    traceparent: job.context.traceparent,
-  };
-  if (job.payload.documentId === "ts-active-cancel") {
-    await job.progress({ step: "process", current: 0, total: 1, message: "ts cancel waiting" }).orThrow();
-    while (!job.cancelled) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    return Result.ok({ documentId: job.payload.documentId, processedBy: "ts-cancelled", ...contextResult });
-  }
-  await job.progress({ step: "process", current: 1, total: 1, message: "ts processing" }).orThrow();
-  await job.log({ timestamp: new Date().toISOString(), level: "info", message: "ts processed" }).orThrow();
-  return Result.ok({ documentId: job.payload.documentId, processedBy: "ts", ...contextResult });
-});
-
-async function waitForState(
-  ref: { id: string; get(): { orThrow(): Promise<{ state: string }> } },
-  state: string,
-) {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    const snapshot = await ref.get().orThrow();
-    if (snapshot.state === state) return snapshot;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`timed out waiting for TS local job ${ref.id} to reach ${state}`);
-}
-
-void service.wait().catch((error) => {
-  console.error(error);
-  Deno.exit(1);
-});
-
-console.log("TS_LOCAL_JOBS_SERVICE_READY");
-await new Promise((resolve) => setTimeout(resolve, 500));
-
-const ref = await service.jobs.tsProcess.create({ documentId: "ts-service-local" }).orThrow();
-const terminal = await ref.wait().orThrow();
-if (terminal.state !== "completed") {
-  throw new Error(`expected TS service-local job to complete, got ${terminal.state}`);
-}
-if (terminal.result?.processedBy !== "ts" || terminal.result?.documentId !== "ts-service-local") {
-  throw new Error(`unexpected TS service-local result ${JSON.stringify(terminal.result)}`);
-}
-console.log(`TS_LOCAL_JOBS_COMPLETED ${ref.id}`);
-
-const rustRef = await service.jobs.rustProcess.create({ documentId: "ts-created-rust-worker" }).orThrow();
-console.log(`TS_CREATED_RUST_JOBS_CREATED ${rustRef.id}`);
-const rustTerminal = await rustRef.wait().orThrow();
-if (rustTerminal.state !== "completed") {
-  throw new Error(`expected TS-created Rust job to complete, got ${rustTerminal.state}`);
-}
-if (rustTerminal.result?.processedBy !== "rust-cross" || rustTerminal.result?.documentId !== "ts-created-rust-worker") {
-  throw new Error(`unexpected TS-created Rust result ${JSON.stringify(rustTerminal.result)}`);
-}
-if (rustTerminal.result?.requestId !== rustTerminal.context.requestId || rustTerminal.result?.traceId !== rustTerminal.context.traceId || rustTerminal.result?.traceparent !== rustTerminal.context.traceparent) {
-  throw new Error(`TS-created Rust job context was not echoed by Rust handler: ${JSON.stringify(rustTerminal)}`);
-}
-console.log(`TS_CREATED_RUST_JOBS_COMPLETED ${rustRef.id}`);
-
-const cancelRef = await service.jobs.tsProcess.create({ documentId: "ts-active-cancel" }).orThrow();
-await waitForState(cancelRef, "active");
-const cancelled = await cancelRef.cancel().orThrow();
-if (cancelled.state !== "cancelled") {
-  throw new Error(`expected TS service-local cancel to return cancelled, got ${cancelled.state}`);
-}
-console.log(`TS_LOCAL_JOBS_CANCELLED ${cancelRef.id}`);
-
-await new Promise<void>(() => {});
-"#;
 
 pub(crate) async fn run_jobs_fixture(
     trellis_url: &str,
@@ -1917,10 +1788,8 @@ struct TsLocalJobsServiceProcess {
 impl TsLocalJobsServiceProcess {
     fn start(trellis_url: &str, contract_digest: &str, service_seed: &str) -> Result<Self> {
         let repo = repo_root()?;
-        let script_path =
-            write_ts_fixture_script("local-jobs-service", TS_LOCAL_JOBS_SERVICE_SCRIPT)?;
-        let stdout_log = script_path.with_extension("stdout.log");
-        let stderr_log = script_path.with_extension("stderr.log");
+        let script_path = deno_fixture_path("jobs/local-service.ts")?;
+        let (stdout_log, stderr_log) = deno_fixture_log_paths("local-jobs-service")?;
         let stdout = File::create(&stdout_log)
             .into_diagnostic()
             .map_err(|error| miette!("failed to create TS local Jobs stdout log: {error}"))?;
@@ -2089,28 +1958,4 @@ impl JobMetaSource for FixedJobMetaSource {
                     .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
             })
     }
-}
-
-fn write_ts_fixture_script(name: &str, contents: &str) -> Result<PathBuf> {
-    let path = std::env::temp_dir().join(format!(
-        "trellis-integration-{name}-{}-{}.ts",
-        std::process::id(),
-        unique_suffix()
-    ));
-    std::fs::write(&path, contents)
-        .into_diagnostic()
-        .map_err(|error| {
-            miette!(
-                "failed to write TS fixture script {}: {error}",
-                path.display()
-            )
-        })?;
-    Ok(path)
-}
-
-fn unique_suffix() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default()
 }

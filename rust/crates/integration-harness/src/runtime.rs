@@ -1,8 +1,7 @@
 use std::fs::{self, File};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use miette::{miette, IntoDiagnostic, Result, WrapErr};
@@ -22,7 +21,7 @@ pub(crate) struct TrellisRuntime {
 }
 
 impl TrellisRuntime {
-    pub(crate) fn start(
+    pub(crate) async fn start(
         workdir: &IntegrationWorkdir,
         manifest: &LocalTrellisBootstrapManifest,
         mut options: LocalTrellisBootstrapOptions,
@@ -57,7 +56,7 @@ impl TrellisRuntime {
             stdout_log,
         };
         let listen_url = format!("http://127.0.0.1:{}", options.trellis_port);
-        if let Err(error) = wait_for_version(&listen_url, Duration::from_secs(60)) {
+        if let Err(error) = wait_for_version(&listen_url, Duration::from_secs(60)).await {
             drop(runtime);
             return Err(error);
         }
@@ -160,84 +159,41 @@ pub(crate) fn rewrite_trellis_config(
     Ok(config_path)
 }
 
-fn wait_for_version(public_url: &str, timeout: Duration) -> Result<()> {
+async fn wait_for_version(public_url: &str, timeout: Duration) -> Result<()> {
     let deadline = Instant::now() + timeout;
     let endpoint = format!("{}/version", public_url.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .no_proxy()
+        .build()
+        .into_diagnostic()
+        .wrap_err("failed to create Trellis readiness HTTP client")?;
     loop {
-        match get_json(&endpoint) {
+        match get_json(&client, &endpoint).await {
             Ok(()) => return Ok(()),
             Err(error) if Instant::now() >= deadline => {
                 return Err(miette!(
                     "timed out waiting for Trellis runtime at {endpoint}: {error}"
                 ));
             }
-            Err(_) => thread::sleep(Duration::from_millis(250)),
+            Err(_) => tokio::time::sleep(Duration::from_millis(250)).await,
         }
     }
 }
 
-fn get_json(endpoint: &str) -> Result<()> {
-    let url = endpoint
-        .strip_prefix("http://")
-        .ok_or_else(|| miette!("only http:// Trellis URLs are supported by the harness"))?;
-    let (host_port, path) = url.split_once('/').unwrap_or((url, ""));
-    let (host, port) = host_port
-        .rsplit_once(':')
-        .ok_or_else(|| miette!("Trellis URL is missing a port: {endpoint}"))?;
-    let port = port
-        .parse::<u16>()
+async fn get_json(client: &reqwest::Client, endpoint: &str) -> Result<()> {
+    client
+        .get(endpoint)
+        .send()
+        .await
         .into_diagnostic()
-        .wrap_err_with(|| format!("invalid Trellis URL port in {endpoint}"))?;
-    let mut stream = TcpStream::connect((host, port)).into_diagnostic()?;
-    let request = format!(
-        "GET /{path} HTTP/1.1\r\nHost: {host_port}\r\nConnection: close\r\nAccept: application/json\r\n\r\n"
-    );
-    std::io::Write::write_all(&mut stream, request.as_bytes()).into_diagnostic()?;
-    let mut response = String::new();
-    std::io::Read::read_to_string(&mut stream, &mut response).into_diagnostic()?;
-    let (headers, body) = response
-        .split_once("\r\n\r\n")
-        .ok_or_else(|| miette!("Trellis response was not valid HTTP"))?;
-    let status_ok = headers
-        .lines()
-        .next()
-        .is_some_and(|line| line.starts_with("HTTP/1.1 2") || line.starts_with("HTTP/1.0 2"));
-    if !status_ok {
-        return Err(miette!("Trellis /version returned non-success status"));
-    }
-    let body = if headers
-        .lines()
-        .any(|line| line.eq_ignore_ascii_case("transfer-encoding: chunked"))
-    {
-        decode_chunked_body(body)?
-    } else {
-        body.to_string()
-    };
-    serde_json::from_str::<serde_json::Value>(&body)
+        .and_then(|response| response.error_for_status().into_diagnostic())
+        .wrap_err_with(|| format!("Trellis readiness request failed for {endpoint}"))?
+        .json::<serde_json::Value>()
+        .await
         .into_diagnostic()
         .wrap_err("Trellis /version response was not JSON")?;
     Ok(())
-}
-
-fn decode_chunked_body(body: &str) -> Result<String> {
-    let mut decoded = String::new();
-    let mut remaining = body;
-    loop {
-        let (size_hex, rest) = remaining
-            .split_once("\r\n")
-            .ok_or_else(|| miette!("chunked response was missing chunk size"))?;
-        let size = usize::from_str_radix(size_hex.trim(), 16)
-            .into_diagnostic()
-            .wrap_err("chunked response had invalid chunk size")?;
-        if size == 0 {
-            return Ok(decoded);
-        }
-        if rest.len() < size + 2 {
-            return Err(miette!("chunked response ended before declared chunk size"));
-        }
-        decoded.push_str(&rest[..size]);
-        remaining = &rest[size + 2..];
-    }
 }
 
 #[cfg(test)]
@@ -250,10 +206,7 @@ mod tests {
         LocalTrellisBootstrapUrls, PublicAccount, PublicUser,
     };
 
-    use super::{
-        decode_chunked_body, extract_bootstrap_url_from_log, rewrite_trellis_config,
-        trellis_command_spec,
-    };
+    use super::{extract_bootstrap_url_from_log, rewrite_trellis_config, trellis_command_spec};
 
     #[test]
     fn trellis_command_spec_sets_directory_args_and_config_env() {
@@ -300,14 +253,6 @@ mod tests {
         assert!(config.contains("\"port\": 49111"));
         assert!(config.contains("nats://127.0.0.1:49112"));
         assert!(config.contains("ws://127.0.0.1:49113"));
-    }
-
-    #[test]
-    fn decode_chunked_body_returns_json_payload() {
-        assert_eq!(
-            decode_chunked_body("8\r\n{\"ok\":1}\r\n0\r\n\r\n").expect("decode chunked body"),
-            "{\"ok\":1}"
-        );
     }
 
     fn trellis_manifest() -> LocalTrellisBootstrapManifest {

@@ -3,58 +3,40 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use clap::Parser;
 use miette::{IntoDiagnostic, Result, WrapErr};
 
 mod release;
 
-#[derive(Debug, Clone, Default, Eq, Parser, PartialEq)]
-#[command(name = "integration", about = "Run the Trellis integration harness")]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
 struct IntegrationArgs {
-    #[arg(long)]
-    /// Print known failing integration cases and exit.
-    list_known_failures: bool,
-
-    #[arg(long)]
-    /// Print required integration coverage areas and exit.
-    list_required_coverage: bool,
-
-    #[arg(long)]
-    /// Fail when any known failing integration cases are still registered.
-    strict_known_failures: bool,
-
-    #[arg(long)]
-    /// Preserve the temporary integration workdir after the command exits.
-    keep_workdir: bool,
-
-    #[arg(long)]
-    /// Skip the prepare workflow before bootstrapping integration dependencies.
-    skip_prepare: bool,
+    forwarded_args: Vec<String>,
 }
 
 impl IntegrationArgs {
     fn requires_prepare(&self) -> bool {
-        !self.skip_prepare && !self.list_known_failures && !self.list_required_coverage
+        !self.has_skip_prepare() && !self.is_list_command() && !self.is_metadata_command()
     }
 
-    fn forwarded_args(&self) -> Vec<&'static str> {
-        let mut args = Vec::new();
-        if self.list_known_failures {
-            args.push("--list-known-failures");
-        }
-        if self.list_required_coverage {
-            args.push("--list-required-coverage");
-        }
-        if self.strict_known_failures {
-            args.push("--strict-known-failures");
-        }
-        if self.keep_workdir {
-            args.push("--keep-workdir");
-        }
-        if self.skip_prepare {
-            args.push("--skip-prepare");
-        }
-        args
+    fn has_skip_prepare(&self) -> bool {
+        self.forwarded_args
+            .iter()
+            .any(|arg| arg == "--skip-prepare")
+    }
+
+    fn is_list_command(&self) -> bool {
+        self.forwarded_args.first().is_some_and(|arg| arg == "list")
+    }
+
+    fn is_metadata_command(&self) -> bool {
+        self.forwarded_args.first().is_some_and(|arg| arg == "help")
+            || self
+                .forwarded_args
+                .iter()
+                .any(|arg| matches!(arg.as_str(), "--help" | "-h" | "--version" | "-V"))
+    }
+
+    fn should_append_skip_prepare(&self) -> bool {
+        self.requires_prepare()
     }
 }
 
@@ -113,7 +95,9 @@ where
             }
         }
         Some("build") => Ok(XtaskCommand::Build(args.collect())),
-        Some("integration") => parse_integration_args(args).map(XtaskCommand::Integration),
+        Some("integration") => Ok(XtaskCommand::Integration(IntegrationArgs {
+            forwarded_args: args.collect(),
+        })),
         Some("release") => release::parse_release_command(args).map(XtaskCommand::Release),
         Some(command) => Err(miette::miette!(
             "unsupported xtask command `{command}`\n{}",
@@ -123,16 +107,8 @@ where
     }
 }
 
-fn parse_integration_args<I>(args: I) -> Result<IntegrationArgs>
-where
-    I: Iterator<Item = String>,
-{
-    IntegrationArgs::try_parse_from(std::iter::once("integration".to_owned()).chain(args))
-        .map_err(|error| miette::miette!(error.to_string()))
-}
-
 fn usage_text() -> &'static str {
-    "usage: cargo xtask prepare | cargo xtask prepare-watch | cargo xtask build [cargo-build-args...] | cargo xtask integration [--list-known-failures] [--list-required-coverage] [--strict-known-failures] [--keep-workdir] [--skip-prepare] | cargo xtask release <command>"
+    "usage: cargo xtask prepare | cargo xtask prepare-watch | cargo xtask build [cargo-build-args...] | cargo xtask integration [integration-harness-args...] | cargo xtask release <command>"
 }
 
 fn run_prepare() -> Result<()> {
@@ -197,10 +173,10 @@ fn run_integration(args: &IntegrationArgs) -> Result<()> {
         .arg("--bin")
         .arg("trellis-integration-harness")
         .arg("--");
-    for arg in args.forwarded_args() {
+    for arg in &args.forwarded_args {
         spec.arg(arg);
     }
-    if !args.skip_prepare {
+    if args.should_append_skip_prepare() {
         spec.arg("--skip-prepare");
     }
     let status = spec
@@ -279,10 +255,11 @@ mod tests {
         let command = parse_command(
             [
                 "integration",
-                "--list-known-failures",
-                "--list-required-coverage",
+                "run",
                 "--strict-known-failures",
                 "--keep-workdir",
+                "--fixture",
+                "rpc",
             ]
             .into_iter()
             .map(str::to_string),
@@ -291,11 +268,13 @@ mod tests {
         assert_eq!(
             command,
             XtaskCommand::Integration(IntegrationArgs {
-                list_known_failures: true,
-                list_required_coverage: true,
-                strict_known_failures: true,
-                keep_workdir: true,
-                skip_prepare: false,
+                forwarded_args: vec![
+                    "run".to_string(),
+                    "--strict-known-failures".to_string(),
+                    "--keep-workdir".to_string(),
+                    "--fixture".to_string(),
+                    "rpc".to_string(),
+                ],
             })
         );
     }
@@ -311,10 +290,60 @@ mod tests {
         assert_eq!(
             command,
             XtaskCommand::Integration(IntegrationArgs {
-                skip_prepare: true,
-                ..IntegrationArgs::default()
+                forwarded_args: vec!["--skip-prepare".to_string()],
             })
         );
+    }
+
+    #[test]
+    fn integration_defaults_prepare_and_append_skip_prepare() {
+        let args = IntegrationArgs::default();
+        assert!(args.requires_prepare());
+        assert!(args.should_append_skip_prepare());
+    }
+
+    #[test]
+    fn integration_run_prepares_unless_skip_prepare_is_forwarded() {
+        let args = IntegrationArgs {
+            forwarded_args: vec![
+                "run".to_string(),
+                "--fixture".to_string(),
+                "rpc".to_string(),
+            ],
+        };
+        assert!(args.requires_prepare());
+        assert!(args.should_append_skip_prepare());
+
+        let args = IntegrationArgs {
+            forwarded_args: vec!["run".to_string(), "--skip-prepare".to_string()],
+        };
+        assert!(!args.requires_prepare());
+        assert!(!args.should_append_skip_prepare());
+    }
+
+    #[test]
+    fn integration_list_does_not_prepare_or_append_skip_prepare() {
+        let args = IntegrationArgs {
+            forwarded_args: vec!["list".to_string(), "coverage".to_string()],
+        };
+        assert!(!args.requires_prepare());
+        assert!(!args.should_append_skip_prepare());
+    }
+
+    #[test]
+    fn integration_help_and_version_do_not_prepare_or_append_skip_prepare() {
+        for forwarded_args in [
+            vec!["--help".to_string()],
+            vec!["-h".to_string()],
+            vec!["help".to_string(), "run".to_string()],
+            vec!["run".to_string(), "--help".to_string()],
+            vec!["--version".to_string()],
+            vec!["-V".to_string()],
+        ] {
+            let args = IntegrationArgs { forwarded_args };
+            assert!(!args.requires_prepare());
+            assert!(!args.should_append_skip_prepare());
+        }
     }
 
     #[test]
@@ -332,14 +361,19 @@ mod tests {
     }
 
     #[test]
-    fn integration_rejects_unknown_args() {
-        let error = parse_command(
+    fn integration_preserves_unknown_args_for_harness() {
+        let command = parse_command(
             ["integration", "--nats-server"]
                 .into_iter()
                 .map(str::to_string),
         )
-        .expect_err("integration should reject unknown args");
-        assert!(error.to_string().contains("--nats-server"));
+        .expect("parse integration passthrough");
+        assert_eq!(
+            command,
+            XtaskCommand::Integration(IntegrationArgs {
+                forwarded_args: vec!["--nats-server".to_string()],
+            })
+        );
     }
 
     #[test]

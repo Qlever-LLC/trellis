@@ -9,8 +9,8 @@ use async_nats::jetstream::stream;
 use async_nats::ConnectOptions;
 use miette::{miette, IntoDiagnostic, Result, WrapErr};
 
-use crate::container::{unique_container_name, IntegrationWorkdir};
-use crate::process::{CommandSpec, ProcessRunner};
+use crate::container::{unique_container_name, ContainerBackend, IntegrationWorkdir};
+use crate::process::{command_output_failure_message, CommandSpec, ProcessRunner};
 
 #[derive(Debug)]
 pub(crate) struct NatsContainer {
@@ -23,15 +23,15 @@ pub(crate) struct NatsContainer {
 impl NatsContainer {
     pub(crate) fn start(
         process_runner: &ProcessRunner,
-        runtime: &'static str,
+        backend: ContainerBackend,
         _workdir: &IntegrationWorkdir,
         nats_dir: &Path,
     ) -> Result<Self> {
         let name = unique_container_name("nats")?;
-        let config_mount = container_config_mount(runtime, &nats_dir.join("nats.conf"));
-        let jwt_config_mount = container_jwt_config_mount(runtime, &nats_dir.join("jwt.conf"));
-        let data_mount = container_data_mount(runtime, &nats_dir.join("data"));
-        let spec = CommandSpec::new(runtime)
+        let config_mount = container_config_mount(backend, &nats_dir.join("nats.conf"));
+        let jwt_config_mount = container_jwt_config_mount(backend, &nats_dir.join("jwt.conf"));
+        let data_mount = container_data_mount(backend, &nats_dir.join("data"));
+        let spec = CommandSpec::new(backend.program())
             .arg("run")
             .arg("--detach")
             .arg("--name")
@@ -51,39 +51,37 @@ impl NatsContainer {
             .arg("/etc/nats/nats.conf");
         let output = process_runner.output(&spec)?;
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(miette!(
-                "failed to start NATS container with status {}: {}",
-                output.status,
-                stderr.trim()
+                "{}",
+                command_output_failure_message("failed to start NATS container", &spec, &output)
             ));
         }
 
-        let server_port = match inspect_container_port(process_runner, runtime, &name, 4222) {
+        let server_port = match inspect_container_port(process_runner, backend, &name, 4222) {
             Ok(host_port) => host_port,
             Err(error) => {
-                remove_container(runtime, &name);
+                remove_container(backend, &name);
                 return Err(error);
             }
         };
-        let websocket_port = match inspect_container_port(process_runner, runtime, &name, 8080) {
+        let websocket_port = match inspect_container_port(process_runner, backend, &name, 8080) {
             Ok(host_port) => host_port,
             Err(error) => {
-                remove_container(runtime, &name);
+                remove_container(backend, &name);
                 return Err(error);
             }
         };
         if let Err(error) = wait_for_tcp_ready(server_port, Duration::from_secs(30)) {
-            remove_container(runtime, &name);
+            remove_container(backend, &name);
             return Err(error);
         }
         if let Err(error) = wait_for_tcp_ready(websocket_port, Duration::from_secs(30)) {
-            remove_container(runtime, &name);
+            remove_container(backend, &name);
             return Err(error);
         }
 
         Ok(Self {
-            runtime,
+            runtime: backend.program(),
             name,
             server_port,
             websocket_port,
@@ -101,51 +99,57 @@ impl NatsContainer {
 
 impl Drop for NatsContainer {
     fn drop(&mut self) {
-        remove_container(self.runtime, &self.name);
+        remove_container(ContainerBackend::new(self.runtime), &self.name);
     }
 }
 
-pub(crate) fn remove_container(runtime: &str, name: &str) {
-    let status = Command::new(runtime)
+pub(crate) fn remove_container(backend: ContainerBackend, name: &str) {
+    let output = Command::new(backend.program())
         .arg("rm")
         .arg("--force")
         .arg(name)
         .output();
-    if let Err(error) = status {
-        eprintln!("warning: failed to remove container {name}: {error}");
+    match output {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => eprintln!(
+            "warning: failed to remove container {name} with status {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+        Err(error) => eprintln!("warning: failed to remove container {name}: {error}"),
     }
 }
 
-fn container_config_mount(runtime: &str, config_path: &Path) -> String {
-    let options = if runtime == "podman" { "ro,Z" } else { "ro" };
+fn container_config_mount(backend: ContainerBackend, config_path: &Path) -> String {
+    let options = if backend.is_podman() { "ro,Z" } else { "ro" };
     format!("{}:/etc/nats/nats.conf:{options}", config_path.display())
 }
 
-fn container_jwt_config_mount(runtime: &str, config_path: &Path) -> String {
-    let options = if runtime == "podman" { "ro,Z" } else { "ro" };
+fn container_jwt_config_mount(backend: ContainerBackend, config_path: &Path) -> String {
+    let options = if backend.is_podman() { "ro,Z" } else { "ro" };
     format!("{}:/etc/nats/jwt.conf:{options}", config_path.display())
 }
 
-fn container_data_mount(runtime: &str, data_path: &Path) -> String {
-    let options = if runtime == "podman" { "Z" } else { "rw" };
+fn container_data_mount(backend: ContainerBackend, data_path: &Path) -> String {
+    let options = if backend.is_podman() { "Z" } else { "rw" };
     format!("{}:/data:{options}", data_path.display())
 }
 
 pub(crate) fn inspect_container_port(
     process_runner: &ProcessRunner,
-    runtime: &'static str,
+    backend: ContainerBackend,
     name: &str,
     container_port: u16,
 ) -> Result<u16> {
-    let spec = CommandSpec::new(runtime)
+    let spec = CommandSpec::new(backend.program())
         .arg("port")
         .arg(name)
         .arg(format!("{container_port}/tcp"));
     let output = process_runner.output(&spec)?;
     if !output.status.success() {
         return Err(miette!(
-            "failed to inspect NATS container port with status {}",
-            output.status
+            "{}",
+            command_output_failure_message("failed to inspect NATS container port", &spec, &output)
         ));
     }
     let stdout = String::from_utf8(output.stdout)
@@ -486,17 +490,18 @@ mod tests {
         container_config_mount, container_data_mount, container_jwt_config_mount,
         parse_published_port,
     };
+    use crate::container::ContainerBackend;
 
     #[test]
     fn container_config_mount_relabels_podman_volume() {
         let path = std::path::Path::new("/tmp/trellis/nats.conf");
 
         assert_eq!(
-            container_config_mount("podman", path),
+            container_config_mount(ContainerBackend::new("podman"), path),
             "/tmp/trellis/nats.conf:/etc/nats/nats.conf:ro,Z"
         );
         assert_eq!(
-            container_config_mount("docker", path),
+            container_config_mount(ContainerBackend::new("docker"), path),
             "/tmp/trellis/nats.conf:/etc/nats/nats.conf:ro"
         );
     }
@@ -506,11 +511,11 @@ mod tests {
         let path = std::path::Path::new("/tmp/trellis/jwt.conf");
 
         assert_eq!(
-            container_jwt_config_mount("podman", path),
+            container_jwt_config_mount(ContainerBackend::new("podman"), path),
             "/tmp/trellis/jwt.conf:/etc/nats/jwt.conf:ro,Z"
         );
         assert_eq!(
-            container_jwt_config_mount("docker", path),
+            container_jwt_config_mount(ContainerBackend::new("docker"), path),
             "/tmp/trellis/jwt.conf:/etc/nats/jwt.conf:ro"
         );
     }
@@ -520,11 +525,11 @@ mod tests {
         let path = std::path::Path::new("/tmp/trellis/data");
 
         assert_eq!(
-            container_data_mount("podman", path),
+            container_data_mount(ContainerBackend::new("podman"), path),
             "/tmp/trellis/data:/data:Z"
         );
         assert_eq!(
-            container_data_mount("docker", path),
+            container_data_mount(ContainerBackend::new("docker"), path),
             "/tmp/trellis/data:/data:rw"
         );
     }

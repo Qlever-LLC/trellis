@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -20,6 +18,7 @@ use trellis_sdk_state::types::{
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
+use crate::deno_fixture::deno_fixture_path;
 use crate::workspace::repo_root;
 
 const HARNESS_CONTRACT_ID: &str = "trellis.integration-state-agent@v1";
@@ -114,93 +113,6 @@ fn draft_schema() -> Value {
         "required": ["title", "body"]
     })
 }
-
-const TS_STATE_SCRIPT: &str = r#"import { defineAgentContract, TrellisClient } from "@qlever-llc/trellis";
-import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { sdk as state } from "@qlever-llc/trellis/sdk/state";
-import { Type } from "typebox";
-
-const schemas = {
-  Preferences: Type.Object({ theme: Type.String(), density: Type.String() }),
-  Draft: Type.Object({ title: Type.String(), body: Type.String() }),
-} as const;
-
-const contract = defineAgentContract({ schemas }, (ref) => ({
-  id: "trellis.integration-state-agent@v1",
-  displayName: "Trellis Integration State Agent",
-  description: "Verify Rust and TypeScript state facade parity against Trellis runtime state stores.",
-  state: {
-    preferences: { kind: "value", schema: ref.schema("Preferences"), stateVersion: "preferences.v1" },
-    drafts: { kind: "map", schema: ref.schema("Draft"), stateVersion: "drafts.v1" },
-  },
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-      state: state.use({ rpc: { call: ["State.Get", "State.Put", "State.Delete", "State.List", "State.Admin.Get", "State.Admin.List", "State.Admin.Delete"] } }),
-    },
-  },
-}));
-
-const expectedDigest = Deno.env.get("HARNESS_CALLER_CONTRACT_DIGEST");
-if (contract.CONTRACT_DIGEST !== expectedDigest) {
-  throw new Error(`state contract digest mismatch: ${contract.CONTRACT_DIGEST} !== ${expectedDigest}`);
-}
-
-const client = await TrellisClient.connect({
-  trellisUrl: Deno.env.get("TRELLIS_URL")!,
-  contract,
-  auth: {
-    mode: "session_key",
-    sessionKeySeed: Deno.env.get("HARNESS_CALLER_SESSION_SEED")!,
-    redirectTo: "/_trellis/portal/users/login",
-  },
-  log: false,
-}).orThrow();
-
-const missing = await client.state.preferences.get().orThrow();
-if (!("found" in missing) || missing.found !== false) {
-  throw new Error(`expected missing TS preferences: ${JSON.stringify(missing)}`);
-}
-
-const created = await client.state.preferences.put({ theme: "ts-dark", density: "comfortable" }, { expectedRevision: null }).orThrow();
-if (!created.applied || !created.entry || created.entry.value.theme !== "ts-dark") {
-  throw new Error(`expected TS preferences create: ${JSON.stringify(created)}`);
-}
-
-const found = await client.state.preferences.get().orThrow();
-if (!("found" in found) || !found.found || found.entry.value.density !== "comfortable") {
-  throw new Error(`expected TS preferences get: ${JSON.stringify(found)}`);
-}
-
-const deleted = await client.state.preferences.delete({ expectedRevision: created.entry.revision }).orThrow();
-if (!deleted.deleted) throw new Error(`expected TS preferences delete: ${JSON.stringify(deleted)}`);
-
-const drafts = client.state.drafts.prefix("inspection");
-const draft = await drafts.put("ts-draft", { title: "TS Draft", body: "from TypeScript" }, { expectedRevision: null }).orThrow();
-if (!draft.applied || !draft.entry || draft.entry.key !== "inspection/ts-draft") {
-  throw new Error(`expected TS draft create: ${JSON.stringify(draft)}`);
-}
-
-const gotDraft = await drafts.get("ts-draft").orThrow();
-if (!("found" in gotDraft) || !gotDraft.found || gotDraft.entry.value.title !== "TS Draft") {
-  throw new Error(`expected TS draft get: ${JSON.stringify(gotDraft)}`);
-}
-
-const listed = await drafts.list().orThrow();
-const listedDraft = listed.entries.find((entry) => !("migrationRequired" in entry) && entry.key === "inspection/ts-draft");
-if (!listedDraft) throw new Error(`expected TS draft in list: ${JSON.stringify(listed)}`);
-
-const deletedDraft = await drafts.delete("ts-draft", { expectedRevision: draft.entry.revision }).orThrow();
-if (!deletedDraft.deleted) throw new Error(`expected TS draft delete: ${JSON.stringify(deletedDraft)}`);
-
-const finalDraft = await drafts.get("ts-draft").orThrow();
-if (!("found" in finalDraft) || finalDraft.found !== false) {
-  throw new Error(`expected missing TS draft: ${JSON.stringify(finalDraft)}`);
-}
-
-await client.natsConnection.drain();
-console.log("TS_STATE_OK");
-"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct Preferences {
@@ -665,7 +577,7 @@ fn admin_user_target(login: &AdminLoginOutcome) -> Value {
 
 async fn run_ts_state_client(trellis_url: &str, caller_session_seed: &str) -> Result<()> {
     let repo = repo_root()?;
-    let script_path = write_ts_fixture_script("state", TS_STATE_SCRIPT)?;
+    let script_path = deno_fixture_path("state/state.ts")?;
     let output = std::process::Command::new("deno")
         .arg("run")
         .arg("-c")
@@ -755,28 +667,4 @@ async fn reauth_contract(
 
 fn caller_contract_digest() -> Result<String> {
     digest_contract_json(&harness_state_contract_json()?).into_diagnostic()
-}
-
-fn write_ts_fixture_script(name: &str, contents: &str) -> Result<PathBuf> {
-    let path = std::env::temp_dir().join(format!(
-        "trellis-integration-{name}-{}-{}.ts",
-        std::process::id(),
-        unique_suffix()
-    ));
-    std::fs::write(&path, contents)
-        .into_diagnostic()
-        .map_err(|error| {
-            miette!(
-                "failed to write TS state fixture script {}: {error}",
-                path.display()
-            )
-        })?;
-    Ok(path)
-}
-
-fn unique_suffix() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default()
 }

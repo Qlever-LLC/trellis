@@ -33,6 +33,7 @@ use trellis_service::{
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
+use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
 use crate::workspace::repo_root;
 
 const HARNESS_DEPLOYMENT_ID: &str = "harness.transfer";
@@ -250,243 +251,6 @@ fn download_grant_schema() -> Value {
         "required": ["type", "direction", "service", "sessionKey", "transferId", "subject", "expiresAt", "chunkBytes", "info"]
     })
 }
-
-const TS_SERVICE_SCRIPT: &str = r#"import { defineServiceContract, ok } from "@qlever-llc/trellis";
-import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { sdk as health } from "@qlever-llc/trellis/sdk/health";
-import { TrellisService } from "@qlever-llc/trellis/service/deno";
-import { Type } from "typebox";
-
-const schemas = {
-  UploadInput: Type.Object({ key: Type.String(), contentType: Type.Optional(Type.String()) }),
-  UploadOutput: Type.Object({ key: Type.String(), size: Type.Integer(), contentType: Type.Optional(Type.String()), traceparent: Type.Optional(Type.String()), chunkTraceparent: Type.Optional(Type.String()) }),
-  DownloadInput: Type.Object({ key: Type.String() }),
-  DownloadGrant: Type.Object({
-    type: Type.Literal("TransferGrant"),
-    direction: Type.Literal("receive"),
-    service: Type.String(),
-    sessionKey: Type.String(),
-    transferId: Type.String(),
-    subject: Type.String(),
-    expiresAt: Type.String(),
-    chunkBytes: Type.Integer(),
-    info: Type.Object({ key: Type.String(), size: Type.Integer(), updatedAt: Type.String() }, { additionalProperties: true }),
-  }, { additionalProperties: true }),
-} as const;
-
-const contract = defineServiceContract({ schemas }, (ref) => ({
-  id: "trellis.integration-harness.transfer@v1",
-  displayName: "Trellis Integration Harness Transfer",
-  description: "Harness-owned service contract for full-stack Rust/TypeScript transfer verification.",
-  resources: {
-    store: {
-      uploads: { purpose: "Temporary transfer uploads", required: true, ttlMs: 0, maxObjectBytes: 1048576, maxTotalBytes: 4194304 },
-    },
-  },
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
-      health: health.use({ events: { publish: ["Health.Heartbeat"] } }),
-    },
-  },
-  operations: {
-    "Harness.Rust.TransferUpload": {
-      version: "v1",
-      subject: "operations.v1.Harness.Rust.TransferUpload",
-      input: ref.schema("UploadInput"),
-      output: ref.schema("UploadOutput"),
-      transfer: { direction: "send", store: "uploads", key: "/key", contentType: "/contentType", expiresInMs: 60000, maxBytes: 1024 },
-      capabilities: { call: [], read: [], cancel: [] },
-      cancel: false,
-    },
-    "Harness.Ts.TransferUpload": {
-      version: "v1",
-      subject: "operations.v1.Harness.Ts.TransferUpload",
-      input: ref.schema("UploadInput"),
-      output: ref.schema("UploadOutput"),
-      transfer: { direction: "send", store: "uploads", key: "/key", contentType: "/contentType", expiresInMs: 60000, maxBytes: 1024 },
-      capabilities: { call: [], read: [], cancel: [] },
-      cancel: false,
-    },
-  },
-  rpc: {
-    "Harness.Rust.TransferDownload": { version: "v1", subject: "rpc.v1.Harness.Rust.TransferDownload", input: ref.schema("DownloadInput"), output: ref.schema("DownloadGrant"), transfer: { direction: "receive" }, capabilities: { call: [] } },
-    "Harness.Ts.TransferDownload": { version: "v1", subject: "rpc.v1.Harness.Ts.TransferDownload", input: ref.schema("DownloadInput"), output: ref.schema("DownloadGrant"), transfer: { direction: "receive" }, capabilities: { call: [] } },
-  },
-}));
-
-const expectedDigest = Deno.env.get("HARNESS_CONTRACT_DIGEST");
-if (contract.CONTRACT_DIGEST !== expectedDigest) {
-  throw new Error(`contract digest mismatch: ${contract.CONTRACT_DIGEST} !== ${expectedDigest}`);
-}
-
-const service = await TrellisService.connect({
-  trellisUrl: Deno.env.get("TRELLIS_URL")!,
-  contract,
-  name: "harness-transfer-ts",
-  sessionKeySeed: Deno.env.get("HARNESS_TS_SERVICE_SEED")!,
-  server: { log: false },
-}).orThrow();
-
-await service.operation("Harness.Ts.TransferUpload").handle(async ({ input, op, transfer }) => {
-  if (input.key.includes("oversized")) {
-    await op.started().orThrow();
-    return ok({ key: input.key, size: 0, ...(input.contentType ? { contentType: input.contentType } : {}) });
-  }
-  const transferred = await transfer.completed().orThrow();
-  await op.started().orThrow();
-  return ok({ key: input.key, size: transferred.size, ...(input.contentType ? { contentType: input.contentType } : {}) });
-});
-
-await service.trellis.mount("Harness.Ts.TransferDownload", async ({ input, context, trellis }) => {
-  const payload = new TextEncoder().encode(`ts-download:${input.key}`);
-  const store = await trellis.store.uploads.open().orThrow();
-  await store.put(input.key, payload, { contentType: "text/plain" }).orThrow();
-  const grant = await service.createTransfer({ direction: "receive", store: "uploads", key: input.key, sessionKey: context.sessionKey, expiresInMs: 60000 }).orThrow();
-  return ok(grant);
-});
-
-console.log("TS_TRANSFER_SERVICE_READY");
-await new Promise<void>(() => {});
-"#;
-
-const TS_CLIENT_SCRIPT: &str = r#"import { defineAgentContract, defineServiceContract, TrellisClient } from "@qlever-llc/trellis";
-import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { sdk as health } from "@qlever-llc/trellis/sdk/health";
-import { trace } from "@qlever-llc/trellis/tracing";
-import { Type } from "typebox";
-
-new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
-}).register();
-
-const schemas = {
-  UploadInput: Type.Object({ key: Type.String(), contentType: Type.Optional(Type.String()) }),
-  UploadOutput: Type.Object({ key: Type.String(), size: Type.Integer(), contentType: Type.Optional(Type.String()), traceparent: Type.Optional(Type.String()), chunkTraceparent: Type.Optional(Type.String()) }),
-  DownloadInput: Type.Object({ key: Type.String() }),
-  DownloadGrant: Type.Object({
-    type: Type.Literal("TransferGrant"), direction: Type.Literal("receive"), service: Type.String(), sessionKey: Type.String(), transferId: Type.String(), subject: Type.String(), expiresAt: Type.String(), chunkBytes: Type.Integer(),
-    info: Type.Object({ key: Type.String(), size: Type.Integer(), updatedAt: Type.String() }, { additionalProperties: true }),
-  }, { additionalProperties: true }),
-} as const;
-
-const harness = defineServiceContract({ schemas }, (ref) => ({
-  id: "trellis.integration-harness.transfer@v1",
-  displayName: "Trellis Integration Harness Transfer",
-  description: "Harness-owned service contract for full-stack Rust/TypeScript transfer verification.",
-  resources: { store: { uploads: { purpose: "Temporary transfer uploads", required: true, ttlMs: 0, maxObjectBytes: 1048576, maxTotalBytes: 4194304 } } },
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
-      health: health.use({ events: { publish: ["Health.Heartbeat"] } }),
-    },
-  },
-  operations: {
-    "Harness.Rust.TransferUpload": { version: "v1", subject: "operations.v1.Harness.Rust.TransferUpload", input: ref.schema("UploadInput"), output: ref.schema("UploadOutput"), transfer: { direction: "send", store: "uploads", key: "/key", contentType: "/contentType", expiresInMs: 60000, maxBytes: 1024 }, capabilities: { call: [], read: [], cancel: [] }, cancel: false },
-    "Harness.Ts.TransferUpload": { version: "v1", subject: "operations.v1.Harness.Ts.TransferUpload", input: ref.schema("UploadInput"), output: ref.schema("UploadOutput"), transfer: { direction: "send", store: "uploads", key: "/key", contentType: "/contentType", expiresInMs: 60000, maxBytes: 1024 }, capabilities: { call: [], read: [], cancel: [] }, cancel: false },
-  },
-  rpc: {
-    "Harness.Rust.TransferDownload": { version: "v1", subject: "rpc.v1.Harness.Rust.TransferDownload", input: ref.schema("DownloadInput"), output: ref.schema("DownloadGrant"), transfer: { direction: "receive" }, capabilities: { call: [] } },
-    "Harness.Ts.TransferDownload": { version: "v1", subject: "rpc.v1.Harness.Ts.TransferDownload", input: ref.schema("DownloadInput"), output: ref.schema("DownloadGrant"), transfer: { direction: "receive" }, capabilities: { call: [] } },
-  },
-}));
-
-const contract = defineAgentContract(() => ({
-  id: "trellis.integration-transfer-agent@v1",
-  displayName: "Trellis Integration Transfer Agent",
-  description: "Verify delegated Rust agent login and harness transfer calls.",
-  uses: {
-    required: {
-      auth: auth.use({ rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] } }),
-      harness: harness.use({ operations: { call: ["Harness.Rust.TransferUpload", "Harness.Ts.TransferUpload"] }, rpc: { call: ["Harness.Rust.TransferDownload", "Harness.Ts.TransferDownload"] } }),
-    },
-  },
-}));
-
-const expectedDigest = Deno.env.get("HARNESS_CALLER_CONTRACT_DIGEST");
-if (contract.CONTRACT_DIGEST !== expectedDigest) {
-  throw new Error(`caller contract digest mismatch: ${contract.CONTRACT_DIGEST} !== ${expectedDigest}`);
-}
-
-const client = await TrellisClient.connect({
-  trellisUrl: Deno.env.get("TRELLIS_URL")!,
-  contract,
-  auth: { mode: "session_key", sessionKeySeed: Deno.env.get("HARNESS_CALLER_SESSION_SEED")!, redirectTo: "/_trellis/portal/users/login" },
-  log: false,
-}).orThrow();
-
-async function assertUpload(method: "Harness.Rust.TransferUpload" | "Harness.Ts.TransferUpload", key: string, text: string) {
-  const upload = await client.operation(method).input({ key, contentType: "text/plain" }).transfer(new TextEncoder().encode(text)).start().orThrow();
-  const terminal = await upload.wait().orThrow();
-  if (terminal.terminal.state !== "completed" || terminal.terminal.output.size !== text.length || terminal.transferred.size !== text.length) {
-    throw new Error(`${method} returned ${JSON.stringify(terminal)}`);
-  }
-  if (terminal.terminal.output.traceparent !== undefined || terminal.terminal.output.chunkTraceparent !== undefined) {
-    throw new Error(`${method} unexpectedly returned traceparent ${terminal.terminal.output.traceparent}`);
-  }
-}
-
-async function assertTracedRustTransferUpload() {
-  let expectedTraceId = "";
-  await trace.getTracer("trellis-integration-transfer").startActiveSpan("upload traced rust transfer", async (span) => {
-    expectedTraceId = span.spanContext().traceId;
-    try {
-      const text = "ts to rust traced upload";
-      const upload = await client.operation("Harness.Rust.TransferUpload").input({ key: "ts-client/rust-transfer-trace.txt", contentType: "text/plain" }).transfer(new TextEncoder().encode(text)).start().orThrow();
-      const terminal = await upload.wait().orThrow();
-      const output = terminal.terminal.output;
-      if (terminal.terminal.state !== "completed" || output.size !== text.length || terminal.transferred.size !== text.length) {
-        throw new Error(`Harness.Rust.TransferUpload traced transfer returned ${JSON.stringify(terminal)}`);
-      }
-      if (output.traceparent === undefined || !output.traceparent.includes(expectedTraceId)) {
-        throw new Error(`Harness.Rust.TransferUpload traceparent ${output.traceparent} did not include ${expectedTraceId}`);
-      }
-      if (output.chunkTraceparent === undefined || !output.chunkTraceparent.includes(expectedTraceId)) {
-        throw new Error(`Harness.Rust.TransferUpload chunk traceparent ${output.chunkTraceparent} did not include ${expectedTraceId}`);
-      }
-    } finally {
-      span.end();
-    }
-  });
-}
-
-async function assertOversizedUpload(method: "Harness.Rust.TransferUpload" | "Harness.Ts.TransferUpload", key: string) {
-  const oversized = new Uint8Array(1025);
-  const result = await client.operation(method).input({ key, contentType: "application/octet-stream" }).transfer(oversized).start();
-  if (result.isErr()) {
-    return;
-  }
-  const upload = await result.match({
-    ok: (value) => value,
-    err: (error) => {
-      throw error;
-    },
-  });
-  const waited = await upload.wait();
-  if (!waited.isErr()) {
-    throw new Error(`${method} unexpectedly completed oversized upload`);
-  }
-}
-
-async function assertDownload(method: "Harness.Rust.TransferDownload" | "Harness.Ts.TransferDownload", key: string, expected: string) {
-  const grant = await client.request(method, { key }).orThrow();
-  const bytes = await client.transfer(grant).bytes().orThrow();
-  const text = new TextDecoder().decode(bytes);
-  if (text !== expected) throw new Error(`${method} returned ${text}`);
-}
-
-await assertUpload("Harness.Rust.TransferUpload", "ts-client/rust-upload.txt", "ts to rust upload");
-await assertUpload("Harness.Ts.TransferUpload", "ts-client/ts-upload.txt", "ts to ts upload");
-await assertTracedRustTransferUpload();
-await assertOversizedUpload("Harness.Rust.TransferUpload", "ts-client/rust-oversized.bin");
-await assertOversizedUpload("Harness.Ts.TransferUpload", "ts-client/ts-oversized.bin");
-await assertDownload("Harness.Rust.TransferDownload", "ts-client/rust-download.txt", "rust-download:ts-client/rust-download.txt");
-await assertDownload("Harness.Ts.TransferDownload", "ts-client/ts-download.txt", "ts-download:ts-client/ts-download.txt");
-await client.natsConnection.drain();
-console.log("TS_TRANSFER_CLIENT_OK");
-"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -1266,9 +1030,8 @@ struct TsServiceProcess {
 impl TsServiceProcess {
     fn start(trellis_url: &str, contract_digest: &str, service_seed: &str) -> Result<Self> {
         let repo = repo_root()?;
-        let script_path = write_ts_fixture_script("transfer-service", TS_SERVICE_SCRIPT)?;
-        let stdout_log = script_path.with_extension("stdout.log");
-        let stderr_log = script_path.with_extension("stderr.log");
+        let script_path = deno_fixture_path("transfer/service.ts")?;
+        let (stdout_log, stderr_log) = deno_fixture_log_paths("transfer-service")?;
         let stdout = File::create(&stdout_log)
             .into_diagnostic()
             .map_err(|error| miette!("failed to create TS transfer service stdout log: {error}"))?;
@@ -1344,7 +1107,7 @@ impl Drop for TsServiceProcess {
 
 async fn run_ts_client(trellis_url: &str, caller_session_seed: &str) -> Result<()> {
     let repo = repo_root()?;
-    let script_path = write_ts_fixture_script("transfer-client", TS_CLIENT_SCRIPT)?;
+    let script_path = deno_fixture_path("transfer/client.ts")?;
     let caller_contract_json = harness_caller_contract_json()?;
     let caller_digest = digest_contract_json(&caller_contract_json).into_diagnostic()?;
     let output = std::process::Command::new("deno")
@@ -1436,30 +1199,6 @@ async fn reauth_contract(
     }
 }
 
-fn write_ts_fixture_script(name: &str, contents: &str) -> Result<PathBuf> {
-    let path = std::env::temp_dir().join(format!(
-        "trellis-integration-{name}-{}-{}.ts",
-        std::process::id(),
-        unique_suffix()
-    ));
-    std::fs::write(&path, contents)
-        .into_diagnostic()
-        .map_err(|error| {
-            miette!(
-                "failed to write TS transfer fixture script {}: {error}",
-                path.display()
-            )
-        })?;
-    Ok(path)
-}
-
-fn unique_suffix() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default()
-}
-
 async fn connect_service_with_retry(
     trellis_url: &str,
     contract_digest: &str,
@@ -1477,6 +1216,13 @@ async fn connect_service_with_retry(
         approval_timeout_ms: 30_000,
     })
     .await
+}
+
+fn unique_suffix() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default()
 }
 
 fn contract_json_object(contract_json: &str) -> Result<BTreeMap<String, Value>> {
