@@ -2,9 +2,12 @@
   import type { AuthIdentitiesListOutput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import ActionMenu from "$lib/components/ActionMenu.svelte";
+  import DataTable from "$lib/components/DataTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import { errorMessage, formatDate } from "$lib/format";
@@ -46,16 +49,14 @@
         <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>
           Refresh
         </button>
-        <details class="dropdown dropdown-end">
-          <summary class="btn btn-outline btn-sm">
+        <ActionMenu buttonBaseClass="btn btn-outline btn-sm" widthClass="w-64">
+          {#snippet summary()}
             Actions <Icon name="chevronDown" size={14} />
-          </summary>
-          <ul class="menu dropdown-content trellis-dropdown-menu w-64">
-            <li>
-              <a href={resolve("/admin/apps/revoke")}>Revoke an approval</a>
-            </li>
-          </ul>
-        </details>
+          {/snippet}
+          <li>
+            <a href={resolve("/admin/apps/revoke")}>Revoke an approval</a>
+          </li>
+        </ActionMenu>
       </div>
     {/snippet}
   </PageToolbar>
@@ -93,7 +94,7 @@
   </form>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
 
   {#if loading}
@@ -105,8 +106,7 @@
     />
   {:else}
     <Panel title="Approvals" eyebrow="Primary table">
-      <div class="overflow-x-auto">
-        <table class="table table-sm trellis-table">
+      <DataTable>
           <thead>
             <tr>
               <th>User</th>
@@ -132,9 +132,7 @@
                   {formatDate(entry.answeredAt)}
                 </td>
                 <td class="text-right">
-                  <details class="dropdown dropdown-end">
-                    <summary class="btn btn-ghost btn-xs">Actions</summary>
-                    <ul class="menu dropdown-content trellis-dropdown-menu w-48">
+                  <ActionMenu>
                       <li>
                         <a
                           class="text-error"
@@ -143,14 +141,12 @@
                           )}>Revoke</a
                         >
                       </li>
-                    </ul>
-                  </details>
+                  </ActionMenu>
                 </td>
               </tr>
             {/each}
           </tbody>
-        </table>
-      </div>
+      </DataTable>
       <p class="text-xs text-base-content/50">
         {approvals.length} approval{approvals.length !== 1 ? "s" : ""}
       </p>

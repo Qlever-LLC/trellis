@@ -11,8 +11,10 @@
     type HealthFeedEvent,
     type HealthInstanceView,
   } from "../../../../lib/health_events.ts";
+  import DataTable from "../../../../lib/components/DataTable.svelte";
   import EmptyState from "../../../../lib/components/EmptyState.svelte";
   import InlineMetricsStrip from "../../../../lib/components/InlineMetricsStrip.svelte";
+  import Notice from "../../../../lib/components/Notice.svelte";
   import PageToolbar from "../../../../lib/components/PageToolbar.svelte";
   import Panel from "../../../../lib/components/Panel.svelte";
   import StatusBadge from "../../../../lib/components/StatusBadge.svelte";
@@ -135,9 +137,7 @@
   <InlineMetricsStrip {metrics} />
 
   {#if subscriptionError}
-    <div class="alert alert-error">
-      <span>{subscriptionError}</span>
-    </div>
+    <Notice variant="error">{subscriptionError}</Notice>
   {/if}
 
   <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_28rem]">
@@ -154,8 +154,7 @@
       {#if !hasEvents}
         <EmptyState title="Waiting for heartbeat events" description="Participants will appear here as soon as new service or device heartbeats are published." />
       {:else}
-          <div class="overflow-x-auto">
-            <table class="table table-sm trellis-table">
+          <DataTable>
               <thead>
                 <tr>
                   <th>Participant</th>
@@ -202,8 +201,7 @@
                   </tr>
                 {/each}
               </tbody>
-            </table>
-          </div>
+          </DataTable>
       {/if}
     </Panel>
 

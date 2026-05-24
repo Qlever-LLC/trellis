@@ -3,8 +3,11 @@
   import type { AuthUsersListOutput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import ActionMenu from "$lib/components/ActionMenu.svelte";
+  import DataTable from "$lib/components/DataTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import { errorMessage, formatDate } from "../../../../lib/format";
@@ -171,10 +174,10 @@
   </PageToolbar>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
   {#if sessionsWarning}
-    <div class="alert alert-info"><span>{sessionsWarning}</span></div>
+    <Notice variant="info">{sessionsWarning}</Notice>
   {/if}
 
   {#if loading}
@@ -182,7 +185,7 @@
   {:else if users.length === 0}
     <EmptyState title="No users" description="No users have been registered yet." />
   {:else}
-    <div class="space-y-2 overflow-visible">
+    <div class="space-y-2">
       <div class="flex flex-col gap-3 border-y border-base-300 bg-base-100/45 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
         <div class="min-w-0">
           <p class="text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-base-content/45">User registry</p>
@@ -196,7 +199,7 @@
         </div>
       </div>
 
-      <table class="table table-sm trellis-table users-table border-b border-base-300 bg-base-100/30">
+      <DataTable class="users-table border-b border-base-300 bg-base-100/30" overflow="visible">
         <thead>
           <tr>
             <th class="w-[28%]">Name</th>
@@ -242,18 +245,15 @@
                 {/if}
               </td>
               <td class="w-24 whitespace-nowrap text-right align-top">
-                <details class="dropdown dropdown-end">
-                  <summary class="btn btn-ghost btn-xs">Actions</summary>
-                  <ul class="menu dropdown-content z-30 mt-2 w-44 rounded-box border border-base-300 bg-base-100 p-2">
+                <ActionMenu widthClass="w-44">
                     <li><a href={resolve(`/admin/users/edit?userId=${encodeURIComponent(user.userId)}`)}>Edit</a></li>
                     <li><button type="button" onclick={() => void createPasswordReset(user)} disabled={resetPendingUserId !== null}>{resetPendingUserId === user.userId ? "Creating reset..." : "Create reset link"}</button></li>
-                  </ul>
-                </details>
+                </ActionMenu>
               </td>
             </tr>
           {/each}
         </tbody>
-      </table>
+      </DataTable>
       <p class="text-xs text-base-content/50">{users.length} user{users.length !== 1 ? "s" : ""}</p>
     </div>
   {/if}
@@ -298,13 +298,13 @@
 </dialog>
 
 <style>
-  .users-table {
+  :global(.users-table) {
     min-width: 0;
     table-layout: fixed;
     width: 100%;
   }
 
-  .users-table thead {
+  :global(.users-table thead) {
     background-color: color-mix(
       in oklab,
       var(--color-base-content) 3.5%,

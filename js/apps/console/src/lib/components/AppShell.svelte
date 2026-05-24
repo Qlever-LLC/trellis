@@ -13,8 +13,10 @@
     requiresAdminRoute,
     type NavSection,
   } from "../control-panel.ts";
+  import ActionMenu from "./ActionMenu.svelte";
   import Icon from "./Icon.svelte";
   import LoadingState from "./LoadingState.svelte";
+  import Notice from "./Notice.svelte";
   import StatusBadge from "./StatusBadge.svelte";
   import TrellisLogo from "./TrellisLogo.svelte";
   import ToastViewport from "./ToastViewport.svelte";
@@ -115,8 +117,8 @@
           <Icon name="bell" size={20} />
         </button>
         {#if profile}
-          <details class="dropdown dropdown-end">
-            <summary class="btn btn-ghost gap-2 rounded-full pr-2" aria-label="Open user menu">
+          <ActionMenu buttonBaseClass="btn btn-ghost gap-2 rounded-full pr-2" widthClass="w-64" ariaLabel="Open user menu">
+            {#snippet summary()}
               {#if profile.image}
                 <div class="avatar">
                   <div class="w-8 rounded-full">
@@ -131,25 +133,23 @@
                 </div>
               {/if}
               <Icon name="chevronDown" size={16} class="opacity-60" />
-            </summary>
-            <div class="menu dropdown-content trellis-dropdown-menu w-64">
-              <div class="px-2 py-2">
+            {/snippet}
+            <li class="menu-title px-2 py-2 normal-case">
+              <div class="min-w-0">
                 <p class="truncate text-sm font-medium">{profile.name}</p>
                 <p class="text-xs text-base-content/60">{getRoleLabel(profile)}</p>
               </div>
-              <a class="btn btn-ghost btn-sm justify-start" href={resolveAppPath("/profile")}>Account</a>
-              <button type="button" class="btn btn-ghost btn-sm justify-start" onclick={onSignOut}>Sign out</button>
-            </div>
-          </details>
+            </li>
+            <li><a class="btn btn-ghost btn-sm justify-start" href={resolveAppPath("/profile")}>Account</a></li>
+            <li><button type="button" class="btn btn-ghost btn-sm justify-start" onclick={onSignOut}>Sign out</button></li>
+          </ActionMenu>
         {/if}
       </div>
     </header>
 
     <main id="trellis-main" tabindex="-1" class="mx-auto w-full max-w-[1500px] flex-1 px-4 py-7 outline-none lg:px-8">
       {#if authFailure}
-        <div class="alert alert-error mb-4">
-          <span>{authFailure}</span>
-        </div>
+        <Notice variant="error" class="mb-4">{authFailure}</Notice>
       {/if}
 
       {#if requiresAdminRoute(routePath) && !profileLoaded}

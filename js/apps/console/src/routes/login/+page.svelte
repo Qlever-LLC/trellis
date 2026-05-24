@@ -16,6 +16,7 @@
     auth,
     formatConsoleAuthError,
   } from "../../lib/auth";
+  import Notice from "../../lib/components/Notice.svelte";
   import TrellisLogo from "../../lib/components/TrellisLogo.svelte";
   import { errorMessage } from "../../lib/format";
 
@@ -115,9 +116,7 @@
       </div>
 
       {#if authError}
-        <div class="alert alert-error text-sm">
-          <span>{authError}</span>
-        </div>
+        <Notice variant="error" class="text-sm">{authError}</Notice>
       {/if}
 
       {#if ready}

@@ -5,10 +5,13 @@
   import { page } from "$app/state";
   import { onMount } from "svelte";
   import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
+  import DataTable from "$lib/components/DataTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
+  import SelectableRecordButton from "$lib/components/SelectableRecordButton.svelte";
   import { errorMessage } from "$lib/format";
   import { getNotifications } from "$lib/notifications.svelte";
   import { getTrellis } from "$lib/trellis";
@@ -355,7 +358,7 @@
       const catalogRes = await coreRequest("Trellis.Catalog", {}).take();
       if (isErr(catalogRes)) { error = errorMessage(catalogRes); return; }
 
-      issues = catalogRes.catalog.issues ?? [];
+      issues = (catalogRes.catalog.issues ?? []).filter((issue) => issue.kind === "incompatible-active-contract");
       if (selectedIssueId && !issues.some((issue) => issue.issueId === selectedIssueId)) selectedIssueId = "";
       if (!selectedIssueId) selectedIssueId = issues[0]?.issueId ?? "";
 
@@ -439,10 +442,10 @@
   </PageToolbar>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
   {#if manifestError}
-    <div class="alert alert-warning"><span>{manifestError}</span></div>
+    <Notice variant="warning">{manifestError}</Notice>
   {/if}
 
   {#if loading}
@@ -454,12 +457,10 @@
       <Panel title="Issues" eyebrow={`${issues.length} active`}>
         <div class="space-y-2">
           {#each issues as issue (issue.issueId)}
-            <button
-              type="button"
-              class={[
-                "w-full min-w-0 rounded-box border p-3 text-left text-sm transition-colors",
-                selectedIssue.issueId === issue.issueId ? "border-error bg-error/10" : "border-base-300 bg-base-100 hover:border-base-content/20",
-              ]}
+            <SelectableRecordButton
+              selected={selectedIssue.issueId === issue.issueId}
+              tone="error"
+              class="text-sm"
               onclick={() => { selectedIssueId = issue.issueId; }}
             >
               <div class="font-medium">{issueTitle(issue)}</div>
@@ -468,7 +469,7 @@
                 {#if issue.contractId}<span class="badge badge-outline badge-xs trellis-identifier">{issue.contractId}</span>{/if}
                 {#if issue.digest}<span class="badge badge-outline badge-xs trellis-identifier" title={issue.digest}>{formatDigest(issue.digest)}</span>{/if}
               </div>
-            </button>
+            </SelectableRecordButton>
           {/each}
         </div>
       </Panel>
@@ -484,9 +485,9 @@
 
         <Panel title="Contract changes" eyebrow="Only changed entries">
           <div class="space-y-4">
-            <div class="min-w-0 overflow-x-auto">
+            <div class="min-w-0">
               <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60">Owned surfaces</h3>
-              <table class="table table-sm trellis-table">
+              <DataTable>
                 <thead><tr><th>Surface</th><th>Kind</th><th>Change</th></tr></thead>
                 <tbody>
                   {#each surfaceDiffs as row (row.key)}
@@ -521,14 +522,14 @@
                       </td>
                     </tr>
                   {:else}
-                    <tr><td colspan="3" class="text-base-content/50">No added, removed, or changed owned surfaces found.</td></tr>
+                    <tr><td colspan="3" class="text-base-content/50">No changed RPC, event, or operation surfaces.</td></tr>
                   {/each}
                 </tbody>
-              </table>
+              </DataTable>
             </div>
-            <div class="min-w-0 overflow-x-auto">
+            <div class="min-w-0">
               <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60">Schemas</h3>
-              <table class="table table-sm trellis-table">
+              <DataTable>
                 <thead><tr><th>Schema</th><th>Change</th></tr></thead>
                 <tbody>
                   {#each schemaDiffs as row (row.key)}
@@ -562,10 +563,10 @@
                       </td>
                     </tr>
                   {:else}
-                    <tr><td colspan="2" class="text-base-content/50">No added, removed, or changed schemas found.</td></tr>
+                    <tr><td colspan="2" class="text-base-content/50">No changed schemas.</td></tr>
                   {/each}
                 </tbody>
-              </table>
+              </DataTable>
             </div>
           </div>
         </Panel>

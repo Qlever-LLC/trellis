@@ -3,8 +3,10 @@
   import { afterNavigate } from "$app/navigation";
   import { page } from "$app/state";
   import { onMount } from "svelte";
+  import DataTable from "../../../../../lib/components/DataTable.svelte";
   import EmptyState from "../../../../../lib/components/EmptyState.svelte";
   import LoadingState from "../../../../../lib/components/LoadingState.svelte";
+  import Notice from "../../../../../lib/components/Notice.svelte";
   import PageToolbar from "../../../../../lib/components/PageToolbar.svelte";
   import Panel from "../../../../../lib/components/Panel.svelte";
   import StatusBadge from "../../../../../lib/components/StatusBadge.svelte";
@@ -145,9 +147,9 @@
   </PageToolbar>
 
   {#if error}
-    <div class="alert alert-error" role="alert"><span>{error}</span></div>
+    <Notice variant="error" role="alert">{error}</Notice>
   {:else if unavailableMessage}
-    <div class="alert alert-info" role="status"><span>{unavailableMessage}</span></div>
+    <Notice variant="info" role="status">{unavailableMessage}</Notice>
   {/if}
 
   {#if loading}
@@ -169,8 +171,7 @@
 
       <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
         <div class="space-y-4 min-w-0">
-          <div class="overflow-x-auto">
-            <table class="table table-sm trellis-table">
+          <DataTable>
               <tbody>
                 <tr><th class="w-32">ID</th><td class="trellis-identifier">{job.id}</td></tr>
                 <tr><th>Service</th><td class="trellis-identifier">{job.service}</td></tr>
@@ -179,14 +180,12 @@
                 <tr><th>Tries</th><td class="tabular-nums">{job.tries}/{job.maxTries}</td></tr>
                 <tr><th>Last error</th><td class="text-error">{job.lastError ?? "-"}</td></tr>
               </tbody>
-            </table>
-          </div>
+          </DataTable>
 
           <div>
             <h2 class="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-base-content/50">Logs</h2>
             {#if job.logs && job.logs.length > 0}
-              <div class="overflow-x-auto">
-                <table class="table table-sm trellis-table">
+              <DataTable>
                   <thead><tr><th>Time</th><th>Level</th><th>Message</th></tr></thead>
                   <tbody>
                     {#each job.logs as log (`${log.timestamp}:${log.message}`)}
@@ -197,8 +196,7 @@
                       </tr>
                     {/each}
                   </tbody>
-                </table>
-              </div>
+              </DataTable>
             {:else}
               <p class="text-sm text-base-content/60">No logs recorded.</p>
             {/if}
@@ -206,8 +204,7 @@
         </div>
 
         <div class="space-y-4">
-          <div class="overflow-x-auto">
-            <table class="table table-sm trellis-table">
+          <DataTable>
               <tbody>
                 <tr><th>Created</th><td>{formatDate(job.createdAt)}</td></tr>
                 <tr><th>Updated</th><td>{formatDate(job.updatedAt)}</td></tr>
@@ -216,8 +213,7 @@
                 <tr><th>Deadline</th><td>{formatDate(job.deadline)}</td></tr>
                 <tr><th>Duration</th><td>{durationLabel(job.startedAt, job.completedAt)}</td></tr>
               </tbody>
-            </table>
-          </div>
+          </DataTable>
 
           <div>
             <h2 class="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-base-content/50">Progress</h2>

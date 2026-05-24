@@ -3,9 +3,12 @@
   import type { AuthCapabilityGroupsListOutput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import ActionMenu from "$lib/components/ActionMenu.svelte";
   import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
+  import DataTable from "$lib/components/DataTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import { errorMessage, formatDate } from "$lib/format";
@@ -101,10 +104,10 @@
   </PageToolbar>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
   {#if saved}
-    <div class="alert alert-success"><span>{saved}</span></div>
+    <Notice variant="success">{saved}</Notice>
   {/if}
 
   {#if loading}
@@ -118,8 +121,7 @@
       {#if groups.length === 0}
         <EmptyState title="No capability groups" description="Create a group to bundle common capability assignments." />
       {:else}
-        <div class="overflow-visible">
-          <table class="table table-sm trellis-table capability-groups-table border-b border-base-300 bg-base-100/30">
+        <DataTable class="capability-groups-table border-b border-base-300 bg-base-100/30" overflow="visible">
             <thead>
               <tr>
                 <th class="w-[30%]">Group</th>
@@ -149,23 +151,19 @@
                   <td class="align-top"><span class="badge badge-ghost badge-sm">{group.includedGroups.length}</span></td>
                   <td class="hidden align-top text-xs text-base-content/60 lg:table-cell">{formatDate(group.updatedAt)}</td>
                   <td class="align-top text-right">
-                    <details class="dropdown dropdown-end" data-action-menu>
-                      <summary class="btn btn-ghost btn-xs">Actions</summary>
-                      <ul class="menu dropdown-content z-30 mt-2 w-44 rounded-box border border-base-300 bg-base-100 p-2">
+                    <ActionMenu widthClass="w-44" dataActionMenu>
                         <li><a href={resolve(`/admin/capability-groups/edit?groupKey=${encodeURIComponent(group.groupKey)}`)}>Edit</a></li>
                         {#if group.groupKey !== "admin"}
                           <li>
                             <button class="text-error" onclick={() => requestDeleteGroup(group)} disabled={busy}>{deletingGroupKey === group.groupKey ? "Deleting" : "Delete"}</button>
                           </li>
                         {/if}
-                      </ul>
-                    </details>
+                    </ActionMenu>
                   </td>
                 </tr>
               {/each}
             </tbody>
-          </table>
-        </div>
+        </DataTable>
       {/if}
     </Panel>
   {/if}
@@ -174,13 +172,13 @@
 <ConfirmationModal bind:this={confirmationModal} />
 
 <style>
-  .capability-groups-table {
+  :global(.capability-groups-table) {
     min-width: 0;
     table-layout: fixed;
     width: 100%;
   }
 
-  .capability-groups-table thead {
+  :global(.capability-groups-table thead) {
     background-color: color-mix(in oklab, var(--color-base-content) 3.5%, transparent);
   }
 </style>

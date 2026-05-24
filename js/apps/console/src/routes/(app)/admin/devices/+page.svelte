@@ -9,11 +9,15 @@
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import DataTable from "$lib/components/DataTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
+  import SelectableRecordButton from "$lib/components/SelectableRecordButton.svelte";
+  import SelectionRail from "$lib/components/SelectionRail.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
   import { errorMessage, formatDate } from "$lib/format";
   import { getTrellis } from "$lib/trellis";
@@ -214,14 +218,14 @@
   </PageToolbar>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
 
   {#if loading}
     <Panel><LoadingState label="Loading devices" /></Panel>
   {:else}
     <div class="grid min-h-[calc(100vh-12rem)] items-stretch gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
-      <Panel title="Deployments" eyebrow={`${deployments.length} deployment${deployments.length === 1 ? "" : "s"}`} class="flex min-w-0 flex-col xl:h-full [&>.card-body]:flex-1">
+      <SelectionRail title="Deployments" eyebrow={`${deployments.length} deployment${deployments.length === 1 ? "" : "s"}`}>
         <div class="mb-3">
           <label class="input input-bordered input-sm flex items-center gap-2">
             <Icon name="search" size={14} class="text-base-content/50" />
@@ -238,12 +242,8 @@
               {@const activeDevices = deploymentDeviceInstances.filter((instance) => instance.state === "activated")}
               {@const pendingReviewCount = pendingReviewsForDeployment(deployment.deploymentId)}
               {@const pendingRequestCount = pendingRequestsForDeployment(deployment.deploymentId)}
-              <button
-                type="button"
-                class={[
-                  "w-full rounded-box border p-3 text-left transition-colors",
-                  selectedDeploymentId === deployment.deploymentId ? "border-primary bg-primary/5" : "border-base-300 bg-base-100 hover:border-base-content/20",
-                ]}
+              <SelectableRecordButton
+                selected={selectedDeploymentId === deployment.deploymentId}
                 onclick={() => selectDeployment(deployment.deploymentId)}
               >
                 <div class="flex items-start justify-between gap-3">
@@ -261,7 +261,7 @@
                   </div>
                   <span class={["badge badge-sm", badgeClassForDeployment(deployment.disabled)]}>{deployment.disabled ? "Disabled" : "Active"}</span>
                 </div>
-              </button>
+              </SelectableRecordButton>
             {:else}
               <EmptyState title="No matches" description="Try a different deployment ID or review mode." class="py-4" />
             {/each}
@@ -271,7 +271,7 @@
         {#snippet footer()}
           <span>{deployments.filter((deployment) => deployment.disabled).length} disabled / archived</span>
         {/snippet}
-      </Panel>
+      </SelectionRail>
 
       <div class="flex min-w-0 flex-col gap-4">
         {#if !selectedDeployment}
@@ -349,8 +349,7 @@
                 {#if selectedInstances.length === 0}
                   <EmptyState title="No device instances" description="Provisioned device identities for this deployment appear here." />
                 {:else}
-                  <div class="overflow-x-auto">
-                    <table class="table table-sm trellis-table">
+                  <DataTable>
                       <thead><tr><th>Instance</th><th>Identity key</th><th>Name</th><th>Serial</th><th>Model</th>{#if showMetadata}<th>Metadata</th>{/if}<th>State</th><th>Created</th><th>Actions</th></tr></thead>
                       <tbody>
                         {#each selectedInstances as instance (instanceRowKey(instance))}
@@ -385,15 +384,13 @@
                           </tr>
                         {/each}
                       </tbody>
-                    </table>
-                  </div>
+                  </DataTable>
                 {/if}
               {:else if activeTab === "activations"}
                 {#if selectedActivations.length === 0}
                   <EmptyState title="No device activations" description="Activation records for this deployment appear here." />
                 {:else}
-                  <div class="overflow-x-auto">
-                    <table class="table table-sm trellis-table">
+                  <DataTable>
                       <thead><tr><th>Instance</th><th>Activated by</th><th>State</th><th>Activated</th><th>Revoked</th><th>Actions</th></tr></thead>
                       <tbody>
                         {#each selectedActivations as activation (activationRowKey(activation))}
@@ -413,8 +410,7 @@
                           </tr>
                         {/each}
                       </tbody>
-                    </table>
-                  </div>
+                  </DataTable>
                 {/if}
               {:else if activeTab === "reviews"}
                 <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -422,8 +418,7 @@
                     {#if selectedReviews.length === 0}
                       <EmptyState title="No device reviews" description="Activation reviews for this deployment appear here." />
                     {:else}
-                      <div class="overflow-x-auto">
-                        <table class="table table-sm trellis-table">
+                      <DataTable>
                           <thead><tr><th>Review</th><th>Instance</th><th>State</th><th>Requested</th><th>Actions</th></tr></thead>
                           <tbody>
                             {#each selectedReviews as review (review.reviewId)}
@@ -442,8 +437,7 @@
                               </tr>
                             {/each}
                           </tbody>
-                        </table>
-                      </div>
+                      </DataTable>
                     {/if}
                   </div>
                   <div class="rounded-box border border-base-300 bg-base-200/30 p-3">

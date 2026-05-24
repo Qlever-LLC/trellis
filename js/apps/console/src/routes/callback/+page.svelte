@@ -15,6 +15,7 @@
     getConsoleRedirectTarget,
     auth,
   } from "../../lib/auth";
+  import Notice from "../../lib/components/Notice.svelte";
   import { errorMessage } from "../../lib/format";
 
   let status = $state("Completing sign-in…");
@@ -118,9 +119,7 @@
       <h1 class="text-lg font-semibold">{status}</h1>
 
       {#if authError}
-        <div class="alert alert-error text-sm">
-          <span>{authError}</span>
-        </div>
+        <Notice variant="error" class="text-sm">{authError}</Notice>
         {#if missingCapabilities.length}
           <details class="collapse collapse-arrow rounded-box bg-base-200 text-left">
             <summary class="collapse-title min-h-0 py-3 text-xs font-semibold uppercase text-base-content/50">

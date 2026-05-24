@@ -2,9 +2,12 @@
   import { isErr } from "@qlever-llc/result";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import ActionMenu from "$lib/components/ActionMenu.svelte";
   import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
+  import DataTable from "$lib/components/DataTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import { errorMessage, formatDate } from "$lib/format";
@@ -104,10 +107,10 @@
   </PageToolbar>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
   {#if saved}
-    <div class="alert alert-success"><span>{saved}</span></div>
+    <Notice variant="success">{saved}</Notice>
   {/if}
 
   {#if loading}
@@ -121,8 +124,7 @@
       {#if portals.length === 0}
         <EmptyState title="No portals" description="Create a portal, then add route rules from its portal record." />
       {:else}
-        <div class="overflow-visible">
-          <table class="table table-sm trellis-table border-b border-base-300 bg-base-100/30">
+        <DataTable class="border-b border-base-300 bg-base-100/30" overflow="visible">
             <thead>
               <tr>
                 <th>Portal</th>
@@ -147,23 +149,19 @@
                   <td class="font-mono text-xs">{portal.activeRouteCount} / {portal.routeCount}</td>
                   <td class="hidden text-xs text-base-content/60 lg:table-cell">{formatDate(portal.updatedAt)}</td>
                   <td class="text-right">
-                    <details class="dropdown dropdown-end" data-action-menu>
-                      <summary class="btn btn-ghost btn-xs">Actions</summary>
-                      <ul class="menu dropdown-content z-30 mt-2 w-44 rounded-box border border-base-300 bg-base-100 p-2">
+                    <ActionMenu widthClass="w-44" dataActionMenu>
                         <li><a href={resolve(`/admin/portals/edit?portalId=${encodeURIComponent(portal.portalId)}`)}>Edit</a></li>
                         {#if !portal.builtIn}
                           <li>
                             <button class="text-error" onclick={() => requestRemovePortal(portal)} disabled={busy || portal.routeCount > 0} title={portal.routeCount > 0 ? "Remove routes first" : "Delete portal"}>{removingPortalId === portal.portalId ? "Deleting" : "Delete"}</button>
                           </li>
                         {/if}
-                      </ul>
-                    </details>
+                    </ActionMenu>
                   </td>
                 </tr>
               {/each}
             </tbody>
-          </table>
-        </div>
+        </DataTable>
       {/if}
     </Panel>
 

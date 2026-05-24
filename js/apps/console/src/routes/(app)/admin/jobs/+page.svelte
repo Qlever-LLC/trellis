@@ -2,7 +2,9 @@
   import { resolve } from "$app/paths";
   import { onDestroy, onMount } from "svelte";
   import EmptyState from "../../../../lib/components/EmptyState.svelte";
+  import DataTable from "../../../../lib/components/DataTable.svelte";
   import LoadingState from "../../../../lib/components/LoadingState.svelte";
+  import Notice from "../../../../lib/components/Notice.svelte";
   import PageToolbar from "../../../../lib/components/PageToolbar.svelte";
   import Panel from "../../../../lib/components/Panel.svelte";
   import StatusBadge from "../../../../lib/components/StatusBadge.svelte";
@@ -303,9 +305,9 @@
     {/snippet}
 
     {#if error}
-      <div class="alert alert-error mb-3" role="alert"><span>{error}</span></div>
+      <Notice variant="error" class="mb-3" role="alert">{error}</Notice>
     {:else if unavailableMessage}
-      <div class="alert alert-info mb-3" role="status"><span>{unavailableMessage}</span></div>
+      <Notice variant="info" class="mb-3" role="status">{unavailableMessage}</Notice>
     {/if}
 
     <div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-base-content/60">
@@ -320,8 +322,7 @@
     {:else if jobs.length === 0}
       <EmptyState title="No jobs found" description="No jobs match the current filters." />
     {:else}
-      <div class="overflow-x-auto">
-        <table class="table table-sm trellis-table table-fixed">
+      <DataTable fixed>
           <thead>
             <tr>
               <th class="w-28">State</th>
@@ -353,8 +354,7 @@
               </tr>
             {/each}
           </tbody>
-        </table>
-      </div>
+      </DataTable>
     {/if}
 
     {#snippet footer()}

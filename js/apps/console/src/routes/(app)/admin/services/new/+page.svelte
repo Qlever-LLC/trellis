@@ -1,6 +1,7 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import { resolve } from "$app/paths";
+  import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import { errorMessage } from "$lib/format";
@@ -49,7 +50,7 @@
   </PageToolbar>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
 
   <Panel title="New deployment" eyebrow="Service authorization" class="max-w-3xl">

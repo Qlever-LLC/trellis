@@ -4,8 +4,10 @@
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
+  import DataTable from "$lib/components/DataTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import { errorMessage } from "$lib/format";
@@ -262,10 +264,10 @@
   </PageToolbar>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
   {#if saved}
-    <div class="alert alert-success"><span>{saved}</span></div>
+    <Notice variant="success">{saved}</Notice>
   {/if}
 
   {#if loading}
@@ -287,8 +289,7 @@
       {#if rows.length === 0}
         <EmptyState title="No grant overrides" description="No authority deployment grant overrides are configured across the loaded envelopes." />
       {:else}
-        <div class="overflow-x-auto">
-          <table class="table table-xs trellis-table grants-table border-b border-base-300 bg-base-100/30">
+        <DataTable size="xs" fixed class="grants-table min-w-[920px] border-b border-base-300 bg-base-100/30">
             <colgroup>
               <col style="width: 13%" />
               <col style="width: 10%" />
@@ -337,8 +338,7 @@
                 <tr><td colspan="7" class="text-base-content/55">No grant overrides match the current filter.</td></tr>
               {/each}
             </tbody>
-          </table>
-        </div>
+        </DataTable>
       {/if}
     </Panel>
   {/if}
@@ -347,13 +347,7 @@
 <ConfirmationModal bind:this={confirmationModal} />
 
 <style>
-  .grants-table {
-    min-width: 920px;
-    table-layout: fixed;
-    width: 100%;
-  }
-
-  .grants-table thead {
+  :global(.grants-table thead) {
     background-color: color-mix(in oklab, var(--color-base-content) 3.5%, transparent);
   }
 </style>

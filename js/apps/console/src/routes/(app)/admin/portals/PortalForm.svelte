@@ -7,9 +7,13 @@
   import { resolve } from "$app/paths";
   import { goto } from "$app/navigation";
   import { onMount } from "svelte";
+  import ChoiceRow from "$lib/components/ChoiceRow.svelte";
   import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
+  import DataTable from "$lib/components/DataTable.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import Panel from "$lib/components/Panel.svelte";
+  import SelectionGroup from "$lib/components/SelectionGroup.svelte";
   import { errorMessage, formatDate } from "$lib/format";
   import { getTrellis } from "$lib/trellis";
 
@@ -439,10 +443,10 @@
   </div>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
   {#if saved}
-    <div class="alert alert-success"><span>{saved}</span></div>
+    <Notice variant="success">{saved}</Notice>
   {/if}
 
   {#if loading}
@@ -556,57 +560,65 @@
               <span class="label-text text-xs uppercase tracking-wide text-base-content/55">Default capabilities</span>
               <span class="trellis-metadata text-[0.65rem]">{selectedDefaultCapabilities.length} selected</span>
             </div>
-            <div class="max-h-72 overflow-y-auto rounded border border-base-300 bg-base-100/40">
+            <SelectionGroup title="Default capabilities" count={selectedDefaultCapabilities.length} bodyClass="max-h-72 overflow-y-auto rounded border border-base-300 bg-base-100/40">
               {#each capabilities as capability (capability.key)}
-                <label class="grid cursor-pointer grid-cols-[auto_1fr] gap-2 border-b border-base-300/70 px-2 py-2 text-xs last:border-b-0 hover:bg-base-200/60">
-                  <input class="checkbox checkbox-sm mt-0.5" type="checkbox" checked={selectedDefaultCapabilities.includes(capability.key)} disabled={busy} onchange={(event) => handleDefaultCapabilityChange(capability.key, event)} />
+                <ChoiceRow>
+                  {#snippet input()}
+                    <input class="checkbox checkbox-sm mt-0.5" type="checkbox" checked={selectedDefaultCapabilities.includes(capability.key)} disabled={busy} onchange={(event) => handleDefaultCapabilityChange(capability.key, event)} />
+                  {/snippet}
                   <span class="min-w-0">
                     <span class="block font-medium text-base-content">{capability.description}</span>
                     <span class="trellis-identifier mt-0.5 block break-all text-base-content/50">{localCapabilityKey(capability.key)}</span>
                   </span>
-                </label>
+                </ChoiceRow>
               {:else}
                 <div class="px-2 py-3 trellis-metadata text-xs">No cataloged capabilities were returned.</div>
               {/each}
               {#each uncatalogedSelectedCapabilities as capabilityKey (capabilityKey)}
-                <label class="grid cursor-pointer grid-cols-[auto_1fr] gap-2 border-t border-base-300/70 px-2 py-2 text-xs hover:bg-base-200/60">
-                  <input class="checkbox checkbox-sm mt-0.5" type="checkbox" checked={selectedDefaultCapabilities.includes(capabilityKey)} disabled={busy} onchange={(event) => handleDefaultCapabilityChange(capabilityKey, event)} />
+                <ChoiceRow class="border-t">
+                  {#snippet input()}
+                    <input class="checkbox checkbox-sm mt-0.5" type="checkbox" checked={selectedDefaultCapabilities.includes(capabilityKey)} disabled={busy} onchange={(event) => handleDefaultCapabilityChange(capabilityKey, event)} />
+                  {/snippet}
                   <span class="min-w-0">
                     <span class="block font-medium text-base-content">Existing default not returned by the capability catalog.</span>
                     <span class="trellis-identifier mt-0.5 block break-all text-base-content/50">{localCapabilityKey(capabilityKey)}</span>
                   </span>
-                </label>
+                </ChoiceRow>
               {/each}
-            </div>
+            </SelectionGroup>
           </div>
           <div class="form-control">
             <div class="mb-1 flex items-baseline justify-between gap-2">
               <span class="label-text text-xs uppercase tracking-wide text-base-content/55">Default capability groups</span>
               <span class="trellis-metadata text-[0.65rem]">{selectedDefaultCapabilityGroups.length} selected</span>
             </div>
-            <div class="max-h-72 overflow-y-auto rounded border border-base-300 bg-base-100/40">
+            <SelectionGroup title="Default capability groups" count={selectedDefaultCapabilityGroups.length} bodyClass="max-h-72 overflow-y-auto rounded border border-base-300 bg-base-100/40">
               {#each sortedCapabilityGroups as group (group.groupKey)}
-                <label class="grid cursor-pointer grid-cols-[auto_1fr] gap-2 border-b border-base-300/70 px-2 py-2 text-xs last:border-b-0 hover:bg-base-200/60">
-                  <input class="checkbox checkbox-sm mt-0.5" type="checkbox" checked={selectedDefaultCapabilityGroups.includes(group.groupKey)} disabled={busy} onchange={(event) => handleDefaultCapabilityGroupChange(group.groupKey, event)} />
+                <ChoiceRow>
+                  {#snippet input()}
+                    <input class="checkbox checkbox-sm mt-0.5" type="checkbox" checked={selectedDefaultCapabilityGroups.includes(group.groupKey)} disabled={busy} onchange={(event) => handleDefaultCapabilityGroupChange(group.groupKey, event)} />
+                  {/snippet}
                   <span class="min-w-0">
                     <span class="trellis-identifier block truncate font-medium text-base-content">{group.groupKey}</span>
                     <span class="mt-0.5 block truncate text-base-content/60" title={group.displayName}>{group.displayName}</span>
                     <span class="trellis-field-help block">{group.capabilities.length} capabilities · {group.includedGroups.length} included groups</span>
                   </span>
-                </label>
+                </ChoiceRow>
               {:else}
                 <div class="px-2 py-3 trellis-metadata text-xs">No capability groups were returned.</div>
               {/each}
               {#each uncatalogedSelectedCapabilityGroups as groupKey (groupKey)}
-                <label class="grid cursor-pointer grid-cols-[auto_1fr] gap-2 border-t border-base-300/70 px-2 py-2 text-xs hover:bg-base-200/60">
-                  <input class="checkbox checkbox-sm mt-0.5" type="checkbox" checked={selectedDefaultCapabilityGroups.includes(groupKey)} disabled={busy} onchange={(event) => handleDefaultCapabilityGroupChange(groupKey, event)} />
+                <ChoiceRow class="border-t">
+                  {#snippet input()}
+                    <input class="checkbox checkbox-sm mt-0.5" type="checkbox" checked={selectedDefaultCapabilityGroups.includes(groupKey)} disabled={busy} onchange={(event) => handleDefaultCapabilityGroupChange(groupKey, event)} />
+                  {/snippet}
                   <span class="min-w-0">
                     <span class="block font-medium text-base-content">Existing default not returned by the group catalog.</span>
                     <span class="trellis-identifier mt-0.5 block break-all text-base-content/50">{groupKey}</span>
                   </span>
-                </label>
+                </ChoiceRow>
               {/each}
-            </div>
+            </SelectionGroup>
           </div>
         </div>
       </Panel>
@@ -615,8 +627,7 @@
         <Panel title="Portal routes" eyebrow={`${activeRouteCount} active / ${routes.length} total`}>
           <div class="space-y-3">
             <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
-              <div class="overflow-x-auto">
-                <table class="table table-sm trellis-table border-b border-base-300 bg-base-100/30">
+              <DataTable class="border-b border-base-300 bg-base-100/30">
                   <thead>
                     <tr>
                       <th>Match</th>
@@ -643,8 +654,7 @@
                       <tr><td class="text-xs text-base-content/60" colspan="4">No routes target this portal.</td></tr>
                     {/each}
                   </tbody>
-                </table>
-              </div>
+              </DataTable>
 
               <div class="space-y-2 rounded border border-base-300 p-3">
                 <div class="text-xs uppercase tracking-wide text-base-content/55">{editingRouteKey ? "Edit route" : "Add route"}</div>

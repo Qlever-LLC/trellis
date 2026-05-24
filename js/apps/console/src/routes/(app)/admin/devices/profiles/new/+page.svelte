@@ -1,6 +1,7 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type { AuthDeploymentsCreateInput } from "@qlever-llc/trellis/sdk/auth";
+  import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import { errorMessage } from "$lib/format";
@@ -46,7 +47,7 @@
   </PageToolbar>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
 
   <Panel title="Deployment details" eyebrow="Device authorization">

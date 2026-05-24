@@ -7,15 +7,23 @@
   } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import DataTable from "$lib/components/DataTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import InlineMetricsStrip from "$lib/components/InlineMetricsStrip.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
   import { errorMessage } from "$lib/format";
   import { loadJobsPageData } from "$lib/jobs_page.ts";
+  import {
+    contractDependencyProviderContract,
+    contractDependencyRequiredThing,
+    isContractDependencyBlock,
+    isForcedUpdateRepair,
+  } from "$lib/catalog_issues";
   import { getTrellis } from "$lib/trellis";
   import type {
     JobsListOutput,
@@ -30,6 +38,7 @@
     kind: string;
     contractId?: string;
     message: string;
+    deploymentIds?: string[];
   };
   type CatalogOutput = {
     catalog: {
@@ -82,7 +91,9 @@
   const pendingWorkTotal = $derived(pendingExpansionRequests.length + pendingDeviceReviews.length);
   const pendingServiceAuthority = $derived(pendingExpansionRequests.filter((request) => request.requestedByKind === "service").length);
   const pendingDeviceAuthority = $derived(pendingExpansionRequests.length - pendingServiceAuthority);
-  const catalogWarningCount = $derived(catalogIssues.length);
+  const dependencyBlocks = $derived(catalogIssues.filter(isContractDependencyBlock));
+  const forcedUpdateRepairs = $derived(catalogIssues.filter(isForcedUpdateRepair));
+  const catalogWarningCount = $derived(dependencyBlocks.length + forcedUpdateRepairs.length);
 
   const topology = $derived([
     { icon: "box", label: "Service instances", value: serviceInstanceTotal, detail: `${activeInstances} active / ${disabledTotal} disabled`, tone: "text-success bg-success/10" },
@@ -96,10 +107,23 @@
     { label: "Sessions", value: sessionCount },
     { label: "Connections", value: connectionCount },
     { label: "Jobs", value: totalJobCount, badge: `${activeJobCount} active`, badgeClass: "badge-success" },
-    { label: "Warnings", value: catalogWarningCount, detail: catalogIssueError ? "Catalog unavailable" : "forced updates" },
+    { label: "Warnings", value: catalogWarningCount, detail: catalogIssueError ? "Catalog unavailable" : dependencyBlocks.length > 0 ? "contract blocks" : "forced updates" },
   ]);
 
-  function firstCatalogIssueSummary(issue: CatalogIssue): string {
+  function dependencyKindText(requiredThing: string): string | null {
+    if (requiredThing === "a required surface") return null;
+    const separator = requiredThing.indexOf(" ");
+    if (separator < 1) return null;
+    const kind = requiredThing.slice(0, separator);
+    return kind === "RPC" ? "RPC" : kind.toLowerCase();
+  }
+
+  function dependencySurfaceName(requiredThing: string): string | null {
+    const separator = requiredThing.indexOf(" ");
+    return separator > 0 ? requiredThing.slice(separator + 1) : null;
+  }
+
+  function forcedUpdateSummary(issue: CatalogIssue): string {
     if (issue.kind === "incompatible-active-contract") {
       return `Two active versions of ${issue.contractId ?? "a contract"} describe the same API differently.`;
     }
@@ -242,23 +266,45 @@
     </PageToolbar>
 
     {#if error}
-      <div class="alert alert-error mb-4"><span>{error}</span></div>
+      <Notice variant="error" class="mb-4">{error}</Notice>
     {/if}
 
-    {#if catalogIssues.length > 0 || catalogIssueError}
-      <div class="alert alert-warning mb-4 items-start">
+    {#if dependencyBlocks.length > 0 || catalogIssueError}
+      <Notice variant="warning" class="mb-4 items-start">
         <div class="min-w-0">
-          <div class="font-medium">Forced Contract Update needed</div>
+          <div class="font-medium">Contract dependency block</div>
           <div class="mt-1 text-sm">
             {#if catalogIssueError}
-              Forced update status is unavailable: {catalogIssueError}
-            {:else if catalogIssues[0]}
-              {firstCatalogIssueSummary(catalogIssues[0])} Review whether to accept the forced update.
+              Catalog issue status is unavailable: {catalogIssueError}
+            {:else if dependencyBlocks[0]}
+              {@const issue = dependencyBlocks[0]}
+              {@const blockedDeployment = issue.deploymentIds?.[0] ?? issue.contractId ?? "Service"}
+              {@const requiredThing = contractDependencyRequiredThing(issue)}
+              {@const requiredKind = dependencyKindText(requiredThing)}
+              {@const requiredName = dependencySurfaceName(requiredThing)}
+              {@const providerContract = contractDependencyProviderContract(issue)}
+              A <span class="trellis-identifier font-semibold">{blockedDeployment}</span> instance was blocked because its contract
+              {#if requiredKind && requiredName}
+                requires an undefined {requiredKind} <span class="trellis-identifier font-semibold">{requiredName}</span> from
+                <span class="trellis-identifier font-semibold">{providerContract}</span>.
+              {:else}
+                requires <span class="trellis-identifier font-semibold">{providerContract}</span>, but that contract is not currently active or did not advertise the required API.
+              {/if}
             {/if}
           </div>
         </div>
+        <a class="btn btn-warning btn-outline btn-sm" href={resolve("/admin/services")}>Open services</a>
+      </Notice>
+    {/if}
+
+    {#if forcedUpdateRepairs.length > 0}
+      <Notice variant="warning" class="mb-4 items-start">
+        <div class="min-w-0">
+          <div class="font-medium">Forced Contract Update needed</div>
+          <div class="mt-1 text-sm">{forcedUpdateSummary(forcedUpdateRepairs[0])} Review whether to accept the forced update.</div>
+        </div>
         <a class="btn btn-warning btn-outline btn-sm" href={resolve("/admin/services/repair")}>Open forced update</a>
-      </div>
+      </Notice>
     {/if}
 
     <Panel title="Runtime Topology" class="overflow-hidden">
@@ -290,8 +336,7 @@
           {#if displayInstances.length === 0}
             <EmptyState title="No service instances" description="Provisioned service instances will appear here after they are registered." class="m-5" />
           {:else}
-          <div class="overflow-x-auto">
-            <table class="table table-sm trellis-table min-w-[860px] table-fixed">
+          <DataTable class="min-w-[860px]" fixed>
               <colgroup>
                 <col class="w-[28%]" />
                 <col class="w-[32%]" />
@@ -318,8 +363,7 @@
                   </tr>
                 {/each}
               </tbody>
-            </table>
-          </div>
+          </DataTable>
           {/if}
           <div class="flex h-14 items-center justify-between border-t border-base-300 px-5 text-sm text-base-content/60">
             <span>Showing {displayInstances.length === 0 ? "0" : `1–${displayInstances.length}`} of {serviceInstanceTotal}</span>
@@ -340,22 +384,20 @@
           <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Jobs Snapshot</h2><a href={resolve("/admin/jobs")} class="btn btn-ghost btn-xs">View all</a></div>
           {#if jobsUnavailableMessage}
             <div class="m-5 space-y-2">
-              <div class="alert alert-info"><span>{jobsUnavailableMessage}</span></div>
+              <Notice variant="info">{jobsUnavailableMessage}</Notice>
               <p class="text-xs text-base-content/60">Overview metrics remain available without the Jobs runtime.</p>
             </div>
           {:else if displayJobs.length === 0}
             <EmptyState title="No jobs" description="Job queues will appear here when the Jobs API reports active or retained work." class="m-5" />
           {:else}
-          <div class="overflow-x-auto">
-            <table class="table table-xs trellis-table">
+          <DataTable size="xs">
               <thead><tr><th>Job</th><th>State</th><th>Count</th><th>Oldest</th></tr></thead>
               <tbody>
                 {#each displayJobs as job (job.key)}
                   <tr><td class="trellis-identifier">{job.job}</td><td><StatusBadge label={job.state} status={statusVariant(job.state)} /></td><td>{job.count}</td><td>{job.oldest}</td></tr>
                 {/each}
               </tbody>
-            </table>
-          </div>
+          </DataTable>
           {/if}
         </section>
 

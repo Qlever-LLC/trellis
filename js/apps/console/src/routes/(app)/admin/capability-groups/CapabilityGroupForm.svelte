@@ -8,8 +8,12 @@
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
+  import ChoiceRow from "$lib/components/ChoiceRow.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import Panel from "$lib/components/Panel.svelte";
+  import SelectionGroup from "$lib/components/SelectionGroup.svelte";
+  import SelectionSectionHeader from "$lib/components/SelectionSectionHeader.svelte";
   import { errorMessage, formatDate } from "$lib/format";
   import { getTrellis } from "$lib/trellis";
 
@@ -200,10 +204,10 @@
   </div>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
   {#if saved}
-    <div class="alert alert-success"><span>{saved}</span></div>
+    <Notice variant="success">{saved}</Notice>
   {/if}
 
   {#if loading}
@@ -245,41 +249,35 @@
           <span class="trellis-metadata text-[0.65rem]">{totalCapabilityAssignments} total</span>
         {/snippet}
 
-        <div class="max-h-72 overflow-y-auto rounded border border-base-300 bg-base-100/40">
+        <SelectionGroup title="Capabilities" count={totalCapabilityAssignments} bodyClass="max-h-72 overflow-y-auto rounded border border-base-300 bg-base-100/40">
           {#each capabilitySections as section (section.key)}
-            <div class="sticky top-0 z-10 border-b border-base-300 bg-base-200 px-2 py-1.5">
-              <div class="flex min-w-0 items-baseline justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="truncate text-xs font-semibold uppercase tracking-wide text-base-content/70">{section.title}</div>
-                  {#if section.subtitle}
-                    <div class="trellis-identifier truncate text-[0.65rem] text-base-content/50">{section.subtitle}</div>
-                  {/if}
-                </div>
-                <span class="trellis-metadata text-[0.65rem]">{section.capabilities.length}</span>
-              </div>
-            </div>
+            <SelectionSectionHeader title={section.title} subtitle={section.subtitle ?? undefined} count={section.capabilities.length} />
             {#each section.capabilities as capability (capability.key)}
-              <label class="grid cursor-pointer grid-cols-[auto_1fr] gap-2 border-b border-base-300/70 px-2 py-2 text-xs last:border-b-0 hover:bg-base-200/60">
-                <input class="checkbox checkbox-sm mt-0.5" type="checkbox" bind:group={selectedCapabilities} value={capability.key} disabled={!editable} />
+              <ChoiceRow>
+                {#snippet input()}
+                  <input class="checkbox checkbox-sm mt-0.5" type="checkbox" bind:group={selectedCapabilities} value={capability.key} disabled={!editable} />
+                {/snippet}
                 <span class="min-w-0">
                   <span class="block truncate font-medium" title={capability.description}>{capability.description}</span>
                   <span class="trellis-identifier mt-0.5 block break-all text-base-content/50">{localCapabilityKey(capability.key)}</span>
                 </span>
-              </label>
+              </ChoiceRow>
             {/each}
           {:else}
             <div class="px-2 py-3 trellis-metadata text-xs">No capabilities returned.</div>
           {/each}
-        </div>
+        </SelectionGroup>
       </Panel>
 
       <Panel title="Included groups" eyebrow="Nested membership">
         <p class="trellis-field-help mb-2">Nested groups included by this group. Self-inclusion is disabled.</p>
-        <div class="max-h-64 overflow-y-auto rounded border border-base-300 bg-base-100/40">
+        <SelectionGroup title="Included groups" count={selectedIncludedGroups.length} bodyClass="max-h-64 overflow-y-auto rounded border border-base-300 bg-base-100/40">
           {#each sortedGroups as group (group.groupKey)}
             {#if group.groupKey !== formGroupKey}
-              <label class="grid cursor-pointer grid-cols-[auto_1fr] gap-2 border-b border-base-300/70 px-2 py-2 text-xs last:border-b-0 hover:bg-base-200/60">
-                <input class="checkbox checkbox-sm mt-0.5" type="checkbox" bind:group={selectedIncludedGroups} value={group.groupKey} disabled={!editable} />
+              <ChoiceRow>
+                {#snippet input()}
+                  <input class="checkbox checkbox-sm mt-0.5" type="checkbox" bind:group={selectedIncludedGroups} value={group.groupKey} disabled={!editable} />
+                {/snippet}
                 <span class="min-w-0">
                   <span class="flex items-center gap-2">
                     <span class="trellis-identifier font-medium">{group.groupKey}</span>
@@ -288,12 +286,12 @@
                   <span class="mt-0.5 block truncate text-base-content/60" title={group.displayName}>{group.displayName}</span>
                   <span class="trellis-field-help block">{group.capabilities.length} capabilities, {group.includedGroups.length} included groups</span>
                 </span>
-              </label>
+              </ChoiceRow>
             {/if}
           {:else}
             <div class="px-2 py-3 trellis-metadata text-xs">No capability groups returned.</div>
           {/each}
-        </div>
+        </SelectionGroup>
       </Panel>
 
       <div class="flex justify-end gap-2">

@@ -11,9 +11,12 @@
     type SessionRecord,
   } from "../../../../lib/auth_display.ts";
   import { errorMessage, formatDate } from "../../../../lib/format";
+  import ActionMenu from "$lib/components/ActionMenu.svelte";
+  import DataTable from "$lib/components/DataTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import { getTrellis } from "../../../../lib/trellis";
@@ -80,13 +83,13 @@
   <PageToolbar title="Sessions" description="Inspect active sessions and connections and disconnect compromised principals.">
     {#snippet actions()}
       <button class="btn btn-ghost btn-sm" onclick={loadActive} disabled={loading}>Refresh</button>
-      <details class="dropdown dropdown-end">
-        <summary class="btn btn-outline btn-sm">Actions <Icon name="chevronDown" size={14} /></summary>
-        <ul class="menu dropdown-content z-10 mt-2 w-56 rounded-box border border-base-300 bg-base-100 p-2">
-          <li><a href={resolve("/admin/sessions/revoke")}>Revoke a session</a></li>
-          <li><a href={resolve("/admin/sessions/kick")}>Kick a connection</a></li>
-        </ul>
-      </details>
+      <ActionMenu buttonBaseClass="btn btn-outline btn-sm" menuClass="z-10" widthClass="w-56">
+        {#snippet summary()}
+          Actions <Icon name="chevronDown" size={14} />
+        {/snippet}
+        <li><a href={resolve("/admin/sessions/revoke")}>Revoke a session</a></li>
+        <li><a href={resolve("/admin/sessions/kick")}>Kick a connection</a></li>
+      </ActionMenu>
     {/snippet}
   </PageToolbar>
 
@@ -106,7 +109,7 @@
   </div>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
 
   {#if activeTab === "sessions"}
@@ -124,8 +127,7 @@
       <EmptyState title="No sessions" description="No sessions match the current filter." />
     {:else}
       <Panel title="Sessions" eyebrow="Primary table">
-      <div class="overflow-x-auto">
-        <table class="table table-sm trellis-table">
+      <DataTable>
           <thead>
             <tr>
               <th>Principal</th>
@@ -156,18 +158,14 @@
                   <div>Created {formatDate(session.createdAt)}</div>
                 </td>
                 <td class="text-right">
-                  <details class="dropdown dropdown-end">
-                    <summary class="btn btn-ghost btn-xs">Actions</summary>
-                    <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2">
+                  <ActionMenu menuClass="z-10" widthClass="w-48">
                       <li><a class="text-error" href={resolve(`/admin/sessions/revoke?sessionKey=${encodeURIComponent(session.sessionKey)}`)}>Revoke</a></li>
-                    </ul>
-                  </details>
+                  </ActionMenu>
                 </td>
               </tr>
             {/each}
           </tbody>
-        </table>
-      </div>
+      </DataTable>
       <p class="text-xs text-base-content/50">{sessions.length} session{sessions.length !== 1 ? "s" : ""}</p>
       </Panel>
     {/if}
@@ -188,8 +186,7 @@
       <EmptyState title="No connections" description="No active connections match the current filter." />
     {:else}
       <Panel title="Connections" eyebrow="Primary table">
-      <div class="overflow-x-auto">
-        <table class="table table-sm trellis-table">
+      <DataTable>
           <thead>
             <tr>
               <th>Principal</th>
@@ -224,18 +221,14 @@
                 </td>
                 <td class="text-base-content/60">{formatDate(connection.connectedAt)}</td>
                 <td class="text-right">
-                  <details class="dropdown dropdown-end">
-                    <summary class="btn btn-ghost btn-xs">Actions</summary>
-                    <ul class="menu dropdown-content z-10 mt-2 w-48 rounded-box border border-base-300 bg-base-100 p-2">
+                  <ActionMenu menuClass="z-10" widthClass="w-48">
                       <li><a class="text-error" href={resolve(`/admin/sessions/kick?userNkey=${encodeURIComponent(connection.userNkey)}`)}>Kick</a></li>
-                    </ul>
-                  </details>
+                  </ActionMenu>
                 </td>
               </tr>
             {/each}
           </tbody>
-        </table>
-      </div>
+      </DataTable>
       <p class="text-xs text-base-content/50">{connections.length} connection{connections.length !== 1 ? "s" : ""}</p>
       </Panel>
     {/if}

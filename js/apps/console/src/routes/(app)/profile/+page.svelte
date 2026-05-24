@@ -17,6 +17,7 @@
   import { getNotifications } from "../../../lib/notifications.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import { getAuthenticatedUser, getConnection, getTrellis } from "../../../lib/trellis";
@@ -191,7 +192,7 @@
 {#if loading}
   <Panel><LoadingState label="Loading account" /></Panel>
 {:else if error}
-  <div class="alert alert-error mb-4"><span>{error}</span></div>
+  <Notice variant="error" class="mb-4">{error}</Notice>
 {:else if user}
   <section class="space-y-4">
     <PageToolbar title="Account Access Ledger" description="Manage how you sign in, which apps or agents can act for you, and what this account can do.">
@@ -247,7 +248,7 @@
                 <p class="text-sm text-base-content/70">Connected logins unlock the same Trellis account.</p>
                 <button class="btn btn-outline btn-sm" type="button" onclick={createIdentityLink} disabled={linkPending}>{linkPending ? "Opening..." : "Connect another login"}</button>
               </div>
-              {#if linkError}<div class="alert alert-error text-sm" role="alert"><span>{linkError}</span></div>{/if}
+              {#if linkError}<Notice variant="error" class="text-sm" role="alert">{linkError}</Notice>{/if}
 
               <div class="divide-y divide-base-300 rounded-box border border-base-300">
                 {#each identities as identity (identity.identityId)}
@@ -367,7 +368,7 @@
           <span class="label py-1"><span class="label-text text-xs">Confirm new password</span></span>
           <input class="input input-bordered input-sm" type="password" bind:value={confirmNewPassword} autocomplete="new-password" required />
         </label>
-        {#if passwordChangeError}<div class="alert alert-error text-sm" role="alert"><span>{passwordChangeError}</span></div>{/if}
+        {#if passwordChangeError}<Notice variant="error" class="text-sm" role="alert">{passwordChangeError}</Notice>{/if}
         <div class="flex justify-end gap-2 pt-1">
           <button class="btn btn-ghost btn-sm" type="button" onclick={closePasswordModal} disabled={passwordChangePending}>Cancel</button>
           <button class="btn btn-primary btn-sm" type="submit" disabled={passwordChangePending}>{passwordChangePending ? "Changing..." : "Change password"}</button>
