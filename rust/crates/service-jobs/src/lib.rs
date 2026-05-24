@@ -28,8 +28,8 @@ pub use bootstrap::{
     JobsServiceHost, JobsServiceHostWithValidator, JobsServiceMode,
 };
 pub use contract::{
-    contract_manifest, expected_contract, rpc, CONTRACT_DIGEST, CONTRACT_ID, JOBS_RPC_SUBJECTS,
-    SERVICE_NAME,
+    contract_manifest, expected_contract, rpc, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON,
+    JOBS_RPC_SUBJECTS, SERVICE_NAME,
 };
 pub use janitor::{
     plan_expired_events, run_janitor_once, start_janitor_loop, JanitorError, JanitorHandle,

@@ -3,17 +3,20 @@
 use std::path::Path;
 
 use trellis::auth::AuthClient;
-use trellis::client::{ServiceConnectOptions, TrellisClient, TrellisClientError};
+use trellis::client::{
+    ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient, TrellisClientError,
+};
 use trellis::sdk::core::{types::TrellisBindingsGetResponseBinding, CoreClient};
 use trellis::service::{
     bootstrap_service_host, connect_service as connect_bound_service, run_multi_subject_service,
     BootstrapBindingInfo, ConnectServiceError, ConnectedService, ConnectedServiceHostWithValidator,
     ConnectedServiceParts, CoreBootstrapAdapter, CoreBootstrapBinding, CoreBootstrapClientPort,
     DefaultRequestValidator, DefaultRequestValidatorClientPort, Router, ServerError,
+    DEFAULT_APPROVAL_TIMEOUT_MS, DEFAULT_RETRY_DELAY_MS,
 };
 
 use crate::advisory::{start_advisory_loop, AdvisoryHandle};
-use crate::contract::{expected_contract, JOBS_RPC_SUBJECTS, SERVICE_NAME};
+use crate::contract::{expected_contract, CONTRACT_JSON, JOBS_RPC_SUBJECTS, SERVICE_NAME};
 use crate::janitor::{start_janitor_loop, JanitorHandle};
 use crate::paths::jobs_db_path_from_env;
 use crate::projector::{start_jobs_projector, JobsProjectorHandle};
@@ -493,7 +496,17 @@ fn map_query_error(error: JobsQueryError) -> ServerError {
 pub async fn connect_service(
     opts: ServiceConnectOptions<'_>,
 ) -> Result<ConnectedJobsService, JobsServiceError> {
-    let client = TrellisClient::connect_service(opts).await?;
+    let client = TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+        trellis_url: opts.trellis_url,
+        contract_id: opts.contract_id,
+        contract_digest: opts.contract_digest,
+        contract_json: CONTRACT_JSON,
+        session_key_seed_base64url: opts.session_key_seed_base64url,
+        timeout_ms: opts.timeout_ms,
+        retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
+        approval_timeout_ms: DEFAULT_APPROVAL_TIMEOUT_MS,
+    })
+    .await?;
     let binding = service_bootstrap_binding(&client)?;
     ConnectedJobsService::new(client, binding).map_err(JobsServiceError::Server)
 }

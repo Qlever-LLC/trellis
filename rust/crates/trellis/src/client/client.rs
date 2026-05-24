@@ -531,6 +531,11 @@ async fn fetch_service_bootstrap_inner(
                 }
                 continue;
             }
+
+            return Err(TrellisClientError::BootstrapHttp {
+                status: status.as_u16(),
+                body,
+            });
         }
 
         if !status.is_success() {
@@ -2204,6 +2209,46 @@ mod tests {
             TrellisClientError::BootstrapHttp { status, body } => {
                 assert_eq!(status, 409);
                 assert!(body.contains("manifest_required"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn service_bootstrap_without_contract_reports_pending_response() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind bootstrap server");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let server_task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("bootstrap request");
+            let _request = read_json_http_request(&mut stream).await;
+            write_json_http_response(
+                &mut stream,
+                "202 Accepted",
+                json!({ "reason": "envelope_expansion_required" }),
+            )
+            .await;
+        });
+        let auth = SessionAuth::from_seed_base64url("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")
+            .expect("session auth");
+        let opts = ServiceConnectOptions {
+            trellis_url: &url,
+            contract_id: "trellis.jobs@v1",
+            contract_digest: "digest-alpha",
+            session_key_seed_base64url: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+            timeout_ms: 2_000,
+        };
+
+        let error = fetch_service_bootstrap(&auth, &opts)
+            .await
+            .expect_err("pending bootstrap should not parse as ready");
+        server_task.await.expect("server task");
+
+        match error {
+            TrellisClientError::BootstrapHttp { status, body } => {
+                assert_eq!(status, 202);
+                assert!(body.contains("envelope_expansion_required"));
             }
             other => panic!("unexpected error: {other}"),
         }

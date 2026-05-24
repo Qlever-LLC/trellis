@@ -23,7 +23,7 @@ pub const JOBS_RPC_SUBJECTS: &[&str] = &[
     <JobsDismissDLQRpc as RpcDescriptor>::SUBJECT,
 ];
 
-pub use generated_contract::{contract_manifest, CONTRACT_DIGEST, CONTRACT_ID};
+pub use generated_contract::{contract_manifest, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON};
 pub use trellis::sdk::jobs::rpc;
 
 /// Return the contract id/digest pair expected by the Jobs admin service.
