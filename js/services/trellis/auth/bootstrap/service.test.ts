@@ -146,6 +146,20 @@ function serviceUsingDependencyContract(): TrellisContractV1 {
   };
 }
 
+function serviceUsingMissingDependencyOperationContract(): TrellisContractV1 {
+  return {
+    ...baseContract(),
+    uses: {
+      required: {
+        dep: {
+          contract: "dep.example@v1",
+          operations: { call: ["Start"] },
+        },
+      },
+    },
+  };
+}
+
 async function validatedContract(contract: TrellisContractV1) {
   return await createTestContracts().validateContract(contract);
 }
@@ -631,6 +645,36 @@ Deno.test("POST /bootstrap/service plans expansion through known inactive requir
     required: true,
   }]);
   assertEquals(setup.expansionRequests[0]?.delta.capabilities, ["dep.read"]);
+  assertEquals(setup.services.length, 0);
+});
+
+Deno.test("POST /bootstrap/service waits when known dependency is missing a required surface", async () => {
+  const dependency = await validatedContract(dependencyContract());
+  const service = await validatedContract(
+    serviceUsingMissingDependencyOperationContract(),
+  );
+  const setup = await createApp({
+    knownContracts: [{
+      digest: dependency.digest,
+      contract: dependency.contract,
+    }],
+  });
+
+  const response = await setup.bootstrap({
+    contractId: service.contract.id,
+    contractDigest: service.digest,
+    contract: service.contract,
+  });
+
+  assertEquals(response.status, 202);
+  const body = await response.json();
+  assertEquals(body.reason, "contract_activation_pending");
+  assertEquals(body.dependencyAlias, "dep");
+  assertEquals(body.dependencyContractId, "dep.example@v1");
+  assertEquals(body.dependencySurface, "operation");
+  assertEquals(body.dependencyReason, "missing");
+  assertEquals(body.dependencyKey, "Start");
+  assertEquals(setup.expansionRequests.length, 0);
   assertEquals(setup.services.length, 0);
 });
 

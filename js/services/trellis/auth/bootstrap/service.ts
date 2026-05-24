@@ -11,7 +11,10 @@ import {
   provisionContractResourceBindings,
   type ResourceProvisioningOptions,
 } from "../../catalog/resources.ts";
-import { resolveContractUsesFromEntries } from "../../catalog/uses.ts";
+import {
+  ContractUseDependencyError,
+  resolveContractUsesFromEntries,
+} from "../../catalog/uses.ts";
 import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
 import {
   computeEnvelopeDelta,
@@ -528,6 +531,26 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       validated = await deps.contracts.validateContract(rawContract);
     } catch (error) {
       const contractError = toError(error);
+      if (error instanceof ContractUseDependencyError) {
+        return c.json(
+          bootstrapFailure(
+            "contract_activation_pending",
+            `Service contract '${request.contractId}' digest '${request.contractDigest}' is waiting for dependency closure: ${contractError.message}`,
+            {
+              instanceId: service.instanceId,
+              deploymentId: deployment.deploymentId,
+              contractId: request.contractId,
+              contractDigest: request.contractDigest,
+              dependencyAlias: error.alias,
+              dependencyContractId: error.contractId,
+              dependencySurface: error.surface,
+              dependencyReason: error.reason,
+              ...(error.key !== undefined ? { dependencyKey: error.key } : {}),
+            },
+          ),
+          202,
+        );
+      }
       return c.json(
         bootstrapFailure(
           "presented_contract_invalid",
