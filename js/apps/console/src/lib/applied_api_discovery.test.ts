@@ -93,7 +93,7 @@ const installedContract = {
         controlSubject: "operations.v1.Documents.Process.control",
         wildcardControlSubject: "operations.v1.Documents.Process.control",
         callCapabilities: ["documents::write"],
-        readCapabilities: ["documents::read"],
+        observeCapabilities: ["documents::read"],
         cancelCapabilities: [],
         cancel: false,
       }],

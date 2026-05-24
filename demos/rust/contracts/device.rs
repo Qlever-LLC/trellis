@@ -11,6 +11,10 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
         "Activated Field Device TUI for the consolidated demo.",
         ContractKind::Device,
     )
+    .docs_with_summary(
+        "Activated field device demo.",
+        "Declares the Field Device demo's service usage and local state for selected sites and draft inspections.",
+    )
     .schema(
         "SelectedSiteState",
         serde_json::json!({
@@ -39,11 +43,21 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
     )
     .state(
         "selectedSite",
-        state(ContractStateKind::Value, "SelectedSiteState").state_version("selected-site.v1"),
+        state(ContractStateKind::Value, "SelectedSiteState")
+            .state_version("selected-site.v1")
+            .docs_with_summary(
+                "Selected site state.",
+                "Stores the active site selected in the device TUI.",
+            ),
     )
     .state(
         "draftInspections",
-        state(ContractStateKind::Map, "DraftInspectionState").state_version("draft-inspection.v1"),
+        state(ContractStateKind::Map, "DraftInspectionState")
+            .state_version("draft-inspection.v1")
+            .docs_with_summary(
+                "Draft inspection state.",
+                "Stores editable inspection draft notes keyed by inspection id.",
+            ),
     )
     .use_ref(
         "fieldOps",

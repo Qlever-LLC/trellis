@@ -1,6 +1,6 @@
 //! Typed RPC descriptors for `trellis.state@v1`.
-use crate::client::RpcDescriptor;
 use serde::{Deserialize, Serialize};
+use crate::client::RpcDescriptor;
 /// Empty request or response payload used by zero-argument RPCs.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Empty {}

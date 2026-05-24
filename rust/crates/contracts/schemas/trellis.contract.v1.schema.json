@@ -20,6 +20,9 @@
       "type": "string",
       "minLength": 1
     },
+    "docs": {
+      "$ref": "#/$defs/docs"
+    },
     "kind": {
       "type": "string",
       "enum": ["service", "app", "device", "agent"]
@@ -113,6 +116,20 @@
       "required": ["schema"],
       "properties": {
         "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "docs": {
+      "type": "object",
+      "required": ["markdown"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "markdown": {
           "type": "string",
           "minLength": 1
         }
@@ -228,6 +245,9 @@
           "additionalProperties": {
             "$ref": "#/$defs/schemaRef"
           }
+        },
+        "docs": {
+          "$ref": "#/$defs/docs"
         }
       }
     },
@@ -316,6 +336,9 @@
         "maxValueBytes": {
           "type": "integer",
           "minimum": 1
+        },
+        "docs": {
+          "$ref": "#/$defs/docs"
         }
       }
     },
@@ -343,6 +366,9 @@
         "maxTotalBytes": {
           "type": "integer",
           "minimum": 1
+        },
+        "docs": {
+          "$ref": "#/$defs/docs"
         }
       }
     },
@@ -387,6 +413,9 @@
         "concurrency": {
           "type": "integer",
           "minimum": 1
+        },
+        "docs": {
+          "$ref": "#/$defs/docs"
         }
       }
     },
@@ -475,6 +504,9 @@
               "const": "receive"
             }
           }
+        },
+        "docs": {
+          "$ref": "#/$defs/docs"
         }
       }
     },
@@ -557,12 +589,18 @@
             "properties": {
               "input": {
                 "$ref": "#/$defs/schemaRef"
+              },
+              "docs": {
+                "$ref": "#/$defs/docs"
               }
             }
           }
         },
         "cancel": {
           "type": "boolean"
+        },
+        "docs": {
+          "$ref": "#/$defs/docs"
         }
       }
     },
@@ -598,6 +636,9 @@
               "$ref": "#/$defs/capabilities"
             }
           }
+        },
+        "docs": {
+          "$ref": "#/$defs/docs"
         }
       }
     },
@@ -626,6 +667,9 @@
               "$ref": "#/$defs/capabilities"
             }
           }
+        },
+        "docs": {
+          "$ref": "#/$defs/docs"
         }
       }
     },

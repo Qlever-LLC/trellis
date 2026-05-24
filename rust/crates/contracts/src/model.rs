@@ -201,6 +201,8 @@ pub struct ContractStateStore {
         default
     )]
     pub accepted_versions: BTreeMap<String, ContractSchemaRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<ContractDocs>,
 }
 
 /// Capability requirements for invoking and observing an operation.
@@ -338,6 +340,8 @@ pub struct ContractKvResource {
     pub ttl_ms: Option<i64>,
     #[serde(rename = "maxValueBytes", skip_serializing_if = "Option::is_none")]
     pub max_value_bytes: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<ContractDocs>,
 }
 
 /// One logical store resource declaration in a contract manifest.
@@ -352,6 +356,8 @@ pub struct ContractStoreResource {
     pub max_object_bytes: Option<i64>,
     #[serde(rename = "maxTotalBytes", skip_serializing_if = "Option::is_none")]
     pub max_total_bytes: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<ContractDocs>,
 }
 
 /// One logical jobs queue declaration in a contract manifest.
@@ -376,6 +382,8 @@ pub struct ContractJobQueueResource {
     pub dlq: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<ContractDocs>,
 }
 
 /// Resource declarations in a contract manifest.

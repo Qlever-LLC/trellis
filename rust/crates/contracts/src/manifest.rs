@@ -319,12 +319,30 @@ fn project_resources(resources: Option<&Value>) -> Option<Value> {
     let resources = object(resources)?;
     let mut projected = serde_json::Map::new();
     if let Some(kv) = resources.get("kv") {
-        projected.insert("kv".to_string(), kv.clone());
+        projected.insert("kv".to_string(), project_map_without_docs(kv));
     }
     if let Some(store) = resources.get("store") {
-        projected.insert("store".to_string(), store.clone());
+        projected.insert("store".to_string(), project_map_without_docs(store));
     }
     (!projected.is_empty()).then_some(Value::Object(projected))
+}
+
+fn project_map_without_docs(value: &Value) -> Value {
+    let Some(entries) = value.as_object() else {
+        return value.clone();
+    };
+    Value::Object(
+        entries
+            .iter()
+            .map(|(name, entry)| {
+                let mut entry = entry.clone();
+                if let Some(entry) = entry.as_object_mut() {
+                    entry.remove("docs");
+                }
+                (name.clone(), entry)
+            })
+            .collect(),
+    )
 }
 
 fn project_use_refs(uses: Option<&Value>) -> Option<Value> {
@@ -562,7 +580,7 @@ pub fn project_contract_digest_manifest(contract: &Value) -> Value {
         project_reachable_schemas(contract),
     );
     if let Some(state) = contract.get("state") {
-        projected.insert("state".to_string(), state.clone());
+        projected.insert("state".to_string(), project_map_without_docs(state));
     }
     insert_if_present(&mut projected, "uses", project_uses(contract.get("uses")));
     insert_if_present(&mut projected, "rpc", project_rpc(contract.get("rpc")));
@@ -587,7 +605,7 @@ pub fn project_contract_digest_manifest(contract: &Value) -> Value {
         project_rpc_declared_errors(contract),
     );
     if let Some(jobs) = contract.get("jobs") {
-        projected.insert("jobs".to_string(), jobs.clone());
+        projected.insert("jobs".to_string(), project_map_without_docs(jobs));
     }
     insert_if_present(
         &mut projected,

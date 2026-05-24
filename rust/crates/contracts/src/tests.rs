@@ -880,7 +880,14 @@ fn contract_docs_normalize_but_do_not_affect_digest() {
         "description": "Documents contract surfaces.",
         "kind": "service",
         "schemas": {
-            "Empty": {"type": "object", "properties": {}}
+            "Empty": {"type": "object", "properties": {}},
+            "Event": {"type": "object", "properties": {}}
+        },
+        "state": {
+            "Docs.State": {
+                "kind": "value",
+                "schema": {"schema": "Empty"}
+            }
         },
         "rpc": {
             "Docs.Read": {
@@ -888,6 +895,50 @@ fn contract_docs_normalize_but_do_not_affect_digest() {
                 "subject": "rpc.v1.Docs.Read",
                 "input": {"schema": "Empty"},
                 "output": {"schema": "Empty"}
+            }
+        },
+        "operations": {
+            "Docs.Import": {
+                "version": "v1",
+                "subject": "op.v1.Docs.Import",
+                "input": {"schema": "Empty"},
+                "output": {"schema": "Empty"},
+                "signals": {
+                    "Pause": {"input": {"schema": "Empty"}}
+                }
+            }
+        },
+        "events": {
+            "Docs.Changed": {
+                "version": "v1",
+                "subject": "event.v1.Docs.Changed",
+                "event": {"schema": "Event"}
+            }
+        },
+        "feeds": {
+            "Docs.Feed": {
+                "version": "v1",
+                "subject": "feed.v1.Docs.Feed",
+                "input": {"schema": "Empty"},
+                "event": {"schema": "Event"}
+            }
+        },
+        "jobs": {
+            "docs.index": {
+                "payload": {"schema": "Empty"}
+            }
+        },
+        "resources": {
+            "kv": {
+                "docs-cache": {
+                    "purpose": "Cache docs metadata.",
+                    "schema": {"schema": "Empty"}
+                }
+            },
+            "store": {
+                "docs-blobs": {
+                    "purpose": "Store rendered docs."
+                }
             }
         }
     });
@@ -902,7 +953,18 @@ fn contract_docs_normalize_but_do_not_affect_digest() {
         },
         "kind": "service",
         "schemas": {
-            "Empty": {"type": "object", "properties": {}}
+            "Empty": {"type": "object", "properties": {}},
+            "Event": {"type": "object", "properties": {}}
+        },
+        "state": {
+            "Docs.State": {
+                "kind": "value",
+                "schema": {"schema": "Empty"},
+                "docs": {
+                    "summary": "State docs.",
+                    "markdown": "State store docs."
+                }
+            }
         },
         "rpc": {
             "Docs.Read": {
@@ -913,6 +975,80 @@ fn contract_docs_normalize_but_do_not_affect_digest() {
                 "docs": {
                     "summary": "Read docs.",
                     "markdown": "RPC docs."
+                }
+            }
+        },
+        "operations": {
+            "Docs.Import": {
+                "version": "v1",
+                "subject": "op.v1.Docs.Import",
+                "input": {"schema": "Empty"},
+                "output": {"schema": "Empty"},
+                "docs": {
+                    "summary": "Operation docs.",
+                    "markdown": "Operation docs."
+                },
+                "signals": {
+                    "Pause": {
+                        "input": {"schema": "Empty"},
+                        "docs": {
+                            "summary": "Signal docs.",
+                            "markdown": "Signal docs."
+                        }
+                    }
+                }
+            }
+        },
+        "events": {
+            "Docs.Changed": {
+                "version": "v1",
+                "subject": "event.v1.Docs.Changed",
+                "event": {"schema": "Event"},
+                "docs": {
+                    "summary": "Event docs.",
+                    "markdown": "Event docs."
+                }
+            }
+        },
+        "feeds": {
+            "Docs.Feed": {
+                "version": "v1",
+                "subject": "feed.v1.Docs.Feed",
+                "input": {"schema": "Empty"},
+                "event": {"schema": "Event"},
+                "docs": {
+                    "summary": "Feed docs.",
+                    "markdown": "Feed docs."
+                }
+            }
+        },
+        "jobs": {
+            "docs.index": {
+                "payload": {"schema": "Empty"},
+                "docs": {
+                    "summary": "Job docs.",
+                    "markdown": "Job docs."
+                }
+            }
+        },
+        "resources": {
+            "kv": {
+                "docs-cache": {
+                    "purpose": "Cache docs metadata.",
+                    "schema": {"schema": "Empty"},
+                    "docs": {
+                        "summary": "KV docs.",
+                        "markdown": "KV docs."
+                    }
+                }
+            },
+            "store": {
+                "docs-blobs": {
+                    "purpose": "Store rendered docs.",
+                    "docs": {
+                        "summary": "Store docs.",
+                        "markdown": "Store docs."
+                    }
                 }
             }
         }
@@ -927,6 +1063,52 @@ fn contract_docs_normalize_but_do_not_affect_digest() {
         normalized["rpc"]["Docs.Read"]["docs"]["markdown"],
         json!("RPC docs.")
     );
+    assert_eq!(
+        normalized["state"]["Docs.State"]["docs"]["markdown"],
+        json!("State store docs.")
+    );
+    assert_eq!(
+        normalized["operations"]["Docs.Import"]["docs"]["markdown"],
+        json!("Operation docs.")
+    );
+    assert_eq!(
+        normalized["operations"]["Docs.Import"]["signals"]["Pause"]["docs"]["markdown"],
+        json!("Signal docs.")
+    );
+    assert_eq!(
+        normalized["events"]["Docs.Changed"]["docs"]["markdown"],
+        json!("Event docs.")
+    );
+    assert_eq!(
+        normalized["feeds"]["Docs.Feed"]["docs"]["markdown"],
+        json!("Feed docs.")
+    );
+    assert_eq!(
+        normalized["jobs"]["docs.index"]["docs"]["markdown"],
+        json!("Job docs.")
+    );
+    assert_eq!(
+        normalized["resources"]["kv"]["docs-cache"]["docs"]["markdown"],
+        json!("KV docs.")
+    );
+    assert_eq!(
+        normalized["resources"]["store"]["docs-blobs"]["docs"]["markdown"],
+        json!("Store docs.")
+    );
+
+    let digest_projection = project_contract_digest_manifest(&normalized);
+    assert!(digest_projection["state"]["Docs.State"]
+        .get("docs")
+        .is_none());
+    assert!(digest_projection["jobs"]["docs.index"]
+        .get("docs")
+        .is_none());
+    assert!(digest_projection["resources"]["kv"]["docs-cache"]
+        .get("docs")
+        .is_none());
+    assert!(digest_projection["resources"]["store"]["docs-blobs"]
+        .get("docs")
+        .is_none());
     assert_eq!(
         digest_contract_value(&base).expect("base digest"),
         digest_contract_value(&documented).expect("documented digest")

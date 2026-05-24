@@ -128,6 +128,10 @@ A `trellis.contract.v1` manifest has this top-level structure:
   "id": "graph@v1",
   "displayName": "Graph Service",
   "description": "Serve graph RPCs and publish graph change events.",
+  "docs": {
+    "summary": "Graph service contract.",
+    "markdown": "# Graph Service\n\nTyped graph APIs and change events."
+  },
   "kind": "service",
   "capabilities": {
     "graph::users.read": {
@@ -170,6 +174,7 @@ Top-level fields:
 | `id`           | yes      | string | Stable contract identifier such as `trellis.core@v1` or `graph@v1` |
 | `displayName`  | yes      | string | Human-facing contract name shown in tooling and approval UIs       |
 | `description`  | yes      | string | Human-facing explanation of the contract's purpose                 |
+| `docs`         | no       | object | Optional authored documentation metadata                           |
 | `kind`         | yes      | string | Contract role such as `service`, `app`, `agent`, or `device`       |
 | `capabilities` | no       | object | Human-facing metadata for contract-owned capability keys           |
 | `schemas`      | no       | object | Reusable self-contained JSON Schema values keyed by schema name    |
@@ -202,6 +207,8 @@ Rules:
   device-user flows by device public key rather than by contract digest alone.
 - `displayName` and `description` are human-facing manifest metadata for
   catalog, docs, and approval UI. They are not part of contract digest identity.
+- `docs` is optional authored documentation metadata. It is normalized supported
+  metadata and is not part of contract digest identity.
 - `capabilities` is human-facing approval metadata, but it is runtime authority
   metadata rather than display-only contract metadata. It participates in the
   contract digest because changing a capability's meaning changes what users and
@@ -211,6 +218,38 @@ Rules:
 - top-level object members not defined by the current runtime MAY be present for
   forward compatibility; runtimes MUST ignore unknown top-level fields they do
   not understand.
+
+### 5.1) Contract docs metadata
+
+Contracts MAY include authored documentation metadata on the contract and on
+owned contract surfaces.
+
+Shape:
+
+```ts
+docs?: {
+  summary?: string;
+  markdown: string;
+}
+```
+
+Rules:
+
+- `docs.markdown` is required when `docs` is present; `docs.summary` is
+  optional.
+- `docs` MAY appear at the contract level and on owned RPCs, operations,
+  operation signals, events, feeds, jobs, state stores, KV resources, and store
+  resources.
+- `docs` is normalized supported metadata. It is preserved in normalized
+  manifests for generated documentation and tooling.
+- `docs` is excluded from the contract digest projection. Documentation-only
+  edits can update generated docs and catalog metadata without changing runtime
+  identity, authority, resources, dependencies, or wire shape.
+- `docs` is separate from `displayName` and `description`, which provide concise
+  catalog, docs, and approval UI copy.
+- `docs` is separate from capability metadata. Capability `displayName`,
+  `description`, and `consequence` define the human meaning of granted authority
+  and participate in the digest projection.
 
 ### 6) Contract identity
 
@@ -259,6 +298,7 @@ The digest projection excludes:
 
 - contract-level `displayName`, `description`, and other display-only review
   metadata
+- `docs` metadata at the contract level and on owned contract surfaces
 - `exports` and other code-generation metadata that does not change runtime
   permissions or wire surfaces
 - unused schemas and undeclared error definitions
@@ -289,7 +329,7 @@ Manifest normalization is separate from digest projection:
 
 - manifest normalization produces the canonical supported manifest shape used
   for validation, persistence, code generation, and runtime install; it
-  preserves human-facing fields such as `displayName` and `description`
+  preserves human-facing fields such as `displayName`, `description`, and `docs`
 - the global `contracts` store is the authoritative content-addressed store for
   full normalized manifests keyed by digest
 - digest projection starts from the normalized manifest and keeps only fields
@@ -1001,7 +1041,7 @@ Digest rules for v1:
 - resource `required` flags participate in the digest because they change
   install, activation, and binding behavior
 - the digest projection excludes contract-level `displayName`, `description`,
-  `exports`, unused schemas, and unused error declarations
+  `docs`, `exports`, unused schemas, and unused error declarations
 - capability metadata is not display-only contract metadata; it participates in
   the digest because it defines the human meaning of granted authority
 - set-like arrays such as capabilities, `uses.*` logical-name lists, and RPC
@@ -1011,10 +1051,10 @@ Digest rules for v1:
 
 The digest is the deployment/runtime identity of one concrete contract artifact.
 
-This means different formatting, display metadata changes, export-only changes,
-and unused local schema changes do not change the digest. Runtime/interface
-changes do change the digest, and catalogs and registration workflows refer to
-contracts by digest.
+This means different formatting, display or docs metadata changes, export-only
+changes, and unused local schema changes do not change the digest.
+Runtime/interface changes do change the digest, and catalogs and registration
+workflows refer to contracts by digest.
 
 ### 13) Catalog format
 

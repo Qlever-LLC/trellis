@@ -46,6 +46,11 @@ const contract = defineDeviceContract(
     id: "trellis.demo-device@v1",
     displayName: "Field Device Demo",
     description: "Activated Field Device TUI for the consolidated demo.",
+    docs: {
+      summary: "Activated field device demo.",
+      markdown:
+        "Declares the Field Device demo's service usage and local state for selected sites and draft inspections.",
+    },
     uses: {
       required: { fieldOps },
     },
@@ -54,11 +59,20 @@ const contract = defineDeviceContract(
         kind: "value",
         schema: ref.schema("SelectedSiteState"),
         stateVersion: "selected-site.v1",
+        docs: {
+          summary: "Selected site state.",
+          markdown: "Stores the active site selected in the device TUI.",
+        },
       },
       draftInspections: {
         kind: "map",
         schema: ref.schema("DraftInspectionState"),
         stateVersion: "draft-inspection.v1",
+        docs: {
+          summary: "Draft inspection state.",
+          markdown:
+            "Stores editable inspection draft notes keyed by inspection id.",
+        },
       },
     },
   }),

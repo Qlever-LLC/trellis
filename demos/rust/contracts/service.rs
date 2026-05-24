@@ -515,6 +515,10 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
         "Field Ops Demo Service",
         "Consolidated Field Ops demo service for Trellis concepts.",
         ContractKind::Service,
+    )
+    .docs_with_summary(
+        "Field operations demo APIs.",
+        "Provides assignments, site summaries, evidence transfer, report generation, and audit activity for the Field Ops demo.",
     );
 
     with_schemas(builder)
@@ -527,6 +531,10 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             job_queue(
                 schema_ref("SiteRefreshJobPayload"),
                 Some(schema_ref("SiteRefreshJobResult")),
+            )
+            .docs_with_summary(
+                "Refresh a site summary.",
+                "Background work item that recomputes the latest summary for one site.",
             ),
         )
         .kv_resource(
@@ -537,7 +545,11 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             )
             .required(true)
             .history(1)
-            .ttl_ms(0),
+            .ttl_ms(0)
+            .docs_with_summary(
+                "Cached site summaries.",
+                "Stores the current site summary records served by the demo APIs.",
+            ),
         )
         .store_resource(
             "uploads",
@@ -545,7 +557,11 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
                 .required(true)
                 .ttl_ms(0)
                 .max_object_bytes(64 * 1024 * 1024)
-                .max_total_bytes(256 * 1024 * 1024),
+                .max_total_bytes(256 * 1024 * 1024)
+                .docs_with_summary(
+                    "Evidence upload objects.",
+                    "Persists uploaded evidence files before they are listed or downloaded.",
+                ),
         )
         .rpc(
             "Assignments.List",
@@ -554,6 +570,10 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
                 "AssignmentsListRequest",
                 "AssignmentsListResponse",
                 ["UnexpectedError"],
+            )
+            .docs_with_summary(
+                "List assignments.",
+                "Returns inspection assignments available to the caller.",
             ),
         )
         .rpc(
@@ -591,6 +611,10 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
                 "EvidenceDownloadResponse",
                 ["TransferError", "UnexpectedError"],
             )
+            .docs_with_summary(
+                "Download evidence.",
+                "Creates a receive transfer grant for one evidence object.",
+            )
             .with_receive_transfer(),
         )
         .rpc(
@@ -618,6 +642,10 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
                 "SitesRefreshRequest",
                 "SitesRefreshProgress",
                 "SitesRefreshResponse",
+            )
+            .docs_with_summary(
+                "Refresh site data.",
+                "Runs a caller-visible workflow that updates the site summary cache.",
             ),
         )
         .operation(
@@ -672,7 +700,11 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
                 "ActivityLiveFeedRequest",
                 "ActivityLiveFeedEvent",
             )
-            .with_subscribe_capabilities(Vec::<&str>::new()),
+            .with_subscribe_capabilities(Vec::<&str>::new())
+            .docs_with_summary(
+                "Stream audit activity.",
+                "Subscribes to live activity records from audit, evidence, report, and site refresh events.",
+            ),
         )
         .build()
 }

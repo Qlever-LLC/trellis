@@ -14,6 +14,32 @@ Operators also need a contract artifact they can attach to a service deployment 
 
 For TypeScript contract sources, prepare resolves either a top-level `contract.ts` or `contract.js` for single-contract projects, or `contracts/*.ts` for multi-contract layouts, from the file's default export. Authors do not need to add named `CONTRACT` exports just for generation. For TypeScript authoring, schema and error registries belong in the first `define*Contract(...)` argument, while contract-owned capability metadata belongs in the returned contract body beside `id`, `displayName`, and `description`.
 
+You can also add docs metadata to the contract or to owned surfaces when generated docs need more than the short `displayName` and `description` copy:
+
+```ts
+export const ordersService = defineServiceContract({ schemas }, (ref) => ({
+  id: "orders-service@v1",
+  displayName: "Orders Service",
+  description: "A simple service for managing orders.",
+  docs: {
+    summary: "Order management APIs.",
+    markdown: "# Orders Service\n\nCreates and retrieves order records.",
+  },
+  rpc: {
+    "Orders.Create": {
+      version: "v1",
+      input: ref.schema("CreateOrderRequest"),
+      output: ref.schema("CreateOrderResponse"),
+      docs: {
+        markdown: "Creates one order and returns its generated order id.",
+      },
+    },
+  },
+}));
+```
+
+Docs-only edits still require artifact regeneration so manifests and generated documentation stay current. They do not change the contract digest identity, because `docs` is normalized metadata and not part of the runtime digest projection. Keep approval and authority meaning in capability metadata; use `docs` for authored reference material.
+
 Outputs include:
 
 - contract manifests under `generated/contracts/manifests/`

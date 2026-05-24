@@ -541,6 +541,7 @@ pub fn state(kind: ContractStateKind, schema: impl Into<String>) -> ContractStat
         schema: schema_ref(schema),
         state_version: None,
         accepted_versions: Default::default(),
+        docs: None,
     }
 }
 
@@ -562,6 +563,7 @@ pub fn kv(purpose: impl Into<String>, schema: impl Into<String>) -> ContractKvRe
         history: None,
         ttl_ms: None,
         max_value_bytes: None,
+        docs: None,
     }
 }
 
@@ -572,6 +574,7 @@ pub fn store(purpose: impl Into<String>) -> ContractStoreResource {
         ttl_ms: None,
         max_object_bytes: None,
         max_total_bytes: None,
+        docs: None,
     }
 }
 
@@ -590,6 +593,14 @@ pub fn job_queue(
         logs: None,
         dlq: None,
         concurrency: None,
+        docs: None,
+    }
+}
+
+fn docs(summary: impl Into<String>, markdown: impl Into<String>) -> ContractDocs {
+    ContractDocs {
+        summary: Some(summary.into()),
+        markdown: markdown.into(),
     }
 }
 
@@ -640,6 +651,15 @@ impl ContractRpcMethod {
 }
 
 impl ContractOperation {
+    pub fn docs_with_summary(
+        mut self,
+        summary: impl Into<String>,
+        markdown: impl Into<String>,
+    ) -> Self {
+        self.docs = Some(docs(summary, markdown));
+        self
+    }
+
     pub fn with_transfer(
         mut self,
         store: impl Into<String>,
@@ -724,6 +744,15 @@ impl ContractOperation {
 }
 
 impl ContractEvent {
+    pub fn docs_with_summary(
+        mut self,
+        summary: impl Into<String>,
+        markdown: impl Into<String>,
+    ) -> Self {
+        self.docs = Some(docs(summary, markdown));
+        self
+    }
+
     pub fn with_publish_capabilities(
         mut self,
         publish: impl IntoIterator<Item = impl Into<String>>,
@@ -748,6 +777,15 @@ impl ContractEvent {
 }
 
 impl ContractFeed {
+    pub fn docs_with_summary(
+        mut self,
+        summary: impl Into<String>,
+        markdown: impl Into<String>,
+    ) -> Self {
+        self.docs = Some(docs(summary, markdown));
+        self
+    }
+
     pub fn with_subscribe_capabilities(
         mut self,
         subscribe: impl IntoIterator<Item = impl Into<String>>,
@@ -761,6 +799,15 @@ impl ContractFeed {
 }
 
 impl ContractStateStore {
+    pub fn docs_with_summary(
+        mut self,
+        summary: impl Into<String>,
+        markdown: impl Into<String>,
+    ) -> Self {
+        self.docs = Some(docs(summary, markdown));
+        self
+    }
+
     pub fn state_version(mut self, state_version: impl Into<String>) -> Self {
         self.state_version = Some(state_version.into());
         self
@@ -825,6 +872,15 @@ impl ContractUseRef {
 }
 
 impl ContractKvResource {
+    pub fn docs_with_summary(
+        mut self,
+        summary: impl Into<String>,
+        markdown: impl Into<String>,
+    ) -> Self {
+        self.docs = Some(docs(summary, markdown));
+        self
+    }
+
     pub fn required(mut self, required: bool) -> Self {
         self.required = Some(required);
         self
@@ -842,6 +898,15 @@ impl ContractKvResource {
 }
 
 impl ContractStoreResource {
+    pub fn docs_with_summary(
+        mut self,
+        summary: impl Into<String>,
+        markdown: impl Into<String>,
+    ) -> Self {
+        self.docs = Some(docs(summary, markdown));
+        self
+    }
+
     pub fn required(mut self, required: bool) -> Self {
         self.required = Some(required);
         self
@@ -859,6 +924,17 @@ impl ContractStoreResource {
 
     pub fn max_total_bytes(mut self, max_total_bytes: i64) -> Self {
         self.max_total_bytes = Some(max_total_bytes);
+        self
+    }
+}
+
+impl ContractJobQueueResource {
+    pub fn docs_with_summary(
+        mut self,
+        summary: impl Into<String>,
+        markdown: impl Into<String>,
+    ) -> Self {
+        self.docs = Some(docs(summary, markdown));
         self
     }
 }
