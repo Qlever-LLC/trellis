@@ -984,6 +984,9 @@ for the durable deployment record:
   required dependencies are recorded as unresolved contract blockers; known
   inactive dependencies can be used for review-time surface and capability
   display, but not for runtime grants.
+- if known inactive manifests for a required dependency are stale or mutually
+  incompatible, service bootstrap treats that dependency as unresolved rather
+  than returning a catalog issue with no admin repair action.
 - missing optional dependency contracts or optional requested surfaces are
   absent from the requested delta and grant no authority. If they later become
   active, a fresh reconnect requests a normal expansion before receiving that

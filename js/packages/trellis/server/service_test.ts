@@ -1249,7 +1249,7 @@ Deno.test("TrellisService.connect waits for pending contract catalog issue", asy
         contractDigest: core.CONTRACT_DIGEST,
         retryDelayMs: 0,
       },
-      "Service contract catalog issue pending; waiting for forced update resolution",
+      "Service contract catalog issue pending; waiting for admin resolution",
     ]]);
   } finally {
     globalThis.fetch = originalFetch;

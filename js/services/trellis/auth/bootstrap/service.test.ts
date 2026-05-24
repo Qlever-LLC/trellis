@@ -797,6 +797,34 @@ Deno.test("POST /bootstrap/service reports presented contract validation details
   assertEquals(setup.expansionRequests.length, 0);
 });
 
+Deno.test("POST /bootstrap/service treats incompatible known dependency manifests as unresolved", async () => {
+  const firstDependency = await validatedContract(dependencyContract());
+  const incompatibleDependencyContract = dependencyContract();
+  incompatibleDependencyContract.schemas = { Empty: { type: "string" } };
+  const secondDependency = await validatedContract(
+    incompatibleDependencyContract,
+  );
+  const service = await validatedContract(serviceUsingDependencyContract());
+  const setup = await createApp({
+    knownContracts: [firstDependency, secondDependency],
+  });
+
+  const response = await setup.bootstrap({
+    contractId: service.contract.id,
+    contractDigest: service.digest,
+    contract: service.contract,
+  });
+
+  assertEquals(response.status, 202);
+  const body = await response.json();
+  assertEquals(body.reason, "envelope_expansion_required");
+  assertEquals(body.delta.contracts, [{
+    contractId: "dep.example@v1",
+    required: true,
+  }]);
+  assertEquals(setup.expansionRequests.length, 1);
+});
+
 Deno.test("POST /bootstrap/service reconnects after accepted expansion from global contract storage", async () => {
   const setup = await createApp({ knownExpandedContract: false });
   const first = await setup.bootstrap({

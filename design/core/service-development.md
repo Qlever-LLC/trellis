@@ -256,6 +256,9 @@ Behavior:
 - expansion planning resolves dependency surfaces from known inactive manifests
   when available, so services in a dependency cycle can each submit reviewable
   contract evidence before either one receives runtime credentials
+- if known inactive dependency manifests for the same contract are stale or
+  mutually incompatible, expansion planning treats that dependency as unresolved
+  instead of surfacing a catalog repair that Console cannot act on
 - if the deployment envelope does not cover the validated contract boundary,
   bootstrap records the presented contract evidence, creates a pending envelope
   expansion request for the missing delta, and asks the service runtime to retry

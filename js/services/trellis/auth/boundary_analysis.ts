@@ -11,6 +11,7 @@ import { getContractResourceAnalysis } from "../catalog/resources.ts";
 import type { ContractsModule } from "../catalog/runtime.ts";
 import {
   type ContractEntry,
+  ContractUseDependencyError,
   resolveContractUsesFromEntries,
   resolveContractUsesFromKnownEntries,
   sortUniqueStrings,
@@ -299,6 +300,67 @@ function normalizeBoundary(boundary: EnvelopeBoundary): EnvelopeBoundary {
   };
 }
 
+function groupEntriesByContractId(
+  entries: ContractEntry[],
+): Map<string, ContractEntry[]> {
+  const byContractId = new Map<string, ContractEntry[]>();
+  for (const entry of entries) {
+    const existing = byContractId.get(entry.contract.id) ?? [];
+    existing.push(entry);
+    byContractId.set(entry.contract.id, existing);
+  }
+  return byContractId;
+}
+
+function selectResolvableKnownOrPendingUses(args: {
+  contract: TrellisContractV1;
+  key: "required" | "optional";
+  uses: ContractUsesFlat | undefined;
+  entries: ContractEntry[];
+}): {
+  entries: ContractEntry[];
+  entryIds: Set<string>;
+  uses: ContractUsesFlat | undefined;
+} {
+  if (!args.uses || Object.keys(args.uses).length === 0) {
+    return { entries: [], entryIds: new Set(), uses: undefined };
+  }
+
+  // Stale inactive manifests can be incompatible with each other and have no
+  // direct admin repair action. Treat those dependencies as unresolved blockers.
+  const entriesByContractId = groupEntriesByContractId(args.entries);
+  const selectedEntries = new Map<string, ContractEntry>();
+  const selectedUses: ContractUsesFlat = {};
+  const entryIds = new Set<string>();
+
+  for (const [alias, use] of Object.entries(args.uses)) {
+    const dependencyEntries = entriesByContractId.get(use.contract) ?? [];
+    if (dependencyEntries.length === 0) continue;
+
+    try {
+      resolveContractUsesFromKnownEntries(
+        dependencyEntries,
+        withUses(args.contract, args.key, { [alias]: use }),
+      );
+    } catch (error) {
+      if (error instanceof ContractUseDependencyError) throw error;
+      continue;
+    }
+
+    selectedUses[alias] = use;
+    entryIds.add(use.contract);
+    for (const entry of dependencyEntries) {
+      selectedEntries.set(entry.digest, entry);
+    }
+  }
+
+  return {
+    entries: [...selectedEntries.values()],
+    entryIds,
+    uses: Object.keys(selectedUses).length > 0 ? selectedUses : undefined,
+  };
+}
+
 async function deriveUseBoundary(
   contracts: ContractBoundaryDeps,
   contract: TrellisContractV1,
@@ -309,13 +371,26 @@ async function deriveUseBoundary(
   const required = key === "required";
   const boundary = emptyBoundary();
   const dependencyResolution = options.dependencyResolution ?? "active";
-  const entries = dependencyResolution === "active"
+  let entries = dependencyResolution === "active"
     ? await contracts.getActiveEntries()
     : await getKnownDependencyEntries(contracts, uses);
-  const entryIds = new Set(entries.map((entry) => entry.contract.id));
-  const resolvableUses = dependencyResolution === "knownOrPending"
+  let entryIds = new Set(entries.map((entry) => entry.contract.id));
+  let resolvableUses = dependencyResolution === "knownOrPending"
     ? usesForKnownEntries(uses, entryIds)
     : uses;
+
+  if (dependencyResolution === "knownOrPending") {
+    const selected = selectResolvableKnownOrPendingUses({
+      contract,
+      key,
+      uses,
+      entries,
+    });
+    entries = selected.entries;
+    entryIds = selected.entryIds;
+    resolvableUses = selected.uses;
+  }
+
   const contractWithUses = withUses(contract, key, resolvableUses);
   const resolved = dependencyResolution === "active"
     ? resolveContractUsesFromEntries(entries, contractWithUses)

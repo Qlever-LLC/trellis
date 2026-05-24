@@ -532,6 +532,9 @@ Rules:
   built-in Trellis contracts or the global contract store; deployment evidence
   records are used to discover approved digests and surfaces, not to hydrate
   manifests.
+- bootstrap planning may use known inactive dependency manifests for review, but
+  stale incompatible inactive manifests are treated as unresolved dependency
+  blockers rather than active catalog repair issues.
 - across the runtime, the active catalog projection contains at most one current
   digest for each `contractId`; Forced Contract Update resolution deletes
   non-selected same-id evidence, and reconnects for non-current digests fail

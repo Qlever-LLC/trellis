@@ -67,7 +67,7 @@ uses: {
 Contracts must declare dependencies with grouped `uses.required` and `uses.optional`:
 
 - required dependencies fail closed during active-catalog refresh and runtime permission derivation
-- service expansion planning can collect pending evidence before every required dependency is active. If a required dependency manifest is known but inactive, Trellis can use it to show the requested surfaces for review. If it is unknown, Trellis records the unresolved contract id as a blocker until that service also uploads its manifest.
+- service expansion planning can collect pending evidence before every required dependency is active. If a required dependency manifest is known but inactive, Trellis can use it to show the requested surfaces for review. If it is unknown or only stale incompatible inactive manifests remain, Trellis records the unresolved contract id as a blocker until that service uploads current evidence.
 - optional dependencies participate in contract identity but grant no authority when the target contract or surface is missing
 - if the same alias appears in both groups, the required entry wins
 

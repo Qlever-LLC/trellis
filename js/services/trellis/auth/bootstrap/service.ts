@@ -520,22 +520,45 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    let analysis;
-    let validated;
+    let validated: Awaited<
+      ReturnType<ServiceBootstrapDeps["contracts"]["validateContract"]>
+    >;
     try {
-      analysis = await analyzeContractEnvelopeBoundary(
-        deps.contracts,
-        rawContract,
-        { dependencyResolution: "knownOrPending" },
-      );
       validated = await deps.contracts.validateContract(rawContract);
     } catch (error) {
       const contractError = toError(error);
+      return c.json(
+        bootstrapFailure(
+          "presented_contract_invalid",
+          `Presented contract manifest is invalid: ${contractError.message}`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: deployment.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+            contractError: contractError.message,
+          },
+        ),
+        409,
+      );
+    }
+
+    let analysis: Awaited<
+      ReturnType<typeof analyzeContractEnvelopeBoundary>
+    >;
+    try {
+      analysis = await analyzeContractEnvelopeBoundary(
+        deps.contracts,
+        validated.contract,
+        { dependencyResolution: "knownOrPending" },
+      );
+    } catch (error) {
+      const catalogError = toError(error);
       if (error instanceof ContractUseDependencyError) {
         return c.json(
           bootstrapFailure(
             "contract_activation_pending",
-            `Service contract '${request.contractId}' digest '${request.contractDigest}' is waiting for dependency closure: ${contractError.message}`,
+            `Service contract '${request.contractId}' digest '${request.contractDigest}' is waiting for dependency closure: ${catalogError.message}`,
             {
               instanceId: service.instanceId,
               deploymentId: deployment.deploymentId,
@@ -553,14 +576,14 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       }
       return c.json(
         bootstrapFailure(
-          "presented_contract_invalid",
-          `Presented contract manifest is invalid: ${contractError.message}`,
+          "contract_catalog_issue",
+          `Service contract '${request.contractId}' digest '${request.contractDigest}' is waiting for catalog repair: ${catalogError.message}`,
           {
             instanceId: service.instanceId,
             deploymentId: deployment.deploymentId,
             contractId: request.contractId,
             contractDigest: request.contractDigest,
-            contractError: contractError.message,
+            catalogError: catalogError.message,
           },
         ),
         409,

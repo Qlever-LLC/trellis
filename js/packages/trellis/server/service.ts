@@ -552,7 +552,7 @@ async function fetchServiceBootstrapInfo(args: {
               contractDigest: args.contractDigest,
               retryDelayMs,
             },
-            "Service contract catalog issue pending; waiting for forced update resolution",
+            "Service contract catalog issue pending; waiting for admin resolution",
           );
         }
         await delay(retryDelayMs);

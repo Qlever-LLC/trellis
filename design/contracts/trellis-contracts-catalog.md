@@ -497,6 +497,11 @@ Rules:
   known inactive contract manifests, but MUST fail if a required referenced
   contract is unknown or if any required referenced RPC, operation, event, or
   feed name does not exist on the known contract
+- if multiple known inactive manifests for the same referenced contract cannot
+  be projected into a compatible review surface, planning MUST treat that
+  dependency as unresolved instead of creating an active-catalog repair issue;
+  active-catalog issues are reserved for conflicts in the active closure that an
+  admin can repair directly
 - active-catalog refresh and runtime permission derivation MUST fail closed if a
   required referenced contract is not active in the proposed active closure
 - missing optional contracts and missing optional surfaces do not fail
@@ -1149,6 +1154,10 @@ runtime discovery RPC set.
 - when required dependencies are known but inactive, bootstrap and admin review
   MAY derive requested surfaces and capabilities from the known manifests so the
   dependency cycle can be reviewed and approved
+- when known inactive dependency manifests are stale or mutually incompatible,
+  bootstrap treats the dependency as unresolved, records the referenced contract
+  id as an activation blocker, and does not return `contract_catalog_issue`
+  unless the conflict is part of the active catalog closure
 - when the presented contract boundary does not fit the deployment envelope,
   bootstrap stores the contract evidence, creates a pending envelope expansion
   request for the missing delta, and returns `envelope_expansion_required` so
