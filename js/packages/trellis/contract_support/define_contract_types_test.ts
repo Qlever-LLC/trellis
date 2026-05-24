@@ -225,19 +225,19 @@ const billingSchemas = {
 } as const;
 
 const billingCapabilities = {
-  "billing.refund": {
+  "refund": {
     displayName: "Refund billing",
     description: "Start billing refunds.",
   },
-  "billing.read": {
+  "read": {
     displayName: "Read billing",
     description: "Read billing operation status.",
   },
-  "billing.cancel": {
+  "cancel": {
     displayName: "Cancel billing",
     description: "Cancel billing operations.",
   },
-  "billing.control": {
+  "control": {
     displayName: "Control billing",
     description: "Control billing operations.",
   },
@@ -257,10 +257,10 @@ const billing = defineServiceContract(
         progress: schemaRef<typeof billingSchemas, "Progress">("Progress"),
         output: schemaRef<typeof billingSchemas, "Result">("Result"),
         capabilities: {
-          call: ["billing.refund"],
-          observe: ["billing.read"],
-          cancel: ["billing.cancel"],
-          control: ["billing.control"],
+          call: ["refund"],
+          observe: ["read"],
+          cancel: ["cancel"],
+          control: ["control"],
         },
         signals: {
           selectReason: {

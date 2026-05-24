@@ -203,6 +203,7 @@ fn project_contract_capabilities(
     declared: &ContractCapabilities,
 ) -> Result<(), ContractsError> {
     let contract_id = manifest.id.clone();
+    assert_declared_capabilities_do_not_duplicate_namespace(&contract_id, declared)?;
     manifest.capabilities = declared
         .iter()
         .map(|(name, metadata)| (global_capability_name(&contract_id, name), metadata.clone()))
@@ -273,6 +274,35 @@ fn project_contract_capabilities(
         }
     }
     Ok(())
+}
+
+fn assert_declared_capabilities_do_not_duplicate_namespace(
+    contract_id: &str,
+    declared: &ContractCapabilities,
+) -> Result<(), ContractsError> {
+    let prefixes = local_capability_namespace_prefixes(contract_id);
+    for capability in declared.keys() {
+        for prefix in &prefixes {
+            if capability.starts_with(prefix) {
+                return Err(ContractsError::InvalidLocalCapability {
+                    capability: capability.clone(),
+                    prefix: prefix.clone(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn local_capability_namespace_prefixes(contract_id: &str) -> Vec<String> {
+    let namespace = contract_capability_namespace(contract_id);
+    let mut prefixes = vec![format!("{namespace}.")];
+    if let Some(leaf) = namespace.rsplit('.').next() {
+        if leaf != namespace {
+            prefixes.push(format!("{leaf}."));
+        }
+    }
+    prefixes
 }
 
 fn project_capability_list(
@@ -459,10 +489,14 @@ pub fn contract_capability_namespace(contract_id: &str) -> String {
 
 /// Return the globally qualified name for a contract-local capability.
 pub fn global_capability_name(contract_id: &str, local_capability: &str) -> String {
-    format!(
-        "{}::{local_capability}",
-        contract_capability_namespace(contract_id)
-    )
+    let namespace = contract_capability_namespace(contract_id);
+    for prefix in local_capability_namespace_prefixes(contract_id) {
+        assert!(
+            !local_capability.starts_with(&prefix),
+            "local capability '{local_capability}' must not start with contract namespace prefix '{prefix}'"
+        );
+    }
+    format!("{namespace}::{local_capability}")
 }
 
 pub fn rpc(

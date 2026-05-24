@@ -225,7 +225,7 @@
   const selectedStatus = $derived.by(() => {
     if (selectedDeployment?.disabled) return { label: "Disabled", status: "offline" as const };
     if (selectedHealthService) return { label: statusLabel(selectedHealthService.status), status: selectedHealthService.status };
-    if (activeInstances.length > 0) return { label: "Active", status: "healthy" as const };
+    if (activeInstances.length > 0) return { label: "Enabled", status: "offline" as const };
     return { label: "No instances", status: "offline" as const };
   });
   const dependencyBlocks = $derived(catalogIssues.filter(isContractDependencyBlock));
@@ -509,11 +509,11 @@
         for (const name of stringList(objectRecord(use.feeds)?.subscribe)) things.push({ kind: "Feed", name });
       }
     }
-    const seen = new Set<string>();
+    const seen: string[] = [];
     return things.filter((thing) => {
       const key = `${thing.kind}:${thing.name}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
+      if (seen.includes(key)) return false;
+      seen.push(key);
       return true;
     });
   }
@@ -722,7 +722,6 @@
   }
 
   function statusForJob(state: Job["state"]): "healthy" | "degraded" | "unhealthy" | "offline" {
-    if (state === "completed" || state === "active") return "healthy";
     if (state === "pending" || state === "retry") return "degraded";
     if (state === "failed" || state === "dead") return "unhealthy";
     return "offline";
@@ -737,14 +736,14 @@
   }
 
   function badgeClassForStatus(status: string): string {
-    if (status === "Healthy" || status === "healthy" || status === "Active") return "badge-success";
+    if (status === "Healthy" || status === "healthy") return "badge-success";
     if (status === "Degraded" || status === "degraded") return "badge-warning";
     if (status === "Unhealthy" || status === "unhealthy") return "badge-error";
     return "badge-neutral";
   }
 
   function dotClassForStatus(status: string): string {
-    if (status === "Healthy" || status === "healthy" || status === "Active") return "bg-success";
+    if (status === "Healthy" || status === "healthy") return "bg-success";
     if (status === "Degraded" || status === "degraded") return "bg-warning";
     if (status === "Unhealthy" || status === "unhealthy") return "bg-error";
     return "bg-base-content/30";
@@ -1044,7 +1043,7 @@
               {@const serviceInstances = instances.filter((instance) => instance.deploymentId === deployment.deploymentId)}
               {@const activeServiceInstances = serviceInstances.filter((instance) => !instance.disabled)}
               {@const healthService = healthServiceForDeployment(deployment.deploymentId, serviceInstances, healthServices, contractRefDeploymentIds)}
-              {@const rowStatus = deployment.disabled ? "Disabled" : (healthService ? statusLabel(healthService.status) : (activeServiceInstances.length > 0 ? "Active" : "No instances"))}
+              {@const rowStatus = deployment.disabled ? "Disabled" : (healthService ? statusLabel(healthService.status) : (activeServiceInstances.length > 0 ? "Enabled" : "No instances"))}
               <SelectableRecordButton
                 selected={selectedDeploymentId === deployment.deploymentId}
                 onclick={() => selectDeployment(deployment.deploymentId)}
@@ -1055,7 +1054,7 @@
                       <span class={["h-2.5 w-2.5 rounded-full", dotClassForStatus(rowStatus)]}></span>
                       <span class="trellis-identifier truncate font-medium">{deployment.deploymentId}</span>
                     </div>
-                    <div class="mt-1 text-xs text-base-content/60">{activeServiceInstances.length}/{serviceInstances.length} active instances</div>
+                    <div class="mt-1 text-xs text-base-content/60">{activeServiceInstances.length}/{serviceInstances.length} enabled instances</div>
                   </div>
                   <span class={["badge badge-sm", badgeClassForStatus(rowStatus)]}>{rowStatus}</span>
                 </div>
@@ -1135,7 +1134,7 @@
             </div>
 
             <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
-              <span class="badge badge-outline badge-sm">{activeInstances.length}/{selectedInstances.length} active instances</span>
+              <span class="badge badge-outline badge-sm">{activeInstances.length}/{selectedInstances.length} enabled instances</span>
               {#if selectedHealthService}
                 {@const runtimeLabel = formatRuntime(selectedHealthService.runtime, selectedHealthService.instances[0]?.runtimeVersion)}
                 <span class="badge badge-outline badge-sm">Heartbeat {formatSeenAt(selectedHealthService.lastSeenAt)}</span>
@@ -1224,7 +1223,7 @@
                         {@const heartbeat = healthInstanceForServiceInstance(instance)}
                         {@const runtimeLabel = heartbeat ? formatRuntime(heartbeat.runtime, heartbeat.runtimeVersion) : null}
                         <tr>
-                          <td class="min-w-64"><div class="flex items-center gap-2"><span class="trellis-identifier font-medium">{instance.instanceId}</span>{#if instance.disabled}<StatusBadge label="Disabled" status="offline" />{:else}<StatusBadge label="Active" status="healthy" />{/if}</div><div class="trellis-identifier text-xs text-base-content/50">{instance.instanceKey}</div></td>
+                          <td class="min-w-64"><div class="flex items-center gap-2"><span class="trellis-identifier font-medium">{instance.instanceId}</span>{#if instance.disabled}<StatusBadge label="Disabled" status="offline" />{:else}<StatusBadge label="Enabled" status="offline" />{/if}</div><div class="trellis-identifier text-xs text-base-content/50">{instance.instanceKey}</div></td>
                           <td class="text-base-content/60">{formatMaybeDate(instance.createdAt)}</td>
                           <td>{#if heartbeat}<div class="flex items-center gap-2"><StatusBadge label={statusLabel(heartbeat.status)} status={heartbeat.status} /><span class="text-xs text-base-content/60">{formatSeenAt(heartbeat.lastSeenAt)}</span></div>{:else}<span class="text-xs text-base-content/50">No matched heartbeat</span>{/if}</td>
                           <td>{runtimeLabel ?? "—"}</td>

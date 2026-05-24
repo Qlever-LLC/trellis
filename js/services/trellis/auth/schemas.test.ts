@@ -38,11 +38,11 @@ Deno.test("capability resolver expands admin without service", async () => {
   assert(resolved.includes("admin"));
   assert(resolved.includes("trellis.auth::device.review"));
   assert(resolved.includes("trellis.auth::events.auth"));
-  assert(resolved.includes("trellis.jobs::jobs.admin.read"));
-  assert(resolved.includes("trellis.jobs::jobs.admin.mutate"));
-  assert(resolved.includes("trellis.jobs::jobs.admin.stream"));
-  assert(resolved.includes("trellis.core::trellis.catalog.read"));
-  assert(resolved.includes("trellis.core::trellis.contract.read"));
+  assert(resolved.includes("trellis.jobs::admin.read"));
+  assert(resolved.includes("trellis.jobs::admin.mutate"));
+  assert(resolved.includes("trellis.jobs::admin.stream"));
+  assert(resolved.includes("trellis.core::catalog.read"));
+  assert(resolved.includes("trellis.core::contract.read"));
   assertFalse(resolved.includes("service"));
 });
 

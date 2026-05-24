@@ -83,7 +83,7 @@ trellis svc orders-service apply --source .
 trellis svc orders-service provision
 ```
 
-Before starting the service, apply the service contract boundary to the deployment envelope. During local development you can also start first and approve the pending expansion request that bootstrap creates.
+Before starting the service, submit the service contract boundary and review the resulting deployment-envelope change in Console. Open **Admin → Services**, select `orders-service`, and use the pending authority approve/reject controls if bootstrap or `trellis svc orders-service apply --source .` created a request. During local development you can also start first and approve the pending expansion request that bootstrap creates.
 
 Now run your service:
 

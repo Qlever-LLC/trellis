@@ -40,11 +40,11 @@ export const trellisCore = defineServiceContract(
         "Exposes the Trellis catalog, contract details, runtime bindings, and surface availability checks used by platform participants.",
     },
     capabilities: {
-      "trellis.catalog.read": {
+      "catalog.read": {
         displayName: "Read contract catalog",
         description: "List the installed Trellis contract catalog.",
       },
-      "trellis.contract.read": {
+      "contract.read": {
         displayName: "Read installed contracts",
         description: "Read installed contract manifests and metadata.",
       },
@@ -54,7 +54,7 @@ export const trellisCore = defineServiceContract(
         version: "v1",
         input: ref.schema("TrellisCatalogRequest"),
         output: ref.schema("TrellisCatalogResponse"),
-        capabilities: { call: ["trellis.catalog.read"] },
+        capabilities: { call: ["catalog.read"] },
         errors: [ref.error("ValidationError"), ref.error("UnexpectedError")],
         docs: {
           summary: "List visible contracts.",
@@ -66,7 +66,7 @@ export const trellisCore = defineServiceContract(
         version: "v1",
         input: ref.schema("TrellisContractGetRequest"),
         output: ref.schema("TrellisContractGetResponse"),
-        capabilities: { call: ["trellis.contract.read"] },
+        capabilities: { call: ["contract.read"] },
         errors: [ref.error("ValidationError"), ref.error("UnexpectedError")],
         docs: {
           summary: "Read one contract manifest.",
@@ -90,7 +90,7 @@ export const trellisCore = defineServiceContract(
         version: "v1",
         input: ref.schema("TrellisSurfaceStatusRequest"),
         output: ref.schema("TrellisSurfaceStatusResponse"),
-        capabilities: { call: ["trellis.catalog.read"] },
+        capabilities: { call: ["catalog.read"] },
         errors: [ref.error("ValidationError"), ref.error("UnexpectedError")],
         docs: {
           summary: "Inspect surface availability.",

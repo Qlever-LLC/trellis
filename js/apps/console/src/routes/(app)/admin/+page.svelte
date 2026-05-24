@@ -52,7 +52,7 @@
   type OverviewInstance = {
     service: string;
     id: string;
-    status: "Active" | "Disabled";
+    status: "Enabled" | "Disabled";
     version: string;
     seen: string;
     type: "service" | "device" | "portal";
@@ -96,7 +96,7 @@
   const catalogWarningCount = $derived(dependencyBlocks.length + forcedUpdateRepairs.length);
 
   const topology = $derived([
-    { icon: "box", label: "Service instances", value: serviceInstanceTotal, detail: `${activeInstances} active / ${disabledTotal} disabled`, tone: "text-success bg-success/10" },
+    { icon: "box", label: "Service instances", value: serviceInstanceTotal, detail: `${activeInstances} enabled / ${disabledTotal} disabled`, tone: "text-neutral bg-base-300/60" },
     { icon: "users", label: "Sessions", value: sessionCount, detail: "live auth sessions", tone: "text-info bg-info/10" },
     { icon: "activity", label: "Connections", value: connectionCount, detail: "current transports", tone: "text-secondary bg-secondary/10" },
     { icon: "grid", label: "Jobs", value: totalJobCount, detail: `${activeJobCount} active`, tone: "text-warning bg-warning/10" },
@@ -106,7 +106,7 @@
     { label: "Service Instances", value: serviceInstanceTotal, detail: `/ ${disabledTotal} disabled` },
     { label: "Sessions", value: sessionCount },
     { label: "Connections", value: connectionCount },
-    { label: "Jobs", value: totalJobCount, badge: `${activeJobCount} active`, badgeClass: "badge-success" },
+    { label: "Jobs", value: totalJobCount, badge: `${activeJobCount} active`, badgeClass: "badge-neutral" },
     { label: "Warnings", value: catalogWarningCount, detail: catalogIssueError ? "Catalog unavailable" : dependencyBlocks.length > 0 ? "contract blocks" : "forced updates" },
   ]);
 
@@ -134,7 +134,7 @@
     return {
       service: instance.deploymentId,
       id: instance.instanceId,
-      status: instance.disabled ? "Disabled" : "Active",
+      status: instance.disabled ? "Disabled" : "Enabled",
       version: "—",
       seen: "known",
       type: "service",
@@ -185,7 +185,7 @@
   }
 
   function statusVariant(status: string): "healthy" | "degraded" | "unhealthy" | "offline" {
-    if (status === "Healthy" || status === "Active" || status === "Completed") return "healthy";
+    if (status === "Healthy") return "healthy";
     if (status === "Degraded" || status === "Retry" || status === "Pending") return "degraded";
     if (status === "Failed" || status === "Dead") return "unhealthy";
     return "offline";
@@ -195,7 +195,7 @@
     return {
       portal: "text-secondary bg-secondary/10",
       device: "text-info bg-info/10",
-      service: "text-success bg-success/10",
+      service: "text-neutral bg-base-300/60",
     }[type];
   }
 

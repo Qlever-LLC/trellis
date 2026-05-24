@@ -435,11 +435,11 @@ Example:
 ```json
 {
   "capabilities": {
-    "trellis.jobs::jobs.admin.read": {
+    "trellis.jobs::admin.read": {
       "displayName": "Read jobs admin data",
       "description": "View Jobs service health, services, jobs, and dead-letter queues."
     },
-    "trellis.jobs::jobs.admin.mutate": {
+    "trellis.jobs::admin.mutate": {
       "displayName": "Mutate jobs admin data",
       "description": "Cancel, retry, replay, or dismiss Jobs service work items.",
       "consequence": "Can change background job execution state."
@@ -1166,7 +1166,7 @@ Semantics:
 #### `Trellis.Catalog`
 
 - returns the active `trellis.catalog.v1` for the deployment
-- capability: `trellis.catalog.read`
+- capability: `trellis.core::catalog.read`
 - returns a bounded deployment projection from durable active records; it is not
   a repository scan or a way to enumerate inactive/local manifests
 
@@ -1175,7 +1175,7 @@ Semantics:
 - input: contract `digest`
 - returns the active contract manifest for that digest, resolved from built-in
   Trellis contracts or the global `contracts` store
-- capability: `trellis.contract.read`
+- capability: `trellis.core::contract.read`
 - for v1, callers only retrieve active contracts through this RPC
 
 Deployment envelope expansion and shrink are intentionally not part of the

@@ -820,18 +820,18 @@ derivation.
 
 | Capability / rule                         | Permissions                                                                                                                                        |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jobs.admin.read`                         | Call read RPCs such as list, get, and list-services                                                                                                |
-| `jobs.admin.mutate`                       | Call mutating Jobs RPCs such as cancel, retry, replay, dismiss                                                                                     |
-| `jobs.admin.stream`                       | Subscribe `trellis.jobs.>` for operator observability                                                                                              |
+| `admin.read`                              | Call read RPCs such as list, get, and list-services                                                                                                |
+| `admin.mutate`                            | Call mutating Jobs RPCs such as cancel, retry, replay, dismiss                                                                                     |
+| `admin.stream`                            | Subscribe `trellis.jobs.>` for operator observability                                                                                              |
 | service identity + jobs runtime ownership | Publish `trellis.jobs.<service>.>` and `trellis.jobs.workers.<service>.>` and consume `trellis.work.<service>.>` for the caller's own service only |
 
 **Scope assignments:**
 
-| Actor          | Grants                                                                    |
-| -------------- | ------------------------------------------------------------------------- |
-| Services       | `service` plus derived service-local jobs subjects                        |
-| `jobs` service | `service` + `jobs.admin.read` + `jobs.admin.mutate` + `jobs.admin.stream` |
-| Admin UIs      | `jobs.admin.read` + `jobs.admin.mutate` + `jobs.admin.stream`             |
+| Actor          | Grants                                                     |
+| -------------- | ---------------------------------------------------------- |
+| Services       | `service` plus derived service-local jobs subjects         |
+| `jobs` service | `service` + `admin.read` + `admin.mutate` + `admin.stream` |
+| Admin UIs      | `admin.read` + `admin.mutate` + `admin.stream`             |
 
 Note: Regular users do not interact with jobs directly. End-user progress or
 completion flows are exposed through service-owned operations, not the jobs

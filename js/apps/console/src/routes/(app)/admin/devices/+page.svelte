@@ -94,8 +94,8 @@
     activeTab = tab;
   }
 
-  function statusForDisabled(disabled: boolean): StatusVariant {
-    return disabled ? "offline" : "healthy";
+  function deploymentStatus(): StatusVariant {
+    return "offline";
   }
 
   function instanceStatus(state: DeviceInstance["state"]): StatusVariant {
@@ -116,12 +116,12 @@
     return "offline";
   }
 
-  function badgeClassForDeployment(disabled: boolean): string {
-    return disabled ? "badge-neutral" : "badge-success";
+  function badgeClassForDeployment(): string {
+    return "badge-neutral";
   }
 
-  function dotClassForDeployment(disabled: boolean): string {
-    return disabled ? "bg-base-content/30" : "bg-success";
+  function dotClassForDeployment(): string {
+    return "bg-base-content/30";
   }
 
   function deploymentInstances(deploymentId: string): DeviceInstance[] {
@@ -249,7 +249,7 @@
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0">
                     <div class="flex items-center gap-2">
-                      <span class={["h-2.5 w-2.5 rounded-full", dotClassForDeployment(deployment.disabled)]}></span>
+                      <span class={["h-2.5 w-2.5 rounded-full", dotClassForDeployment()]}></span>
                       <span class="trellis-identifier truncate font-medium">{deployment.deploymentId}</span>
                     </div>
                     <div class="mt-1 text-xs text-base-content/60">{activeDevices.length}/{deploymentDeviceInstances.length} activated instances</div>
@@ -259,7 +259,7 @@
                       {#if pendingRequestCount > 0}<span class="badge badge-warning badge-xs">{pendingRequestCount} authority</span>{/if}
                     </div>
                   </div>
-                  <span class={["badge badge-sm", badgeClassForDeployment(deployment.disabled)]}>{deployment.disabled ? "Disabled" : "Active"}</span>
+                  <span class={["badge badge-sm", badgeClassForDeployment()]}>{deployment.disabled ? "Disabled" : "Enabled"}</span>
                 </div>
               </SelectableRecordButton>
             {:else}
@@ -284,7 +284,7 @@
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
                     <h2 class="trellis-identifier truncate text-lg font-semibold">{selectedDeployment.deploymentId}</h2>
-                    <StatusBadge label={selectedDeployment.disabled ? "Disabled" : "Active"} status={statusForDisabled(selectedDeployment.disabled)} />
+                    <StatusBadge label={selectedDeployment.disabled ? "Disabled" : "Enabled"} status={deploymentStatus()} />
                   </div>
                   <div class="mt-1 text-sm text-base-content/60">Review mode: <span class="badge badge-outline badge-sm">{selectedDeployment.reviewMode ?? "none"}</span></div>
                 </div>

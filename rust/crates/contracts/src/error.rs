@@ -44,4 +44,9 @@ pub enum ContractsError {
 
     #[error("{context} references undeclared local capability '{capability}'")]
     UndeclaredCapability { context: String, capability: String },
+
+    #[error(
+        "local capability '{capability}' must not start with contract namespace prefix '{prefix}'"
+    )]
+    InvalidLocalCapability { capability: String, prefix: String },
 }

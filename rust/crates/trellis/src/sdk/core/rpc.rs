@@ -1,6 +1,6 @@
 //! Typed RPC descriptors for `trellis.core@v1`.
-use serde::{Deserialize, Serialize};
 use crate::client::RpcDescriptor;
+use serde::{Deserialize, Serialize};
 /// Empty request or response payload used by zero-argument RPCs.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Empty {}
@@ -21,7 +21,7 @@ impl RpcDescriptor for TrellisCatalogRpc {
     type Output = super::types::TrellisCatalogResponse;
     const KEY: &'static str = "Trellis.Catalog";
     const SUBJECT: &'static str = "rpc.v1.Trellis.Catalog";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.core::trellis.catalog.read"];
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.core::catalog.read"];
     const ERRORS: &'static [&'static str] = &["UnexpectedError", "ValidationError"];
 }
 /// Descriptor for `Trellis.Contract.Get`.
@@ -31,7 +31,7 @@ impl RpcDescriptor for TrellisContractGetRpc {
     type Output = super::types::TrellisContractGetResponse;
     const KEY: &'static str = "Trellis.Contract.Get";
     const SUBJECT: &'static str = "rpc.v1.Trellis.Contract.Get";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.core::trellis.contract.read"];
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.core::contract.read"];
     const ERRORS: &'static [&'static str] = &["UnexpectedError", "ValidationError"];
 }
 /// Descriptor for `Trellis.Surface.Status`.
@@ -41,6 +41,6 @@ impl RpcDescriptor for TrellisSurfaceStatusRpc {
     type Output = super::types::TrellisSurfaceStatusResponse;
     const KEY: &'static str = "Trellis.Surface.Status";
     const SUBJECT: &'static str = "rpc.v1.Trellis.Surface.Status";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.core::trellis.catalog.read"];
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.core::catalog.read"];
     const ERRORS: &'static [&'static str] = &["UnexpectedError", "ValidationError"];
 }

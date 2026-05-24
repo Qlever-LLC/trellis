@@ -183,7 +183,7 @@ fn builder_supports_uses_rpc_kv_store_and_job_queue_resources() {
         use_contract("trellis.core@v1").with_rpc_call(["Trellis.Catalog"]),
     )
     .capability(
-        "jobs.admin.read",
+        "admin.read",
         ContractCapabilityMetadata {
             display_name: "Read jobs".to_string(),
             description: "View jobs.".to_string(),
@@ -198,7 +198,7 @@ fn builder_supports_uses_rpc_kv_store_and_job_queue_resources() {
             "HealthRequest",
             "HealthResponse",
         )
-        .with_call_capabilities(["jobs.admin.read", "service"])
+        .with_call_capabilities(["admin.read", "service"])
         .with_error_types(["UnexpectedError"]),
     )
     .kv_resource(
@@ -223,7 +223,7 @@ fn builder_supports_uses_rpc_kv_store_and_job_queue_resources() {
     assert!(manifest.rpc.contains_key("Jobs.Health"));
     assert!(manifest
         .capabilities
-        .contains_key("example.jobs::jobs.admin.read"));
+        .contains_key("example.jobs::admin.read"));
     assert_eq!(
         manifest
             .rpc
@@ -231,7 +231,7 @@ fn builder_supports_uses_rpc_kv_store_and_job_queue_resources() {
             .and_then(|rpc| rpc.capabilities.as_ref())
             .and_then(|capabilities| capabilities.call.as_ref()),
         Some(&vec![
-            "example.jobs::jobs.admin.read".to_string(),
+            "example.jobs::admin.read".to_string(),
             "service".to_string()
         ])
     );
@@ -242,6 +242,63 @@ fn builder_supports_uses_rpc_kv_store_and_job_queue_resources() {
     );
     assert!(manifest.resources.store.contains_key("uploads"));
     assert!(manifest.jobs.contains_key("document-process"));
+}
+
+#[test]
+fn builder_rejects_local_capabilities_with_contract_namespace_prefix() {
+    let error = ContractManifestBuilder::new(
+        "trellis.core@v1",
+        "Trellis Core",
+        "Trellis core manifest.",
+        ContractKind::Service,
+    )
+    .schema("Empty", json!({ "type": "object", "properties": {} }))
+    .capability(
+        "trellis.core.catalog.read",
+        ContractCapabilityMetadata {
+            display_name: "Read catalog".to_string(),
+            description: "Read catalog entries.".to_string(),
+            consequence: None,
+        },
+    )
+    .rpc(
+        "Trellis.Catalog",
+        trellis_contracts::rpc("v1", "rpc.v1.Trellis.Catalog", "Empty", "Empty")
+            .with_call_capabilities(["trellis.core.catalog.read"]),
+    )
+    .build()
+    .expect_err("namespace-prefixed local capability should be rejected");
+
+    assert!(error
+        .to_string()
+        .contains("must not start with contract namespace prefix 'trellis.core.'"));
+
+    let error = ContractManifestBuilder::new(
+        "trellis.core@v1",
+        "Trellis Core",
+        "Trellis core manifest.",
+        ContractKind::Service,
+    )
+    .schema("Empty", json!({ "type": "object", "properties": {} }))
+    .capability(
+        "core.catalog.read",
+        ContractCapabilityMetadata {
+            display_name: "Read catalog".to_string(),
+            description: "Read catalog entries.".to_string(),
+            consequence: None,
+        },
+    )
+    .rpc(
+        "Trellis.Catalog",
+        trellis_contracts::rpc("v1", "rpc.v1.Trellis.Catalog", "Empty", "Empty")
+            .with_call_capabilities(["core.catalog.read"]),
+    )
+    .build()
+    .expect_err("namespace-leaf-prefixed local capability should be rejected");
+
+    assert!(error
+        .to_string()
+        .contains("must not start with contract namespace prefix 'core.'"));
 }
 
 #[test]

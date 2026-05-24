@@ -150,12 +150,12 @@ export const jobs = defineServiceContract(
     displayName: "Trellis Jobs",
     description: "Trellis-managed background job administration API.",
     capabilities: {
-      "jobs.admin.read": {
+      "admin.read": {
         displayName: "Read jobs admin data",
         description:
           "View Jobs service health, services, jobs, and dead-letter queues.",
       },
-      "jobs.admin.mutate": {
+      "admin.mutate": {
         displayName: "Mutate jobs admin data",
         description:
           "Cancel, retry, replay, or dismiss Jobs service work items.",
@@ -167,16 +167,16 @@ export const jobs = defineServiceContract(
         version: "v1",
         input: ref.schema("JobsListRequest"),
         output: ref.schema("JobsListResponse"),
-        capabilities: { call: ["jobs.admin.read"] },
+        capabilities: { call: ["admin.read"] },
       },
     },
   }),
 );
 ```
 
-The emitted manifest contains `trellis.jobs::jobs.admin.read` in both the
-top-level `capabilities` map and the RPC capability list. Undeclared platform
-capabilities such as `service` remain raw strings.
+The emitted manifest contains `trellis.jobs::admin.read` in both the top-level
+`capabilities` map and the RPC capability list. Undeclared platform capabilities
+such as `service` remain raw strings.
 
 Operations that accept post-start caller input declare named signals in the
 operation descriptor. Signal input schemas live in the local schema registry and
@@ -417,11 +417,11 @@ This makes imported SDK modules the source of truth for remote dependency names
 in TypeScript authoring.
 
 Contracts must place SDK-backed uses either in `uses.required` or
-`uses.optional`; aliases directly under `uses` are invalid and are not treated as
-implied required uses. Required uses fail closed during active-catalog validation.
-Optional uses are included in digest identity, but missing optional contracts or
-surfaces are skipped and grant no transport authority. If an alias appears in
-both groups, the required declaration wins.
+`uses.optional`; aliases directly under `uses` are invalid and are not treated
+as implied required uses. Required uses fail closed during active-catalog
+validation. Optional uses are included in digest identity, but missing optional
+contracts or surfaces are skipped and grant no transport authority. If an alias
+appears in both groups, the required declaration wins.
 
 Some Trellis-owned surfaces are derived from the participant kind or local
 contract features. App, agent, and device contracts receive baseline auth RPCs

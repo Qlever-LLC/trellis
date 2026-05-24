@@ -497,7 +497,7 @@ mod tests {
             &conn,
             "github",
             "ada",
-            &["trellis.core::trellis.contract.read".to_string()],
+            &["trellis.core::contract.read".to_string()],
             &["admin".to_string()],
         )
         .expect("second seed");
@@ -514,7 +514,7 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("select capabilities");
-        assert_eq!(capabilities, r#"["trellis.core::trellis.contract.read"]"#);
+        assert_eq!(capabilities, r#"["trellis.core::contract.read"]"#);
         let capability_groups: String = conn
             .query_row(
                 "SELECT capability_groups FROM users WHERE user_id = ?1",

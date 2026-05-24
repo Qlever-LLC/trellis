@@ -33,7 +33,7 @@ trellis svc my-service apply --image ghcr.io/my-org/my-service:1.2.3
 trellis svc my-service provision
 ```
 
-The CLI creates the service deployment, applies the image contract boundary to the deployment envelope, then generates a service instance key and provisions an instance. The artifact lives at the path declared by the `io.trellis.contract.path` label, or `/trellis/contract.json` by default.
+The CLI creates the service deployment, submits the image contract boundary to the deployment envelope, then generates a service instance key and provisions an instance. The artifact lives at the path declared by the `io.trellis.contract.path` label, or `/trellis/contract.json` by default.
 
 The CLI will:
 
@@ -86,6 +86,8 @@ trellis svc my-service apply --image ghcr.io/my-org/my-service:1.2.4
 
 Trellis validates the new boundary against the proposed active catalog, provisions any required resource changes before making it available, and keeps service instance keys the same. Restart the container with the new image tag after applying the boundary. The active catalog has one current digest per contract id, so use a Forced Update when you intentionally need the proposed digest to replace the current digest. Shrink the envelope only when you want to remove boundary that is no longer needed.
 
+Use Console as the primary review path for that boundary change: open **Admin → Services**, select the deployment, review the pending **Authority review required** delta, and approve or reject it before rolling out containers that require the new boundary. For local scripts or CI/CD automation, the Trellis CLI `expansions` commands can list and decide the same request.
+
 ## What the envelope actually grants
 
 The deployment envelope is not only metadata storage. It is the control-plane boundary that determines what the service is allowed to do.
@@ -107,9 +109,10 @@ Trellis derives service access from:
 
 1. `trellis login http://localhost:3000` and follow the printed portal URL or QR code
 2. `trellis svc my-service create && trellis svc my-service apply --image ghcr.io/my-org/my-service:1.2.3 && trellis svc my-service provision`
-3. store the seed
-4. start the container with the right env
-5. confirm the expected RPCs, events, and bindings work
+3. review and approve or reject pending service authority in Console
+4. store the seed
+5. start the container with the right env
+6. confirm the expected RPCs, events, and bindings work
 
 Deployment envelope expansion and instance provisioning should happen before the container starts serving traffic. Service resource provisioning happens when the envelope expands; after the boundary is available on an enabled deployment, it is active for catalog and auth even before an instance connects. Service bootstrap validates that the presented contract evidence fits the deployment envelope and consumes the persisted bindings; it does not activate the catalog entry.
 

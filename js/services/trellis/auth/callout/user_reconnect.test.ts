@@ -85,7 +85,7 @@ function coreCatalogAppContract(): Record<string, unknown> {
         version: "v1",
         subject: "trellis.console.catalog.ready",
         event: { schema: "CatalogEvent" },
-        capabilities: { publish: ["trellis.core::trellis.catalog.read"] },
+        capabilities: { publish: ["trellis.core::catalog.read"] },
       },
     },
   };
@@ -224,7 +224,7 @@ Deno.test("resolveUserReconnectSession resolves direct admin for generated core 
   assertEquals(result.ok, true);
   if (!result.ok) return;
   assertEquals(result.session.delegatedCapabilities, [
-    "trellis.core::trellis.catalog.read",
+    "trellis.core::catalog.read",
   ]);
   assertEquals(result.session.delegatedPublishSubjects, [
     "trellis.console.catalog.ready",

@@ -4,11 +4,11 @@ export const BUILTIN_ADMIN_CAPABILITIES = [
   "admin",
   "trellis.auth::device.review",
   "trellis.auth::events.auth",
-  "trellis.jobs::jobs.admin.read",
-  "trellis.jobs::jobs.admin.mutate",
-  "trellis.jobs::jobs.admin.stream",
-  "trellis.core::trellis.catalog.read",
-  "trellis.core::trellis.contract.read",
+  "trellis.jobs::admin.read",
+  "trellis.jobs::admin.mutate",
+  "trellis.jobs::admin.stream",
+  "trellis.core::catalog.read",
+  "trellis.core::contract.read",
 ] as const;
 
 export const BUILTIN_ADMIN_GROUP: CapabilityGroup = {

@@ -45,10 +45,10 @@ fn generated_jobs_contract_uses_scoped_rpc_capability_names() {
 
     assert!(contract
         .capabilities
-        .contains_key("trellis.jobs::jobs.admin.read"));
+        .contains_key("trellis.jobs::admin.read"));
     assert!(contract
         .capabilities
-        .contains_key("trellis.jobs::jobs.admin.mutate"));
+        .contains_key("trellis.jobs::admin.mutate"));
 
     let jobs_cancel = contract.rpc.get("Jobs.Cancel").expect("Jobs.Cancel rpc");
     assert_eq!(
@@ -56,7 +56,7 @@ fn generated_jobs_contract_uses_scoped_rpc_capability_names() {
             .capabilities
             .as_ref()
             .and_then(|caps| caps.call.as_ref()),
-        Some(&vec!["trellis.jobs::jobs.admin.mutate".to_string()])
+        Some(&vec!["trellis.jobs::admin.mutate".to_string()])
     );
 
     let jobs_get = contract.rpc.get("Jobs.Get").expect("Jobs.Get rpc");
@@ -65,7 +65,7 @@ fn generated_jobs_contract_uses_scoped_rpc_capability_names() {
             .capabilities
             .as_ref()
             .and_then(|caps| caps.call.as_ref()),
-        Some(&vec!["trellis.jobs::jobs.admin.read".to_string()])
+        Some(&vec!["trellis.jobs::admin.read".to_string()])
     );
 }
 

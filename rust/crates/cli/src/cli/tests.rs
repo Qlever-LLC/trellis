@@ -55,7 +55,7 @@ fn parses_users_create_and_edit_options() {
         "ada",
         "--inactive",
         "--capability",
-        "trellis.core::trellis.catalog.read",
+        "trellis.core::catalog.read",
         "--group",
         "admin",
     ]);
@@ -69,7 +69,7 @@ fn parses_users_create_and_edit_options() {
                 assert!(args.inactive);
                 assert_eq!(
                     args.capabilities,
-                    vec!["trellis.core::trellis.catalog.read".to_string()]
+                    vec!["trellis.core::catalog.read".to_string()]
                 );
                 assert_eq!(args.groups, vec!["admin".to_string()]);
             }

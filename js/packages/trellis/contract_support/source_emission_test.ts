@@ -124,7 +124,7 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
       displayName: "Audit",
       description: "Expose audit APIs while depending on auth in tests.",
       capabilities: {
-        "audit.read": {
+        "read": {
           displayName: "Read audit",
           description: "Read audit entries.",
         },
@@ -146,7 +146,7 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
           version: "v1",
           input: schemaRef<typeof baseSchemas, "Empty">("Empty"),
           output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
-          capabilities: { call: ["audit.read"] },
+          capabilities: { call: ["read"] },
           errors: ["UnexpectedError"],
         },
       },
@@ -170,7 +170,7 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
     description: "Expose audit APIs while depending on auth in tests.",
     kind: "service",
     capabilities: {
-      [globalCapabilityName("trellis.audit@v1", "audit.read")]: {
+      [globalCapabilityName("trellis.audit@v1", "read")]: {
         displayName: "Read audit",
         description: "Read audit entries.",
       },
@@ -210,7 +210,7 @@ Deno.test("kind-specific helpers preserve emitted manifest shape and digest", as
         input: { schema: "Empty" },
         output: { schema: "StringValue" },
         capabilities: {
-          call: [globalCapabilityName("trellis.audit@v1", "audit.read")],
+          call: [globalCapabilityName("trellis.audit@v1", "read")],
         },
         errors: [{ type: "UnexpectedError" }],
       },
@@ -1111,6 +1111,60 @@ Deno.test("defineServiceContract emits top-level capabilities with global names"
   );
 });
 
+Deno.test("defineServiceContract rejects local capabilities with contract namespace prefixes", () => {
+  assertThrows(
+    () =>
+      defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+        id: "trellis.core@v1",
+        displayName: "Core Capabilities",
+        description:
+          "Verify namespace-prefixed local capabilities are rejected.",
+        capabilities: {
+          "trellis.core.catalog.read": {
+            displayName: "Read catalog",
+            description: "Read catalog entries.",
+          },
+        },
+        rpc: {
+          "Trellis.Catalog": {
+            version: "v1",
+            input: ref.schema("Empty"),
+            output: ref.schema("StringValue"),
+            capabilities: { call: ["trellis.core.catalog.read"] },
+          },
+        },
+      })),
+    Error,
+    "must not start with contract namespace prefix 'trellis.core.'",
+  );
+
+  assertThrows(
+    () =>
+      defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+        id: "trellis.core@v1",
+        displayName: "Core Capabilities",
+        description:
+          "Verify namespace-leaf-prefixed local capabilities are rejected.",
+        capabilities: {
+          "core.catalog.read": {
+            displayName: "Read catalog",
+            description: "Read catalog entries.",
+          },
+        },
+        rpc: {
+          "Trellis.Catalog": {
+            version: "v1",
+            input: ref.schema("Empty"),
+            output: ref.schema("StringValue"),
+            capabilities: { call: ["core.catalog.read"] },
+          },
+        },
+      })),
+    Error,
+    "must not start with contract namespace prefix 'core.'",
+  );
+});
+
 Deno.test("contract digest changes when capability metadata changes", () => {
   const firstCapabilities = {
     read: {
@@ -1899,19 +1953,19 @@ Deno.test("locally defined contracts can be reused as dependencies", () => {
 
 Deno.test("defineServiceContract emits owned and used operations", () => {
   const billingCapabilities = {
-    "billing.refund": {
+    "refund": {
       displayName: "Refund billing",
       description: "Start billing refunds.",
     },
-    "billing.read": {
+    "read": {
       displayName: "Read billing",
       description: "Read billing operation status.",
     },
-    "billing.cancel": {
+    "cancel": {
       displayName: "Cancel billing",
       description: "Cancel billing operations.",
     },
-    "billing.control": {
+    "control": {
       displayName: "Control billing",
       description: "Control billing operations.",
     },
@@ -1934,10 +1988,10 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
           progress: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
           output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
           capabilities: {
-            call: ["billing.refund"],
-            observe: ["billing.read"],
-            cancel: ["billing.cancel"],
-            control: ["billing.control"],
+            call: ["refund"],
+            observe: ["read"],
+            cancel: ["cancel"],
+            control: ["control"],
           },
           signals: {
             selectReason: {
@@ -2000,7 +2054,7 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
     selectReason: { input: { schema: "SelectReason" } },
   });
   assertEquals(refundOperation?.capabilities?.control, [
-    globalCapabilityName("trellis.billing@v1", "billing.control"),
+    globalCapabilityName("trellis.billing@v1", "control"),
   ]);
   assertEquals(
     unwrapSchema(
@@ -2015,7 +2069,7 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
   );
   assertEquals(
     billing.API.owned.operations["Billing.Refund"].controlCapabilities,
-    [globalCapabilityName("trellis.billing@v1", "billing.control")],
+    [globalCapabilityName("trellis.billing@v1", "control")],
   );
 });
 

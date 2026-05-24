@@ -2369,7 +2369,30 @@ export function globalCapabilityName(
   contractId: string,
   localCapability: string,
 ): string {
+  assertLocalCapabilityDoesNotDuplicateNamespace(contractId, localCapability);
   return `${contractCapabilityNamespace(contractId)}::${localCapability}`;
+}
+
+function assertLocalCapabilityDoesNotDuplicateNamespace(
+  contractId: string,
+  localCapability: string,
+): void {
+  for (const prefix of localCapabilityNamespacePrefixes(contractId)) {
+    if (localCapability.startsWith(prefix)) {
+      throw new Error(
+        `local capability '${localCapability}' must not start with contract namespace prefix '${prefix}'`,
+      );
+    }
+  }
+}
+
+function localCapabilityNamespacePrefixes(contractId: string): string[] {
+  const namespace = contractCapabilityNamespace(contractId);
+  const prefixes = [`${namespace}.`];
+  const namespaceSegments = namespace.split(".");
+  const leaf = namespaceSegments[namespaceSegments.length - 1];
+  if (leaf && leaf !== namespace) prefixes.push(`${leaf}.`);
+  return prefixes;
 }
 
 function projectCapabilities(

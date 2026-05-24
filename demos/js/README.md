@@ -76,8 +76,9 @@ trellis --format json deploy provision svc/demo.field-ops
 deno task -c demos/js/deno.json service http://localhost:3000 <instance-seed>
 ```
 
-Use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add
-the service contract boundary before starting the runtime.
+Use Console **Admin → Services** as the primary review path for the service
+authority change before starting the runtime. For automation, the
+`Auth.Envelopes.Expand` admin RPC can submit the same boundary.
 
 Use the `instanceSeed` field from the provision JSON as `<instance-seed>`.
 
@@ -93,8 +94,9 @@ trellis --format json deploy provision dev/demo.field-device
 deno task -c demos/js/deno.json device http://localhost:3000 <root-secret>
 ```
 
-Use the Console Envelopes page or the `Auth.Envelopes.Expand` admin RPC to add
-the device contract boundary before starting the runtime.
+Use Console **Admin → Devices** to review pending device authority before
+starting the runtime. For automation, the `Auth.Envelopes.Expand` admin RPC can
+submit the same boundary.
 
 Use the `rootSecret` field from the provision JSON as `<root-secret>`.
 

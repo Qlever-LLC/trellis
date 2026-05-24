@@ -39,14 +39,14 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           subject: "rpc.v1.Trellis.Catalog",
           input: { schema: "EmptyInput" },
           output: { schema: "EmptyOutput" },
-          capabilities: { call: ["trellis.catalog.read"] },
+          capabilities: { call: ["trellis.core::catalog.read"] },
         },
         "Trellis.Contract.Get": {
           version: "v1",
           subject: "rpc.v1.Trellis.Contract.Get",
           input: { schema: "EmptyInput" },
           output: { schema: "EmptyOutput" },
-          capabilities: { call: ["trellis.contract.read"] },
+          capabilities: { call: ["trellis.core::contract.read"] },
         },
       },
     },
@@ -617,7 +617,9 @@ Deno.test("optional missing uses grant nothing and do not throw", () => {
     ...TEST_CONTRACTS,
     { digest: "optional-app-digest", contract: optionalApp },
   ], () => {
-    const publishSubjects = getUserPublishSubjects(["trellis.catalog.read"], {
+    const publishSubjects = getUserPublishSubjects([
+      "trellis.core::catalog.read",
+    ], {
       contractDigest: "optional-app-digest",
     });
 
@@ -644,7 +646,7 @@ Deno.test("user permissions omit transfer subjects without explicit transfer use
 Deno.test("user cannot call unrelated active RPC by capability alone", () => {
   withContracts(TEST_CONTRACTS, () => {
     const publishSubjects = getUserPublishSubjects(
-      ["trellis.contract.read"],
+      ["trellis.core::contract.read"],
       { contractDigest: "portal-digest" },
     );
 
@@ -773,7 +775,7 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
       [
         "service",
         "jobs.publish",
-        "trellis.catalog.read",
+        "trellis.core::catalog.read",
         "service:events:auth",
         "billing.refund",
         "billing.read",
@@ -1048,7 +1050,7 @@ Deno.test("user event control publish subjects require subscribe capability", ()
 Deno.test("service cannot call undeclared cross-contract RPCs by capability alone", () => {
   withContracts(TEST_CONTRACTS, () => {
     const publishSubjects = getServicePublishSubjects(
-      ["service", "trellis.catalog.read", "trellis.contract.read"],
+      ["service", "trellis.core::catalog.read", "trellis.core::contract.read"],
       {
         sessionKey: "graph-key",
         contractDigest: "graph-digest",
@@ -1154,7 +1156,7 @@ Deno.test("service deployment named trellis does not implement Trellis-owned con
       displayName: "trellis",
     };
     const publishSubjects = getServicePublishSubjects(
-      ["service", "trellis.catalog.read", "service:events:auth"],
+      ["service", "trellis.core::catalog.read", "service:events:auth"],
       nonTrellisServiceNamedTrellis,
     );
     const subscribeSubjects = getServiceSubscribeSubjects(

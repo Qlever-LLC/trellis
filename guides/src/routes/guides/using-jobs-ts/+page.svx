@@ -232,7 +232,7 @@ service.jobs.chargePayment.handle(async ({ job }) => {
 
 1. Update job schemas and the contract's top-level `jobs` map
 2. Rebuild contract artifacts: `deno task prepare`
-3. Expand the deployment envelope in Console or with `trellis svc <service-id> expansions ...` if queues changed
+3. Review and approve or reject the pending service authority change in Console if queues changed; use `trellis svc <service-id> expansions ...` only for local or automation fallback
 4. Restart the service
 
 ## Next steps

@@ -132,7 +132,7 @@ trellis dev my-device.standard apply --source /path/to/my-device
 Notes:
 
 - the `dev/<id>` reference names the admin-chosen deployment for this device line or rollout policy
-- use the Console Envelopes page or the Trellis CLI expansion commands to add the contract boundary to the deployment envelope
+- use Console as the primary place to review deployment authority; **Admin → Devices** shows pending device authority requests for the deployment, while service runtime expansion requests can be approved or rejected from **Admin → Services**
 - `--review-mode required` enables the device-review gate instead of immediate activation
 - registered devices connect only when the presented contract evidence fits the enabled device deployment envelope
 
@@ -147,7 +147,11 @@ with `auth.authority: "user_delegated"`. Trellis keeps those authorities
 separate and does not create or mutate activation records for admin-reviewed
 runtime sessions.
 
-An admin can approve a pending activation review using the CLI:
+An admin can approve or reject a pending activation review in Console. Open
+**Admin → Devices**, select the deployment, switch to **Reviews**, and choose
+**Decide** for the pending review.
+
+For local development or automation, the CLI can decide the same review:
 
 ```sh
 # Find the pending review ID
@@ -198,9 +202,13 @@ The default table shows `name`, `serial`, and `model` when present. `--show-meta
 
 ## 6. Roll out a new contract boundary
 
-Use the Console Envelopes page or the Trellis CLI expansion commands to add the
-new device contract boundary to the deployment envelope before rolling out
-runtimes that present it.
+Use Console as the primary place to review device deployment authority before
+rolling out runtimes that present a new contract boundary. Open **Admin →
+Devices**, select the deployment, and check the pending authority count for the
+boundary request. Service runtime expansion requests have approve/reject controls
+on **Admin → Services**; use the Trellis CLI expansion commands only as a concise
+local-development or automation fallback for deciding pending device authority
+requests.
 
 Trellis stores deployment evidence for audit, but full manifest lookup comes
 from built-in contracts or the global contract store. Authority is the modeled
