@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "CLI for generating, validating, and operating Trellis contracts and services."
+publish = false
 
 [dependencies]
 async-nats.workspace = true
@@ -17,8 +18,7 @@ serde.workspace = true
 serde_json.workspace = true
 json5 = "1.3.1"
 tokio.workspace = true
-trellis-client = { path = "../client", version = "0.9.0" }
-trellis-auth = { path = "../auth", version = "0.9.0" }
+trellis = { path = "../trellis", version = "0.9.0" }
 trellis-codegen-rust = { path = "../codegen-rust", version = "0.9.0" }
 trellis-codegen-ts = { path = "../codegen-ts", version = "0.9.0" }
 trellis-contracts = { path = "../contracts", version = "0.9.0" }
@@ -40,7 +40,3 @@ ulid = "1.2.1"
 [[bin]]
 name = "trellis"
 path = "src/main.rs"
-
-[dev-dependencies]
-trellis-sdk-auth.workspace = true
-trellis-sdk-core.workspace = true

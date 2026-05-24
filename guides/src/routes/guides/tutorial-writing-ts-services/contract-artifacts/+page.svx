@@ -91,7 +91,7 @@ generated/
   packages/npm/orders-service/
 ```
 
-Other Rust services can depend on the generated Cargo package and use its typed descriptors, request/response structs, client helpers, server helpers, event descriptors, and feed descriptors. Other language targets can use the generated JS packages.
+Other Rust services can depend on the generated Cargo package and use its typed descriptors, request/response structs, client helpers, service-runtime registration, event descriptors, and feed descriptors. Other language targets can use the generated JS packages.
 
 For active contract editing, keep prepare running in watch mode:
 
@@ -99,7 +99,7 @@ For active contract editing, keep prepare running in watch mode:
 trellis-generate prepare --watch --changes .
 ```
 
-Rust code should treat source as authoritative for exact runtime APIs and Rustdoc as the public API reference. If a generated SDK helper name differs from the examples here, prefer the generated helper in `generated/packages/cargo/orders-service/src/server.rs`.
+Rust code should treat source as authoritative for exact runtime APIs and Rustdoc as the public API reference. If a generated SDK helper or descriptor name differs from the examples here, prefer the generated item in `generated/packages/cargo/orders-service/src/`.
 
 {/snippet}
 </LanguageTabs>

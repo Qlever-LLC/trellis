@@ -5,20 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Authentication flows and session helpers for Trellis clients."
+publish = false
 
 [dependencies]
-base64.workspace = true
-ed25519-dalek.workspace = true
-hmac = "0.13.0"
-hkdf = "0.13.0"
-rand = "0.10.0"
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
-serde.workspace = true
-serde_json.workspace = true
-sha2.workspace = true
-thiserror.workspace = true
-tokio.workspace = true
-trellis-client = { path = "../client", version = "0.9.0" }
-trellis-contracts = { path = "../contracts", version = "0.9.0" }
-trellis-sdk-auth.workspace = true
-url = "2.5.8"
+trellis = { path = "../trellis", version = "0.9.0" }

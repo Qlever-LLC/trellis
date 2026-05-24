@@ -4,22 +4,21 @@ use std::time::Duration;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use trellis_auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis_auth_adapters::AuthRequestValidatorAdapter;
-use trellis_client::{ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient};
-use trellis_contracts::{
+use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis::client::{ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient};
+use trellis::contracts::{
     digest_contract_json, rpc, use_contract, ContractCapabilityMetadata, ContractKind,
     ContractManifestBuilder,
 };
-use trellis_sdk_auth::client::AuthClient as SdkAuthClient;
-use trellis_sdk_auth::types::{
+use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis::sdk::auth::types::{
     AuthCatalogIssuesResolveRequest, AuthEnvelopeExpansionsApproveRequest,
     AuthEnvelopeExpansionsListRequest, AuthEnvelopeExpansionsListResponseEntriesItem,
     AuthEnvelopesExpandRequest, AuthEnvelopesGetRequest,
 };
-use trellis_sdk_core::client::CoreClient;
-use trellis_sdk_core::types::TrellisCatalogResponseCatalogIssuesItem;
-use trellis_service::{bootstrap_service_host, BootstrapBinding, HandlerResult, Router};
+use trellis::sdk::core::client::CoreClient;
+use trellis::sdk::core::types::TrellisCatalogResponseCatalogIssuesItem;
+use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError, ServiceRuntimeError};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::BrowserContainer;
@@ -74,7 +73,7 @@ pub(crate) async fn run_optional_uses_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
-    let auth_client = trellis_auth::AuthClient::new(&admin_client);
+    let auth_client = trellis::auth::AuthClient::new(&admin_client);
     let sdk_auth_client = SdkAuthClient::new(&admin_client);
     let core_client = CoreClient::new(&admin_client);
 
@@ -91,7 +90,7 @@ pub(crate) async fn run_optional_uses_fixture(
     let consumer_digest = digest_contract_json(&consumer_contract_json).into_diagnostic()?;
     let (consumer_seed, consumer_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: CONSUMER_DEPLOYMENT_ID.to_string(),
             instance_key: consumer_key,
         })
@@ -133,7 +132,7 @@ pub(crate) async fn run_optional_uses_fixture(
 
     let (dependency_seed, dependency_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: DEPENDENCY_DEPLOYMENT_ID.to_string(),
             instance_key: dependency_key,
         })
@@ -149,31 +148,18 @@ pub(crate) async fn run_optional_uses_fixture(
     .await
     .into_diagnostic()?;
 
-    let mut router = Router::new();
-    router.register_rpc::<OptionalDepPingRpc, _, _>(|_ctx, input| async move {
-        Ok::<_, trellis_service::ServerError>(OptionalPingResponse {
+    let dependency_client = Arc::new(dependency_client);
+    let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
+        DEPENDENCY_SERVICE_NAME,
+        Arc::clone(&dependency_client),
+    )
+    .map_err(|error| miette!("failed to create optional dependency service runtime: {error}"))?;
+    service.register_rpc::<OptionalDepPingRpc, _, _>(|_ctx, input| async move {
+        Ok::<_, ServerError>(OptionalPingResponse {
             message: input.message,
         }) as HandlerResult<OptionalPingResponse>
     });
-    let dependency_nats = dependency_client.nats().clone();
-    let validator = AuthRequestValidatorAdapter::new(Arc::new(dependency_client));
-    let host = bootstrap_service_host(
-        DEPENDENCY_SERVICE_NAME,
-        BootstrapBinding {
-            contract_id: DEPENDENCY_CONTRACT_ID.to_string(),
-            digest: dependency_digest.clone(),
-        },
-        router,
-        validator,
-    );
-    let service_task = tokio::spawn(async move {
-        trellis_service::run_multi_subject_service(
-            dependency_nats,
-            &[<OptionalDepPingRpc as trellis_service::RpcDescriptor>::SUBJECT],
-            host,
-        )
-        .await
-    });
+    let service_task = tokio::spawn(async move { service.run().await });
 
     if connect_optional_consumer(
         trellis_url.to_string(),
@@ -231,7 +217,7 @@ pub(crate) async fn run_optional_uses_fixture(
 
 async fn run_required_dependency_closure_fixture(
     trellis_url: &str,
-    auth_client: &trellis_auth::AuthClient<'_>,
+    auth_client: &trellis::auth::AuthClient<'_>,
     sdk_auth_client: &SdkAuthClient<'_>,
     core_client: &CoreClient<'_>,
 ) -> Result<()> {
@@ -262,7 +248,7 @@ async fn run_required_dependency_closure_fixture(
         digest_contract_json(&unknown_consumer_contract_json).into_diagnostic()?;
     let (unknown_consumer_seed, unknown_consumer_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: UNKNOWN_REQUIRED_CONSUMER_DEPLOYMENT_ID.to_string(),
             instance_key: unknown_consumer_key,
         })
@@ -289,7 +275,7 @@ async fn run_required_dependency_closure_fixture(
 
     let (consumer_seed, consumer_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: REQUIRED_CONSUMER_DEPLOYMENT_ID.to_string(),
             instance_key: consumer_key,
         })
@@ -300,7 +286,7 @@ async fn run_required_dependency_closure_fixture(
     let dependency_digest = digest_contract_json(&dependency_contract_json).into_diagnostic()?;
     let (dependency_seed, dependency_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: REQUIRED_DEPLOYMENT_ID.to_string(),
             instance_key: dependency_key,
         })
@@ -520,7 +506,7 @@ async fn run_required_dependency_closure_fixture(
 
 async fn run_cyclic_required_dependency_fixture(
     trellis_url: &str,
-    auth_client: &trellis_auth::AuthClient<'_>,
+    auth_client: &trellis::auth::AuthClient<'_>,
     sdk_auth_client: &SdkAuthClient<'_>,
 ) -> Result<()> {
     auth_client
@@ -550,14 +536,14 @@ async fn run_cyclic_required_dependency_fixture(
     let (cycle_b_seed, cycle_b_key) = generate_session_keypair();
 
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: CYCLE_A_DEPLOYMENT_ID.to_string(),
             instance_key: cycle_a_key,
         })
         .await
         .map_err(|error| miette!("failed to provision required cycle A instance: {error}"))?;
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: CYCLE_B_DEPLOYMENT_ID.to_string(),
             instance_key: cycle_b_key,
         })
@@ -1033,42 +1019,27 @@ fn spawn_required_dependency_service(
     client: TrellisClient,
     digest: String,
     include_pong: bool,
-) -> tokio::task::JoinHandle<Result<(), trellis_service::ServerError>> {
-    let mut router = Router::new();
-    router.register_rpc::<RequiredDepPingRpc, _, _>(|_ctx, input| async move {
-        Ok::<_, trellis_service::ServerError>(OptionalPingResponse {
+) -> tokio::task::JoinHandle<Result<(), ServiceRuntimeError>> {
+    let client = Arc::new(client);
+    let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
+        REQUIRED_DEP_SERVICE_NAME,
+        Arc::clone(&client),
+    )
+    .expect("required dependency service client should include bootstrap binding");
+    service.register_rpc::<RequiredDepPingRpc, _, _>(|_ctx, input| async move {
+        Ok::<_, ServerError>(OptionalPingResponse {
             message: input.message,
         }) as HandlerResult<OptionalPingResponse>
     });
     if include_pong {
-        router.register_rpc::<RequiredDepPongRpc, _, _>(|_ctx, input| async move {
-            Ok::<_, trellis_service::ServerError>(OptionalPingResponse {
+        service.register_rpc::<RequiredDepPongRpc, _, _>(|_ctx, input| async move {
+            Ok::<_, ServerError>(OptionalPingResponse {
                 message: input.message,
             }) as HandlerResult<OptionalPingResponse>
         });
     }
-    let nats = client.nats().clone();
-    let validator = AuthRequestValidatorAdapter::new(Arc::new(client));
-    let host = bootstrap_service_host(
-        REQUIRED_DEP_SERVICE_NAME,
-        BootstrapBinding {
-            contract_id: REQUIRED_DEP_CONTRACT_ID.to_string(),
-            digest,
-        },
-        router,
-        validator,
-    );
-    tokio::spawn(async move {
-        let subjects = if include_pong {
-            vec![
-                <RequiredDepPingRpc as trellis_service::RpcDescriptor>::SUBJECT,
-                <RequiredDepPongRpc as trellis_service::RpcDescriptor>::SUBJECT,
-            ]
-        } else {
-            vec![<RequiredDepPingRpc as trellis_service::RpcDescriptor>::SUBJECT]
-        };
-        trellis_service::run_multi_subject_service(nats, &subjects, host).await
-    })
+    let _ = digest;
+    tokio::spawn(async move { service.run().await })
 }
 
 async fn abort_service_task<T>(task: tokio::task::JoinHandle<T>) {
@@ -1368,7 +1339,7 @@ struct OptionalPingResponse {
 
 struct OptionalDepPingRpc;
 
-impl trellis_client::RpcDescriptor for OptionalDepPingRpc {
+impl trellis::client::RpcDescriptor for OptionalDepPingRpc {
     type Input = OptionalPingRequest;
     type Output = OptionalPingResponse;
 
@@ -1378,17 +1349,9 @@ impl trellis_client::RpcDescriptor for OptionalDepPingRpc {
     const ERRORS: &'static [&'static str] = &["UnexpectedError"];
 }
 
-impl trellis_service::RpcDescriptor for OptionalDepPingRpc {
-    type Input = OptionalPingRequest;
-    type Output = OptionalPingResponse;
-
-    const KEY: &'static str = "Optional.Dep.Ping";
-    const SUBJECT: &'static str = OPTIONAL_DEP_PING_SUBJECT;
-}
-
 struct RequiredDepPingRpc;
 
-impl trellis_client::RpcDescriptor for RequiredDepPingRpc {
+impl trellis::client::RpcDescriptor for RequiredDepPingRpc {
     type Input = OptionalPingRequest;
     type Output = OptionalPingResponse;
 
@@ -1398,17 +1361,9 @@ impl trellis_client::RpcDescriptor for RequiredDepPingRpc {
     const ERRORS: &'static [&'static str] = &["UnexpectedError"];
 }
 
-impl trellis_service::RpcDescriptor for RequiredDepPingRpc {
-    type Input = OptionalPingRequest;
-    type Output = OptionalPingResponse;
-
-    const KEY: &'static str = "Required.Dep.Ping";
-    const SUBJECT: &'static str = REQUIRED_DEP_PING_SUBJECT;
-}
-
 struct RequiredDepPongRpc;
 
-impl trellis_client::RpcDescriptor for RequiredDepPongRpc {
+impl trellis::client::RpcDescriptor for RequiredDepPongRpc {
     type Input = OptionalPingRequest;
     type Output = OptionalPingResponse;
 
@@ -1416,12 +1371,4 @@ impl trellis_client::RpcDescriptor for RequiredDepPongRpc {
     const SUBJECT: &'static str = REQUIRED_DEP_PONG_SUBJECT;
     const CALLER_CAPABILITIES: &'static [&'static str] = &[REQUIRED_DEP_PONG_GLOBAL_CAPABILITY];
     const ERRORS: &'static [&'static str] = &["UnexpectedError"];
-}
-
-impl trellis_service::RpcDescriptor for RequiredDepPongRpc {
-    type Input = OptionalPingRequest;
-    type Output = OptionalPingResponse;
-
-    const KEY: &'static str = "Required.Dep.Pong";
-    const SUBJECT: &'static str = REQUIRED_DEP_PONG_SUBJECT;
 }

@@ -5,12 +5,15 @@ use std::path::{Path, PathBuf};
 use clap::Parser;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use trellis_auth::{
-    derive_device_identity, start_device_activation_request, DeviceActivationLocalState,
-    DeviceActivationSession, DeviceActivationSessionBuilder, DeviceActivationStatus,
-};
-use trellis_client::{
-    download_transfer_grant_from_value, DeviceConnectOptions, ServiceConnectOptions, TrellisClient,
+use trellis::{
+    auth::{
+        derive_device_identity, start_device_activation_request, DeviceActivationLocalState,
+        DeviceActivationSession, DeviceActivationSessionBuilder, DeviceActivationStatus,
+    },
+    client::{
+        download_transfer_grant_from_value, DeviceConnectOptions, ServiceConnectOptions,
+        TrellisClient,
+    },
 };
 use trellis_participant_demo_device::contract as device_contract;
 use trellis_participant_demo_device::state::{DraftInspectionState, SelectedSiteState};
@@ -241,7 +244,7 @@ fn hex_lower(bytes: &[u8]) -> String {
 async fn spawn_event_watchers(client: &TrellisClient) -> anyhow::Result<()> {
     let mut activity = trellis_participant_demo_device::Client::new(client)
         .field_ops()
-        .subscribe_activity_recorded()
+        .subscribe_audit_recorded()
         .await?;
     tokio::spawn(async move {
         while let Some(event) = activity.next().await {

@@ -30,3 +30,6 @@ pub mod workspace;
 
 pub use app::run;
 pub use cli::IntegrationArgs;
+
+#[cfg(test)]
+mod public_api_guard;

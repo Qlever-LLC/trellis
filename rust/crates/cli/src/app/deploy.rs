@@ -6,8 +6,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use miette::IntoDiagnostic;
 use serde_json::{json, Value};
-use trellis_auth as authlib;
-use trellis_client::SessionAuth;
+use trellis::auth as authlib;
+use trellis::client::{SessionAuth, TrellisClient};
 
 use crate::app::{connect_authenticated_cli_client, generate_session_keypair, json_value_label};
 use crate::cli::*;
@@ -511,7 +511,7 @@ async fn service_expansions(
 
 async fn expansion_decide(
     format: OutputFormat,
-    connected: &trellis_client::TrellisClient,
+    connected: &TrellisClient,
     args: &SvcExpansionDecisionArgs,
     decision: &str,
 ) -> miette::Result<()> {
@@ -544,7 +544,7 @@ async fn expansion_decide(
 
 async fn deployment_grants_list(
     format: OutputFormat,
-    connected: &trellis_client::TrellisClient,
+    connected: &TrellisClient,
     deployment_id: &str,
 ) -> miette::Result<()> {
     let response = connected
@@ -559,7 +559,7 @@ async fn deployment_grants_list(
 
 async fn deployment_grants_list_all(
     format: OutputFormat,
-    connected: &trellis_client::TrellisClient,
+    connected: &TrellisClient,
 ) -> miette::Result<()> {
     let list_response = connected
         .request_json_value(
@@ -594,7 +594,7 @@ async fn deployment_grants_list_all(
 
 async fn deployment_grants_mutate(
     format: OutputFormat,
-    connected: &trellis_client::TrellisClient,
+    connected: &TrellisClient,
     deployment_id: &str,
     args: &DeploymentGrantMutationArgs,
     add: bool,

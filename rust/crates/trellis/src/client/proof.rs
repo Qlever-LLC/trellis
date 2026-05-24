@@ -6,7 +6,7 @@ use base64::Engine as _;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 
-use crate::{RpcErrorPayload, TrellisClientError};
+use crate::client::{RpcErrorPayload, TrellisClientError};
 
 static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 

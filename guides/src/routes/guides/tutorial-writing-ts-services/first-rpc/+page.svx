@@ -165,7 +165,7 @@ use trellis_contracts::{rpc, ContractCapabilityMetadata};
 )
 ```
 
-Run `trellis-generate prepare .` again. The generated SDK now includes request/response types and a `server::register_orders_create(...)` helper.
+Run `trellis-generate prepare .` again. The generated SDK now includes request/response types and a typed `register_orders_create(...)` helper on the connected service.
 
 Create `src/handlers.rs`:
 
@@ -176,7 +176,7 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use trellis_sdk_orders_service::types::{CreateOrderRequest, CreateOrderResponse};
-use trellis_service::{HandlerResult, NatsKvResourceClient, RequestContext};
+use trellis::service::{HandlerResult, NatsKvResourceClient, ServiceHandlerContext};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -201,7 +201,7 @@ fn now_iso() -> String {
 
 pub async fn create_order(
     context: Arc<AppContext>,
-    _ctx: RequestContext,
+    _ctx: ServiceHandlerContext,
     input: CreateOrderRequest,
 ) -> HandlerResult<CreateOrderResponse> {
     let order_id = uuid::Uuid::new_v4().to_string();
@@ -231,25 +231,21 @@ Mount it in `main.rs`:
 mod handlers;
 
 use handlers::AppContext;
-use trellis_sdk_orders_service::server;
 
-let resources = binding.resource_bindings();
-let orders = open_orders_kv(&client, &resources).await?;
+let resources = service.resources().clone();
+let orders = open_orders_kv(service.client().as_ref(), &resources).await?;
 let context = Arc::new(AppContext { orders });
 
-let mut router = Router::new();
-server::register_orders_create(&mut router, {
+service.register_orders_create({
     let context = Arc::clone(&context);
     move |ctx, input| handlers::create_order(Arc::clone(&context), ctx, input)
 });
 ```
 
-Add the RPC subject to the request loop:
+The generated registration helper records `Orders.Create`'s NATS subject, so the request loop does not need a manual subject list. Keep `service.run().await?` at the end of `main()`:
 
 ```rust
-const SERVICE_SUBJECTS: &[&str] = &["rpc.v1.Orders.Create"];
-
-run_multi_subject_service(client.nats().clone(), SERVICE_SUBJECTS, host).await?;
+service.run().await?;
 ```
 
 Handlers return `HandlerResult<T>`, which is `Result<T, ServerError>`. Return `Ok(value)` for success, `ServerError::DeclaredRpc(...)` for declared caller-visible errors, and ordinary `ServerError` variants for unexpected platform failures.

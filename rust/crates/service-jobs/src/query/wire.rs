@@ -1,7 +1,7 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use trellis_jobs::types::{Job, JobContext, JobLogEntry, JobProgress};
-use trellis_sdk_jobs::types::{
+use trellis::jobs::types::{Job, JobContext, JobLogEntry, JobProgress};
+use trellis::sdk::jobs::types::{
     JobsCancelResponseJob, JobsCancelResponseJobLogsItem, JobsCancelResponseJobProgress,
     JobsDismissDLQResponseJob, JobsDismissDLQResponseJobLogsItem,
     JobsDismissDLQResponseJobProgress, JobsGetResponseJob, JobsGetResponseJobLogsItem,
@@ -249,7 +249,7 @@ where
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use trellis_jobs::types::{JobContext, JobProgress, JobState};
+    use trellis::jobs::types::{JobContext, JobProgress, JobState};
 
     use super::*;
 

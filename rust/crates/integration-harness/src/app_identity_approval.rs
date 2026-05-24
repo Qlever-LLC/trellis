@@ -4,14 +4,13 @@ use std::time::Duration;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use trellis_auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis_auth_adapters::AuthRequestValidatorAdapter;
-use trellis_client::{SessionAuth, TrellisClient, UserConnectOptions};
-use trellis_contracts::{
+use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis::client::{SessionAuth, TrellisClient, UserConnectOptions};
+use trellis::contracts::{
     digest_contract_json, use_contract, ContractKind, ContractManifestBuilder,
 };
-use trellis_sdk_auth::{AuthClient as SdkAuthClient, AuthEnvelopesExpandRequest};
-use trellis_service::{bootstrap_service_host, BootstrapBinding, HandlerResult, Router};
+use trellis::sdk::auth::{AuthClient as SdkAuthClient, AuthEnvelopesExpandRequest};
+use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{approve_current_flow, complete_local_login_until_approval, BrowserContainer};
@@ -41,7 +40,7 @@ pub(crate) async fn run_app_identity_approval_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
-    let auth_client = trellis_auth::AuthClient::new(&admin_client);
+    let auth_client = trellis::auth::AuthClient::new(&admin_client);
     auth_client
         .create_service_deployment(APP_APPROVAL_DEPLOYMENT_ID, vec!["harness".to_string()])
         .await
@@ -60,7 +59,7 @@ pub(crate) async fn run_app_identity_approval_fixture(
 
     let (service_seed, service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: APP_APPROVAL_DEPLOYMENT_ID.to_string(),
             instance_key: service_key,
         })
@@ -72,31 +71,17 @@ pub(crate) async fn run_app_identity_approval_fixture(
             .await
             .into_diagnostic()?,
     );
-    let mut router = Router::new();
-    router.register_rpc::<HarnessRustPingRpc, _, _>(|_ctx, input| async move {
-        Ok::<_, trellis_service::ServerError>(HarnessPingResponse {
+    let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
+        APP_APPROVAL_RUST_SERVICE_NAME,
+        Arc::clone(&service_client),
+    )
+    .map_err(|error| miette!("failed to create app approval service runtime: {error}"))?;
+    service.register_rpc::<HarnessRustPingRpc, _, _>(|_ctx, input| async move {
+        Ok::<_, ServerError>(HarnessPingResponse {
             message: input.message,
         }) as HandlerResult<HarnessPingResponse>
     });
-    let validator = AuthRequestValidatorAdapter::new(Arc::clone(&service_client));
-    let host = bootstrap_service_host(
-        APP_APPROVAL_RUST_SERVICE_NAME,
-        BootstrapBinding {
-            contract_id: HARNESS_CONTRACT_ID.to_string(),
-            digest: service_contract_digest,
-        },
-        router,
-        validator,
-    );
-    let service_nats = service_client.nats().clone();
-    let service_task = tokio::spawn(async move {
-        trellis_service::run_multi_subject_service(
-            service_nats,
-            &[<HarnessRustPingRpc as trellis_service::RpcDescriptor>::SUBJECT],
-            host,
-        )
-        .await
-    });
+    let service_task = tokio::spawn(async move { service.run().await });
 
     let result = async {
         let app_contract_json = harness_app_contract_json()?;
@@ -218,15 +203,15 @@ enum AuthStartResponse {
 #[serde(tag = "status", rename_all = "snake_case")]
 enum BindResponse {
     Bound {
-        sentinel: trellis_auth::SentinelCredsRecord,
-        transports: trellis_auth::ClientTransportsRecord,
+        sentinel: trellis::auth::SentinelCredsRecord,
+        transports: trellis::auth::ClientTransportsRecord,
     },
 }
 
 #[derive(Debug)]
 struct BoundAppSession {
     nats_servers: String,
-    sentinel: trellis_auth::SentinelCredsRecord,
+    sentinel: trellis::auth::SentinelCredsRecord,
 }
 
 async fn start_app_flow(
@@ -251,7 +236,7 @@ async fn start_app_flow(
             "{}/auth/requests",
             trellis_url.trim_end_matches('/')
         ))
-        .json(&trellis_auth::AuthStartRequest {
+        .json(&trellis::auth::AuthStartRequest {
             provider: None,
             redirect_to,
             session_key: auth.session_key.clone(),
@@ -374,7 +359,7 @@ async fn expect_bind_approval_required(trellis_url: &str, flow: &AppFlow) -> Res
 }
 
 async fn revoke_app_identity_approval(
-    auth_client: &trellis_auth::AuthClient<'_>,
+    auth_client: &trellis::auth::AuthClient<'_>,
     user_id: &str,
     contract_digest: &str,
     app_origin: &str,

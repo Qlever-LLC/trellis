@@ -5,8 +5,9 @@ use miette::IntoDiagnostic;
 use crate::artifacts::{
     build_npm_package_from_ts_sources, current_generator_fingerprint,
     default_rust_crate_name_from_id, generated_artifacts_are_fresh, generated_artifacts_metadata,
-    infer_artifact_version, resolve_contract, rust_runtime_deps, stage_npm_ts_sources,
-    trellis_package_version, ts_package_name_from_id, ts_runtime_deps, write_contract_outputs,
+    infer_artifact_version, resolve_contract, rust_runtime_deps,
+    should_emit_service_runtime_facade, stage_npm_ts_sources, trellis_package_version,
+    ts_package_name_from_id, ts_runtime_deps, write_contract_outputs,
 };
 use crate::cli::{
     GenerateAllArgs, GenerateCargoPackageArgs, GenerateJsrPackageArgs, GenerateManifestArgs,
@@ -110,6 +111,9 @@ pub fn cargo_package(args: &GenerateCargoPackageArgs) -> miette::Result<()> {
             args.runtime_source,
             artifact_version,
             args.runtime_repo_root.clone(),
+        ),
+        emit_service_runtime_facade: should_emit_service_runtime_facade(
+            &resolved.loaded.manifest.id,
         ),
     })
     .into_diagnostic()?;

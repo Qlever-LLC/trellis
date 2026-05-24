@@ -2,7 +2,7 @@ This tutorial walks you through building your first Trellis service step by step
 
 Before diving in, we recommend skimming [Trellis Concepts](/guides/concepts) to understand how contracts, RPCs, and NATS work together.
 
-Each implementation section uses language selectors for TypeScript and Rust. The service contract and runtime lifecycle are the same in both languages, but the current Rust runtime is more explicit and uses generated Rust SDK artifacts during service compilation.
+Each implementation section uses language selectors for TypeScript and Rust. The service contract and runtime lifecycle are the same in both languages; Rust uses generated SDK artifacts plus the service runtime facade during service compilation.
 
 ## What you need
 

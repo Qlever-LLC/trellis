@@ -5,7 +5,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{Map, Value};
 use trellis_contracts::PageResponse;
 
-use crate::{TrellisClient, TrellisClientError};
+use crate::client::{TrellisClient, TrellisClientError};
 
 const GET_SUBJECT: &str = "rpc.v1.State.Get";
 const PUT_SUBJECT: &str = "rpc.v1.State.Put";

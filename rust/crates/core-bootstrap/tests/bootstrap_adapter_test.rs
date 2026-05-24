@@ -2,18 +2,20 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::future::{ready, BoxFuture, FutureExt};
 use serde_json::json;
-use trellis_client::TrellisClientError;
-use trellis_core_bootstrap::bootstrap::{
-    make_bindings_get_request, map_binding_response, map_catalog_to_contract_refs,
-    CoreBootstrapAdapter, CoreBootstrapBinding, CoreBootstrapClientPort,
-};
-use trellis_sdk_core::types::{
+use trellis::client::TrellisClientError;
+use trellis::sdk::core::types::{
     TrellisBindingsGetRequest, TrellisBindingsGetResponse, TrellisBindingsGetResponseBinding,
     TrellisBindingsGetResponseBindingResources, TrellisCatalogResponse,
     TrellisCatalogResponseCatalog, TrellisCatalogResponseCatalogContractsItem,
     TrellisContractGetResponse, TrellisContractGetResponseContractResources,
 };
-use trellis_service::{BootstrapBindingInfo, BootstrapContractRef, CoreBootstrapPort, ServerError};
+use trellis::service::{
+    BootstrapBindingInfo, BootstrapContractRef, CoreBootstrapPort, ServerError,
+};
+use trellis_core_bootstrap::bootstrap::{
+    make_bindings_get_request, map_binding_response, map_catalog_to_contract_refs,
+    CoreBootstrapAdapter, CoreBootstrapBinding, CoreBootstrapClientPort,
+};
 
 struct FakeCoreClient {
     catalog_result: Mutex<Option<Result<TrellisCatalogResponse, TrellisClientError>>>,

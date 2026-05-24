@@ -203,11 +203,11 @@ Add the handler:
 ```rust
 use serde_json::json;
 use trellis_sdk_orders_service::types::GetOrderRequest;
-use trellis_service::{DeclaredRpcError, ServerError};
+use trellis::service::{DeclaredRpcError, ServerError};
 
 pub async fn get_order(
     context: Arc<AppContext>,
-    _ctx: RequestContext,
+    _ctx: ServiceHandlerContext,
     input: GetOrderRequest,
 ) -> HandlerResult<Order> {
     let Some(bytes) = context.orders.get(&input.order_id).await? else {
@@ -225,18 +225,13 @@ pub async fn get_order(
 }
 ```
 
-Mount it and add its subject:
+Mount it with the generated registration helper:
 
 ```rust
-server::register_orders_get(&mut router, {
+service.register_orders_get({
     let context = Arc::clone(&context);
     move |ctx, input| handlers::get_order(Arc::clone(&context), ctx, input)
 });
-
-const SERVICE_SUBJECTS: &[&str] = &[
-    "rpc.v1.Orders.Create",
-    "rpc.v1.Orders.Get",
-];
 ```
 
 Callers see `NotFoundError` as a structured RPC error payload. Rust client code can branch on `RpcErrorPayload::error_type()` when a typed call returns `TrellisClientError::RpcError(...)`.

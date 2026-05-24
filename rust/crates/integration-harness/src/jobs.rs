@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -12,32 +12,30 @@ use miette::{miette, IntoDiagnostic, Result};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use trellis_auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis_client::{ServiceConnectOptions, TrellisClient};
-use trellis_contracts::{
+use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis::client::{ServiceConnectOptions, TrellisClient};
+use trellis::contracts::{
     digest_contract_json, job_queue, schema_ref, use_contract, ContractKind,
     ContractManifestBuilder,
 };
-use trellis_jobs::bindings::JobsRuntimeBinding;
-use trellis_jobs::events::{
-    completed_event, created_event, dead_event, failed_event, started_event,
+use trellis::jobs::{
+    completed_event, created_event, dead_event, failed_event, start_worker_host_from_binding,
+    started_event, JobCancellationToken, JobManager, JobMetaSource, JobProcessError,
+    JobProcessOutcome, JobsRuntimeBinding, NatsJobEventPublisher, WorkerHostOptions,
 };
-use trellis_jobs::manager::{JobManager, JobMetaSource, JobProcessError, JobProcessOutcome};
-use trellis_jobs::runtime_worker::{
-    start_worker_host_from_binding, JobCancellationToken, NatsJobEventPublisher, WorkerHostOptions,
+use trellis::jobs::{
+    job_event_subject, worker_heartbeat_subject, Job, JobContext, JobEvent, JobLogLevel,
+    WorkerHeartbeat,
 };
-use trellis_jobs::subjects::{job_event_subject, worker_heartbeat_subject};
-use trellis_jobs::{Job, JobContext, JobEvent, JobLogLevel, JobState, WorkerHeartbeat};
-use trellis_sdk_auth::client::AuthClient as SdkAuthClient;
-use trellis_sdk_auth::types::AuthEnvelopesExpandRequest;
-use trellis_sdk_core::types::TrellisBindingsGetResponseBinding;
-use trellis_sdk_jobs::client::JobsClient;
-use trellis_sdk_jobs::types::{
+use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis::sdk::auth::types::AuthEnvelopesExpandRequest;
+use trellis::sdk::core::types::TrellisBindingsGetResponseBinding;
+use trellis::sdk::jobs::client::JobsClient;
+use trellis::sdk::jobs::types::{
     JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsListDLQRequest, JobsListRequest,
     JobsListServicesRequest, JobsListServicesResponseEntriesItemWorkersItem, JobsReplayDLQRequest,
     JobsRetryRequest,
 };
-use trellis_service_jobs::{run_janitor_once, JobsServiceMode, SqliteJobsStore};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
@@ -55,6 +53,12 @@ const LOCAL_RUST_SHUTDOWN_QUEUE: &str = "rustShutdown";
 const LOCAL_TS_QUEUE: &str = "tsProcess";
 const LOCAL_RUST_WORKER_CONSUMER: &str = "harness-local-jobs-rust-worker";
 const PASSING_CASES: usize = 29;
+
+#[derive(Debug, Clone, Copy)]
+enum JobsAdminServiceMode {
+    Owner,
+    RpcOnly,
+}
 
 fn local_jobs_service_contract_json() -> Result<String> {
     let payload_schema = json!({
@@ -115,13 +119,13 @@ pub(crate) async fn run_jobs_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
-    let auth_client = trellis_auth::AuthClient::new(&admin_client);
+    let auth_client = trellis::auth::AuthClient::new(&admin_client);
     auth_client
         .create_service_deployment(JOBS_DEPLOYMENT_ID, vec!["trellis".to_string()])
         .await
         .into_diagnostic()?;
 
-    let jobs_contract_json = trellis_sdk_jobs::contract::CONTRACT_JSON;
+    let jobs_contract_json = trellis::sdk::jobs::contract::CONTRACT_JSON;
     let jobs_contract_digest = digest_contract_json(jobs_contract_json).into_diagnostic()?;
     SdkAuthClient::new(&admin_client)
         .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
@@ -134,7 +138,7 @@ pub(crate) async fn run_jobs_fixture(
 
     let (jobs_service_seed, jobs_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: JOBS_DEPLOYMENT_ID.to_string(),
             instance_key: jobs_service_key,
         })
@@ -145,22 +149,20 @@ pub(crate) async fn run_jobs_fixture(
         "trellis-integration-jobs-{}.sqlite",
         setup_login.state.session_key
     ));
-    std::env::set_var("TRELLIS_JOBS_DB_PATH", &jobs_db_path);
-    let jobs_store = SqliteJobsStore::open(&jobs_db_path)
-        .map_err(|error| miette!("failed to open Jobs SQLite store: {error}"))?;
-    let jobs_service = connect_jobs_service_with_retry(trellis_url, &jobs_service_seed).await?;
-    let jobs_nats = jobs_service.nats().clone();
-    let jobs_service_task = tokio::spawn(async move {
-        let result = jobs_service.run().await;
-        if let Err(error) = &result {
-            eprintln!("warning: Jobs service runtime exited before shutdown: {error}");
-        }
-        result
-    });
+    let jobs_service = RustJobsAdminServiceProcess::start(
+        trellis_url,
+        &jobs_service_seed,
+        JobsAdminServiceMode::Owner,
+        &jobs_db_path,
+    )?;
+    let jobs_runtime_client =
+        connect_jobs_service_client_with_retry(trellis_url, &jobs_service_seed).await?;
+    let jobs_nats = jobs_runtime_client.nats().clone();
     let local_jobs_services =
         setup_service_local_jobs(trellis_url, &auth_client, &admin_client).await?;
 
     let owner_service_seed = jobs_service_seed.clone();
+    let call_jobs_db_path = jobs_db_path.clone();
     let call_result = async move {
         let caller_login = reauth_contract(
             &setup_login.state,
@@ -178,9 +180,15 @@ pub(crate) async fn run_jobs_fixture(
         run_service_local_jobs_fixture(&jobs_client, local_jobs_services).await?;
 
         seed_jobs_projection(&jobs_nats).await?;
-        assert_janitor_expiry(&jobs_client, &jobs_store, &jobs_nats).await?;
-        assert_owner_rpc_only_coexist(trellis_url, &owner_service_seed, &jobs_client, &jobs_nats)
-            .await?;
+        assert_janitor_expiry(&jobs_client, &jobs_nats).await?;
+        assert_owner_rpc_only_coexist(
+            trellis_url,
+            &owner_service_seed,
+            &jobs_client,
+            &jobs_nats,
+            &call_jobs_db_path,
+        )
+        .await?;
         let worker = await_worker_presence(&jobs_client).await?;
         if worker.job_type != HARNESS_JOBS_QUEUE {
             return Err(miette!(
@@ -305,15 +313,20 @@ pub(crate) async fn run_jobs_fixture(
     let caller_state = match call_result {
         Ok(caller_state) => caller_state,
         Err(error) => {
-            jobs_service_task.abort();
-            let _ = jobs_service_task.await;
+            drop(jobs_service);
             return Err(error);
         }
     };
 
-    jobs_service_task.abort();
-    let _ = jobs_service_task.await;
-    assert_owner_restart_rpc_only(trellis_url, &jobs_service_seed, &caller_state, browser).await?;
+    drop(jobs_service);
+    assert_owner_restart_rpc_only(
+        trellis_url,
+        &jobs_service_seed,
+        &caller_state,
+        browser,
+        &jobs_db_path,
+    )
+    .await?;
     Ok(PASSING_CASES)
 }
 
@@ -349,7 +362,7 @@ fn jobs_caller_contract_json(read: bool, mutate: bool) -> Result<String> {
     )
     .use_ref(
         "jobs",
-        use_contract(trellis_sdk_jobs::CONTRACT_ID).with_rpc_call(calls),
+        use_contract(trellis::sdk::jobs::CONTRACT_ID).with_rpc_call(calls),
     )
     .build()
     .map_err(|error| miette!("failed to build Jobs caller contract: {error}"))?;
@@ -365,7 +378,7 @@ struct LocalJobsServices {
 
 async fn setup_service_local_jobs(
     trellis_url: &str,
-    auth_client: &trellis_auth::AuthClient<'_>,
+    auth_client: &trellis::auth::AuthClient<'_>,
     admin_client: &TrellisClient,
 ) -> Result<LocalJobsServices> {
     auth_client
@@ -386,7 +399,7 @@ async fn setup_service_local_jobs(
 
     let (rust_service_seed, rust_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: LOCAL_JOBS_DEPLOYMENT_ID.to_string(),
             instance_key: rust_service_key,
         })
@@ -394,7 +407,7 @@ async fn setup_service_local_jobs(
         .into_diagnostic()?;
     let (ts_service_seed, ts_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: LOCAL_JOBS_DEPLOYMENT_ID.to_string(),
             instance_key: ts_service_key,
         })
@@ -552,7 +565,7 @@ async fn run_rust_service_local_jobs(
         .map_err(|error| miette!("Rust JobManager cancellable create failed: {error}"))?;
     let cancel_job_id = cancel_job.id.clone();
     let mut cancel_job_for_cancel = cancel_job.clone();
-    cancel_job_for_cancel.state = trellis_jobs::JobState::Active;
+    cancel_job_for_cancel.state = trellis::jobs::JobState::Active;
     cancel_job_for_cancel.tries = 1;
     let cancellation = JobCancellationToken::new();
     let process_cancellation = cancellation.clone();
@@ -682,7 +695,7 @@ async fn create_rust_created_ts_job(rust_client: &TrellisClient) -> Result<Strin
 }
 
 fn assert_job_result(
-    job: &trellis_sdk_jobs::types::JobsGetResponseJob,
+    job: &trellis::sdk::jobs::types::JobsGetResponseJob,
     document_id: &str,
     processed_by: &str,
     context: &str,
@@ -703,7 +716,7 @@ fn assert_job_result(
 }
 
 fn assert_job_result_echoed_context(
-    job: &trellis_sdk_jobs::types::JobsGetResponseJob,
+    job: &trellis::sdk::jobs::types::JobsGetResponseJob,
     context: &str,
 ) -> Result<()> {
     let result = job
@@ -750,37 +763,6 @@ async fn assert_jobs_list_filters(jobs_client: &JobsClient<'_>) -> Result<()> {
     Ok(())
 }
 
-async fn connect_jobs_service_with_retry(
-    trellis_url: &str,
-    service_seed: &str,
-) -> Result<trellis_service_jobs::ConnectedJobsService> {
-    let mut last_error = None;
-    for _ in 0..10 {
-        match trellis_service_jobs::connect_service(ServiceConnectOptions {
-            trellis_url,
-            contract_id: trellis_sdk_jobs::CONTRACT_ID,
-            contract_digest: trellis_sdk_jobs::CONTRACT_DIGEST,
-            session_key_seed_base64url: service_seed,
-            timeout_ms: 5_000,
-        })
-        .await
-        {
-            Ok(service) => return Ok(service),
-            Err(error) => {
-                last_error = Some(error);
-                tokio::time::sleep(Duration::from_millis(250)).await;
-            }
-        }
-    }
-
-    Err(miette!(
-        "failed to connect Jobs service: {}",
-        last_error
-            .map(|error| error.to_string())
-            .unwrap_or_else(|| "no connection attempt recorded".to_string())
-    ))
-}
-
 async fn connect_local_jobs_service_with_retry(
     trellis_url: &str,
     contract_digest: &str,
@@ -813,22 +795,50 @@ async fn connect_local_jobs_service_with_retry(
     ))
 }
 
+async fn connect_jobs_service_client_with_retry(
+    trellis_url: &str,
+    service_seed: &str,
+) -> Result<TrellisClient> {
+    let mut last_error = None;
+    for _ in 0..10 {
+        match TrellisClient::connect_service(ServiceConnectOptions {
+            trellis_url,
+            contract_id: trellis::sdk::jobs::CONTRACT_ID,
+            contract_digest: trellis::sdk::jobs::CONTRACT_DIGEST,
+            session_key_seed_base64url: service_seed,
+            timeout_ms: 5_000,
+        })
+        .await
+        {
+            Ok(service) => return Ok(service),
+            Err(error) => {
+                last_error = Some(error);
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        }
+    }
+
+    Err(miette!(
+        "failed to connect Jobs service runtime client: {}",
+        last_error
+            .map(|error| error.to_string())
+            .unwrap_or_else(|| "no connection attempt recorded".to_string())
+    ))
+}
+
 async fn assert_owner_restart_rpc_only(
     trellis_url: &str,
     service_seed: &str,
-    caller_state: &trellis_auth::AdminSessionState,
+    caller_state: &trellis::auth::AdminSessionState,
     browser: &BrowserContainer,
+    jobs_db_path: &Path,
 ) -> Result<()> {
-    let rpc_only_service = connect_jobs_service_with_retry(trellis_url, service_seed).await?;
-    let rpc_only_task = tokio::spawn(async move {
-        let result = rpc_only_service
-            .run_with_mode(JobsServiceMode::RpcOnly)
-            .await;
-        if let Err(error) = &result {
-            eprintln!("warning: Jobs RPC-only runtime exited before shutdown: {error}");
-        }
-        result
-    });
+    let rpc_only_service = RustJobsAdminServiceProcess::start(
+        trellis_url,
+        service_seed,
+        JobsAdminServiceMode::RpcOnly,
+        jobs_db_path,
+    )?;
 
     let result = async {
         let caller_client = connect_admin_client_async(caller_state)
@@ -849,8 +859,7 @@ async fn assert_owner_restart_rpc_only(
     }
     .await;
 
-    rpc_only_task.abort();
-    let _ = rpc_only_task.await;
+    drop(rpc_only_service);
     result
 }
 
@@ -859,17 +868,14 @@ async fn assert_owner_rpc_only_coexist(
     service_seed: &str,
     jobs_client: &JobsClient<'_>,
     nats: &async_nats::Client,
+    jobs_db_path: &Path,
 ) -> Result<()> {
-    let rpc_only_service = connect_jobs_service_with_retry(trellis_url, service_seed).await?;
-    let rpc_only_task = tokio::spawn(async move {
-        let result = rpc_only_service
-            .run_with_mode(JobsServiceMode::RpcOnly)
-            .await;
-        if let Err(error) = &result {
-            eprintln!("warning: concurrent Jobs RPC-only runtime exited before shutdown: {error}");
-        }
-        result
-    });
+    let rpc_only_service = RustJobsAdminServiceProcess::start(
+        trellis_url,
+        service_seed,
+        JobsAdminServiceMode::RpcOnly,
+        jobs_db_path,
+    )?;
 
     let result = async {
         await_jobs_health(jobs_client).await?;
@@ -891,14 +897,13 @@ async fn assert_owner_rpc_only_coexist(
     }
     .await;
 
-    rpc_only_task.abort();
-    let _ = rpc_only_task.await;
+    drop(rpc_only_service);
     result
 }
 
 async fn assert_jobs_read_denied(
     trellis_url: &str,
-    caller_state: &trellis_auth::AdminSessionState,
+    caller_state: &trellis::auth::AdminSessionState,
     browser: &BrowserContainer,
 ) -> Result<()> {
     let read_denied_login = reauth_contract(
@@ -985,7 +990,7 @@ async fn seed_jobs_projection(nats: &async_nats::Client) -> Result<()> {
             HARNESS_JOBS_QUEUE,
             "job-failed-1",
             &job_context("job-failed-1"),
-            trellis_jobs::JobState::Active,
+            trellis::jobs::JobState::Active,
             1,
             "2026-03-28T12:00:11.000Z",
             "integration failure",
@@ -1034,7 +1039,7 @@ async fn seed_jobs_projection(nats: &async_nats::Client) -> Result<()> {
                 HARNESS_JOBS_QUEUE,
                 &job_id,
                 &job_context(&job_id),
-                trellis_jobs::JobState::Active,
+                trellis::jobs::JobState::Active,
                 5,
                 failed_at,
                 "integration dead letter",
@@ -1047,39 +1052,26 @@ async fn seed_jobs_projection(nats: &async_nats::Client) -> Result<()> {
 
 async fn assert_janitor_expiry(
     jobs_client: &JobsClient<'_>,
-    store: &SqliteJobsStore,
     nats: &async_nats::Client,
 ) -> Result<()> {
-    let mut overdue = projected_job(
+    publish_created_job_event_with_deadline(
+        nats,
         "job-janitor-expired-1",
+        json!({ "documentId": "janitor-expired" }),
         "2026-03-28T12:01:00.000Z",
-        JobState::Active,
-    );
-    overdue.deadline = Some("2026-03-28T12:01:30.000Z".to_string());
-    let mut future = projected_job(
+        Some("2026-03-28T12:01:30.000Z"),
+    )
+    .await?;
+    publish_started_job_event(nats, "job-janitor-expired-1", "2026-03-28T12:01:05.000Z").await?;
+    publish_created_job_event_with_deadline(
+        nats,
         "job-janitor-future-1",
+        json!({ "documentId": "janitor-future" }),
         "2026-03-28T12:01:00.000Z",
-        JobState::Active,
-    );
-    future.deadline = Some("2026-03-28T12:10:00.000Z".to_string());
-    store
-        .upsert_job(&overdue)
-        .map_err(|error| miette!("failed to seed overdue janitor job: {error}"))?;
-    store
-        .upsert_job(&future)
-        .map_err(|error| miette!("failed to seed future janitor job: {error}"))?;
-
-    let stats = run_janitor_once(nats.clone(), store, "2026-03-28T12:02:00.000Z")
-        .await
-        .map_err(|error| miette!("Jobs janitor run failed: {error}"))?;
-    if stats.eligible != 1 || stats.published != 1 {
-        return Err(miette!(
-            "Jobs janitor returned unexpected stats: scanned={} eligible={} published={}",
-            stats.scanned,
-            stats.eligible,
-            stats.published
-        ));
-    }
+        Some("2030-03-28T12:10:00.000Z"),
+    )
+    .await?;
+    publish_started_job_event(nats, "job-janitor-future-1", "2026-03-28T12:01:05.000Z").await?;
 
     let expired = await_job_state(jobs_client, "job-janitor-expired-1", "expired").await?;
     if expired.last_error.as_deref() != Some("job exceeded deadline") {
@@ -1492,28 +1484,6 @@ fn service_local_runtime_binding(rust_client: &TrellisClient) -> Result<JobsRunt
         .map_err(|error| miette!("failed to decode service-local Jobs runtime binding: {error}"))
 }
 
-fn projected_job(id: &str, timestamp: &str, state: JobState) -> Job {
-    Job {
-        id: id.to_string(),
-        context: job_context(id),
-        service: HARNESS_JOBS_SERVICE.to_string(),
-        job_type: HARNESS_JOBS_QUEUE.to_string(),
-        state,
-        payload: json!({ "documentId": id }),
-        result: None,
-        created_at: timestamp.to_string(),
-        updated_at: timestamp.to_string(),
-        started_at: None,
-        completed_at: None,
-        tries: 1,
-        max_tries: 5,
-        last_error: None,
-        deadline: None,
-        progress: None,
-        logs: None,
-    }
-}
-
 async fn publish_started_job_event(
     nats: &async_nats::Client,
     job_id: &str,
@@ -1526,7 +1496,7 @@ async fn publish_started_job_event(
             HARNESS_JOBS_QUEUE,
             job_id,
             &job_context(job_id),
-            trellis_jobs::JobState::Pending,
+            trellis::jobs::JobState::Pending,
             1,
             timestamp,
         ),
@@ -1540,6 +1510,16 @@ async fn publish_created_job_event(
     payload: Value,
     timestamp: &str,
 ) -> Result<()> {
+    publish_created_job_event_with_deadline(nats, job_id, payload, timestamp, None).await
+}
+
+async fn publish_created_job_event_with_deadline(
+    nats: &async_nats::Client,
+    job_id: &str,
+    payload: Value,
+    timestamp: &str,
+    deadline: Option<&str>,
+) -> Result<()> {
     publish_job_event(
         nats,
         created_event(
@@ -1550,7 +1530,7 @@ async fn publish_created_job_event(
             payload,
             5,
             timestamp,
-            None,
+            deadline,
         ),
     )
     .await
@@ -1704,7 +1684,7 @@ async fn await_job_state(
     jobs_client: &JobsClient<'_>,
     id: &str,
     expected_state: &str,
-) -> Result<trellis_sdk_jobs::types::JobsGetResponseJob> {
+) -> Result<trellis::sdk::jobs::types::JobsGetResponseJob> {
     for _ in 0..400 {
         let response = jobs_client
             .jobs_get(&JobsGetRequest { id: id.to_string() })
@@ -1747,17 +1727,17 @@ async fn reauth_admin_setup(
 }
 
 async fn reauth_contract(
-    state: &trellis_auth::AdminSessionState,
+    state: &trellis::auth::AdminSessionState,
     contract_json: &str,
     trellis_url: &str,
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
-    match trellis_auth::start_admin_reauth(state, contract_json)
+    match trellis::auth::start_admin_reauth(state, contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis_auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis_auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -1776,6 +1756,87 @@ async fn reauth_contract(
 fn contract_json_object(contract_json: &str) -> Result<BTreeMap<String, Value>> {
     serde_json::from_str(contract_json)
         .map_err(|error| miette!("failed to parse Jobs contract JSON: {error}"))
+}
+
+#[derive(Debug)]
+struct RustJobsAdminServiceProcess {
+    child: Child,
+    stdout_log: PathBuf,
+    stderr_log: PathBuf,
+}
+
+impl RustJobsAdminServiceProcess {
+    fn start(
+        trellis_url: &str,
+        service_seed: &str,
+        mode: JobsAdminServiceMode,
+        db_path: impl AsRef<Path>,
+    ) -> Result<Self> {
+        let repo = repo_root()?;
+        let suffix = match mode {
+            JobsAdminServiceMode::Owner => "jobs-admin-service-owner",
+            JobsAdminServiceMode::RpcOnly => "jobs-admin-service-rpc-only",
+        };
+        let (stdout_log, stderr_log) = deno_fixture_log_paths(suffix)?;
+        let stdout = File::create(&stdout_log)
+            .into_diagnostic()
+            .map_err(|error| miette!("failed to create Rust Jobs service stdout log: {error}"))?;
+        let stderr = File::create(&stderr_log)
+            .into_diagnostic()
+            .map_err(|error| miette!("failed to create Rust Jobs service stderr log: {error}"))?;
+        let mode_value = match mode {
+            JobsAdminServiceMode::Owner => "owner",
+            JobsAdminServiceMode::RpcOnly => "rpc-only",
+        };
+        let child = std::process::Command::new("cargo")
+            .arg("run")
+            .arg("--manifest-path")
+            .arg(repo.join("rust/Cargo.toml"))
+            .arg("-p")
+            .arg("trellis-service-jobs")
+            .arg("--bin")
+            .arg("trellis-service-jobs")
+            .current_dir(&repo)
+            .env("TRELLIS_URL", trellis_url)
+            .env("SESSION_KEY_SEED_BASE64URL", service_seed)
+            .env("TRELLIS_JOBS_MODE", mode_value)
+            .env("TRELLIS_JOBS_DB_PATH", db_path.as_ref())
+            .env("TRELLIS_JOBS_JANITOR_INTERVAL_MS", "100")
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr))
+            .spawn()
+            .into_diagnostic()
+            .map_err(|error| miette!("failed to start Rust Jobs admin service: {error}"))?;
+
+        Ok(Self {
+            child,
+            stdout_log,
+            stderr_log,
+        })
+    }
+}
+
+impl Drop for RustJobsAdminServiceProcess {
+    fn drop(&mut self) {
+        match self.child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("warning: failed to inspect Rust Jobs service child: {error}");
+                return;
+            }
+        }
+        if let Err(error) = self.child.kill() {
+            eprintln!(
+                "warning: failed to kill Rust Jobs service child: {error}; stdout: {}; stderr: {}",
+                self.stdout_log.display(),
+                self.stderr_log.display()
+            );
+        }
+        if let Err(error) = self.child.wait() {
+            eprintln!("warning: failed to wait for Rust Jobs service child: {error}");
+        }
+    }
 }
 
 #[derive(Debug)]

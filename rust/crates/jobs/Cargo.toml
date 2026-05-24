@@ -5,16 +5,12 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Shared jobs models, reducers, and helpers for Trellis."
+publish = false
 
 [dependencies]
-async-nats.workspace = true
-futures-util.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-time.workspace = true
-tokio.workspace = true
-trellis-sdk-core.workspace = true
-ulid = "1.2.1"
+trellis = { path = "../trellis", version = "0.9.0" }
 
 [dev-dependencies]
+futures-util.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

@@ -79,10 +79,10 @@ fn order_shipped_event_schema() -> Value {
 )
 ```
 
-After prepare, the generated SDK exposes an event type and server-side publish helper. Add a publisher to `AppContext`:
+After prepare, the generated SDK exposes an event type and descriptor. Add a publisher to `AppContext` so handler code can publish through shared context:
 
 ```rust
-use trellis_service::EventPublisher;
+use trellis::service::EventPublisher;
 
 #[derive(Debug, Clone)]
 pub struct AppContext {
@@ -96,27 +96,27 @@ Create it from the authenticated NATS client:
 ```rust
 let context = Arc::new(AppContext {
     orders,
-    publisher: EventPublisher::new(client.nats().clone()),
+    publisher: service.event_publisher(),
 });
 ```
 
 Publish from your fulfillment logic:
 
 ```rust
+use trellis_sdk_orders_service::events::OrdersShippedEventDescriptor;
 use trellis_sdk_orders_service::types::OrderShippedEvent;
 
-server::publish_orders_shipped(
-    &context.publisher,
-    &OrderShippedEvent {
+context
+    .publisher
+    .publish::<OrdersShippedEventDescriptor>(&OrderShippedEvent {
         order_id,
         customer_id,
         shipped_at: now_iso(),
-    },
-)
-.await?;
+    })
+    .await?;
 ```
 
-The publisher serializes and validates through the generated event descriptor before sending to NATS.
+The publisher serializes through the generated event descriptor before sending to NATS.
 
 {/snippet}
 </LanguageTabs>

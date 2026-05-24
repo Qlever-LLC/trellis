@@ -14,12 +14,12 @@ use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
-use crate::operations::{OperationDescriptor, OperationInvoker, OperationTransport};
-use crate::proof::{new_request_id, now_iat_seconds};
-use crate::transfer::{
+use crate::client::operations::{OperationDescriptor, OperationInvoker, OperationTransport};
+use crate::client::proof::{new_request_id, now_iat_seconds};
+use crate::client::transfer::{
     get_download_grant, put_upload_grant, DownloadTransferGrant, FileInfo, UploadTransferGrant,
 };
-use crate::{
+use crate::client::{
     EventDescriptor, FeedDescriptor, RpcDescriptor, RpcErrorPayload, SessionAuth,
     TrellisClientError,
 };

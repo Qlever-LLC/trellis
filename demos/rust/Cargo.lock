@@ -2517,50 +2517,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "trellis-auth"
-version = "0.8.2"
-dependencies = [
- "base64",
- "ed25519-dalek",
- "hkdf",
- "hmac",
- "rand 0.10.1",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "thiserror 2.0.18",
- "tokio",
- "trellis-client",
- "trellis-contracts",
- "trellis-sdk-auth",
- "url",
-]
-
-[[package]]
-name = "trellis-auth-adapters"
-version = "0.8.2"
-dependencies = [
- "base64",
- "bytes",
- "futures-util",
- "serde_json",
- "sha2 0.11.0",
- "trellis-auth",
- "trellis-client",
- "trellis-service",
-]
-
-[[package]]
-name = "trellis-client"
-version = "0.8.2"
+name = "trellis"
+version = "0.9.0"
 dependencies = [
  "async-nats",
  "base64",
  "bytes",
  "ed25519-dalek",
  "futures-util",
+ "hkdf",
+ "hmac",
  "nkeys",
+ "rand 0.10.1",
  "reqwest",
  "serde",
  "serde_json",
@@ -2568,11 +2536,15 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tokio",
+ "tracing",
+ "trellis-contracts",
+ "ulid",
+ "url",
 ]
 
 [[package]]
 name = "trellis-codegen-rust"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "prettyplease",
  "serde",
@@ -2585,7 +2557,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-contracts"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "base64",
  "jsonschema",
@@ -2596,42 +2568,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "trellis-core-bootstrap"
-version = "0.8.2"
-dependencies = [
- "futures-util",
- "trellis-client",
- "trellis-sdk-core",
- "trellis-service",
-]
-
-[[package]]
-name = "trellis-jobs"
-version = "0.8.2"
-dependencies = [
- "async-nats",
- "futures-util",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "trellis-sdk-core",
-]
-
-[[package]]
 name = "trellis-participant-demo-device"
 version = "1.0.0"
 dependencies = [
  "futures-util",
  "serde",
  "serde_json",
- "trellis-client",
+ "trellis",
  "trellis-codegen-rust",
  "trellis-contracts",
  "trellis-sdk-auth",
  "trellis-sdk-demo-service",
- "trellis-service",
 ]
 
 [[package]]
@@ -2645,8 +2592,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "trellis-auth",
- "trellis-client",
+ "trellis",
  "trellis-participant-demo-device",
  "trellis-sdk-demo-service",
 ]
@@ -2666,36 +2612,18 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "trellis-auth",
- "trellis-auth-adapters",
- "trellis-client",
- "trellis-core-bootstrap",
- "trellis-jobs",
- "trellis-sdk-core",
+ "trellis",
  "trellis-sdk-demo-service",
- "trellis-service",
 ]
 
 [[package]]
 name = "trellis-sdk-auth"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "serde",
  "serde_json",
- "trellis-client",
+ "trellis",
  "trellis-contracts",
- "trellis-service",
-]
-
-[[package]]
-name = "trellis-sdk-core"
-version = "0.8.2"
-dependencies = [
- "serde",
- "serde_json",
- "trellis-client",
- "trellis-contracts",
- "trellis-service",
 ]
 
 [[package]]
@@ -2705,24 +2633,8 @@ dependencies = [
  "futures-util",
  "serde",
  "serde_json",
- "trellis-client",
+ "trellis",
  "trellis-contracts",
- "trellis-service",
-]
-
-[[package]]
-name = "trellis-service"
-version = "0.8.2"
-dependencies = [
- "async-nats",
- "bytes",
- "futures-util",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -2746,6 +2658,16 @@ name = "typenum"
 version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40ce102ab67701b8526c123c1bab5cbe42d7040ccfd0f64af1a385808d2f43de"
+
+[[package]]
+name = "ulid"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "470dbf6591da1b39d43c14523b2b469c86879a53e8b758c8e090a470fe7b1fbe"
+dependencies = [
+ "rand 0.9.4",
+ "web-time",
+]
 
 [[package]]
 name = "unicode-general-category"

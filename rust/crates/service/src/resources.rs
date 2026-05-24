@@ -127,11 +127,7 @@ where
     C: KvResourceClient,
 {
     /// Create a KV resource handle from a validated binding and opened client.
-    pub(crate) fn new(
-        resource_name: impl Into<String>,
-        binding: KvResourceBinding,
-        client: C,
-    ) -> Self {
+    pub fn new(resource_name: impl Into<String>, binding: KvResourceBinding, client: C) -> Self {
         Self {
             resource_name: resource_name.into(),
             binding,
@@ -229,7 +225,7 @@ where
     C: StoreResourceClient,
 {
     /// Create a store resource handle from a validated binding and opened client.
-    pub(crate) fn new(
+    pub fn new(
         service_name: impl Into<String>,
         resource_name: impl Into<String>,
         binding: StoreResourceBinding,

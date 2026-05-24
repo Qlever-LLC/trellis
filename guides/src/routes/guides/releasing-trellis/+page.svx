@@ -28,7 +28,7 @@ Unit tests are still appropriate for parser, schema, error, and small pure logic
 Before committing or ending an implementation cycle, run the focused checks that match the files touched. If runtime or public behavior changed, also run the full integration harness:
 
 ```sh
-cargo run --manifest-path xtask/Cargo.toml -- integration --skip-prepare --keep-workdir
+cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --keep-workdir
 ```
 
 If the full harness cannot be run, record the reason and the last focused checks that did run.
@@ -195,7 +195,7 @@ deno check -c js/deno.json js/packages/trellis/index.ts js/packages/trellis-svel
 deno test -c js/deno.json -A
 cargo fmt --manifest-path rust/Cargo.toml --check
 cargo test --manifest-path rust/Cargo.toml --workspace
-cargo run --manifest-path xtask/Cargo.toml -- integration --skip-prepare --keep-workdir
+cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --keep-workdir
 ```
 
 Also run generated-artifact preparation when contracts, generated SDKs, runtime surfaces, or release packaging can be affected:

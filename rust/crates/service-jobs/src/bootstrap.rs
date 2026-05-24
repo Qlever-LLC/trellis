@@ -2,15 +2,14 @@
 
 use std::path::Path;
 
-use trellis_auth::AuthClient;
-use trellis_auth_adapters::{AuthRequestValidatorAdapter, AuthRequestValidatorClientPort};
-use trellis_client::{ServiceConnectOptions, TrellisClient, TrellisClientError};
-use trellis_core_bootstrap::{CoreBootstrapAdapter, CoreBootstrapBinding, CoreBootstrapClientPort};
-use trellis_sdk_core::{types::TrellisBindingsGetResponseBinding, CoreClient};
-use trellis_service::{
+use trellis::auth::AuthClient;
+use trellis::client::{ServiceConnectOptions, TrellisClient, TrellisClientError};
+use trellis::sdk::core::{types::TrellisBindingsGetResponseBinding, CoreClient};
+use trellis::service::{
     bootstrap_service_host, connect_service as connect_bound_service, run_multi_subject_service,
     BootstrapBindingInfo, ConnectServiceError, ConnectedService, ConnectedServiceHostWithValidator,
-    ConnectedServiceParts, Router, ServerError,
+    ConnectedServiceParts, CoreBootstrapAdapter, CoreBootstrapBinding, CoreBootstrapClientPort,
+    DefaultRequestValidator, DefaultRequestValidatorClientPort, Router, ServerError,
 };
 
 use crate::advisory::{start_advisory_loop, AdvisoryHandle};
@@ -78,12 +77,7 @@ impl RuntimeLoops {
             resources.jobs_advisories_stream.clone(),
         )
         .await?;
-        let janitor = start_janitor_loop(
-            nats.clone(),
-            store.clone(),
-            std::time::Duration::from_secs(30),
-        )
-        .await?;
+        let janitor = start_janitor_loop(nats.clone(), store.clone(), janitor_interval()).await?;
         let projector =
             start_jobs_projector(nats.clone(), store.clone(), resources.jobs_stream.clone())
                 .await?;
@@ -126,6 +120,14 @@ impl RuntimeLoops {
     }
 }
 
+fn janitor_interval() -> std::time::Duration {
+    std::env::var("TRELLIS_JOBS_JANITOR_INTERVAL_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(std::time::Duration::from_millis)
+        .unwrap_or_else(|| std::time::Duration::from_secs(30))
+}
+
 fn map_runtime_loop_result(
     loop_name: &str,
     result: Result<(), ServerError>,
@@ -139,9 +141,9 @@ fn map_runtime_loop_result(
 }
 
 pub type JobsServiceHost<'a> =
-    ConnectedServiceHostWithValidator<AuthRequestValidatorAdapter<AuthClient<'a>>>;
+    ConnectedServiceHostWithValidator<DefaultRequestValidator<AuthClient<'a>>>;
 pub type JobsServiceHostWithValidator<Avc> =
-    ConnectedServiceHostWithValidator<AuthRequestValidatorAdapter<Avc>>;
+    ConnectedServiceHostWithValidator<DefaultRequestValidator<Avc>>;
 
 /// Connected jobs service wrapper that mirrors TS `connectService` ergonomics.
 pub struct ConnectedJobsService {
@@ -161,7 +163,7 @@ impl ConnectedJobsService {
     }
 
     /// Return the resolved bindings snapshot for this service.
-    pub fn binding(&self) -> &trellis_sdk_core::types::TrellisBindingsGetResponseBinding {
+    pub fn binding(&self) -> &TrellisBindingsGetResponseBinding {
         self.binding.as_ref()
     }
 
@@ -181,7 +183,7 @@ impl ConnectedJobsService {
             SERVICE_NAME,
             self.binding.bootstrap_binding(),
             router,
-            AuthRequestValidatorAdapter::new(AuthClient::new(&self.client)),
+            DefaultRequestValidator::new(AuthClient::new(&self.client)),
         ))
     }
 
@@ -201,7 +203,7 @@ impl ConnectedJobsService {
             SERVICE_NAME,
             self.binding.bootstrap_binding(),
             router,
-            AuthRequestValidatorAdapter::new(AuthClient::new(&self.client)),
+            DefaultRequestValidator::new(AuthClient::new(&self.client)),
         );
         run_jobs_service_runtime(
             self.client.nats().clone(),
@@ -216,7 +218,7 @@ impl ConnectedJobsService {
 
 fn build_jobs_runtime(
     runtime_client: async_nats::Client,
-    binding: &trellis_sdk_core::types::TrellisBindingsGetResponseBinding,
+    binding: &TrellisBindingsGetResponseBinding,
     store: SqliteJobsStore,
 ) -> Result<(JobsAdminResources, Router, SqliteJobsStore), ServerError> {
     let resources = jobs_admin_resources_from_binding(binding).map_err(map_query_error)?;
@@ -303,44 +305,40 @@ fn build_parts_from_client(
     client: &TrellisClient,
 ) -> ConnectedServiceParts<
     CoreBootstrapAdapter<CoreClient<'_>>,
-    AuthRequestValidatorAdapter<AuthClient<'_>>,
+    DefaultRequestValidator<AuthClient<'_>>,
     async_nats::Client,
 > {
     ConnectedServiceParts {
         runtime_client: client.nats().clone(),
         core_port: CoreBootstrapAdapter::new(CoreClient::new(client)),
-        validator: AuthRequestValidatorAdapter::new(AuthClient::new(client)),
+        validator: DefaultRequestValidator::new(AuthClient::new(client)),
     }
 }
 
 fn build_parts_from_clients<Cc, Avc>(
     (runtime_client, core_client, auth_validate_client): (async_nats::Client, Cc, Avc),
-) -> ConnectedServiceParts<
-    CoreBootstrapAdapter<Cc>,
-    AuthRequestValidatorAdapter<Avc>,
-    async_nats::Client,
->
+) -> ConnectedServiceParts<CoreBootstrapAdapter<Cc>, DefaultRequestValidator<Avc>, async_nats::Client>
 where
     Cc: CoreBootstrapClientPort,
-    Avc: AuthRequestValidatorClientPort,
+    Avc: DefaultRequestValidatorClientPort,
 {
     ConnectedServiceParts {
         runtime_client,
         core_port: CoreBootstrapAdapter::new(core_client),
-        validator: AuthRequestValidatorAdapter::new(auth_validate_client),
+        validator: DefaultRequestValidator::new(auth_validate_client),
     }
 }
 
 async fn connect_jobs_service<'meta, Conn, BuildParts, C, V>(
-    expected_contract: &'meta trellis_service::BootstrapContractRef,
+    expected_contract: &'meta trellis::service::BootstrapContractRef,
     connector: Conn,
     build_parts: BuildParts,
 ) -> Result<ConnectedService<'meta, C::Binding, V, async_nats::Client>, ServerError>
 where
-    Conn: trellis_service::AsyncConnector<Error = std::convert::Infallible>,
+    Conn: trellis::service::AsyncConnector<Error = std::convert::Infallible>,
     BuildParts: FnOnce(Conn::Output) -> ConnectedServiceParts<C, V, async_nats::Client>,
-    C: trellis_service::CoreBootstrapPort,
-    V: trellis_service::RequestValidator,
+    C: trellis::service::CoreBootstrapPort,
+    V: trellis::service::RequestValidator,
 {
     map_infallible_connect_error(
         connect_bound_service(SERVICE_NAME, expected_contract, connector, build_parts).await,
@@ -351,8 +349,8 @@ fn bootstrap_connected_jobs_service<'meta, B, V>(
     connected: ConnectedService<'meta, B, V, async_nats::Client>,
 ) -> Result<ConnectedServiceHostWithValidator<V>, ServerError>
 where
-    B: BootstrapBindingInfo + AsRef<trellis_sdk_core::types::TrellisBindingsGetResponseBinding>,
-    V: trellis_service::RequestValidator,
+    B: BootstrapBindingInfo + AsRef<TrellisBindingsGetResponseBinding>,
+    V: trellis::service::RequestValidator,
 {
     let (_, router, _) = build_jobs_runtime(
         connected.runtime_client().clone(),
@@ -384,7 +382,7 @@ pub async fn bootstrap_jobs_service_host_with_clients<Cc, Avc>(
 ) -> Result<JobsServiceHostWithValidator<Avc>, ServerError>
 where
     Cc: CoreBootstrapClientPort,
-    Avc: AuthRequestValidatorClientPort,
+    Avc: DefaultRequestValidatorClientPort,
 {
     let contract = expected_contract();
     let connected = connect_jobs_service(
@@ -403,8 +401,8 @@ async fn run_connected_jobs_service<B, V>(
     mode: JobsServiceMode,
 ) -> Result<(), ServerError>
 where
-    B: BootstrapBindingInfo + AsRef<trellis_sdk_core::types::TrellisBindingsGetResponseBinding>,
-    V: trellis_service::RequestValidator,
+    B: BootstrapBindingInfo + AsRef<TrellisBindingsGetResponseBinding>,
+    V: trellis::service::RequestValidator,
 {
     let (resources, router, store) = build_jobs_runtime(
         connected.runtime_client().clone(),
@@ -453,7 +451,7 @@ pub async fn run_jobs_service_with_clients<Cc, Avc>(
 ) -> Result<(), ServerError>
 where
     Cc: CoreBootstrapClientPort,
-    Avc: AuthRequestValidatorClientPort,
+    Avc: DefaultRequestValidatorClientPort,
 {
     run_jobs_service_with_clients_with_mode(
         nats_client,
@@ -473,7 +471,7 @@ pub async fn run_jobs_service_with_clients_with_mode<Cc, Avc>(
 ) -> Result<(), ServerError>
 where
     Cc: CoreBootstrapClientPort,
-    Avc: AuthRequestValidatorClientPort,
+    Avc: DefaultRequestValidatorClientPort,
 {
     let contract = expected_contract();
     let connected = connect_jobs_service(
@@ -518,7 +516,7 @@ pub async fn connect_and_run(opts: ServiceConnectOptions<'_>) -> Result<(), Jobs
 
 #[cfg(test)]
 mod tests {
-    use trellis_client::{ServiceConnectOptions, TrellisClientError};
+    use trellis::client::{ServiceConnectOptions, TrellisClientError};
 
     use super::{connect_and_run, connect_service, map_runtime_loop_result, JobsServiceMode};
 

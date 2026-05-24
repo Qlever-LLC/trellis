@@ -20,12 +20,6 @@ time = { version = "0.3.47", features = ["formatting"] }
 tokio = { version = "1.51.1", features = ["macros", "rt-multi-thread", "signal", "time"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
-trellis-auth = { path = "../../rust/crates/auth" }
-trellis-auth-adapters = { path = "../../rust/crates/auth-adapters" }
-trellis-client = { path = "../../rust/crates/client" }
-trellis-core-bootstrap = { path = "../../rust/crates/core-bootstrap" }
+trellis = { path = "../../rust/crates/trellis" }
 trellis-participant-demo-device = { path = "generated/packages/cargo-participants/demo-device" }
-trellis-sdk-core = { path = "../../generated/packages/cargo/trellis-core" }
-trellis-service = { path = "../../rust/crates/service" }
 trellis-sdk-demo-service = { path = "generated/packages/cargo/demo-service" }
-trellis-jobs = { path = "../../rust/crates/jobs" }

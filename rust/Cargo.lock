@@ -3528,40 +3528,47 @@ dependencies = [
 ]
 
 [[package]]
-name = "trellis-auth"
+name = "trellis"
 version = "0.9.0"
 dependencies = [
+ "async-nats",
  "base64",
+ "bytes",
  "ed25519-dalek",
+ "futures-util",
  "hkdf",
  "hmac",
+ "nkeys",
  "rand 0.10.1",
  "reqwest",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "thiserror 2.0.18",
+ "time",
  "tokio",
- "trellis-client",
+ "tracing",
  "trellis-contracts",
- "trellis-sdk-auth",
+ "ulid",
  "url",
+]
+
+[[package]]
+name = "trellis-auth"
+version = "0.9.0"
+dependencies = [
+ "trellis",
 ]
 
 [[package]]
 name = "trellis-auth-adapters"
 version = "0.9.0"
 dependencies = [
- "base64",
  "bytes",
  "futures-util",
  "serde_json",
- "sha2 0.11.0",
  "tokio",
- "trellis-auth",
- "trellis-client",
- "trellis-sdk-auth",
- "trellis-service",
+ "trellis",
 ]
 
 [[package]]
@@ -3590,14 +3597,11 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "trellis-auth",
- "trellis-client",
+ "trellis",
  "trellis-codegen-rust",
  "trellis-codegen-ts",
  "trellis-contracts",
  "trellis-local-bootstrap",
- "trellis-sdk-auth",
- "trellis-sdk-core",
  "ulid",
 ]
 
@@ -3605,20 +3609,11 @@ dependencies = [
 name = "trellis-client"
 version = "0.9.0"
 dependencies = [
- "async-nats",
- "base64",
- "bytes",
- "ed25519-dalek",
  "futures-util",
- "nkeys",
- "reqwest",
  "serde",
  "serde_json",
- "sha2 0.11.0",
- "thiserror 2.0.18",
- "time",
  "tokio",
- "trellis-contracts",
+ "trellis",
 ]
 
 [[package]]
@@ -3665,9 +3660,7 @@ dependencies = [
  "futures-util",
  "serde_json",
  "tokio",
- "trellis-client",
- "trellis-sdk-core",
- "trellis-service",
+ "trellis",
 ]
 
 [[package]]
@@ -3694,35 +3687,20 @@ dependencies = [
  "thirtyfour",
  "time",
  "tokio",
- "trellis-auth",
- "trellis-auth-adapters",
- "trellis-client",
- "trellis-contracts",
- "trellis-core-bootstrap",
- "trellis-jobs",
+ "tracing",
+ "tracing-subscriber",
+ "trellis",
  "trellis-local-bootstrap",
- "trellis-sdk-auth",
- "trellis-sdk-core",
- "trellis-sdk-health",
- "trellis-sdk-jobs",
- "trellis-sdk-state",
- "trellis-service",
- "trellis-service-jobs",
 ]
 
 [[package]]
 name = "trellis-jobs"
 version = "0.9.0"
 dependencies = [
- "async-nats",
  "futures-util",
- "serde",
  "serde_json",
- "thiserror 2.0.18",
- "time",
  "tokio",
- "trellis-sdk-core",
- "ulid",
+ "trellis",
 ]
 
 [[package]]
@@ -3738,61 +3716,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "trellis-sdk-auth"
-version = "0.9.0"
-dependencies = [
- "serde",
- "serde_json",
- "trellis-client",
- "trellis-contracts",
- "trellis-service",
-]
-
-[[package]]
-name = "trellis-sdk-core"
-version = "0.9.0"
-dependencies = [
- "serde",
- "serde_json",
- "trellis-client",
- "trellis-contracts",
- "trellis-service",
-]
-
-[[package]]
-name = "trellis-sdk-health"
-version = "0.9.0"
-dependencies = [
- "serde",
- "serde_json",
- "trellis-client",
- "trellis-contracts",
- "trellis-service",
-]
-
-[[package]]
-name = "trellis-sdk-jobs"
-version = "0.9.0"
-dependencies = [
- "serde",
- "serde_json",
- "trellis-client",
- "trellis-contracts",
- "trellis-service",
-]
-
-[[package]]
-name = "trellis-sdk-state"
-version = "0.9.0"
-dependencies = [
- "serde",
- "serde_json",
- "trellis-client",
- "trellis-contracts",
- "trellis-service",
-]
-
-[[package]]
 name = "trellis-service"
 version = "0.9.0"
 dependencies = [
@@ -3801,10 +3724,9 @@ dependencies = [
  "futures-util",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
  "time",
  "tokio",
- "tracing",
+ "trellis",
 ]
 
 [[package]]
@@ -3819,16 +3741,15 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tokio",
- "trellis-auth",
- "trellis-auth-adapters",
- "trellis-client",
+ "trellis",
  "trellis-contracts",
- "trellis-core-bootstrap",
- "trellis-jobs",
- "trellis-sdk-auth",
- "trellis-sdk-core",
- "trellis-sdk-jobs",
- "trellis-service",
+]
+
+[[package]]
+name = "trellis-service-runtime"
+version = "0.9.0"
+dependencies = [
+ "trellis",
 ]
 
 [[package]]

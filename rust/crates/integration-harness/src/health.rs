@@ -4,14 +4,14 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use miette::{miette, IntoDiagnostic, Result};
 use serde_json::json;
-use trellis_auth::{connect_admin_client_async, AdminLoginOutcome};
-use trellis_client::TrellisClient;
-use trellis_contracts::{
+use trellis::auth::{connect_admin_client_async, AdminLoginOutcome};
+use trellis::client::TrellisClient;
+use trellis::contracts::{
     digest_contract_json, use_contract, ContractKind, ContractManifestBuilder,
 };
-use trellis_sdk_health::client::HealthClient as SdkHealthClient;
-use trellis_sdk_health::events::HealthHeartbeatEventDescriptor;
-use trellis_sdk_health::types::{
+use trellis::sdk::health::client::HealthClient as SdkHealthClient;
+use trellis::sdk::health::events::HealthHeartbeatEventDescriptor;
+use trellis::sdk::health::types::{
     HealthHeartbeatEvent, HealthHeartbeatEventChecksItem, HealthHeartbeatEventHeader,
     HealthHeartbeatEventService,
 };
@@ -196,12 +196,12 @@ async fn reauth_admin_setup(
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
     let contract_json = admin_setup_contract_json()?;
-    match trellis_auth::start_admin_reauth(&admin_login.state, &contract_json)
+    match trellis::auth::start_admin_reauth(&admin_login.state, &contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis_auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis_auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -221,17 +221,17 @@ async fn reauth_admin_setup(
 }
 
 async fn reauth_contract(
-    state: &trellis_auth::AdminSessionState,
+    state: &trellis::auth::AdminSessionState,
     contract_json: &str,
     trellis_url: &str,
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
-    match trellis_auth::start_admin_reauth(state, contract_json)
+    match trellis::auth::start_admin_reauth(state, contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis_auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis_auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =

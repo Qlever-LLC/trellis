@@ -2,15 +2,14 @@ use std::sync::Arc;
 
 use miette::{miette, IntoDiagnostic, Result};
 use serde_json::json;
-use trellis_auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis_auth_adapters::AuthRequestValidatorAdapter;
-use trellis_client::{ServiceConnectWithContractOptions, TrellisClient};
-use trellis_contracts::digest_contract_json;
-use trellis_sdk_auth::client::AuthClient as SdkAuthClient;
-use trellis_sdk_auth::types::{
+use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis::client::{ServiceConnectWithContractOptions, TrellisClient};
+use trellis::contracts::digest_contract_json;
+use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis::sdk::auth::types::{
     AuthEnvelopeExpansionsApproveRequest, AuthEnvelopeExpansionsListRequest,
 };
-use trellis_service::{bootstrap_service_host, BootstrapBinding, HandlerResult, Router};
+use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::BrowserContainer;
@@ -42,7 +41,7 @@ pub(crate) async fn run_service_approval_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
-    let auth_client = trellis_auth::AuthClient::new(&admin_client);
+    let auth_client = trellis::auth::AuthClient::new(&admin_client);
     auth_client
         .create_service_deployment(APPROVAL_DEPLOYMENT_ID, vec!["harness".to_string()])
         .await
@@ -52,7 +51,7 @@ pub(crate) async fn run_service_approval_fixture(
     let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
     let (rust_service_seed, rust_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: APPROVAL_DEPLOYMENT_ID.to_string(),
             instance_key: rust_service_key,
         })
@@ -60,7 +59,7 @@ pub(crate) async fn run_service_approval_fixture(
         .into_diagnostic()?;
     let (ts_service_seed, ts_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: APPROVAL_DEPLOYMENT_ID.to_string(),
             instance_key: ts_service_key,
         })
@@ -68,7 +67,7 @@ pub(crate) async fn run_service_approval_fixture(
         .into_diagnostic()?;
     let (ts_stop_service_seed, ts_stop_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: APPROVAL_DEPLOYMENT_ID.to_string(),
             instance_key: ts_stop_service_key,
         })
@@ -97,55 +96,37 @@ pub(crate) async fn run_service_approval_fixture(
     }
 
     let service_client = Arc::new(rust_connect_task.await.into_diagnostic()??);
-    let mut router = Router::new();
-    router.register_rpc::<HarnessRustPingRpc, _, _>(|_ctx, input| async move {
+    let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
+        APPROVAL_RUST_SERVICE_NAME,
+        Arc::clone(&service_client),
+    )
+    .map_err(|error| miette!("failed to create approval service runtime: {error}"))?;
+    service.register_rpc::<HarnessRustPingRpc, _, _>(|_ctx, input| async move {
         if input.message == "handler-error" {
-            return Err(trellis_service::ServerError::Nats(
-                "rust handler error marker".to_string(),
-            )) as HandlerResult<HarnessPingResponse>;
+            return Err(ServerError::Nats("rust handler error marker".to_string()))
+                as HandlerResult<HarnessPingResponse>;
         }
         if input.message == "not-found" {
-            return Err(trellis_service::ServerError::DeclaredRpc(
-                trellis_service::DeclaredRpcError::new(
+            return Err(ServerError::DeclaredRpc(
+                trellis::service::DeclaredRpcError::new(
                     "NotFoundError",
                     "Workspace not found",
                     [("resource", json!("Workspace"))],
                 ),
             )) as HandlerResult<HarnessPingResponse>;
         }
-        Ok::<_, trellis_service::ServerError>(HarnessPingResponse {
+        Ok::<_, ServerError>(HarnessPingResponse {
             message: input.message,
         }) as HandlerResult<HarnessPingResponse>
     });
-    router.register_rpc::<HarnessRustCallerContextRpc, _, _>(|ctx, _input| async move {
-        caller_context_response("rust", &ctx) as HandlerResult<HarnessCallerContextResponse>
+    service.register_rpc::<HarnessRustCallerContextRpc, _, _>(|ctx, _input| async move {
+        caller_context_response("rust", ctx.request())
+            as HandlerResult<HarnessCallerContextResponse>
     });
-    router.register_rpc::<HarnessRustTraceContextRpc, _, _>(|ctx, _input| async move {
-        trace_context_response("rust", &ctx) as HandlerResult<HarnessTraceContextResponse>
+    service.register_rpc::<HarnessRustTraceContextRpc, _, _>(|ctx, _input| async move {
+        trace_context_response("rust", ctx.request()) as HandlerResult<HarnessTraceContextResponse>
     });
-    let validator = AuthRequestValidatorAdapter::new(Arc::clone(&service_client));
-    let host = bootstrap_service_host(
-        APPROVAL_RUST_SERVICE_NAME,
-        BootstrapBinding {
-            contract_id: HARNESS_CONTRACT_ID.to_string(),
-            digest: contract_digest.clone(),
-        },
-        router,
-        validator,
-    );
-    let service_nats = service_client.nats().clone();
-    let service_task = tokio::spawn(async move {
-        trellis_service::run_multi_subject_service(
-            service_nats,
-            &[
-                <HarnessRustPingRpc as trellis_service::RpcDescriptor>::SUBJECT,
-                <HarnessRustCallerContextRpc as trellis_service::RpcDescriptor>::SUBJECT,
-                <HarnessRustTraceContextRpc as trellis_service::RpcDescriptor>::SUBJECT,
-            ],
-            host,
-        )
-        .await
-    });
+    let service_task = tokio::spawn(async move { service.run().await });
 
     ts_service.wait_ready().await?;
     let call_result = async {

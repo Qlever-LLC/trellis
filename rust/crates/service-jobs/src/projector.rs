@@ -1,8 +1,8 @@
 use async_nats::jetstream::{self, consumer};
 use futures_util::StreamExt;
-use trellis_jobs::reduce_job_event;
-use trellis_jobs::types::{Job, JobEvent};
-use trellis_service::ServerError;
+use trellis::jobs::reduce_job_event;
+use trellis::jobs::types::{Job, JobEvent};
+use trellis::service::ServerError;
 
 use crate::storage::{SqliteJobsStore, SqliteJobsStoreError};
 
@@ -120,8 +120,8 @@ pub fn project_job_event(
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use trellis_jobs::events::created_event;
-    use trellis_jobs::types::{JobContext, JobState};
+    use trellis::jobs::events::created_event;
+    use trellis::jobs::types::{JobContext, JobState};
 
     use super::*;
 

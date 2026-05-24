@@ -5,7 +5,7 @@ use std::time::Duration;
 use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use trellis_jobs::types::{Job, JobState};
+use trellis::jobs::types::{Job, JobState};
 
 use crate::worker_presence::WorkerPresenceRecord;
 
@@ -556,7 +556,7 @@ fn timestamp_nanos(timestamp: OffsetDateTime) -> i64 {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use trellis_jobs::types::JobContext;
+    use trellis::jobs::types::JobContext;
 
     use super::*;
 

@@ -6,7 +6,7 @@ use miette::IntoDiagnostic;
 use qrcode::{render::unicode, QrCode};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use trellis_auth as authlib;
+use trellis::auth as authlib;
 
 pub(crate) fn render_agent_login_instructions(login_url: &str) -> miette::Result<String> {
     let qr = QrCode::new(login_url.as_bytes()).into_diagnostic()?;
@@ -646,7 +646,7 @@ mod tests {
         render_agent_login_instructions,
     };
     use serde_json::json;
-    use trellis_auth::{AuthenticatedIdentity, AuthenticatedUser};
+    use trellis::auth::{AuthenticatedIdentity, AuthenticatedUser};
 
     #[test]
     fn agent_login_instructions_include_plain_url_and_terminal_qr() {

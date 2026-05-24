@@ -4,20 +4,19 @@ use std::time::Duration;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use trellis_auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis_auth_adapters::AuthRequestValidatorAdapter;
-use trellis_client::{ServiceConnectWithContractOptions, TrellisClient};
-use trellis_contracts::{
+use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis::client::{ServiceConnectWithContractOptions, TrellisClient};
+use trellis::contracts::{
     digest_contract_json, rpc, use_contract, ContractKind, ContractManifestBuilder,
 };
-use trellis_sdk_auth::client::AuthClient as SdkAuthClient;
-use trellis_sdk_auth::types::{
+use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis::sdk::auth::types::{
     AuthCatalogIssuesResolveRequest, AuthEnvelopeExpansionsApproveRequest,
     AuthEnvelopeExpansionsListRequest, AuthServiceInstancesProvisionRequest,
 };
-use trellis_sdk_core::client::CoreClient;
-use trellis_sdk_core::types::TrellisCatalogResponseCatalogIssuesItem;
-use trellis_service::{bootstrap_service_host, BootstrapBinding, HandlerResult, Router};
+use trellis::sdk::core::client::CoreClient;
+use trellis::sdk::core::types::TrellisCatalogResponseCatalogIssuesItem;
+use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError, ServiceRuntimeError};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
@@ -48,7 +47,7 @@ struct RepairPingResponse {
 
 struct RepairPingRpc;
 
-impl trellis_client::RpcDescriptor for RepairPingRpc {
+impl trellis::client::RpcDescriptor for RepairPingRpc {
     type Input = RepairPingRequest;
     type Output = RepairPingResponse;
 
@@ -56,14 +55,6 @@ impl trellis_client::RpcDescriptor for RepairPingRpc {
     const SUBJECT: &'static str = REPAIR_RPC_SUBJECT;
     const CALLER_CAPABILITIES: &'static [&'static str] = &[];
     const ERRORS: &'static [&'static str] = &["UnexpectedError"];
-}
-
-impl trellis_service::RpcDescriptor for RepairPingRpc {
-    type Input = RepairPingRequest;
-    type Output = RepairPingResponse;
-
-    const KEY: &'static str = "Repair.Ping";
-    const SUBJECT: &'static str = REPAIR_RPC_SUBJECT;
 }
 
 pub(crate) async fn run_catalog_repair_fixture(
@@ -82,7 +73,7 @@ pub(crate) async fn run_catalog_repair_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
-    let auth_client = trellis_auth::AuthClient::new(&admin_client);
+    let auth_client = trellis::auth::AuthClient::new(&admin_client);
     let sdk_auth_client = SdkAuthClient::new(&admin_client);
     let core_client = CoreClient::new(&admin_client);
 
@@ -206,7 +197,7 @@ pub(crate) async fn verify_catalog_repair_persistence_after_restart(
 
 async fn create_unresolved_conflict(
     trellis_url: &str,
-    auth_client: &trellis_auth::AuthClient<'_>,
+    auth_client: &trellis::auth::AuthClient<'_>,
     sdk_auth_client: &SdkAuthClient<'_>,
     core_client: &CoreClient<'_>,
     deployment_id: &str,
@@ -254,7 +245,7 @@ async fn login_contract(
     browser: &BrowserContainer,
     contract_json: &str,
 ) -> Result<AdminLoginOutcome> {
-    let challenge = trellis_auth::start_agent_login(&trellis_auth::StartAgentLoginOpts {
+    let challenge = trellis::auth::start_agent_login(&trellis::auth::StartAgentLoginOpts {
         trellis_url,
         contract_json,
     })
@@ -276,27 +267,19 @@ async fn login_contract(
 fn start_repair_service(
     service_client: Arc<TrellisClient>,
     digest: &str,
-) -> tokio::task::JoinHandle<Result<(), trellis_service::ServerError>> {
-    let mut router = Router::new();
-    router.register_rpc::<RepairPingRpc, _, _>(|_ctx, input| async move {
-        Ok::<_, trellis_service::ServerError>(RepairPingResponse {
+) -> tokio::task::JoinHandle<Result<(), ServiceRuntimeError>> {
+    let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
+        REPAIR_SERVICE_NAME,
+        Arc::clone(&service_client),
+    )
+    .expect("repair service client should include bootstrap binding");
+    service.register_rpc::<RepairPingRpc, _, _>(|_ctx, input| async move {
+        Ok::<_, ServerError>(RepairPingResponse {
             message: input.message,
         }) as HandlerResult<RepairPingResponse>
     });
-    let validator = AuthRequestValidatorAdapter::new(Arc::clone(&service_client));
-    let host = bootstrap_service_host(
-        REPAIR_SERVICE_NAME,
-        BootstrapBinding {
-            contract_id: REPAIR_CONTRACT_ID.to_string(),
-            digest: digest.to_string(),
-        },
-        router,
-        validator,
-    );
-    let service_nats = service_client.nats().clone();
-    tokio::spawn(async move {
-        trellis_service::run_multi_subject_service(service_nats, &[REPAIR_RPC_SUBJECT], host).await
-    })
+    let _ = digest;
+    tokio::spawn(async move { service.run().await })
 }
 
 async fn assert_repair_ping(client: &TrellisClient, message: &str) -> Result<()> {
@@ -333,7 +316,7 @@ async fn wait_for_repair_ping(client: &TrellisClient, message: &str) -> Result<(
 }
 
 async fn provision_service_instance(
-    auth_client: &trellis_auth::AuthClient<'_>,
+    auth_client: &trellis::auth::AuthClient<'_>,
     deployment_id: &str,
 ) -> Result<String> {
     let (seed, key) = generate_session_keypair();

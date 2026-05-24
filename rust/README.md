@@ -2,24 +2,32 @@
 
 Rust crates for the Trellis platform.
 
+The public Cargo authoring packages are `trellis` and `trellis-contracts`.
+Low-level crates in this workspace support the platform implementation,
+generators, CLIs, and tests; they are not the stable package surface that normal
+Rust services and apps should author against. Internal workspace crates are
+marked `publish = false`; runtime implementation for public authoring lives
+behind modules of the public `trellis` facade.
+
 **Crates in this repository:**
 
-| Crate                         | Purpose                                                     |
-| ----------------------------- | ----------------------------------------------------------- |
-| `trellis-auth`                | Browser login and admin-session helpers for Rust clients    |
-| `trellis-auth-adapters`       | Auth integration adapters shared by Trellis services        |
-| `trellis-cli`                 | Operator CLI for auth, bootstrap, and service deployments   |
-| `trellis-client`              | Rust client runtime                                         |
-| `trellis-codegen-rust`        | Rust SDK code generation                                    |
-| `trellis-codegen-ts`          | TypeScript SDK code generation                              |
-| `trellis-contracts`           | Contract manifest model and validation                      |
-| `trellis-core-bootstrap`      | Bootstrap helpers for Trellis-owned infrastructure state    |
-| `trellis-generate-runner`     | Helper crate for invoking the bootstrap-safe generator      |
-| `trellis-integration-harness` | End-to-end integration harness used by release verification |
-| `trellis-jobs`                | Shared jobs runtime and admin support                       |
-| `trellis-local-bootstrap`     | Local Trellis/NATS bootstrap bundle generation              |
-| `trellis-service`             | Rust service runtime                                        |
-| `trellis-service-jobs`        | Service-side jobs integration helpers                       |
+| Crate                         | Purpose                                                       |
+| ----------------------------- | ------------------------------------------------------------- |
+| `trellis-auth`                | Unpublished compatibility/test package for auth helpers       |
+| `trellis-auth-adapters`       | Unpublished compatibility/test package for auth adapters      |
+| `trellis`                     | Curated public Rust facade for clients and services           |
+| `trellis-cli`                 | Operator CLI crate for the `trellis` binary                   |
+| `trellis-client`              | Unpublished compatibility package for `trellis::client`       |
+| `trellis-codegen-rust`        | Internal Rust SDK code generation                             |
+| `trellis-codegen-ts`          | Internal TypeScript SDK code generation                       |
+| `trellis-contracts`           | Contract manifest model and validation                        |
+| `trellis-core-bootstrap`      | Internal bootstrap helpers for infrastructure state           |
+| `trellis-generate-runner`     | Internal helper for invoking the bootstrap-safe generator     |
+| `trellis-integration-harness` | End-to-end integration harness used by release verification   |
+| `trellis-jobs`                | Unpublished compatibility/test package for `trellis::jobs`    |
+| `trellis-local-bootstrap`     | Internal local Trellis/NATS bootstrap bundle generation       |
+| `trellis-service`             | Unpublished compatibility/test package for `trellis::service` |
+| `trellis-service-jobs`        | Internal service-side jobs integration helpers                |
 
 See `../design/tooling/trellis-cli.md` and
 `../design/contracts/trellis-rust-contract-libraries.md`.
@@ -39,7 +47,7 @@ Before `cargo build` or `cargo install --path rust/crates/cli`, run
 `generated/packages/cargo/` exist. If you are doing a normal Rust build from the
 repo, prefer `cargo xtask build`, which runs `prepare` first and then invokes
 the default Rust workspace build. The default build excludes the live
-`trellis-integration-harness`; run `cargo xtask integration` for that suite.
+`trellis-integration-harness`; run `cargo xtask integration run` for that suite.
 
 ## Known 0.9.x Rust Gaps
 

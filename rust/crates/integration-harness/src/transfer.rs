@@ -11,22 +11,21 @@ use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
-use trellis_auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis_auth_adapters::AuthRequestValidatorAdapter;
-use trellis_client::{
+use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis::client::{
     OperationState, ServiceConnectWithContractOptions, TrellisClient, TrellisClientError,
 };
-use trellis_contracts::{
+use trellis::contracts::{
     digest_contract_json, operation, rpc, store, use_contract, ContractKind,
     ContractManifestBuilder,
 };
-use trellis_sdk_auth::client::AuthClient as SdkAuthClient;
-use trellis_sdk_auth::types::AuthEnvelopesExpandRequest;
-use trellis_service::{
-    bootstrap_service_host, plan_download_transfer_grant, plan_upload_transfer_grant,
-    spawn_download_transfer_endpoint, spawn_upload_transfer_endpoint_with_completion,
-    BootstrapBinding, FileTransferInfo, InMemoryOperationRuntime, OperationFailure, RequestContext,
-    RequestValidation, RequestValidator, Router, ServerError, ServiceResourceBindings,
+use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis::sdk::auth::types::AuthEnvelopesExpandRequest;
+use trellis::service::{
+    plan_download_transfer_grant, plan_upload_transfer_grant, spawn_download_transfer_endpoint,
+    spawn_upload_transfer_endpoint_with_completion, ConnectedServiceRuntime,
+    DefaultRequestValidator, FileTransferInfo, InMemoryOperationRuntime, OperationFailure,
+    RequestContext, RequestValidation, RequestValidator, ServerError, ServiceResourceBindings,
     StoreResourceBinding, StoreResourceClient, TransferDownloadGrantArgs, TransferUploadGrantArgs,
     UploadTransferCompletion, UploadTransferSession,
 };
@@ -89,7 +88,7 @@ fn harness_service_contract_json() -> Result<String> {
             Some(1_024),
         )
         .with_call_capabilities(std::iter::empty::<&str>())
-        .with_read_capabilities(std::iter::empty::<&str>())
+        .with_observe_capabilities(std::iter::empty::<&str>())
         .with_cancel_capabilities(std::iter::empty::<&str>())
         .cancel(false),
     )
@@ -111,7 +110,7 @@ fn harness_service_contract_json() -> Result<String> {
             Some(1_024),
         )
         .with_call_capabilities(std::iter::empty::<&str>())
-        .with_read_capabilities(std::iter::empty::<&str>())
+        .with_observe_capabilities(std::iter::empty::<&str>())
         .with_cancel_capabilities(std::iter::empty::<&str>())
         .cancel(false),
     )
@@ -311,7 +310,7 @@ struct DownloadInput {
 
 struct HarnessRustUploadOperation;
 
-impl trellis_client::OperationDescriptor for HarnessRustUploadOperation {
+impl trellis::client::OperationDescriptor for HarnessRustUploadOperation {
     type Input = UploadInput;
     type Progress = Value;
     type Output = UploadOutput;
@@ -319,26 +318,16 @@ impl trellis_client::OperationDescriptor for HarnessRustUploadOperation {
     const KEY: &'static str = "Harness.Rust.TransferUpload";
     const SUBJECT: &'static str = HARNESS_RUST_UPLOAD_SUBJECT;
     const CALLER_CAPABILITIES: &'static [&'static str] = &[];
-    const READ_CAPABILITIES: &'static [&'static str] = &[];
+    const OBSERVE_CAPABILITIES: &'static [&'static str] = &[];
     const CANCEL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool = false;
 }
 
-impl trellis_client::TransferOperationDescriptor for HarnessRustUploadOperation {}
-
-impl trellis_service::OperationDescriptor for HarnessRustUploadOperation {
-    type Input = UploadInput;
-    type Progress = Value;
-    type Output = UploadOutput;
-
-    const KEY: &'static str = "Harness.Rust.TransferUpload";
-    const SUBJECT: &'static str = HARNESS_RUST_UPLOAD_SUBJECT;
-    const CANCELABLE: bool = false;
-}
+impl trellis::client::TransferOperationDescriptor for HarnessRustUploadOperation {}
 
 struct HarnessTsUploadOperation;
 
-impl trellis_client::OperationDescriptor for HarnessTsUploadOperation {
+impl trellis::client::OperationDescriptor for HarnessTsUploadOperation {
     type Input = UploadInput;
     type Progress = Value;
     type Output = UploadOutput;
@@ -346,16 +335,16 @@ impl trellis_client::OperationDescriptor for HarnessTsUploadOperation {
     const KEY: &'static str = "Harness.Ts.TransferUpload";
     const SUBJECT: &'static str = HARNESS_TS_UPLOAD_SUBJECT;
     const CALLER_CAPABILITIES: &'static [&'static str] = &[];
-    const READ_CAPABILITIES: &'static [&'static str] = &[];
+    const OBSERVE_CAPABILITIES: &'static [&'static str] = &[];
     const CANCEL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool = false;
 }
 
-impl trellis_client::TransferOperationDescriptor for HarnessTsUploadOperation {}
+impl trellis::client::TransferOperationDescriptor for HarnessTsUploadOperation {}
 
 struct HarnessRustDownloadRpc;
 
-impl trellis_client::RpcDescriptor for HarnessRustDownloadRpc {
+impl trellis::client::RpcDescriptor for HarnessRustDownloadRpc {
     type Input = DownloadInput;
     type Output = Value;
 
@@ -365,17 +354,9 @@ impl trellis_client::RpcDescriptor for HarnessRustDownloadRpc {
     const ERRORS: &'static [&'static str] = &[];
 }
 
-impl trellis_service::RpcDescriptor for HarnessRustDownloadRpc {
-    type Input = DownloadInput;
-    type Output = Value;
-
-    const KEY: &'static str = "Harness.Rust.TransferDownload";
-    const SUBJECT: &'static str = HARNESS_RUST_DOWNLOAD_SUBJECT;
-}
-
 struct HarnessTsDownloadRpc;
 
-impl trellis_client::RpcDescriptor for HarnessTsDownloadRpc {
+impl trellis::client::RpcDescriptor for HarnessTsDownloadRpc {
     type Input = DownloadInput;
     type Output = Value;
 
@@ -396,7 +377,7 @@ pub(crate) async fn run_transfer_fixture(
         let admin_client = connect_admin_client_async(&setup_login.state)
             .await
             .into_diagnostic()?;
-        let auth_client = trellis_auth::AuthClient::new(&admin_client);
+        let auth_client = trellis::auth::AuthClient::new(&admin_client);
         auth_client
             .create_service_deployment(HARNESS_DEPLOYMENT_ID, vec!["harness".to_string()])
             .await
@@ -415,7 +396,7 @@ pub(crate) async fn run_transfer_fixture(
 
         let (rust_service_seed, rust_service_key) = generate_session_keypair();
         auth_client
-            .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+            .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
                 deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
                 instance_key: rust_service_key,
             })
@@ -423,7 +404,7 @@ pub(crate) async fn run_transfer_fixture(
             .into_diagnostic()?;
         let (ts_service_seed, ts_service_key) = generate_session_keypair();
         auth_client
-            .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+            .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
                 deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
                 instance_key: ts_service_key,
             })
@@ -447,8 +428,12 @@ pub(crate) async fn run_transfer_fixture(
     let resources = rust_resources();
     let operations = InMemoryOperationRuntime::new(HARNESS_RUST_SERVICE_NAME)
         .operation::<HarnessRustUploadOperation>();
-    let mut router = Router::new();
-    router.register_operation::<HarnessRustUploadOperation, _, _, _, _, _, _, _, _>(
+    let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
+        HARNESS_RUST_SERVICE_NAME,
+        Arc::clone(&service_client),
+    )
+    .map_err(|error| miette!("failed to create transfer service runtime: {error}"))?;
+    service.register_operation::<HarnessRustUploadOperation, _, _, _, _, _, _, _, _>(
         {
             let operations = operations.clone();
             let service_client = Arc::clone(&service_client);
@@ -460,6 +445,7 @@ pub(crate) async fn run_transfer_fixture(
                 let rust_store = rust_store.clone();
                 let resources = resources.clone();
                 async move {
+                    let ctx = ctx.into_request_context();
                     let operation_id = format!("harness-transfer-{}", unique_suffix());
                     let mut accepted = operations.accept(operation_id.clone()).await?;
                     let session_key =
@@ -491,7 +477,7 @@ pub(crate) async fn run_transfer_fixture(
                             UploadTransferSession::new(plan, "2026-05-11T00:00:00.000Z"),
                             rust_store.clone(),
                             RecordingTransferValidator::new(
-                                AuthRequestValidatorAdapter::new(Arc::clone(&service_client)),
+                                DefaultRequestValidator::new(Arc::clone(&service_client)),
                                 Arc::clone(&chunk_traceparent),
                             ),
                         )
@@ -501,7 +487,7 @@ pub(crate) async fn run_transfer_fixture(
                             service_client.nats().clone(),
                             UploadTransferSession::new(plan, "2026-05-11T00:00:00.000Z"),
                             rust_store.clone(),
-                            AuthRequestValidatorAdapter::new(Arc::clone(&service_client)),
+                            DefaultRequestValidator::new(Arc::clone(&service_client)),
                         )
                         .await?
                     };
@@ -571,7 +557,7 @@ pub(crate) async fn run_transfer_fixture(
             })
         },
     );
-    router.register_rpc::<HarnessRustDownloadRpc, _, _>({
+    service.register_rpc::<HarnessRustDownloadRpc, _, _>({
         let service_client = Arc::clone(&service_client);
         let rust_store = rust_store.clone();
         let resources = resources.clone();
@@ -580,6 +566,7 @@ pub(crate) async fn run_transfer_fixture(
             let rust_store = rust_store.clone();
             let resources = resources.clone();
             async move {
+                let ctx = ctx.into_request_context();
                 let bytes = Bytes::from(format!("rust-download:{}", input.key));
                 rust_store.write(&input.key, bytes.clone()).await?;
                 let session_key =
@@ -610,7 +597,7 @@ pub(crate) async fn run_transfer_fixture(
                     service_client.nats().clone(),
                     plan,
                     rust_store,
-                    AuthRequestValidatorAdapter::new(Arc::clone(&service_client)),
+                    DefaultRequestValidator::new(Arc::clone(&service_client)),
                 )
                 .await?;
                 serde_json::to_value(grant).map_err(ServerError::Json)
@@ -618,26 +605,7 @@ pub(crate) async fn run_transfer_fixture(
         }
     });
 
-    let validator = AuthRequestValidatorAdapter::new(Arc::clone(&service_client));
-    let host = bootstrap_service_host(
-        HARNESS_RUST_SERVICE_NAME,
-        BootstrapBinding {
-            contract_id: HARNESS_CONTRACT_ID.to_string(),
-            digest: contract_digest.clone(),
-        },
-        router,
-        validator,
-    );
-    let service_nats = service_client.nats().clone();
-    let service_task = tokio::spawn(async move {
-        let rust_control_subject = trellis_service::control_subject(HARNESS_RUST_UPLOAD_SUBJECT);
-        let subjects = [
-            HARNESS_RUST_UPLOAD_SUBJECT,
-            rust_control_subject.as_str(),
-            HARNESS_RUST_DOWNLOAD_SUBJECT,
-        ];
-        trellis_service::run_multi_subject_service(service_nats, &subjects, host).await
-    });
+    let service_task = tokio::spawn(async move { service.run().await });
 
     let ts_service = TsServiceProcess::start(trellis_url, &contract_digest, &ts_service_seed)?;
     ts_service.wait_ready().await?;
@@ -702,7 +670,7 @@ pub(crate) async fn run_transfer_fixture(
 }
 
 async fn complete_uploaded_operation(
-    control: trellis_service::OperationControl<HarnessRustUploadOperation>,
+    control: trellis::service::OperationControl<HarnessRustUploadOperation>,
     store: InMemoryStore,
     input: UploadInput,
     completion: UploadTransferCompletion,
@@ -833,7 +801,7 @@ fn trace_id_from_traceparent(traceparent: &str) -> Option<&str> {
 
 async fn assert_rust_upload<O>(client: &TrellisClient, key: &str, bytes: &[u8]) -> Result<()>
 where
-    O: trellis_client::TransferOperationDescriptor<
+    O: trellis::client::TransferOperationDescriptor<
         Input = UploadInput,
         Progress = Value,
         Output = UploadOutput,
@@ -875,7 +843,7 @@ where
 
 async fn assert_rust_oversized_upload<O>(client: &TrellisClient, key: &str) -> Result<()>
 where
-    O: trellis_client::TransferOperationDescriptor<
+    O: trellis::client::TransferOperationDescriptor<
         Input = UploadInput,
         Progress = Value,
         Output = UploadOutput,
@@ -924,7 +892,7 @@ async fn assert_rust_download<R>(
     expected: &[u8],
 ) -> Result<Value>
 where
-    R: trellis_client::RpcDescriptor<Input = DownloadInput, Output = Value>,
+    R: trellis::client::RpcDescriptor<Input = DownloadInput, Output = Value>,
 {
     let grant_value = client
         .call::<R>(&DownloadInput {
@@ -932,7 +900,7 @@ where
         })
         .await
         .into_diagnostic()?;
-    let grant = trellis_client::download_transfer_grant_from_value(grant_value.clone())
+    let grant = trellis::client::download_transfer_grant_from_value(grant_value.clone())
         .into_diagnostic()?;
     let bytes = client.download_transfer(&grant).await.into_diagnostic()?;
     if bytes != expected {
@@ -947,7 +915,7 @@ where
 
 async fn assert_session_mismatch_denied(
     trellis_url: &str,
-    caller_state: &trellis_auth::AdminSessionState,
+    caller_state: &trellis::auth::AdminSessionState,
     browser: &BrowserContainer,
 ) -> Result<()> {
     let grant = {
@@ -960,7 +928,7 @@ async fn assert_session_mismatch_denied(
             b"rust-download:denied/session-bound.txt",
         )
         .await?;
-        trellis_client::download_transfer_grant_from_value(grant_value).into_diagnostic()?
+        trellis::client::download_transfer_grant_from_value(grant_value).into_diagnostic()?
     };
     let denied_login = reauth_contract(
         caller_state,
@@ -1148,12 +1116,12 @@ async fn reauth_admin_setup(
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
     let contract_json = admin_setup_contract_json()?;
-    match trellis_auth::start_admin_reauth(&admin_login.state, &contract_json)
+    match trellis::auth::start_admin_reauth(&admin_login.state, &contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis_auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis_auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -1173,17 +1141,17 @@ async fn reauth_admin_setup(
 }
 
 async fn reauth_contract(
-    state: &trellis_auth::AdminSessionState,
+    state: &trellis::auth::AdminSessionState,
     contract_json: &str,
     trellis_url: &str,
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
-    match trellis_auth::start_admin_reauth(state, contract_json)
+    match trellis::auth::start_admin_reauth(state, contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis_auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis_auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -1204,7 +1172,7 @@ async fn connect_service_with_retry(
     contract_digest: &str,
     contract_json: &str,
     service_seed: &str,
-) -> Result<TrellisClient, trellis_client::TrellisClientError> {
+) -> Result<TrellisClient, trellis::client::TrellisClientError> {
     TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
         trellis_url,
         contract_id: HARNESS_CONTRACT_ID,

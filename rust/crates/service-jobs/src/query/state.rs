@@ -1,6 +1,6 @@
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use trellis_jobs::types::JobState;
+use trellis::jobs::types::JobState;
 
 use super::JobsQueryError;
 

@@ -6,8 +6,8 @@ use futures_util::StreamExt;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::transfer::{FileInfo, UploadTransferGrant};
-use crate::TrellisClientError;
+use crate::client::transfer::{FileInfo, UploadTransferGrant};
+use crate::client::TrellisClientError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -687,7 +687,7 @@ mod tests {
         OperationSignalAccepted, OperationTransferProgress, OperationTransport,
         TransferOperationDescriptor, UploadTransferGrant,
     };
-    use crate::TrellisClientError;
+    use crate::client::TrellisClientError;
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     struct RefundInput {

@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Version-pinned launcher for the Trellis contract generator."
+publish = false
 
 [dependencies]
 self_update.workspace = true

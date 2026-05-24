@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 
 use serde_json::json;
-use trellis_jobs::bindings::{parse_jobs_binding, JobsBindingError, JobsRuntimeBinding};
-use trellis_sdk_core::types::{
+use trellis::sdk::core::types::{
     TrellisBindingsGetResponseBinding, TrellisBindingsGetResponseBindingResources,
     TrellisBindingsGetResponseBindingResourcesJobs,
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValue,
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValuePayload,
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValueResult,
 };
+use trellis_jobs::bindings::{parse_jobs_binding, JobsBindingError, JobsRuntimeBinding};
 
 #[test]
 fn parse_jobs_binding_maps_queue_values() {
@@ -108,7 +108,7 @@ fn sample_core_binding() -> TrellisBindingsGetResponseBinding {
             }),
             kv: Some(BTreeMap::from([(
                 "unrelated".to_string(),
-                trellis_sdk_core::types::TrellisBindingsGetResponseBindingResourcesKvValue {
+                trellis::sdk::core::types::TrellisBindingsGetResponseBindingResourcesKvValue {
                     bucket: "unrelated_bucket".to_string(),
                     history: 1,
                     max_value_bytes: None,

@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Rust jobs admin service bootstrap scaffold for Trellis."
+publish = false
 
 [dependencies]
 async-nats.workspace = true
@@ -15,13 +16,5 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 time.workspace = true
-trellis-client = { path = "../client", version = "0.9.0" }
-trellis-auth = { path = "../auth", version = "0.9.0" }
-trellis-auth-adapters = { path = "../auth-adapters", version = "0.9.0" }
-trellis-core-bootstrap = { path = "../core-bootstrap", version = "0.9.0" }
-trellis-sdk-auth.workspace = true
-trellis-sdk-core.workspace = true
-trellis-sdk-jobs.workspace = true
-trellis-service = { path = "../service", version = "0.9.0" }
 trellis-contracts = { path = "../contracts", version = "0.9.0" }
-trellis-jobs = { path = "../jobs", version = "0.9.0" }
+trellis = { path = "../trellis", version = "0.9.0" }

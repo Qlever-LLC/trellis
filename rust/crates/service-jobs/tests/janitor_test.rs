@@ -1,5 +1,5 @@
 use serde_json::json;
-use trellis_jobs::{Job, JobContext, JobEventType, JobState};
+use trellis::jobs::{Job, JobContext, JobEventType, JobState};
 use trellis_service_jobs::plan_expired_events;
 
 fn sample_job(id: &str, state: JobState, deadline: Option<&str>) -> Job {

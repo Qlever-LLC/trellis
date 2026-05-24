@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "TypeScript code generation for Trellis contract manifests."
+publish = false
 
 [dependencies]
 oxc_allocator = "0.129.0"

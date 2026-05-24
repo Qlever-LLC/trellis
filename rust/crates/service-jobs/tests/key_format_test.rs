@@ -1,4 +1,4 @@
-use trellis_jobs::keys::job_key;
+use trellis::jobs::keys::job_key;
 
 #[test]
 fn jobs_keys_match_expected_wire_format() {

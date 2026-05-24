@@ -6,8 +6,8 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use crate::client::signed_headers;
-use crate::{SessionAuth, TrellisClient, TrellisClientError};
+use crate::client::client::signed_headers;
+use crate::client::{SessionAuth, TrellisClient, TrellisClientError};
 
 const TRANSFER_SEQUENCE_HEADER: &str = "trellis-transfer-seq";
 const TRANSFER_EOF_HEADER: &str = "trellis-transfer-eof";
@@ -250,7 +250,7 @@ fn parse_upload_ack(message: async_nats::Message) -> Result<UploadAck, TrellisCl
 
 #[cfg(test)]
 mod tests {
-    use crate::verify_proof;
+    use crate::client::verify_proof;
 
     use super::*;
 

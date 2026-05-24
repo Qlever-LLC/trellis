@@ -4,11 +4,10 @@ This guide covers querying, cancelling, replaying, and monitoring jobs across al
 
 This guide is for operators. If you are a service author, see [Jobs: TypeScript](/guides/using-jobs-ts) or [Jobs: Rust](/guides/using-jobs-rust).
 
-## What `trellis-service-jobs` implements
+## What the Jobs admin runtime implements
 
-`trellis.jobs@v1` is a standard built-in Trellis API. `trellis-service-jobs` is
-the optional Trellis infrastructure service that implements its admin runtime
-behavior:
+`trellis.jobs@v1` is a standard built-in Trellis API. The optional Jobs admin
+runtime is Trellis infrastructure that implements its admin behavior:
 
 - **SQL projection** — a queryable read-optimized view of current job state derived from the JetStream source of truth
 - **Global RPCs** — `Jobs.List`, `Jobs.Get`, `Jobs.Cancel`, `Jobs.Retry`, `Jobs.ReplayDLQ`, `Jobs.DismissDLQ`, `Jobs.ListServices`, `Jobs.Health`

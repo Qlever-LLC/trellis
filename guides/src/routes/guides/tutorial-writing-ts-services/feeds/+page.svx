@@ -126,7 +126,7 @@ use trellis_sdk_orders_service::types::{OrdersLiveEvent, OrdersLiveRequest};
 fn orders_live_stream(
     context: Arc<AppContext>,
     input: OrdersLiveRequest,
-) -> impl Stream<Item = Result<OrdersLiveEvent, trellis_service::ServerError>> + Send + 'static {
+) -> impl Stream<Item = Result<OrdersLiveEvent, trellis::service::ServerError>> + Send + 'static {
     stream::try_unfold((context, input), |(context, input)| async move {
         let mut updates = context.orders.watch(">").await?;
 
@@ -148,15 +148,13 @@ fn orders_live_stream(
     })
 }
 
-server::register_orders_live(&mut router, {
+service.register_orders_live({
     let context = Arc::clone(&context);
     move |_ctx, input| orders_live_stream(Arc::clone(&context), input)
 });
 ```
 
-The feed handler receives authenticated request context through `RequestContext`. Your service is still responsible for checking requested filters and every emitted frame.
-
-Add `feeds.v1.Orders.Live` to `SERVICE_SUBJECTS`.
+The feed handler receives authenticated request context through `ServiceHandlerContext`. Your service is still responsible for checking requested filters and every emitted frame.
 
 {/snippet}
 </LanguageTabs>

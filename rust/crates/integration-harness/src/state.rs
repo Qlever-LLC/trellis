@@ -1,17 +1,17 @@
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use trellis_auth::{connect_admin_client_async, AdminLoginOutcome};
-use trellis_client::{
+use trellis::auth::{connect_admin_client_async, AdminLoginOutcome};
+use trellis::client::{
     DeleteStateOptions, ExpectedPutRevision, ListStateOptions, MapStateStore, PutStateOptions,
     StateGetResult, TrellisClient, ValueStateStore,
 };
-use trellis_contracts::{
+use trellis::contracts::{
     digest_contract_json, state, use_contract, ContractKind, ContractManifestBuilder,
     ContractStateKind,
 };
-use trellis_sdk_state::client::StateClient as SdkStateClient;
-use trellis_sdk_state::types::{
+use trellis::sdk::state::client::StateClient as SdkStateClient;
+use trellis::sdk::state::types::{
     StateAdminDeleteRequest, StateAdminGetRequest, StateAdminListRequest, StateDeleteRequest,
     StateGetRequest, StateListRequest, StatePutRequest,
 };
@@ -206,8 +206,8 @@ async fn assert_rust_value_state(client: &TrellisClient) -> Result<()> {
         .entry
         .ok_or_else(|| miette!("preferences create response did not include entry"))?;
     let created_entry = match created_entry {
-        trellis_client::StateValue::Current(entry) => entry,
-        trellis_client::StateValue::MigrationRequired(_) => {
+        trellis::client::StateValue::Current(entry) => entry,
+        trellis::client::StateValue::MigrationRequired(_) => {
             return Err(miette!(
                 "preferences create unexpectedly required migration"
             ));
@@ -313,8 +313,8 @@ async fn assert_rust_map_state(client: &TrellisClient) -> Result<()> {
         .entry
         .ok_or_else(|| miette!("draft create response did not include entry"))?;
     let created_entry = match created_entry {
-        trellis_client::StateValue::Current(entry) => entry,
-        trellis_client::StateValue::MigrationRequired(_) => {
+        trellis::client::StateValue::Current(entry) => entry,
+        trellis::client::StateValue::MigrationRequired(_) => {
             return Err(miette!("draft create unexpectedly required migration"));
         }
     };
@@ -339,7 +339,7 @@ async fn assert_rust_map_state(client: &TrellisClient) -> Result<()> {
         .await
         .into_diagnostic()?;
     let listed_entry = listed.entries.iter().find_map(|entry| match entry {
-        trellis_client::StateValue::Current(entry) if entry.key == "inspection/rust-draft" => {
+        trellis::client::StateValue::Current(entry) if entry.key == "inspection/rust-draft" => {
             Some(entry)
         }
         _ => None,
@@ -614,12 +614,12 @@ async fn reauth_admin_setup(
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
     let contract_json = admin_setup_contract_json()?;
-    match trellis_auth::start_admin_reauth(&admin_login.state, &contract_json)
+    match trellis::auth::start_admin_reauth(&admin_login.state, &contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis_auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis_auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -639,17 +639,17 @@ async fn reauth_admin_setup(
 }
 
 async fn reauth_contract(
-    state: &trellis_auth::AdminSessionState,
+    state: &trellis::auth::AdminSessionState,
     contract_json: &str,
     trellis_url: &str,
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
-    match trellis_auth::start_admin_reauth(state, contract_json)
+    match trellis::auth::start_admin_reauth(state, contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis_auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis_auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =

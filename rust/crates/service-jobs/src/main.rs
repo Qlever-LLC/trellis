@@ -1,10 +1,17 @@
 use std::env;
 
-use trellis_client::ServiceConnectOptions;
-use trellis_service_jobs::{connect_and_run, CONTRACT_DIGEST, CONTRACT_ID};
+use trellis::client::ServiceConnectOptions;
+use trellis_service_jobs::{connect_service, JobsServiceMode, CONTRACT_DIGEST, CONTRACT_ID};
 
 fn required_env(name: &str) -> Result<String, String> {
     env::var(name).map_err(|_| format!("missing required env var: {name}"))
+}
+
+fn service_mode() -> JobsServiceMode {
+    match env::var("TRELLIS_JOBS_MODE").as_deref() {
+        Ok("rpc-only") => JobsServiceMode::RpcOnly,
+        _ => JobsServiceMode::Owner,
+    }
 }
 
 #[tokio::main]
@@ -16,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(2_000);
 
-    connect_and_run(ServiceConnectOptions {
+    let service = connect_service(ServiceConnectOptions {
         trellis_url: &trellis_url,
         contract_id: CONTRACT_ID,
         contract_digest: CONTRACT_DIGEST,
@@ -24,6 +31,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         timeout_ms,
     })
     .await?;
+
+    service.run_with_mode(service_mode()).await?;
 
     Ok(())
 }

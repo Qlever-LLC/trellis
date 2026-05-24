@@ -1,8 +1,8 @@
 use ed25519_dalek::{Signature, Signer, SigningKey};
 use serde::Serialize;
 
-use crate::proof::{base64url_decode, base64url_encode, build_proof_input, sha256};
-use crate::TrellisClientError;
+use crate::client::proof::{base64url_decode, base64url_encode, build_proof_input, sha256};
+use crate::client::TrellisClientError;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

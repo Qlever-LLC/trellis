@@ -10,30 +10,28 @@ use futures_util::StreamExt;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use trellis_auth::{
+use trellis::auth::{
     connect_admin_client_async, generate_session_keypair, AdminLoginOutcome, AdminSessionState,
 };
-use trellis_auth_adapters::AuthRequestValidatorAdapter;
-use trellis_client::{
+use trellis::client::{
     ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient, TrellisClientError,
 };
-use trellis_contracts::{
+use trellis::contracts::{
     digest_contract_json, kv, rpc, store, use_contract, ContractKind, ContractManifestBuilder,
 };
-use trellis_core_bootstrap::CoreBootstrapBinding;
-use trellis_sdk_auth::client::AuthClient as SdkAuthClient;
-use trellis_sdk_auth::types::{
+use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis::sdk::auth::types::{
     AuthCatalogIssuesResolveRequest, AuthEnvelopeExpansionsApproveRequest,
     AuthEnvelopeExpansionsListRequest, AuthEnvelopesExpandRequest,
 };
-use trellis_sdk_core::client::CoreClient;
-use trellis_sdk_core::types::{
+use trellis::sdk::core::client::CoreClient;
+use trellis::sdk::core::types::{
     TrellisBindingsGetResponseBinding, TrellisCatalogResponseCatalogIssuesItem,
 };
-use trellis_service::{
-    ConnectedService, KvResourceEntry, KvResourceHandle, KvResourceOperation, NatsKvResourceClient,
-    NatsStoreResourceClient, RequestValidator, Router, ServerError, StoreResourceHandle,
-    StoreWaitOptions,
+use trellis::service::{
+    ConnectedServiceRuntime, CoreBootstrapBinding, KvResourceEntry, KvResourceHandle,
+    KvResourceOperation, NatsKvResourceClient, NatsStoreResourceClient, ServerError,
+    StoreResourceHandle, StoreWaitOptions,
 };
 
 use crate::app::admin_setup_contract_json;
@@ -206,7 +204,7 @@ struct ResourceRecord {
 
 struct HarnessRustResourcesRpc;
 
-impl trellis_client::RpcDescriptor for HarnessRustResourcesRpc {
+impl trellis::client::RpcDescriptor for HarnessRustResourcesRpc {
     type Input = ResourceExerciseInput;
     type Output = ResourceExerciseOutput;
 
@@ -216,17 +214,9 @@ impl trellis_client::RpcDescriptor for HarnessRustResourcesRpc {
     const ERRORS: &'static [&'static str] = &["UnexpectedError"];
 }
 
-impl trellis_service::RpcDescriptor for HarnessRustResourcesRpc {
-    type Input = ResourceExerciseInput;
-    type Output = ResourceExerciseOutput;
-
-    const KEY: &'static str = "Harness.Rust.Resources";
-    const SUBJECT: &'static str = HARNESS_RUST_SUBJECT;
-}
-
 struct HarnessTsResourcesRpc;
 
-impl trellis_client::RpcDescriptor for HarnessTsResourcesRpc {
+impl trellis::client::RpcDescriptor for HarnessTsResourcesRpc {
     type Input = ResourceExerciseInput;
     type Output = ResourceExerciseOutput;
 
@@ -248,7 +238,7 @@ pub(crate) async fn run_resources_fixture(
         let admin_client = connect_admin_client_async(&setup_login.state)
             .await
             .into_diagnostic()?;
-        let auth_client = trellis_auth::AuthClient::new(&admin_client);
+        let auth_client = trellis::auth::AuthClient::new(&admin_client);
         let core_client = CoreClient::new(&admin_client);
         auth_client
             .create_service_deployment(HARNESS_DEPLOYMENT_ID, vec!["harness".to_string()])
@@ -300,7 +290,7 @@ pub(crate) async fn run_resources_fixture(
 
         let (rust_service_seed, rust_service_key) = generate_session_keypair();
         auth_client
-            .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+            .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
                 deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
                 instance_key: rust_service_key,
             })
@@ -308,7 +298,7 @@ pub(crate) async fn run_resources_fixture(
             .into_diagnostic()?;
         let (ts_service_seed, ts_service_key) = generate_session_keypair();
         auth_client
-            .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+            .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
                 deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
                 instance_key: ts_service_key,
             })
@@ -323,41 +313,47 @@ pub(crate) async fn run_resources_fixture(
             .await
             .into_diagnostic()?,
     );
-    let validator = AuthRequestValidatorAdapter::new(Arc::clone(&service_client));
-    let connected = connected_rust_service(
+    let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
         HARNESS_RUST_SERVICE_NAME,
-        &contract_digest,
         Arc::clone(&service_client),
-        validator,
-    )?;
-    if connected.kv_binding("optionalRecords").is_ok() {
+    )
+    .map_err(|error| miette!("failed to create resources service runtime: {error}"))?;
+    if service.kv_binding("optionalRecords").is_ok() {
         return Err(miette!("optionalRecords KV binding should be absent"));
     }
-    if connected.store_binding("optionalBlobs").is_ok() {
+    if service.store_binding("optionalBlobs").is_ok() {
         return Err(miette!("optionalBlobs store binding should be absent"));
     }
-    let kv: KvResourceHandle<NatsKvResourceClient> = connected
-        .kv("records")
+    let kv_binding = service
+        .kv_binding("records")
+        .map_err(|error| miette!("failed to read Rust KV resource binding: {error}"))?
+        .clone();
+    let kv_client = service
+        .kv_client("records")
         .await
-        .map_err(|error| miette!("failed to open Rust KV resource handle: {error}"))?;
-    let store: StoreResourceHandle<NatsStoreResourceClient> = connected
-        .store("blobs")
+        .map_err(|error| miette!("failed to open Rust KV resource client: {error}"))?;
+    let kv: KvResourceHandle<NatsKvResourceClient> =
+        KvResourceHandle::new("records", kv_binding, kv_client);
+    let store_binding = service
+        .store_binding("blobs")
+        .map_err(|error| miette!("failed to read Rust store resource binding: {error}"))?
+        .clone();
+    let store_client = service
+        .store_client("blobs")
         .await
-        .map_err(|error| miette!("failed to open Rust store resource handle: {error}"))?;
-    let mut router = Router::new();
-    router.register_rpc::<HarnessRustResourcesRpc, _, _>(move |_ctx, input| {
+        .map_err(|error| miette!("failed to open Rust store resource client: {error}"))?;
+    let store: StoreResourceHandle<NatsStoreResourceClient> = StoreResourceHandle::new(
+        HARNESS_RUST_SERVICE_NAME,
+        "blobs",
+        store_binding,
+        store_client,
+    );
+    service.register_rpc::<HarnessRustResourcesRpc, _, _>(move |_ctx, input| {
         let kv = kv.clone();
         let store = store.clone();
         async move { exercise_rust_resources(&kv, &store, input).await }
     });
-    let host = connected
-        .bootstrap(router)
-        .map_err(|error| miette!("failed to bootstrap Rust resources service: {error}"))?;
-    let service_nats = service_client.nats().clone();
-    let service_task = tokio::spawn(async move {
-        trellis_service::run_multi_subject_service(service_nats, &[HARNESS_RUST_SUBJECT], host)
-            .await
-    });
+    let service_task = tokio::spawn(async move { service.run().await });
 
     let call_result = async {
         let mut ts_service =
@@ -400,7 +396,7 @@ pub(crate) async fn run_resources_fixture(
 
 async fn assert_pending_resource_service_approval(
     trellis_url: &str,
-    auth_client: &trellis_auth::AuthClient<'_>,
+    auth_client: &trellis::auth::AuthClient<'_>,
     sdk_auth_client: &SdkAuthClient<'_>,
     contract_json: &str,
     contract_digest: &str,
@@ -415,7 +411,7 @@ async fn assert_pending_resource_service_approval(
         .await?;
     let (service_seed, service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: HARNESS_PENDING_DEPLOYMENT_ID.to_string(),
             instance_key: service_key,
         })
@@ -678,37 +674,6 @@ async fn ensure_optional_resource_conflicts(
     .await
 }
 
-fn connected_rust_service<'service, V>(
-    service_name: &'service str,
-    contract_digest: &str,
-    client: Arc<TrellisClient>,
-    validator: V,
-) -> Result<ConnectedService<'service, CoreBootstrapBinding, V, async_nats::Client>, miette::Report>
-where
-    V: RequestValidator,
-{
-    let binding_value = client
-        .service_bootstrap_binding()
-        .cloned()
-        .ok_or_else(|| miette!("service bootstrap response did not include resource bindings"))?;
-    let binding = serde_json::from_value::<TrellisBindingsGetResponseBinding>(binding_value)
-        .map(CoreBootstrapBinding::new)
-        .map_err(|error| miette!("invalid service bootstrap binding: {error}"))?;
-    if binding.contract_id != HARNESS_CONTRACT_ID || binding.digest != contract_digest {
-        return Err(miette!(
-            "resource service bootstrap returned unexpected contract {} digest {}",
-            binding.contract_id,
-            binding.digest
-        ));
-    }
-    Ok(ConnectedService::new(
-        service_name,
-        binding,
-        client.nats().clone(),
-        validator,
-    ))
-}
-
 async fn exercise_rust_resources(
     kv: &KvResourceHandle<NatsKvResourceClient>,
     store: &StoreResourceHandle<NatsStoreResourceClient>,
@@ -902,7 +867,7 @@ async fn assert_rust_resource_rpc<R>(
     provider: &str,
 ) -> Result<()>
 where
-    R: trellis_client::RpcDescriptor<
+    R: trellis::client::RpcDescriptor<
         Input = ResourceExerciseInput,
         Output = ResourceExerciseOutput,
     >,
@@ -1070,12 +1035,12 @@ async fn reauth_admin_setup(
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
     let contract_json = admin_setup_contract_json()?;
-    match trellis_auth::start_admin_reauth(&admin_login.state, &contract_json)
+    match trellis::auth::start_admin_reauth(&admin_login.state, &contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis_auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis_auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -1100,12 +1065,12 @@ async fn reauth_contract(
     trellis_url: &str,
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
-    match trellis_auth::start_admin_reauth(state, contract_json)
+    match trellis::auth::start_admin_reauth(state, contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis_auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis_auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =

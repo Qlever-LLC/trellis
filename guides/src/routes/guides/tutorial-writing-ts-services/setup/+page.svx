@@ -54,12 +54,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
 
-trellis-auth-adapters = "0.9"
-trellis-client = "0.9"
 trellis-contracts = "0.9"
-trellis-core-bootstrap = "0.9"
-trellis-sdk-auth = "0.9"
-trellis-service = "0.9"
+trellis = "0.9"
 
 # Add this after the first prepare run creates the generated SDK crate.
 trellis-sdk-orders-service = { path = "generated/packages/cargo/orders-service" }

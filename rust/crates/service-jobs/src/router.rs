@@ -1,16 +1,16 @@
 //! Router construction for the Jobs admin service.
 
 use serde_json::Value;
-use trellis_sdk_jobs::rpc::{
+use trellis::sdk::jobs::rpc::{
     Empty, JobsCancelRpc, JobsDismissDLQRpc, JobsGetRpc, JobsHealthRpc, JobsListDLQRpc,
     JobsListRpc, JobsListServicesRpc, JobsReplayDLQRpc, JobsRetryRpc,
 };
-use trellis_sdk_jobs::types::{
+use trellis::sdk::jobs::types::{
     JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsHealthResponse,
     JobsListDLQRequest, JobsListRequest, JobsListServicesRequest, JobsReplayDLQRequest,
     JobsRetryRequest,
 };
-use trellis_service::Router;
+use trellis::service::{DeclaredRpcError, Router, ServerError};
 
 use crate::contract::SERVICE_NAME;
 use crate::query::{JobsQuery, JobsQueryError};
@@ -85,23 +85,21 @@ pub fn build_router_with_query(query: JobsQuery) -> Router {
     router
 }
 
-fn map_query_error(error: JobsQueryError) -> trellis_service::ServerError {
+fn map_query_error(error: JobsQueryError) -> ServerError {
     match error {
-        JobsQueryError::JobNotFound { key } => {
-            trellis_service::ServerError::DeclaredRpc(trellis_service::DeclaredRpcError::new(
-                "NotFoundError",
-                format!("Job '{key}' not found"),
-                [
-                    ("resource", serde_json::json!("Job")),
-                    ("jobId", serde_json::json!(key)),
-                ],
-            ))
-        }
+        JobsQueryError::JobNotFound { key } => ServerError::DeclaredRpc(DeclaredRpcError::new(
+            "NotFoundError",
+            format!("Job '{key}' not found"),
+            [
+                ("resource", serde_json::json!("Job")),
+                ("jobId", serde_json::json!(key)),
+            ],
+        )),
         JobsQueryError::JobStateConflict {
             key,
             expected,
             actual,
-        } => trellis_service::ServerError::DeclaredRpc(trellis_service::DeclaredRpcError::new(
+        } => ServerError::DeclaredRpc(DeclaredRpcError::new(
             "ValidationError",
             format!("Job '{key}' is in state '{actual}', expected {expected}"),
             [
@@ -112,7 +110,7 @@ fn map_query_error(error: JobsQueryError) -> trellis_service::ServerError {
             ],
         )),
         JobsQueryError::Validation { field, details } => {
-            trellis_service::ServerError::DeclaredRpc(trellis_service::DeclaredRpcError::new(
+            ServerError::DeclaredRpc(DeclaredRpcError::new(
                 "ValidationError",
                 format!("Invalid {field}: {details}"),
                 [
@@ -122,7 +120,7 @@ fn map_query_error(error: JobsQueryError) -> trellis_service::ServerError {
             ))
         }
         JobsQueryError::ConvertWireModel { model, details } => {
-            trellis_service::ServerError::DeclaredRpc(trellis_service::DeclaredRpcError::new(
+            ServerError::DeclaredRpc(DeclaredRpcError::new(
                 "ValidationError",
                 format!("Invalid {model}: {details}"),
                 [
@@ -131,7 +129,7 @@ fn map_query_error(error: JobsQueryError) -> trellis_service::ServerError {
                 ],
             ))
         }
-        other => trellis_service::ServerError::Nats(format!("jobs RPC query failed: {other}")),
+        other => ServerError::Nats(format!("jobs RPC query failed: {other}")),
     }
 }
 

@@ -1,11 +1,13 @@
 [workspace]
 members = [
   "crates/auth",
+  "crates/trellis",
   "crates/auth-adapters",
   "crates/core-bootstrap",
   "crates/local-bootstrap",
   "crates/jobs",
   "crates/service-jobs",
+  "crates/service-runtime",
   "crates/service",
   "crates/contracts",
   "crates/codegen-ts",
@@ -17,11 +19,13 @@ members = [
 ]
 default-members = [
   "crates/auth",
+  "crates/trellis",
   "crates/auth-adapters",
   "crates/core-bootstrap",
   "crates/local-bootstrap",
   "crates/jobs",
   "crates/service-jobs",
+  "crates/service-runtime",
   "crates/service",
   "crates/contracts",
   "crates/codegen-ts",

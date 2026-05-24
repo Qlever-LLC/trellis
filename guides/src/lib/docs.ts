@@ -356,9 +356,10 @@ export const apiReferenceDocs: DocEntry[] = [
     section: "API Reference",
   },
   {
-    title: "trellis-client",
-    description: "Rust SDK client API on docs.rs.",
-    href: "https://docs.rs/trellis-client/latest/trellis_client/",
+    title: "trellis",
+    description:
+      "Curated Rust runtime facade and Trellis-owned SDK modules on docs.rs.",
+    href: "https://docs.rs/trellis/latest/trellis/",
     section: "Rustdoc",
   },
   {
@@ -367,48 +368,9 @@ export const apiReferenceDocs: DocEntry[] = [
     href: "https://docs.rs/trellis-contracts/latest/trellis_contracts/",
     section: "Rustdoc",
   },
-  {
-    title: "trellis-auth",
-    description: "Rust authentication API on docs.rs.",
-    href: "https://docs.rs/trellis-auth/latest/trellis_auth/",
-    section: "Rustdoc",
-  },
-  {
-    title: "trellis-codegen-rust",
-    description: "Rust code generation API on docs.rs.",
-    href: "https://docs.rs/trellis-codegen-rust/latest/trellis_codegen_rust/",
-    section: "Rustdoc",
-  },
-  {
-    title: "trellis-codegen-ts",
-    description: "TypeScript code generation API on docs.rs.",
-    href: "https://docs.rs/trellis-codegen-ts/latest/trellis_codegen_ts/",
-    section: "Rustdoc",
-  },
-  {
-    title: "trellis-generate-runner",
-    description: "Version-pinned contract generator launcher API on docs.rs.",
-    href:
-      "https://docs.rs/trellis-generate-runner/latest/trellis_generate_runner/",
-    section: "Rustdoc",
-  },
-  {
-    title: "trellis-cli",
-    description: "Rust CLI crate API on docs.rs.",
-    href: "https://docs.rs/trellis-cli/latest/trellis_cli/",
-    section: "Rustdoc",
-  },
 ];
 
-export const pendingRustdocCrates = [
-  "trellis-auth-adapters",
-  "trellis-jobs",
-  "trellis-service-jobs",
-  "trellis-service",
-  "trellis-core-bootstrap",
-  "trellis-integration-harness",
-  "trellis-local-bootstrap",
-] as const;
+export const pendingRustdocCrates = [] as const;
 
 const typescriptServiceTutorialGroup = "Write a service";
 
@@ -730,7 +692,7 @@ export const guideDocs: DocEntry[] = [
   {
     title: "Administer Jobs",
     description:
-      "Query, cancel, replay, and monitor jobs across all services using trellis-service-jobs.",
+      "Query, cancel, replay, and monitor jobs across all services using the built-in Jobs API.",
     href: "/guides/administering-jobs",
     section: "Administration",
   },

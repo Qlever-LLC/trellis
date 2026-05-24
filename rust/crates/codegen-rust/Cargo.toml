@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Rust code generation for Trellis contract manifests."
+publish = false
 
 [dependencies]
 prettyplease = "0.2.37"

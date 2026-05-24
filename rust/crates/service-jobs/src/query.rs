@@ -7,12 +7,12 @@ use std::time::Duration;
 
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use trellis_jobs::types::{Job, JobEvent, JobState};
-use trellis_jobs::{
+use trellis::jobs::types::{Job, JobEvent, JobState};
+use trellis::jobs::{
     cancelled_event, dismissed_event, job_event_subject, reduce_job_event, retried_event,
 };
 
-use trellis_sdk_jobs::types::{
+use trellis::sdk::jobs::types::{
     JobsCancelRequest, JobsCancelResponse, JobsDismissDLQRequest, JobsDismissDLQResponse,
     JobsGetRequest, JobsGetResponse, JobsListDLQRequest, JobsListDLQResponse,
     JobsListDLQResponseEntriesItem, JobsListRequest, JobsListResponse, JobsListResponseEntriesItem,
@@ -492,12 +492,12 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use futures_util::future::{ready, BoxFuture, FutureExt};
-    use trellis_client::{RpcErrorPayload, TrellisClientError};
-    use trellis_core_bootstrap::CoreBootstrapClientPort;
-    use trellis_sdk_core::types::{
+    use trellis::client::{RpcErrorPayload, TrellisClientError};
+    use trellis::sdk::core::types::{
         TrellisBindingsGetRequest, TrellisBindingsGetResponse, TrellisBindingsGetResponseBinding,
         TrellisBindingsGetResponseBindingResources, TrellisCatalogResponse,
     };
+    use trellis::service::CoreBootstrapClientPort;
 
     use crate::contract::expected_contract;
 

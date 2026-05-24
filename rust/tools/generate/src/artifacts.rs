@@ -161,10 +161,19 @@ pub fn write_contract_outputs(
             runtime_deps: rust_runtime_deps(
                 runtime_source,
                 artifact_version.clone(),
-                runtime_repo_root,
+                runtime_repo_root.clone(),
+            ),
+            emit_service_runtime_facade: should_emit_service_runtime_facade(
+                &resolved.loaded.manifest.id,
             ),
         })
         .into_diagnostic()?;
+        copy_embedded_trellis_owned_rust_sdk(
+            &resolved.loaded.manifest.id,
+            rust_out,
+            runtime_source,
+            runtime_repo_root.as_deref(),
+        )?;
     }
 
     write_generated_artifacts_metadata(out_manifest, &metadata)?;
@@ -384,11 +393,12 @@ fn write_rust_sdk_shell(
         crate_name: crate_name.to_string(),
         crate_version: artifact_version.to_string(),
         runtime_deps: deps,
+        emit_service_runtime_facade: false,
     };
 
     write_if_changed(
         &out.join("Cargo.toml"),
-        &render_rust_shell_cargo_toml(&opts),
+        &render_rust_shell_cargo_toml(contract_id, &opts),
     )?;
     write_if_changed(
         &out.join("src/lib.rs"),
@@ -397,12 +407,29 @@ fn write_rust_sdk_shell(
     Ok(())
 }
 
-fn render_rust_shell_cargo_toml(opts: &GenerateRustSdkOpts) -> String {
+fn render_rust_shell_cargo_toml(contract_id: &str, opts: &GenerateRustSdkOpts) -> String {
+    let publish_line = if is_trellis_owned_sdk_contract(contract_id) {
+        "publish = false\n"
+    } else {
+        ""
+    };
     format!(
-        "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2021\"\nlicense = \"Apache-2.0\"\n\n[dependencies]\nserde = {{ version = \"1.0\", features = [\"derive\"] }}\nserde_json = \"1.0\"\n{}\n",
+        "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2021\"\nlicense = \"Apache-2.0\"\n{}\n[dependencies]\nserde = {{ version = \"1.0\", features = [\"derive\"] }}\nserde_json = \"1.0\"\n{}\n",
         opts.crate_name,
         opts.crate_version,
+        publish_line,
         rust_runtime_deps_lines(&opts.runtime_deps).join("\n")
+    )
+}
+
+fn is_trellis_owned_sdk_contract(contract_id: &str) -> bool {
+    matches!(
+        contract_id,
+        "trellis.auth@v1"
+            | "trellis.core@v1"
+            | "trellis.health@v1"
+            | "trellis.jobs@v1"
+            | "trellis.state@v1"
     )
 }
 
@@ -898,7 +925,7 @@ pub fn generated_artifacts_are_fresh(
         && out_manifest.exists()
         && ts_key_outputs_exist(ts_out)
         && npm_key_outputs_exist(npm_out)
-        && rust_key_outputs_exist(rust_out, expected)
+        && rust_key_outputs_exist(rust_out, expected, out_manifest)
 }
 
 fn read_generated_artifacts_metadata(out_manifest: &Path) -> Option<GeneratedArtifactsMetadata> {
@@ -943,18 +970,97 @@ fn npm_key_outputs_exist(npm_out: Option<&Path>) -> bool {
         && npm_out.join("esm/mod.d.ts").exists()
 }
 
-fn rust_key_outputs_exist(rust_out: Option<&Path>, expected: &GeneratedArtifactsMetadata) -> bool {
+fn rust_key_outputs_exist(
+    rust_out: Option<&Path>,
+    expected: &GeneratedArtifactsMetadata,
+    out_manifest: &Path,
+) -> bool {
     let Some(rust_out) = rust_out else {
         return true;
     };
     let cargo_toml = rust_out.join("Cargo.toml");
     cargo_toml.exists()
         && rust_out.join("src/contract.rs").exists()
+        && embedded_trellis_owned_rust_sdk_key_outputs_exist(expected, out_manifest)
         && rust_sdk_cargo_manifest_is_valid(
             &cargo_toml,
             &expected.crate_name,
             &expected.artifact_version,
         )
+}
+
+fn embedded_trellis_owned_rust_sdk_key_outputs_exist(
+    expected: &GeneratedArtifactsMetadata,
+    out_manifest: &Path,
+) -> bool {
+    if !matches!(expected.runtime_source, RuntimeSource::Local) {
+        return true;
+    }
+    let Some(module) = embedded_trellis_owned_rust_sdk_module(&expected.contract_id) else {
+        return true;
+    };
+    let repo_root = detect_output_root(out_manifest.parent().unwrap_or(out_manifest));
+    let embedded_dir = repo_root.join("rust/crates/trellis/src/sdk").join(module);
+    embedded_dir.join("mod.rs").exists() && embedded_dir.join("contract.rs").exists()
+}
+
+fn copy_embedded_trellis_owned_rust_sdk(
+    contract_id: &str,
+    rust_out: &Path,
+    runtime_source: RuntimeSource,
+    runtime_repo_root: Option<&Path>,
+) -> miette::Result<()> {
+    if !matches!(runtime_source, RuntimeSource::Local) {
+        return Ok(());
+    }
+    let Some(module) = embedded_trellis_owned_rust_sdk_module(contract_id) else {
+        return Ok(());
+    };
+    let Some(repo_root) = runtime_repo_root else {
+        return Ok(());
+    };
+    let src_dir = rust_out.join("src");
+    let dest_dir = repo_root.join("rust/crates/trellis/src/sdk").join(module);
+    if dest_dir.exists() {
+        fs::remove_dir_all(&dest_dir).into_diagnostic()?;
+    }
+    fs::create_dir_all(&dest_dir).into_diagnostic()?;
+
+    for entry in fs::read_dir(&src_dir).into_diagnostic()? {
+        let entry = entry.into_diagnostic()?;
+        let path = entry.path();
+        if !path.is_file() || path.extension().is_none_or(|extension| extension != "rs") {
+            continue;
+        }
+        let file_name = path.file_name().ok_or_else(|| {
+            miette::miette!(
+                "generated Rust SDK source path has no file name: {}",
+                path.display()
+            )
+        })?;
+        let is_root = file_name == "lib.rs";
+        let contents = fs::read_to_string(&path).into_diagnostic()?;
+        let rewritten = rewrite_embedded_rust_sdk_source(&contents, is_root);
+        let dest_name = if is_root {
+            OsString::from("mod.rs")
+        } else {
+            file_name.to_os_string()
+        };
+        write_if_changed(&dest_dir.join(dest_name), &rewritten)?;
+    }
+    Ok(())
+}
+
+fn rewrite_embedded_rust_sdk_source(contents: &str, is_root: bool) -> String {
+    let rewritten = if is_root {
+        contents.replace("crate::", "self::")
+    } else {
+        contents.replace("crate::", "super::")
+    };
+    rewritten
+        .replace("trellis::client::", "crate::client::")
+        .replace("trellis_client::", "crate::client::")
+        .replace("trellis_contracts::", "crate::contracts::")
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> miette::Result<()> {
@@ -1018,6 +1124,21 @@ pub fn ts_package_name_from_id(contract_id: &str, prefix: &str) -> String {
 
 pub fn default_rust_crate_name_from_id(contract_id: &str) -> String {
     trellis_codegen_rust::default_sdk_crate_name(contract_id)
+}
+
+pub(crate) fn should_emit_service_runtime_facade(contract_id: &str) -> bool {
+    embedded_trellis_owned_rust_sdk_module(contract_id).is_none()
+}
+
+fn embedded_trellis_owned_rust_sdk_module(contract_id: &str) -> Option<&'static str> {
+    match contract_id {
+        "trellis.auth@v1" => Some("auth"),
+        "trellis.core@v1" => Some("core"),
+        "trellis.health@v1" => Some("health"),
+        "trellis.jobs@v1" => Some("jobs"),
+        "trellis.state@v1" => Some("state"),
+        _ => None,
+    }
 }
 
 pub fn trellis_package_version() -> String {
@@ -1210,8 +1331,32 @@ mod tests {
         let cargo = fs::read_to_string(rust_out.join("Cargo.toml")).expect("read cargo shell");
         let lib = fs::read_to_string(rust_out.join("src/lib.rs")).expect("read lib shell");
         assert!(cargo.contains("name = \"trellis_sdk_demo\""));
+        assert!(!cargo.contains("publish = false"));
         assert!(cargo.contains("trellis-contracts"));
         assert!(lib.contains("pub const CONTRACT_ID: &str = \"demo@v1\""));
+    }
+
+    #[test]
+    fn trellis_owned_contract_shell_outputs_non_publishable_rust_sdk_crate_shell() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let rust_out = temp.path().join("generated/packages/cargo/trellis-core");
+
+        write_contract_shell_outputs(
+            "trellis.core@v1",
+            "0.0.0-shell",
+            None,
+            None,
+            None,
+            Some(&rust_out),
+            "@trellis-sdk/core",
+            "trellis_sdk_core",
+            RuntimeSource::Registry,
+            None,
+        )
+        .expect("write shell outputs");
+
+        let cargo = fs::read_to_string(rust_out.join("Cargo.toml")).expect("read cargo shell");
+        assert!(cargo.contains("publish = false"));
     }
 }
 

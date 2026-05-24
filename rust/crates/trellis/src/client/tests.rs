@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
-use crate::proof::{base64url_encode, build_proof_input, sha256};
-use crate::{verify_proof, SessionAuth};
+use crate::client::proof::{base64url_encode, build_proof_input, sha256};
+use crate::client::{verify_proof, SessionAuth};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -125,7 +125,8 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
 After preparing artifacts and applying the contract boundary, open the resolved resource binding from bootstrap:
 
 ```rust
-use trellis_service::{NatsKvResourceClient, ResourceRuntimeClient, ServiceResourceBindings};
+use trellis::client::TrellisClient;
+use trellis::service::{NatsKvResourceClient, ResourceRuntimeClient, ServiceResourceBindings};
 
 async fn open_orders_kv(
     client: &TrellisClient,

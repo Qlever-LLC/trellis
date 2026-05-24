@@ -11,19 +11,17 @@ use futures_util::StreamExt;
 use miette::{miette, IntoDiagnostic, Result, WrapErr};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use trellis_auth::{
-    connect_admin_client_async, generate_session_keypair, AdminLoginOutcome, AdminSessionState,
-    AuthRequestsValidateRequest,
+use trellis::auth::{
+    connect_admin_client_async, generate_session_keypair, payload_hash_base64url,
+    AdminLoginOutcome, AdminSessionState, AuthRequestsValidateRequest,
 };
-use trellis_auth_adapters::request_validator::payload_hash_base64url;
-use trellis_auth_adapters::AuthRequestValidatorAdapter;
-use trellis_client::{ServiceConnectOptions, TrellisClient, TrellisClientError};
-use trellis_contracts::{
+use trellis::client::{ServiceConnectOptions, TrellisClient, TrellisClientError};
+use trellis::contracts::{
     digest_contract_json, rpc, use_contract, ContractKind, ContractManifestBuilder,
 };
-use trellis_sdk_auth::client::AuthClient as SdkAuthClient;
-use trellis_sdk_auth::types::AuthEnvelopesExpandRequest;
-use trellis_service::{bootstrap_service_host, BootstrapBinding, HandlerResult, Router};
+use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis::sdk::auth::types::AuthEnvelopesExpandRequest;
+use trellis::service::{ConnectedServiceRuntime, DeclaredRpcError, HandlerResult, ServerError};
 
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
@@ -242,7 +240,7 @@ struct HarnessNotFoundError {
 
 pub(crate) struct HarnessRustPingRpc;
 
-impl trellis_client::RpcDescriptor for HarnessRustPingRpc {
+impl trellis::client::RpcDescriptor for HarnessRustPingRpc {
     type Input = HarnessPingRequest;
     type Output = HarnessPingResponse;
 
@@ -252,17 +250,9 @@ impl trellis_client::RpcDescriptor for HarnessRustPingRpc {
     const ERRORS: &'static [&'static str] = &["NotFoundError", "UnexpectedError"];
 }
 
-impl trellis_service::RpcDescriptor for HarnessRustPingRpc {
-    type Input = HarnessPingRequest;
-    type Output = HarnessPingResponse;
-
-    const KEY: &'static str = "Harness.Rust.Ping";
-    const SUBJECT: &'static str = HARNESS_RUST_PING_SUBJECT;
-}
-
 pub(crate) struct HarnessTsPingRpc;
 
-impl trellis_client::RpcDescriptor for HarnessTsPingRpc {
+impl trellis::client::RpcDescriptor for HarnessTsPingRpc {
     type Input = HarnessPingRequest;
     type Output = HarnessPingResponse;
 
@@ -274,7 +264,7 @@ impl trellis_client::RpcDescriptor for HarnessTsPingRpc {
 
 pub(crate) struct HarnessRustCallerContextRpc;
 
-impl trellis_client::RpcDescriptor for HarnessRustCallerContextRpc {
+impl trellis::client::RpcDescriptor for HarnessRustCallerContextRpc {
     type Input = HarnessPingRequest;
     type Output = HarnessCallerContextResponse;
 
@@ -284,17 +274,9 @@ impl trellis_client::RpcDescriptor for HarnessRustCallerContextRpc {
     const ERRORS: &'static [&'static str] = &["UnexpectedError"];
 }
 
-impl trellis_service::RpcDescriptor for HarnessRustCallerContextRpc {
-    type Input = HarnessPingRequest;
-    type Output = HarnessCallerContextResponse;
-
-    const KEY: &'static str = "Harness.Rust.CallerContext";
-    const SUBJECT: &'static str = HARNESS_RUST_CALLER_CONTEXT_SUBJECT;
-}
-
 pub(crate) struct HarnessTsCallerContextRpc;
 
-impl trellis_client::RpcDescriptor for HarnessTsCallerContextRpc {
+impl trellis::client::RpcDescriptor for HarnessTsCallerContextRpc {
     type Input = HarnessPingRequest;
     type Output = HarnessCallerContextResponse;
 
@@ -306,7 +288,7 @@ impl trellis_client::RpcDescriptor for HarnessTsCallerContextRpc {
 
 pub(crate) struct HarnessRustTraceContextRpc;
 
-impl trellis_client::RpcDescriptor for HarnessRustTraceContextRpc {
+impl trellis::client::RpcDescriptor for HarnessRustTraceContextRpc {
     type Input = HarnessPingRequest;
     type Output = HarnessTraceContextResponse;
 
@@ -316,17 +298,9 @@ impl trellis_client::RpcDescriptor for HarnessRustTraceContextRpc {
     const ERRORS: &'static [&'static str] = &["UnexpectedError"];
 }
 
-impl trellis_service::RpcDescriptor for HarnessRustTraceContextRpc {
-    type Input = HarnessPingRequest;
-    type Output = HarnessTraceContextResponse;
-
-    const KEY: &'static str = "Harness.Rust.TraceContext";
-    const SUBJECT: &'static str = HARNESS_RUST_TRACE_CONTEXT_SUBJECT;
-}
-
 pub(crate) struct HarnessTsTraceContextRpc;
 
-impl trellis_client::RpcDescriptor for HarnessTsTraceContextRpc {
+impl trellis::client::RpcDescriptor for HarnessTsTraceContextRpc {
     type Input = HarnessPingRequest;
     type Output = HarnessTraceContextResponse;
 
@@ -345,7 +319,7 @@ pub(crate) async fn run_rpc_fixture(
         .await
         .into_diagnostic()
         .wrap_err("failed to connect RPC fixture admin client")?;
-    let auth_client = trellis_auth::AuthClient::new(&admin_client);
+    let auth_client = trellis::auth::AuthClient::new(&admin_client);
     auth_client
         .create_service_deployment(HARNESS_DEPLOYMENT_ID, vec!["harness".to_string()])
         .await
@@ -365,7 +339,7 @@ pub(crate) async fn run_rpc_fixture(
 
     let (rust_service_seed, rust_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
             instance_key: rust_service_key,
         })
@@ -373,7 +347,7 @@ pub(crate) async fn run_rpc_fixture(
         .into_diagnostic()?;
     let (ts_service_seed, ts_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
             instance_key: ts_service_key,
         })
@@ -381,7 +355,7 @@ pub(crate) async fn run_rpc_fixture(
         .into_diagnostic()?;
     let (ts_stop_service_seed, ts_stop_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis_sdk_auth::AuthServiceInstancesProvisionRequest {
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
             deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
             instance_key: ts_stop_service_key,
         })
@@ -395,55 +369,35 @@ pub(crate) async fn run_rpc_fixture(
             .wrap_err("failed to connect RPC fixture Rust service")?,
     );
 
-    let mut router = Router::new();
-    router.register_rpc::<HarnessRustPingRpc, _, _>(|_ctx, input| async move {
+    let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
+        HARNESS_RUST_SERVICE_NAME,
+        Arc::clone(&service_client),
+    )
+    .map_err(|error| miette!("failed to create RPC service runtime: {error}"))?;
+    service.register_rpc::<HarnessRustPingRpc, _, _>(|_ctx, input| async move {
         if input.message == "handler-error" {
-            return Err(trellis_service::ServerError::Nats(
-                "rust handler error marker".to_string(),
-            )) as HandlerResult<HarnessPingResponse>;
+            return Err(ServerError::Nats("rust handler error marker".to_string()))
+                as HandlerResult<HarnessPingResponse>;
         }
         if input.message == "not-found" {
-            return Err(trellis_service::ServerError::DeclaredRpc(
-                trellis_service::DeclaredRpcError::new(
-                    "NotFoundError",
-                    "Workspace not found",
-                    [("resource", json!("Workspace"))],
-                ),
-            )) as HandlerResult<HarnessPingResponse>;
+            return Err(ServerError::DeclaredRpc(DeclaredRpcError::new(
+                "NotFoundError",
+                "Workspace not found",
+                [("resource", json!("Workspace"))],
+            ))) as HandlerResult<HarnessPingResponse>;
         }
-        Ok::<_, trellis_service::ServerError>(HarnessPingResponse {
+        Ok::<_, ServerError>(HarnessPingResponse {
             message: input.message,
         }) as HandlerResult<HarnessPingResponse>
     });
-    router.register_rpc::<HarnessRustCallerContextRpc, _, _>(|ctx, _input| async move {
-        caller_context_response("rust", &ctx) as HandlerResult<HarnessCallerContextResponse>
+    service.register_rpc::<HarnessRustCallerContextRpc, _, _>(|ctx, _input| async move {
+        caller_context_response("rust", ctx.request())
+            as HandlerResult<HarnessCallerContextResponse>
     });
-    router.register_rpc::<HarnessRustTraceContextRpc, _, _>(|ctx, _input| async move {
-        trace_context_response("rust", &ctx) as HandlerResult<HarnessTraceContextResponse>
+    service.register_rpc::<HarnessRustTraceContextRpc, _, _>(|ctx, _input| async move {
+        trace_context_response("rust", ctx.request()) as HandlerResult<HarnessTraceContextResponse>
     });
-    let validator = AuthRequestValidatorAdapter::new(Arc::clone(&service_client));
-    let host = bootstrap_service_host(
-        HARNESS_RUST_SERVICE_NAME,
-        BootstrapBinding {
-            contract_id: HARNESS_CONTRACT_ID.to_string(),
-            digest: contract_digest.clone(),
-        },
-        router,
-        validator,
-    );
-    let service_nats = service_client.nats().clone();
-    let service_task = tokio::spawn(async move {
-        trellis_service::run_multi_subject_service(
-            service_nats,
-            &[
-                HARNESS_RUST_PING_SUBJECT,
-                HARNESS_RUST_CALLER_CONTEXT_SUBJECT,
-                HARNESS_RUST_TRACE_CONTEXT_SUBJECT,
-            ],
-            host,
-        )
-        .await
-    });
+    let service_task = tokio::spawn(async move { service.run().await });
 
     expect_call_denied(&admin_client).await?;
     let ts_service = TsServiceProcess::start(trellis_url, &contract_digest, &ts_service_seed)?;
@@ -533,7 +487,7 @@ pub(crate) async fn run_rpc_fixture(
 
 async fn expect_rust_client_handler_error<R>(client: &TrellisClient) -> Result<()>
 where
-    R: trellis_client::RpcDescriptor<Input = HarnessPingRequest, Output = HarnessPingResponse>,
+    R: trellis::client::RpcDescriptor<Input = HarnessPingRequest, Output = HarnessPingResponse>,
 {
     let input = HarnessPingRequest {
         message: "handler-error".to_string(),
@@ -564,7 +518,7 @@ where
 
 async fn expect_rust_client_not_found_error<R>(client: &TrellisClient) -> Result<()>
 where
-    R: trellis_client::RpcDescriptor<Input = HarnessPingRequest, Output = HarnessPingResponse>,
+    R: trellis::client::RpcDescriptor<Input = HarnessPingRequest, Output = HarnessPingResponse>,
 {
     let input = HarnessPingRequest {
         message: "not-found".to_string(),
@@ -624,7 +578,7 @@ async fn assert_auth_requests_validate_round_trip(
         request_id,
     );
 
-    let response = trellis_auth::AuthClient::new(validator_client)
+    let response = trellis::auth::AuthClient::new(validator_client)
         .validate_request(&AuthRequestsValidateRequest {
             capabilities: Some(Vec::new()),
             iat,
@@ -665,10 +619,10 @@ async fn assert_auth_protocol_matrix(
     let payload = serde_json::to_vec(&input)
         .into_diagnostic()
         .map_err(|error| miette!("failed to encode auth protocol matrix payload: {error}"))?;
-    let auth_client = trellis_auth::AuthClient::new(validator_client);
+    let auth_client = trellis::auth::AuthClient::new(validator_client);
 
     let (_unknown_seed, unknown_session_key) = generate_session_keypair();
-    let unknown_auth = trellis_client::SessionAuth::from_seed_base64url(&_unknown_seed)
+    let unknown_auth = trellis::client::SessionAuth::from_seed_base64url(&_unknown_seed)
         .into_diagnostic()
         .map_err(|error| miette!("failed to build unknown session auth: {error}"))?;
     let unknown_request_id = "integration-request-unknown-session";
@@ -999,8 +953,8 @@ async fn assert_raw_rpc_denial(
 
 fn expect_validate_rpc_error(
     result: std::result::Result<
-        trellis_auth::AuthRequestsValidateResponse,
-        trellis_auth::TrellisAuthError,
+        trellis::auth::AuthRequestsValidateResponse,
+        trellis::auth::TrellisAuthError,
     >,
     expected_reason: &str,
     label: &str,
@@ -1009,7 +963,7 @@ fn expect_validate_rpc_error(
         Ok(response) => Err(miette!(
             "Auth.Requests.Validate {label} unexpectedly succeeded: {response:?}"
         )),
-        Err(trellis_auth::TrellisAuthError::TrellisClient(TrellisClientError::RpcError(
+        Err(trellis::auth::TrellisAuthError::TrellisClient(TrellisClientError::RpcError(
             payload,
         ))) => {
             if payload.raw().contains(expected_reason) {
@@ -1045,12 +999,12 @@ pub(crate) async fn reauth_contract(
     trellis_url: &str,
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
-    match trellis_auth::start_admin_reauth(state, contract_json)
+    match trellis::auth::start_admin_reauth(state, contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis_auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis_auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -1072,12 +1026,12 @@ async fn reauth_updated_contract(
     trellis_url: &str,
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
-    match trellis_auth::start_admin_reauth(state, contract_json)
+    match trellis::auth::start_admin_reauth(state, contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis_auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis_auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -1108,7 +1062,7 @@ async fn expect_call_denied(client: &TrellisClient) -> Result<()> {
 
 pub(crate) async fn assert_rust_client_ping<R>(client: &TrellisClient, message: &str) -> Result<()>
 where
-    R: trellis_client::RpcDescriptor<Input = HarnessPingRequest, Output = HarnessPingResponse>,
+    R: trellis::client::RpcDescriptor<Input = HarnessPingRequest, Output = HarnessPingResponse>,
 {
     let input = HarnessPingRequest {
         message: message.to_string(),
@@ -1126,33 +1080,31 @@ where
 
 pub(crate) fn caller_context_response(
     provider: &str,
-    context: &trellis_service::RequestContext,
+    context: &trellis::service::RequestContext,
 ) -> HandlerResult<HarnessCallerContextResponse> {
     let caller = context
         .caller
         .as_ref()
-        .ok_or_else(|| trellis_service::ServerError::Nats("missing caller context".to_string()))?;
+        .ok_or_else(|| ServerError::Nats("missing caller context".to_string()))?;
     let caller_type = caller
         .get("type")
         .and_then(Value::as_str)
-        .ok_or_else(|| trellis_service::ServerError::Nats("missing caller type".to_string()))?;
+        .ok_or_else(|| ServerError::Nats("missing caller type".to_string()))?;
     let participant_kind = caller
         .get("participantKind")
         .and_then(Value::as_str)
-        .ok_or_else(|| {
-            trellis_service::ServerError::Nats("missing caller participant kind".to_string())
-        })?;
+        .ok_or_else(|| ServerError::Nats("missing caller participant kind".to_string()))?;
     let user_id = caller
         .get("userId")
         .and_then(Value::as_str)
-        .ok_or_else(|| trellis_service::ServerError::Nats("missing caller user id".to_string()))?;
+        .ok_or_else(|| ServerError::Nats("missing caller user id".to_string()))?;
     if caller_type != "user" {
-        return Err(trellis_service::ServerError::Nats(format!(
+        return Err(ServerError::Nats(format!(
             "expected user caller, got {caller_type}"
         )));
     }
     if participant_kind != "agent" {
-        return Err(trellis_service::ServerError::Nats(format!(
+        return Err(ServerError::Nats(format!(
             "expected agent caller, got {participant_kind}"
         )));
     }
@@ -1171,7 +1123,7 @@ pub(crate) async fn assert_rust_client_caller_context<R>(
     expected_user_id: &str,
 ) -> Result<()>
 where
-    R: trellis_client::RpcDescriptor<
+    R: trellis::client::RpcDescriptor<
         Input = HarnessPingRequest,
         Output = HarnessCallerContextResponse,
     >,
@@ -1199,15 +1151,14 @@ where
 
 pub(crate) fn trace_context_response(
     provider: &str,
-    context: &trellis_service::RequestContext,
+    context: &trellis::service::RequestContext,
 ) -> HandlerResult<HarnessTraceContextResponse> {
     let traceparent = context
         .traceparent
         .as_deref()
-        .ok_or_else(|| trellis_service::ServerError::Nats("missing traceparent".to_string()))?;
-    let trace_id = trace_id_from_traceparent(traceparent).ok_or_else(|| {
-        trellis_service::ServerError::Nats(format!("invalid traceparent `{traceparent}`"))
-    })?;
+        .ok_or_else(|| ServerError::Nats("missing traceparent".to_string()))?;
+    let trace_id = trace_id_from_traceparent(traceparent)
+        .ok_or_else(|| ServerError::Nats(format!("invalid traceparent `{traceparent}`")))?;
     Ok(HarnessTraceContextResponse {
         provider: provider.to_string(),
         trace_id: trace_id.to_string(),
@@ -1237,7 +1188,7 @@ pub(crate) async fn assert_rust_client_trace_context<R>(
     provider: &str,
 ) -> Result<()>
 where
-    R: trellis_client::RpcDescriptor<
+    R: trellis::client::RpcDescriptor<
         Input = HarnessPingRequest,
         Output = HarnessTraceContextResponse,
     >,
@@ -1263,7 +1214,7 @@ async fn call_with_traceparent<R>(
     traceparent: &str,
 ) -> Result<HarnessTraceContextResponse>
 where
-    R: trellis_client::RpcDescriptor<
+    R: trellis::client::RpcDescriptor<
         Input = HarnessPingRequest,
         Output = HarnessTraceContextResponse,
     >,
@@ -1339,7 +1290,7 @@ pub(crate) async fn expect_rust_client_call_denied<R>(
     unexpected_success: &str,
 ) -> Result<()>
 where
-    R: trellis_client::RpcDescriptor<Input = HarnessPingRequest, Output = HarnessPingResponse>,
+    R: trellis::client::RpcDescriptor<Input = HarnessPingRequest, Output = HarnessPingResponse>,
 {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
@@ -1543,7 +1494,7 @@ fn unique_suffix() -> u128 {
 }
 
 fn create_harness_proof(
-    auth: &trellis_client::SessionAuth,
+    auth: &trellis::client::SessionAuth,
     subject: &str,
     payload: &[u8],
     request_id: &str,
@@ -1557,7 +1508,7 @@ pub(crate) async fn connect_service_with_retry(
     trellis_url: &str,
     contract_digest: &str,
     service_seed: &str,
-) -> Result<TrellisClient, trellis_client::TrellisClientError> {
+) -> Result<TrellisClient, trellis::client::TrellisClientError> {
     let mut last_error = None;
     for _ in 0..10 {
         match TrellisClient::connect_service(ServiceConnectOptions {

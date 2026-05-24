@@ -40,7 +40,7 @@ use crate::transfer::run_transfer_fixture;
 use serde_json::to_string;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
-use trellis_contracts::{use_contract, ContractKind, ContractManifestBuilder};
+use trellis::contracts::{use_contract, ContractKind, ContractManifestBuilder};
 use trellis_local_bootstrap::{
     generate_local_trellis_bootstrap, ContainerRuntime, LocalTrellisBootstrapOptions,
 };
@@ -265,7 +265,7 @@ impl IntegrationRunner {
         let host_trellis_origin = format!("http://127.0.0.1:{trellis_port}");
         info!("integration preflight: starting delegated Rust agent login");
         let admin_setup_contract_json = admin_setup_contract_json()?;
-        let challenge = trellis_auth::start_agent_login(&trellis_auth::StartAgentLoginOpts {
+        let challenge = trellis::auth::start_agent_login(&trellis::auth::StartAgentLoginOpts {
             trellis_url: &host_trellis_origin,
             contract_json: &admin_setup_contract_json,
         })
@@ -605,11 +605,11 @@ impl IntegrationRunner {
 }
 
 async fn fresh_admin_login(
-    outcome: &trellis_auth::AdminLoginOutcome,
+    outcome: &trellis::auth::AdminLoginOutcome,
     contract_json: &str,
     trellis_url: &str,
     browser: &BrowserContainer,
-) -> Result<trellis_auth::AdminLoginOutcome> {
+) -> Result<trellis::auth::AdminLoginOutcome> {
     reauth_contract(&outcome.state, contract_json, trellis_url, browser).await
 }
 

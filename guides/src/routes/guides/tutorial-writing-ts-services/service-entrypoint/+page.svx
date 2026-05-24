@@ -2,7 +2,7 @@
   import LanguageTabs from "$lib/components/LanguageTabs.svelte";
 </script>
 
-Now write the code that actually runs the service. Both paths authenticate a service instance, present contract evidence, resolve deployment bindings, and connect to NATS; the Rust path currently exposes more of those runtime pieces directly.
+Now write the code that actually runs the service. Both paths authenticate a service instance, present contract evidence, resolve deployment bindings, and connect to NATS.
 
 <LanguageTabs>
 {#snippet ts()}
@@ -33,18 +33,10 @@ console.log("Connected to Trellis!");
 Create `src/main.rs`:
 
 ```rust
-use std::sync::Arc;
-
-use anyhow::Context;
 use clap::Parser;
-use trellis_auth_adapters::AuthRequestValidatorAdapter;
-use trellis_client::{ServiceConnectWithContractOptions, TrellisClient};
-use trellis_core_bootstrap::CoreBootstrapBinding;
-use trellis_sdk_orders_service::{CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON};
-use trellis_service::{run_multi_subject_service, Router};
+use trellis_sdk_orders_service::{connect_service, ServiceConnectOptions};
 
 const SERVICE_NAME: &str = "orders-service";
-const REQUEST_TIMEOUT_MS: u64 = 5_000;
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -63,46 +55,20 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let client = Arc::new(
-        TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
-            trellis_url: &args.trellis_url,
-            contract_id: CONTRACT_ID,
-            contract_digest: CONTRACT_DIGEST,
-            contract_json: CONTRACT_JSON,
-            session_key_seed_base64url: &args.seed,
-            timeout_ms: REQUEST_TIMEOUT_MS,
-            retry_delay_ms: 1_000,
-            approval_timeout_ms: 300_000,
-        })
-        .await
-        .context("connect service")?,
-    );
-
-    let binding = service_bootstrap_binding(&client)?;
-    let validator = AuthRequestValidatorAdapter::new(Arc::clone(&client));
-    let router = Router::new();
-    let host = trellis_service::bootstrap_service_host(
+    let mut service = connect_service(ServiceConnectOptions::new(
+        &args.trellis_url,
         SERVICE_NAME,
-        binding.bootstrap_binding(),
-        router,
-        validator,
-    );
+        &args.seed,
+    ))
+    .await?;
 
     tracing::info!("connected to Trellis");
-    run_multi_subject_service(client.nats().clone(), &[], host).await?;
+    service.run().await?;
     Ok(())
-}
-
-fn service_bootstrap_binding(client: &TrellisClient) -> anyhow::Result<CoreBootstrapBinding> {
-    let binding = client
-        .service_bootstrap_binding()
-        .cloned()
-        .context("service bootstrap response did not include bindings")?;
-    Ok(CoreBootstrapBinding::new(serde_json::from_value(binding)?))
 }
 ```
 
-`TrellisClient::connect_service_with_contract(...)` authenticates the service instance, presents the generated contract manifest, and waits if bootstrap creates a pending expansion request. `bootstrap_service_host(...)` wires the resolved bootstrap binding, request validator, and router into the NATS service loop.
+The generated `connect_service(...)` helper authenticates the service instance through the public Trellis service facade, presents the generated contract manifest, resolves deployment bindings, prepares authenticated request validation, and waits if bootstrap creates a pending expansion request. `service.run()` owns the NATS service loop for the handlers you register.
 
 {/snippet}
 </LanguageTabs>

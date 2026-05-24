@@ -86,7 +86,7 @@ Rust contributors should run `cargo xtask prepare` before `cargo build` or
 generated SDK crates under `generated/packages/cargo/`. `cargo xtask build` is a
 convenience wrapper that runs `prepare` first and then invokes the default Rust
 workspace build. That default build excludes the live integration harness; use
-`cargo xtask integration` for the full live suite.
+`cargo xtask integration run` for the full live suite.
 
 `trellis-generate` still owns the explicit source-to-artifact interface for repo
 scripts, wrappers, and CI:
@@ -115,7 +115,8 @@ These commands:
 - preserve the current JSR TypeScript generated surface where practical
 - generate npm JavaScript packages natively from generated TypeScript sources;
   npm output does not require Deno or `dnt`
-- generate Cargo SDK crates that target `trellis-client` and `trellis-service`
+- generate service/app-owned Cargo SDK crates that use the public `trellis`
+  facade and its internal generator/runtime support
 - use required contract `kind` metadata to decide discovery behavior: `service`
   generates manifest, JSR, npm, and Cargo artifacts; `app` generates manifest,
   JSR, and npm artifacts; `agent` and `device` contracts are verified, with Rust
@@ -380,19 +381,19 @@ The Rust implementation uses:
 The CLI owns explicit operational command execution, while `trellis-generate`
 owns bootstrap-safe contract and SDK workflows. Repo-specific build workflows
 remain wrapper scripts or tasks around those explicit commands. Shared logic
-lives in dedicated Rust crates:
+lives in the public `trellis` and `trellis-contracts` packages plus dedicated
+internal workspace crates:
 
+- `trellis`
 - `trellis-contracts`
 - `trellis-codegen-ts`
 - `trellis-codegen-rust`
-- `trellis-client`
-- `trellis-service`
-- generated SDK crates for Trellis-owned contracts such as `trellis-sdk-core`
-  and `trellis-sdk-auth`
+- Trellis-owned generated SDK modules exposed under
+  `trellis::sdk::{auth, core, health, jobs, state}`
 
-The current CLI implementation uses generated Trellis-owned SDK crates directly
-plus local helper modules for command parsing, auth session storage, contract
-resolution, and self-update behavior.
+The current CLI implementation uses the Trellis-owned SDK modules plus local
+helper modules for command parsing, auth session storage, contract resolution,
+and self-update behavior.
 
 ## References
 

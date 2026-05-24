@@ -20,8 +20,8 @@ use miette::IntoDiagnostic;
 use qrcode::{render::unicode, QrCode};
 use serde_json::Value;
 use tracing_subscriber::EnvFilter;
-use trellis_auth as authlib;
-use trellis_client::{TrellisClient, TrellisClientError};
+use trellis::auth as authlib;
+use trellis::client::{TrellisClient, TrellisClientError};
 
 mod auth;
 mod bootstrap;
@@ -241,8 +241,8 @@ mod tests {
     use std::path::Path;
     use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
-    use trellis_auth::{save_admin_session, AdminSessionState, TrellisAuthError};
-    use trellis_client::{RpcErrorPayload, TrellisClientError};
+    use trellis::auth::{save_admin_session, AdminSessionState, TrellisAuthError};
+    use trellis::client::{RpcErrorPayload, TrellisClientError};
 
     fn config_env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
