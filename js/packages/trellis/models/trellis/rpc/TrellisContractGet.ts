@@ -1,6 +1,6 @@
 import Type, { type Static } from "typebox";
 
-import { ContractStateSchema } from "../../../contracts.ts";
+import { ContractDocsSchema, ContractStateSchema } from "../../../contracts.ts";
 import {
   ContractJobsSchema,
   ContractResourcesSchema,
@@ -18,6 +18,7 @@ export const TrellisContractSchema = Type.Object({
   id: Type.String({ minLength: 1 }),
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
+  docs: Type.Optional(ContractDocsSchema),
   kind: Type.Union([
     Type.Literal("service"),
     Type.Literal("app"),

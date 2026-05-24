@@ -82,6 +82,24 @@ Deno.test("TrellisContractGetResponseSchema accepts canonical exports", () => {
   assertEquals(Value.Check(TrellisContractGetResponseSchema, response), true);
 });
 
+Deno.test("TrellisContractGetResponseSchema accepts contract docs", () => {
+  const response = {
+    contract: {
+      format: "trellis.contract.v1",
+      id: "svc.example@v1",
+      displayName: "Example Service",
+      description: "Example service contract",
+      docs: {
+        summary: "Example docs.",
+        markdown: "# Example\n\nContract docs.",
+      },
+      kind: "service",
+    },
+  };
+
+  assertEquals(Value.Check(TrellisContractGetResponseSchema, response), true);
+});
+
 Deno.test("TrellisContractGetResponseSchema rejects legacy resources.jobs", () => {
   const response = {
     contract: {

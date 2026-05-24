@@ -67,7 +67,7 @@ Example:
       "output": { "schema": "BillingRefundResult" },
       "capabilities": {
         "call": ["billing.refund"],
-        "read": ["billing.refund"],
+        "observe": ["billing.refund"],
         "cancel": ["billing.refund.cancel"],
         "control": ["billing.refund.control"]
       },
@@ -89,7 +89,7 @@ Descriptor rules:
 - `progress` is optional; if omitted, the operation does not emit typed progress
   payloads
 - `capabilities.call` gates initial invocation
-- `capabilities.read` gates `get`, `wait`, and `watch`; if omitted, it defaults
+- `capabilities.observe` gates `get`, `wait`, and `watch`; if omitted, it defaults
   to `capabilities.call`
 - `capabilities.cancel` gates `cancel`; if omitted, cancellation is not
   caller-accessible unless the runtime is acting as the owning service
@@ -107,7 +107,7 @@ Descriptor rules:
 `uses` MUST support operation invocation the same way it supports RPC calls,
 events, and subjects. A participant may only start remote operations that it
 explicitly declares in `uses` and that its current auth state authorizes.
-Follow-up reads, waits, watches, cancels, and signals are authorized against the
+Follow-up gets, waits, watches, cancels, and signals are authorized against the
 specific operation id, creator/owner metadata, and action-specific operation
 capabilities.
 
@@ -499,8 +499,8 @@ Authorization rules:
 
 - invocation is gated by authentication plus the operation's declared
   `capabilities.call`
-- read access (`get`, `wait`, `watch`) is gated by authentication,
-  `capabilities.read`, and the owning service's operation-level authorization
+- observe access (`get`, `wait`, `watch`) is gated by authentication,
+  `capabilities.observe`, and the owning service's operation-level authorization
   logic
 - cancel access is gated by authentication, `capabilities.cancel`, and the
   owning service's operation-level authorization logic
@@ -509,11 +509,11 @@ Authorization rules:
 - the owning service MUST persist enough operation ownership metadata to
   authorize follow-up access to a specific operation id
 - the default runtime rule is creator-bound visibility: the principal that
-  created the operation may read it later unless the owning service explicitly
+  created the operation may observe it later unless the owning service explicitly
   grants broader domain access
 
 Trellis MUST NOT introduce a broad deployment-wide capability equivalent to
-"read every operation everywhere" for ordinary clients.
+"observe every operation everywhere" for ordinary clients.
 
 ### 9) Auth callout and reply permissions
 

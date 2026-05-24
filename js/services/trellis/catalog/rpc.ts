@@ -55,6 +55,7 @@ function toRpcContract(
     id: contract.id,
     displayName: contract.displayName,
     description: contract.description,
+    ...(contract.docs ? { docs: contract.docs } : {}),
     kind: contract.kind,
     ...(contract.schemas
       ? {
@@ -130,13 +131,13 @@ function validateSurfaceStatusAction(
   }
 
   if (req.kind === "feed") {
-    if (req.action === undefined || req.action === "read") {
+    if (req.action === undefined || req.action === "subscribe") {
       return Result.ok(undefined);
     }
     return Result.err(
       validationError(
         "/action",
-        "feed surfaces only allow action 'read'",
+        "feed surfaces only allow action 'subscribe'",
       ),
     );
   }
@@ -218,8 +219,10 @@ function requiredSurfaceCapabilities(
 function defaultSurfaceAction(
   req: TrellisSurfaceStatusRequest,
 ): EnvelopeSurfaceAction {
-  if (req.kind === "event") return req.action ?? "subscribe";
-  if (req.kind === "feed") return "read";
+  if (req.kind === "event") {
+    return req.action === "publish" ? "publish" : "subscribe";
+  }
+  if (req.kind === "feed") return "subscribe";
   return "call";
 }
 

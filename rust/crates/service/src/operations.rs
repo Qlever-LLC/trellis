@@ -173,10 +173,30 @@ pub trait OperationDescriptor {
     const KEY: &'static str;
     const SUBJECT: &'static str;
     const CALLER_CAPABILITIES: &'static [&'static str] = &[];
-    const READ_CAPABILITIES: &'static [&'static str] = Self::CALLER_CAPABILITIES;
+    const OBSERVE_CAPABILITIES: &'static [&'static str] = Self::CALLER_CAPABILITIES;
     const CANCEL_CAPABILITIES: &'static [&'static str] = &[];
     const CONTROL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool;
+}
+
+impl<D> OperationDescriptor for D
+where
+    D: trellis_client::OperationDescriptor,
+    D::Input: DeserializeOwned + Send + 'static,
+    D::Progress: Serialize + Send + 'static,
+    D::Output: Serialize + Send + 'static,
+{
+    type Input = D::Input;
+    type Progress = D::Progress;
+    type Output = D::Output;
+
+    const KEY: &'static str = D::KEY;
+    const SUBJECT: &'static str = D::SUBJECT;
+    const CALLER_CAPABILITIES: &'static [&'static str] = D::CALLER_CAPABILITIES;
+    const OBSERVE_CAPABILITIES: &'static [&'static str] = D::OBSERVE_CAPABILITIES;
+    const CANCEL_CAPABILITIES: &'static [&'static str] = D::CANCEL_CAPABILITIES;
+    const CONTROL_CAPABILITIES: &'static [&'static str] = D::CONTROL_CAPABILITIES;
+    const CANCELABLE: bool = D::CANCELABLE;
 }
 
 /// Provider-style operation handler for generated service helpers.

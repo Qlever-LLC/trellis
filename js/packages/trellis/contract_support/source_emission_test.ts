@@ -387,6 +387,200 @@ Deno.test("defineServiceContract emits explicit exported schema names without fi
   ]);
 });
 
+Deno.test("defineServiceContract emits docs on owned contract surfaces", () => {
+  const contract = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "docs.example@v1",
+      displayName: "Docs Example",
+      description: "Expose documented contract surfaces.",
+      docs: {
+        summary: "Documented service.",
+        markdown: "# Docs Example\n\nService documentation.",
+      },
+      state: {
+        settings: {
+          kind: "value",
+          schema: ref.schema("StringValue"),
+          docs: { markdown: "State settings docs." },
+        },
+      },
+      rpc: {
+        "Docs.Read": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("StringValue"),
+          docs: { summary: "Read docs.", markdown: "RPC docs." },
+        },
+      },
+      operations: {
+        "Docs.Import": {
+          version: "v1",
+          input: ref.schema("StringValue"),
+          output: ref.schema("StringValue"),
+          signals: {
+            Pause: {
+              input: ref.schema("Empty"),
+              docs: { markdown: "Pause signal docs." },
+            },
+          },
+          docs: { markdown: "Operation docs." },
+        },
+      },
+      events: {
+        "Docs.Changed": {
+          version: "v1",
+          event: ref.schema("StringValue"),
+          docs: { markdown: "Event docs." },
+        },
+      },
+      feeds: {
+        "Docs.Stream": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          event: ref.schema("StringValue"),
+          docs: { markdown: "Feed docs." },
+        },
+      },
+      jobs: {
+        "docs.process": {
+          payload: ref.schema("StringValue"),
+          docs: { markdown: "Job docs." },
+        },
+      },
+      resources: {
+        kv: {
+          docs: {
+            purpose: "Store docs values.",
+            schema: ref.schema("StringValue"),
+            docs: { markdown: "KV docs." },
+          },
+        },
+        store: {
+          blobs: {
+            purpose: "Store docs blobs.",
+            docs: { markdown: "Store docs." },
+          },
+        },
+      },
+    }),
+  );
+
+  assertEquals(contract.CONTRACT.docs, {
+    summary: "Documented service.",
+    markdown: "# Docs Example\n\nService documentation.",
+  });
+  assertEquals(contract.CONTRACT.rpc?.["Docs.Read"]?.docs, {
+    summary: "Read docs.",
+    markdown: "RPC docs.",
+  });
+  assertEquals(
+    contract.CONTRACT.operations?.["Docs.Import"]?.signals?.Pause.docs,
+    { markdown: "Pause signal docs." },
+  );
+  assertEquals(contract.CONTRACT.events?.["Docs.Changed"]?.docs, {
+    markdown: "Event docs.",
+  });
+  assertEquals(contract.CONTRACT.feeds?.["Docs.Stream"]?.docs, {
+    markdown: "Feed docs.",
+  });
+  assertEquals(contract.CONTRACT.state?.settings.docs, {
+    markdown: "State settings docs.",
+  });
+  assertEquals(contract.CONTRACT.jobs?.["docs.process"]?.docs, {
+    markdown: "Job docs.",
+  });
+  assertEquals(contract.CONTRACT.resources?.kv?.docs.docs, {
+    markdown: "KV docs.",
+  });
+  assertEquals(contract.CONTRACT.resources?.store?.blobs.docs, {
+    markdown: "Store docs.",
+  });
+  assertEquals(normalizeContractManifest(contract.CONTRACT), contract.CONTRACT);
+});
+
+Deno.test("contract digest ignores docs-only differences", () => {
+  const defineDocumented = (markdown: string) =>
+    defineServiceContract({ schemas: baseSchemas }, (ref) => ({
+      id: "digest.docs@v1",
+      displayName: "Digest Docs",
+      description: "Verify docs are not part of contract identity.",
+      docs: { summary: markdown, markdown },
+      state: {
+        settings: {
+          kind: "value",
+          schema: ref.schema("StringValue"),
+          docs: { markdown },
+        },
+      },
+      rpc: {
+        "Docs.Read": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("StringValue"),
+          docs: { markdown },
+        },
+      },
+      operations: {
+        "Docs.Import": {
+          version: "v1",
+          input: ref.schema("StringValue"),
+          output: ref.schema("StringValue"),
+          signals: {
+            Pause: { input: ref.schema("Empty"), docs: { markdown } },
+          },
+          docs: { markdown },
+        },
+      },
+      events: {
+        "Docs.Changed": {
+          version: "v1",
+          event: ref.schema("StringValue"),
+          docs: { markdown },
+        },
+      },
+      feeds: {
+        "Docs.Stream": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          event: ref.schema("StringValue"),
+          docs: { markdown },
+        },
+      },
+      jobs: {
+        "docs.process": {
+          payload: ref.schema("StringValue"),
+          docs: { markdown },
+        },
+      },
+      resources: {
+        kv: {
+          docs: {
+            purpose: "Store docs values.",
+            schema: ref.schema("StringValue"),
+            docs: { markdown },
+          },
+        },
+        store: {
+          blobs: {
+            purpose: "Store docs blobs.",
+            docs: { markdown },
+          },
+        },
+      },
+    }));
+
+  const first = defineDocumented("First docs.");
+  const second = defineDocumented("Second docs.");
+
+  assertNotEquals(first.CONTRACT.docs, second.CONTRACT.docs);
+  assertNotEquals(
+    first.CONTRACT.operations?.["Docs.Import"]?.signals?.Pause.docs,
+    second.CONTRACT.operations?.["Docs.Import"]?.signals?.Pause.docs,
+  );
+  assertEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
+});
+
 Deno.test("contract helpers reject registry-side exports at runtime", () => {
   assertThrows(
     () =>
@@ -862,7 +1056,7 @@ Deno.test("defineServiceContract emits top-level capabilities with global names"
         output: ref.schema("StringValue"),
         capabilities: {
           call: ["users.read"],
-          read: ["users.read"],
+          observe: ["users.read"],
           cancel: ["platform::cancel"],
         },
       },
@@ -899,7 +1093,7 @@ Deno.test("defineServiceContract emits top-level capabilities with global names"
     contract.CONTRACT.operations?.["Auth.Users.Export"]?.capabilities,
     {
       call: [globalUsersRead],
-      read: [globalUsersRead],
+      observe: [globalUsersRead],
       cancel: ["platform::cancel"],
     },
   );
@@ -1741,7 +1935,7 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
           output: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
           capabilities: {
             call: ["billing.refund"],
-            read: ["billing.read"],
+            observe: ["billing.read"],
             cancel: ["billing.cancel"],
             control: ["billing.control"],
           },

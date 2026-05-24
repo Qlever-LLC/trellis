@@ -147,7 +147,7 @@ operations: {
     },
     capabilities: {
       call: ["uploader"],
-      read: ["uploader"],
+      observe: ["uploader"],
     },
   },
 }

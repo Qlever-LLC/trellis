@@ -463,7 +463,7 @@ fn builder_supports_owned_and_used_operations() {
             Some("CaptureResult"),
         )
         .with_call_capabilities(["payments.capture"])
-        .with_read_capabilities(["payments.read"])
+        .with_observe_capabilities(["payments.read"])
         .with_cancel_capabilities(["payments.cancel"])
         .with_control_capabilities(["payments.control"])
         .cancel(true),

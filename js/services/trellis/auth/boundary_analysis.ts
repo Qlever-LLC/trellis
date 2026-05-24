@@ -172,12 +172,13 @@ function addOperation(
     contractId,
     kind: "operation",
     name,
-    action: "read",
+    action: "observe",
     required,
   });
   if (includeCapabilities) {
     boundary.capabilities.push(
-      ...(operation.capabilities?.read ?? operation.capabilities?.call ?? []),
+      ...(operation.capabilities?.observe ?? operation.capabilities?.call ??
+        []),
     );
     boundary.capabilities.push(...(operation.capabilities?.control ?? []));
   }
@@ -233,7 +234,7 @@ function addFeed(
     contractId,
     kind: "feed",
     name,
-    action: "read",
+    action: "subscribe",
     required,
   });
   if (options.includeCapabilities ?? true) {

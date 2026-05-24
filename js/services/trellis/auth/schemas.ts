@@ -340,7 +340,7 @@ export const EnvelopeSurfaceActionSchema = Type.Union([
   Type.Literal("call"),
   Type.Literal("publish"),
   Type.Literal("subscribe"),
-  Type.Literal("read"),
+  Type.Literal("observe"),
   Type.Literal("cancel"),
 ]);
 export type EnvelopeSurfaceAction = StaticDecode<

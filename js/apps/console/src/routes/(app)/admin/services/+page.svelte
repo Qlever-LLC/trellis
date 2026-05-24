@@ -21,13 +21,25 @@
   import { page } from "$app/state";
   import { onMount } from "svelte";
   import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
+  import DataTable from "$lib/components/DataTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
+  import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
+  import SelectableRecordButton from "$lib/components/SelectableRecordButton.svelte";
+  import SelectionRail from "$lib/components/SelectionRail.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
   import { boundaryCounts } from "$lib/envelope_console";
+  import {
+    contractDependencyBlockLabel,
+    contractDependencyProviderContract,
+    contractDependencyRequiredThing,
+    isContractDependencyBlock,
+    isForcedUpdateRepair,
+    parseContractDependencyBlock,
+  } from "$lib/catalog_issues";
   import { getNotifications } from "$lib/notifications.svelte";
   import {
     appendHealthEvent,
@@ -56,6 +68,10 @@
   type CatalogContract = TrellisCatalogOutput["catalog"]["contracts"][number];
   type ContractDetail = TrellisContractGetOutput["contract"];
   type ContractSchema = NonNullable<ContractDetail["schemas"]>[string];
+  type ContractDocs = {
+    summary?: string;
+    markdown: string;
+  };
   type ExpansionRequest = AuthEnvelopeExpansionsListResponse["entries"][number];
   type ExpansionRequestRow = {
     requestId: string;
@@ -70,6 +86,10 @@
     capability: string;
     source: string;
     context: string;
+  };
+  type DependencyThing = {
+    kind: string;
+    name: string;
   };
   type Surface = DeploymentEnvelope["boundary"]["surfaces"][number];
   type SchemaPanel = {
@@ -91,7 +111,17 @@
     kind: JsonTokenKind;
     text: string;
   };
-  type Tab = "instances" | "rpc" | "events" | "operations" | "schemas" | "resources" | "capabilities" | "dependencies" | "jobs" | "heartbeats";
+  type Tab = "instances" | "rpc" | "events" | "operations" | "feeds" | "schemas" | "resources" | "capabilities" | "dependencies" | "jobs" | "heartbeats";
+  type SurfaceGroup = {
+    key: string;
+    contractId: string;
+    kind: Surface["kind"];
+    name: string;
+    actions: string[];
+    required: "required" | "optional" | "mixed";
+    representative: Surface;
+    surfaces: Surface[];
+  };
   type ContractRef = `${string}:${string}`;
   type ContractRefDeploymentIds = Record<string, readonly string[]>;
   type ServiceInstanceAction = "disable" | "enable" | "remove";
@@ -135,13 +165,14 @@
   let selectedSurfaceKey = $state<string | null>(null);
   let search = $state("");
 
-  const tabs: Tab[] = ["instances", "rpc", "events", "operations", "schemas", "resources", "capabilities", "dependencies", "jobs", "heartbeats"];
+  const tabs: Tab[] = ["instances", "rpc", "events", "operations", "feeds", "schemas", "resources", "capabilities", "dependencies", "jobs", "heartbeats"];
 
   const selectedDeployment = $derived(deployments.find((deployment) => deployment.deploymentId === selectedDeploymentId) ?? null);
   const serviceDeploymentIds = $derived.by(() => new Set(deployments.map((deployment) => deployment.deploymentId)));
   const selectedInstances = $derived(instances.filter((instance) => instance.deploymentId === selectedDeploymentId));
   const activeInstances = $derived(selectedInstances.filter((instance) => !instance.disabled));
   const selectedInstanceIds = $derived(new Set(selectedInstances.map((instance) => instance.instanceId)));
+  const selectedServiceContractIds = $derived(new Set(selectedInstances.map((instance) => instance.currentContractId).filter(isNonEmptyString)));
   const selectedServiceContractRefs = $derived(uniqueContractRefs(selectedInstances));
   const contractRefDeploymentIds = $derived.by(() => {
     const refs: ContractRefDeploymentIds = {};
@@ -197,6 +228,18 @@
     if (activeInstances.length > 0) return { label: "Active", status: "healthy" as const };
     return { label: "No instances", status: "offline" as const };
   });
+  const dependencyBlocks = $derived(catalogIssues.filter(isContractDependencyBlock));
+  const forcedUpdateRepairs = $derived(catalogIssues.filter(isForcedUpdateRepair));
+  const selectedDeploymentDependencyBlocks = $derived(
+    dependencyBlocks.filter((issue) => issue.deploymentIds.includes(selectedDeploymentId)),
+  );
+  const dependencySurfaceGroups = $derived.by(() => {
+    if (!selectedEnvelope) return [];
+    return groupSurfaces(selectedEnvelope.boundary.surfaces.filter((surface) => !selectedServiceContractIds.has(surface.contractId)));
+  });
+  const dependencyContracts = $derived(
+    selectedEnvelope?.boundary.contracts.filter((contract) => !selectedServiceContractIds.has(contract.contractId)) ?? [],
+  );
 
   function syncSelectedDeployment(nextDeployments: Deployment[]) {
     const requestedDeploymentId = page.url.searchParams.get("deployment");
@@ -213,6 +256,10 @@
     const id = contractId?.trim();
     const digest = contractDigest?.trim();
     return id && digest ? `${id}:${digest}` : null;
+  }
+
+  function isNonEmptyString(value: string | undefined): value is string {
+    return value !== undefined && value.trim().length > 0;
   }
 
   function uniqueContractRefsForInstances(serviceInstances: ServiceInstance[], refDeploymentIds: ContractRefDeploymentIds): ContractRef[] {
@@ -238,8 +285,57 @@
     return { contractId: ref.slice(0, index), digest: ref.slice(index + 1) };
   }
 
-  function surfaceKey(surface: Surface): string {
-    return `${surface.contractId}:${surface.kind}:${surface.name}:${surface.action}`;
+  function surfaceGroupKey(surface: Surface): string {
+    return `${surface.contractId}:${surface.kind}:${surface.name}`;
+  }
+
+  function groupSurfaces(surfaces: readonly Surface[]): SurfaceGroup[] {
+    const groups: SurfaceGroup[] = [];
+    for (const surface of surfaces) {
+      const key = surfaceGroupKey(surface);
+      const group = groups.find((entry) => entry.key === key);
+      if (group) {
+        const nextSurfaces = [...group.surfaces, surface];
+        group.surfaces = nextSurfaces;
+        if (!group.actions.includes(surface.action)) group.actions = [...group.actions, surface.action];
+        group.required = requirementForSurfaces(nextSurfaces);
+      } else {
+        groups.push({
+          key,
+          contractId: surface.contractId,
+          kind: surface.kind,
+          name: surface.name,
+          actions: [surface.action],
+          required: surface.required ? "required" : "optional",
+          representative: surface,
+          surfaces: [surface],
+        });
+      }
+    }
+    return groups;
+  }
+
+  function requirementForSurfaces(surfaces: readonly Surface[]): SurfaceGroup["required"] {
+    const required = surfaces.some((surface) => surface.required);
+    const optional = surfaces.some((surface) => !surface.required);
+    if (required && optional) return "mixed";
+    return required ? "required" : "optional";
+  }
+
+  function requirementLabel(requirement: SurfaceGroup["required"]): string {
+    if (requirement === "mixed") return "Mixed";
+    return requirement === "required" ? "Required" : "Optional";
+  }
+
+  function actionLabel(kind: Surface["kind"], action: string): string {
+    if (kind === "operation" && action === "call") return "Start";
+    if (kind === "operation" && action === "observe") return "Observe";
+    if (kind === "feed" && action === "subscribe") return "Subscribe";
+    if (action === "call") return "Call";
+    if (action === "publish") return "Publish";
+    if (action === "subscribe") return "Subscribe";
+    if (action === "cancel") return "Cancel";
+    return action[0]?.toUpperCase() + action.slice(1);
   }
 
   function catalogDigestForContractId(contractId: string): string | null {
@@ -251,6 +347,28 @@
 
   function objectRecord(value: unknown): Record<string, unknown> | null {
     return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  }
+
+  function contractDocs(value: unknown): ContractDocs | null {
+    const record = objectRecord(value);
+    const markdown = record?.markdown;
+    if (typeof markdown !== "string" || markdown.trim().length === 0) return null;
+    const summary = record?.summary;
+    return typeof summary === "string" && summary.trim().length > 0 ? { summary, markdown } : { markdown };
+  }
+
+  function contractSurfaceDescriptor(contract: ContractDetail, kind: Surface["kind"], name: string): Record<string, unknown> | null {
+    if (kind === "rpc") return objectRecord(objectRecord(contract.rpc)?.[name]);
+    if (kind === "event") return objectRecord(objectRecord(contract.events)?.[name]);
+    if (kind === "operation") return objectRecord(objectRecord(contract.operations)?.[name]);
+    return objectRecord(objectRecord(objectRecord(contract)?.feeds)?.[name]);
+  }
+
+  function docsForSurface(surface: Surface): ContractDocs | null {
+    const digest = catalogDigestForContractId(surface.contractId);
+    const contract = digest ? contractDetails[digest] : null;
+    if (!contract) return null;
+    return contractDocs(contractSurfaceDescriptor(contract, surface.kind, surface.name)?.docs);
   }
 
   function schemaRefName(value: unknown): string | null {
@@ -272,8 +390,7 @@
     if (!contract) return [];
 
     if (surface.kind === "rpc") {
-      const method = objectRecord(contract.rpc)?.[surface.name];
-      const methodRecord = objectRecord(method);
+      const methodRecord = contractSurfaceDescriptor(contract, surface.kind, surface.name);
       const input = schemaFromRef(contract, methodRecord?.input);
       const output = schemaFromRef(contract, methodRecord?.output);
       return [
@@ -283,19 +400,40 @@
     }
 
     if (surface.kind === "event") {
-      const event = objectRecord(contract.events)?.[surface.name];
-      const eventSchema = schemaFromRef(contract, objectRecord(event)?.event);
+      const event = contractSurfaceDescriptor(contract, surface.kind, surface.name);
+      const eventSchema = schemaFromRef(contract, event?.event);
       return [{ label: "Event", ...eventSchema, example: eventSchema.schema ? exampleFromSchema(eventSchema.schema) : null }];
     }
 
     if (surface.kind === "operation") {
-      const operation = objectRecord(contract.operations)?.[surface.name];
-      const operationRecord = objectRecord(operation);
+      const operationRecord = contractSurfaceDescriptor(contract, surface.kind, surface.name);
       const input = schemaFromRef(contract, operationRecord?.input);
       const output = schemaFromRef(contract, operationRecord?.output);
-      return [
+      const panels: SchemaPanel[] = [
         { label: "Input", ...input, example: input.schema ? exampleFromSchema(input.schema) : null },
         { label: "Output", ...output, example: output.schema ? exampleFromSchema(output.schema) : null },
+      ];
+      if (operationRecord?.progress !== undefined) {
+        const progress = schemaFromRef(contract, operationRecord.progress);
+        panels.push({ label: "Progress", ...progress, example: progress.schema ? exampleFromSchema(progress.schema) : null });
+      }
+      const signals = objectRecord(operationRecord?.signals);
+      if (signals) {
+        for (const [name, signal] of Object.entries(signals)) {
+          const signalInput = schemaFromRef(contract, objectRecord(signal)?.input);
+          panels.push({ label: `Signal: ${name}`, ...signalInput, example: signalInput.schema ? exampleFromSchema(signalInput.schema) : null });
+        }
+      }
+      return panels;
+    }
+
+    if (surface.kind === "feed") {
+      const feedRecord = contractSurfaceDescriptor(contract, surface.kind, surface.name);
+      const input = schemaFromRef(contract, feedRecord?.input);
+      const event = schemaFromRef(contract, feedRecord?.event);
+      return [
+        { label: "Input", ...input, example: input.schema ? exampleFromSchema(input.schema) : null },
+        { label: "Event", ...event, example: event.schema ? exampleFromSchema(event.schema) : null },
       ];
     }
 
@@ -304,14 +442,21 @@
 
   function referencedSchemaNames(contract: ContractDetail): string[] {
     const names: string[] = [];
-    for (const section of [contract.rpc, contract.events, contract.operations]) {
+    for (const section of [contract.rpc, contract.events, contract.operations, objectRecord(contract)?.feeds]) {
       const records = objectRecord(section);
       if (!records) continue;
       for (const value of Object.values(records)) {
         const record = objectRecord(value);
-        for (const key of ["input", "output", "event"] as const) {
+        for (const key of ["input", "output", "event", "progress"] as const) {
           const name = schemaRefName(record?.[key]);
           if (name && !names.includes(name)) names.push(name);
+        }
+        const signals = objectRecord(record?.signals);
+        if (signals) {
+          for (const signal of Object.values(signals)) {
+            const name = schemaRefName(objectRecord(signal)?.input);
+            if (name && !names.includes(name)) names.push(name);
+          }
         }
       }
     }
@@ -332,6 +477,52 @@
       }
     }
     return rows;
+  }
+
+  function stringList(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0) : [];
+  }
+
+  function dependencyKindText(kind: string): string {
+    return kind === "RPC" ? "RPC" : kind.toLowerCase();
+  }
+
+  function dependencyThingsFromBlockedContract(issue: CatalogIssue): DependencyThing[] {
+    const digest = issue.digest;
+    if (!digest) return [];
+    const contract = contractDetails[digest];
+    if (!contract) return [];
+    const providerContract = contractDependencyProviderContract(issue);
+    const uses = objectRecord(objectRecord(contract)?.uses);
+    const groups = [objectRecord(uses?.required), objectRecord(uses?.optional)];
+    const things: DependencyThing[] = [];
+    for (const group of groups) {
+      if (!group) continue;
+      for (const useValue of Object.values(group)) {
+        const use = objectRecord(useValue);
+        if (use?.contract !== providerContract) continue;
+        for (const name of stringList(objectRecord(use.rpc)?.call)) things.push({ kind: "RPC", name });
+        for (const name of stringList(objectRecord(use.operations)?.call)) things.push({ kind: "Operation", name });
+        const events = objectRecord(use.events);
+        for (const name of stringList(events?.publish)) things.push({ kind: "Event", name });
+        for (const name of stringList(events?.subscribe)) things.push({ kind: "Event", name });
+        for (const name of stringList(objectRecord(use.feeds)?.subscribe)) things.push({ kind: "Feed", name });
+      }
+    }
+    const seen = new Set<string>();
+    return things.filter((thing) => {
+      const key = `${thing.kind}:${thing.name}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function dependencyRequiredThing(issue: CatalogIssue): DependencyThing | null {
+    const fromContract = dependencyThingsFromBlockedContract(issue)[0];
+    if (fromContract) return fromContract;
+    const detail = parseContractDependencyBlock(issue.message);
+    return detail.surfaceKind && detail.surfaceName ? { kind: detail.surfaceKind, name: detail.surfaceName } : null;
   }
 
   function exampleFromSchema(schema: unknown): unknown {
@@ -441,12 +632,18 @@
     return "Feed";
   }
 
-  function surfacesForTab(tab: Tab): DeploymentEnvelope["boundary"]["surfaces"] {
+  function surfacesForTab(tab: Tab): SurfaceGroup[] {
     if (!selectedEnvelope) return [];
-    if (tab === "rpc") return selectedEnvelope.boundary.surfaces.filter((surface) => surface.kind === "rpc");
-    if (tab === "events") return selectedEnvelope.boundary.surfaces.filter((surface) => surface.kind === "event");
-    if (tab === "operations") return selectedEnvelope.boundary.surfaces.filter((surface) => surface.kind === "operation" || surface.kind === "feed");
+    const providedSurfaces = selectedEnvelope.boundary.surfaces.filter((surface) => selectedServiceContractIds.has(surface.contractId));
+    if (tab === "rpc") return groupSurfaces(providedSurfaces.filter((surface) => surface.kind === "rpc"));
+    if (tab === "events") return groupSurfaces(providedSurfaces.filter((surface) => surface.kind === "event"));
+    if (tab === "operations") return groupSurfaces(providedSurfaces.filter((surface) => surface.kind === "operation"));
+    if (tab === "feeds") return groupSurfaces(providedSurfaces.filter((surface) => surface.kind === "feed"));
     return [];
+  }
+
+  function isApiTab(tab: Tab): boolean {
+    return tab === "rpc" || tab === "events" || tab === "operations" || tab === "feeds";
   }
 
   function tabId(tab: Tab): string {
@@ -556,15 +753,27 @@
   function selectDeployment(nextDeploymentId: string) {
     selectedDeploymentId = nextDeploymentId;
     selectedSurfaceKey = null;
+    if (isApiTab(activeTab) || activeTab === "schemas") void ensureSelectedServiceContractDetails();
+    void ensureDependencyBlockDetailsForDeployment(nextDeploymentId);
   }
 
   function selectTab(tab: Tab) {
     activeTab = tab;
-    if (tab === "schemas") void ensureSelectedServiceContractDetails();
+    if (isApiTab(tab) || tab === "schemas") void ensureSelectedServiceContractDetails();
   }
 
   async function ensureSelectedServiceContractDetails() {
     await Promise.all(selectedServiceContractRefs.map((ref) => ensureContractDetailByDigest(splitContractRef(ref).digest)));
+  }
+
+  async function ensureDependencyBlockDetailsForDeployment(deploymentId: string) {
+    await Promise.all(
+      dependencyBlocks
+        .filter((issue) => issue.deploymentIds.includes(deploymentId))
+        .map((issue) => issue.digest)
+        .filter((digest): digest is string => Boolean(digest))
+        .map((digest) => ensureContractDetailByDigest(digest)),
+    );
   }
 
   async function ensureContractDetailForSurface(surface: Surface) {
@@ -592,10 +801,10 @@
     }
   }
 
-  function toggleSurface(surface: Surface) {
-    const key = surfaceKey(surface);
+  function toggleSurface(group: SurfaceGroup) {
+    const key = group.key;
     selectedSurfaceKey = selectedSurfaceKey === key ? null : key;
-    if (selectedSurfaceKey) void ensureContractDetailForSurface(surface);
+    if (selectedSurfaceKey) void ensureContractDetailForSurface(group.representative);
   }
 
   async function load() {
@@ -644,6 +853,8 @@
       jobs = jobsData.jobs;
       jobsUnavailableMessage = jobsData.available ? null : jobsData.message ?? "Jobs admin runtime is unavailable.";
       syncSelectedDeployment(deployments);
+      void ensureDependencyBlockDetailsForDeployment(selectedDeploymentId);
+      if (isApiTab(activeTab) || activeTab === "schemas") void ensureSelectedServiceContractDetails();
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -807,17 +1018,17 @@
   </PageToolbar>
 
   {#if error}
-    <div class="alert alert-error"><span>{error}</span></div>
+    <Notice variant="error">{error}</Notice>
   {/if}
   {#if subscriptionError}
-    <div class="alert alert-warning"><span>Heartbeat subscription unavailable: {subscriptionError}</span></div>
+    <Notice variant="warning">Heartbeat subscription unavailable: {subscriptionError}</Notice>
   {/if}
 
   {#if loading}
     <Panel><LoadingState label="Loading services" /></Panel>
   {:else}
     <div class="grid min-h-[calc(100vh-12rem)] items-stretch gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
-      <Panel title="Deployments" eyebrow={`${deployments.length} deployment${deployments.length === 1 ? "" : "s"}`} class="flex min-w-0 flex-col xl:h-full [&>.card-body]:flex-1">
+      <SelectionRail title="Deployments" eyebrow={`${deployments.length} deployment${deployments.length === 1 ? "" : "s"}`}>
         <div class="mb-3">
           <label class="input input-bordered input-sm flex items-center gap-2">
             <Icon name="search" size={14} class="text-base-content/50" />
@@ -834,12 +1045,8 @@
               {@const activeServiceInstances = serviceInstances.filter((instance) => !instance.disabled)}
               {@const healthService = healthServiceForDeployment(deployment.deploymentId, serviceInstances, healthServices, contractRefDeploymentIds)}
               {@const rowStatus = deployment.disabled ? "Disabled" : (healthService ? statusLabel(healthService.status) : (activeServiceInstances.length > 0 ? "Active" : "No instances"))}
-              <button
-                type="button"
-                class={[
-                  "w-full rounded-box border p-3 text-left transition-colors",
-                  selectedDeploymentId === deployment.deploymentId ? "border-primary bg-primary/5" : "border-base-300 bg-base-100 hover:border-base-content/20",
-                ]}
+              <SelectableRecordButton
+                selected={selectedDeploymentId === deployment.deploymentId}
                 onclick={() => selectDeployment(deployment.deploymentId)}
               >
                 <div class="flex items-start justify-between gap-3">
@@ -852,7 +1059,7 @@
                   </div>
                   <span class={["badge badge-sm", badgeClassForStatus(rowStatus)]}>{rowStatus}</span>
                 </div>
-              </button>
+              </SelectableRecordButton>
             {:else}
               <EmptyState title="No matches" description="Try a different deployment ID." class="py-4" />
             {/each}
@@ -862,7 +1069,7 @@
         {#snippet footer()}
           <span>{disabledCount} disabled / archived</span>
         {/snippet}
-      </Panel>
+      </SelectionRail>
 
       <div class="flex min-w-0 flex-col gap-4">
         {#if allPendingRequestRows.length > 0}
@@ -878,16 +1085,34 @@
           </div>
         {/if}
 
-        {#if catalogIssues.length > 0 || catalogIssueError}
+        {#if dependencyBlocks.length > 0 || catalogIssueError}
+          <div class="rounded-box border border-warning/30 bg-warning/10 px-4 py-2 text-sm">
+            <div>
+              {#if catalogIssueError}
+                Catalog issue status unavailable: {catalogIssueError}
+              {:else}
+                <div><strong>{dependencyBlocks.length}</strong> contract dependency block{dependencyBlocks.length === 1 ? "" : "s"}. Select an affected deployment to inspect the missing dependency.</div>
+              {/if}
+              {#if !catalogIssueError}
+              <div class="mt-2 flex flex-wrap gap-1">
+                {#each dependencyBlocks.slice(0, 3) as issue (issue.issueId)}
+                  {@const deploymentId = issue.deploymentIds.find((id) => deployments.some((deployment) => deployment.deploymentId === id))}
+                  {#if deploymentId}
+                    <button type="button" class="btn btn-warning btn-outline btn-xs trellis-identifier" onclick={() => selectDeployment(deploymentId)}>{deploymentId}</button>
+                  {:else}
+                    <span class="badge badge-outline badge-xs trellis-identifier">{contractDependencyBlockLabel(issue)}</span>
+                  {/if}
+                {/each}
+              </div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+
+        {#if forcedUpdateRepairs.length > 0}
           <div class="rounded-box border border-error/30 bg-error/10 px-4 py-2 text-sm">
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <span>
-                {#if catalogIssueError}
-                  Forced update status unavailable: {catalogIssueError}
-                {:else}
-                  <strong>{catalogIssues.length}</strong> forced contract update{catalogIssues.length === 1 ? "" : "s"} need review
-                {/if}
-              </span>
+              <span><strong>{forcedUpdateRepairs.length}</strong> forced contract update{forcedUpdateRepairs.length === 1 ? "" : "s"} need review</span>
               <a class="btn btn-error btn-outline btn-xs" href={resolve("/admin/services/repair")}>Open forced update</a>
             </div>
           </div>
@@ -955,6 +1180,32 @@
               </div>
             {/if}
 
+            {#if selectedDeploymentDependencyBlocks.length > 0}
+              {@const issue = selectedDeploymentDependencyBlocks[0]}
+              {@const requiredThing = dependencyRequiredThing(issue)}
+              {@const providerContract = contractDependencyProviderContract(issue)}
+              {@const blockedContract = issue.contractId ?? selectedDeploymentId}
+              <div class="mt-3 rounded-box border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
+                <div class="font-medium">Contract dependency block</div>
+                <div class="mt-1 text-xs text-base-content/70">
+                  A <span class="trellis-identifier font-semibold">{selectedDeploymentId}</span> instance was blocked because its contract
+                  {#if requiredThing}
+                    requires an undefined {dependencyKindText(requiredThing.kind)} <span class="trellis-identifier font-semibold">{requiredThing.name}</span> from
+                    <span class="trellis-identifier font-semibold">{providerContract}</span>. Please remove the undefined dependency from
+                    <span class="trellis-identifier">{blockedContract}</span> or update <span class="trellis-identifier">{providerContract}</span> so that it properly offers it.
+                  {:else}
+                    requires <span class="trellis-identifier font-semibold">{providerContract}</span>, but that contract is not currently active or did not advertise the required API. Please remove the unsupported dependency from
+                    <span class="trellis-identifier">{blockedContract}</span> or update <span class="trellis-identifier">{providerContract}</span>.
+                  {/if}
+                </div>
+                <div class="mt-2 flex flex-wrap gap-1">
+                  {#each selectedDeploymentDependencyBlocks.slice(0, 3) as issue (issue.issueId)}
+                    <span class="badge badge-warning badge-outline badge-sm trellis-identifier">{contractDependencyBlockLabel(issue)}</span>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
             <div class="tabs tabs-box tabs-sm mt-4 w-fit bg-base-200/70 p-1" role="tablist" aria-label="Deployment detail sections">
               {#each tabs as tab (tab)}
                 <button type="button" id={tabId(tab)} role="tab" aria-selected={activeTab === tab} aria-controls={tabPanelId(tab)} class={["tab rounded-field px-4", activeTab === tab && "tab-active bg-base-100 shadow-sm"]} onclick={() => selectTab(tab)}>{tabLabel(tab)}</button>
@@ -966,8 +1217,7 @@
               {#if selectedInstances.length === 0}
                 <EmptyState title="No instances" description="Provisioned service runtime identities appear here after they are registered." />
               {:else}
-                <div class="overflow-x-auto">
-                  <table class="table table-sm trellis-table">
+                <DataTable>
                     <thead><tr><th>Instance</th><th>Created</th><th>Heartbeat</th><th>Runtime</th><th>Actions</th></tr></thead>
                     <tbody>
                       {#each selectedInstances as instance (instance.instanceId)}
@@ -991,33 +1241,38 @@
                         </tr>
                       {/each}
                     </tbody>
-                  </table>
-                </div>
+                </DataTable>
               {/if}
-            {:else if activeTab === "rpc" || activeTab === "events" || activeTab === "operations"}
+            {:else if activeTab === "rpc" || activeTab === "events" || activeTab === "operations" || activeTab === "feeds"}
               {#if !selectedEnvelope}
                 <EmptyState title="No API boundary" description="No current service envelope was returned for this deployment." />
               {:else}
                 {@const apiSurfaces = surfacesForTab(activeTab)}
                 <div class="space-y-2">
-                  <div class="overflow-x-auto">
-                    <table class="table table-sm trellis-table">
-                      <thead><tr>{#if activeTab === "operations"}<th>Type</th>{/if}<th>Surface</th><th>Action</th><th>Requirement</th><th>Contract</th></tr></thead>
+                  <div class="text-xs text-base-content/60">
+                    <span class="font-medium">Offers:</span> Offered {tabLabel(activeTab).toLowerCase()} surfaces for this service. Actions are labeled from the consumer perspective.
+                  </div>
+                  <DataTable>
+                      <thead><tr><th>Surface</th><th>Actions</th><th>Requirement</th><th>Contract</th></tr></thead>
                       <tbody>
-                        {#each apiSurfaces as surface (surfaceKey(surface))}
-                          {@const key = surfaceKey(surface)}
+                        {#each apiSurfaces as surface (surface.key)}
                           {@const digest = catalogDigestForContractId(surface.contractId)}
-                          {@const panels = selectedSurfaceKey === key ? schemaPanelsForSurface(surface) : []}
+                          {@const docs = docsForSurface(surface.representative)}
+                          {@const panels = selectedSurfaceKey === surface.key ? schemaPanelsForSurface(surface.representative) : []}
                           <tr class="cursor-pointer hover:bg-base-200/60" onclick={() => toggleSurface(surface)}>
-                            {#if activeTab === "operations"}<td>{surfaceLabel(surface.kind)}</td>{/if}
-                            <td class="trellis-identifier font-medium">{surface.name}</td>
-                            <td><span class="badge badge-outline badge-xs">{surface.action}</span></td>
-                            <td>{surface.required ? "Required" : "Optional"}</td>
+                            <td>
+                              <div class="trellis-identifier font-medium">{surface.name}</div>
+                              {#if docs?.summary}
+                                <div class="mt-1 max-w-xl text-xs leading-4 text-base-content/60">{docs.summary}</div>
+                              {/if}
+                            </td>
+                            <td><div class="flex flex-wrap gap-1">{#each surface.actions as action (action)}<span class="badge badge-outline badge-xs">{actionLabel(surface.kind, action)}</span>{/each}</div></td>
+                            <td>{requirementLabel(surface.required)}</td>
                             <td class="trellis-identifier text-base-content/60">{surface.contractId}</td>
                           </tr>
-                          {#if selectedSurfaceKey === key}
+                          {#if selectedSurfaceKey === surface.key}
                             <tr>
-                              <td colspan={activeTab === "operations" ? 5 : 4}>
+                              <td colspan="4">
                                 <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
                                   {#if !digest}
                                     <p class="text-xs text-base-content/60">No catalog digest is available for this contract.</p>
@@ -1025,9 +1280,18 @@
                                     <LoadingState label="Loading contract schemas" />
                                   {:else if contractDetailErrors[digest]}
                                     <p class="text-xs text-error">{contractDetailErrors[digest]}</p>
-                                  {:else if panels.length === 0}
-                                    <p class="text-xs text-base-content/60">No schema details were found for this surface.</p>
                                   {:else}
+                                    {#if docs}
+                                      <div class="mb-3 rounded-box border border-base-300 bg-base-100/70 p-3">
+                                        {#if docs.summary}
+                                          <div class="mb-2 text-sm font-medium">{docs.summary}</div>
+                                        {/if}
+                                        <pre class="markdown-block">{docs.markdown}</pre>
+                                      </div>
+                                    {/if}
+                                    {#if panels.length === 0}
+                                      <p class="text-xs text-base-content/60">No schema details were found for this surface.</p>
+                                    {:else}
                                     <div class="grid gap-3 lg:grid-cols-2">
                                       {#each panels as panel (panel.label)}
                                         <div>
@@ -1047,17 +1311,17 @@
                                         </div>
                                       {/each}
                                     </div>
+                                    {/if}
                                   {/if}
                                 </div>
                               </td>
                             </tr>
                           {/if}
                         {:else}
-                          <tr><td colspan={activeTab === "operations" ? 5 : 4} class="text-base-content/50">No {tabLabel(activeTab).toLowerCase()} surfaces.</td></tr>
+                          <tr><td colspan="4" class="text-base-content/50">No {tabLabel(activeTab).toLowerCase()} surfaces.</td></tr>
                         {/each}
                       </tbody>
-                    </table>
-                  </div>
+                  </DataTable>
                   {#if apiSurfaces.length > 0}
                     <p class="text-xs text-base-content/50">Click a surface row to inspect schemas from its contract manifest.</p>
                   {/if}
@@ -1087,52 +1351,63 @@
               {#if !selectedEnvelope}
                 <EmptyState title="No resources" description="No current service envelope was returned for this deployment." />
               {:else}
-                <div class="overflow-x-auto">
-                  <table class="table table-sm trellis-table">
+                <DataTable>
                     <thead><tr><th>Alias</th><th>Kind</th><th>Requirement</th></tr></thead>
                     <tbody>{#each selectedEnvelope.boundary.resources as resource (`${resource.kind}:${resource.alias}`)}<tr><td class="trellis-identifier font-medium">{resource.alias}</td><td>{resource.kind}</td><td>{resource.required ? "Required" : "Optional"}</td></tr>{:else}<tr><td colspan="3" class="text-base-content/50">No resources.</td></tr>{/each}</tbody>
-                  </table>
-                </div>
+                </DataTable>
               {/if}
             {:else if activeTab === "capabilities"}
               {#if !selectedEnvelope}
                 <EmptyState title="No capabilities" description="No current service envelope was returned for this deployment." />
               {:else}
                 {@const capabilities = capabilityRows(selectedEnvelope, selectedInstances)}
-                <div class="overflow-x-auto">
-                  <table class="table table-sm trellis-table">
+                <DataTable>
                     <thead><tr><th>Capability</th><th>Source</th><th>Context</th></tr></thead>
                     <tbody>{#each capabilities as capability (`${capability.source}:${capability.context}:${capability.capability}`)}<tr><td class="trellis-identifier font-medium">{capability.capability}</td><td>{capability.source}</td><td class="trellis-identifier text-base-content/60">{capability.context}</td></tr>{:else}<tr><td colspan="3" class="text-base-content/50">No capabilities.</td></tr>{/each}</tbody>
-                  </table>
-                </div>
+                </DataTable>
               {/if}
             {:else if activeTab === "dependencies"}
               {#if !selectedEnvelope}
                 <EmptyState title="No dependencies" description="No current service envelope was returned for this deployment." />
               {:else}
-                <div class="overflow-x-auto">
-                  <table class="table table-sm trellis-table">
-                    <thead><tr><th>Contract</th><th>Requirement</th><th>Implementing services</th></tr></thead>
-                    <tbody>{#each selectedEnvelope.boundary.contracts as contract (contract.contractId)}{@const implementers = serviceDeploymentsForContract(contract.contractId)}<tr><td class="trellis-identifier font-medium">{contract.contractId}</td><td>{contract.required ? "Required" : "Optional"}</td><td><div class="flex flex-wrap gap-1">{#each implementers as implementer (implementer.deploymentId)}<button type="button" class="btn btn-ghost btn-xs trellis-identifier" onclick={() => selectDeployment(implementer.deploymentId)}>{implementer.deploymentId}</button>{:else}<span class="text-xs text-base-content/50">No service deployment found</span>{/each}</div></td></tr>{:else}<tr><td colspan="3" class="text-base-content/50">No contract dependencies.</td></tr>{/each}</tbody>
-                  </table>
+                <div class="space-y-4">
+                  <DataTable>
+                      <thead><tr><th>Contract</th><th>Requirement</th><th>Implementing services</th></tr></thead>
+                      <tbody>{#each dependencyContracts as contract (contract.contractId)}{@const implementers = serviceDeploymentsForContract(contract.contractId)}<tr><td class="trellis-identifier font-medium">{contract.contractId}</td><td>{contract.required ? "Required" : "Optional"}</td><td><div class="flex flex-wrap gap-1">{#each implementers as implementer (implementer.deploymentId)}<button type="button" class="btn btn-ghost btn-xs trellis-identifier" onclick={() => selectDeployment(implementer.deploymentId)}>{implementer.deploymentId}</button>{:else}<span class="text-xs text-base-content/50">No service deployment found</span>{/each}</div></td></tr>{:else}<tr><td colspan="3" class="text-base-content/50">No contract dependencies.</td></tr>{/each}</tbody>
+                  </DataTable>
+
+                  <DataTable>
+                      <thead><tr><th>Surface</th><th>Type</th><th>Actions</th><th>Requirement</th><th>Contract</th></tr></thead>
+                      <tbody>
+                        {#each dependencySurfaceGroups as surface (surface.key)}
+                          <tr>
+                            <td class="trellis-identifier font-medium">{surface.name}</td>
+                            <td>{surfaceLabel(surface.kind)}</td>
+                            <td><div class="flex flex-wrap gap-1">{#each surface.actions as action (action)}<span class="badge badge-outline badge-xs">{actionLabel(surface.kind, action)}</span>{/each}</div></td>
+                            <td>{requirementLabel(surface.required)}</td>
+                            <td class="trellis-identifier text-base-content/60">{surface.contractId}</td>
+                          </tr>
+                        {:else}
+                          <tr><td colspan="5" class="text-base-content/50">No dependency surfaces.</td></tr>
+                        {/each}
+                      </tbody>
+                  </DataTable>
                 </div>
               {/if}
             {:else if activeTab === "jobs"}
               {#if jobsUnavailableMessage}
-                <div class="alert alert-info"><span>{jobsUnavailableMessage}</span></div>
+                <Notice variant="info">{jobsUnavailableMessage}</Notice>
               {:else if selectedJobs.length === 0}
                 <EmptyState title="No jobs" description="No jobs are currently associated with this deployment." />
               {:else}
-                <div class="overflow-x-auto">
-                  <table class="table table-sm trellis-table">
+                <DataTable>
                     <thead><tr><th>Service</th><th>Type</th><th>State</th><th>Updated</th></tr></thead>
                     <tbody>
                       {#each selectedJobs as job (`${job.service}:${job.type}:${job.id}`)}
                         <tr><td class="trellis-identifier">{job.service}</td><td class="trellis-identifier text-base-content/60">{job.type}</td><td><StatusBadge label={job.state} status={statusForJob(job.state)} /></td><td class="text-base-content/60">{formatDate(job.updatedAt)}</td></tr>
                       {/each}
                     </tbody>
-                  </table>
-                </div>
+                </DataTable>
               {/if}
             {:else if selectedEvents.length === 0}
               <EmptyState title="No heartbeat events" description="No live heartbeat events have been received for this deployment yet." />
@@ -1177,6 +1452,16 @@
 
   .json-block :global(.json-null) {
     color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+  }
+
+  .markdown-block {
+    white-space: pre-wrap;
+    border-radius: var(--radius-box);
+    background: color-mix(in oklab, var(--color-base-100) 88%, var(--color-base-content));
+    padding: 0.75rem;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: color-mix(in oklab, var(--color-base-content) 78%, transparent);
   }
 </style>
 

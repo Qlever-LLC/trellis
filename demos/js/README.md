@@ -157,13 +157,13 @@ The guided inspection wizard groups those actions into a task-oriented flow so
 device runs can exercise the same Trellis surfaces without stepping through each
 primitive manually.
 
-The service declares explicit empty `read` lists for operations that callers
+The service declares explicit empty `observe` lists for operations that callers
 watch and explicit empty `cancel` rights for `Reports.Generate`. This mirrors
-runtime permission derivation: `call` starts an operation, `read` controls
+runtime permission derivation: `call` starts an operation, `observe` controls
 `get`/`wait`/`watch`, `cancel` controls cancellation, and `control` is reserved
-for named post-start signals. An omitted `read` list defaults to `call`, while
-the demo's explicit empty `read` lists make watching available to authenticated
-callers without extra capabilities.
+for named post-start signals. An omitted `observe` list defaults to `call`,
+while the demo's explicit empty `observe` lists make watching available to
+authenticated callers without extra capabilities.
 
 Because the demo service intentionally uses empty capability gates for its
 public surfaces, its contract does not declare a top-level local `capabilities`

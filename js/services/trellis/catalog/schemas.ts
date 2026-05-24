@@ -43,7 +43,7 @@ export const ContractRecordSchema = Type.Object({
         controlSubject: Type.String(),
         wildcardControlSubject: Type.String(),
         callCapabilities: Type.Array(Type.String()),
-        readCapabilities: Type.Array(Type.String()),
+        observeCapabilities: Type.Array(Type.String()),
         cancelCapabilities: Type.Array(Type.String()),
         cancel: Type.Boolean(),
       })),

@@ -48,7 +48,7 @@ Deno.test("contract analysis includes operation subjects and control metadata", 
         output: { schema: "Output" },
         capabilities: {
           call: ["billing.refund"],
-          read: ["billing.refund.read"],
+          observe: ["billing.refund.read"],
           cancel: ["billing.refund.cancel"],
         },
         cancel: true,
@@ -69,7 +69,7 @@ Deno.test("contract analysis includes operation subjects and control metadata", 
     controlSubject: "operations.v1.Billing.Refund.control",
     wildcardControlSubject: "operations.v1.Billing.Refund.control",
     callCapabilities: ["billing.refund"],
-    readCapabilities: ["billing.refund.read"],
+    observeCapabilities: ["billing.refund.read"],
     cancelCapabilities: ["billing.refund.cancel"],
     cancel: true,
   }]);
@@ -133,7 +133,7 @@ Deno.test("contract analysis includes operation subjects and control metadata", 
   ]);
 });
 
-Deno.test("contract analysis defaults operation read control to call capabilities", () => {
+Deno.test("contract analysis defaults operation observe control to call capabilities", () => {
   const contract: TrellisContractV1 = {
     format: "trellis.contract.v1",
     id: "jobs@v1",
@@ -212,7 +212,7 @@ Deno.test("contract analysis grants empty-list operation control without extra c
         output: { schema: "Output" },
         capabilities: {
           call: [],
-          read: [],
+          observe: [],
           cancel: [],
         },
         cancel: true,

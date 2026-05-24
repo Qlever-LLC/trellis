@@ -85,7 +85,7 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord {
           controlSubject: "operations.v1.Graph.Rebuild.control",
           wildcardControlSubject: "operations.v1.Graph.Rebuild.control",
           callCapabilities: ["graph.rebuild"],
-          readCapabilities: ["graph.rebuild"],
+          observeCapabilities: ["graph.rebuild"],
           cancelCapabilities: [],
           cancel: false,
         }],

@@ -20,6 +20,10 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
         "Trellis-managed background job administration API.",
         ContractKind::Service,
     )
+    .docs_with_summary(
+        "Background job administration APIs.",
+        "Provides health, service, job, retry, cancel, and dead-letter queue RPCs for Trellis-managed background work.",
+    )
     .use_ref(
         "core",
         trellis_contracts::use_contract("trellis.core@v1")
@@ -83,6 +87,10 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsHealthResponse",
             READ_CAPABILITY,
         )
+        .docs_with_summary(
+            "Read jobs health.",
+            "Returns Jobs service health and worker status details.",
+        )
         .with_error_types([UNEXPECTED_ERROR]),
     )
     .rpc(
@@ -92,6 +100,10 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsListServicesRequest",
             "JobsListServicesResponse",
             READ_CAPABILITY,
+        )
+        .docs_with_summary(
+            "List job services.",
+            "Lists services that own or execute background job queues.",
         )
         .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR]),
     )
@@ -103,6 +115,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsListResponse",
             READ_CAPABILITY,
         )
+        .docs_with_summary("List jobs.", "Lists jobs matching the requested filters.")
         .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR]),
     )
     .rpc(
@@ -113,6 +126,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsGetResponse",
             READ_CAPABILITY,
         )
+        .docs_with_summary("Read a job.", "Returns one background job by id.")
         .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR, NOT_FOUND_ERROR]),
     )
     .rpc(
@@ -123,6 +137,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsCancelResponse",
             MUTATE_CAPABILITY,
         )
+        .docs_with_summary("Cancel a job.", "Requests cancellation for one background job.")
         .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR, NOT_FOUND_ERROR]),
     )
     .rpc(
@@ -133,6 +148,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsRetryResponse",
             MUTATE_CAPABILITY,
         )
+        .docs_with_summary("Retry a job.", "Moves a failed job back into retry processing.")
         .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR, NOT_FOUND_ERROR]),
     )
     .rpc(
@@ -143,6 +159,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsListDLQResponse",
             READ_CAPABILITY,
         )
+        .docs_with_summary("List dead-letter jobs.", "Lists jobs currently in dead-letter queues.")
         .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR]),
     )
     .rpc(
@@ -153,6 +170,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsReplayDLQResponse",
             MUTATE_CAPABILITY,
         )
+        .docs_with_summary("Replay a dead-letter job.", "Moves one dead-letter job back to processing.")
         .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR, NOT_FOUND_ERROR]),
     )
     .rpc(
@@ -163,6 +181,7 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             "JobsDismissDLQResponse",
             MUTATE_CAPABILITY,
         )
+        .docs_with_summary("Dismiss a dead-letter job.", "Marks one dead-letter job as dismissed.")
         .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR, NOT_FOUND_ERROR]),
     )
     .build()

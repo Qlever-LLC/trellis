@@ -415,6 +415,21 @@ fn project_capabilities(capabilities: Option<&Value>, keys: &[&str]) -> Option<V
     (!projected.is_empty()).then_some(Value::Object(projected))
 }
 
+fn remove_docs(projected: &mut serde_json::Map<String, Value>) {
+    projected.remove("docs");
+}
+
+fn remove_signal_docs(projected: &mut serde_json::Map<String, Value>) {
+    let Some(signals) = projected.get_mut("signals").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for signal in signals.values_mut() {
+        if let Some(signal) = signal.as_object_mut() {
+            signal.remove("docs");
+        }
+    }
+}
+
 fn project_rpc(rpc: Option<&Value>) -> Option<Value> {
     let rpc = object(rpc)?;
     let mut projected_rpc = serde_json::Map::new();
@@ -423,6 +438,7 @@ fn project_rpc(rpc: Option<&Value>) -> Option<Value> {
             continue;
         };
         let mut projected = method_object.clone();
+        remove_docs(&mut projected);
         if let Some(capabilities) =
             project_capabilities(method_object.get("capabilities"), &["call"])
         {
@@ -468,9 +484,11 @@ fn project_operations(operations: Option<&Value>) -> Option<Value> {
             continue;
         };
         let mut projected = operation_object.clone();
+        remove_docs(&mut projected);
+        remove_signal_docs(&mut projected);
         if let Some(capabilities) = project_capabilities(
             operation_object.get("capabilities"),
-            &["call", "read", "cancel", "control"],
+            &["call", "observe", "cancel", "control"],
         ) {
             projected.insert("capabilities".to_string(), capabilities);
         }
@@ -487,6 +505,7 @@ fn project_events(events: Option<&Value>) -> Option<Value> {
             continue;
         };
         let mut projected = event_object.clone();
+        remove_docs(&mut projected);
         if let Some(capabilities) =
             project_capabilities(event_object.get("capabilities"), &["publish", "subscribe"])
         {
@@ -505,6 +524,7 @@ fn project_feeds(feeds: Option<&Value>) -> Option<Value> {
             continue;
         };
         let mut projected = feed_object.clone();
+        remove_docs(&mut projected);
         if let Some(capabilities) =
             project_capabilities(feed_object.get("capabilities"), &["subscribe"])
         {

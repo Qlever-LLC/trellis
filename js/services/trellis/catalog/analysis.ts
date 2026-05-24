@@ -6,7 +6,7 @@ import {
 } from "./resources.ts";
 import {
   operationCancelCapabilities,
-  operationReadCapabilities,
+  operationObserveCapabilities,
 } from "./permissions.ts";
 import { templateToWildcard } from "./subject_templates.ts";
 
@@ -40,7 +40,7 @@ export type ContractAnalysis = {
       controlSubject: string;
       wildcardControlSubject: string;
       callCapabilities: string[];
-      readCapabilities: string[];
+      observeCapabilities: string[];
       cancelCapabilities: string[];
       cancel: boolean;
     }>;
@@ -166,7 +166,7 @@ export function analyzeContract(contract: TrellisContractV1): {
     const controlSubject = `${operation.subject}.control`;
     const wildcardControlSubject = templateToWildcard(controlSubject);
     const callCapabilities = operation.capabilities?.call ?? [];
-    const readCapabilities = operationReadCapabilities(operation);
+    const observeCapabilities = operationObserveCapabilities(operation);
     const operationCancelCapabilitiesValue = operationCancelCapabilities(
       operation,
     );
@@ -178,7 +178,7 @@ export function analyzeContract(contract: TrellisContractV1): {
       controlSubject,
       wildcardControlSubject,
       callCapabilities,
-      readCapabilities,
+      observeCapabilities,
       cancelCapabilities,
       cancel: operation.cancel ?? false,
     });
@@ -188,21 +188,21 @@ export function analyzeContract(contract: TrellisContractV1): {
         action: "get",
         subject: controlSubject,
         wildcardSubject: wildcardControlSubject,
-        requiredCapabilities: readCapabilities,
+        requiredCapabilities: observeCapabilities,
       },
       {
         key,
         action: "wait",
         subject: controlSubject,
         wildcardSubject: wildcardControlSubject,
-        requiredCapabilities: readCapabilities,
+        requiredCapabilities: observeCapabilities,
       },
       {
         key,
         action: "watch",
         subject: controlSubject,
         wildcardSubject: wildcardControlSubject,
-        requiredCapabilities: readCapabilities,
+        requiredCapabilities: observeCapabilities,
       },
     );
     if (operationCancelCapabilitiesValue !== undefined) {
@@ -275,7 +275,7 @@ export function analyzeContract(contract: TrellisContractV1): {
         kind: "operation:control",
         subject: operation.controlSubject,
         wildcardSubject: operation.wildcardControlSubject,
-        requiredCapabilities: operation.readCapabilities,
+        requiredCapabilities: operation.observeCapabilities,
       });
     }
     if (cancelControlSubjects.has(operation.controlSubject)) {

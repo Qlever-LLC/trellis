@@ -71,7 +71,7 @@ const harness = defineServiceContract({ schemas }, (ref) => ({
       input: ref.schema("OperationInput"),
       progress: ref.schema("OperationProgress"),
       output: ref.schema("OperationOutput"),
-      capabilities: { call: [], read: [], cancel: [] },
+      capabilities: { call: [], observe: [], cancel: [] },
       signals: {
         selectWorkspace: { input: ref.schema("SelectWorkspaceSignal") },
         continue: { input: ref.schema("ContinueSignal") },
@@ -84,7 +84,7 @@ const harness = defineServiceContract({ schemas }, (ref) => ({
       input: ref.schema("OperationInput"),
       progress: ref.schema("OperationProgress"),
       output: ref.schema("OperationOutput"),
-      capabilities: { call: [], read: [], cancel: [] },
+      capabilities: { call: [], observe: [], cancel: [] },
       signals: {
         selectWorkspace: { input: ref.schema("SelectWorkspaceSignal") },
         continue: { input: ref.schema("ContinueSignal") },
@@ -97,7 +97,7 @@ const harness = defineServiceContract({ schemas }, (ref) => ({
       input: ref.schema("OperationInput"),
       progress: ref.schema("OperationProgress"),
       output: ref.schema("OperationOutput"),
-      capabilities: { call: [], read: [], cancel: [] },
+      capabilities: { call: [], observe: [], cancel: [] },
       cancel: false,
     },
     "Harness.Ts.Status": {
@@ -106,7 +106,7 @@ const harness = defineServiceContract({ schemas }, (ref) => ({
       input: ref.schema("OperationInput"),
       progress: ref.schema("OperationProgress"),
       output: ref.schema("OperationOutput"),
-      capabilities: { call: [], read: [], cancel: [] },
+      capabilities: { call: [], observe: [], cancel: [] },
       cancel: false,
     },
     "Harness.Rust.Capability": {
@@ -117,7 +117,7 @@ const harness = defineServiceContract({ schemas }, (ref) => ({
       output: ref.schema("OperationOutput"),
       capabilities: {
         call: ["operation.call"],
-        read: ["operation.read"],
+        observe: ["operation.read"],
         cancel: ["operation.cancel"],
       },
       cancel: true,
@@ -128,7 +128,7 @@ const harness = defineServiceContract({ schemas }, (ref) => ({
       input: ref.schema("OperationInput"),
       progress: ref.schema("TraceContextResponse"),
       output: ref.schema("TraceContextResponse"),
-      capabilities: { call: [], read: [], cancel: [] },
+      capabilities: { call: [], observe: [], cancel: [] },
       cancel: false,
     },
   },

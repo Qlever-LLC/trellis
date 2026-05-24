@@ -23,6 +23,13 @@ export const ContractSchemaRefSchema = Type.Object({
 
 export type ContractSchemaRef = Static<typeof ContractSchemaRefSchema>;
 
+export const ContractDocsSchema = Type.Object({
+  summary: Type.Optional(Type.String()),
+  markdown: Type.String(),
+});
+
+export type ContractDocs = Static<typeof ContractDocsSchema>;
+
 export const ContractKvResourceSchema = Type.Object({
   purpose: Type.String({ minLength: 1 }),
   schema: ContractSchemaRefSchema,
@@ -30,6 +37,7 @@ export const ContractKvResourceSchema = Type.Object({
   history: Type.Optional(Type.Integer({ minimum: 1, default: 1 })),
   ttlMs: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
   maxValueBytes: Type.Optional(Type.Integer({ minimum: 1 })),
+  docs: Type.Optional(ContractDocsSchema),
 });
 
 export type ContractKvResource = Static<typeof ContractKvResourceSchema>;
@@ -40,6 +48,7 @@ export const ContractStoreResourceSchema = Type.Object({
   ttlMs: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
   maxObjectBytes: Type.Optional(Type.Integer({ minimum: 1 })),
   maxTotalBytes: Type.Optional(Type.Integer({ minimum: 1 })),
+  docs: Type.Optional(ContractDocsSchema),
 });
 
 export type ContractStoreResource = Static<typeof ContractStoreResourceSchema>;
@@ -55,6 +64,7 @@ export const ContractStateStoreSchema = Type.Object({
     Type.String({ minLength: 1 }),
     ContractSchemaRefSchema,
   )),
+  docs: Type.Optional(ContractDocsSchema),
 });
 
 export type ContractStateStore = Static<typeof ContractStateStoreSchema>;
@@ -77,6 +87,7 @@ export const ContractJobQueueSchema = Type.Object({
   logs: Type.Optional(Type.Boolean()),
   dlq: Type.Optional(Type.Boolean()),
   concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
+  docs: Type.Optional(ContractDocsSchema),
 });
 
 export type ContractJobQueue = Static<typeof ContractJobQueueSchema>;

@@ -64,6 +64,11 @@ export const trellisState = defineServiceContract(
     displayName: "Trellis State",
     description:
       "Trellis-managed app state for authenticated app and device participants.",
+    docs: {
+      summary: "Participant state storage APIs.",
+      markdown:
+        "Provides authenticated read, write, list, delete, and admin inspection APIs for Trellis-managed participant state.",
+    },
     rpc: {
       "State.Get": {
         version: "v1",
@@ -74,6 +79,10 @@ export const trellisState = defineServiceContract(
           ref.error("ValidationError"),
           ref.error("UnexpectedError"),
         ],
+        docs: {
+          summary: "Read a state value.",
+          markdown: "Returns one state value in the caller's authorized scope.",
+        },
       },
       "State.Put": {
         version: "v1",
@@ -84,6 +93,11 @@ export const trellisState = defineServiceContract(
           ref.error("ValidationError"),
           ref.error("UnexpectedError"),
         ],
+        docs: {
+          summary: "Write a state value.",
+          markdown:
+            "Creates or replaces one state value in an authorized scope.",
+        },
       },
       "State.Delete": {
         version: "v1",
@@ -94,6 +108,11 @@ export const trellisState = defineServiceContract(
           ref.error("ValidationError"),
           ref.error("UnexpectedError"),
         ],
+        docs: {
+          summary: "Delete a state value.",
+          markdown:
+            "Deletes one state value from the caller's authorized scope.",
+        },
       },
       "State.List": {
         version: "v1",
@@ -104,6 +123,11 @@ export const trellisState = defineServiceContract(
           ref.error("ValidationError"),
           ref.error("UnexpectedError"),
         ],
+        docs: {
+          summary: "List state values.",
+          markdown:
+            "Lists state values visible to the caller for the requested scope and prefix.",
+        },
       },
       "State.Admin.Get": {
         version: "v1",
@@ -115,6 +139,11 @@ export const trellisState = defineServiceContract(
           ref.error("ValidationError"),
           ref.error("UnexpectedError"),
         ],
+        docs: {
+          summary: "Admin read a state value.",
+          markdown:
+            "Returns one state value across participants for authorized administrators.",
+        },
       },
       "State.Admin.List": {
         version: "v1",
@@ -126,6 +155,11 @@ export const trellisState = defineServiceContract(
           ref.error("ValidationError"),
           ref.error("UnexpectedError"),
         ],
+        docs: {
+          summary: "Admin list state values.",
+          markdown:
+            "Lists state values across participants for authorized administrators.",
+        },
       },
       "State.Admin.Delete": {
         version: "v1",
@@ -137,6 +171,11 @@ export const trellisState = defineServiceContract(
           ref.error("ValidationError"),
           ref.error("UnexpectedError"),
         ],
+        docs: {
+          summary: "Admin delete a state value.",
+          markdown:
+            "Deletes one state value across participants for authorized administrators.",
+        },
       },
     },
   }),

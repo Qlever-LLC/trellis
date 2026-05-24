@@ -79,11 +79,13 @@ function resolveSubschema(
   }
 
   const properties = schema.properties;
-  const [segment, ...rest] = segments;
+  const segment = segments[0];
+  if (segment === undefined) return undefined;
+
   if (!isJsonObject(properties) || !Object.hasOwn(properties, segment)) {
     return undefined;
   }
-  return resolveSubschema(properties[segment], rest);
+  return resolveSubschema(properties[segment], segments.slice(1));
 }
 
 function isTokenableSchema(schema: unknown): boolean {

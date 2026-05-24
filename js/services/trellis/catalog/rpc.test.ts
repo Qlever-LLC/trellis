@@ -3,6 +3,7 @@ import { AsyncResult, UnexpectedError } from "@qlever-llc/result";
 import { assert, assertEquals, assertInstanceOf } from "@std/assert";
 import { ValidationError } from "@qlever-llc/trellis";
 import type { DeploymentEnvelope } from "../auth/schemas.ts";
+import type { TrellisContractGetResponse } from "../../../packages/trellis/models/trellis/rpc/TrellisContractGet.ts";
 
 import {
   createTrellisCatalogHandler,
@@ -23,6 +24,54 @@ const exportedSchemaContract: TrellisContractV1 = {
   },
   exports: {
     schemas: ["PublicValue"],
+  },
+};
+
+const documentedContract: TrellisContractV1 = {
+  format: "trellis.contract.v1",
+  id: "documented@v1",
+  displayName: "Documented",
+  description: "Documents its owned surfaces.",
+  docs: {
+    summary: "Documented contract.",
+    markdown: "Use this contract to verify catalog documentation projection.",
+  },
+  kind: "service",
+  schemas: {
+    Empty: { type: "object" },
+  },
+  rpc: {
+    "Documented.Read": {
+      version: "v1",
+      subject: "rpc.v1.Documented.Read",
+      input: { schema: "Empty" },
+      output: { schema: "Empty" },
+      docs: {
+        summary: "Read documented values.",
+        markdown: "Returns documented values for callers.",
+      },
+    },
+  },
+  operations: {
+    "Documented.Import": {
+      version: "v1",
+      subject: "operations.v1.Documented.Import",
+      input: { schema: "Empty" },
+      output: { schema: "Empty" },
+      docs: {
+        markdown: "Imports documented values asynchronously.",
+      },
+    },
+  },
+  events: {
+    "Documented.Changed": {
+      version: "v1",
+      subject: "events.v1.Documented.Changed",
+      event: { schema: "Empty" },
+      docs: {
+        markdown: "Published when documented values change.",
+      },
+    },
   },
 };
 
@@ -428,7 +477,7 @@ function seedSurfaceEnvelope(
         contractId: "surface@v1",
         kind: "feed",
         name: "Surface.Feed",
-        action: "read",
+        action: "subscribe",
         required: true,
       }],
       capabilities: [],
@@ -527,6 +576,30 @@ Deno.test("Trellis.Contract.Get includes canonical exports", async () => {
   assertEquals(value.contract.exports, {
     schemas: ["PublicValue"],
   });
+});
+
+Deno.test("Trellis.Contract.Get preserves contract and surface docs", async () => {
+  const store = new InMemoryContracts();
+  store.add("digest-documented", documentedContract);
+
+  const result = await createTrellisContractGetHandler(store)({
+    digest: "digest-documented",
+  });
+
+  const value = result.take() as TrellisContractGetResponse;
+  assertEquals(value.contract.docs, documentedContract.docs);
+  assertEquals(
+    value.contract.rpc?.["Documented.Read"]?.docs,
+    documentedContract.rpc?.["Documented.Read"]?.docs,
+  );
+  assertEquals(
+    value.contract.operations?.["Documented.Import"]?.docs,
+    documentedContract.operations?.["Documented.Import"]?.docs,
+  );
+  assertEquals(
+    value.contract.events?.["Documented.Changed"]?.docs,
+    documentedContract.events?.["Documented.Changed"]?.docs,
+  );
 });
 
 Deno.test("Trellis.Catalog lists envelope-available known contracts", async () => {
@@ -974,16 +1047,16 @@ Deno.test("Trellis.Surface.Status validates action by surface kind", async () =>
     },
   });
 
-  const feedReadResult = await handler({
+  const feedSubscribeResult = await handler({
     contractId: "surface@v1",
     kind: "feed",
     surface: "Surface.Feed",
-    action: "read" as never,
+    action: "subscribe",
   }, {
     caller: userCaller(["surface.subscribe"]),
     sessionKey: "sk",
   });
-  assertEquals(takeUnknown(feedReadResult), {
+  assertEquals(takeUnknown(feedSubscribeResult), {
     status: {
       state: "available",
       liveImplementer: false,

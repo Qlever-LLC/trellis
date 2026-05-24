@@ -202,7 +202,7 @@ export const billing = defineServiceContract(
     capabilities: {
       "billing.refund": {
         displayName: "Refund billing",
-        description: "Start and read refund operations.",
+        description: "Start and observe refund operations.",
       },
       "billing.refund.control": {
         displayName: "Control refund operations",
@@ -217,7 +217,7 @@ export const billing = defineServiceContract(
         output: ref.schema("RefundOutput"),
         capabilities: {
           call: ["billing.refund"],
-          read: ["billing.refund"],
+          observe: ["billing.refund"],
           control: ["billing.refund.control"],
         },
         signals: {

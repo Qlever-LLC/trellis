@@ -12,7 +12,7 @@ conformance/    Shared JS/Rust test vectors (canonical JSON, auth proofs)
 demos/          Shared demo app plus TypeScript and Rust service/device examples
 guides/         Trellis documentation site (SvelteKit static site, published to GitHub Pages)
 js/             TypeScript packages, services, and apps (Deno workspace)
-rust/           Rust crates (CLI, codegen, client/service runtimes, contract model)
+rust/           Rust crates (public facades plus internal CLI, codegen, and runtime support)
 generated/      Derived manifests and SDKs when generated locally (usually absent from a clean checkout)
 deploy/         Deployment assets, including quadlets and NATS templates
 design/         Trellis design docs
@@ -78,7 +78,7 @@ If you build or install Rust binaries from this repo directly, run
 `generated/packages/cargo/` exist. `cargo xtask build` is the convenient
 Rust-side wrapper for `prepare` followed by the default Rust workspace build.
 The default build excludes the live integration harness; run
-`cargo xtask integration` when you need that coverage. Use
+`cargo xtask integration run` when you need that coverage. Use
 `cargo xtask prepare-watch` during active contract development. Watch mode
 watches broadly, ignores file changes that are not TypeScript, JavaScript, or
 Rust source unless they are recognized project/discovery inputs, prepares only

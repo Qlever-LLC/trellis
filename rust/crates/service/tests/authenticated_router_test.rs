@@ -48,7 +48,7 @@ impl OperationDescriptor for CapOperation {
     const KEY: &'static str = "Cap.Operation";
     const SUBJECT: &'static str = "operations.v1.Cap.Operation";
     const CALLER_CAPABILITIES: &'static [&'static str] = &["operation.call"];
-    const READ_CAPABILITIES: &'static [&'static str] = &["operation.read"];
+    const OBSERVE_CAPABILITIES: &'static [&'static str] = &["operation.read"];
     const CANCEL_CAPABILITIES: &'static [&'static str] = &["operation.cancel"];
     const CONTROL_CAPABILITIES: &'static [&'static str] = &["operation.control"];
     const CANCELABLE: bool = true;

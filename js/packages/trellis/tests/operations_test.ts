@@ -62,7 +62,7 @@ const billing = defineServiceContract(
         output: schemaRef("RefundOutput"),
         capabilities: {
           call: ["billing.refund"],
-          read: ["billing.read"],
+          observe: ["billing.read"],
           cancel: ["billing.cancel"],
         },
         cancel: true,

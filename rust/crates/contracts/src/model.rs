@@ -43,6 +43,14 @@ pub struct ContractErrorRef {
     pub error_type: String,
 }
 
+/// Programmer-facing Markdown documentation attached to a contract surface.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractDocs {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub markdown: String,
+}
+
 /// Capability requirements for invoking an RPC.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct RpcCapabilities {
@@ -201,7 +209,7 @@ pub struct OperationCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub call: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub read: Option<Vec<String>>,
+    pub observe: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancel: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -248,12 +256,16 @@ pub struct ContractOperation {
     pub cancel: Option<bool>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub signals: BTreeMap<String, ContractOperationSignal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<ContractDocs>,
 }
 
 /// One named signal declaration for a running operation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractOperationSignal {
     pub input: ContractSchemaRef,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<ContractDocs>,
 }
 
 /// Transfer direction for RPC-backed receive grants.
@@ -282,6 +294,8 @@ pub struct ContractRpcMethod {
     pub errors: Option<Vec<ContractErrorRef>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transfer: Option<ContractRpcTransfer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<ContractDocs>,
 }
 
 /// One owned event declaration in a contract manifest.
@@ -294,6 +308,8 @@ pub struct ContractEvent {
     pub event: ContractSchemaRef,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<PubSubCapabilities>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<ContractDocs>,
 }
 
 /// One owned feed declaration in a contract manifest.
@@ -305,6 +321,8 @@ pub struct ContractFeed {
     pub event: ContractSchemaRef,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<FeedCapabilities>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<ContractDocs>,
 }
 
 /// One logical KV resource declaration in a contract manifest.
@@ -384,6 +402,8 @@ pub struct ContractManifest {
     #[serde(rename = "displayName")]
     pub display_name: String,
     pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<ContractDocs>,
     pub kind: ContractKind,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub capabilities: ContractCapabilities,

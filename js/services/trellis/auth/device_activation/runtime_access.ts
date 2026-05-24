@@ -157,11 +157,11 @@ export async function deriveDeviceRuntimeAccess(
       for (const capability of operation.operation.capabilities?.call ?? []) {
         capabilities.push(capability);
       }
-      const hasReadSurface = envelopeHasSurface(envelopeBoundary, {
+      const hasObserveSurface = envelopeHasSurface(envelopeBoundary, {
         contractId: operation.contractId,
         kind: "operation",
         name: operation.key,
-        action: "read",
+        action: "observe",
       });
       const hasCancelSurface = envelopeHasSurface(envelopeBoundary, {
         contractId: operation.contractId,
@@ -170,7 +170,7 @@ export async function deriveDeviceRuntimeAccess(
         action: "cancel",
       });
       if (
-        (hasReadSurface || hasCancelSurface) &&
+        (hasObserveSurface || hasCancelSurface) &&
         hasOperationControlCapability(capabilities, operation.operation)
       ) {
         publishSubjects.add(

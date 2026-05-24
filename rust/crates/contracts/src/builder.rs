@@ -1,15 +1,15 @@
 use serde_json::Value;
 
 use crate::{
-    parse_manifest, ContractCapabilities, ContractCapabilityMetadata, ContractErrorDecl,
-    ContractErrorRef, ContractEvent, ContractExports, ContractFeed, ContractJobQueueResource,
-    ContractKind, ContractKvResource, ContractManifest, ContractOperation, ContractOperationSignal,
-    ContractOperationTransfer, ContractOperationTransferDirection, ContractResources,
-    ContractRpcMethod, ContractRpcTransfer, ContractRpcTransferDirection, ContractSchemaRef,
-    ContractStateKind, ContractStateStore, ContractStoreResource, ContractUseFeed,
-    ContractUseOperation, ContractUsePubSub, ContractUseRef, ContractUseRpc, ContractsError,
-    FeedCapabilities, OperationCapabilities, PubSubCapabilities, RpcCapabilities,
-    CONTRACT_FORMAT_V1,
+    parse_manifest, ContractCapabilities, ContractCapabilityMetadata, ContractDocs,
+    ContractErrorDecl, ContractErrorRef, ContractEvent, ContractExports, ContractFeed,
+    ContractJobQueueResource, ContractKind, ContractKvResource, ContractManifest,
+    ContractOperation, ContractOperationSignal, ContractOperationTransfer,
+    ContractOperationTransferDirection, ContractResources, ContractRpcMethod, ContractRpcTransfer,
+    ContractRpcTransferDirection, ContractSchemaRef, ContractStateKind, ContractStateStore,
+    ContractStoreResource, ContractUseFeed, ContractUseOperation, ContractUsePubSub,
+    ContractUseRef, ContractUseRpc, ContractsError, FeedCapabilities, OperationCapabilities,
+    PubSubCapabilities, RpcCapabilities, CONTRACT_FORMAT_V1,
 };
 
 /// Thin builder over `ContractManifest` for Rust-authored contracts.
@@ -30,6 +30,7 @@ impl ContractManifestBuilder {
                 id: id.into(),
                 display_name: display_name.into(),
                 description: description.into(),
+                docs: None,
                 kind,
                 capabilities: Default::default(),
                 schemas: Default::default(),
@@ -49,6 +50,19 @@ impl ContractManifestBuilder {
 
     pub fn schema(mut self, name: impl Into<String>, schema: Value) -> Self {
         self.manifest.schemas.insert(name.into(), schema);
+        self
+    }
+
+    /// Attach summarized programmer-facing Markdown documentation to the contract.
+    pub fn docs_with_summary(
+        mut self,
+        summary: impl Into<String>,
+        markdown: impl Into<String>,
+    ) -> Self {
+        self.manifest.docs = Some(ContractDocs {
+            summary: Some(summary.into()),
+            markdown: markdown.into(),
+        });
         self
     }
 
@@ -213,10 +227,10 @@ fn project_contract_capabilities(
                 "operation call capabilities",
             )?;
             project_capability_list(
-                &mut capabilities.read,
+                &mut capabilities.observe,
                 &contract_id,
                 declared,
-                "operation read capabilities",
+                "operation observe capabilities",
             )?;
             project_capability_list(
                 &mut capabilities.cancel,
@@ -300,7 +314,10 @@ fn assert_no_undeclared_local_capabilities(
     for operation in manifest.operations.values() {
         if let Some(capabilities) = operation.capabilities.as_ref() {
             assert_capability_list_external(&capabilities.call, "operation call capabilities")?;
-            assert_capability_list_external(&capabilities.read, "operation read capabilities")?;
+            assert_capability_list_external(
+                &capabilities.observe,
+                "operation observe capabilities",
+            )?;
             assert_capability_list_external(&capabilities.cancel, "operation cancel capabilities")?;
             assert_capability_list_external(
                 &capabilities.control,
@@ -462,6 +479,7 @@ pub fn rpc(
         capabilities: None,
         errors: None,
         transfer: None,
+        docs: None,
     }
 }
 
@@ -482,6 +500,7 @@ pub fn operation(
         capabilities: None,
         cancel: None,
         signals: Default::default(),
+        docs: None,
     }
 }
 
@@ -496,6 +515,7 @@ pub fn event(
         params: None,
         event: schema_ref(event_schema),
         capabilities: None,
+        docs: None,
     }
 }
 
@@ -511,6 +531,7 @@ pub fn feed(
         input: schema_ref(input_schema),
         event: schema_ref(event_schema),
         capabilities: None,
+        docs: None,
     }
 }
 
@@ -573,6 +594,18 @@ pub fn job_queue(
 }
 
 impl ContractRpcMethod {
+    pub fn docs_with_summary(
+        mut self,
+        summary: impl Into<String>,
+        markdown: impl Into<String>,
+    ) -> Self {
+        self.docs = Some(ContractDocs {
+            summary: Some(summary.into()),
+            markdown: markdown.into(),
+        });
+        self
+    }
+
     pub fn with_receive_transfer(mut self) -> Self {
         self.transfer = Some(ContractRpcTransfer {
             direction: ContractRpcTransferDirection::Receive,
@@ -639,14 +672,14 @@ impl ContractOperation {
         self
     }
 
-    pub fn with_read_capabilities(
+    pub fn with_observe_capabilities(
         mut self,
-        read: impl IntoIterator<Item = impl Into<String>>,
+        observe: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
         let capabilities = self
             .capabilities
             .get_or_insert_with(OperationCapabilities::default);
-        capabilities.read = Some(read.into_iter().map(Into::into).collect());
+        capabilities.observe = Some(observe.into_iter().map(Into::into).collect());
         self
     }
 
@@ -683,6 +716,7 @@ impl ContractOperation {
             name.into(),
             ContractOperationSignal {
                 input: schema_ref(input),
+                docs: None,
             },
         );
         self

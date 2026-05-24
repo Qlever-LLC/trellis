@@ -15,7 +15,7 @@ Update `contracts/orders_service.manifest.json` to add an `operations` section:
     "output": { "schema": { "$ref": "ProcessOrderResult" } },
     "capabilities": {
       "call": ["orders.write"],
-      "read": ["orders.read"],
+      "observe": ["orders.read"],
       "cancel": ["orders.write"],
       "control": ["orders.write"]
     },
@@ -24,9 +24,11 @@ Update `contracts/orders_service.manifest.json` to add an `operations` section:
 }
 ```
 
-`call` starts the operation, `read` gates `get`/`wait`/`watch`, `cancel` gates
+`call` starts the operation, `observe` gates `get`/`wait`/`watch`, `cancel` gates
 cancellation, and `control` gates named post-start signals. If the operation has
-no named signals, `control` can be omitted.
+no named signals, `control` can be omitted. If `observe` is omitted, it defaults
+to `call`; an explicit empty `observe` list makes watching available to
+authenticated callers.
 
 Regenerate the participant facade after updating the manifest.
 

@@ -211,7 +211,7 @@ Rules:
 - services receive only the resource-derived publish/subscribe permissions
   appropriate to their installed bindings
 - operation-control publish permissions are derived only from operation
-  `read`/`cancel` capabilities; `call` authorizes starting an operation but does
+  `observe`/`cancel` capabilities; `call` authorizes starting an operation but does
   not authorize publishing to its control subject
 - auth-callout denial paths return explicit deny responses and MUST NOT mint a
   partially scoped user JWT when the active catalog, session, deployment, or

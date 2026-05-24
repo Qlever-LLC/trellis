@@ -627,7 +627,7 @@ Example:
     "output": { "schema": "BillingRefundResult" },
     "capabilities": {
       "call": ["billing::billing.refund"],
-      "read": ["billing::billing.refund"],
+      "observe": ["billing::billing.refund"],
       "cancel": ["billing::billing.refund.cancel"],
       "control": ["billing::billing.refund.control"]
     },
@@ -647,8 +647,8 @@ Rules:
 - each operation also owns a derived control subject `<subject>.control`
 - `input` and `output` are required schema refs; `progress` is optional
 - `capabilities.call` gates invocation
-- `capabilities.read` gates `get`, `wait`, and `watch`; if omitted, it defaults
-  to `capabilities.call`
+- `capabilities.observe` gates `get`, `wait`, and `watch`; if omitted, it
+  defaults to `capabilities.call`
 - `capabilities.cancel` gates `cancel`; if omitted, callers do not receive
   cancel rights by default
 - `capabilities.control` gates named operation signals; if omitted, signal
@@ -1086,7 +1086,7 @@ and console review without reimplementing catalog analysis in each client:
   queues
 - `analysis.operations.operations[]` includes `key`, `subject`,
   `wildcardSubject`, `controlSubject`, `wildcardControlSubject`,
-  `callCapabilities`, `readCapabilities`, `cancelCapabilities`, and `cancel`
+  `callCapabilities`, `observeCapabilities`, `cancelCapabilities`, and `cancel`
 - `analysis.operations.control[]` includes `key`, `action`, `subject`,
   `wildcardSubject`, and `requiredCapabilities`
 - NATS analysis rule `kind` values include operation call, operation handle, and
@@ -1324,7 +1324,7 @@ Authorization is derived from the active contract set.
 For each active contract:
 
 - operations contribute publish permissions for callers via `capabilities.call`
-  on the declared operation subject, plus `capabilities.read` and
+  on the declared operation subject, plus `capabilities.observe` and
   `capabilities.cancel` on the derived control subject as applicable
 - RPCs contribute publish permissions for callers via `capabilities.call`
 - events contribute publish permissions via `capabilities.publish`
@@ -1363,7 +1363,7 @@ Rules:
 - each capability list is an all-of requirement
 - operation control subjects MUST be derived deterministically from the declared
   operation subject so auth and SDK generation remain contract-driven
-- operation control publish grants currently use `capabilities.read` and
+- operation control publish grants currently use `capabilities.observe` and
   `capabilities.cancel` as applicable; holding only `capabilities.call` does not
   grant broad control-subject access beyond the operation-specific control
   subject
@@ -1374,14 +1374,14 @@ Rules:
   signals
 - `capabilities.control` gates named signals; it is not a fallback for
   cancellation
-- deployments that need signal-only callers, with neither read nor cancel
+- deployments that need signal-only callers, with neither observe nor cancel
   rights, need capability-derived control-subject grants for
   `capabilities.control`; that NATS permission derivation is not yet part of the
   current catalog analysis
-- omitted `capabilities.read` defaults to `capabilities.call`, so callers that
-  can start an operation can also observe that operation unless the contract
-  declares a different read list
-- an explicit empty `read`, `cancel`, or `control` capability list means
+- omitted `capabilities.observe` defaults to `capabilities.call`, so callers
+  that can start an operation can also observe that operation unless the
+  contract declares a different observe list
+- an explicit empty `observe`, `cancel`, or `control` capability list means
   authenticated callers need no additional Trellis capability for that action
 - templated event subjects are authorized using wildcard subjects derived by
   replacing each template token with `*`

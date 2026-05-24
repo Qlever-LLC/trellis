@@ -538,7 +538,7 @@
             "call": {
               "$ref": "#/$defs/capabilities"
             },
-            "read": {
+            "observe": {
               "$ref": "#/$defs/capabilities"
             },
             "cancel": {

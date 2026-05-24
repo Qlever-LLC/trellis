@@ -114,10 +114,10 @@ function permittedRuleSubjects(
 /**
  * Derive the operation control capabilities for get, wait, and watch.
  */
-export function operationReadCapabilities(
+export function operationObserveCapabilities(
   operation: ContractOperation,
 ): string[] {
-  return operation.capabilities?.read ?? operation.capabilities?.call ?? [];
+  return operation.capabilities?.observe ?? operation.capabilities?.call ?? [];
 }
 
 /**
@@ -140,7 +140,7 @@ export function operationControlCapabilityRules(
 ): string[][] {
   const cancelCapabilities = operationCancelCapabilities(operation);
   return [
-    operationReadCapabilities(operation),
+    operationObserveCapabilities(operation),
     ...(cancelCapabilities !== undefined ? [cancelCapabilities] : []),
   ];
 }
@@ -242,14 +242,14 @@ function usedPublishRules(
           },
           {
             subject: controlSubject,
-            requiredCapabilities: operationReadCapabilities(
+            requiredCapabilities: operationObserveCapabilities(
               operation.operation,
             ),
             surface: {
               contractId: operation.contractId,
               kind: "operation" as const,
               name: operation.key,
-              action: "read" as const,
+              action: "observe" as const,
             },
           },
           ...(operationCancelCapabilities(operation.operation) !== undefined
@@ -311,7 +311,7 @@ function usedPublishRules(
           contractId: feed.contractId,
           kind: "feed" as const,
           name: feed.key,
-          action: "read" as const,
+          action: "subscribe" as const,
         },
       })),
     ];
@@ -387,7 +387,7 @@ function handledOperationRules(
             contractId: entry.contract.id,
             kind: "operation" as const,
             name,
-            action: "read" as const,
+            action: "observe" as const,
           },
         },
         ...(operation.cancel
@@ -423,7 +423,7 @@ function handledFeedRules(
         contractId: entry.contract.id,
         kind: "feed" as const,
         name,
-        action: "read" as const,
+        action: "subscribe" as const,
       },
     }))
   );

@@ -104,6 +104,11 @@ const JsonSchemaValueSchema = Type.Union([
   Type.Boolean(),
 ]);
 
+export const ContractDocsSchema = Type.Object({
+  summary: Type.Optional(Type.String()),
+  markdown: Type.String(),
+});
+
 export const ContractCapabilityMetadataSchema = Type.Object({
   displayName: NonEmptyStringSchema,
   description: NonEmptyStringSchema,
@@ -161,13 +166,18 @@ const ContractErrorRefSchema = Type.Object({
   type: NonEmptyStringSchema,
 });
 
+const ContractOperationSignalSchema = Type.Object({
+  input: ContractSchemaRefSchema,
+  docs: Type.Optional(ContractDocsSchema),
+});
+
 const RpcCapabilitiesSchema = Type.Object({
   call: Type.Optional(CapabilityListSchema),
 });
 
 const OperationCapabilitiesSchema = Type.Object({
   call: Type.Optional(CapabilityListSchema),
-  read: Type.Optional(CapabilityListSchema),
+  observe: Type.Optional(CapabilityListSchema),
   cancel: Type.Optional(CapabilityListSchema),
   control: Type.Optional(CapabilityListSchema),
 });
@@ -203,10 +213,7 @@ const ContractRpcMethodSchema = Type.Object({
   capabilities: Type.Optional(RpcCapabilitiesSchema),
   errors: Type.Optional(Type.Array(ContractErrorRefSchema)),
   transfer: Type.Optional(RpcTransferSchema),
-});
-
-const ContractOperationSignalSchema = Type.Object({
-  input: ContractSchemaRefSchema,
+  docs: Type.Optional(ContractDocsSchema),
 });
 
 const ContractOperationSchema = Type.Object({
@@ -221,6 +228,7 @@ const ContractOperationSchema = Type.Object({
     Type.Record(NonEmptyStringSchema, ContractOperationSignalSchema),
   ),
   cancel: Type.Optional(Type.Boolean()),
+  docs: Type.Optional(ContractDocsSchema),
 });
 
 const ContractEventSchema = Type.Object({
@@ -229,6 +237,7 @@ const ContractEventSchema = Type.Object({
   params: Type.Optional(Type.Array(PointerStringSchema)),
   event: ContractSchemaRefSchema,
   capabilities: Type.Optional(PubSubCapabilitiesSchema),
+  docs: Type.Optional(ContractDocsSchema),
 });
 
 const ContractFeedSchema = Type.Object({
@@ -237,6 +246,7 @@ const ContractFeedSchema = Type.Object({
   input: ContractSchemaRefSchema,
   event: ContractSchemaRefSchema,
   capabilities: Type.Optional(FeedCapabilitiesSchema),
+  docs: Type.Optional(ContractDocsSchema),
 });
 
 export const TrellisContractV1Schema = Type.Object({
@@ -244,6 +254,7 @@ export const TrellisContractV1Schema = Type.Object({
   id: NonEmptyStringSchema,
   displayName: NonEmptyStringSchema,
   description: NonEmptyStringSchema,
+  docs: Type.Optional(ContractDocsSchema),
   kind: Type.Union([
     Type.Literal("service"),
     Type.Literal("app"),
@@ -336,6 +347,12 @@ const DEFINED_ERROR_PAYLOAD = Symbol.for(
 export type ContractManifestMetadata = {
   displayName: string;
   description: string;
+  docs?: ContractDocs;
+};
+
+export type ContractDocs = {
+  summary?: string;
+  markdown: string;
 };
 
 export type ContractKind = "service" | "app" | "device" | "agent";
@@ -414,6 +431,7 @@ export type ContractStateStore = {
   schema: ContractSchemaRef;
   stateVersion?: string;
   acceptedVersions?: Record<string, ContractSchemaRef>;
+  docs?: ContractDocs;
 };
 
 export type ContractState = Record<string, ContractStateStore>;
@@ -422,6 +440,7 @@ type ContractIdentityFields = {
   id: string;
   displayName: string;
   description: string;
+  docs?: ContractDocs;
 };
 
 export type ContractErrorDecl = {
@@ -441,6 +460,12 @@ export type ContractRpcMethod = {
   transfer?: { direction: "receive" };
   capabilities?: { call?: Capability[] };
   errors?: ContractErrorRef[];
+  docs?: ContractDocs;
+};
+
+export type ContractOperationSignal = {
+  input: ContractSchemaRef;
+  docs?: ContractDocs;
 };
 
 export type ContractOperation = {
@@ -460,12 +485,13 @@ export type ContractOperation = {
   };
   capabilities?: {
     call?: Capability[];
-    read?: Capability[];
+    observe?: Capability[];
     cancel?: Capability[];
     control?: Capability[];
   };
-  signals?: Record<string, { input: ContractSchemaRef }>;
+  signals?: Record<string, ContractOperationSignal>;
   cancel?: boolean;
+  docs?: ContractDocs;
 };
 
 export type ContractEvent = {
@@ -474,6 +500,7 @@ export type ContractEvent = {
   params?: string[];
   event: ContractSchemaRef;
   capabilities?: { publish?: Capability[]; subscribe?: Capability[] };
+  docs?: ContractDocs;
 };
 
 export type ContractFeed = {
@@ -482,6 +509,7 @@ export type ContractFeed = {
   input: ContractSchemaRef;
   event: ContractSchemaRef;
   capabilities?: { subscribe?: Capability[] };
+  docs?: ContractDocs;
 };
 
 export type ContractJobQueueResource = {
@@ -495,6 +523,7 @@ export type ContractJobQueueResource = {
   logs?: boolean;
   dlq?: boolean;
   concurrency?: number;
+  docs?: ContractDocs;
 };
 
 export type ContractJobQueue = ContractJobQueueResource;
@@ -508,6 +537,7 @@ export type ContractKvResource = {
   history?: number;
   ttlMs?: number;
   maxValueBytes?: number;
+  docs?: ContractDocs;
 };
 
 export type ContractStoreResource = {
@@ -516,6 +546,7 @@ export type ContractStoreResource = {
   ttlMs?: number;
   maxObjectBytes?: number;
   maxTotalBytes?: number;
+  docs?: ContractDocs;
 };
 
 export type ContractResources = {
@@ -554,6 +585,7 @@ export type TrellisContractV1 = {
   id: string;
   displayName: string;
   description: string;
+  docs?: ContractDocs;
   kind: ContractKind;
   capabilities?: ContractCapabilities;
   schemas?: ContractSchemas;
@@ -795,6 +827,7 @@ export type ContractSourceStateStore<TSchemaName extends string = string> = {
   schema: ContractSchemaRef<TSchemaName>;
   stateVersion?: string;
   acceptedVersions?: Record<string, ContractSchemaRef<TSchemaName>>;
+  docs?: ContractDocs;
 };
 
 export type ContractSourceState<TSchemaName extends string = string> = Record<
@@ -815,6 +848,14 @@ export type ContractSourceRpcMethod<
   errors?: readonly TErrorName[];
   authRequired?: boolean;
   subject?: string;
+  docs?: ContractDocs;
+};
+
+export type ContractSourceOperationSignal<
+  TSchemaName extends string = string,
+> = {
+  input: ContractSchemaRef<TSchemaName>;
+  docs?: ContractDocs;
 };
 
 export type ContractSourceOperation<
@@ -836,13 +877,14 @@ export type ContractSourceOperation<
   };
   capabilities?: {
     call?: readonly TCapability[];
-    read?: readonly TCapability[];
+    observe?: readonly TCapability[];
     cancel?: readonly TCapability[];
     control?: readonly TCapability[];
   };
-  signals?: Record<string, { input: ContractSchemaRef<TSchemaName> }>;
+  signals?: Record<string, ContractSourceOperationSignal<TSchemaName>>;
   cancel?: boolean;
   subject?: string;
+  docs?: ContractDocs;
 };
 
 export type ContractSourceEvent<
@@ -857,6 +899,7 @@ export type ContractSourceEvent<
     subscribe?: readonly TCapability[];
   };
   subject?: string;
+  docs?: ContractDocs;
 };
 
 export type ContractSourceFeed<
@@ -868,6 +911,7 @@ export type ContractSourceFeed<
   event: ContractSchemaRef<TSchemaName>;
   capabilities?: { subscribe?: readonly TCapability[] };
   subject?: string;
+  docs?: ContractDocs;
 };
 
 export type ContractSourceJobQueue<
@@ -883,6 +927,7 @@ export type ContractSourceJobQueue<
   logs?: boolean;
   dlq?: boolean;
   concurrency?: number;
+  docs?: ContractDocs;
 };
 
 export type ContractSourceJobs<TSchemaName extends string = string> = Record<
@@ -897,6 +942,7 @@ export type ContractSourceKvResource<TSchemaName extends string = string> = {
   history?: number;
   ttlMs?: number;
   maxValueBytes?: number;
+  docs?: ContractDocs;
 };
 
 export type ContractSourceStoreResource = {
@@ -905,6 +951,7 @@ export type ContractSourceStoreResource = {
   ttlMs?: number;
   maxObjectBytes?: number;
   maxTotalBytes?: number;
+  docs?: ContractDocs;
 };
 
 export type ContractSourceResources<TSchemaName extends string = string> = {
@@ -933,6 +980,7 @@ export type TrellisContractSource = {
   id: string;
   displayName: string;
   description: string;
+  docs?: ContractDocs;
   kind: ContractKind;
   capabilities?: ContractCapabilities;
   schemas?: ContractSourceSchemas;
@@ -1658,6 +1706,7 @@ export type DefineContractInput<
   id: string;
   displayName: string;
   description: string;
+  docs?: ContractDocs;
   kind: ContractKind;
   capabilities?: ContractCapabilities;
   schemas?: TSchemas;
@@ -1685,6 +1734,7 @@ type DefineContractSource = {
   id: string;
   displayName: string;
   description: string;
+  docs?: ContractDocs;
   kind: ContractKind;
   capabilities?: ContractCapabilities;
   schemas?: Readonly<Record<string, TSchema>>;
@@ -2471,9 +2521,29 @@ function projectDigestResources(
     return undefined;
   }
   return {
-    ...(resources.kv ? { kv: resources.kv } : {}),
-    ...(resources.store ? { store: resources.store } : {}),
+    ...(resources.kv
+      ? {
+        kv: mapValues(resources.kv, omitDocs),
+      }
+      : {}),
+    ...(resources.store
+      ? {
+        store: mapValues(resources.store, omitDocs),
+      }
+      : {}),
   };
+}
+
+function projectDigestState(
+  state: ContractState | undefined,
+): ContractState | undefined {
+  return state ? mapValues(state, omitDocs) : undefined;
+}
+
+function projectDigestJobs(
+  jobs: ContractJobs | undefined,
+): ContractJobs | undefined {
+  return jobs ? mapValues(jobs, omitDocs) : undefined;
 }
 
 function projectDigestUsesFlat(
@@ -2558,22 +2628,26 @@ function projectDigestRpc(
   }
 
   return Object.fromEntries(
-    Object.entries(rpc).map(([name, method]) => [
-      name,
-      {
-        ...method,
-        ...(method.capabilities?.call
-          ? { capabilities: { call: sortedUnique(method.capabilities.call) } }
-          : {}),
-        ...(method.errors
-          ? {
-            errors: sortedUnique(method.errors.map((error) => error.type)).map((
-              type,
-            ) => ({ type })),
-          }
-          : {}),
-      } satisfies ContractRpcMethod,
-    ]),
+    Object.entries(rpc).map(([name, method]) => {
+      const projected = omitDocs(method);
+      return [
+        name,
+        {
+          ...projected,
+          ...(method.capabilities?.call
+            ? { capabilities: { call: sortedUnique(method.capabilities.call) } }
+            : {}),
+          ...(method.errors
+            ? {
+              errors: sortedUnique(method.errors.map((error) => error.type))
+                .map((
+                  type,
+                ) => ({ type })),
+            }
+            : {}),
+        } satisfies ContractRpcMethod,
+      ];
+    }),
   );
 }
 
@@ -2585,31 +2659,40 @@ function projectDigestOperations(
   }
 
   return Object.fromEntries(
-    Object.entries(operations).map(([name, operation]) => [
-      name,
-      {
-        ...operation,
-        ...((operation.capabilities?.call || operation.capabilities?.read ||
-            operation.capabilities?.cancel || operation.capabilities?.control)
-          ? {
-            capabilities: {
-              ...(operation.capabilities.call
-                ? { call: sortedUnique(operation.capabilities.call) }
-                : {}),
-              ...(operation.capabilities.read
-                ? { read: sortedUnique(operation.capabilities.read) }
-                : {}),
-              ...(operation.capabilities.cancel
-                ? { cancel: sortedUnique(operation.capabilities.cancel) }
-                : {}),
-              ...(operation.capabilities.control
-                ? { control: sortedUnique(operation.capabilities.control) }
-                : {}),
-            },
-          }
-          : {}),
-      } satisfies ContractOperation,
-    ]),
+    Object.entries(operations).map(([name, operation]) => {
+      const projected = omitDocs(operation);
+      return [
+        name,
+        {
+          ...projected,
+          ...(operation.signals
+            ? {
+              signals: mapValues(operation.signals, omitDocs),
+            }
+            : {}),
+          ...((operation.capabilities?.call ||
+              operation.capabilities?.observe ||
+              operation.capabilities?.cancel || operation.capabilities?.control)
+            ? {
+              capabilities: {
+                ...(operation.capabilities.call
+                  ? { call: sortedUnique(operation.capabilities.call) }
+                  : {}),
+                ...(operation.capabilities.observe
+                  ? { observe: sortedUnique(operation.capabilities.observe) }
+                  : {}),
+                ...(operation.capabilities.cancel
+                  ? { cancel: sortedUnique(operation.capabilities.cancel) }
+                  : {}),
+                ...(operation.capabilities.control
+                  ? { control: sortedUnique(operation.capabilities.control) }
+                  : {}),
+              },
+            }
+            : {}),
+        } satisfies ContractOperation,
+      ];
+    }),
   );
 }
 
@@ -2621,24 +2704,27 @@ function projectDigestEvents(
   }
 
   return Object.fromEntries(
-    Object.entries(events).map(([name, event]) => [
-      name,
-      {
-        ...event,
-        ...((event.capabilities?.publish || event.capabilities?.subscribe)
-          ? {
-            capabilities: {
-              ...(event.capabilities.publish
-                ? { publish: sortedUnique(event.capabilities.publish) }
-                : {}),
-              ...(event.capabilities.subscribe
-                ? { subscribe: sortedUnique(event.capabilities.subscribe) }
-                : {}),
-            },
-          }
-          : {}),
-      } satisfies ContractEvent,
-    ]),
+    Object.entries(events).map(([name, event]) => {
+      const projected = omitDocs(event);
+      return [
+        name,
+        {
+          ...projected,
+          ...((event.capabilities?.publish || event.capabilities?.subscribe)
+            ? {
+              capabilities: {
+                ...(event.capabilities.publish
+                  ? { publish: sortedUnique(event.capabilities.publish) }
+                  : {}),
+                ...(event.capabilities.subscribe
+                  ? { subscribe: sortedUnique(event.capabilities.subscribe) }
+                  : {}),
+              },
+            }
+            : {}),
+        } satisfies ContractEvent,
+      ];
+    }),
   );
 }
 
@@ -2650,19 +2736,22 @@ function projectDigestFeeds(
   }
 
   return Object.fromEntries(
-    Object.entries(feeds).map(([name, feed]) => [
-      name,
-      {
-        ...feed,
-        ...(feed.capabilities?.subscribe
-          ? {
-            capabilities: {
-              subscribe: sortedUnique(feed.capabilities.subscribe),
-            },
-          }
-          : {}),
-      } satisfies ContractFeed,
-    ]),
+    Object.entries(feeds).map(([name, feed]) => {
+      const projected = omitDocs(feed);
+      return [
+        name,
+        {
+          ...projected,
+          ...(feed.capabilities?.subscribe
+            ? {
+              capabilities: {
+                subscribe: sortedUnique(feed.capabilities.subscribe),
+              },
+            }
+            : {}),
+        } satisfies ContractFeed,
+      ];
+    }),
   );
 }
 
@@ -2674,6 +2763,24 @@ function mapValues<TInput, TOutput>(
   return Object.fromEntries(
     Object.entries(values).map(([key, value]) => [key, map(value)]),
   );
+}
+
+function omitDocs<TValue extends { docs?: ContractDocs }>(
+  value: TValue,
+): Omit<TValue, "docs"> {
+  const projected = { ...value };
+  delete projected.docs;
+  return projected;
+}
+
+function contractDocs(
+  docs: ContractDocs | undefined,
+): ContractDocs | undefined {
+  if (!docs) return undefined;
+  return {
+    ...(docs.summary !== undefined ? { summary: docs.summary } : {}),
+    markdown: docs.markdown,
+  };
 }
 
 function schemaRef(ref: ContractSchemaRef): ContractSchemaRef {
@@ -2747,6 +2854,7 @@ function stateStore(store: ContractStateStore): ContractStateStore {
     ...(store.acceptedVersions
       ? { acceptedVersions: mapValues(store.acceptedVersions, schemaRef) }
       : {}),
+    ...(store.docs ? { docs: contractDocs(store.docs) } : {}),
   };
 }
 
@@ -2765,6 +2873,7 @@ function rpcMethod(method: ContractRpcMethod): ContractRpcMethod {
     ...(method.errors
       ? { errors: method.errors.map((error) => ({ type: error.type })) }
       : {}),
+    ...(method.docs ? { docs: contractDocs(method.docs) } : {}),
   };
 }
 
@@ -2802,8 +2911,8 @@ function operation(operation: ContractOperation): ContractOperation {
           ...(operation.capabilities.call
             ? { call: [...operation.capabilities.call] }
             : {}),
-          ...(operation.capabilities.read
-            ? { read: [...operation.capabilities.read] }
+          ...(operation.capabilities.observe
+            ? { observe: [...operation.capabilities.observe] }
             : {}),
           ...(operation.capabilities.cancel
             ? { cancel: [...operation.capabilities.cancel] }
@@ -2818,11 +2927,15 @@ function operation(operation: ContractOperation): ContractOperation {
       ? {
         signals: mapValues(
           operation.signals,
-          (signal) => ({ input: schemaRef(signal.input) }),
+          (signal) => ({
+            input: schemaRef(signal.input),
+            ...(signal.docs ? { docs: contractDocs(signal.docs) } : {}),
+          }),
         ),
       }
       : {}),
     ...(operation.cancel !== undefined ? { cancel: operation.cancel } : {}),
+    ...(operation.docs ? { docs: contractDocs(operation.docs) } : {}),
   };
 }
 
@@ -2844,6 +2957,7 @@ function event(event: ContractEvent): ContractEvent {
         },
       }
       : {}),
+    ...(event.docs ? { docs: contractDocs(event.docs) } : {}),
   };
 }
 
@@ -2856,6 +2970,7 @@ function feed(feed: ContractFeed): ContractFeed {
     ...(feed.capabilities?.subscribe
       ? { capabilities: { subscribe: [...feed.capabilities.subscribe] } }
       : {}),
+    ...(feed.docs ? { docs: contractDocs(feed.docs) } : {}),
   };
 }
 
@@ -2882,6 +2997,7 @@ function jobQueue(queue: ContractJobQueue): ContractJobQueue {
     ...(queue.concurrency !== undefined
       ? { concurrency: queue.concurrency }
       : {}),
+    ...(queue.docs ? { docs: contractDocs(queue.docs) } : {}),
   };
 }
 
@@ -2895,6 +3011,7 @@ function kvResource(resource: ContractKvResource): ContractKvResource {
     ...(resource.maxValueBytes !== undefined
       ? { maxValueBytes: resource.maxValueBytes }
       : {}),
+    ...(resource.docs ? { docs: contractDocs(resource.docs) } : {}),
   };
 }
 
@@ -2909,6 +3026,7 @@ function storeResource(resource: ContractStoreResource): ContractStoreResource {
     ...(resource.maxTotalBytes !== undefined
       ? { maxTotalBytes: resource.maxTotalBytes }
       : {}),
+    ...(resource.docs ? { docs: contractDocs(resource.docs) } : {}),
   };
 }
 
@@ -2929,6 +3047,7 @@ export function normalizeContractManifest(
     id: contract.id,
     displayName: contract.displayName,
     description: contract.description,
+    ...(contract.docs ? { docs: contractDocs(contract.docs) } : {}),
     kind: contract.kind,
     ...(contract.capabilities
       ? { capabilities: mapValues(contract.capabilities, capabilityMetadata) }
@@ -3000,7 +3119,9 @@ export function projectContractDigestManifest(
 ): JsonValue {
   const schemas = projectReachableSchemas(contract);
   const errors = projectRpcDeclaredErrors(contract);
+  const state = projectDigestState(contract.state);
   const resources = projectDigestResources(contract.resources);
+  const jobs = projectDigestJobs(contract.jobs);
   const uses = projectDigestUses(contract.uses);
   const rpc = projectDigestRpc(contract.rpc);
   const operations = projectDigestOperations(contract.operations);
@@ -3013,14 +3134,14 @@ export function projectContractDigestManifest(
     kind: contract.kind,
     ...(contract.capabilities ? { capabilities: contract.capabilities } : {}),
     ...(schemas ? { schemas } : {}),
-    ...(contract.state ? { state: contract.state } : {}),
+    ...(state ? { state } : {}),
     ...(uses ? { uses } : {}),
     ...(rpc ? { rpc } : {}),
     ...(operations ? { operations } : {}),
     ...(events ? { events } : {}),
     ...(feeds ? { feeds } : {}),
     ...(errors ? { errors } : {}),
-    ...(contract.jobs ? { jobs: contract.jobs } : {}),
+    ...(jobs ? { jobs } : {}),
     ...(resources ? { resources } : {}),
   };
 }
@@ -3077,6 +3198,7 @@ function emitResources(
               ...(resource.maxValueBytes
                 ? { maxValueBytes: resource.maxValueBytes }
                 : {}),
+              ...(resource.docs ? { docs: contractDocs(resource.docs) } : {}),
             } satisfies ContractKvResource,
           ]),
         ),
@@ -3097,6 +3219,7 @@ function emitResources(
               ...(resource.maxTotalBytes !== undefined
                 ? { maxTotalBytes: resource.maxTotalBytes }
                 : {}),
+              ...(resource.docs ? { docs: contractDocs(resource.docs) } : {}),
             } satisfies ContractStoreResource,
           ]),
         ),
@@ -3134,6 +3257,7 @@ function emitJobs(
         ...(queue.concurrency !== undefined
           ? { concurrency: queue.concurrency }
           : {}),
+        ...(queue.docs ? { docs: contractDocs(queue.docs) } : {}),
       } satisfies ContractJobQueue,
     ]),
   );
@@ -3234,6 +3358,7 @@ function emitState(
         ...(store.acceptedVersions === undefined
           ? {}
           : { acceptedVersions: store.acceptedVersions }),
+        ...(store.docs ? { docs: contractDocs(store.docs) } : {}),
       } satisfies ContractStateStore,
     ]),
   );
@@ -3327,6 +3452,9 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
             ),
           ).map((type) => ({ type }));
         }
+        if (method.docs) {
+          emitted.docs = contractDocs(method.docs);
+        }
         return [name, emitted];
       }),
     )
@@ -3380,7 +3508,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
           emitted.transfer = { ...operation.transfer, direction: "send" };
         }
         if (
-          operation.capabilities?.call || operation.capabilities?.read ||
+          operation.capabilities?.call || operation.capabilities?.observe ||
           operation.capabilities?.cancel || operation.capabilities?.control
         ) {
           emitted.capabilities = {
@@ -3394,13 +3522,13 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
                 ) ?? [],
               }
               : {}),
-            ...(operation.capabilities.read
+            ...(operation.capabilities.observe
               ? {
-                read: projectCapabilities(
-                  operation.capabilities.read,
+                observe: projectCapabilities(
+                  operation.capabilities.observe,
                   source.id,
                   source.capabilities,
-                  `operation '${name}' read capabilities`,
+                  `operation '${name}' observe capabilities`,
                 ) ?? [],
               }
               : {}),
@@ -3430,12 +3558,18 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
           emitted.signals = Object.fromEntries(
             Object.entries(operation.signals).map(([signalName, signal]) => [
               signalName,
-              { input: { ...signal.input } },
+              {
+                input: { ...signal.input },
+                ...(signal.docs ? { docs: contractDocs(signal.docs) } : {}),
+              },
             ]),
           );
         }
         if (operation.cancel !== undefined) {
           emitted.cancel = operation.cancel;
+        }
+        if (operation.docs) {
+          emitted.docs = contractDocs(operation.docs);
         }
         return [name, emitted];
       }),
@@ -3486,6 +3620,9 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
               : {}),
           };
         }
+        if (event.docs) {
+          emitted.docs = contractDocs(event.docs);
+        }
 
         return [name, emitted];
       }),
@@ -3510,6 +3647,9 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
               `feed '${name}' subscribe capabilities`,
             ) ?? [],
           };
+        }
+        if (feed.docs) {
+          emitted.docs = contractDocs(feed.docs);
         }
         return [name, emitted];
       }),
@@ -3539,6 +3679,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     id: source.id,
     displayName: source.displayName,
     description: source.description,
+    ...(source.docs ? { docs: contractDocs(source.docs) } : {}),
     kind: source.kind,
     ...(capabilities ? { capabilities } : {}),
     ...(source.schemas ? { schemas: cloneSchemas(source.schemas) } : {}),
@@ -3682,11 +3823,11 @@ function buildOwnedApi(source: TrellisContractSource): ApiShape {
           source.capabilities,
           `operation '${name}' call capabilities`,
         ) ?? [],
-        readCapabilities: projectCapabilities(
-          operation.capabilities?.read,
+        observeCapabilities: projectCapabilities(
+          operation.capabilities?.observe,
           source.id,
           source.capabilities,
-          `operation '${name}' read capabilities`,
+          `operation '${name}' observe capabilities`,
         ) ?? [],
         cancelCapabilities: projectCapabilities(
           operation.capabilities?.cancel,
@@ -4481,6 +4622,7 @@ function defineContract(
     id: source.id,
     displayName: source.displayName,
     description: source.description,
+    ...(source.docs ? { docs: source.docs } : {}),
     kind: source.kind,
     ...(source.capabilities ? { capabilities: source.capabilities } : {}),
     ...(source.schemas ? { schemas: source.schemas } : {}),

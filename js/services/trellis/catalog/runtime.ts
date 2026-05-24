@@ -313,7 +313,7 @@ export function createContractsModule(opts: {
   contractStorage: SqlContractStorageRepository;
   deploymentContractEvidenceStorage?: Pick<
     SqlDeploymentContractEvidenceRepository,
-    "listByDeployments"
+    "deleteEvidence" | "listByDeployments"
   >;
   deploymentEnvelopeStorage: Pick<
     SqlDeploymentEnvelopeRepository,
@@ -433,23 +433,42 @@ export function createContractsModule(opts: {
       message: "Failed to hydrate active contract",
     });
     if (!entry) {
-      return {
-        issue: {
-          issueId: stableIssueId({
-            kind: "invalid-active-contract",
-            contractId: stored.id,
-            digest: args.digest,
-          }),
-          kind: "invalid-active-contract",
-          contractId: stored.id,
-          digest: args.digest,
-          message: `Failed to load active contract '${args.digest}'`,
-          deploymentIds: args.deploymentIds,
-          actions: [],
-        },
-      };
+      await pruneInvalidActiveContract({
+        digest: args.digest,
+        contractId: args.contractId ?? stored.id,
+      });
+      return {};
     }
     return { entry };
+  }
+
+  async function pruneInvalidActiveContract(args: {
+    digest: string;
+    contractId: string;
+  }): Promise<void> {
+    const deletedEvidence = await opts.deploymentContractEvidenceStorage
+      ?.deleteEvidence({
+        contractId: args.contractId,
+        contractDigests: [args.digest],
+      }) ?? [];
+    await opts.contractStorage.delete(args.digest);
+
+    const instances = await opts.serviceInstanceStorage
+      .listByCurrentContractDigests([args.digest]);
+    for (const instance of instances) {
+      await opts.serviceInstanceStorage.put({
+        ...instance,
+        currentContractId: undefined,
+        currentContractDigest: undefined,
+      });
+    }
+
+    logger.warn({
+      digest: args.digest,
+      contractId: args.contractId,
+      deletedEvidenceCount: deletedEvidence.length,
+      clearedServiceInstanceCount: instances.length,
+    }, "Pruned invalid active contract digest");
   }
 
   async function getKnownEntriesByContractId(

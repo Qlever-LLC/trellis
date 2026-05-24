@@ -235,13 +235,13 @@ Deno.test("deriveDeviceRuntimeAccess gates optional use subjects by deployment e
   assertEquals(access.value.capabilities.includes("billing.refund"), false);
 });
 
-Deno.test("deriveDeviceRuntimeAccess includes operation control when call capabilities satisfy read", async () => {
+Deno.test("deriveDeviceRuntimeAccess includes operation control when call capabilities satisfy observe", async () => {
   const contracts = createDependencyContracts({
     subject: "operations.v1.Billing.Refund",
     version: "v1",
     capabilities: {
       call: ["billing.refund"],
-      read: ["billing.refund"],
+      observe: ["billing.refund"],
     },
     input: { schema: "object" },
     output: { schema: "object" },
@@ -269,7 +269,7 @@ Deno.test("deriveDeviceRuntimeAccess includes operation control when cancel is e
     cancel: true,
     capabilities: {
       call: ["billing.cancel"],
-      read: ["billing.read"],
+      observe: ["billing.read"],
       cancel: ["billing.cancel"],
     },
     input: { schema: "object" },
@@ -297,7 +297,7 @@ Deno.test("deriveDeviceRuntimeAccess ignores cancel capabilities when cancel is 
     version: "v1",
     capabilities: {
       call: ["billing.cancel"],
-      read: ["billing.read"],
+      observe: ["billing.read"],
       cancel: ["billing.cancel"],
     },
     input: { schema: "object" },

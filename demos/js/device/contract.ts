@@ -29,7 +29,6 @@ const fieldOps = trellisDemoService.use({
   },
   operations: {
     call: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
-    read: ["Sites.Refresh", "Reports.Generate", "Evidence.Upload"],
   },
   events: {
     subscribe: [

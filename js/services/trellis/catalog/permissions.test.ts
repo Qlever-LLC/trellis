@@ -139,7 +139,7 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           },
           capabilities: {
             call: ["partners:write"],
-            read: ["partners:read"],
+            observe: ["partners:read"],
           },
         },
       },
@@ -212,7 +212,7 @@ const TEST_CONTRACTS: Array<{ digest: string; contract: TrellisContractV1 }> = [
           cancel: true,
           capabilities: {
             call: ["billing.refund"],
-            read: ["billing.read"],
+            observe: ["billing.read"],
             cancel: ["billing.cancel"],
           },
         },
@@ -842,7 +842,7 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
   });
 });
 
-Deno.test("operation control publish uses read, call-defaulted read, and cancel capabilities", () => {
+Deno.test("operation control publish uses observe, call-defaulted observe, and cancel capabilities", () => {
   withContracts(TEST_CONTRACTS, () => {
     const caller = { contractDigest: "portal-digest" };
 
@@ -926,7 +926,7 @@ Deno.test("operation control publish honors empty capability lists and declared 
           subject: "operations.v1.Open.Run",
           input: { schema: "Empty" },
           output: { schema: "Empty" },
-          capabilities: { call: [], read: [] },
+          capabilities: { call: [], observe: [] },
         },
         "Open.Stop": {
           version: "v1" as const,
@@ -1066,7 +1066,13 @@ Deno.test("service cannot call undeclared cross-contract RPCs by capability alon
 Deno.test("jobs admin service receives built-in Jobs runtime subjects", () => {
   const jobsContract = {
     digest: TRELLIS_JOBS_CONTRACT_DIGEST,
-    contract: TRELLIS_JOBS_CONTRACT,
+    contract: {
+      ...TRELLIS_JOBS_CONTRACT,
+      format: "trellis.contract.v1",
+      displayName: "Trellis Jobs",
+      description: "Jobs runtime shell contract.",
+      kind: "service",
+    },
   } satisfies { digest: string; contract: TrellisContractV1 };
   const coreContract = {
     digest: TRELLIS_CORE_CONTRACT_DIGEST,

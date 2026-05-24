@@ -133,7 +133,7 @@ pub trait OperationDescriptor {
     const KEY: &'static str;
     const SUBJECT: &'static str;
     const CALLER_CAPABILITIES: &'static [&'static str];
-    const READ_CAPABILITIES: &'static [&'static str];
+    const OBSERVE_CAPABILITIES: &'static [&'static str];
     const CANCEL_CAPABILITIES: &'static [&'static str];
     const CONTROL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool;
@@ -714,7 +714,7 @@ mod tests {
         const KEY: &'static str = "Billing.Refund";
         const SUBJECT: &'static str = "operations.v1.Billing.Refund";
         const CALLER_CAPABILITIES: &'static [&'static str] = &["billing.refund"];
-        const READ_CAPABILITIES: &'static [&'static str] = &["billing.read"];
+        const OBSERVE_CAPABILITIES: &'static [&'static str] = &["billing.read"];
         const CANCEL_CAPABILITIES: &'static [&'static str] = &["billing.cancel"];
         const CANCELABLE: bool = true;
     }

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde::Deserialize;
-use trellis_contracts::{load_manifest, ContractUseRef};
+use trellis_contracts::{load_manifest, ContractKind, ContractUseRef};
 
 /// Errors returned while generating a Rust SDK crate.
 #[derive(thiserror::Error, Debug)]
@@ -74,6 +74,8 @@ pub struct GenerateRustSdkOpts {
     pub crate_version: String,
     /// How generated code should depend on Trellis runtime crates.
     pub runtime_deps: RustRuntimeDeps,
+    /// Whether to emit the high-level service runtime facade for this SDK.
+    pub emit_service_runtime_facade: bool,
 }
 
 /// One explicit `uses` alias mapping for participant-facade generation.
@@ -201,10 +203,14 @@ pub fn generate_rust_sdk(opts: &GenerateRustSdkOpts) -> Result<(), CodegenRustEr
     let loaded = load_manifest(&opts.manifest_path)?;
 
     fs::create_dir_all(opts.out_dir.join("src"))?;
-    write_if_changed(
-        &opts.out_dir.join("Cargo.toml"),
-        &render_cargo_toml(opts, !loaded.manifest.feeds.is_empty()),
+    let emit_service_facade = should_emit_service_runtime_facade(opts, &loaded);
+    let cargo_toml = render_cargo_toml(
+        opts,
+        !loaded.manifest.feeds.is_empty(),
+        emit_service_facade,
+        is_trellis_owned_sdk_contract(&loaded.manifest.id),
     )?;
+    write_if_changed(&opts.out_dir.join("Cargo.toml"), &cargo_toml)?;
     write_runtime_patch_config(opts)?;
     write_rust_if_changed(
         &opts.out_dir.join("src").join("contract.rs"),
@@ -234,16 +240,39 @@ pub fn generate_rust_sdk(opts: &GenerateRustSdkOpts) -> Result<(), CodegenRustEr
         &opts.out_dir.join("src").join("client.rs"),
         &render_client_rs(&loaded),
     )?;
-    write_rust_if_changed(
-        &opts.out_dir.join("src").join("server.rs"),
-        &render_server_rs(&loaded),
-    )?;
+    if emit_service_facade {
+        write_rust_if_changed(
+            &opts.out_dir.join("src").join("connect.rs"),
+            &render_service_connect_rs(&loaded),
+        )?;
+    } else {
+        remove_if_exists(&opts.out_dir.join("src").join("connect.rs"))?;
+    }
+    remove_if_exists(&opts.out_dir.join("src").join("server.rs"))?;
     write_rust_if_changed(
         &opts.out_dir.join("src").join("lib.rs"),
-        &render_lib_rs(&loaded),
+        &render_lib_rs(&loaded, emit_service_facade),
     )?;
 
     Ok(())
+}
+
+fn should_emit_service_runtime_facade(
+    opts: &GenerateRustSdkOpts,
+    loaded: &trellis_contracts::LoadedManifest,
+) -> bool {
+    opts.emit_service_runtime_facade && loaded.manifest.kind == ContractKind::Service
+}
+
+fn is_trellis_owned_sdk_contract(contract_id: &str) -> bool {
+    matches!(
+        contract_id,
+        "trellis.auth@v1"
+            | "trellis.core@v1"
+            | "trellis.health@v1"
+            | "trellis.jobs@v1"
+            | "trellis.state@v1"
+    )
 }
 
 /// Validate the minimal generated Rust SDK manifest invariants used by freshness checks.
@@ -267,15 +296,9 @@ pub fn rust_sdk_cargo_manifest_is_valid(
 
     package.get("name").and_then(toml::Value::as_str) == Some(crate_name)
         && package.get("version").and_then(toml::Value::as_str) == Some(crate_version)
-        && [
-            "serde",
-            "serde_json",
-            "trellis-client",
-            "trellis-contracts",
-            "trellis-service",
-        ]
-        .into_iter()
-        .all(|dependency| dependencies.contains_key(dependency))
+        && ["serde", "serde_json", "trellis", "trellis-contracts"]
+            .into_iter()
+            .all(|dependency| dependencies.contains_key(dependency))
 }
 
 /// Generate only the build-time Rust sources for a participant facade.
@@ -343,7 +366,7 @@ pub fn generate_rust_participant_facade(
     fs::create_dir_all(&contracts_dir)?;
     write_if_changed(
         &opts.out_dir.join("Cargo.toml"),
-        &render_participant_cargo_toml(opts, &mappings, !loaded.manifest.feeds.is_empty()),
+        &render_participant_cargo_toml(opts, &mappings, !loaded.manifest.feeds.is_empty())?,
     )?;
     write_runtime_patch_config_for_participant(opts)?;
     fs::copy(&opts.manifest_path, opts.out_dir.join(&manifest_file_name))?;
@@ -373,44 +396,55 @@ pub fn generate_rust_participant_facade(
     Ok(())
 }
 
-fn render_cargo_toml(opts: &GenerateRustSdkOpts, has_feeds: bool) -> String {
-    let mut dependency_lines = runtime_dependency_lines(&opts.runtime_deps);
+fn render_cargo_toml(
+    opts: &GenerateRustSdkOpts,
+    has_feeds: bool,
+    _is_service: bool,
+    publish_false: bool,
+) -> Result<String, CodegenRustError> {
+    let mut dependency_lines = runtime_dependency_lines(&opts.runtime_deps)?;
     if has_feeds {
         dependency_lines.push("futures-util = \"0.3\"".to_string());
     }
     dependency_lines.sort();
     let description = format!("Generated Rust SDK crate for {}.", opts.crate_name);
-    format!(
-        "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2021\"\nlicense = \"Apache-2.0\"\nrepository = \"https://github.com/qlever-llc/trellis\"\ndescription = \"{}\"\n\n[dependencies]\nserde = {{ version = \"1.0\", features = [\"derive\"] }}\nserde_json = \"1.0\"\n{}\n",
+    let publish_line = if publish_false {
+        "publish = false\n"
+    } else {
+        ""
+    };
+    Ok(format!(
+        "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2021\"\nlicense = \"Apache-2.0\"\nrepository = \"https://github.com/qlever-llc/trellis\"\ndescription = \"{}\"\n{}\n[dependencies]\nserde = {{ version = \"1.0\", features = [\"derive\"] }}\nserde_json = \"1.0\"\n{}\n",
         opts.crate_name,
         opts.crate_version,
         description,
+        publish_line,
         dependency_lines.join("\n"),
-    )
+    ))
 }
 
-fn runtime_dependency_lines(runtime_deps: &RustRuntimeDeps) -> Vec<String> {
+fn runtime_dependency_lines(
+    runtime_deps: &RustRuntimeDeps,
+) -> Result<Vec<String>, CodegenRustError> {
     match runtime_deps.source {
-        RustRuntimeSource::Registry => vec![
-            format!("trellis-client = \"{}\"", runtime_deps.version),
+        RustRuntimeSource::Registry => Ok(vec![
+            format!("trellis = \"{}\"", runtime_deps.version),
             format!("trellis-contracts = \"{}\"", runtime_deps.version),
-            format!("trellis-service = \"{}\"", runtime_deps.version),
-        ],
+        ]),
         RustRuntimeSource::Local => {
             let repo_root = runtime_deps
                 .repo_root
                 .as_ref()
-                .expect("local runtime source requires repo root");
+                .ok_or(CodegenRustError::MissingRuntimeRepoRoot)?;
             let repo_root = fs::canonicalize(repo_root).unwrap_or_else(|_| repo_root.clone());
-            ["trellis-client", "trellis-contracts", "trellis-service"]
+            ["trellis", "trellis-contracts"]
                 .into_iter()
                 .map(|crate_name| {
-                    let crate_path = workspace_package_dir(&repo_root, crate_name)
-                        .unwrap_or_else(|error| panic!("{error}"));
-                    format!(
+                    let crate_path = workspace_package_dir(&repo_root, crate_name)?;
+                    Ok(format!(
                         "{crate_name} = {{ path = {} }}",
                         string_literal(&crate_path.display().to_string())
-                    )
+                    ))
                 })
                 .collect()
         }
@@ -581,8 +615,8 @@ fn render_participant_cargo_toml(
     opts: &GenerateRustParticipantFacadeOpts,
     mappings: &[ValidatedParticipantAlias],
     has_owned_feeds: bool,
-) -> String {
-    let mut dependency_lines = runtime_dependency_lines(&opts.runtime_deps);
+) -> Result<String, CodegenRustError> {
+    let mut dependency_lines = participant_runtime_dependency_lines(&opts.runtime_deps)?;
     if has_owned_feeds
         || mappings.iter().any(|mapping| {
             let subscribes_events = mapping
@@ -630,10 +664,9 @@ fn render_participant_cargo_toml(
                 .runtime_deps
                 .repo_root
                 .as_ref()
-                .expect("local participant facade generation requires repo root");
+                .ok_or(CodegenRustError::MissingRuntimeRepoRoot)?;
             let repo_root = fs::canonicalize(repo_root).unwrap_or_else(|_| repo_root.clone());
-            let crate_path = workspace_package_dir(&repo_root, env!("CARGO_PKG_NAME"))
-                .unwrap_or_else(|error| panic!("{error}"));
+            let crate_path = workspace_package_dir(&repo_root, env!("CARGO_PKG_NAME"))?;
             format!(
                 "trellis-codegen-rust = {{ path = {} }}",
                 string_literal(&crate_path.display().to_string())
@@ -641,13 +674,19 @@ fn render_participant_cargo_toml(
         }
     };
 
-    format!(
+    Ok(format!(
         "[package]\nname = \"{}\"\nversion = \"{}\"\nedition = \"2021\"\nlicense = \"Apache-2.0\"\nbuild = \"build.rs\"\n\n[build-dependencies]\n{}\n\n[dependencies]\nserde = {{ version = \"1.0\", features = [\"derive\"] }}\nserde_json = \"1.0\"\n{}\n",
         opts.crate_name,
         opts.crate_version,
         build_dependency,
         dependency_lines.join("\n")
-    )
+    ))
+}
+
+fn participant_runtime_dependency_lines(
+    runtime_deps: &RustRuntimeDeps,
+) -> Result<Vec<String>, CodegenRustError> {
+    runtime_dependency_lines(runtime_deps)
 }
 
 fn render_participant_build_rs(
@@ -669,7 +708,7 @@ fn render_participant_build_rs(
     let owned_sdk_crate_name = opts
         .owned_sdk_crate_name
         .as_ref()
-        .map(|value| format!("Some({})", string_literal(value)))
+        .map(|value| format!("Some({}.to_string())", string_literal(value)))
         .unwrap_or_else(|| "None".to_string());
     let owned_sdk_path = opts
         .owned_sdk_path
@@ -721,11 +760,11 @@ fn render_participant_build_rs(
 }
 
 fn render_participant_shim_lib_rs() -> String {
-    "//! Generated Rust participant facade crate.\n\npub mod connect;\npub mod contract;\ninclude!(concat!(env!(\"OUT_DIR\"), \"/generated/src/facade.rs\"));\npub use connect::{connect_service, connect_user, ConnectedClient};\n".to_string()
+    "//! Generated Rust participant facade crate.\n\npub mod connect;\npub mod contract;\ninclude!(concat!(env!(\"OUT_DIR\"), \"/generated/src/facade.rs\"));\npub use connect::{connect_service, connect_user, ConnectedClient, ConnectedService, Contract, ServiceConnectOptions};\npub use trellis::service::{GeneratedServiceContract, ServiceHandlerContext, ServiceRuntimeError};\n".to_string()
 }
 
 fn render_participant_connect_rs() -> String {
-    "//! Generic connection helpers for the local participant facade.\n\nuse trellis_client::{ServiceConnectOptions, TrellisClient, TrellisClientError, UserConnectOptions};\n\nuse crate::Client;\n\npub struct ConnectedClient { inner: TrellisClient }\n\nimpl ConnectedClient {\n    pub fn new(inner: TrellisClient) -> Self { Self { inner } }\n    pub fn facade(&self) -> Client<'_> { Client::new(&self.inner) }\n    pub fn raw(&self) -> &TrellisClient { &self.inner }\n}\n\npub async fn connect_service(opts: ServiceConnectOptions<'_>) -> Result<ConnectedClient, TrellisClientError> {\n    Ok(ConnectedClient::new(TrellisClient::connect_service(opts).await?))\n}\n\npub async fn connect_user(opts: UserConnectOptions<'_>) -> Result<ConnectedClient, TrellisClientError> {\n    Ok(ConnectedClient::new(TrellisClient::connect_user(opts).await?))\n}\n".to_string()
+    "//! Generic connection helpers for the local participant facade.\n\nuse trellis::client::{TrellisClient, TrellisClientError, UserConnectOptions};\n\nuse crate::{Client, Service};\n\npub use trellis::service::ServiceConnectOptions;\n\npub struct Contract;\n\nimpl trellis::service::GeneratedServiceContract for Contract {\n    const CONTRACT_ID: &'static str = crate::contract::CONTRACT_ID;\n    const CONTRACT_DIGEST: &'static str = crate::contract::CONTRACT_DIGEST;\n    const CONTRACT_JSON: &'static str = crate::contract::CONTRACT_JSON;\n}\n\npub struct ConnectedService {\n    inner: trellis::service::ConnectedServiceRuntime<Contract>,\n}\n\nimpl ConnectedService {\n    pub async fn connect(opts: ServiceConnectOptions<'_>) -> Result<Self, trellis::service::ServiceRuntimeError> {\n        Ok(Self { inner: trellis::service::ConnectedServiceRuntime::<Contract>::connect(opts).await? })\n    }\n    pub fn facade(&self) -> Service<'_> { Service::new(self.inner.client()) }\n    pub fn client(&self) -> &std::sync::Arc<trellis::client::TrellisClient> { self.inner.client() }\n    pub(crate) fn runtime(&self) -> &trellis::service::ConnectedServiceRuntime<Contract> { &self.inner }\n    pub(crate) fn runtime_mut(&mut self) -> &mut trellis::service::ConnectedServiceRuntime<Contract> { &mut self.inner }\n    pub async fn run(self) -> Result<(), trellis::service::ServiceRuntimeError> { self.inner.run().await }\n}\n\npub struct ConnectedClient { inner: TrellisClient }\n\nimpl ConnectedClient {\n    pub fn new(inner: TrellisClient) -> Self { Self { inner } }\n    pub fn facade(&self) -> Client<'_> { Client::new(&self.inner) }\n    pub fn raw(&self) -> &TrellisClient { &self.inner }\n}\n\npub async fn connect_service(opts: ServiceConnectOptions<'_>) -> Result<ConnectedService, trellis::service::ServiceRuntimeError> {\n    ConnectedService::connect(opts).await\n}\n\npub async fn connect_user(opts: UserConnectOptions<'_>) -> Result<ConnectedClient, TrellisClientError> {\n    Ok(ConnectedClient::new(TrellisClient::connect_user(opts).await?))\n}\n".to_string()
 }
 
 fn render_participant_contract_rs(
@@ -733,12 +772,11 @@ fn render_participant_contract_rs(
     manifest_file_name: &str,
 ) -> String {
     format!(
-        "//! Contract metadata for `{}`.\n\nuse trellis_contracts::ContractManifest;\n\npub const CONTRACT_ID: &str = {};\npub const CONTRACT_DIGEST: &str = {};\npub const CONTRACT_NAME: &str = {};\n\npub fn contract_manifest() -> ContractManifest {{\n    serde_json::from_str(include_str!(concat!(\"../\", {}))).expect(\"participant manifest\")\n}}\n\npub fn contract_json() -> String {{\n    include_str!(concat!(\"../\", {})).trim().to_string()\n}}\n",
+        "//! Contract metadata for `{}`.\n\nuse trellis_contracts::ContractManifest;\n\npub const CONTRACT_ID: &str = {};\npub const CONTRACT_DIGEST: &str = {};\npub const CONTRACT_NAME: &str = {};\npub const CONTRACT_JSON: &str = include_str!(concat!(\"../\", {}));\n\npub fn contract_manifest() -> ContractManifest {{\n    serde_json::from_str(CONTRACT_JSON).expect(\"participant manifest\")\n}}\n\npub fn contract_json() -> String {{\n    CONTRACT_JSON.trim().to_string()\n}}\n",
         loaded.manifest.id,
         string_literal(&loaded.manifest.id),
         string_literal(&loaded.digest),
         string_literal(&loaded.manifest.display_name),
-        string_literal(manifest_file_name),
         string_literal(manifest_file_name),
     )
 }
@@ -752,6 +790,7 @@ fn write_runtime_patch_config_for_participant(
         crate_name: opts.crate_name.clone(),
         crate_version: opts.crate_version.clone(),
         runtime_deps: opts.runtime_deps.clone(),
+        emit_service_runtime_facade: false,
     };
     write_runtime_patch_config(&sdk_opts)
 }
@@ -784,17 +823,17 @@ fn render_participant_facade_rs(
         String::new(),
         "/// Contract-shaped outbound facade for this participant.".to_string(),
         "pub struct Client<'a> {".to_string(),
-        "    inner: &'a trellis_client::TrellisClient,".to_string(),
+        "    inner: &'a trellis::client::TrellisClient,".to_string(),
         "}".to_string(),
         String::new(),
         "/// Service-side facade for owned handlers plus outbound alias access.".to_string(),
         "pub struct Service<'a> {".to_string(),
-        "    inner: &'a trellis_client::TrellisClient,".to_string(),
+        "    inner: &'a trellis::client::TrellisClient,".to_string(),
         "}".to_string(),
         String::new(),
         "impl<'a> Client<'a> {".to_string(),
         "    /// Wrap an already connected low-level Trellis client.".to_string(),
-        "    pub fn new(inner: &'a trellis_client::TrellisClient) -> Self { Self { inner } }"
+        "    pub fn new(inner: &'a trellis::client::TrellisClient) -> Self { Self { inner } }"
             .to_string(),
         "    /// Access the participant's owned contract surface.".to_string(),
         "    pub fn owned(&self) -> owned::Client<'a> { owned::Client::new(self.inner) }"
@@ -820,7 +859,7 @@ fn render_participant_facade_rs(
             .to_string(),
     );
     lines.push(
-        "    pub fn new(inner: &'a trellis_client::TrellisClient) -> Self { Self { inner } }"
+        "    pub fn new(inner: &'a trellis::client::TrellisClient) -> Self { Self { inner } }"
             .to_string(),
     );
     lines.push("    /// Access owned handler and publish helpers.".to_string());
@@ -848,11 +887,12 @@ fn render_participant_owned_rs(
     owned_sdk_crate_name: Option<&str>,
 ) -> String {
     if loaded.manifest.rpc.is_empty()
+        && loaded.manifest.operations.is_empty()
         && loaded.manifest.events.is_empty()
         && loaded.manifest.feeds.is_empty()
     {
         return format!(
-            "/// Owned facade for `{}`.\n/// Reusable owned contract vocabulary for this participant.\npub struct OwnedContract;\n\nimpl OwnedContract {{\n    pub const CONTRACT_ID: &'static str = {};\n    pub const CONTRACT_NAME: &'static str = {};\n    pub const CONTRACT_DIGEST: &'static str = {};\n    pub fn manifest() -> trellis_contracts::ContractManifest {{ serde_json::from_str(r#\"{}\"#).expect(\"participant manifest\") }}\n}}\n\npub struct Client<'a> {{ _inner: &'a trellis_client::TrellisClient }}\nimpl<'a> Client<'a> {{ pub fn new(inner: &'a trellis_client::TrellisClient) -> Self {{ Self {{ _inner: inner }} }} }}\n\npub struct Service<'a> {{ _inner: &'a trellis_client::TrellisClient }}\nimpl<'a> Service<'a> {{ pub fn new(inner: &'a trellis_client::TrellisClient) -> Self {{ Self {{ _inner: inner }} }} }}\n",
+            "/// Owned facade for `{}`.\n/// Reusable owned contract vocabulary for this participant.\npub struct OwnedContract;\n\nimpl OwnedContract {{\n    pub const CONTRACT_ID: &'static str = {};\n    pub const CONTRACT_NAME: &'static str = {};\n    pub const CONTRACT_DIGEST: &'static str = {};\n    pub fn manifest() -> trellis_contracts::ContractManifest {{ serde_json::from_str(r#\"{}\"#).expect(\"participant manifest\") }}\n}}\n\npub struct Client<'a> {{ _inner: &'a trellis::client::TrellisClient }}\nimpl<'a> Client<'a> {{ pub fn new(inner: &'a trellis::client::TrellisClient) -> Self {{ Self {{ _inner: inner }} }} }}\n\npub struct Service<'a> {{ _inner: &'a trellis::client::TrellisClient }}\nimpl<'a> Service<'a> {{ pub fn new(inner: &'a trellis::client::TrellisClient) -> Self {{ Self {{ _inner: inner }} }} }}\n",
             loaded.manifest.id,
             string_literal(&loaded.manifest.id),
             string_literal(&loaded.manifest.display_name),
@@ -882,7 +922,7 @@ fn render_participant_owned_rs(
         String::new(),
         "pub struct Client<'a> { inner: sdk::".to_string() + &owned_client_name + "<'a> }",
         "impl<'a> Client<'a> {".to_string(),
-        "    pub fn new(inner: &'a trellis_client::TrellisClient) -> Self { Self { inner: sdk::"
+        "    pub fn new(inner: &'a trellis::client::TrellisClient) -> Self { Self { inner: sdk::"
             .to_string()
             + &owned_client_name
             + "::new(inner) } }",
@@ -903,72 +943,92 @@ fn render_participant_owned_rs(
             format!("sdk::{base}Response")
         };
         if input_empty {
-            lines.push(format!("    pub async fn {method}(&self) -> Result<{output_type}, trellis_client::TrellisClientError> {{ self.inner.{method}().await }}"));
+            lines.push(format!("    pub async fn {method}(&self) -> Result<{output_type}, trellis::client::TrellisClientError> {{ self.inner.{method}().await }}"));
         } else {
-            lines.push(format!("    pub async fn {method}(&self, input: &sdk::{base}Request) -> Result<{output_type}, trellis_client::TrellisClientError> {{ self.inner.{method}(input).await }}"));
+            lines.push(format!("    pub async fn {method}(&self, input: &sdk::{base}Request) -> Result<{output_type}, trellis::client::TrellisClientError> {{ self.inner.{method}(input).await }}"));
         }
     }
     for key in loaded.manifest.events.keys() {
         let method = format!("publish_{}", key_to_snake(key));
         let base = key_to_pascal(key);
-        lines.push(format!("    pub async fn {method}(&self, event: &sdk::{base}Event) -> Result<(), trellis_client::TrellisClientError> {{ self.inner.{method}(event).await }}"));
+        lines.push(format!("    pub async fn {method}(&self, event: &sdk::{base}Event) -> Result<(), trellis::client::TrellisClientError> {{ self.inner.{method}(event).await }}"));
     }
     for (key, feed) in &loaded.manifest.feeds {
         let method = key_to_snake(key);
         let base = key_to_pascal(key);
         if is_empty_object_schema(resolve_schema_ref(loaded, &feed.input.schema)) {
-            lines.push(format!("    pub async fn {method}(&self) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis_client::TrellisClientError>>, trellis_client::TrellisClientError> {{ self.inner.{method}().await }}"));
+            lines.push(format!("    pub async fn {method}(&self) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis::client::TrellisClientError>>, trellis::client::TrellisClientError> {{ self.inner.{method}().await }}"));
         } else {
-            lines.push(format!("    pub async fn {method}(&self, input: &sdk::{base}Input) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis_client::TrellisClientError>>, trellis_client::TrellisClientError> {{ self.inner.{method}(input).await }}"));
+            lines.push(format!("    pub async fn {method}(&self, input: &sdk::{base}Input) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis::client::TrellisClientError>>, trellis::client::TrellisClientError> {{ self.inner.{method}(input).await }}"));
         }
     }
     lines.push("}".to_string());
     lines.push(String::new());
-    lines.push("pub struct Service<'a> { inner: &'a trellis_client::TrellisClient }".to_string());
+    lines.push("pub struct Service<'a> { inner: &'a trellis::client::TrellisClient }".to_string());
     lines.push("impl<'a> Service<'a> {".to_string());
     lines.push(
-        "    pub fn new(inner: &'a trellis_client::TrellisClient) -> Self { Self { inner } }"
+        "    pub fn new(inner: &'a trellis::client::TrellisClient) -> Self { Self { inner } }"
             .to_string(),
     );
     lines.push("    pub fn client(&self) -> Client<'a> { Client::new(self.inner) }".to_string());
-    for key in loaded.manifest.rpc.keys() {
-        let method = format!("register_{}", key_to_snake(key));
-        let base = key_to_pascal(key);
-        let input_type = if is_empty_object_schema(resolve_schema_ref(
-            loaded,
-            &loaded.manifest.rpc[key].input.schema,
-        )) {
-            "sdk::rpc::Empty".to_string()
-        } else {
-            format!("sdk::{base}Request")
-        };
-        let output_type = if is_empty_object_schema(resolve_schema_ref(
-            loaded,
-            &loaded.manifest.rpc[key].output.schema,
-        )) {
-            "sdk::rpc::Empty".to_string()
-        } else {
-            format!("sdk::{base}Response")
-        };
-        lines.push(format!("    pub fn {method}<F, Fut>(&self, router: &mut trellis_service::Router, handler: F) where F: Fn(trellis_service::RequestContext, {input_type}) -> Fut + Send + Sync + 'static, Fut: std::future::Future<Output = trellis_service::HandlerResult<{output_type}>> + Send + 'static {{ sdk::server::{method}(router, handler); }}"));
-    }
     for key in loaded.manifest.events.keys() {
         let method = format!("publish_{}", key_to_snake(key));
         let base = key_to_pascal(key);
-        lines.push(format!("    pub async fn {method}(&self, publisher: &trellis_service::EventPublisher, event: &sdk::{base}Event) -> Result<(), trellis_service::ServerError> {{ sdk::server::{method}(publisher, event).await }}"));
-    }
-    for (key, feed) in &loaded.manifest.feeds {
-        let method = format!("register_{}", key_to_snake(key));
-        let base = key_to_pascal(key);
-        let input_type = if is_empty_object_schema(resolve_schema_ref(loaded, &feed.input.schema)) {
-            "sdk::rpc::Empty".to_string()
-        } else {
-            format!("sdk::{base}Input")
-        };
-        lines.push(format!("    pub fn {method}<F, S>(&self, router: &mut trellis_service::Router, handler: F) where F: Fn(trellis_service::RequestContext, {input_type}) -> S + Send + Sync + 'static, S: futures_util::Stream<Item = Result<sdk::{base}Event, trellis_service::ServerError>> + Send + 'static {{ sdk::server::{method}(router, handler); }}"));
+        lines.push(format!("    pub async fn {method}(&self, publisher: &trellis::service::EventPublisher, event: &sdk::{base}Event) -> Result<(), trellis::service::ServerError> {{ publisher.publish::<sdk::events::{base}EventDescriptor>(event).await }}"));
     }
     lines.push("}".to_string());
     lines.push(String::new());
+    if !loaded.manifest.rpc.is_empty()
+        || !loaded.manifest.operations.is_empty()
+        || !loaded.manifest.events.is_empty()
+        || !loaded.manifest.feeds.is_empty()
+    {
+        lines.push("impl crate::ConnectedService {".to_string());
+        for key in loaded.manifest.rpc.keys() {
+            let method = format!("register_{}", key_to_snake(key));
+            let base = key_to_pascal(key);
+            let input_type = if is_empty_object_schema(resolve_schema_ref(
+                loaded,
+                &loaded.manifest.rpc[key].input.schema,
+            )) {
+                "sdk::rpc::Empty".to_string()
+            } else {
+                format!("sdk::{base}Request")
+            };
+            let output_type = if is_empty_object_schema(resolve_schema_ref(
+                loaded,
+                &loaded.manifest.rpc[key].output.schema,
+            )) {
+                "sdk::rpc::Empty".to_string()
+            } else {
+                format!("sdk::{base}Response")
+            };
+            lines.push(format!("    pub fn {method}<F, Fut>(&mut self, handler: F) where F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> Fut + Send + Sync + 'static, Fut: std::future::Future<Output = trellis::service::HandlerResult<{output_type}>> + Send + 'static {{ self.runtime_mut().register_rpc::<sdk::rpc::{base}Rpc, _, _>(handler); }}"));
+        }
+        for key in loaded.manifest.operations.keys() {
+            let method = format!("register_{}_provider", key_to_snake(key));
+            let base = key_to_pascal(key);
+            lines.push(format!("    pub fn {method}<P>(&mut self, provider: P) where P: trellis::service::ServiceOperationProvider<sdk::operations::{base}Operation> {{ self.runtime_mut().register_operation_provider::<sdk::operations::{base}Operation, _>(provider); }}"));
+        }
+        for key in loaded.manifest.events.keys() {
+            let method = format!("publish_{}", key_to_snake(key));
+            let base = key_to_pascal(key);
+            lines.push(format!("    pub async fn {method}(&self, event: &sdk::{base}Event) -> Result<(), trellis::service::ServerError> {{ self.runtime().event_publisher().publish::<sdk::events::{base}EventDescriptor>(event).await }}"));
+        }
+        for (key, feed) in &loaded.manifest.feeds {
+            let method = format!("register_{}", key_to_snake(key));
+            let base = key_to_pascal(key);
+            let input_type =
+                if is_empty_object_schema(resolve_schema_ref(loaded, &feed.input.schema)) {
+                    "sdk::rpc::Empty".to_string()
+                } else {
+                    format!("sdk::{base}Input")
+                };
+            lines.push(format!("    pub fn {method}<F, S>(&mut self, handler: F) where F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> S + Send + Sync + 'static, S: futures_util::Stream<Item = Result<sdk::{base}Event, trellis::service::ServerError>> + Send + 'static {{ self.runtime_mut().register_feed::<sdk::feeds::{base}FeedDescriptor, _, _>(handler); }}"));
+        }
+        lines.push("}".to_string());
+        lines.push(String::new());
+    }
     format!("{}\n", lines.join("\n"))
 }
 
@@ -1022,13 +1082,13 @@ fn render_participant_state_rs(loaded: &trellis_contracts::LoadedManifest) -> St
     lines.push(String::new());
     lines.push("/// Typed access to state stores declared by this participant.".to_string());
     lines.push("pub struct State<'a> {".to_string());
-    lines.push("    inner: &'a trellis_client::TrellisClient,".to_string());
+    lines.push("    inner: &'a trellis::client::TrellisClient,".to_string());
     lines.push("}".to_string());
     lines.push(String::new());
     lines.push("impl<'a> State<'a> {".to_string());
     lines.push("    /// Wrap an already connected low-level Trellis client.".to_string());
     lines.push(
-        "    pub fn new(inner: &'a trellis_client::TrellisClient) -> Self { Self { inner } }"
+        "    pub fn new(inner: &'a trellis::client::TrellisClient) -> Self { Self { inner } }"
             .to_string(),
     );
 
@@ -1040,18 +1100,18 @@ fn render_participant_state_rs(loaded: &trellis_contracts::LoadedManifest) -> St
         match &store.kind {
             trellis_contracts::ContractStateKind::Value => {
                 lines.push(format!("    /// Access the `{name}` value state store."));
-                lines.push(format!("    pub fn {method_name}(&self) -> trellis_client::ValueStateStore<'a, trellis_client::TrellisClient, {ty}> {{"));
+                lines.push(format!("    pub fn {method_name}(&self) -> trellis::client::ValueStateStore<'a, trellis::client::TrellisClient, {ty}> {{"));
                 lines.push(format!(
-                    "        trellis_client::ValueStateStore::new(self.inner, {})",
+                    "        trellis::client::ValueStateStore::new(self.inner, {})",
                     string_literal(name)
                 ));
                 lines.push("    }".to_string());
             }
             trellis_contracts::ContractStateKind::Map => {
                 lines.push(format!("    /// Access the `{name}` map state store."));
-                lines.push(format!("    pub fn {method_name}(&self) -> trellis_client::MapStateStore<'a, trellis_client::TrellisClient, {ty}> {{"));
+                lines.push(format!("    pub fn {method_name}(&self) -> trellis::client::MapStateStore<'a, trellis::client::TrellisClient, {ty}> {{"));
                 lines.push(format!(
-                    "        trellis_client::MapStateStore::new(self.inner, {})",
+                    "        trellis::client::MapStateStore::new(self.inner, {})",
                     string_literal(name)
                 ));
                 lines.push("    }".to_string());
@@ -1109,17 +1169,17 @@ fn render_participant_use_alias_rs(mapping: &ValidatedParticipantAlias) -> Strin
     let client_struct = if needs_transport {
         "pub struct Client<'a> { inner: sdk::".to_string()
             + &remote_client_name
-            + "<'a>, transport: &'a trellis_client::TrellisClient }"
+            + "<'a>, transport: &'a trellis::client::TrellisClient }"
     } else {
         "pub struct Client<'a> { inner: sdk::".to_string() + &remote_client_name + "<'a> }"
     };
     let client_new = if needs_transport {
-        "    pub fn new(inner: &'a trellis_client::TrellisClient) -> Self { Self { inner: sdk::"
+        "    pub fn new(inner: &'a trellis::client::TrellisClient) -> Self { Self { inner: sdk::"
             .to_string()
             + &remote_client_name
             + "::new(inner), transport: inner } }"
     } else {
-        "    pub fn new(inner: &'a trellis_client::TrellisClient) -> Self { Self { inner: sdk::"
+        "    pub fn new(inner: &'a trellis::client::TrellisClient) -> Self { Self { inner: sdk::"
             .to_string()
             + &remote_client_name
             + "::new(inner) } }"
@@ -1154,9 +1214,9 @@ fn render_participant_use_alias_rs(mapping: &ValidatedParticipantAlias) -> Strin
                 format!("sdk::{base}Response")
             };
             if input_empty {
-                lines.push(format!("    pub async fn {method}(&self) -> Result<{output_type}, trellis_client::TrellisClientError> {{ self.inner.{method}().await }}"));
+                lines.push(format!("    pub async fn {method}(&self) -> Result<{output_type}, trellis::client::TrellisClientError> {{ self.inner.{method}().await }}"));
             } else {
-                lines.push(format!("    pub async fn {method}(&self, input: &sdk::{base}Request) -> Result<{output_type}, trellis_client::TrellisClientError> {{ self.inner.{method}(input).await }}"));
+                lines.push(format!("    pub async fn {method}(&self, input: &sdk::{base}Request) -> Result<{output_type}, trellis::client::TrellisClientError> {{ self.inner.{method}(input).await }}"));
             }
         }
     }
@@ -1164,19 +1224,19 @@ fn render_participant_use_alias_rs(mapping: &ValidatedParticipantAlias) -> Strin
         for key in operations.call.as_deref().unwrap_or(&[]) {
             let method = key_to_snake(key);
             let base = key_to_pascal(key);
-            lines.push(format!("    pub fn {method}(&self) -> trellis_client::OperationInvoker<'a, trellis_client::TrellisClient, sdk::operations::{base}Operation> {{ self.inner.{method}() }}"));
+            lines.push(format!("    pub fn {method}(&self) -> trellis::client::OperationInvoker<'a, trellis::client::TrellisClient, sdk::operations::{base}Operation> {{ self.inner.{method}() }}"));
         }
     }
     if let Some(events) = &mapping.use_ref.events {
         for key in events.publish.as_deref().unwrap_or(&[]) {
             let method = format!("publish_{}", key_to_snake(key));
             let base = key_to_pascal(key);
-            lines.push(format!("    pub async fn {method}(&self, event: &sdk::{base}Event) -> Result<(), trellis_client::TrellisClientError> {{ self.inner.{method}(event).await }}"));
+            lines.push(format!("    pub async fn {method}(&self, event: &sdk::{base}Event) -> Result<(), trellis::client::TrellisClientError> {{ self.inner.{method}(event).await }}"));
         }
         for key in events.subscribe.as_deref().unwrap_or(&[]) {
             let method = format!("subscribe_{}", key_to_snake(key));
             let base = key_to_pascal(key);
-            lines.push(format!("    pub async fn {method}(&self) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis_client::TrellisClientError>>, trellis_client::TrellisClientError> {{ self.transport.subscribe::<sdk::events::{base}EventDescriptor>().await }}"));
+            lines.push(format!("    pub async fn {method}(&self) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis::client::TrellisClientError>>, trellis::client::TrellisClientError> {{ self.transport.subscribe::<sdk::events::{base}EventDescriptor>().await }}"));
         }
     }
     if let Some(feeds) = &mapping.use_ref.feeds {
@@ -1188,9 +1248,9 @@ fn render_participant_use_alias_rs(mapping: &ValidatedParticipantAlias) -> Strin
                 &mapping.manifest.manifest.feeds[key].input.schema,
             ));
             if input_empty {
-                lines.push(format!("    pub async fn {method}(&self) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis_client::TrellisClientError>>, trellis_client::TrellisClientError> {{ self.transport.feed::<sdk::feeds::{base}FeedDescriptor>(&sdk::rpc::Empty {{}}).await }}"));
+                lines.push(format!("    pub async fn {method}(&self) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis::client::TrellisClientError>>, trellis::client::TrellisClientError> {{ self.transport.feed::<sdk::feeds::{base}FeedDescriptor>(&sdk::rpc::Empty {{}}).await }}"));
             } else {
-                lines.push(format!("    pub async fn {method}(&self, input: &sdk::{base}Input) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis_client::TrellisClientError>>, trellis_client::TrellisClientError> {{ self.transport.feed::<sdk::feeds::{base}FeedDescriptor>(input).await }}"));
+                lines.push(format!("    pub async fn {method}(&self, input: &sdk::{base}Input) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis::client::TrellisClientError>>, trellis::client::TrellisClientError> {{ self.transport.feed::<sdk::feeds::{base}FeedDescriptor>(input).await }}"));
             }
         }
     }
@@ -1222,10 +1282,9 @@ fn write_runtime_patch_config(opts: &GenerateRustSdkOpts) -> Result<(), CodegenR
                 .ok_or(CodegenRustError::MissingRuntimeRepoRoot)?;
             let repo_root = repo_root.canonicalize()?;
             let config = format!(
-                "[patch.crates-io]\ntrellis-client = {{ path = \"{}\" }}\ntrellis-contracts = {{ path = \"{}\" }}\ntrellis-service = {{ path = \"{}\" }}\n",
-                workspace_package_dir(&repo_root, "trellis-client")?.display(),
+                "[patch.crates-io]\ntrellis = {{ path = \"{}\" }}\ntrellis-contracts = {{ path = \"{}\" }}\n",
+                workspace_package_dir(&repo_root, "trellis")?.display(),
                 workspace_package_dir(&repo_root, "trellis-contracts")?.display(),
-                workspace_package_dir(&repo_root, "trellis-service")?.display(),
             );
             write_if_changed(&config_path, &config)
         }
@@ -1374,8 +1433,7 @@ fn render_rpc_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     ];
 
     if !loaded.manifest.rpc.is_empty() {
-        lines.push("use trellis_client::RpcDescriptor;".to_string());
-        lines.push("use trellis_service::RpcDescriptor as ServerRpcDescriptor;".to_string());
+        lines.push("use trellis::client::RpcDescriptor;".to_string());
         lines.push(String::new());
     }
 
@@ -1439,23 +1497,6 @@ fn render_rpc_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         ));
         lines.push("}".to_string());
         lines.push(String::new());
-        lines.push(format!("impl ServerRpcDescriptor for {base}Rpc {{"));
-        lines.push(format!("    type Input = {input_type};"));
-        lines.push(format!("    type Output = {output_type};"));
-        lines.push(format!(
-            "    const KEY: &'static str = {};",
-            string_literal(key)
-        ));
-        lines.push(format!(
-            "    const SUBJECT: &'static str = {};",
-            string_literal(&rpc.subject)
-        ));
-        lines.push(format!(
-            "    const CALLER_CAPABILITIES: &'static [&'static str] = &[{}];",
-            join_string_literals(&capabilities)
-        ));
-        lines.push("}".to_string());
-        lines.push(String::new());
     }
 
     format!("{}\n", lines.join("\n"))
@@ -1468,8 +1509,7 @@ fn render_events_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     ];
 
     if !loaded.manifest.events.is_empty() {
-        lines.push("use trellis_client::EventDescriptor;".to_string());
-        lines.push("use trellis_service::EventDescriptor as ServerEventDescriptor;".to_string());
+        lines.push("use trellis::client::EventDescriptor;".to_string());
         lines.push(String::new());
     }
 
@@ -1510,20 +1550,6 @@ fn render_events_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         ));
         lines.push("}".to_string());
         lines.push(String::new());
-        lines.push(format!(
-            "impl ServerEventDescriptor for {base}EventDescriptor {{"
-        ));
-        lines.push(format!("    type Event = crate::types::{base}Event;"));
-        lines.push(format!(
-            "    const KEY: &'static str = {};",
-            string_literal(key)
-        ));
-        lines.push(format!(
-            "    const SUBJECT: &'static str = {};",
-            string_literal(&event.subject)
-        ));
-        lines.push("}".to_string());
-        lines.push(String::new());
     }
 
     format!("{}\n", lines.join("\n"))
@@ -1536,8 +1562,7 @@ fn render_feeds_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     ];
 
     if !loaded.manifest.feeds.is_empty() {
-        lines.push("use trellis_client::FeedDescriptor;".to_string());
-        lines.push("use trellis_service::FeedDescriptor as ServerFeedDescriptor;".to_string());
+        lines.push("use trellis::client::FeedDescriptor;".to_string());
         lines.push(String::new());
     }
 
@@ -1560,25 +1585,6 @@ fn render_feeds_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         lines.push(format!("pub struct {base}FeedDescriptor;"));
         lines.push(String::new());
         lines.push(format!("impl FeedDescriptor for {base}FeedDescriptor {{"));
-        lines.push(format!("    type Input = {input_type};"));
-        lines.push(format!("    type Event = {event_type};"));
-        lines.push(format!(
-            "    const KEY: &'static str = {};",
-            string_literal(key)
-        ));
-        lines.push(format!(
-            "    const SUBJECT: &'static str = {};",
-            string_literal(&feed.subject)
-        ));
-        lines.push(format!(
-            "    const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[{}];",
-            join_string_literals(&subscribe)
-        ));
-        lines.push("}".to_string());
-        lines.push(String::new());
-        lines.push(format!(
-            "impl ServerFeedDescriptor for {base}FeedDescriptor {{"
-        ));
         lines.push(format!("    type Input = {input_type};"));
         lines.push(format!("    type Event = {event_type};"));
         lines.push(format!(
@@ -1619,13 +1625,11 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         .any(|operation| operation.transfer.is_some())
     {
         lines.push(
-            "use trellis_client::{OperationDescriptor, TransferOperationDescriptor};".to_string(),
+            "use trellis::client::{OperationDescriptor, TransferOperationDescriptor};".to_string(),
         );
     } else {
-        lines.push("use trellis_client::OperationDescriptor;".to_string());
+        lines.push("use trellis::client::OperationDescriptor;".to_string());
     }
-    lines
-        .push("use trellis_service::OperationDescriptor as ServerOperationDescriptor;".to_string());
     lines.push(String::new());
 
     for (key, operation) in &loaded.manifest.operations {
@@ -1656,10 +1660,10 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             .and_then(|caps| caps.call.as_ref())
             .cloned()
             .unwrap_or_default();
-        let read = operation
+        let observe = operation
             .capabilities
             .as_ref()
-            .and_then(|caps| caps.read.as_ref())
+            .and_then(|caps| caps.observe.as_ref())
             .cloned()
             .unwrap_or_else(|| caller.clone());
         let cancel = operation
@@ -1695,8 +1699,8 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             join_string_literals(&caller)
         ));
         lines.push(format!(
-            "    const READ_CAPABILITIES: &'static [&'static str] = &[{}];",
-            join_string_literals(&read)
+            "    const OBSERVE_CAPABILITIES: &'static [&'static str] = &[{}];",
+            join_string_literals(&observe)
         ));
         lines.push(format!(
             "    const CANCEL_CAPABILITIES: &'static [&'static str] = &[{}];",
@@ -1718,42 +1722,6 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             ));
             lines.push(String::new());
         }
-        lines.push(format!(
-            "impl ServerOperationDescriptor for {base}Operation {{"
-        ));
-        lines.push(format!("    type Input = {input_type};"));
-        lines.push(format!("    type Progress = {progress_type};"));
-        lines.push(format!("    type Output = {output_type};"));
-        lines.push(format!(
-            "    const KEY: &'static str = {};",
-            string_literal(key)
-        ));
-        lines.push(format!(
-            "    const SUBJECT: &'static str = {};",
-            string_literal(&operation.subject)
-        ));
-        lines.push(format!(
-            "    const CALLER_CAPABILITIES: &'static [&'static str] = &[{}];",
-            join_string_literals(&caller)
-        ));
-        lines.push(format!(
-            "    const READ_CAPABILITIES: &'static [&'static str] = &[{}];",
-            join_string_literals(&read)
-        ));
-        lines.push(format!(
-            "    const CANCEL_CAPABILITIES: &'static [&'static str] = &[{}];",
-            join_string_literals(&cancel)
-        ));
-        lines.push(format!(
-            "    const CONTROL_CAPABILITIES: &'static [&'static str] = &[{}];",
-            join_string_literals(&control)
-        ));
-        lines.push(format!(
-            "    const CANCELABLE: bool = {};",
-            operation.cancel.unwrap_or(false)
-        ));
-        lines.push("}".to_string());
-        lines.push(String::new());
     }
 
     format!("{}\n", lines.join("\n"))
@@ -1767,19 +1735,19 @@ fn render_client_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             loaded.manifest.id
         ),
         String::new(),
-        "use trellis_client::TrellisClientError;".to_string(),
+        "use trellis::client::TrellisClientError;".to_string(),
         String::new(),
         format!(
             "/// Typed API wrapper for the `{}` contract.",
             loaded.manifest.id
         ),
         format!("pub struct {client_name}<'a> {{"),
-        "    inner: &'a trellis_client::TrellisClient,".to_string(),
+        "    inner: &'a trellis::client::TrellisClient,".to_string(),
         "}".to_string(),
         String::new(),
         format!("impl<'a> {client_name}<'a> {{"),
         "    /// Wrap an already connected low-level Trellis client.".to_string(),
-        "    pub fn new(inner: &'a trellis_client::TrellisClient) -> Self {".to_string(),
+        "    pub fn new(inner: &'a trellis::client::TrellisClient) -> Self {".to_string(),
         "        Self { inner }".to_string(),
         "    }".to_string(),
         String::new(),
@@ -1827,7 +1795,7 @@ fn render_client_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         let method_name = key_to_snake(key);
         lines.push(format!("    /// Start or control `{key}`."));
         lines.push(format!(
-            "    pub fn {method_name}(&self) -> trellis_client::OperationInvoker<'a, trellis_client::TrellisClient, crate::operations::{base}Operation> {{"
+            "    pub fn {method_name}(&self) -> trellis::client::OperationInvoker<'a, trellis::client::TrellisClient, crate::operations::{base}Operation> {{"
         ));
         lines.push(format!(
             "        self.inner.operation::<crate::operations::{base}Operation>()"
@@ -1872,47 +1840,52 @@ fn render_client_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     format!("{}\n", lines.join("\n"))
 }
 
-fn render_server_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
-    let mut imports = Vec::new();
-    if !loaded.manifest.rpc.is_empty() {
-        imports.extend(["HandlerResult", "RequestContext", "Router"]);
-    }
-    if !loaded.manifest.operations.is_empty() {
-        if !imports.contains(&"RequestContext") {
-            imports.push("RequestContext");
-        }
-        if !imports.contains(&"Router") {
-            imports.push("Router");
-        }
-    }
-    if !loaded.manifest.events.is_empty() {
-        imports.push("EventPublisher");
-        imports.push("ServerError");
-    }
-    if !loaded.manifest.feeds.is_empty() {
-        if !imports.contains(&"RequestContext") {
-            imports.push("RequestContext");
-        }
-        if !imports.contains(&"Router") {
-            imports.push("Router");
-        }
-        if !imports.contains(&"ServerError") {
-            imports.push("ServerError");
-        }
-    }
+fn render_service_connect_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     let mut lines = vec![
-        format!("//! Thin server-side helpers for `{}`.", loaded.manifest.id),
+        "//! High-level connection helpers for this generated service SDK.".to_string(),
+        String::new(),
+        "/// Contract marker for the generated service SDK.".to_string(),
+        "pub struct Contract;".to_string(),
+        String::new(),
+        "impl trellis::service::GeneratedServiceContract for Contract {".to_string(),
+        "    const CONTRACT_ID: &'static str = crate::contract::CONTRACT_ID;".to_string(),
+        "    const CONTRACT_DIGEST: &'static str = crate::contract::CONTRACT_DIGEST;".to_string(),
+        "    const CONTRACT_JSON: &'static str = crate::contract::CONTRACT_JSON;".to_string(),
+        "}".to_string(),
+        String::new(),
+        "pub use trellis::service::ServiceConnectOptions;".to_string(),
+        String::new(),
+        "/// Connected high-level service runtime for this SDK contract.".to_string(),
+        "pub struct ConnectedService {".to_string(),
+        "    inner: trellis::service::ConnectedServiceRuntime<Contract>,".to_string(),
+        "}".to_string(),
+        String::new(),
+        "impl ConnectedService {".to_string(),
+        "    /// Connect this generated service contract to Trellis.".to_string(),
+        "    pub async fn connect(opts: ServiceConnectOptions<'_>) -> Result<Self, trellis::service::ServiceRuntimeError> {".to_string(),
+        "        Ok(Self { inner: trellis::service::ConnectedServiceRuntime::<Contract>::connect(opts).await? })".to_string(),
+        "    }".to_string(),
+        String::new(),
+        "    /// Return the raw Trellis client for outbound service calls.".to_string(),
+        "    pub fn client(&self) -> &std::sync::Arc<trellis::client::TrellisClient> { self.inner.client() }".to_string(),
+        String::new(),
+        "    /// Return all typed resource bindings resolved during service bootstrap.".to_string(),
+        "    pub fn resources(&self) -> &trellis::service::ServiceResourceBindings { self.inner.resources() }".to_string(),
+        String::new(),
+        "    /// Open a NATS-backed KV resource client by contract-local resource name.".to_string(),
+        "    pub async fn kv_client(&self, name: &str) -> Result<trellis::service::NatsKvResourceClient, trellis::service::ServerError> { self.inner.kv_client(name).await }".to_string(),
+        String::new(),
+        "    /// Open a NATS-backed object-store resource client by contract-local resource name.".to_string(),
+        "    pub async fn store_client(&self, name: &str) -> Result<trellis::service::NatsStoreResourceClient, trellis::service::ServerError> { self.inner.store_client(name).await }".to_string(),
+        String::new(),
+        "    /// Return an event publisher backed by the connected NATS client.".to_string(),
+        "    pub fn event_publisher(&self) -> trellis::service::EventPublisher { self.inner.event_publisher() }".to_string(),
         String::new(),
     ];
 
-    if !imports.is_empty() {
-        lines.push(format!("use trellis_service::{{{}}};", imports.join(", ")));
-        lines.push(String::new());
-    }
-
     for (key, rpc) in &loaded.manifest.rpc {
         let base = key_to_pascal(key);
-        let fn_name = format!("register_{}", key_to_snake(key));
+        let method = format!("register_{}", key_to_snake(key));
         let input_type = if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.input.schema)) {
             "crate::rpc::Empty".to_string()
         } else {
@@ -1924,28 +1897,57 @@ fn render_server_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         } else {
             format!("crate::types::{base}Response")
         };
-        lines.push(format!("/// Register a handler for `{key}`."));
+        lines.push(format!("    /// Register a handler for `{key}`."));
         lines.push(format!(
-            "pub fn {fn_name}<F, Fut>(router: &mut Router, handler: F)"
+            "    pub fn {method}<F, Fut>(&mut self, handler: F)"
         ));
-        lines.push("where".to_string());
+        lines.push("    where".to_string());
+        lines.push(format!("        F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> Fut + Send + Sync + 'static,"));
+        lines.push(format!("        Fut: std::future::Future<Output = trellis::service::HandlerResult<{output_type}>> + Send + 'static,"));
+        lines.push("    {".to_string());
         lines.push(format!(
-            "    F: Fn(RequestContext, {input_type}) -> Fut + Send + Sync + 'static,"
+            "        self.inner.register_rpc::<crate::rpc::{base}Rpc, _, _>(handler);"
         ));
+        lines.push("    }".to_string());
+        lines.push(String::new());
+    }
+
+    for key in loaded.manifest.events.keys() {
+        let base = key_to_pascal(key);
+        let method = format!("publish_{}", key_to_snake(key));
         lines.push(format!(
-            "    Fut: std::future::Future<Output = HandlerResult<{output_type}>> + Send + 'static,"
+            "    /// Publish `{key}` from this connected service."
         ));
-        lines.push("{".to_string());
+        lines.push(format!("    pub async fn {method}(&self, event: &crate::types::{base}Event) -> Result<(), trellis::service::ServerError> {{"));
         lines.push(format!(
-            "    router.register_rpc::<crate::rpc::{base}Rpc, _, _>(handler);"
+            "        self.inner.event_publisher().publish::<crate::events::{base}EventDescriptor>(event).await"
         ));
-        lines.push("}".to_string());
+        lines.push("    }".to_string());
+        lines.push(String::new());
+    }
+
+    for (key, feed) in &loaded.manifest.feeds {
+        let base = key_to_pascal(key);
+        let method = format!("register_{}", key_to_snake(key));
+        let input_type = if is_empty_object_schema(resolve_schema_ref(loaded, &feed.input.schema)) {
+            "crate::rpc::Empty".to_string()
+        } else {
+            format!("crate::types::{base}Input")
+        };
+        lines.push(format!("    /// Register a feed handler for `{key}`."));
+        lines.push(format!("    pub fn {method}<F, S>(&mut self, handler: F)"));
+        lines.push("    where".to_string());
+        lines.push(format!("        F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> S + Send + Sync + 'static,"));
+        lines.push(format!("        S: futures_util::Stream<Item = Result<crate::types::{base}Event, trellis::service::ServerError>> + Send + 'static,"));
+        lines.push("    {".to_string());
+        lines.push(format!("        self.inner.register_feed::<crate::feeds::{base}FeedDescriptor, _, _>(handler);"));
+        lines.push("    }".to_string());
         lines.push(String::new());
     }
 
     for (key, operation) in &loaded.manifest.operations {
         let base = key_to_pascal(key);
-        let fn_name = format!("register_{}", key_to_snake(key));
+        let method = format!("register_{}", key_to_snake(key));
         let input_type =
             if is_empty_object_schema(resolve_schema_ref(loaded, &operation.input.schema)) {
                 "crate::rpc::Empty".to_string()
@@ -1966,99 +1968,46 @@ fn render_server_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             }
             _ => "crate::rpc::Empty".to_string(),
         };
-        lines.push(format!("/// Register a handler for `{key}`."));
+        lines.push(format!("    /// Register a provider for `{key}`."));
         lines.push(format!(
-            "pub fn {fn_name}<FStart, FutStart, FGet, FutGet, FWait, FutWait, FCancel, FutCancel>(router: &mut Router, start: FStart, get: FGet, wait: FWait, cancel: FCancel)"
+            "    pub fn {method}_provider<P>(&mut self, provider: P)"
         ));
-        lines.push("where".to_string());
-        lines.push(format!(
-            "    FStart: Fn(RequestContext, {input_type}) -> FutStart + Send + Sync + 'static,"
-        ));
-        lines.push(format!(
-            "    FutStart: std::future::Future<Output = Result<trellis_service::AcceptedOperation<{progress_type}, {output_type}>, trellis_service::ServerError>> + Send + 'static,"
-        ));
-        lines.push(
-            "    FGet: Fn(RequestContext, String) -> FutGet + Send + Sync + 'static,".to_string(),
-        );
-        lines.push(format!(
-            "    FutGet: std::future::Future<Output = Result<trellis_service::OperationSnapshot<{progress_type}, {output_type}>, trellis_service::ServerError>> + Send + 'static,"
-        ));
-        lines.push(
-            "    FWait: Fn(RequestContext, String) -> FutWait + Send + Sync + 'static,".to_string(),
-        );
-        lines.push(format!(
-            "    FutWait: std::future::Future<Output = Result<trellis_service::OperationSnapshot<{progress_type}, {output_type}>, trellis_service::ServerError>> + Send + 'static,"
-        ));
-        lines.push(
-            "    FCancel: Fn(RequestContext, String) -> FutCancel + Send + Sync + 'static,"
-                .to_string(),
-        );
-        lines.push(format!(
-            "    FutCancel: std::future::Future<Output = Result<trellis_service::OperationSnapshot<{progress_type}, {output_type}>, trellis_service::ServerError>> + Send + 'static,"
-        ));
-        lines.push("{".to_string());
-        lines.push(format!(
-            "    router.register_operation::<crate::operations::{base}Operation, _, _, _, _, _, _, _, _>(start, get, wait, cancel);"
-        ));
-        lines.push("}".to_string());
+        lines.push("    where".to_string());
+        lines.push(format!("        P: trellis::service::ServiceOperationProvider<crate::operations::{base}Operation>,"));
+        lines.push("    {".to_string());
+        lines.push(format!("        self.inner.register_operation_provider::<crate::operations::{base}Operation, _>(provider);"));
+        lines.push("    }".to_string());
         lines.push(String::new());
 
-        lines.push(format!("/// Register a provider for `{key}`."));
         lines.push(format!(
-            "pub fn {fn_name}_provider<P>(router: &mut Router, provider: P)"
+            "    /// Register handlers with a watch stream for `{key}`."
         ));
-        lines.push("where".to_string());
-        lines.push(format!(
-            "    P: trellis_service::OperationProvider<crate::operations::{base}Operation>,"
-        ));
-        lines.push("{".to_string());
-        lines.push(format!(
-            "    router.register_operation_provider::<crate::operations::{base}Operation, _>(provider);"
-        ));
-        lines.push("}".to_string());
+        lines.push(format!("    pub fn {method}_with_watch<FStart, FutStart, FGet, FutGet, FWatch, FCancel, FutCancel>(&mut self, start: FStart, get: FGet, watch: FWatch, cancel: FCancel)"));
+        lines.push("    where".to_string());
+        lines.push(format!("        FStart: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> FutStart + Send + Sync + 'static,"));
+        lines.push(format!("        FutStart: std::future::Future<Output = Result<trellis::service::AcceptedOperation<{progress_type}, {output_type}>, trellis::service::ServerError>> + Send + 'static,"));
+        lines.push("        FGet: Fn(trellis::service::ServiceHandlerContext, String) -> FutGet + Send + Sync + 'static,".to_string());
+        lines.push(format!("        FutGet: std::future::Future<Output = Result<trellis::service::OperationSnapshot<{progress_type}, {output_type}>, trellis::service::ServerError>> + Send + 'static,"));
+        lines.push(format!("        FWatch: Fn(trellis::service::ServiceHandlerContext, String) -> trellis::service::ServiceOperationWatch<{progress_type}, {output_type}> + Send + Sync + 'static,"));
+        lines.push("        FCancel: Fn(trellis::service::ServiceHandlerContext, String) -> FutCancel + Send + Sync + 'static,".to_string());
+        lines.push(format!("        FutCancel: std::future::Future<Output = Result<trellis::service::OperationSnapshot<{progress_type}, {output_type}>, trellis::service::ServerError>> + Send + 'static,"));
+        lines.push("    {".to_string());
+        lines.push(format!("        self.inner.register_operation_with_watch::<crate::operations::{base}Operation, _, _, _, _, _, _, _>(start, get, watch, cancel);"));
+        lines.push("    }".to_string());
         lines.push(String::new());
     }
 
-    for key in loaded.manifest.events.keys() {
-        let base = key_to_pascal(key);
-        let fn_name = format!("publish_{}", key_to_snake(key));
-        lines.push(format!("/// Publish `{key}` from a service handler."));
-        lines.push(format!(
-            "pub async fn {fn_name}(publisher: &EventPublisher, event: &crate::types::{base}Event) -> Result<(), ServerError> {{"
-        ));
-        lines.push(format!(
-            "    publisher.publish::<crate::events::{base}EventDescriptor>(event).await"
-        ));
-        lines.push("}".to_string());
-        lines.push(String::new());
-    }
-
-    for (key, feed) in &loaded.manifest.feeds {
-        let base = key_to_pascal(key);
-        let fn_name = format!("register_{}", key_to_snake(key));
-        let input_type = if is_empty_object_schema(resolve_schema_ref(loaded, &feed.input.schema)) {
-            "crate::rpc::Empty".to_string()
-        } else {
-            format!("crate::types::{base}Input")
-        };
-        lines.push(format!("/// Register a feed handler for `{key}`."));
-        lines.push(format!(
-            "pub fn {fn_name}<F, S>(router: &mut Router, handler: F)"
-        ));
-        lines.push("where".to_string());
-        lines.push(format!(
-            "    F: Fn(RequestContext, {input_type}) -> S + Send + Sync + 'static,"
-        ));
-        lines.push(format!(
-            "    S: futures_util::Stream<Item = Result<crate::types::{base}Event, ServerError>> + Send + 'static,"
-        ));
-        lines.push("{".to_string());
-        lines.push(format!(
-            "    router.register_feed::<crate::feeds::{base}FeedDescriptor, _, _>(handler);"
-        ));
-        lines.push("}".to_string());
-        lines.push(String::new());
-    }
+    lines.extend([
+        "    /// Run the connected service runtime.".to_string(),
+        "    pub async fn run(self) -> Result<(), trellis::service::ServiceRuntimeError> { self.inner.run().await }".to_string(),
+        "}".to_string(),
+        String::new(),
+        "/// Connect this generated service contract to Trellis.".to_string(),
+        "pub async fn connect_service(opts: ServiceConnectOptions<'_>) -> Result<ConnectedService, trellis::service::ServiceRuntimeError> {".to_string(),
+        "    ConnectedService::connect(opts).await".to_string(),
+        "}".to_string(),
+        String::new(),
+    ]);
 
     format!("{}\n", lines.join("\n"))
 }
@@ -2072,6 +2021,14 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<(), CodegenRustError>
     }
     fs::write(path, contents)?;
     Ok(())
+}
+
+fn remove_if_exists(path: &Path) -> Result<(), CodegenRustError> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn write_rust_if_changed(path: &Path, contents: &str) -> Result<(), CodegenRustError> {
@@ -2434,7 +2391,7 @@ fn is_empty_object_schema(schema: &serde_json::Value) -> bool {
     properties_empty && required_empty
 }
 
-fn render_lib_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
+fn render_lib_rs(loaded: &trellis_contracts::LoadedManifest, is_service: bool) -> String {
     let client_name = format!("{}Client", sdk_stem_pascal(loaded));
     let operations_reexport = if loaded.manifest.operations.is_empty() {
         String::new()
@@ -2456,8 +2413,18 @@ fn render_lib_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
     } else {
         "pub mod feeds;\n".to_string()
     };
+    let connect_module = if is_service {
+        "pub mod connect;\n".to_string()
+    } else {
+        String::new()
+    };
+    let connect_reexport = if is_service {
+        "pub use connect::{connect_service, ConnectedService, Contract, ServiceConnectOptions};\npub use trellis::service::{GeneratedServiceContract, ServiceHandlerContext, ServiceRuntimeError};\n".to_string()
+    } else {
+        String::new()
+    };
     format!(
-        "//! Generated Rust SDK crate for one Trellis contract.\n\npub mod client;\npub mod contract;\npub mod events;\n{feeds_module}pub mod operations;\npub mod rpc;\npub mod server;\npub mod types;\n\npub use client::{client_name};\npub use contract::{{contract_manifest, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON, CONTRACT_NAME}};\n{events_reexport}{feeds_reexport}{operations_reexport}pub use rpc::*;\npub use types::*;\n"
+        "//! Generated Rust SDK crate for one Trellis contract.\n\npub mod client;\n{connect_module}pub mod contract;\npub mod events;\n{feeds_module}pub mod operations;\npub mod rpc;\npub mod types;\n\npub use client::{client_name};\n{connect_reexport}pub use contract::{{contract_manifest, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON, CONTRACT_NAME}};\n{events_reexport}{feeds_reexport}{operations_reexport}pub use rpc::*;\npub use types::*;\n"
     )
 }
 
@@ -2500,7 +2467,7 @@ mod tests {
                     "Trellis.Catalog": {"version":"v1","subject":"rpc.v1.Trellis.Catalog","input":{"schema":"CatalogInput"},"output":{"schema":"CatalogOutput"}}
                 },
                 "operations": {
-                    "Trellis.Process": {"version":"v1","subject":"operations.v1.Trellis.Process","input":{"schema":"ProcessInput"},"progress":{"schema":"ProcessProgress"},"output":{"schema":"ProcessOutput"},"transfer":{"direction":"send","store":"uploads","key":"/uploadKey"},"capabilities":{"call":["service"],"read":["service"],"cancel":["service"]},"cancel":true},
+                    "Trellis.Process": {"version":"v1","subject":"operations.v1.Trellis.Process","input":{"schema":"ProcessInput"},"progress":{"schema":"ProcessProgress"},"output":{"schema":"ProcessOutput"},"transfer":{"direction":"send","store":"uploads","key":"/uploadKey"},"capabilities":{"call":["service"],"observe":["service"],"cancel":["service"]},"cancel":true},
                     "Trellis.Audit": {"version":"v1","subject":"operations.v1.Trellis.Audit","input":{"schema":"ProcessInput"},"progress":{"schema":"ProcessProgress"},"output":{"schema":"ProcessOutput"}}
                 },
                 "events": {
@@ -2531,6 +2498,24 @@ mod tests {
         manifest_path
     }
 
+    fn cargo_check(manifest_path: &Path) {
+        let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+        let output = std::process::Command::new(cargo)
+            .arg("check")
+            .arg("--manifest-path")
+            .arg(manifest_path)
+            .arg("--quiet")
+            .output()
+            .expect("run cargo check");
+        if !output.status.success() {
+            panic!(
+                "cargo check failed\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
+    }
+
     #[test]
     fn cargo_toml_uses_registry_dependencies() {
         let cargo = render_cargo_toml(
@@ -2544,13 +2529,20 @@ mod tests {
                     version: "0.1.0".to_string(),
                     repo_root: None,
                 },
+                emit_service_runtime_facade: true,
             },
             false,
-        );
+            true,
+            true,
+        )
+        .unwrap();
 
         assert!(cargo.contains("description = \"Generated Rust SDK crate for trellis-sdk-core.\""));
         assert!(cargo.contains("repository = \"https://github.com/qlever-llc/trellis\""));
-        assert!(cargo.contains("trellis-client = \"0.1.0\""));
+        assert!(cargo.contains("trellis = \"0.1.0\""));
+        assert!(cargo.contains("trellis-contracts = \"0.1.0\""));
+        assert!(cargo.contains("publish = false"));
+        assert!(!cargo.contains("trellis-service"));
         assert!(!cargo.contains("path ="));
     }
 
@@ -2576,7 +2568,7 @@ mod tests {
         .unwrap();
         fs::write(
             repo_root.join("rust/crates/runtime-client/Cargo.toml"),
-            "[package]\nname = \"trellis-client\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+            "[package]\nname = \"trellis\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
         )
         .unwrap();
         fs::write(
@@ -2606,9 +2598,13 @@ mod tests {
                     version: "0.1.0".to_string(),
                     repo_root: Some(repo_root.clone()),
                 },
+                emit_service_runtime_facade: false,
             },
             false,
-        );
+            false,
+            true,
+        )
+        .unwrap();
 
         assert!(cargo.contains(
             &repo_root
@@ -2622,12 +2618,7 @@ mod tests {
                 .display()
                 .to_string()
         ));
-        assert!(cargo.contains(
-            &repo_root
-                .join("rust/crates/runtime-service")
-                .display()
-                .to_string()
-        ));
+        assert!(!cargo.contains("trellis-service"));
         assert!(!cargo.contains("rust/crates/client"));
     }
 
@@ -2648,6 +2639,7 @@ mod tests {
                 version: "0.1.0".to_string(),
                 repo_root: None,
             },
+            emit_service_runtime_facade: false,
         })
         .unwrap();
 
@@ -2673,7 +2665,7 @@ mod tests {
                 "version = \"0.1.0\"\n",
                 "edition = \"2021\"\n\n",
                 "[dependencies]\n",
-                "trellis-client = \"0.1.0\"\n",
+                "trellis = \"0.1.0\"\n",
             ),
         )
         .unwrap();
@@ -2747,19 +2739,20 @@ mod tests {
         write_runtime_patch_config(&GenerateRustSdkOpts {
             manifest_path: repo_root.join("generated/contracts/manifests/trellis.core@v1.json"),
             out_dir: out_dir.clone(),
-            crate_name: "trellis-sdk-core".to_string(),
+            crate_name: "trellis-sdk-sample-service".to_string(),
             crate_version: "0.1.0".to_string(),
             runtime_deps: RustRuntimeDeps {
                 source: RustRuntimeSource::Local,
                 version: "0.1.0".to_string(),
                 repo_root: Some(repo_root.clone()),
             },
+            emit_service_runtime_facade: false,
         })
         .unwrap();
 
         let config = fs::read_to_string(out_dir.join(".cargo/config.toml")).unwrap();
         assert!(config.contains("[patch.crates-io]"));
-        assert!(config.contains(&repo_root.join("rust/crates/client").display().to_string()));
+        assert!(config.contains(&repo_root.join("rust/crates/trellis").display().to_string()));
 
         fs::remove_dir_all(out_dir).unwrap();
     }
@@ -2773,13 +2766,14 @@ mod tests {
         generate_rust_sdk(&GenerateRustSdkOpts {
             manifest_path,
             out_dir: out_dir.join("generated"),
-            crate_name: "trellis-sdk-core".to_string(),
+            crate_name: "trellis-sdk-sample-service".to_string(),
             crate_version: "0.1.0".to_string(),
             runtime_deps: RustRuntimeDeps {
                 source: RustRuntimeSource::Registry,
                 version: "0.1.0".to_string(),
                 repo_root: None,
             },
+            emit_service_runtime_facade: true,
         })
         .unwrap();
 
@@ -2792,14 +2786,19 @@ mod tests {
         let events_rs = fs::read_to_string(out_dir.join("generated/src/events.rs")).unwrap();
         let feeds_rs = fs::read_to_string(out_dir.join("generated/src/feeds.rs")).unwrap();
         let client_rs = fs::read_to_string(out_dir.join("generated/src/client.rs")).unwrap();
-        let server_rs = fs::read_to_string(out_dir.join("generated/src/server.rs")).unwrap();
+        let connect_rs = fs::read_to_string(out_dir.join("generated/src/connect.rs")).unwrap();
+        let cargo_toml = fs::read_to_string(out_dir.join("generated/Cargo.toml")).unwrap();
 
         assert!(lib_rs.contains("pub mod rpc;"));
         assert!(lib_rs.contains("pub mod operations;"));
         assert!(lib_rs.contains("pub mod events;"));
         assert!(lib_rs.contains("pub mod feeds;"));
         assert!(lib_rs.contains("pub use feeds::*;"));
+        assert!(!lib_rs.contains("pub mod server;"));
         assert!(!lib_rs.contains("pub mod subjects;"));
+        assert!(!out_dir.join("generated/src/server.rs").exists());
+        assert!(cargo_toml.contains("publish = false"));
+        assert!(!cargo_toml.contains("trellis-service"));
         assert!(contract_rs.contains("//! Generated from"));
         assert!(contract_rs.contains("pub const CONTRACT_NAME: &str = \"Trellis Core\";"));
         assert!(types_rs.contains("pub struct TrellisCatalogResponse {"));
@@ -2815,18 +2814,14 @@ mod tests {
         assert!(rpc_rs.contains("type Input = Empty;"));
         assert!(operations_rs.contains("pub struct TrellisProcessOperation;"));
         assert!(operations_rs
-            .contains("use trellis_client::{OperationDescriptor, TransferOperationDescriptor};"));
-        assert!(operations_rs
-            .contains("use trellis_service::OperationDescriptor as ServerOperationDescriptor;"));
+            .contains("use trellis::client::{OperationDescriptor, TransferOperationDescriptor};"));
         assert!(operations_rs.contains("impl OperationDescriptor for TrellisProcessOperation"));
         assert!(operations_rs
             .contains("impl TransferOperationDescriptor for TrellisProcessOperation {}"));
         assert!(operations_rs.contains("impl OperationDescriptor for TrellisAuditOperation"));
         assert!(!operations_rs
             .contains("impl TransferOperationDescriptor for TrellisAuditOperation {}"));
-        assert!(
-            operations_rs.contains("impl ServerOperationDescriptor for TrellisProcessOperation")
-        );
+        assert!(!operations_rs.contains("ServerOperationDescriptor"));
         assert!(events_rs.contains("pub struct AuthChangedEventDescriptor;"));
         assert!(events_rs.contains(
             "const PUBLISH_CAPABILITIES: &'static [&'static str] = &[\"auth.event.publish\"];"
@@ -2835,7 +2830,7 @@ mod tests {
         assert!(events_rs.contains("\"auth.event.subscribe\""));
         assert!(feeds_rs.contains("pub struct AuditFeedFeedDescriptor;"));
         assert!(feeds_rs.contains("impl FeedDescriptor for AuditFeedFeedDescriptor"));
-        assert!(feeds_rs.contains("impl ServerFeedDescriptor for AuditFeedFeedDescriptor"));
+        assert!(!feeds_rs.contains("ServerFeedDescriptor"));
         assert!(feeds_rs.contains("type Input = crate::types::AuditFeedInput;"));
         assert!(feeds_rs.contains("type Event = crate::types::AuditFeedEvent;"));
         assert!(feeds_rs.contains("const SUBJECT: &'static str = \"feeds.v1.Audit.Feed\";"));
@@ -2848,22 +2843,34 @@ mod tests {
         assert!(client_rs.contains("futures_util::stream::BoxStream"));
         assert!(client_rs.contains(".feed::<"));
         assert!(client_rs.contains("crate::feeds::AuditFeedFeedDescriptor"));
-        assert!(client_rs.contains("trellis_client::OperationInvoker<"));
+        assert!(client_rs.contains("trellis::client::OperationInvoker<"));
         assert!(client_rs.contains("crate::operations::TrellisProcessOperation"));
-        assert!(server_rs.contains("register_trellis_catalog"));
-        assert!(server_rs.contains("register_trellis_process"));
-        assert!(server_rs.contains("register_audit_feed"));
-        assert!(server_rs.contains("router.register_feed::<crate::feeds::AuditFeedFeedDescriptor"));
-        assert!(server_rs.contains(
-            "S: futures_util::Stream<Item = Result<crate::types::AuditFeedEvent, ServerError>>"
-        ));
-        assert!(server_rs.contains("pub fn register_trellis_process_provider<P>"));
-        assert!(server_rs.contains(
-            "P: trellis_service::OperationProvider<crate::operations::TrellisProcessOperation>,"
-        ));
-        assert!(server_rs.contains("router"));
-        assert!(server_rs.contains("register_operation_provider::<"));
-        assert!(server_rs.contains("crate::operations::TrellisProcessOperation"));
+        assert!(connect_rs.contains("pub fn register_trellis_catalog<F, Fut>"));
+        assert!(connect_rs.contains("trellis::service::ServiceHandlerContext"));
+        assert!(connect_rs.contains("crate::types::TrellisCatalogResponse"));
+        assert!(connect_rs.contains("register_rpc::<crate::rpc::TrellisCatalogRpc"));
+        assert!(connect_rs.contains("pub fn register_audit_feed<F, S>"));
+        assert!(connect_rs.contains("crate::types::AuditFeedInput"));
+        assert!(connect_rs.contains("crate::types::AuditFeedEvent"));
+        assert!(connect_rs.contains("register_feed::<crate::feeds::AuditFeedFeedDescriptor"));
+        assert!(connect_rs.contains("pub fn register_trellis_process_provider<P>"));
+        assert!(connect_rs.contains("trellis::service::ServiceOperationProvider<"));
+        assert!(connect_rs.contains("pub fn register_trellis_process_with_watch"));
+        assert!(connect_rs.contains("trellis::service::AcceptedOperation<"));
+        assert!(connect_rs.contains("trellis::service::OperationSnapshot<"));
+        assert!(connect_rs.contains("trellis::service::ServiceOperationWatch<"));
+        assert!(connect_rs.contains("register_operation_with_watch::<"));
+        assert!(connect_rs.contains("pub async fn publish_auth_changed"));
+        assert!(connect_rs.contains("publish::<crate::events::AuthChangedEventDescriptor"));
+        assert!(!connect_rs.contains("raw_mut().register_rpc::<"));
+        assert!(!connect_rs.contains("raw_mut().register_feed::<"));
+        assert!(!connect_rs.contains("raw_mut().register_operation_provider::<"));
+        assert!(!rpc_rs.contains("trellis_service::"));
+        assert!(!operations_rs.contains("trellis_service::"));
+        assert!(!events_rs.contains("trellis_service::"));
+        assert!(!feeds_rs.contains("trellis_service::"));
+        assert!(!client_rs.contains("trellis_service::"));
+        assert!(!connect_rs.contains("trellis_service::"));
 
         fs::remove_dir_all(out_dir).unwrap();
     }
@@ -2908,18 +2915,52 @@ mod tests {
                 version: "0.1.0".to_string(),
                 repo_root: None,
             },
+            emit_service_runtime_facade: false,
         })
         .unwrap();
 
         let rpc_rs = fs::read_to_string(out_dir.join("generated/src/rpc.rs")).unwrap();
-        let server_rs = fs::read_to_string(out_dir.join("generated/src/server.rs")).unwrap();
 
-        assert!(!rpc_rs.contains("trellis_client::RpcDescriptor"));
+        assert!(!rpc_rs.contains("trellis::client::RpcDescriptor"));
         assert!(!rpc_rs.contains("trellis_service::RpcDescriptor"));
-        assert!(!server_rs.contains("HandlerResult"));
-        assert!(!server_rs.contains("RequestContext"));
-        assert!(!server_rs.contains("Router"));
-        assert!(server_rs.contains("use trellis_service::{EventPublisher, ServerError};"));
+        assert!(!out_dir.join("generated/src/server.rs").exists());
+
+        fs::remove_dir_all(out_dir).unwrap();
+    }
+
+    #[test]
+    fn generated_service_sdk_without_runtime_facade_omits_connect_surface() {
+        let out_dir = unique_temp_dir("service-sdk-no-runtime-facade");
+        fs::create_dir_all(&out_dir).unwrap();
+        let manifest_path = write_sample_manifest(&out_dir);
+        let sdk_out = out_dir.join("generated");
+        fs::create_dir_all(sdk_out.join("src")).unwrap();
+        fs::write(sdk_out.join("src/connect.rs"), "pub fn stale() {}\n").unwrap();
+
+        generate_rust_sdk(&GenerateRustSdkOpts {
+            manifest_path,
+            out_dir: sdk_out.clone(),
+            crate_name: "trellis-sdk-core".to_string(),
+            crate_version: "0.1.0".to_string(),
+            runtime_deps: RustRuntimeDeps {
+                source: RustRuntimeSource::Registry,
+                version: "0.1.0".to_string(),
+                repo_root: None,
+            },
+            emit_service_runtime_facade: false,
+        })
+        .unwrap();
+
+        let cargo_toml = fs::read_to_string(sdk_out.join("Cargo.toml")).unwrap();
+        let lib_rs = fs::read_to_string(sdk_out.join("src/lib.rs")).unwrap();
+
+        assert!(!cargo_toml.contains("trellis-service-runtime"));
+        assert!(cargo_toml.contains("trellis ="));
+        assert!(!sdk_out.join("src/connect.rs").exists());
+        assert!(!lib_rs.contains("pub mod connect"));
+        assert!(!lib_rs.contains("pub use connect::"));
+        assert!(!lib_rs.contains("trellis_service_runtime"));
+        assert!(!lib_rs.contains("trellis::service"));
 
         fs::remove_dir_all(out_dir).unwrap();
     }
@@ -3006,6 +3047,7 @@ mod tests {
                 version: "0.1.0".to_string(),
                 repo_root: None,
             },
+            emit_service_runtime_facade: false,
         })
         .unwrap();
 
@@ -3146,7 +3188,8 @@ mod tests {
         })
         .unwrap();
 
-        assert!(out_dir.join("facade/Cargo.toml").exists());
+        let cargo_toml = fs::read_to_string(out_dir.join("facade/Cargo.toml")).unwrap();
+        assert!(cargo_toml.contains("trellis = \"0.1.0\""));
         assert!(!out_dir.join("facade/contracts/health.json").exists());
 
         fs::remove_dir_all(out_dir).unwrap();
@@ -3168,7 +3211,9 @@ mod tests {
                 "kind": "service",
                 "schemas": {
                     "AuditListInput": {"type":"object","properties":{},"required":[]},
-                    "AuditListOutput": {"type":"object","properties":{"items":{"type":"array","items":{"type":"string"}}},"required":["items"]}
+                    "AuditListOutput": {"type":"object","properties":{"items":{"type":"array","items":{"type":"string"}}},"required":["items"]},
+                    "AuditFeedInput": {"type":"object","properties":{},"required":[]},
+                    "AuditFeedEvent": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}
                 },
                 "uses": {
                     "required": {
@@ -3189,6 +3234,14 @@ mod tests {
                         "subject": "rpc.v1.Audit.List",
                         "input": {"schema":"AuditListInput"},
                         "output": {"schema":"AuditListOutput"}
+                    }
+                },
+                "feeds": {
+                    "Audit.Feed": {
+                        "version": "v1",
+                        "subject": "feeds.v1.Audit.Feed",
+                        "input": {"schema":"AuditFeedInput"},
+                        "event": {"schema":"AuditFeedEvent"}
                     }
                 }
             }),
@@ -3293,26 +3346,215 @@ mod tests {
         let lib_rs = fs::read_to_string(out_dir.join("facade/src/lib.rs")).unwrap();
         let connect_rs = fs::read_to_string(out_dir.join("facade/src/connect.rs")).unwrap();
         let contract_rs = fs::read_to_string(out_dir.join("facade/src/contract.rs")).unwrap();
+        generate_rust_participant_generated_sources(&GenerateRustParticipantFacadeOpts {
+            manifest_path: out_dir.join("audit@v1.json"),
+            out_dir: out_dir.join("generated"),
+            crate_name: "audit-participant".to_string(),
+            crate_version: "0.1.0".to_string(),
+            runtime_deps: RustRuntimeDeps {
+                source: RustRuntimeSource::Registry,
+                version: "0.1.0".to_string(),
+                repo_root: None,
+            },
+            owned_sdk_crate_name: Some("audit-sdk".to_string()),
+            owned_sdk_path: Some(out_dir.join("owned-sdk")),
+            alias_mappings: vec![
+                ParticipantAliasMapping {
+                    alias: "core".to_string(),
+                    crate_name: "trellis-sdk-core".to_string(),
+                    manifest_path: out_dir.join("trellis.core@v1.json"),
+                    crate_path: None,
+                },
+                ParticipantAliasMapping {
+                    alias: "auth".to_string(),
+                    crate_name: "trellis-sdk-auth".to_string(),
+                    manifest_path: out_dir.join("trellis.auth@v1.json"),
+                    crate_path: None,
+                },
+            ],
+        })
+        .unwrap();
+        let owned_rs = fs::read_to_string(out_dir.join("generated/src/owned.rs")).unwrap();
 
         assert!(cargo_toml.contains("build = \"build.rs\""));
         assert!(cargo_toml.contains("serde = { version = \"1.0\", features = [\"derive\"] }"));
-        assert!(cargo_toml.contains("trellis-client = { path = "));
+        assert!(cargo_toml.contains("trellis = { path = "));
         assert!(cargo_toml.contains("trellis-contracts = { path = "));
-        assert!(cargo_toml.contains("trellis-service = { path = "));
+        assert!(!cargo_toml.contains("trellis-service"));
+        assert!(cargo_toml.contains("trellis = { path = "));
         assert!(cargo_toml.contains("futures-util = \"0.3\""));
         assert!(build_rs.contains("generate_rust_participant_generated_sources"));
         assert!(
             lib_rs.contains("include!(concat!(env!(\"OUT_DIR\"), \"/generated/src/facade.rs\"));")
         );
-        assert!(connect_rs.contains("connect_service"));
+        assert!(lib_rs.contains("connect_service"));
+        assert!(lib_rs.contains("connect_user"));
+        assert!(lib_rs.contains("ConnectedClient"));
+        assert!(lib_rs.contains("ConnectedService"));
+        assert!(lib_rs.contains("ServiceConnectOptions"));
+        assert!(lib_rs.contains("ServiceRuntimeError"));
+        assert!(connect_rs.contains("pub struct Contract"));
+        assert!(connect_rs.contains("impl trellis::service::GeneratedServiceContract for Contract"));
+        assert!(
+            connect_rs.contains("const CONTRACT_ID: &'static str = crate::contract::CONTRACT_ID")
+        );
+        assert!(connect_rs.contains("pub struct ConnectedService"));
+        assert!(connect_rs.contains("trellis::service::ConnectedServiceRuntime<Contract>"));
+        assert!(
+            !connect_rs.contains("pub fn raw(&self) -> &trellis::service::ConnectedServiceRuntime")
+        );
+        assert!(!connect_rs.contains("pub fn raw_mut(&mut self)"));
+        assert!(!connect_rs.contains("pub fn new(inner: trellis::service::ConnectedServiceRuntime"));
+        assert!(connect_rs.contains("pub use trellis::service::ServiceConnectOptions"));
+        assert!(connect_rs.contains("pub async fn connect_service("));
+        assert!(connect_rs.contains("opts: ServiceConnectOptions<'_>"));
+        assert!(
+            connect_rs.contains("Result<ConnectedService, trellis::service::ServiceRuntimeError>")
+        );
         assert!(connect_rs.contains("connect_user"));
         assert!(
             contract_rs.contains("participant.contract.json")
                 || contract_rs.contains("audit@v1.json")
         );
         assert!(contract_rs.contains("pub const CONTRACT_DIGEST: &str = "));
+        assert!(contract_rs.contains("pub const CONTRACT_JSON: &str = include_str!"));
+        assert!(owned_rs.contains("impl crate::ConnectedService"));
+        assert!(owned_rs.contains("pub fn register_audit_list<F, Fut>(&mut self, handler: F)"));
+        assert!(owned_rs.contains(".register_rpc::<sdk::rpc::AuditListRpc"));
+        assert!(owned_rs.contains("runtime_mut()"));
+        assert!(!owned_rs.contains("pub fn register_audit_list<F, Fut>(&mut self, router"));
+        assert!(owned_rs.contains("pub fn register_audit_feed<F, S>(&mut self, handler: F)"));
+        assert!(owned_rs.contains(".register_feed::<sdk::feeds::AuditFeedFeedDescriptor"));
+        assert!(!owned_rs.contains("pub fn register_audit_feed<F, S>(&mut self, router"));
         assert!(out_dir.join("facade/contracts/core.json").exists());
         assert!(out_dir.join("facade/contracts/auth.json").exists());
+
+        fs::remove_dir_all(out_dir).unwrap();
+    }
+
+    #[test]
+    fn generated_participant_facade_exposes_operation_only_service_registrations() {
+        let out_dir = unique_temp_dir("participant-operation-only");
+        fs::create_dir_all(&out_dir).unwrap();
+
+        let local_manifest = write_remote_manifest(
+            &out_dir,
+            "ops@v1.json",
+            json!({
+                "format": "trellis.contract.v1",
+                "id": "ops@v1",
+                "displayName": "Ops",
+                "description": "Operation-only service.",
+                "kind": "service",
+                "schemas": {
+                    "OpInput": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"]},
+                    "OpOutput": {"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"]}
+                },
+                "operations": {
+                    "Op.Run": {
+                        "version": "v1",
+                        "subject": "operations.v1.Op.Run",
+                        "input": {"schema":"OpInput"},
+                        "output": {"schema":"OpOutput"}
+                    }
+                }
+            }),
+        );
+        let owned_sdk_dir = out_dir.join("owned-sdk");
+        fs::create_dir_all(&owned_sdk_dir).unwrap();
+
+        generate_rust_participant_generated_sources(&GenerateRustParticipantFacadeOpts {
+            manifest_path: local_manifest,
+            out_dir: out_dir.join("generated"),
+            crate_name: "ops-participant".to_string(),
+            crate_version: "0.1.0".to_string(),
+            runtime_deps: RustRuntimeDeps {
+                source: RustRuntimeSource::Registry,
+                version: "0.1.0".to_string(),
+                repo_root: None,
+            },
+            owned_sdk_crate_name: Some("ops-sdk".to_string()),
+            owned_sdk_path: Some(owned_sdk_dir),
+            alias_mappings: vec![],
+        })
+        .unwrap();
+
+        let owned_rs = fs::read_to_string(out_dir.join("generated/src/owned.rs")).unwrap();
+        assert!(owned_rs.contains("impl crate::ConnectedService"));
+        assert!(owned_rs.contains("pub fn register_op_run_provider<P>(&mut self, provider: P)"));
+        assert!(owned_rs.contains("sdk::operations::OpRunOperation"));
+
+        fs::remove_dir_all(out_dir).unwrap();
+    }
+
+    #[test]
+    fn generated_participant_facade_compiles_with_service_runtime() {
+        let out_dir = unique_temp_dir("participant-compile");
+        fs::create_dir_all(&out_dir).unwrap();
+
+        let local_manifest = write_remote_manifest(
+            &out_dir,
+            "compile@v1.json",
+            json!({
+                "format": "trellis.contract.v1",
+                "id": "compile@v1",
+                "displayName": "Compile",
+                "description": "Compile-test service.",
+                "kind": "service",
+                "schemas": {
+                    "PingInput": {"type":"object","properties":{"value":{"type":"string"}},"required":["value"]},
+                    "PingOutput": {"type":"object","properties":{"value":{"type":"string"}},"required":["value"]},
+                    "FeedInput": {"type":"object","properties":{},"required":[]},
+                    "FeedEvent": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}
+                },
+                "rpc": {
+                    "Compile.Ping": {
+                        "version":"v1",
+                        "subject":"rpc.v1.Compile.Ping",
+                        "input":{"schema":"PingInput"},
+                        "output":{"schema":"PingOutput"}
+                    }
+                },
+                "feeds": {
+                    "Compile.Feed": {
+                        "version":"v1",
+                        "subject":"feeds.v1.Compile.Feed",
+                        "input":{"schema":"FeedInput"},
+                        "event":{"schema":"FeedEvent"}
+                    }
+                }
+            }),
+        );
+        let owned_sdk_dir = out_dir.join("owned-sdk");
+
+        let runtime_deps = RustRuntimeDeps {
+            source: RustRuntimeSource::Local,
+            version: "0.1.0".to_string(),
+            repo_root: Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")),
+        };
+
+        generate_rust_sdk(&GenerateRustSdkOpts {
+            manifest_path: local_manifest.clone(),
+            out_dir: owned_sdk_dir.clone(),
+            crate_name: "compile-sdk".to_string(),
+            crate_version: "0.1.0".to_string(),
+            runtime_deps: runtime_deps.clone(),
+            emit_service_runtime_facade: true,
+        })
+        .unwrap();
+        generate_rust_participant_facade(&GenerateRustParticipantFacadeOpts {
+            manifest_path: local_manifest,
+            out_dir: out_dir.join("facade"),
+            crate_name: "compile-participant".to_string(),
+            crate_version: "0.1.0".to_string(),
+            runtime_deps,
+            owned_sdk_crate_name: Some("compile-sdk".to_string()),
+            owned_sdk_path: Some(owned_sdk_dir),
+            alias_mappings: vec![],
+        })
+        .unwrap();
+
+        cargo_check(&out_dir.join("facade/Cargo.toml"));
 
         fs::remove_dir_all(out_dir).unwrap();
     }
@@ -3421,16 +3663,15 @@ mod tests {
         assert!(state_rs.contains("pub struct FooState {"));
         assert!(state_rs.contains("pub struct FooState2 {"));
         assert!(state_rs.contains("pub fn selected_site("));
-        assert!(state_rs.contains("trellis_client::ValueStateStore<"));
+        assert!(state_rs.contains("trellis::client::ValueStateStore<"));
         assert!(state_rs.contains("SelectedSiteState"));
-        assert!(
-            state_rs.contains("trellis_client::ValueStateStore::new(self.inner, \"selectedSite\")")
-        );
+        assert!(state_rs
+            .contains("trellis::client::ValueStateStore::new(self.inner, \"selectedSite\")"));
         assert!(state_rs.contains("pub fn draft_inspections("));
-        assert!(state_rs.contains("trellis_client::MapStateStore<"));
+        assert!(state_rs.contains("trellis::client::MapStateStore<"));
         assert!(state_rs.contains("DraftInspectionState"));
         assert!(state_rs
-            .contains("trellis_client::MapStateStore::new(self.inner, \"draftInspections\")"));
+            .contains("trellis::client::MapStateStore::new(self.inner, \"draftInspections\")"));
         assert!(state_rs.contains("pub fn current_state("));
         assert!(state_rs.contains("StateValue"));
         assert!(state_rs.contains("pub fn state_value("));
@@ -3548,7 +3789,7 @@ mod tests {
         let evidence_rs =
             fs::read_to_string(out_dir.join("generated/src/uses/evidence.rs")).unwrap();
         assert!(evidence_rs.contains("pub fn evidence_upload("));
-        assert!(evidence_rs.contains("trellis_client::OperationInvoker<"));
+        assert!(evidence_rs.contains("trellis::client::OperationInvoker<"));
         assert!(evidence_rs.contains("sdk::operations::EvidenceUploadOperation"));
         assert!(evidence_rs.contains("self.inner.evidence_upload()"));
         assert!(evidence_rs.contains("pub async fn subscribe_evidence_uploaded("));

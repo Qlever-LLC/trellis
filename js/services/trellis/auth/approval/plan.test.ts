@@ -147,7 +147,7 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
   ]);
 });
 
-Deno.test("planUserContractApproval includes operation read and declared cancel capabilities", async () => {
+Deno.test("planUserContractApproval includes operation observe and declared cancel capabilities", async () => {
   const dependency: TrellisContractV1 = {
     format: "trellis.contract.v1",
     id: "example.jobs@v1",
@@ -166,7 +166,7 @@ Deno.test("planUserContractApproval includes operation read and declared cancel 
         cancel: true,
         capabilities: {
           call: ["jobs:write"],
-          read: ["jobs:read"],
+          observe: ["jobs:read"],
           cancel: ["jobs:cancel"],
         },
       },

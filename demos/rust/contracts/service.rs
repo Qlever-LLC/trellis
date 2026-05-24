@@ -505,7 +505,7 @@ fn service_operation(
         Some(output_schema),
     )
     .with_call_capabilities(Vec::<&str>::new())
-    .with_read_capabilities(Vec::<&str>::new())
+    .with_observe_capabilities(Vec::<&str>::new())
 }
 
 /// Build the Rust-authored Field Ops demo service contract manifest.

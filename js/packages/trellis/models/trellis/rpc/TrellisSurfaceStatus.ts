@@ -14,7 +14,7 @@ export const TrellisSurfaceStatusRequestSchema = Type.Object({
       Type.Literal("call"),
       Type.Literal("publish"),
       Type.Literal("subscribe"),
-      Type.Literal("read"),
+      Type.Literal("observe"),
     ]),
   ),
 });

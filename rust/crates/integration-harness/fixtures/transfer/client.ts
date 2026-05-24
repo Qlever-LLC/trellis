@@ -113,7 +113,7 @@ const harness = defineServiceContract({ schemas }, (ref) => ({
         expiresInMs: 60000,
         maxBytes: 1024,
       },
-      capabilities: { call: [], read: [], cancel: [] },
+      capabilities: { call: [], observe: [], cancel: [] },
       cancel: false,
     },
     "Harness.Ts.TransferUpload": {
@@ -129,7 +129,7 @@ const harness = defineServiceContract({ schemas }, (ref) => ({
         expiresInMs: 60000,
         maxBytes: 1024,
       },
-      capabilities: { call: [], read: [], cancel: [] },
+      capabilities: { call: [], observe: [], cancel: [] },
       cancel: false,
     },
   },

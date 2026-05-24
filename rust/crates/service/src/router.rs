@@ -55,7 +55,7 @@ struct Route {
 enum RouteCapabilities {
     Static(&'static [&'static str]),
     OperationControl {
-        read: &'static [&'static str],
+        observe: &'static [&'static str],
         cancel: &'static [&'static str],
         control: &'static [&'static str],
     },
@@ -66,12 +66,12 @@ impl RouteCapabilities {
         let capabilities = match self {
             Self::Static(capabilities) => capabilities,
             Self::OperationControl {
-                read,
+                observe,
                 cancel,
                 control,
             } => match serde_json::from_slice::<OperationControlRequest>(payload) {
                 Ok(request) => match request.action.as_str() {
-                    "get" | "wait" | "watch" => read,
+                    "get" | "wait" | "watch" => observe,
                     "cancel" => cancel,
                     "signal" => control,
                     _ => &[],
@@ -349,7 +349,7 @@ impl Router {
             control_subject(D::SUBJECT),
             Route {
                 capabilities: RouteCapabilities::OperationControl {
-                    read: D::READ_CAPABILITIES,
+                    observe: D::OBSERVE_CAPABILITIES,
                     cancel: D::CANCEL_CAPABILITIES,
                     control: D::CONTROL_CAPABILITIES,
                 },

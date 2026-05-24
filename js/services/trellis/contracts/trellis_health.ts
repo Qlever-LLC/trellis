@@ -10,10 +10,20 @@ export const health = defineServiceContract({ schemas }, (ref) => ({
   displayName: "Trellis Health",
   description:
     "Expose shared Trellis heartbeat events for service observability.",
+  docs: {
+    summary: "Service heartbeat events.",
+    markdown:
+      "Defines the heartbeat event services publish so operators can observe service liveness.",
+  },
   events: {
     "Health.Heartbeat": {
       version: "v1",
       event: ref.schema("HealthHeartbeat"),
+      docs: {
+        summary: "Publish service liveness.",
+        markdown:
+          "Emitted by services to report runtime identity, uptime, and health metadata.",
+      },
     },
   },
 }));

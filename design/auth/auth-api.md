@@ -768,7 +768,7 @@ type EnvelopeBoundary = {
     contractId: string;
     kind: "rpc" | "operation" | "event" | "feed";
     name: string;
-    action: "call" | "publish" | "subscribe" | "read" | "cancel";
+    action: "call" | "publish" | "subscribe" | "observe" | "cancel";
     required: boolean;
   }>;
   capabilities: string[];

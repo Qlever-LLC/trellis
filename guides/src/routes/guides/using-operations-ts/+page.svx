@@ -41,7 +41,7 @@ operations: {
     output: { schema: "ProcessOrderResult" },
     capabilities: {
       call: ["orders.write"],
-      read: ["orders.read"],
+      observe: ["orders.read"],
       cancel: ["orders.write"],
       control: ["orders.write"],
     },
@@ -50,10 +50,11 @@ operations: {
 },
 ```
 
-`call` starts the operation, `read` gates `get`/`wait`/`watch`, `cancel` gates
+`call` starts the operation, `observe` gates `get`/`wait`/`watch`, `cancel` gates
 cancellation, and `control` gates named post-start signals. If you do not declare
 signals, `control` can be omitted; it is shown here to make the four operation
-capability gates explicit.
+capability gates explicit. If `observe` is omitted, it defaults to `call`; an
+explicit empty `observe` list makes watching available to authenticated callers.
 
 Add the schemas to `schemas.ts`:
 
@@ -237,7 +238,7 @@ operations: {
     },
     capabilities: {
       call: ["documents.write"],
-      read: ["documents.read"],
+      observe: ["documents.read"],
     },
   },
 },

@@ -34,6 +34,11 @@ export const trellisCore = defineServiceContract(
     displayName: "Trellis Core",
     description:
       "Trellis runtime RPCs available to all connected participants.",
+    docs: {
+      summary: "Runtime catalog and binding APIs.",
+      markdown:
+        "Exposes the Trellis catalog, contract details, runtime bindings, and surface availability checks used by platform participants.",
+    },
     capabilities: {
       "trellis.catalog.read": {
         displayName: "Read contract catalog",
@@ -51,6 +56,11 @@ export const trellisCore = defineServiceContract(
         output: ref.schema("TrellisCatalogResponse"),
         capabilities: { call: ["trellis.catalog.read"] },
         errors: [ref.error("ValidationError"), ref.error("UnexpectedError")],
+        docs: {
+          summary: "List visible contracts.",
+          markdown:
+            "Returns the active contract catalog entries available in the deployment.",
+        },
       },
       "Trellis.Contract.Get": {
         version: "v1",
@@ -58,6 +68,11 @@ export const trellisCore = defineServiceContract(
         output: ref.schema("TrellisContractGetResponse"),
         capabilities: { call: ["trellis.contract.read"] },
         errors: [ref.error("ValidationError"), ref.error("UnexpectedError")],
+        docs: {
+          summary: "Read one contract manifest.",
+          markdown:
+            "Returns the normalized contract manifest for a known contract digest.",
+        },
       },
       "Trellis.Bindings.Get": {
         version: "v1",
@@ -65,6 +80,11 @@ export const trellisCore = defineServiceContract(
         output: ref.schema("TrellisBindingsGetResponse"),
         capabilities: { call: ["service"] },
         errors: [ref.error("ValidationError"), ref.error("UnexpectedError")],
+        docs: {
+          summary: "Read service resource bindings.",
+          markdown:
+            "Returns runtime resource bindings for the caller's active service contract.",
+        },
       },
       "Trellis.Surface.Status": {
         version: "v1",
@@ -72,6 +92,11 @@ export const trellisCore = defineServiceContract(
         output: ref.schema("TrellisSurfaceStatusResponse"),
         capabilities: { call: ["trellis.catalog.read"] },
         errors: [ref.error("ValidationError"), ref.error("UnexpectedError")],
+        docs: {
+          summary: "Inspect surface availability.",
+          markdown:
+            "Reports capability and deployment-envelope status for a contract-owned surface.",
+        },
       },
     },
   }),

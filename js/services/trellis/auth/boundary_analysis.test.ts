@@ -24,9 +24,9 @@ function dependencyContract(): TrellisContractV1 {
         displayName: "Call operation",
         description: "Start operations.",
       },
-      "operation:read": {
-        displayName: "Read operation",
-        description: "Read operations.",
+      "operation:observe": {
+        displayName: "Observe operation",
+        description: "Observe operations.",
       },
       "operation:cancel": {
         displayName: "Cancel operation",
@@ -40,9 +40,9 @@ function dependencyContract(): TrellisContractV1 {
         displayName: "Subscribe event",
         description: "Subscribe to events.",
       },
-      "feed:read": {
-        displayName: "Read feed",
-        description: "Read feeds.",
+      "feed:subscribe": {
+        displayName: "Subscribe feed",
+        description: "Subscribe to feeds.",
       },
     },
     schemas,
@@ -64,7 +64,7 @@ function dependencyContract(): TrellisContractV1 {
         output: { schema: "Empty" },
         capabilities: {
           call: ["operation:call"],
-          read: ["operation:read"],
+          observe: ["operation:observe"],
           cancel: ["operation:cancel"],
         },
         cancel: true,
@@ -88,7 +88,7 @@ function dependencyContract(): TrellisContractV1 {
         subject: "feeds.v1.example.Live",
         input: { schema: "Empty" },
         event: { schema: "Empty" },
-        capabilities: { subscribe: ["feed:read"] },
+        capabilities: { subscribe: ["feed:subscribe"] },
       },
     },
   };
@@ -143,7 +143,7 @@ Deno.test("analyzeContractEnvelopeBoundary derives required uses", async () => {
       contractId: "example.api@v1",
       kind: "feed",
       name: "Live",
-      action: "read",
+      action: "subscribe",
       required: true,
     },
     {
@@ -164,7 +164,7 @@ Deno.test("analyzeContractEnvelopeBoundary derives required uses", async () => {
       contractId: "example.api@v1",
       kind: "operation",
       name: "Upload",
-      action: "read",
+      action: "observe",
       required: true,
     },
     {
@@ -178,10 +178,10 @@ Deno.test("analyzeContractEnvelopeBoundary derives required uses", async () => {
   assertEquals(analysis.required.capabilities, [
     "event:publish",
     "event:subscribe",
-    "feed:read",
+    "feed:subscribe",
     "operation:call",
     "operation:cancel",
-    "operation:read",
+    "operation:observe",
     "rpc:call",
   ]);
   assertEquals(analysis.required.resources, [
@@ -398,7 +398,7 @@ Deno.test("analyzeContractEnvelopeBoundary includes operation control and open c
           cancel: true,
           capabilities: {
             call: ["operation:call"],
-            read: ["operation:read"],
+            observe: ["operation:observe"],
             control: ["operation:control"],
           },
           signals: {
@@ -441,14 +441,14 @@ Deno.test("analyzeContractEnvelopeBoundary includes operation control and open c
       contractId: "example.api@v1",
       kind: "operation",
       name: "Signal",
-      action: "read",
+      action: "observe",
       required: true,
     },
   ]);
   assertEquals(analysis.required.capabilities, [
     "operation:call",
     "operation:control",
-    "operation:read",
+    "operation:observe",
   ]);
 });
 
@@ -530,7 +530,7 @@ Deno.test("analyzeContractEnvelopeBoundary derives contributed surfaces", async 
       contractId: "example.api@v1",
       kind: "feed",
       name: "Live",
-      action: "read",
+      action: "subscribe",
       required: true,
     },
     {
@@ -551,7 +551,7 @@ Deno.test("analyzeContractEnvelopeBoundary derives contributed surfaces", async 
       contractId: "example.api@v1",
       kind: "operation",
       name: "Upload",
-      action: "read",
+      action: "observe",
       required: true,
     },
     {

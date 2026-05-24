@@ -957,10 +957,10 @@ fn render_owned_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Str
             .as_ref()
             .and_then(|caps| caps.call.clone())
             .unwrap_or_default();
-        let read = operation
+        let observe = operation
             .capabilities
             .as_ref()
-            .and_then(|caps| caps.read.clone())
+            .and_then(|caps| caps.observe.clone())
             .unwrap_or_default();
         let cancel = operation
             .capabilities
@@ -977,8 +977,8 @@ fn render_owned_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Str
             serde_json::to_string(&caller).unwrap()
         ));
         lines.push(format!(
-            "      readCapabilities: {},",
-            serde_json::to_string(&read).unwrap()
+            "      observeCapabilities: {},",
+            serde_json::to_string(&observe).unwrap()
         ));
         lines.push(format!(
             "      cancelCapabilities: {},",
@@ -2504,7 +2504,7 @@ mod tests {
                         "output": { "schema": "ProcessOutput" },
                         "capabilities": {
                             "call": ["service"],
-                            "read": ["service"],
+                            "observe": ["service"],
                             "cancel": ["service"],
                             "control": ["service"]
                         },
@@ -2726,7 +2726,7 @@ mod tests {
         assert!(owned_api.contains("operations: {"));
         assert!(owned_api.contains("\"Example.Process\": {"));
         assert!(owned_api.contains("callerCapabilities: [\"service\"]"));
-        assert!(owned_api.contains("readCapabilities: [\"service\"]"));
+        assert!(owned_api.contains("observeCapabilities: [\"service\"]"));
         assert!(owned_api.contains("cancelCapabilities: [\"service\"]"));
         assert!(owned_api.contains("controlCapabilities: [\"service\"]"));
         assert!(owned_api.contains("signals: {"));

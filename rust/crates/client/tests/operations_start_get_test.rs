@@ -36,7 +36,7 @@ impl OperationDescriptor for RefundOperation {
     const KEY: &'static str = "Billing.Refund";
     const SUBJECT: &'static str = "operations.v1.Billing.Refund";
     const CALLER_CAPABILITIES: &'static [&'static str] = &["billing.refund"];
-    const READ_CAPABILITIES: &'static [&'static str] = &["billing.read"];
+    const OBSERVE_CAPABILITIES: &'static [&'static str] = &["billing.read"];
     const CANCEL_CAPABILITIES: &'static [&'static str] = &["billing.cancel"];
     const CANCELABLE: bool = true;
 }
@@ -51,7 +51,7 @@ impl OperationDescriptor for ReceiptUploadOperation {
     const KEY: &'static str = "Billing.ReceiptUpload";
     const SUBJECT: &'static str = "operations.v1.Billing.ReceiptUpload";
     const CALLER_CAPABILITIES: &'static [&'static str] = &["billing.receipt.upload"];
-    const READ_CAPABILITIES: &'static [&'static str] = &["billing.read"];
+    const OBSERVE_CAPABILITIES: &'static [&'static str] = &["billing.read"];
     const CANCEL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool = false;
 }

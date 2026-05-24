@@ -528,7 +528,7 @@ fn manifest_parses_owned_and_used_operations() {
                 "cancel": true,
                 "capabilities": {
                     "call": ["payments.capture"],
-                    "read": ["payments.read"],
+                    "observe": ["payments.read"],
                     "cancel": ["payments.cancel"]
                 }
             }
@@ -564,7 +564,7 @@ fn manifest_parses_owned_and_used_operations() {
         Some(&vec!["payments.capture".to_string()])
     );
     assert_eq!(
-        capabilities.read.as_ref(),
+        capabilities.observe.as_ref(),
         Some(&vec!["payments.read".to_string()])
     );
     assert_eq!(
@@ -868,6 +868,68 @@ fn contract_digest_keeps_grouped_aliases_named_contract() {
     assert_eq!(
         projected["uses"]["optional"]["audit"]["feeds"]["subscribe"],
         json!(["Audit.Feed"])
+    );
+}
+
+#[test]
+fn contract_docs_normalize_but_do_not_affect_digest() {
+    let base = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.docs@v1",
+        "displayName": "Example Docs",
+        "description": "Documents contract surfaces.",
+        "kind": "service",
+        "schemas": {
+            "Empty": {"type": "object", "properties": {}}
+        },
+        "rpc": {
+            "Docs.Read": {
+                "version": "v1",
+                "subject": "rpc.v1.Docs.Read",
+                "input": {"schema": "Empty"},
+                "output": {"schema": "Empty"}
+            }
+        }
+    });
+    let documented = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.docs@v1",
+        "displayName": "Example Docs",
+        "description": "Documents contract surfaces.",
+        "docs": {
+            "summary": "Docs example.",
+            "markdown": "Top-level contract docs."
+        },
+        "kind": "service",
+        "schemas": {
+            "Empty": {"type": "object", "properties": {}}
+        },
+        "rpc": {
+            "Docs.Read": {
+                "version": "v1",
+                "subject": "rpc.v1.Docs.Read",
+                "input": {"schema": "Empty"},
+                "output": {"schema": "Empty"},
+                "docs": {
+                    "summary": "Read docs.",
+                    "markdown": "RPC docs."
+                }
+            }
+        }
+    });
+
+    let normalized = normalize_manifest_value(documented.clone()).expect("normalize docs manifest");
+    assert_eq!(
+        normalized["docs"]["markdown"],
+        json!("Top-level contract docs.")
+    );
+    assert_eq!(
+        normalized["rpc"]["Docs.Read"]["docs"]["markdown"],
+        json!("RPC docs.")
+    );
+    assert_eq!(
+        digest_contract_value(&base).expect("base digest"),
+        digest_contract_value(&documented).expect("documented digest")
     );
 }
 

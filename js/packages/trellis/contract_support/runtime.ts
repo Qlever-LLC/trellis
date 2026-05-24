@@ -114,7 +114,7 @@ export type OperationDesc<
   };
   signals?: Record<string, { input: SchemaLike }>;
   callerCapabilities: readonly string[];
-  readCapabilities: readonly string[];
+  observeCapabilities: readonly string[];
   cancelCapabilities: readonly string[];
   controlCapabilities: readonly string[];
   cancel?: boolean;

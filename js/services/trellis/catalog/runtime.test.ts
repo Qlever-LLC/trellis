@@ -667,7 +667,7 @@ Deno.test("contracts runtime excludes missing active contract digests", async ()
   }
 });
 
-Deno.test("contracts runtime excludes invalid active contract digests", async () => {
+Deno.test("contracts runtime prunes invalid active contract digests", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-bad-active-",
@@ -737,21 +737,135 @@ Deno.test("contracts runtime excludes invalid active contract digests", async ()
     await module.refreshActiveContracts();
 
     assertEquals((await module.getActiveCatalog()).contracts, []);
-    assertEquals(await module.getActiveCatalogIssues(), [
-      {
-        issueId: "invalid-active-contract:service@v1:bad-digest::",
-        kind: "invalid-active-contract",
-        contractId: "service@v1",
-        digest: "bad-digest",
-        message: "Failed to load active contract 'bad-digest'",
-        deploymentIds: ["service.default"],
-        actions: [],
-      },
-    ]);
-    await assertRejects(
-      () => module.validateActiveCatalog(),
-      Error,
-      "Failed to load active contract 'bad-digest'",
+    assertEquals(await module.getActiveCatalogIssues(), []);
+    assertEquals(await contractStorage.get("bad-digest"), undefined);
+    assertEquals(
+      await deploymentContractEvidenceStorage.listByDigest("bad-digest"),
+      [],
+    );
+    assertEquals(
+      (await serviceInstanceStorage.get("svc_1"))?.currentContractDigest,
+      undefined,
+    );
+    assertEquals(await module.validateActiveCatalog(), []);
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
+Deno.test("contracts runtime heals stored digest mismatches on reconnect", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-catalog-runtime-heal-digest-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    const { createContractsModule } = await import("./runtime.ts");
+    await initializeTrellisStorageSchema(storage);
+    const contractStorage = new SqlContractStorageRepository(storage.db);
+    const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
+    const deploymentContractEvidenceStorage =
+      new SqlDeploymentContractEvidenceRepository(storage.db);
+    const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+      storage.db,
+    );
+    const module = createContractsModule({
+      builtinContracts: [],
+      contractStorage,
+      deploymentContractEvidenceStorage,
+      deploymentEnvelopeStorage,
+      serviceInstanceStorage,
+      serviceDeploymentStorage,
+      deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
+      deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
+    });
+    const contract = makeOperationContract(
+      "service@v1",
+      "operations.v1.Service.Refund",
+    );
+    await contractStorage.put({
+      digest: "legacy-digest",
+      id: contract.id,
+      displayName: contract.displayName,
+      description: contract.description,
+      installedAt: new Date(TEST_NOW),
+      contract: JSON.stringify(contract),
+    });
+    await serviceDeploymentStorage.put(
+      testServiceDeployment("service.default", ["Service"]),
+    );
+    await putDeploymentEnvelope(
+      deploymentEnvelopeStorage,
+      "service.default",
+      "service",
+      [contract.id],
+    );
+    await deploymentContractEvidenceStorage.put({
+      deploymentId: "service.default",
+      contractId: contract.id,
+      contractDigest: "legacy-digest",
+      contract: contractEvidenceJson(contract),
+      firstSeenAt: TEST_NOW,
+      lastSeenAt: TEST_NOW,
+    });
+    await serviceInstanceStorage.put({
+      instanceId: "svc_1",
+      deploymentId: "service.default",
+      instanceKey: "session-key",
+      disabled: false,
+      currentContractId: contract.id,
+      currentContractDigest: "legacy-digest",
+      capabilities: ["service"],
+      createdAt: TEST_NOW,
+    });
+
+    await module.refreshActiveContracts();
+
+    assertEquals(await contractStorage.get("legacy-digest"), undefined);
+    assertEquals(
+      await deploymentContractEvidenceStorage.listByDigest("legacy-digest"),
+      [],
+    );
+    assertEquals(
+      (await serviceInstanceStorage.get("svc_1"))?.currentContractDigest,
+      undefined,
+    );
+
+    const installed = await module.installServiceContract(contract);
+    await putDeploymentEvidence(
+      deploymentContractEvidenceStorage,
+      "service.default",
+      installed,
+    );
+    await serviceInstanceStorage.put({
+      instanceId: "svc_1",
+      deploymentId: "service.default",
+      instanceKey: "session-key",
+      disabled: false,
+      currentContractId: installed.id,
+      currentContractDigest: installed.digest,
+      capabilities: ["service"],
+      createdAt: TEST_NOW,
+    });
+
+    await module.refreshActiveContracts();
+
+    assertEquals((await module.getActiveCatalog()).contracts, [{
+      id: installed.id,
+      digest: installed.digest,
+      displayName: installed.displayName,
+      description: installed.description,
+    }]);
+    assertEquals(await module.getActiveCatalogIssues(), []);
+    assertEquals(
+      digestContractManifest(contract),
+      installed.digest,
     );
   } finally {
     storage.client.close();

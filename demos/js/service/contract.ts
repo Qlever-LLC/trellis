@@ -99,14 +99,14 @@ export const contract = defineServiceContract(
         input: ref.schema("SitesRefreshRequest"),
         progress: ref.schema("SitesRefreshProgress"),
         output: ref.schema("SitesRefreshResponse"),
-        capabilities: { call: [], read: [] },
+        capabilities: { call: [], observe: [] },
       },
       "Reports.Generate": {
         version: "v1",
         input: ref.schema("ReportsGenerateRequest"),
         progress: ref.schema("ReportsGenerateProgress"),
         output: ref.schema("ReportsGenerateResponse"),
-        capabilities: { call: [], read: [], cancel: [] },
+        capabilities: { call: [], observe: [], cancel: [] },
         cancel: true,
       },
       "Evidence.Upload": {
@@ -122,7 +122,7 @@ export const contract = defineServiceContract(
           metadata: "/metadata",
           expiresInMs: 60_000,
         },
-        capabilities: { call: [], read: [] },
+        capabilities: { call: [], observe: [] },
       },
     },
     events: {
