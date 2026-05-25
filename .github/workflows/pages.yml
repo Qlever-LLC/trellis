@@ -173,13 +173,13 @@ jobs:
             prepared_roots+=("${repo_root}")
           }
 
-          build_guides() {
+          build_docs() {
             local repo_root="$1"
             local base_path="$2"
             local out_dir="$3"
 
             (
-              cd "${repo_root}/guides"
+              cd "${repo_root}/docs"
               deno install --allow-scripts=npm:esbuild,npm:sharp
               deno run -A ./scripts/generate_ts_api_docs.ts
               SITE_BASE_PATH="${base_path}" deno run -A vite build
@@ -212,13 +212,13 @@ jobs:
           prepare_once "${release_worktree}" "${latest_tag}"
           prepare_once "${current_root}" "${current_tag}"
 
-          build_guides "${release_worktree}" "${site_root}" "${release_root}/guides"
-          build_guides "${current_root}" "${site_root}/current" "${pages_root}/current"
+          build_docs "${release_worktree}" "${site_root}" "${release_root}/docs"
+          build_docs "${current_root}" "${site_root}/current" "${pages_root}/current"
 
           build_console "${release_console_root}" "${site_root}/console" "${release_root}/console"
           build_console "${current_root}" "${site_root}/current/console" "${pages_root}/current/console"
 
-          cp -R "${release_root}/guides/." "${pages_root}/"
+          cp -R "${release_root}/docs/." "${pages_root}/"
           mkdir -p "${pages_root}/console"
           cp -R "${release_root}/console/." "${pages_root}/console/"
 

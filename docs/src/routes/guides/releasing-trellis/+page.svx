@@ -208,7 +208,7 @@ cargo run --manifest-path rust/xtask/Cargo.toml -- prepare
 If the guide site changed, also run:
 
 ```sh
-deno task -c guides/deno.json check
+deno task -c docs/deno.json check
 ```
 
 If packaging changed, add the relevant package or image smoke checks before committing. For example:

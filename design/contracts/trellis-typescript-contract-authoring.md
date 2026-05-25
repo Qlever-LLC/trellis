@@ -43,6 +43,12 @@ long-running services. Apps, CLIs, browser clients, and other callers also
 connect to Trellis and need a typed declaration of what they own and what they
 use.
 
+This document records TypeScript contract-authoring architecture: package
+ownership, generated projections, `uses` enforcement, and how TypeScript helpers
+must emit canonical manifests. It is not the TypeScript tutorial or API
+reference. Ordinary usage examples and exact signatures belong in
+`/guides/libraries/typescript` and `/api`.
+
 ## Design
 
 Trellis adopts a contract-first TypeScript model.
@@ -109,23 +115,9 @@ includes a contract module object named `sdk` that includes:
 - a typed `use(...)` helper for declaring `uses`
 - optional generated subsystem metadata such as state, jobs, and KV helpers
 
-Authors should import that stable export with a local alias that describes the
-dependency:
-
-```ts
-import { sdk as catalog } from "@trellis-sdk/catalog";
-
-const app = defineAppContract(() => ({
-  id: "example.app@v1",
-  displayName: "Example App",
-  description: "Example app.",
-  uses: {
-    required: {
-      catalog: catalog.use({ rpc: { call: ["Catalog.Search"] } }),
-    },
-  },
-}));
-```
+Authors import that stable export with a local alias that describes the
+dependency and use the SDK-backed selector for the `uses.required` or
+`uses.optional` entry. See `/guides/libraries/typescript` for complete examples.
 
 Generated SDKs do not expose dependency-specific default-use helpers. All
 caller-visible `uses` selections should be explicit in the authored contract.
@@ -140,40 +132,6 @@ capability metadata. TypeScript authors write local capability keys in the
 contract source; emission projects declared local keys to global capability keys
 using `<contract id without @vN>::<local capability>`.
 
-Example shape:
-
-```ts
-export const jobs = defineServiceContract(
-  { schemas },
-  (ref) => ({
-    id: "trellis.jobs@v1",
-    displayName: "Trellis Jobs",
-    description: "Trellis-managed background job administration API.",
-    capabilities: {
-      "admin.read": {
-        displayName: "Read jobs admin data",
-        description:
-          "View Jobs service health, services, jobs, and dead-letter queues.",
-      },
-      "admin.mutate": {
-        displayName: "Mutate jobs admin data",
-        description:
-          "Cancel, retry, replay, or dismiss Jobs service work items.",
-        consequence: "Can change background job execution state.",
-      },
-    },
-    rpc: {
-      "Jobs.List": {
-        version: "v1",
-        input: ref.schema("JobsListRequest"),
-        output: ref.schema("JobsListResponse"),
-        capabilities: { call: ["admin.read"] },
-      },
-    },
-  }),
-);
-```
-
 The emitted manifest contains `trellis.jobs::admin.read` in both the top-level
 `capabilities` map and the RPC capability list. Undeclared platform capabilities
 such as `service` remain raw strings.
@@ -182,52 +140,6 @@ Operations that accept post-start caller input declare named signals in the
 operation descriptor. Signal input schemas live in the local schema registry and
 are referenced with the same `ref.schema(...)` pattern as operation input,
 progress, and output schemas.
-
-Example shape:
-
-```ts
-const schemas = {
-  RefundInput: Type.Object({ chargeId: Type.String() }),
-  RefundProgress: Type.Object({ message: Type.String() }),
-  RefundOutput: Type.Object({ refundId: Type.String() }),
-  ApproveRefundSignal: Type.Object({ approvedBy: Type.String() }),
-} as const;
-
-export const billing = defineServiceContract(
-  { schemas },
-  (ref) => ({
-    id: "billing@v1",
-    displayName: "Billing",
-    description: "Billing operations.",
-    capabilities: {
-      "billing.refund": {
-        displayName: "Refund billing",
-        description: "Start and observe refund operations.",
-      },
-      "billing.refund.control": {
-        displayName: "Control refund operations",
-        description: "Submit post-start refund operation input.",
-      },
-    },
-    operations: {
-      "Billing.Refund": {
-        version: "v1",
-        input: ref.schema("RefundInput"),
-        progress: ref.schema("RefundProgress"),
-        output: ref.schema("RefundOutput"),
-        capabilities: {
-          call: ["billing.refund"],
-          observe: ["billing.refund"],
-          control: ["billing.refund.control"],
-        },
-        signals: {
-          approveRefund: { input: ref.schema("ApproveRefundSignal") },
-        },
-      },
-    },
-  }),
-);
-```
 
 Rules:
 
@@ -244,33 +156,6 @@ Rules:
   expected runtime failures returned through `Result` / `AsyncResult`, not
   omitted protocol semantics.
 
-Example shape:
-
-```ts
-const schemas = {
-  CatalogRequest: CatalogRequestSchema,
-  CatalogResponse: CatalogResponseSchema,
-} as const;
-
-export const core = defineServiceContract(
-  { schemas },
-  (ref) => ({
-    id: "trellis.core@v1",
-    displayName: "Trellis Core",
-    description: "Expose Trellis-owned RPCs for platform SDK consumers.",
-    rpc: {
-      "Trellis.Catalog": {
-        version: "v1",
-        input: ref.schema("CatalogRequest"),
-        output: ref.schema("CatalogResponse"),
-      },
-    },
-  }),
-);
-
-export default core;
-```
-
 For locally authored TypeScript contract source files, whether a top-level
 `contract.ts` or `contract.js` for a single contract or `contracts/*.ts` for a
 multi-contract layout:
@@ -278,20 +163,9 @@ multi-contract layout:
 - the file MUST `default export` the contract helper return value
 - Trellis source loading resolves the default export only for TypeScript
   contract files
-- services should normally use
-  `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))`
-- apps should normally use `defineAppContract({ schemas }, (ref) => ({ ... }))`
-  when they declare schema-backed state, and
-  `defineAppContract(() => ({ ... }))` otherwise
-- user-delegated agents should normally use
-  `defineAgentContract({ schemas }, (ref) => ({ ... }))` when they declare
-  schema-backed state, and `defineAgentContract(() => ({ ... }))` otherwise
-- devices should normally use
-  `defineDeviceContract({ schemas }, (ref) => ({ ... }))` when they declare
-  schema-backed state, and `defineDeviceContract(() => ({ ... }))` otherwise
-- CLI and other long-lived user tooling should normally use
-  `defineAgentContract({ schemas }, (ref) => ({ ... }))` when they declare
-  schema-backed state, and `defineAgentContract(() => ({ ... }))` otherwise
+- authors should use the kind-specific helper that matches the participant kind;
+  exact overloads and setup examples belong in `/guides/libraries/typescript`
+  and `/api`
 - `schemas` and local `errors` act as local registries supplied to the contract
   builder for service contracts, while the callback body defines the emitted
   contract body including owned surfaces, resources, `uses`, and `exports`
@@ -299,10 +173,9 @@ multi-contract layout:
   not in the local registry argument
 - app-, agent-, and device-style contracts may also take a `schemas` registry
   when they declare schema-backed owned surfaces such as top-level `state`
-- schema refs should normally use `ref.schema("...")`
-- RPC `errors: [...]` entries should normally use `ref.error("...")` for both
-  local declarations and built-in Trellis RPC errors such as `UnexpectedError`,
-  `ValidationError`, `AuthError`, and `TransferError`
+- schema and error references should use the public reference helpers so
+  manifest emission can validate local declarations and built-in Trellis RPC
+  errors
 - `TransportError` is built into Trellis runtime call surfaces, but it is not a
   contract-authored RPC `errors: [...]` entry; it represents Trellis
   transport/runtime boundary failures rather than a handler-declared remote
@@ -329,51 +202,9 @@ multi-contract layout:
 
 TypeScript contract authoring also owns service-local transportable RPC errors.
 
-Authors should normally create them through `defineError(...)` and register the
-generated error classes directly in the builder registry `errors` map.
-
-Example shape:
-
-```ts
-export const NotFoundError = defineError({
-  type: "NotFoundError",
-  fields: {
-    resource: Type.String(),
-    resourceId: Type.String(),
-  },
-  message: ({ resource, resourceId }) => `${resource} ${resourceId} not found`,
-});
-
-const schemas = {
-  GetWorkspaceInput: GetWorkspaceInputSchema,
-  Workspace: WorkspaceSchema,
-} as const;
-
-const errors = {
-  NotFoundError,
-} as const;
-
-export const krishi = defineServiceContract(
-  { schemas, errors },
-  (ref) => ({
-    id: "dna-cloud.krishi@v1",
-    displayName: "Krishi",
-    description: "Krishi service",
-    rpc: {
-      "Workspace.Get": {
-        version: "v1",
-        input: ref.schema("GetWorkspaceInput"),
-        output: ref.schema("Workspace"),
-        errors: [
-          ref.error("NotFoundError"),
-          ref.error("ValidationError"),
-          ref.error("UnexpectedError"),
-        ],
-      },
-    },
-  }),
-);
-```
+Authors should normally create them through the public error helper and register
+the generated error classes directly in the builder registry `errors` map. Full
+syntax belongs in `/guides/libraries/typescript` and `/api`.
 
 Rules:
 
@@ -435,36 +266,6 @@ Contracts that need non-baseline auth surfaces still declare them with
 
 TypeScript contract authoring declares public Trellis-managed state through the
 top-level `state` map.
-
-Example:
-
-```ts
-const schemas = {
-  PreferencesV1: Type.Object({ theme: Type.String() }),
-  Preferences: Type.Object({ theme: Type.String(), compact: Type.Boolean() }),
-  Draft: Type.Object({ title: Type.String() }),
-} as const;
-
-export const notes = defineAppContract(
-  { schemas },
-  (ref) => ({
-    id: "acme.notes@v1",
-    displayName: "Notes",
-    description: "Notes app",
-    state: {
-      preferences: {
-        kind: "value",
-        schema: ref.schema("Preferences"),
-        stateVersion: "preferences.v2",
-        acceptedVersions: {
-          "preferences.v1": ref.schema("PreferencesV1"),
-        },
-      },
-      drafts: { kind: "map", schema: ref.schema("Draft") },
-    },
-  }),
-);
-```
 
 Rules:
 
@@ -555,38 +356,10 @@ merely allowed to use.
 
 ### 6) Runtime connection helpers are contract-driven
 
-TypeScript runtime helpers consume contract objects directly.
-
-Examples:
-
-```ts
-import { TrellisClient } from "@qlever-llc/trellis";
-import { TrellisService } from "@qlever-llc/trellis/service/deno";
-
-export const app = defineAppContract(() => ({ ...appBody }));
-export default app;
-
-const client = await TrellisClient.connect({
-  trellisUrl: "https://trellis.example.com",
-  contract: app,
-});
-
-export const serviceContract = defineServiceContract(
-  serviceRegistry,
-  (ref) => ({
-    ...serviceBody,
-  }),
-);
-export default serviceContract;
-
-const service = await TrellisService.connect({
-  trellisUrl: "https://trellis.example.com",
-  contract: serviceContract,
-  name: "activity",
-  sessionKeySeed,
-  server: {},
-});
-```
+TypeScript runtime helpers consume contract objects directly. The design
+requirement is that connection helpers receive the local participant contract
+and return contract-derived active or provider facades; exact connection option
+shapes and examples belong in `/guides/libraries/typescript` and `/api`.
 
 Rules:
 
@@ -626,9 +399,8 @@ Rules:
 - for TypeScript contract source files, that direct export should be the file's
   default export so prepare/generation can resolve it consistently
 - single-contract examples should normally use a top-level `contract.ts`
-- for contracts that own schemas or local errors, prefer top-level
-  `const schemas = ...`, optional `const errors = ...`, and a
-  `defineServiceContract({ schemas, errors }, (ref) => ({ ... }))` layout
+- for contracts that own schemas or local errors, keep the local registries
+  separate from the emitted contract body so generation can validate references
 - keep the first `define*Contract(...)` argument limited to local authoring
   registries such as `schemas` and service-local `errors`; put emitted contract
   body fields such as `exports` inside the callback return object

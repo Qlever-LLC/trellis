@@ -16,14 +16,31 @@ The `design/` tree records Trellis architecture, protocol semantics, durable
 invariants, lifecycle rules, and public Trellis-owned wire compatibility. It is
 not the primary API reference for TypeScript or Rust packages.
 
-- task-oriented usage docs live in the `guides/` site
-- TypeScript API reference should be generated from JSDoc on public entrypoints
-- Rust API reference should be generated from Rustdoc and linked from the docs
-  site
-- exact language helper signatures should stay in code docs unless they are part
-  of a protocol or wire-compatibility contract
-- design docs may summarize language-facing direction, but should avoid copying
-  full API reference material from code
+Use `design/` for material that must remain true across implementations and over
+time:
+
+- architecture and package-ownership decisions
+- invariants, lifecycle rules, and system rules
+- protocol, wire, and authorization semantics
+- durable data structures, manifest formats, and compatibility rules
+- runtime behavior that language libraries must preserve
+
+Use the docs site for reader-facing and language-specific material:
+
+- tutorials, task walkthroughs, and troubleshooting guides live under `docs/`
+  and are published as `/guides/*`
+- TypeScript language-library usage belongs in `/guides/libraries/typescript`
+- Rust language-library usage belongs in `/guides/libraries/rust`
+- generated TypeScript API reference comes from JSDoc on public entrypoints and
+  is discovered through `/api`
+- generated Rust API reference comes from Rustdoc and is discovered through
+  `/api`
+
+Design docs may name the public helper family that implements a system rule, but
+ordinary examples such as how to connect a client, call an RPC, upload bytes, or
+mount a handler should live in guides and API reference. Keep exact language
+helper signatures in generated docs unless the signature itself is a protocol or
+wire-compatibility requirement.
 
 ## Quick Participant Examples
 
@@ -91,6 +108,9 @@ ergonomics.
 | `/api` in the guides site                            | Generated language API docs | Looking up exact TypeScript signatures, Rustdoc links, pending Rustdoc crates, or generated SDK surfaces |
 
 ## Suggested Read Paths
+
+For ordinary app/service library usage, prefer `/guides/libraries/typescript`,
+`/guides/libraries/rust`, and `/api` instead of the design docs.
 
 ### Implement Trellis operations in TypeScript
 

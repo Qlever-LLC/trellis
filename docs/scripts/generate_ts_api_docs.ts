@@ -1,6 +1,6 @@
 const repoRoot = new URL("../../", import.meta.url);
 const jsRoot = new URL("js/", repoRoot);
-const output = new URL("guides/static/api/typescript", repoRoot);
+const output = new URL("docs/static/api/typescript", repoRoot);
 const outputParent = new URL("./", output);
 const workspaceConfigUrl = new URL("deno.json", jsRoot);
 
@@ -124,7 +124,7 @@ const command = new Deno.Command(Deno.execPath(), {
     "--html",
     "--quiet",
     "--name=Trellis TypeScript API",
-    "--output=../guides/static/api/typescript",
+    "--output=../docs/static/api/typescript",
     ...entrypoints,
   ],
 });

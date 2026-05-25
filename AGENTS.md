@@ -9,7 +9,7 @@
   TypeScript or Rust API reference. Public TS APIs should be documented with
   JSDoc for generated docs, and public Rust APIs should be documented with
   Rustdoc.
-- Use the `guides` site `/api` surface to discover generated TypeScript docs and
+- Use the `docs` site `/api` surface to discover generated TypeScript docs and
   Rustdoc locations, but treat source as authoritative for exact current APIs.
   For TypeScript, verify exact public signatures against public entrypoints and
   their JSDoc. For Rust, verify exact APIs against Rustdoc generated from the
@@ -62,7 +62,7 @@
 - When changes affect contracts, generated SDKs, or runtime surfaces that depend
   on generated artifacts, run `cd js && deno task prepare` and
   `cd rust && cargo xtask prepare` as part of verification.
-- Follow `guides/src/routes/guides/releasing-trellis/+page.svx` for testing and
+- Follow `docs/src/routes/guides/releasing-trellis/+page.svx` for testing and
   release practice. New features must explicitly check whether they need
   integration coverage, and runtime or public API behavior changes should run
   the full integration harness before commit or at the end of the implementation
@@ -71,9 +71,9 @@
   Rust xtask release commands, verify `CHANGELOG.md` against changes since the
   previous release, and run the release verification checklist before the
   release commit.
-- If changes make design/** or guides/** out of date with the implementation,
-  then please propose changes to those documents and ask before applying them.
-  This way we can catch accidental design drift.
+- If changes make design/** or docs/** out of date with the implementation, then
+  please propose changes to those documents and ask before applying them. This
+  way we can catch accidental design drift.
 
 ## Frontend Rules
 

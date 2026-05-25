@@ -1,6 +1,6 @@
 This guide walks through the intended Trellis device flow for a TypeScript device. The device has its own durable identity, may be activated through the built-in Trellis portal (`trellis.portal.activation@v1`) or a custom device portal, and can support both online approval and offline confirmation-code entry.
 
-Before starting, review [Trellis Concepts](/guides/concepts) and [Tutorial: Write a service](/guides/tutorial-writing-ts-services) for background on contracts, auth, and packages.
+Before starting, review [Trellis Concepts](/guides/concepts) and [Tutorial: Write a service](/guides/write-a-service) for background on contracts, auth, and packages.
 
 ## What you need
 

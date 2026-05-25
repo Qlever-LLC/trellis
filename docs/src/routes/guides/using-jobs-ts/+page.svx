@@ -1,6 +1,6 @@
-This guide adds background job processing to the TypeScript `orders-service` from [Tutorial: Write a service](/guides/tutorial-writing-ts-services). By the end the service will enqueue fulfillment jobs when an order is created and process them with retry, progress tracking, and event emission on completion.
+This guide adds background job processing to the TypeScript `orders-service` from [Tutorial: Write a service](/guides/write-a-service). By the end the service will enqueue fulfillment jobs when an order is created and process them with retry, progress tracking, and event emission on completion.
 
-Before starting, complete the TypeScript path in [Tutorial: Write a service](/guides/tutorial-writing-ts-services).
+Before starting, complete the TypeScript path in [Tutorial: Write a service](/guides/write-a-service).
 
 ## What are jobs?
 

@@ -75,7 +75,7 @@ const designGroups: DesignGroup[] = [
     title: "Contracts Design",
     section: "Design: Contracts",
     description:
-      "Canonical contract model plus TypeScript and Rust contract/runtime surfaces.",
+      "Canonical contract model, SDK derivation rules, and contract-runtime invariants.",
     href: "/design/contracts",
   },
   {
@@ -83,7 +83,7 @@ const designGroups: DesignGroup[] = [
     title: "Operations Design",
     section: "Design: Operations",
     description:
-      "Caller-visible async workflows and their TypeScript and Rust API surfaces.",
+      "Caller-visible async workflow semantics, durability, authorization, and runtime invariants.",
     href: "/design/operations",
   },
   {
@@ -91,7 +91,7 @@ const designGroups: DesignGroup[] = [
     title: "Jobs Design",
     section: "Design: Jobs",
     description:
-      "Service-private background execution and the TypeScript and Rust jobs APIs.",
+      "Service-private background execution, worker lifecycle, and job state rules.",
     href: "/design/jobs",
   },
   {
@@ -379,7 +379,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Tutorial: Write a service",
     description:
       "Build the same orders-service tutorial in TypeScript or Rust.",
-    href: "/guides/tutorial-writing-ts-services",
+    href: "/guides/write-a-service",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "Overview",
@@ -388,7 +388,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Set up the project",
     description:
       "Create the standalone orders-service project and install Trellis dependencies.",
-    href: "/guides/tutorial-writing-ts-services/setup",
+    href: "/guides/write-a-service/setup",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "1. Setup",
@@ -397,7 +397,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Your first contract",
     description:
       "Define the smallest valid Trellis service contract for the selected language.",
-    href: "/guides/tutorial-writing-ts-services/first-contract",
+    href: "/guides/write-a-service/first-contract",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "2. Contract",
@@ -406,7 +406,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "The service entry point",
     description:
       "Connect the service runtime, provision an instance, and run the service locally.",
-    href: "/guides/tutorial-writing-ts-services/service-entrypoint",
+    href: "/guides/write-a-service/service-entrypoint",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "3. Entry point",
@@ -415,7 +415,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Adding a database",
     description:
       "Declare a service-owned KV bucket and open a typed KV client from the runtime binding.",
-    href: "/guides/tutorial-writing-ts-services/kv-store",
+    href: "/guides/write-a-service/kv-store",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "4. KV store",
@@ -424,7 +424,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Writing our first RPC",
     description:
       "Add the Orders.Create schemas, contract declaration, capability gate, and handler.",
-    href: "/guides/tutorial-writing-ts-services/first-rpc",
+    href: "/guides/write-a-service/first-rpc",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "5. First RPC",
@@ -433,7 +433,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Retrieving an order with service errors",
     description:
       "Add Orders.Get schemas, a domain error, the contract declaration, and a typed read handler.",
-    href: "/guides/tutorial-writing-ts-services/retrieve-order",
+    href: "/guides/write-a-service/retrieve-order",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "6. Retrieve order",
@@ -442,7 +442,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Listening to the outside world",
     description:
       "Declare an auth event dependency and subscribe to Auth.Connections.Opened.",
-    href: "/guides/tutorial-writing-ts-services/listen-events",
+    href: "/guides/write-a-service/listen-events",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "7. Listen for Events",
@@ -451,7 +451,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Publishing your own events",
     description:
       "Declare and publish an Orders.Shipped event for downstream services.",
-    href: "/guides/tutorial-writing-ts-services/publish-events",
+    href: "/guides/write-a-service/publish-events",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "8. Publish Events",
@@ -460,7 +460,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Use a feed for filtered live views",
     description:
       "Expose caller-filtered live views instead of forwarding broad service events to browsers.",
-    href: "/guides/tutorial-writing-ts-services/feeds",
+    href: "/guides/write-a-service/feeds",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "9. Feeds",
@@ -469,7 +469,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Handle graceful shutdown",
     description:
       "Stop the service cleanly on SIGTERM so local restarts and deployments drain work safely.",
-    href: "/guides/tutorial-writing-ts-services/shutdown",
+    href: "/guides/write-a-service/shutdown",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "10. Shutdown",
@@ -478,7 +478,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Prepare SDKs and contract artifacts",
     description:
       "Generate publishable client packages and service contract artifacts from the contract.",
-    href: "/guides/tutorial-writing-ts-services/contract-artifacts",
+    href: "/guides/write-a-service/contract-artifacts",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "11. SDKs and Artifacts",
@@ -487,7 +487,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Declare optional dependencies",
     description:
       "Use optional uses for additive integrations that should not block service activation.",
-    href: "/guides/tutorial-writing-ts-services/optional-dependencies",
+    href: "/guides/write-a-service/optional-dependencies",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "12. Optional uses",
@@ -496,7 +496,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
     title: "Development loop",
     description:
       "Know when to regenerate artifacts, update the deployment envelope, and restart the service.",
-    href: "/guides/tutorial-writing-ts-services/development-loop",
+    href: "/guides/write-a-service/development-loop",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
     sidebarLabel: "13. Dev loop",
@@ -505,9 +505,16 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
 
 const conceptDocs: DocEntry[] = [
   {
+    title: "What is Trellis?",
+    description:
+      "A minimally technical overview of why Trellis exists, how it compares with REST and pub/sub, and what it gives teams building connected data systems.",
+    href: "/guides/overview",
+    section: "Introduction",
+  },
+  {
     title: "Trellis Concepts",
     description:
-      "The core ideas behind Trellis, including platform boundaries, contract-driven authority, transport surfaces, resources, and generated APIs.",
+      "Deeper concepts behind Trellis, including platform boundaries, contract-driven authority, transport surfaces, resources, and generated APIs.",
     href: "/guides/concepts",
     section: "Introduction",
   },
@@ -585,6 +592,27 @@ const conceptDocs: DocEntry[] = [
 
 export const guideDocs: DocEntry[] = [
   ...conceptDocs,
+  {
+    title: "Libraries",
+    description:
+      "How Trellis programs use runtime libraries, generated SDKs, and API reference docs.",
+    href: "/guides/libraries",
+    section: "Libraries",
+  },
+  {
+    title: "TypeScript libraries",
+    description:
+      "Use Trellis from TypeScript apps, services, devices, portals, and CLIs with generated SDKs and surface-first APIs.",
+    href: "/guides/libraries/typescript",
+    section: "Libraries",
+  },
+  {
+    title: "Rust libraries",
+    description:
+      "Use Trellis from Rust services, CLIs, devices, and generated Cargo participant facades.",
+    href: "/guides/libraries/rust",
+    section: "Libraries",
+  },
   {
     title: "Install the Trellis CLI",
     description:

@@ -17,7 +17,15 @@ order: 20
 ## Scope
 
 This document defines the responsibilities of the core Trellis platform
-libraries.
+libraries: which package owns which platform surface, which surfaces are public
+or service-only, and which low-level details must stay behind runtime facades.
+
+It is not a language-library usage guide. Ordinary app and service examples,
+connection walkthroughs, and exact public signatures belong in:
+
+- `/guides/libraries/typescript`
+- `/guides/libraries/rust`
+- `/api` for generated TypeScript API reference and Rustdoc links
 
 ## Core Libraries
 
@@ -72,84 +80,24 @@ not eagerly load generated SDKs, exports the normal kind-specific contract
 builders plus health helpers, and keeps host-specific service helpers on
 `@qlever-llc/trellis/service*` subpaths.
 
-### Browser Client
-
-Browser auth uses a session key stored in IndexedDB plus a bind flow. For
-SvelteKit apps, prefer higher-level helpers such as `@qlever-llc/trellis-svelte`
-when available.
-
-### Deno / Node Client
-
-```ts
-import { defineAgentContract, TrellisClient } from "@qlever-llc/trellis";
-import { graph } from "@acme/graph-contract";
-
-export const agent = defineAgentContract(() => ({
-  id: "acme.graph-agent@v1",
-  displayName: "Graph Agent",
-  description:
-    "Query the graph service and inspect auth state as delegated tooling.",
-  uses: {
-    required: {
-      graph: graph.use({ rpc: { call: ["Graph.Query"] } }),
-    },
-  },
-}));
-
-export default agent;
-
-const client = await TrellisClient.connect({
-  trellisUrl: "https://trellis.example.com",
-  contract: agent,
-  name: "graph-agent",
-});
-```
-
-Use `TrellisClient.connect(...)` for the normal runtime bootstrap path.
-
-### Server
-
-```ts
-import { Result } from "@qlever-llc/trellis";
-import { TrellisService } from "@qlever-llc/trellis/service/deno";
-import { graph } from "@acme/graph-contract";
-
-const service = await TrellisService.connect({
-  trellisUrl: "https://trellis.example.com",
-  contract: graph,
-  name: "graph",
-  sessionKeySeed: config.sessionKeySeed,
-  server: {
-    log,
-  },
-});
-
-await service.handle.rpc.user.find(async ({ input }) => {
-  const user = await db.findUser(input.userId);
-  if (!user) return Result.err(new NotFoundError("User"));
-  return Result.ok({ user });
-});
-
-await service.handle.rpc.graph.health(() => {
-  return Result.ok({ status: "healthy" as const });
-});
-```
-
 Rules:
 
-- RPCs are timeout-bounded
+- browser auth uses a session key stored in IndexedDB plus a bind flow;
+  SvelteKit apps may layer on `@qlever-llc/trellis-svelte`
+- app, agent, device, service, and CLI code should communicate through
+  contract-derived RPC, operation, event, feed, state, and transfer facades
+  rather than raw NATS subjects
+- RPCs are timeout-bounded and expected remote failures use explicit `Result`
+  conventions rather than exception-driven control flow
 - operations and events are contract-driven rather than raw-subject-driven in
   normal app code
 - admin jobs access should use `Jobs.*` RPCs declared through the jobs SDK
-  through generated `client.rpc.jobs.*` facades rather than a client-side jobs
-  helper
-- service handlers mounted from contract-owned RPCs receive typed payloads from
-  Trellis and may return either `Result` or `Promise<Result>`
-- transfer execution belongs to transfer-capable operations and is initiated by
-  the higher-level `operation.<group>.<leaf>.input(...).transfer(...).start()`
-  helper
-- both sides use explicit `Result` conventions rather than exception-driven
-  remote error handling
+  rather than a client-side jobs helper
+- transfer execution belongs to transfer-capable operations; receive grants are
+  consumed through runtime transfer helpers rather than raw store bindings
+
+Language-specific app and service walkthroughs belong in
+`/guides/libraries/typescript`, `/guides/libraries/rust`, and `/api`.
 
 ### Server-Owned Runtime Helpers
 
@@ -175,10 +123,7 @@ Rules:
 ## `@qlever-llc/trellis/sdk/*`
 
 Provides the first-party generated SDKs for Trellis-owned contracts such as
-auth, core, activity, jobs, health, and state. Import the specific subpath for
-the Trellis-owned contract you need, for example
-`import { sdk as auth } from "@qlever-llc/trellis/sdk/auth"` and
-`import { sdk as core } from "@qlever-llc/trellis/sdk/core"`.
+auth, core, activity, jobs, health, and state.
 
 Generated SDK package exports are root-only. The root module re-exports the
 contract module as `sdk`, the standalone `use(...)` helper, typed DTOs, schemas,
@@ -195,59 +140,35 @@ Provides the app-level browser adapter for Svelte applications.
 
 Rules:
 
-- browser apps should define one small app-local Trellis module and re-export
-  typed helpers for the rest of the app
-- app-local Trellis modules should use
-  `createTrellisApp({ contract, trellisUrl })` and let
-  `@qlever-llc/trellis-svelte` derive the connected client type from the app
-  contract
-- `TrellisProvider` is the primary browser integration surface; app code should
-  pass an app-owned `trellisApp` created with
-  `createTrellisApp({ contract, trellisUrl })`
-- `TrellisProvider` delegates runtime bootstrap and reconnect to
-  `TrellisClient.connect(...)`; auth behavior is configured through provider
-  auth options or `onAuthRequired`
+- browser apps should centralize Trellis setup in one app-local module and
+  expose app-scoped typed helpers to components
+- the adapter derives the connected client type from the app contract and
+  delegates runtime bootstrap/reconnect to the core browser client
 - `trellis-svelte` should keep the typed Trellis client and reactive connection
   adapter scoped to app-owned context rather than exposing a synthetic runtime
   bag
-- the public Svelte surface is app-scoped: apps should re-export local
-  `getTrellis()` and `getConnection()` helpers from their app-local Trellis
-  module
 - `@qlever-llc/trellis-svelte` MUST NOT expose raw NATS clients, NATS connection
   state, or other transport-owned handles as public API
-- normal pages and components should not recreate auth state; they should read
-  the live Trellis client and connection context through app-scoped helpers
-- `getTrellis()` and `getConnection()` are Svelte context getters; components
-  must call them during component initialization and reuse the returned client
-  or connection adapter from event handlers, effects, and async helpers
+- normal pages and components should not recreate auth state; they should
+  consume the live app-scoped Trellis context
 - app-facing auth helpers should not require raw URL plumbing or placeholder
-  positional arguments from app code; they should expose an options-shaped API
+  positional arguments from app code; they should expose options-shaped APIs
   with sensible redirect defaults
 - app-facing auth helpers should accept opaque portal context so apps and custom
   portals can coordinate runtime UX without hard-coding portal-specific
   parameters
-- custom portal apps should have a small Svelte-friendly `createPortalFlow(...)`
-  wrapper layered over the browser auth/portal helpers from
-  `@qlever-llc/trellis/auth` or the narrower `@qlever-llc/trellis/auth/browser`
-  facade
-- `onAuthRequired` remains available for apps that need custom routing or side
-  effects when the client requires auth
 - browser clients should route revoked, missing, or stale-for-admin sessions
   (`session_not_found` or `reauth_required`) through the same auth-required path
   so Svelte apps can redirect to their login route and preserve the current
   return URL
-- app-local helper modules should usually export the contract, the fixed
-  `trellisUrl` when callers need it outside provider setup, and local
-  `getTrellis()` / `getConnection()` wrappers around an app-owned `trellisApp`
-- `getTrellis()` should return the generated client facade directly so page code
-  sees explicit RPC, operation, event, and state members instead of deep runtime
-  generic aliases
 - dynamic auth-instance selection remains a valid advanced case, but the default
   public browser-app API should optimize for the fixed-instance path rather than
   forcing every app through explicit auth-state construction
 - browser-app integrations should not require a `serviceName` prop; if a client
   label is needed for telemetry, it should derive from contract metadata or
   internal defaults
+- exact Svelte helper names, provider props, and page/component examples belong
+  in frontend/library guides and `/api`
 
 ## `@qlever-llc/trellis/auth`
 

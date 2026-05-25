@@ -43,7 +43,10 @@ This document defines the public Trellis files pattern:
 - how services back the public files surface with service-owned `store`
 - how callers and providers receive per-chunk transfer progress
 
-It does not define a global admin UI or cross-service shared raw store access.
+It does not define a global admin UI, cross-service shared raw store access, or
+ordinary language-library walkthroughs. TypeScript and Rust usage examples
+belong in `/guides/libraries/typescript`, `/guides/libraries/rust`, and the
+generated API references linked from `/api`.
 
 ## Design
 
@@ -81,8 +84,7 @@ Rules:
 - they return JSON payloads and `Result`-modeled failures
 - `list` is prefix plus standard page request oriented in v1 rather than an
   arbitrary metadata query language: callers send
-  `{ offset?: number; limit:
-  number }` plus file-domain filters such as
+  `{ offset?: number; limit: number }` plus file-domain filters such as
   `prefix`, and services return `{ entries, count, offset, limit, nextOffset? }`
 - file listing is live offset pagination, not snapshot or cursor pagination;
   concurrent file writes or deletes can change what appears at later offsets
@@ -95,14 +97,11 @@ model:
 1. a contract-owned operation accepts JSON input and declares
    `direction: "send"` transfer support
 2. the caller configures the operation input and sends bytes through the
-   higher-level `operation.<group>.<leaf>.input(input).transfer(body).start()`
-   helper
+   generated transfer-capable operation helper for that language
 3. callers do not start the same send-transfer operation first and attach bytes
    later
-4. the provider awaits the runtime's durable transfer completion signal, such as
-   TypeScript `transfer.completed()` or Rust
-   `UploadTransferCompletion::completed()`, and continues with service-owned
-   processing
+4. the provider awaits the runtime's durable transfer completion signal and
+   continues with service-owned processing
 
 Example:
 
@@ -118,9 +117,11 @@ Rules:
   JSON/base64 RPC payloads
 - the transfer protocol is Trellis-owned runtime machinery, not a
   service-specific public protocol surface
-- callers observe transport progress through `watch()` transfer events or the
-  higher-level fluent transfer builder callbacks, plus durable snapshot state
-- providers observe the same transport progress through `transfer.updates()`
+- callers observe transport progress through operation watch transfer events,
+  language-library transfer callbacks where available, and durable snapshot
+  state
+- providers observe the same transport progress through provider-side transfer
+  update streams
 
 #### Receive transfer RPCs
 
@@ -136,8 +137,8 @@ Rules:
 - the RPC declares `transfer: { direction: "receive" }`
 - the RPC response contains a Trellis transfer grant, not raw store binding
   details
-- callers consume the grant with `client.transfer(grant).stream()` for large
-  bodies or `client.transfer(grant).bytes()` when buffering is appropriate
+- callers consume the grant through the language runtime's receive-transfer
+  helper for large streams or buffered reads
 - service code decides whether and how the requested object maps to a
   service-owned store entry
 - product-facing docs may still use words such as upload and download, but the
@@ -206,74 +207,27 @@ The response schema carries file metadata and the transfer grant. The service
 still owns the raw store binding and any lookup, authorization, retention, or
 audit policy behind the RPC.
 
-### Runtime Helpers
-
-#### TypeScript
-
-Public runtime code uses:
-
-```ts
-const upload = await docs.operation("Documents.Files.Upload")
-  .input({
-    key: "incoming/report.pdf",
-    contentType: "application/pdf",
-  })
-  .transfer(fileBytes)
-  .onTransfer((event) => {
-    console.log(event.transfer.transferredBytes);
-  })
-  .onProgress((event) => {
-    console.log(event.progress.stage);
-  })
-  .start()
-  .orThrow();
-
-const completed = await upload.wait().orThrow();
-
-const download = await docs.request("Documents.Files.Download", {
-  key: "exports/report.pdf",
-}).orThrow();
-const stream = await client.transfer(download.transfer).stream().orThrow();
-```
+### Runtime Helper Boundaries
 
 Rules:
 
-- `@qlever-llc/trellis` exposes send transfer through
-  `operation.<group>.<leaf>.input(...).transfer(...).start()`, not through
-  `OperationRef.transfer(...)`
-- `client.transfer(grant)` consumes service-issued transfer grants; receive
-  grants expose `.stream()` and `.bytes()`, and send grants expose `.send(body)`
-  where relevant
-- the transfer builder accepts the same body forms as the old runtime helper:
-  `Uint8Array`, `ArrayBuffer`, `ReadableStream<Uint8Array>`, and
-  `AsyncIterable<Uint8Array>`
-- metadata actions such as list/head/delete remain ordinary typed request calls
-  on the contract client
-
-#### Rust
-
-Rust should mirror the same operation-native semantics:
-
-```rust
-let upload = documents.documents_files_upload().input(request).transfer(bytes).start().await?;
-let completed = upload.wait().await?;
-let terminal = completed.terminal;
-```
-
-Rules:
-
-- Rust send-transfer execution should hang off typed operation refs; receive
-  grants are downloaded through the root `TrellisClient::download_transfer(...)`
-  helper after parsing the generated receive-transfer grant
-- Rust should preserve the same chunk-progress semantics and Result-based
-  failure model as TypeScript
-- Rust service providers that expose send-transfer operations should await the
-  provider-side upload completion primitive, such as
-  `UploadTransferCompletion::completed()`, before treating bytes as durably
-  available. The completion result is the Rust equivalent of TypeScript provider
-  `transfer.completed()` and resolves only after the transfer endpoint has
-  accepted EOF and written the object to the configured service-owned store, or
-  with a transfer error if durable storage was not reached.
+- language runtimes expose send transfer through generated transfer-capable
+  operation helpers, not through a follow-up method on an already-started
+  operation reference
+- service-issued receive grants are consumed through root transfer helpers that
+  expose streaming and buffered reads where the language supports them
+- supported body forms, exact method names, callback shapes, and error wrapper
+  types are language-library API details documented in
+  `/guides/libraries/typescript`, `/guides/libraries/rust`, and `/api`
+- metadata actions such as list, head, and delete remain ordinary typed RPC
+  calls on the contract client
+- all languages preserve the same chunk-progress semantics and Result-style
+  expected failure model
+- providers that expose send-transfer operations MUST await the provider-side
+  durable transfer completion primitive before treating bytes as durably
+  available; completion resolves only after the transfer endpoint has accepted
+  EOF and written the object to the configured service-owned store, or fails
+  with a transfer error if durable storage was not reached
 
 ### Wire Behavior
 
@@ -284,7 +238,7 @@ Rules:
 - send transfer sends ordered chunk requests on a runtime-owned transfer subject
   and receives per-chunk acknowledgements
 - receive transfer streams ordered chunks from a service-owned transfer endpoint
-  to the caller; Rust callers use `download_transfer(...)` with the returned
+  to the caller; callers use language-runtime transfer helpers with the returned
   receive-transfer grant rather than resolving raw store bindings
 - the runtime emits one transfer update per acknowledged chunk on both caller
   and provider sides
@@ -305,9 +259,8 @@ Rules:
 - `Files` does not imply shared raw store access across services
 - receive grants expose bytes from a service-owned endpoint; they do not expose
   or delegate raw store bindings
-- once transfer completes, service code works with the staged object through
-  normal store APIs such as `get(...)`, `stream()`, `bytes()`, `waitFor(...)`,
-  and `delete(...)`
+- once transfer completes, service code works with the staged object through the
+  owning service's normal store API; exact helper names belong in `/api`
 - Trellis should make staged transferred objects easy for the owning service to
   access, but it does not impose post-transfer processing policy on the service
   author
@@ -318,12 +271,11 @@ For caller-visible file-processing workflows, the recommended pattern is:
 
 1. a contract-owned operation declares transfer support
 2. the caller starts the operation and begins watching it, either directly or
-   through the fluent transfer builder
-3. the caller sends bytes with `input(input).transfer(body).start()`
-4. the provider awaits the runtime's durable transfer completion signal, such as
-   TypeScript `transfer.completed()` or Rust
-   `UploadTransferCompletion::completed()`, and updates business progress or
-   enqueues follow-up work
+   through language-runtime transfer helper callbacks where available
+3. the caller sends bytes through the generated transfer-capable operation
+   helper
+4. the provider awaits the runtime's durable transfer completion signal and
+   updates business progress or enqueues follow-up work
 5. the operation completes when the service-owned workflow completes
 
 Rules:
@@ -332,8 +284,8 @@ Rules:
 - a durable transfer completion signal means all chunks were accepted, EOF was
   received, and the configured service-owned store write completed; service code
   can then read the object through normal store APIs
-- use runtime-owned transfer events or fluent transfer builder callbacks for
-  progress bars and service-authored `progress(...)` calls for domain milestones
+- use runtime-owned transfer events or language-runtime transfer callbacks for
+  progress bars and service-authored progress calls for domain milestones
 - use operations for caller-visible progress and final results
 - use jobs for service-private execution, retries, and background processing
   after the bytes are stored

@@ -585,7 +585,7 @@ const trellis = await TrellisDevice.connect({
   rootSecret,
 }).orThrow();
 
-const me = await trellis.request("Auth.Sessions.Me", {});
+const me = await trellis.rpc.auth.sessionsMe({});
 if (isErr(me)) throw me.error;
 ```
 

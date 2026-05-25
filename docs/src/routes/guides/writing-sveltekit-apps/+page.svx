@@ -271,7 +271,7 @@ Call RPCs directly from a page at `src/routes/(app)/dashboard/+page.svelte`:
   let displayName = $state("loading");
 
   async function loadMe() {
-    const me = await trellis.request("Auth.Sessions.Me", {}).orThrow();
+    const me = await trellis.rpc.auth.sessionsMe({}).orThrow();
     displayName = me.user?.name ?? me.user?.email ?? me.user?.id ?? "signed in";
   }
 
@@ -336,7 +336,7 @@ is currently online", declare the advisory core status RPC in optional `uses` an
 check it before showing an empty or retrying live panel:
 
 ```ts
-const status = await trellis.request("Trellis.Surface.Status", {
+const status = await trellis.rpc.trellis.surfaceStatus({
   contractId: "devices-service@v1",
   kind: "feed",
   surface: "Device.Events",

@@ -21,10 +21,16 @@
   const guideGroups = guideSidebarBySection();
   const designGroups = designDocsBySection();
   const navItems = [
-    { href: "/guides/concepts", label: "Trellis Concepts", description: "Product docs home" },
-    { href: "/guides", label: "Getting Started", description: "Task workflows" },
+    { href: "/guides/overview", label: "Overview", description: "What Trellis offers" },
+    { href: "/guides/libraries", label: "Libraries", description: "TypeScript and Rust" },
+    { href: "/guides/concepts", label: "Concepts", description: "Deeper system model" },
+    { href: "/guides", label: "Guides", description: "Task workflows" },
     { href: "/design", label: "Trellis Design Docs", description: "Architecture records" },
     { href: "/api", label: "API Reference", description: "Generated symbols" },
+  ];
+  const librarySections = [
+    { href: "/guides/libraries/typescript", label: "TypeScript libraries" },
+    { href: "/guides/libraries/rust", label: "Rust libraries" },
   ];
   const conceptSections = [
     {
@@ -193,7 +199,8 @@
 
   function isNavItemActive(href: string) {
     if (href === "/guides") {
-      return isActive(href) && !isActive("/guides/concepts");
+      return isActive(href) && !isActive("/guides/concepts") &&
+        !isActive("/guides/overview") && !isActive("/guides/libraries");
     }
 
     return isActive(href);
@@ -304,7 +311,7 @@
     <aside class="trellis-sidebar flex min-h-full w-72 flex-col">
       <div class="flex h-[76px] items-center gap-3 px-6">
         <a href={resolveDocHref("/")} aria-label="Trellis documentation home">
-          <TrellisLogo subtitle="Guides" markClass="trellis-logo-orange" titleClass="text-white" subtitleClass="text-slate-400" />
+          <TrellisLogo subtitle="Docs" markClass="trellis-logo-orange" titleClass="text-white" subtitleClass="text-slate-400" />
         </a>
         <button type="button" class="btn btn-square btn-ghost btn-sm ml-auto lg:hidden" aria-label="Close navigation" onclick={closeDrawer}>
           <svg aria-hidden="true" class="size-4" viewBox="0 0 20 20" fill="none">
@@ -357,6 +364,24 @@
                         {/each}
                       </div>
                     {/if}
+                  {/each}
+                </div>
+              {/if}
+
+              {#if item.href === "/guides/libraries" && isNavItemActive(item.href)}
+                <div class="trellis-sidebar-nested" aria-label="Libraries navigation">
+                  {#each librarySections as section (section.href)}
+                    <a
+                      class={[
+                        "trellis-sidebar-nested-link",
+                        pathname === section.href && "active",
+                      ]}
+                      href={resolveDocHref(section.href)}
+                      aria-current={pathname === section.href ? "page" : undefined}
+                      onclick={closeDrawer}
+                    >
+                      {section.label}
+                    </a>
                   {/each}
                 </div>
               {/if}

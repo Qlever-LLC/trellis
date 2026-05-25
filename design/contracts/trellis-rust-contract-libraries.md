@@ -64,6 +64,12 @@ Rust should not mimic the flat string-keyed TypeScript `trellis` object exactly.
 The idiomatic Rust surface should instead prefer generated modules, types, and
 alias-based facades.
 
+This document records Rust contract-library architecture: crate ownership,
+generated SDK and participant-facade responsibilities, descriptor semantics, and
+manifest-generation rules. It is not the Rust usage guide or Rustdoc. Ordinary
+application/service examples and exact public item inventories belong in
+`/guides/libraries/rust` and `/api`.
+
 ## Design
 
 Trellis adopts a contract-driven Rust library model.
@@ -105,8 +111,9 @@ Rules:
 - Rust authoring helpers may accept local capability names and must emit the
   same global capability keys as TypeScript helpers for declared contract-owned
   capabilities
-- Rust operation capability metadata supports the same `call`, `observe`, `cancel`,
-  and `control` gates as canonical manifests and generated TypeScript API views.
+- Rust operation capability metadata supports the same `call`, `observe`,
+  `cancel`, and `control` gates as canonical manifests and generated TypeScript
+  API views.
 
 ### 2) Primary Rust usage model
 
@@ -174,7 +181,8 @@ Rules:
   `publish = false`, not public authoring packages
 - generated participant facades are the supported ergonomic entrypoint for
   normal Rust participant code
-- Rustdoc owns the exact public item inventory for each crate
+- Rustdoc, linked from `/api`, owns the exact public item inventory for each
+  crate
 
 ### 4) Generated SDK crate shape
 
@@ -193,8 +201,8 @@ Generated SDK crates must expose:
 - thin outbound client helper modules for the owned surface
 - thin inbound server helper modules for the owned surface
 
-Exact module names, re-exports, helper functions, structs, traits, and method
-inventories belong in Rustdoc.
+Exact module names, re-exports, helper functions, structs, traits, method
+inventories, and usage examples belong in `/api` and the Rust library guide.
 
 ### 5) Shared metadata and participant facade shape
 
@@ -221,7 +229,8 @@ Rules:
 - if a dependency mapping points an alias to the wrong SDK crate, generation
   fails
 - if the mapped SDK crate does not own the referenced API, generation fails
-- exact facade structs, accessors, and module layouts belong in Rustdoc
+- exact facade structs, accessors, module layouts, and calling examples belong
+  in `/api` and the Rust library guide
 
 ### 6) Alias-based access and runtime behavior
 
@@ -285,7 +294,8 @@ Rules:
   declares and receives that Trellis-owned surface
 - transfer execution should hang off transfer-capable operation refs rather than
   a standalone grant-transfer helper
-- exact helper names and option types belong in Rustdoc
+- exact helper names, option types, and ordinary connection examples belong in
+  `/api` and the Rust library guide
 
 ### 8) Manifest and generation rules
 
@@ -306,7 +316,7 @@ Rules:
 This document constrains the architecture behind the Rust contract API. Exact
 Rust public signatures, generated crate member inventories, participant facade
 examples, helper names, option types, and runtime helper surfaces belong in
-Rustdoc.
+Rustdoc linked from `/api`; narrative usage belongs in `/guides/libraries/rust`.
 
 - the public Rust contract/runtime surface is presented through `trellis` and
   `trellis-contracts`; generated service/app-owned SDK crates and generated
@@ -364,7 +374,8 @@ Rules:
 - the new participant-facade model must be capable before older convenience
   surfaces are removed
 - manifest and CLI workflows remain unchanged while library ergonomics evolve
-- docs should prefer participant-facade usage once the model exists
+- docs should prefer participant-facade usage once the model exists; keep that
+  usage guidance in `/guides/libraries/rust` and exact APIs in `/api`
 
 ## References
 

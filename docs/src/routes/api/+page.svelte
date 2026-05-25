@@ -33,10 +33,37 @@
     <p class="docs-section-label">API Reference</p>
     <h1 class="text-3xl font-semibold sm:text-4xl">Trellis API Reference</h1>
     <p class="docs-metadata max-w-3xl">
-      Use guides for task-oriented walkthroughs, design docs for architecture and
-      protocol decisions, and generated API reference when you need exact
+      Start with library docs for practical TypeScript and Rust usage, tutorials
+      for task-oriented walkthroughs, and design docs for architecture and
+      protocol decisions. Use generated API reference when you need exact
       language-level symbols.
     </p>
+  </section>
+
+  <section class="space-y-3">
+    <h2 class="docs-section-label">Narrative Library Docs</h2>
+    <div class="docs-panel overflow-hidden">
+      <ul class="divide-y divide-base-300 sm:grid sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+        <li class="border-b border-base-300 sm:border-b-0">
+          <a class="docs-list-link h-full px-4 py-4 sm:px-5" href={resolveDocHref("/guides/libraries/typescript")}> 
+            <h3 class="docs-list-link-title">TypeScript libraries</h3>
+            <p class="docs-list-link-description mt-1">
+              How to use Trellis from TypeScript apps, services, devices,
+              portals, and CLIs.
+            </p>
+          </a>
+        </li>
+        <li class="border-b border-base-300 sm:border-b-0">
+          <a class="docs-list-link h-full px-4 py-4 sm:px-5" href={resolveDocHref("/guides/libraries/rust")}> 
+            <h3 class="docs-list-link-title">Rust libraries</h3>
+            <p class="docs-list-link-description mt-1">
+              How to use Trellis from Rust services, tools, and generated Cargo
+              participant facades.
+            </p>
+          </a>
+        </li>
+      </ul>
+    </div>
   </section>
 
   <section class="space-y-3">

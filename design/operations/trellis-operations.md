@@ -34,6 +34,11 @@ We therefore need a distinct concept for async work that belongs in the public
 service contract. Operations are part of the Trellis API model, alongside RPCs,
 events, and owned subject spaces.
 
+This document defines operation architecture, durable state semantics,
+authorization, and the internal wire/control protocol. Ordinary TypeScript and
+Rust usage examples belong in `/guides/libraries/typescript`,
+`/guides/libraries/rust`, and the generated references linked from `/api`.
+
 ## Design
 
 ### 1) Jobs and operations are different things
@@ -553,81 +558,24 @@ Rules:
 
 ### 11) Realistic example
 
-Caller-visible API:
-
-```ts
-const refund = await billing.operation("Billing.Refund")
-  .input({
-    chargeId: "ch_123",
-    amount: 5000,
-  })
-  .start()
-  .orThrow();
-
-for await (const event of await refund.watch().orThrow()) {
-  if (event.type === "progress") {
-    console.log(event.progress);
-  }
-}
-
-const done = await refund.wait().orThrow();
-```
-
-Owning service:
-
-```ts
-await billing.operation("Billing.Refund").handle(async ({ input, op }) => {
-  const job = await service.jobs.submitRefund.create({
-    operationId: op.id,
-    chargeId: input.chargeId,
-    amount: input.amount,
-  });
-
-  return await op.attach(job);
-});
-
-await service.jobs.submitRefund.handle(async ({ job }) => {
-  const { operationId, chargeId, amount } = job.payload;
-  const op = await service.handle.operation.billing.refund
-    .control(operationId)
-    .orThrow();
-
-  await op.started().orThrow();
-  await op.progress({
-    step: "processor",
-    message: "Submitting refund to payment processor",
-  }).orThrow();
-
-  const payment = await payments.operation.payments.refund.start({
-    chargeId,
-    amount,
-  });
-
-  const paymentDone = await payment.wait();
-  if (paymentDone.isErr()) {
-    return Result.err(paymentDone.error);
-  }
-
-  void notifications.operation("Notifications.Email.Send")
-    .input({
-      template: "refund-receipt",
-      refundId: paymentDone.value.output.refundId,
-    })
-    .start();
-
-  await op.complete({
-    refundId: paymentDone.value.output.refundId,
-    status: "refunded",
-  }).orThrow();
-
-  return Result.ok({ completed: true });
-});
-```
-
-In this example:
+Scenario:
 
 - `Billing.Refund` is the public operation
 - `submitRefund` is an internal billing job
 - `Payments.Refund` is a remote operation exposed by the `payments` service
 - `Notifications.Email.Send` is another remote operation that is not part of
   refund completion semantics
+
+The caller starts `Billing.Refund`, receives an operation reference, watches
+progress, and waits for a terminal snapshot. The billing service may accept the
+operation, persist its operation id, enqueue `submitRefund`, and return a
+deferred sentinel. The job later resumes service-side operation control by id,
+marks the operation started, publishes domain progress, invokes
+`Payments.Refund`, optionally triggers a notification, and completes or fails
+the original billing operation.
+
+The important design invariant is that callers depend only on the public
+`Billing.Refund` operation contract. They do not see the billing job id, the job
+queue topology, or whether notification sending is implemented as an operation,
+RPC, event, or local side effect. Language-specific code for this scenario
+belongs in `/guides/libraries/typescript`, `/guides/libraries/rust`, and `/api`.

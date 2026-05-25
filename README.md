@@ -10,7 +10,7 @@ scopes, and runtime wiring from those contract sources.
 ```
 conformance/    Shared JS/Rust test vectors (canonical JSON, auth proofs)
 demos/          Shared demo app plus TypeScript and Rust service/device examples
-guides/         Trellis documentation site (SvelteKit static site, published to GitHub Pages)
+docs/           Trellis documentation site (SvelteKit static site, published to GitHub Pages)
 js/             TypeScript packages, services, and apps (Deno workspace)
 rust/           Rust crates (public facades plus internal CLI, codegen, and runtime support)
 generated/      Derived manifests and SDKs when generated locally (usually absent from a clean checkout)
@@ -18,9 +18,9 @@ deploy/         Deployment assets, including quadlets and NATS templates
 design/         Trellis design docs
 ```
 
-See `/guides/tutorial-writing-ts-services/contract-artifacts` for regeneration
-details. See `/guides/releasing-trellis` for repository testing, versioning, and
-release checklists.
+See `/guides/write-a-service/contract-artifacts` for regeneration details. See
+`/guides/releasing-trellis` for repository testing, versioning, and release
+checklists.
 
 ## Key concepts
 
@@ -41,7 +41,7 @@ release checklists.
 
 ## Getting started
 
-See the [Trellis guides](guides/) to get started.
+See the [Trellis docs](docs/) to get started.
 
 Trellis service deployments need persistent writable storage at
 `/var/lib/trellis` by default. The control-plane SQLite database defaults to

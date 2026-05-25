@@ -1,4 +1,7 @@
-Trellis is a contract-driven platform for building and operating distributed services over NATS. These concept pages explain how runtime authority, service boundaries, transport surfaces, resources, and generated APIs fit together before you write a service, app, device, or CLI.
+If you are new to Trellis, start with [What is Trellis?](/guides/overview).
+These concept pages go deeper on runtime authority, service boundaries, transport
+surfaces, resources, and generated APIs before you write a service, app, device,
+or CLI.
 
 - [Architecture](/guides/concepts/architecture): service categories, platform boundaries, and why APIs stay with the services that own them.
 - [Contracts](/guides/concepts/contracts): service and app contracts, contract identity, and generated artifacts.

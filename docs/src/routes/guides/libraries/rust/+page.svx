@@ -1,0 +1,316 @@
+The Rust libraries give services, CLIs, devices, and other participants a typed
+async interface to Trellis. Generated Cargo SDKs provide typed request, event,
+feed, and operation descriptors; participant facades wrap those descriptors in
+small, contract-shaped APIs.
+
+Use this page as a practical map of the Rust surface. For exact signatures, see
+the Rustdoc links on the [API Reference](/api).
+
+## Crates
+
+The normal Rust entrypoint is the `trellis` crate. It re-exports the public
+runtime modules you usually need:
+
+- `trellis::client`: outbound connection, RPC, events, feeds, operations,
+  transfers, state, and auth helpers.
+- `trellis::service`: service runtime, handler registration, event publishing,
+  service resources, operation providers, and service errors.
+- `trellis::contracts`: contract manifest and schema helper types.
+- `trellis::jobs`: service-local jobs types.
+- `trellis::sdk::*`: Trellis-owned generated SDK surfaces embedded in the
+  runtime crate.
+
+Project contracts generate Cargo SDK crates under `generated/packages/cargo/`.
+Those crates contain schema-derived Rust types, descriptor types, client helpers,
+and service registration helpers.
+
+Rust participant facades are generated for participant contracts. A facade crate
+usually exposes:
+
+- `connect_service(...)` for service participants
+- `connect_user(...)` for user/app/CLI style participants
+- `ConnectedService` and `ConnectedClient`
+- `Client<'_>` and `Service<'_>` facades
+- `owned`, `state`, and `uses::<alias>` modules
+
+## Connect as a service
+
+Service participant facades provide the most convenient service entrypoint.
+
+```rust
+use trellis_sdk_orders_service::{connect_service, ServiceConnectOptions};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let mut service = connect_service(ServiceConnectOptions::new(
+        "http://localhost:3000",
+        "orders-service",
+        &std::env::var("ORDERS_SERVICE_SESSION_KEY_SEED")?,
+    ))
+    .await?;
+
+    service.run().await?;
+    Ok(())
+}
+```
+
+The generated helper presents the contract manifest, authenticates the service
+instance, resolves resource bindings, and owns the service runtime loop.
+
+## Connect as an app, CLI, or other user participant
+
+User-style participants use the generated facade's `connect_user(...)` helper
+when available, then call through the typed `client()` facade.
+
+```rust
+use orders_console_participant::connect_user;
+use trellis::client::UserConnectOptions;
+
+let connected = connect_user(UserConnectOptions {
+    servers: "nats://127.0.0.1:4222",
+    sentinel_jwt,
+    sentinel_seed,
+    session_key_seed_base64url: session_key_seed,
+    contract_digest: orders_console_participant::contract::CONTRACT_DIGEST,
+    timeout_ms: 30_000,
+})
+.await?;
+
+let client = connected.client();
+let order = client
+    .orders()
+    .get(&orders_sdk::OrdersGetRequest {
+        order_id: "ord_123".into(),
+    })
+    .await?;
+
+println!("{}", order.status);
+```
+
+Use the generated facade and Rustdoc for the exact bootstrap path your app or CLI
+uses. Some programs receive NATS and sentinel connection details from a Trellis
+HTTP bootstrap or local configuration before constructing `UserConnectOptions`.
+
+## Connect as a device
+
+Device programs use the same generated descriptors and facades after activation.
+Activation establishes the device identity and deployment approval; the connected
+client then exposes only the selected surfaces from the device participant
+contract.
+
+If you need the lower-level connection primitives, use `trellis::client` types
+such as `DeviceConnectOptions` and `TrellisClient`. Prefer generated participant
+facades when your project has them.
+
+## Surface facades
+
+Generated Rust facades use snake_case method names derived from Trellis surface
+names. For example, `Orders.Get` becomes `orders_get(...)` in a flat alias
+facade, or `client.owned().orders_get(...)` for a participant's owned surface.
+Service provider facades group handler registration by surface kind.
+
+### RPC
+
+Generated SDK clients expose descriptor-backed RPC helpers.
+
+```rust
+use orders_sdk::client::OrdersServiceClient;
+use orders_sdk::OrdersGetRequest;
+
+let orders = OrdersServiceClient::new(trellis_client);
+let response = orders
+    .rpc()
+    .orders()
+    .get(&OrdersGetRequest {
+        order_id: "ord_123".into(),
+    })
+    .await?;
+```
+
+Participant alias facades provide smaller methods for the surfaces selected by
+the participant contract.
+
+```rust
+let response = participant
+    .client()
+    .orders()
+    .orders_get(&orders_sdk::OrdersGetRequest {
+        order_id: "ord_123".into(),
+    })
+    .await?;
+```
+
+### Events
+
+Use generated event descriptors for publish and subscribe.
+
+```rust
+use futures_util::StreamExt;
+use orders_sdk::events::OrdersShippedEventDescriptor;
+use orders_sdk::OrdersShippedEvent;
+
+trellis_client
+    .publish::<OrdersShippedEventDescriptor>(&OrdersShippedEvent {
+        order_id: "ord_123".into(),
+        customer_id: "cust_456".into(),
+        shipped_at: now_iso(),
+    })
+    .await?;
+
+let mut events = trellis_client
+    .subscribe::<OrdersShippedEventDescriptor>()
+    .await?;
+
+while let Some(event) = events.next().await {
+    let event = event?;
+    tracing::info!(order_id = %event.order_id, "order shipped");
+}
+```
+
+For explicit ack/nak/term control, use `subscribe_messages(...)`.
+
+### Feeds
+
+Feeds return async streams of typed events.
+
+```rust
+use futures_util::StreamExt;
+use orders_sdk::feeds::OrdersLiveFeedDescriptor;
+use orders_sdk::OrdersLiveInput;
+
+let mut stream = trellis_client
+    .feed::<OrdersLiveFeedDescriptor>(&OrdersLiveInput {
+        customer_id: Some("cust_456".into()),
+    })
+    .await?;
+
+while let Some(frame) = stream.next().await {
+    let frame = frame?;
+    println!("{:?}", frame);
+}
+```
+
+### Operations
+
+Operations are caller-visible async workflows. Start them with a generated
+operation descriptor, then wait or watch progress.
+
+```rust
+use futures_util::StreamExt;
+use orders_sdk::operations::OrdersProcessOperation;
+use orders_sdk::OrdersProcessInput;
+use trellis::client::OperationEvent;
+
+let op = trellis_client
+    .operation::<OrdersProcessOperation>()
+    .start(&OrdersProcessInput {
+        order_id: "ord_123".into(),
+    })
+    .await?;
+
+let terminal = op.wait().await?;
+println!("{:?}", terminal.output);
+
+let mut events = op.watch().await?;
+while let Some(event) = events.next().await {
+    match event? {
+        OperationEvent::Progress { snapshot } => println!("{:?}", snapshot.progress),
+        OperationEvent::Completed { snapshot } => {
+            println!("{:?}", snapshot.output);
+            break;
+        }
+        _ => {}
+    }
+}
+```
+
+Participant alias facades expose selected operations as methods returning an
+`OperationInvoker`.
+
+```rust
+let op = participant
+    .client()
+    .orders()
+    .orders_process()
+    .start(&orders_sdk::OrdersProcessInput {
+        order_id: "ord_123".into(),
+    })
+    .await?;
+```
+
+## Service provider APIs
+
+Service participant facades provide generated handler registration methods.
+Register handlers before `service.run().await?`.
+
+```rust
+use orders_sdk::{OrdersCreateRequest, OrdersCreateResponse};
+use trellis::service::{HandlerResult, ServiceHandlerContext};
+
+async fn create_order(
+    _ctx: ServiceHandlerContext,
+    input: OrdersCreateRequest,
+) -> HandlerResult<OrdersCreateResponse> {
+    Ok(OrdersCreateResponse {
+        order_id: input.order_id,
+        status: "pending".into(),
+    })
+}
+
+service.handle().rpc().orders().create(create_order);
+```
+
+Feed providers return a stream of typed events.
+
+```rust
+service.handle().feed().orders().live(move |_ctx, input| {
+    orders_live_stream(input)
+});
+```
+
+Operation providers implement the generated operation descriptor through the
+`trellis::service::ServiceOperationProvider` trait, or use lower-level operation
+runtime types when you need explicit control over accept, get, wait, watch, and
+cancel paths.
+
+```rust
+service
+    .handle()
+    .operation()
+    .orders()
+    .process(orders_process_provider);
+```
+
+Service code can also publish its own events through the service runtime.
+
+```rust
+service
+    .publish_orders_shipped(&orders_sdk::OrdersShippedEvent {
+        order_id: "ord_123".into(),
+        customer_id: "cust_456".into(),
+        shipped_at: now_iso(),
+    })
+    .await?;
+```
+
+## Rust Result, async, and streams
+
+Rust Trellis APIs use ordinary `Result<T, E>` and async functions.
+
+- Outbound client calls usually return `Result<T, trellis::client::TrellisClientError>`.
+- Service handlers return `trellis::service::HandlerResult<T>`, an alias for a
+  service result type.
+- Event subscriptions and feeds use `futures_util::Stream` values whose items are
+  also `Result`s.
+- Operation refs expose async control methods such as `wait()`, `cancel()`, and
+  `watch()`.
+
+Handle declared business failures separately from unexpected platform failures
+when your contract models them. Use normal Rust error propagation for boundary
+code where returning the error to the caller is appropriate.
+
+## Rustdoc
+
+Use the [API Reference](/api) for Rustdoc links and pending Rustdoc status. The
+guides show common patterns, while Rustdoc is the place to verify exact structs,
+trait bounds, constructor options, and generated facade methods.

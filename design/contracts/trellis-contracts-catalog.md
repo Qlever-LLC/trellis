@@ -29,6 +29,13 @@ same time:
 
 Those needs apply across multiple repos and multiple implementation languages.
 
+This document is the architecture and specification for the canonical manifest,
+active catalog, digest projection, dependency model, and permission derivation.
+It is not the place for ordinary language-library usage. TypeScript and Rust
+authoring walkthroughs belong in `/guides/libraries/typescript`,
+`/guides/libraries/rust`, and exact generated APIs/Rustdoc are linked from
+`/api`.
+
 ## Goals
 
 - Keep API ownership with the service that implements the API.
@@ -1464,28 +1471,11 @@ checks.
 SDKs derive from the canonical manifest, not from deployment-specific runtime
 state.
 
-For TypeScript, distinguish between local contract source files and generated
-SDK packages.
-
-Local TypeScript contract source files, whether a top-level `contract.ts` or
-`contract.js` for single-contract projects or `contracts/*.ts` for
-multi-contract projects, MUST:
-
-- default export the defined contract module itself
-
-Generated TypeScript SDK packages SHOULD export:
-
-- the defined contract module itself (for example `auth`, `core`, or `activity`)
-- `use` - the dependency selector for local `uses` declarations
-- `API` - the derived owned and used API projections that drive generated active
-  and provider facades
-- request/response/event TypeScript types
-- `CONTRACT`
-- `CONTRACT_ID`
-- `CONTRACT_DIGEST`
-
-For Rust, Python, and other languages, the same manifest is the input to
-language-specific generators or native runtime helpers.
+For every supported language, the same manifest is the input to
+language-specific generators, native authoring helpers, generated SDK packages,
+or participant facades. Exact package export inventories, crate modules, type
+aliases, and helper signatures belong in `/api`, generated TypeScript reference,
+and Rustdoc.
 
 The minimum required property is consistent semantics across languages:
 
@@ -1493,13 +1483,12 @@ The minimum required property is consistent semantics across languages:
 - the same operation, RPC, and event subjects
 - the same schemas
 - the same declared capability requirements
+- the same known error declarations
 
 If a contract declares `resources`, SDKs SHOULD expose the logical aliases and
 typed binding payloads needed to resolve them from `Trellis.Bindings.Get`,
 typically as part of connect or bootstrap rather than through ad hoc application
 calls.
-
-- the same known error declarations
 
 ### 18) Runtime plugin projection
 
@@ -1510,6 +1499,11 @@ For v1 TypeScript runtimes, that projection is a defined contract module
 consumed by public runtime bootstrap helpers such as
 `TrellisClient.connect(...)`, `TrellisService.connect(...)`, and
 `TrellisDevice.connect(...)`.
+
+Equivalent projections in other languages may be generated participant facades,
+SDK modules, or runtime descriptors. This document owns the projection
+requirements; language-library guides and API reference own ordinary usage
+examples and exact helper names.
 
 Projection requirements:
 

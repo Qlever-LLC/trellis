@@ -80,7 +80,7 @@ Approved service boundaries only become runtime-active when the full required de
 Authorization and availability are separate. A caller may be authorized for a surface even when no enabled service instance is currently connected to implement it. Apps that need to explain this distinction can call the advisory `Trellis.Surface.Status` RPC after declaring it in `uses`:
 
 ```ts
-const status = await trellis.request("Trellis.Surface.Status", {
+const status = await client.rpc.trellis.surfaceStatus({
   contractId: "orders-service@v1",
   kind: "feed",
   surface: "Orders.Live",
