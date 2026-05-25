@@ -8,6 +8,7 @@ import type { NatsConnection } from "@nats-io/nats-core";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { AuthRequestsValidateResponseSchema } from "@qlever-llc/trellis/auth";
 import type { StaticDecode } from "typebox";
+import { ulid } from "ulid";
 
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import { analyzeContract } from "../../catalog/analysis.ts";
@@ -36,6 +37,7 @@ import type {
   DeploymentResourceBinding,
   EnvelopeBoundary,
   EnvelopeExpansionRequest,
+  EnvelopeHistoryEntry,
   IdentityEnvelopeRecord,
   Session,
 } from "../schemas.ts";
@@ -57,6 +59,34 @@ function actorId(caller: RpcUser): string | null {
     return id;
   }
   return caller.deviceId;
+}
+
+function historyActor(caller: RpcUser): Record<string, unknown> {
+  return { type: caller.type, id: actorId(caller) };
+}
+
+function envelopeHistoryRecord(input: {
+  scopeId: string;
+  action: EnvelopeHistoryEntry["action"];
+  delta: EnvelopeBoundary;
+  resultingUpdatedAt: string;
+  actor: Record<string, unknown> | null;
+  reason: string | null;
+  source: EnvelopeHistoryEntry["source"];
+  createdAt: string;
+}): EnvelopeHistoryEntry {
+  return {
+    entryId: `envh_${ulid()}`,
+    scopeKind: "deployment",
+    scopeId: input.scopeId,
+    action: input.action,
+    delta: input.delta,
+    resultingUpdatedAt: input.resultingUpdatedAt,
+    actor: input.actor,
+    reason: input.reason,
+    source: input.source,
+    createdAt: input.createdAt,
+  };
 }
 
 type EnvelopeContractDeps = Pick<
@@ -85,12 +115,14 @@ type DeploymentEnvelopeStorage = {
     delta: EnvelopeBoundary;
     resourceBindings: DeploymentResourceBinding[];
     contractEvidence: DeploymentContractEvidence;
+    history?: EnvelopeHistoryEntry;
   }): Promise<void>;
   approveExpansion?(record: {
     envelope: DeploymentEnvelope;
     delta: EnvelopeBoundary;
     resourceBindings: DeploymentResourceBinding[];
     contractEvidence: DeploymentContractEvidence;
+    history?: EnvelopeHistoryEntry;
     request: {
       requestId: string;
       state: "approved";
@@ -99,6 +131,10 @@ type DeploymentEnvelopeStorage = {
       decisionReason: string | null;
     };
   }): Promise<boolean>;
+};
+
+type EnvelopeHistoryStorage = {
+  put(record: EnvelopeHistoryEntry): Promise<void>;
 };
 
 type DeploymentPortalRouteStorage = {
@@ -1008,6 +1044,7 @@ export function createAuthEnvelopesExpandHandler(deps: {
   contracts: EnvelopeContractDeps;
   contractStorage: ContractStorage;
   deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
+  envelopeHistoryStorage?: EnvelopeHistoryStorage;
   deploymentResourceBindingStorage: DeploymentResourceBindingStorage;
   deploymentContractEvidenceStorage: DeploymentContractEvidenceStorage;
   nats?: NatsConnection;
@@ -1151,12 +1188,26 @@ export function createAuthEnvelopesExpandHandler(deps: {
       }));
 
       if (options.persist ?? true) {
+        const history = envelopeHistoryRecord({
+          scopeId: req.deploymentId,
+          action: "expand",
+          delta,
+          resultingUpdatedAt: envelope.updatedAt,
+          actor: historyActor(caller),
+          reason: null,
+          source: {
+            contractId: validated.contract.id,
+            contractDigest: analysis.contract.digest,
+          },
+          createdAt: now,
+        });
         if (deps.deploymentEnvelopeStorage.putExpansion) {
           await deps.deploymentEnvelopeStorage.putExpansion({
             envelope,
             delta,
             resourceBindings,
             contractEvidence,
+            history,
           });
         } else {
           if (envelope !== current) {
@@ -1166,6 +1217,7 @@ export function createAuthEnvelopesExpandHandler(deps: {
             await deps.deploymentResourceBindingStorage.put(binding);
           }
           await deps.deploymentContractEvidenceStorage.put(contractEvidence);
+          await deps.envelopeHistoryStorage?.put(history);
         }
       }
 
@@ -1186,6 +1238,7 @@ export function createAuthEnvelopesApproveRequestHandler(deps: {
   contracts: EnvelopeContractDeps;
   contractStorage: ContractStorage;
   deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
+  envelopeHistoryStorage?: EnvelopeHistoryStorage;
   deploymentResourceBindingStorage: DeploymentResourceBindingStorage;
   deploymentContractEvidenceStorage: DeploymentContractEvidenceStorage;
   envelopeExpansionRequestStorage: EnvelopeExpansionRequestStorage;
@@ -1273,11 +1326,26 @@ export function createAuthEnvelopesApproveRequestHandler(deps: {
         decisionReason: approvedRequest.decisionReason,
       };
       if (deps.deploymentEnvelopeStorage.approveExpansion) {
+        const history = envelopeHistoryRecord({
+          scopeId: request.deploymentId,
+          action: "expand",
+          delta: value.delta,
+          resultingUpdatedAt: value.envelope.updatedAt,
+          actor: decidedBy,
+          reason: approvedRequest.decisionReason,
+          source: {
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+            requestId: request.requestId,
+          },
+          createdAt: decidedAt,
+        });
         const updated = await deps.deploymentEnvelopeStorage.approveExpansion({
           envelope: value.envelope,
           delta: value.delta,
           resourceBindings: value.resourceBindings,
           contractEvidence: value.contractEvidence,
+          history,
           request: stateUpdate,
         });
         if (!updated) {
@@ -1511,6 +1579,7 @@ export function createAuthEnvelopesChangesPreviewHandler(deps: {
 export function createAuthEnvelopesShrinkHandler(deps: {
   contracts: EnvelopeContractDeps;
   deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
+  envelopeHistoryStorage?: EnvelopeHistoryStorage;
   deploymentResourceBindingStorage: DeploymentResourceBindingStorage;
   deploymentContractEvidenceStorage: DeploymentContractEvidenceStorage;
   identityEnvelopeStorage?: IdentityEnvelopeStorage;
@@ -1588,8 +1657,19 @@ export function createAuthEnvelopesShrinkHandler(deps: {
         ...preview.proposed,
         updatedAt: now,
       };
+      const removed = preview.impact.removed;
 
       await deps.deploymentEnvelopeStorage.put(envelope);
+      await deps.envelopeHistoryStorage?.put(envelopeHistoryRecord({
+        scopeId: req.deploymentId,
+        action: "revoke",
+        delta: removed,
+        resultingUpdatedAt: envelope.updatedAt,
+        actor: historyActor(caller),
+        reason: null,
+        source: {},
+        createdAt: now,
+      }));
       for (const session of preview.impact.impactedSessions) {
         await revokeSession({
           sessionKey: session.sessionKey,

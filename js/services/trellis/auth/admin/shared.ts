@@ -5,6 +5,7 @@ import { sha256Base64urlSync } from "../../../../packages/trellis/contract_suppo
 export type ServiceDeployment = {
   deploymentId: string;
   namespaces: string[];
+  contractCompatibilityMode?: "strict" | "mutable-dev";
   disabled: boolean;
 };
 
@@ -64,6 +65,7 @@ export type CreateDeviceDeploymentRequest = {
 export type CreateServiceDeploymentRequest = {
   deploymentId: string;
   namespaces: string[];
+  contractCompatibilityMode?: "strict" | "mutable-dev";
 };
 
 export type DeviceActivationActor = {
@@ -175,6 +177,7 @@ export function validateServiceDeploymentRequest(
     deployment: {
       deploymentId: req.deploymentId,
       namespaces: normalizeStringList(req.namespaces ?? []),
+      contractCompatibilityMode: req.contractCompatibilityMode ?? "strict",
       disabled: false,
     } as ServiceDeployment,
   });

@@ -470,12 +470,11 @@ pub(crate) async fn run_rpc_fixture(
         )
         .await?;
         run_ts_updated_client(trellis_url, &updated_caller_login.state.session_seed).await?;
-        expect_fresh_old_broad_contract_denied(&caller_login.state).await?;
-        expect_old_live_connection_kicked(&caller_client).await?;
+        expect_fresh_old_broad_contract_reconnect_denied(&caller_login.state).await?;
         expect_rust_client_call_denied::<HarnessTsPingRpc>(
             &caller_client,
             "old-live-broad-removed-surface",
-            "old live broad connection retained removed Harness.Ts.Ping access after narrow approval",
+            "old live broad session unexpectedly retained removed surface after narrower approval",
         )
         .await?;
 
@@ -1255,34 +1254,12 @@ where
         .map_err(|error| miette!("failed to decode {} trace response: {error}", R::KEY))
 }
 
-async fn expect_fresh_old_broad_contract_denied(state: &AdminSessionState) -> Result<()> {
-    let client = match connect_admin_client_async(state).await {
-        Ok(client) => client,
-        Err(_) => return Ok(()),
-    };
-
-    expect_rust_client_call_denied::<HarnessTsPingRpc>(
-        &client,
-        "fresh-old-broad-removed-surface",
-        "fresh old broad digest/session seed reconnected and retained removed Harness.Ts.Ping access after narrow approval",
-    )
-    .await
-}
-
-async fn expect_old_live_connection_kicked(client: &TrellisClient) -> Result<()> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
-    loop {
-        let state = client.nats().connection_state();
-        if state.to_string() != "connected" {
-            return Ok(());
-        }
-        if tokio::time::Instant::now() >= deadline {
-            eprintln!(
-                "warning: old live broad connection was not kicked after narrow approval; NATS state remained {state:?}; verifying removed-surface denial instead"
-            );
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+async fn expect_fresh_old_broad_contract_reconnect_denied(state: &AdminSessionState) -> Result<()> {
+    match connect_admin_client_async(state).await {
+        Ok(_) => Err(miette!(
+            "fresh old broad digest/session seed unexpectedly reconnected after narrower approval"
+        )),
+        Err(_) => Ok(()),
     }
 }
 

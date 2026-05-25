@@ -29,6 +29,7 @@ import {
   createActiveContractLookup,
   resolveContractUses,
   resolveContractUsesFromEntries,
+  resolveContractUsesFromKnownEntries,
   validateActiveContractCompatibility,
   validateActiveContractUses,
 } from "./uses.ts";
@@ -525,12 +526,12 @@ export function createContractsModule(opts: {
     }
 
     const validated = await validateContractManifest(args.contract);
-    const entries = (await loadEffectiveActiveCatalogState()).entries;
+    const entries = await getKnownDependencyEntries(validated.contract);
     const indexes = buildActiveContractIndexes(
       new Map(entries.map((entry) => [entry.digest, entry.contract])),
       entries.map((entry) => entry.digest),
     );
-    resolveContractUsesFromEntries(entries, validated.contract);
+    resolveContractUsesFromKnownEntries(entries, validated.contract);
 
     const usedNamespaces = new Set<string>();
     for (const method of Object.values(validated.contract.rpc ?? {})) {
@@ -588,6 +589,26 @@ export function createContractsModule(opts: {
       usedNamespaces,
       analyzed: analyzeContract(validated.contract),
     };
+  }
+
+  async function getKnownDependencyEntries(
+    contract: TrellisContractV1,
+  ): Promise<ContractEntry[]> {
+    const dependencyIds = sortUnique([
+      ...Object.values(contract.uses?.required ?? {}).map((use) =>
+        use.contract
+      ),
+      ...Object.values(contract.uses?.optional ?? {}).map((use) =>
+        use.contract
+      ),
+    ]);
+    const entriesByDigest = new Map<string, ContractEntry>();
+    for (const contractId of dependencyIds) {
+      for (const entry of await getKnownEntriesByContractId(contractId)) {
+        entriesByDigest.set(entry.digest, entry);
+      }
+    }
+    return [...entriesByDigest.values()];
   }
 
   async function persistContract(

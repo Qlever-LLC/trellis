@@ -325,7 +325,7 @@ Deno.test("planUserContractApproval maps explicit transfer declarations by direc
   );
 });
 
-Deno.test("planUserContractApproval rejects app contracts with inactive dependencies", async () => {
+Deno.test("planUserContractApproval rejects app contracts with unknown dependencies", async () => {
   const store = createTestContracts();
 
   await assertRejects(
@@ -346,11 +346,11 @@ Deno.test("planUserContractApproval rejects app contracts with inactive dependen
         },
       }),
     Error,
-    "Dependency 'auth' references inactive contract 'missing.auth@v1'",
+    "Dependency 'auth' references unknown contract 'missing.auth@v1'",
   );
 });
 
-Deno.test("planUserContractApproval rejects agent contracts with inactive dependencies", async () => {
+Deno.test("planUserContractApproval rejects agent contracts with unknown dependencies", async () => {
   const store = createTestContracts();
 
   await assertRejects(
@@ -371,11 +371,54 @@ Deno.test("planUserContractApproval rejects agent contracts with inactive depend
         },
       }),
     Error,
-    "Dependency 'jobs' references inactive contract 'missing.jobs@v1'",
+    "Dependency 'jobs' references unknown contract 'missing.jobs@v1'",
   );
 });
 
-Deno.test("planUserContractApproval rejects inactive dependency surfaces even when known", async () => {
+Deno.test("planUserContractApproval resolves dependency surfaces from known contracts", async () => {
+  const dependency: TrellisContractV1 = {
+    format: "trellis.contract.v1",
+    id: "example.auth@v1",
+    displayName: "Example Auth",
+    description: "Auth API",
+    kind: "service",
+    schemas: {
+      EmptyInput: { type: "object" },
+      EmptyOutput: { type: "object" },
+    },
+    rpc: {
+      "Auth.Sessions.Me": {
+        version: "v1",
+        subject: "rpc.v1.example.Auth.Sessions.Me",
+        input: { schema: "EmptyInput" },
+        output: { schema: "EmptyOutput" },
+      },
+    },
+  };
+
+  const store = createTestContracts();
+  store.addKnownTestContract({ digest: "dep-digest", contract: dependency });
+
+  const plan = await planUserContractApproval(store, {
+    format: "trellis.contract.v1",
+    id: "example.console@v1",
+    displayName: "Example Console",
+    description: "Browser app",
+    kind: "app",
+    uses: {
+      required: {
+        auth: {
+          contract: "example.auth@v1",
+          rpc: { call: ["Auth.Sessions.Me"] },
+        },
+      },
+    },
+  });
+
+  assertEquals(plan.publishSubjects, ["rpc.v1.example.Auth.Sessions.Me"]);
+});
+
+Deno.test("planUserContractApproval rejects missing known dependency surfaces", async () => {
   const dependency: TrellisContractV1 = {
     format: "trellis.contract.v1",
     id: "example.auth@v1",
@@ -411,13 +454,13 @@ Deno.test("planUserContractApproval rejects inactive dependency surfaces even wh
           required: {
             auth: {
               contract: "example.auth@v1",
-              rpc: { call: ["Auth.Sessions.Me"] },
+              rpc: { call: ["Auth.Missing"] },
             },
           },
         },
       }),
     Error,
-    "Dependency 'auth' references inactive contract 'example.auth@v1'",
+    "Dependency 'auth' references missing rpc 'Auth.Missing' on 'example.auth@v1'",
   );
 });
 

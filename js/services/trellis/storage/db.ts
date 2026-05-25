@@ -13,6 +13,7 @@ import { migrate } from "drizzle-orm/libsql/migrator";
 import { dirname } from "@std/path";
 
 import { schema } from "./schema.ts";
+import { runTrellisStorageUpgrades } from "./upgrades.ts";
 
 const SQLITE_BUSY_TIMEOUT_MS = 5_000;
 
@@ -218,11 +219,19 @@ export async function openTrellisStorageDb(
   return { client, db };
 }
 
-/** Applies Trellis storage migrations for tests and local bootstrap. */
-export async function initializeTrellisStorageSchema(
+/** Applies Trellis SQL storage migrations without post-migration upgrade tasks. */
+export async function applyTrellisStorageSqlMigrations(
   storage: TrellisStorage,
 ): Promise<void> {
   await migrate(storage.db, {
     migrationsFolder: new URL("./migrations", import.meta.url).pathname,
   });
+}
+
+/** Applies Trellis storage migrations and post-migration upgrade tasks. */
+export async function initializeTrellisStorageSchema(
+  storage: TrellisStorage,
+): Promise<void> {
+  await applyTrellisStorageSqlMigrations(storage);
+  await runTrellisStorageUpgrades(storage.db);
 }

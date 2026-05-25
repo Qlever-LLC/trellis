@@ -11,11 +11,10 @@ use trellis::contracts::{
 };
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
 use trellis::sdk::auth::types::{
-    AuthCatalogIssuesResolveRequest, AuthEnvelopeExpansionsApproveRequest,
-    AuthEnvelopeExpansionsListRequest, AuthServiceInstancesProvisionRequest,
+    AuthEnvelopeExpansionsApproveRequest, AuthEnvelopeExpansionsListRequest,
+    AuthServiceInstancesProvisionRequest,
 };
 use trellis::sdk::core::client::CoreClient;
-use trellis::sdk::core::types::TrellisCatalogResponseCatalogIssuesItem;
 use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError, ServiceRuntimeError};
 
 use crate::app::admin_setup_contract_json;
@@ -31,7 +30,6 @@ const REPAIR_RPC_SUBJECT: &str = "rpc.v1.Harness.CatalogRepair.Ping";
 
 #[derive(Debug, Clone)]
 pub(crate) struct CatalogRepairPersistenceCheck {
-    issue_id: String,
     contract_id: String,
 }
 
@@ -86,13 +84,13 @@ pub(crate) async fn run_catalog_repair_fixture(
     let old_digest = digest_contract_json(&old_contract_json).into_diagnostic()?;
     let new_contract_json = repair_contract_json(REPAIR_CONTRACT_ID, RepairContractShape::New)?;
     let new_digest = digest_contract_json(&new_contract_json).into_diagnostic()?;
-    let old_seed = provision_service_instance(&auth_client, REPAIR_DEPLOYMENT_ID).await?;
+    let service_seed = provision_service_instance(&auth_client, REPAIR_DEPLOYMENT_ID).await?;
     let old_connect_task = tokio::spawn(connect_service(
         trellis_url.to_string(),
         REPAIR_CONTRACT_ID.to_string(),
         old_contract_json.clone(),
         old_digest.clone(),
-        old_seed,
+        service_seed.clone(),
         30_000,
     ));
     approve_pending_expansions(
@@ -112,46 +110,27 @@ pub(crate) async fn run_catalog_repair_fixture(
         .into_diagnostic()?;
     wait_for_repair_ping(&caller_client, "before-conflict").await?;
 
-    let new_seed = provision_service_instance(&auth_client, REPAIR_DEPLOYMENT_ID).await?;
-    record_conflicting_evidence(
+    assert_incompatible_same_instance_rejected(
         trellis_url,
         REPAIR_CONTRACT_ID,
         &new_contract_json,
         &new_digest,
-        &new_seed,
-    )
-    .await;
-    let issue = wait_for_catalog_issue(&core_client, REPAIR_CONTRACT_ID, &old_digest).await?;
-    wait_for_repair_ping(&caller_client, "during-conflict").await?;
-
-    let blocked_seed = provision_service_instance(&auth_client, REPAIR_DEPLOYMENT_ID).await?;
-    assert_active_issue_blocks_connect(
-        trellis_url,
-        REPAIR_CONTRACT_ID,
-        &new_contract_json,
-        &new_digest,
-        &blocked_seed,
+        &service_seed,
     )
     .await?;
+    let old_reconnect = connect_service(
+        trellis_url.to_string(),
+        REPAIR_CONTRACT_ID.to_string(),
+        old_contract_json.clone(),
+        old_digest.clone(),
+        service_seed,
+        30_000,
+    )
+    .await?;
+    drop(old_reconnect);
+    wait_for_repair_ping(&caller_client, "after-rejected-conflict").await?;
 
-    let repair = sdk_auth_client
-        .rpc()
-        .auth()
-        .catalog_issues_resolve(&AuthCatalogIssuesResolveRequest {
-            issue_id: issue.issue_id.clone(),
-            action: json!("keep-current"),
-        })
-        .await
-        .into_diagnostic()?;
-    if !repair.success || repair.deleted_evidence.is_empty() {
-        return Err(miette!(
-            "Auth.CatalogIssues.Resolve did not report deleted evidence for {}",
-            issue.issue_id
-        ));
-    }
-    wait_for_catalog_issue_clear(&core_client, REPAIR_CONTRACT_ID).await?;
-
-    let persistence_check = create_unresolved_conflict(
+    let persistence_check = create_no_active_issue_check(
         trellis_url,
         &auth_client,
         &sdk_auth_client,
@@ -162,7 +141,7 @@ pub(crate) async fn run_catalog_repair_fixture(
     .await?;
 
     service_task.abort();
-    Ok((7, persistence_check))
+    Ok((5, persistence_check))
 }
 
 pub(crate) async fn verify_catalog_repair_persistence_after_restart(
@@ -183,23 +162,18 @@ pub(crate) async fn verify_catalog_repair_persistence_after_restart(
         .issues
         .unwrap_or_default()
         .into_iter()
-        .find(|issue| issue.issue_id == check.issue_id);
+        .find(|issue| issue.contract_id.as_deref() == Some(check.contract_id.as_str()));
     match issue {
-        Some(issue) if issue.contract_id.as_deref() == Some(check.contract_id.as_str()) => Ok(2),
         Some(issue) => Err(miette!(
-            "catalog repair persistence issue {} had contract {:?}, expected {}",
+            "catalog repair persistence retained active issue {} for envelope-authorized contract {}",
             issue.issue_id,
-            issue.contract_id,
             check.contract_id
         )),
-        None => Err(miette!(
-            "catalog repair persistence issue {} was not visible after restart",
-            check.issue_id
-        )),
+        None => Ok(1),
     }
 }
 
-async fn create_unresolved_conflict(
+async fn create_no_active_issue_check(
     trellis_url: &str,
     auth_client: &trellis::auth::AuthClient<'_>,
     sdk_auth_client: &SdkAuthClient<'_>,
@@ -221,25 +195,23 @@ async fn create_unresolved_conflict(
         contract_id.to_string(),
         old_contract_json,
         old_digest.clone(),
-        old_seed,
+        old_seed.clone(),
         30_000,
     ));
     approve_pending_expansions(sdk_auth_client, deployment_id, contract_id, &old_digest).await?;
     let old_client = old_connect_task.await.into_diagnostic()??;
     drop(old_client);
 
-    let new_seed = provision_service_instance(auth_client, deployment_id).await?;
-    record_conflicting_evidence(
+    assert_incompatible_same_instance_rejected(
         trellis_url,
         contract_id,
         &new_contract_json,
         &new_digest,
-        &new_seed,
+        &old_seed,
     )
-    .await;
-    let issue = wait_for_catalog_issue(core_client, contract_id, &old_digest).await?;
+    .await?;
+    wait_for_catalog_issue_absent(core_client, contract_id).await?;
     Ok(CatalogRepairPersistenceCheck {
-        issue_id: issue.issue_id,
         contract_id: contract_id.to_string(),
     })
 }
@@ -356,25 +328,7 @@ async fn connect_service(
     .map_err(|error| miette!("service {contract_id} connect failed: {error}"))
 }
 
-async fn record_conflicting_evidence(
-    trellis_url: &str,
-    contract_id: &str,
-    contract_json: &str,
-    contract_digest: &str,
-    service_seed: &str,
-) {
-    let _ = connect_service(
-        trellis_url.to_string(),
-        contract_id.to_string(),
-        contract_json.to_string(),
-        contract_digest.to_string(),
-        service_seed.to_string(),
-        1_000,
-    )
-    .await;
-}
-
-async fn assert_active_issue_blocks_connect(
+async fn assert_incompatible_same_instance_rejected(
     trellis_url: &str,
     contract_id: &str,
     contract_json: &str,
@@ -392,17 +346,18 @@ async fn assert_active_issue_blocks_connect(
     .await
     {
         Ok(_) => Err(miette!(
-            "conflicting service digest connected while active catalog issue was visible"
+            "incompatible same-contract digest connected for existing strict service instance"
         )),
         Err(error) => {
             let message = error.to_string();
-            if message.contains("contract_catalog_issue")
-                || message.contains("active catalog issue")
+            if message.contains("contract_compatibility_violation")
+                || message.contains("contract_changed")
+                || message.contains("incompatible")
             {
                 Ok(())
             } else {
                 Err(miette!(
-                    "conflicting service digest failed with unexpected error: {message}"
+                    "incompatible same-contract digest failed with unexpected error: {message}"
                 ))
             }
         }
@@ -459,59 +414,7 @@ async fn approve_pending_expansions(
     }
 }
 
-async fn wait_for_catalog_issue(
-    core_client: &CoreClient<'_>,
-    contract_id: &str,
-    expected_effective_digest: &str,
-) -> Result<TrellisCatalogResponseCatalogIssuesItem> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let catalog = core_client
-            .rpc()
-            .trellis()
-            .catalog()
-            .await
-            .into_diagnostic()?;
-        let active_digest = catalog
-            .catalog
-            .contracts
-            .iter()
-            .find(|contract| contract.id == contract_id)
-            .map(|contract| contract.digest.as_str());
-        if active_digest != Some(expected_effective_digest) {
-            return Err(miette!(
-                "catalog effective digest for {contract_id} was {:?}, expected {expected_effective_digest}",
-                active_digest
-            ));
-        }
-        if let Some(issue) = catalog
-            .catalog
-            .issues
-            .unwrap_or_default()
-            .into_iter()
-            .find(|issue| issue.contract_id.as_deref() == Some(contract_id))
-        {
-            if issue.effective_digests.as_ref().is_some_and(|digests| {
-                digests
-                    .iter()
-                    .any(|digest| digest == expected_effective_digest)
-            }) {
-                return Ok(issue);
-            }
-            return Err(miette!(
-                "catalog issue for {contract_id} did not retain effective digest {expected_effective_digest}"
-            ));
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(miette!(
-                "timed out waiting for active catalog issue for {contract_id}"
-            ));
-        }
-        tokio::time::sleep(Duration::from_millis(250)).await;
-    }
-}
-
-async fn wait_for_catalog_issue_clear(
+async fn wait_for_catalog_issue_absent(
     core_client: &CoreClient<'_>,
     contract_id: &str,
 ) -> Result<()> {
@@ -534,7 +437,7 @@ async fn wait_for_catalog_issue_clear(
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(miette!(
-                "timed out waiting for catalog issue for {contract_id} to clear"
+                "timed out waiting for catalog issue for {contract_id} to remain absent"
             ));
         }
         tokio::time::sleep(Duration::from_millis(250)).await;

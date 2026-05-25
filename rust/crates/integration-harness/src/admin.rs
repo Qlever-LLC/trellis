@@ -492,11 +492,11 @@ pub(crate) async fn run_admin_api_fixture(
         .catalog()
         .await
         .into_diagnostic()?;
-    if !catalog.catalog.contracts.iter().any(|contract| {
+    if catalog.catalog.contracts.iter().any(|contract| {
         contract.id == service_contract_id && contract.digest == service_contract_digest
     }) {
         return Err(miette!(
-            "Trellis.Catalog did not include expanded contract `{service_contract_id}`"
+            "Trellis.Catalog included cold expanded contract `{service_contract_id}`"
         ));
     }
     let contract = core_client

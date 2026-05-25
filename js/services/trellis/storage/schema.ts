@@ -24,6 +24,12 @@ export const contracts = sqliteTable(
   },
 );
 
+export const trellisUpgrades = sqliteTable("trellis_upgrades", {
+  upgradeId: text("upgrade_id").primaryKey(),
+  appliedAt: text("applied_at").notNull(),
+  summary: text("summary"),
+});
+
 export const users = sqliteTable(
   "users",
   {
@@ -164,6 +170,8 @@ export const serviceDeployments = sqliteTable(
     id: text("id").primaryKey().$defaultFn(() => ulid()),
     deploymentId: text("deployment_id").notNull().unique(),
     namespaces: text("namespaces").notNull(),
+    contractCompatibilityMode: text("contract_compatibility_mode").notNull()
+      .default("strict"),
     disabled: integer("disabled", { mode: "boolean" }).notNull(),
   },
   (table) => [index("service_deployments_disabled_idx").on(table.disabled)],
@@ -385,6 +393,32 @@ export const deploymentEnvelopeCapabilities = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.deploymentId, table.capability] }),
+  ],
+);
+
+export const envelopeHistoryEntries = sqliteTable(
+  "envelope_history_entries",
+  {
+    entryId: text("entry_id").primaryKey(),
+    scopeKind: text("scope_kind").notNull(),
+    scopeId: text("scope_id").notNull(),
+    action: text("action").notNull(),
+    deltaJson: text("delta_json").notNull(),
+    resultingUpdatedAt: text("resulting_updated_at").notNull(),
+    actorJson: text("actor_json"),
+    reason: text("reason"),
+    sourceContractId: text("source_contract_id"),
+    sourceContractDigest: text("source_contract_digest"),
+    sourceRequestId: text("source_request_id"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("envelope_history_entries_scope_created_idx").on(
+      table.scopeKind,
+      table.scopeId,
+      table.createdAt,
+      table.entryId,
+    ),
   ],
 );
 
@@ -644,6 +678,7 @@ export const sessions = sqliteTable(
 
 export const schema = {
   contracts,
+  trellisUpgrades,
   users,
   userIdentities,
   localCredentials,
@@ -661,6 +696,7 @@ export const schema = {
   deploymentEnvelopeSurfaces,
   deploymentEnvelopeResources,
   deploymentEnvelopeCapabilities,
+  envelopeHistoryEntries,
   deploymentPortalRoutes,
   authPortals,
   authLoginPortalSettings,

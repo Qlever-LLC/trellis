@@ -30,6 +30,7 @@ import type {
   SqlDeploymentResourceBindingRepository,
   SqlDeviceDeploymentRepository,
   SqlEnvelopeExpansionRequestRepository,
+  SqlEnvelopeHistoryRepository,
   SqlIdentityEnvelopeRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
@@ -45,6 +46,7 @@ export async function registerServiceAdminRpcs(deps: {
   sessionStorage: SqlSessionRepository;
   contractStorage: SqlContractStorageRepository;
   deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+  envelopeHistoryStorage: SqlEnvelopeHistoryRepository;
   deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
   deploymentContractEvidenceStorage: SqlDeploymentContractEvidenceRepository;
   deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
@@ -122,6 +124,7 @@ export async function registerServiceAdminRpcs(deps: {
       contracts: deps.contracts,
       contractStorage: deps.contractStorage,
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+      envelopeHistoryStorage: deps.envelopeHistoryStorage,
       deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
       deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
       nats: deps.natsTrellis,
@@ -136,6 +139,7 @@ export async function registerServiceAdminRpcs(deps: {
       contracts: deps.contracts,
       contractStorage: deps.contractStorage,
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+      envelopeHistoryStorage: deps.envelopeHistoryStorage,
       deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
       deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
       envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
@@ -174,6 +178,7 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthEnvelopesShrinkHandler({
       contracts: deps.contracts,
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+      envelopeHistoryStorage: deps.envelopeHistoryStorage,
       deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
       deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
       identityEnvelopeStorage: deps.contractApprovalStorage,

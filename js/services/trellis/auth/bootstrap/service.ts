@@ -13,9 +13,12 @@ import {
 } from "../../catalog/resources.ts";
 import {
   ContractUseDependencyError,
-  resolveContractUsesFromEntries,
+  validateActiveContractCompatibility,
 } from "../../catalog/uses.ts";
-import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
+import {
+  analyzeContractEnvelopeBoundary,
+  type ContractEnvelopeBoundary,
+} from "../boundary_analysis.ts";
 import {
   computeEnvelopeDelta,
   evaluateEnvelopeFit,
@@ -57,6 +60,7 @@ type ServiceBootstrapInstance = {
 type ServiceBootstrapDeployment = {
   deploymentId: string;
   namespaces: string[];
+  contractCompatibilityMode?: "strict" | "mutable-dev";
   disabled: boolean;
 };
 
@@ -105,15 +109,13 @@ export const ServiceBootstrapRequestSchema = Type.Object({
 });
 
 export type ServiceBootstrapDeps = {
-  contracts:
-    & Pick<
-      ContractsModule,
-      | "getActiveEntries"
-      | "getContract"
-      | "getKnownEntriesByContractId"
-      | "validateContract"
-    >
-    & Partial<Pick<ContractsModule, "getActiveCatalogIssues">>;
+  contracts: Pick<
+    ContractsModule,
+    | "getActiveEntries"
+    | "getContract"
+    | "getKnownEntriesByContractId"
+    | "validateContract"
+  >;
   transports: {
     native?: { natsServers: string[] };
     websocket?: { natsServers: string[] };
@@ -181,15 +183,15 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-async function getRequiredServiceCapabilities(
-  contracts: Pick<ContractsModule, "getActiveEntries">,
+function getRequiredServiceCapabilities(
+  analysis: ContractEnvelopeBoundary,
   contract: TrellisContractV1,
-): Promise<string[]> {
-  const capabilities = new Set<string>(["service"]);
-  const uses = resolveContractUsesFromEntries(
-    await contracts.getActiveEntries(),
-    contract,
-  );
+): string[] {
+  const capabilities = new Set<string>([
+    "service",
+    ...analysis.required.capabilities,
+    ...analysis.optional.capabilities,
+  ]);
   const events = contract.events as
     | Record<string, {
       capabilities?: { publish?: string[] };
@@ -197,27 +199,6 @@ async function getRequiredServiceCapabilities(
     | undefined;
   for (const event of Object.values(events ?? {})) {
     for (const capability of event.capabilities?.publish ?? []) {
-      capabilities.add(capability);
-    }
-  }
-
-  for (const method of uses.rpcCalls) {
-    for (const capability of method.method.capabilities?.call ?? []) {
-      capabilities.add(capability);
-    }
-  }
-  for (const operation of uses.operationCalls) {
-    for (const capability of operation.operation.capabilities?.call ?? []) {
-      capabilities.add(capability);
-    }
-  }
-  for (const event of uses.eventPublishes) {
-    for (const capability of event.event.capabilities?.publish ?? []) {
-      capabilities.add(capability);
-    }
-  }
-  for (const event of uses.eventSubscribes) {
-    for (const capability of event.event.capabilities?.subscribe ?? []) {
       capabilities.add(capability);
     }
   }
@@ -248,6 +229,42 @@ function isEmptyBoundary(boundary: EnvelopeBoundary): boolean {
 
 function resourceKey(kind: string, alias: string): string {
   return `${kind}\u001f${alias}`;
+}
+
+async function assertPresentedContractCompatible(input: {
+  contracts: Pick<ServiceBootstrapDeps["contracts"], "getContract">;
+  deployment: ServiceBootstrapDeployment;
+  service: ServiceBootstrapInstance;
+  presentedDigest: string;
+  presentedContract: TrellisContractV1;
+}): Promise<string | null> {
+  if (input.deployment.contractCompatibilityMode === "mutable-dev") {
+    return null;
+  }
+  const currentDigest = input.service.currentContractDigest;
+  const currentId = input.service.currentContractId;
+  if (
+    !currentDigest || currentDigest === input.presentedDigest ||
+    currentId !== input.presentedContract.id
+  ) {
+    return null;
+  }
+
+  const currentContract = await input.contracts.getContract(currentDigest, {
+    includeInactive: true,
+  });
+  if (!currentContract) {
+    return `previous service contract digest '${currentDigest}' is unknown`;
+  }
+  try {
+    validateActiveContractCompatibility([
+      { digest: currentDigest, contract: currentContract },
+      { digest: input.presentedDigest, contract: input.presentedContract },
+    ]);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }
 
 function resourceBindingsForResponse(
@@ -693,65 +710,32 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    const activeEntries = (await deps.contracts.getActiveEntries()).filter(
-      (entry) => entry.contract.id === contract.id,
-    );
-    const effectiveDigests = new Set(
-      activeEntries.map((entry) => entry.digest),
-    );
-    if (
-      activeEntries.length > 0 && !effectiveDigests.has(request.contractDigest)
-    ) {
-      await deps.deploymentContractEvidenceStorage.put(contractEvidence);
-      const issue = deps.contracts.getActiveCatalogIssues
-        ? (await deps.contracts.getActiveCatalogIssues()).find((candidate) =>
-          candidate.contractId === request.contractId &&
-          (candidate.digest === request.contractDigest ||
-            candidate.conflictingDigests?.includes(request.contractDigest))
-        )
-        : undefined;
+    const compatibilityError = await assertPresentedContractCompatible({
+      contracts: deps.contracts,
+      deployment,
+      service,
+      presentedDigest: request.contractDigest,
+      presentedContract: contract,
+    });
+    if (compatibilityError) {
       return c.json(
         bootstrapFailure(
-          "contract_catalog_issue",
-          `Service contract '${request.contractId}' digest '${request.contractDigest}' is pending a forced catalog update. Resolve the catalog issue in Console before starting this service.${
-            issue ? ` ${issue.message}` : ""
-          }`,
+          "contract_compatibility_violation",
+          `Service contract '${request.contractId}' digest '${request.contractDigest}' is incompatible with the current deployment surface. Use a new contract version or enable mutable-dev compatibility for this deployment. ${compatibilityError}`,
           {
             instanceId: service.instanceId,
             deploymentId: service.deploymentId,
             contractId: request.contractId,
             contractDigest: request.contractDigest,
-            activeContractDigest: activeEntries[0]?.digest,
-            ...(issue ? { issueId: issue.issueId } : {}),
+            currentContractDigest: service.currentContractDigest,
+            compatibilityMode: deployment.contractCompatibilityMode ?? "strict",
           },
         ),
         409,
       );
     }
 
-    let capabilities: string[];
-    try {
-      capabilities = await getRequiredServiceCapabilities(
-        deps.contracts,
-        contract,
-      );
-    } catch (error) {
-      const activationError = toError(error);
-      return c.json(
-        bootstrapFailure(
-          "contract_activation_pending",
-          `Service contract '${request.contractId}' digest '${request.contractDigest}' is not active yet: ${activationError.message}`,
-          {
-            instanceId: service.instanceId,
-            deploymentId: service.deploymentId,
-            contractId: request.contractId,
-            contractDigest: request.contractDigest,
-            activationError: activationError.message,
-          },
-        ),
-        202,
-      );
-    }
+    const capabilities = getRequiredServiceCapabilities(analysis, contract);
 
     const existingBindings = await deps.deploymentResourceBindingStorage
       .listByDeployment(service.deploymentId);

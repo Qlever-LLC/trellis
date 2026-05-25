@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
@@ -12,12 +11,10 @@ use trellis::contracts::{
 };
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
 use trellis::sdk::auth::types::{
-    AuthCatalogIssuesResolveRequest, AuthEnvelopeExpansionsApproveRequest,
-    AuthEnvelopeExpansionsListRequest, AuthEnvelopeExpansionsListResponseEntriesItem,
-    AuthEnvelopesExpandRequest, AuthEnvelopesGetRequest,
+    AuthEnvelopeExpansionsApproveRequest, AuthEnvelopeExpansionsListRequest,
+    AuthEnvelopeExpansionsListResponseEntriesItem, AuthEnvelopesExpandRequest,
+    AuthEnvelopesGetRequest,
 };
-use trellis::sdk::core::client::CoreClient;
-use trellis::sdk::core::types::TrellisCatalogResponseCatalogIssuesItem;
 use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError, ServiceRuntimeError};
 
 use crate::app::admin_setup_contract_json;
@@ -75,7 +72,6 @@ pub(crate) async fn run_optional_uses_fixture(
         .into_diagnostic()?;
     let auth_client = trellis::auth::AuthClient::new(&admin_client);
     let sdk_auth_client = SdkAuthClient::new(&admin_client);
-    let core_client = CoreClient::new(&admin_client);
 
     auth_client
         .create_service_deployment(CONSUMER_DEPLOYMENT_ID, vec!["harness".to_string()])
@@ -209,13 +205,7 @@ pub(crate) async fn run_optional_uses_fixture(
     abort_service_task(service_task).await;
     reconnect_result?;
 
-    run_required_dependency_closure_fixture(
-        trellis_url,
-        &auth_client,
-        &sdk_auth_client,
-        &core_client,
-    )
-    .await?;
+    run_required_dependency_closure_fixture(trellis_url, &auth_client, &sdk_auth_client).await?;
     run_cyclic_required_dependency_fixture(trellis_url, &auth_client, &sdk_auth_client).await?;
 
     Ok(PASSING_CASES)
@@ -225,7 +215,6 @@ async fn run_required_dependency_closure_fixture(
     trellis_url: &str,
     auth_client: &trellis::auth::AuthClient<'_>,
     sdk_auth_client: &SdkAuthClient<'_>,
-    core_client: &CoreClient<'_>,
 ) -> Result<()> {
     auth_client
         .create_service_deployment(REQUIRED_CONSUMER_DEPLOYMENT_ID, vec!["harness".to_string()])
@@ -345,14 +334,16 @@ async fn run_required_dependency_closure_fixture(
         "integration harness required dependency known inactive",
     )
     .await?;
-    assert_service_connect_fails(
+    let approved_consumer = connect_service(
         trellis_url,
         REQUIRED_CONSUMER_CONTRACT_ID,
         &active_consumer_contract_json,
         &required_consumer_digest,
         &consumer_seed,
+        30_000,
     )
     .await?;
+    drop(approved_consumer);
     auth_client
         .enable_service_deployment(REQUIRED_DEPLOYMENT_ID)
         .await
@@ -397,31 +388,7 @@ async fn run_required_dependency_closure_fixture(
         .map_err(|error| {
             miette!("failed to expand updated required dependency envelope: {error}")
         })?;
-    let forced_update_issue =
-        wait_for_forced_update_issue(core_client, REQUIRED_DEP_CONTRACT_ID, &dependency_digest)
-            .await?;
-    let resolved_update = sdk_auth_client
-        .rpc()
-        .auth()
-        .catalog_issues_resolve(&AuthCatalogIssuesResolveRequest {
-            issue_id: forced_update_issue.issue_id.clone(),
-            action: json!("force-replace"),
-        })
-        .await
-        .into_diagnostic()?;
-    if !resolved_update.success || resolved_update.deleted_evidence.is_empty() {
-        return Err(miette!(
-            "Auth.CatalogIssues.Resolve did not replace forced update {}",
-            forced_update_issue.issue_id
-        ));
-    }
-    wait_for_forced_update_clear(
-        core_client,
-        REQUIRED_DEP_CONTRACT_ID,
-        &updated_dependency_digest,
-    )
-    .await?;
-    assert_service_digest_connect_fails(
+    assert_service_digest_connects(
         trellis_url,
         REQUIRED_DEP_CONTRACT_ID,
         &dependency_digest,
@@ -474,33 +441,6 @@ async fn run_required_dependency_closure_fixture(
         sdk_auth_client,
         updated_consumer_requests,
         "integration harness same-id required dependency digest update",
-    )
-    .await?;
-    let consumer_update_issue = wait_for_forced_update_issue(
-        core_client,
-        REQUIRED_CONSUMER_CONTRACT_ID,
-        &required_consumer_digest,
-    )
-    .await?;
-    let resolved_consumer_update = sdk_auth_client
-        .rpc()
-        .auth()
-        .catalog_issues_resolve(&AuthCatalogIssuesResolveRequest {
-            issue_id: consumer_update_issue.issue_id.clone(),
-            action: json!("force-replace"),
-        })
-        .await
-        .into_diagnostic()?;
-    if !resolved_consumer_update.success || resolved_consumer_update.deleted_evidence.is_empty() {
-        return Err(miette!(
-            "Auth.CatalogIssues.Resolve did not replace forced update {}",
-            consumer_update_issue.issue_id
-        ));
-    }
-    wait_for_forced_update_clear(
-        core_client,
-        REQUIRED_CONSUMER_CONTRACT_ID,
-        &updated_consumer_digest,
     )
     .await?;
     let updated_consumer = connect_service(
@@ -813,27 +753,26 @@ async fn assert_service_connect_fails(
     Ok(())
 }
 
-async fn assert_service_digest_connect_fails(
+async fn assert_service_digest_connects(
     trellis_url: &str,
     contract_id: &str,
     contract_digest: &str,
     service_seed: &str,
 ) -> Result<()> {
-    if TrellisClient::connect_service(ServiceConnectOptions {
+    TrellisClient::connect_service(ServiceConnectOptions {
         trellis_url,
         contract_id,
         contract_digest,
         session_key_seed_base64url: service_seed,
-        timeout_ms: 1_000,
+        timeout_ms: 5_000,
     })
     .await
-    .is_ok()
-    {
-        return Err(miette!(
-            "service contract {contract_id} connected with inactive digest {contract_digest}"
-        ));
-    }
-    Ok(())
+    .map(|_| ())
+    .map_err(|error| {
+        miette!(
+            "service contract {contract_id} old digest {contract_digest} failed to reconnect after envelope-compatible update: {error}"
+        )
+    })
 }
 
 async fn wait_for_pending_delta(
@@ -891,87 +830,6 @@ async fn approve_requests(
             .into_diagnostic()?;
     }
     Ok(())
-}
-
-async fn wait_for_forced_update_issue(
-    core_client: &CoreClient<'_>,
-    contract_id: &str,
-    expected_effective_digest: &str,
-) -> Result<TrellisCatalogResponseCatalogIssuesItem> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let catalog = core_client
-            .rpc()
-            .trellis()
-            .catalog()
-            .await
-            .into_diagnostic()?;
-        let active_digest = catalog
-            .catalog
-            .contracts
-            .iter()
-            .find(|contract| contract.id == contract_id)
-            .map(|contract| contract.digest.as_str());
-        if active_digest != Some(expected_effective_digest) {
-            return Err(miette!(
-                "catalog effective digest for {contract_id} was {:?}, expected {expected_effective_digest}",
-                active_digest
-            ));
-        }
-        if let Some(issue) = catalog
-            .catalog
-            .issues
-            .unwrap_or_default()
-            .into_iter()
-            .find(|issue| issue.contract_id.as_deref() == Some(contract_id))
-        {
-            return Ok(issue);
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(miette!(
-                "timed out waiting for forced update issue for {contract_id}"
-            ));
-        }
-        tokio::time::sleep(Duration::from_millis(250)).await;
-    }
-}
-
-async fn wait_for_forced_update_clear(
-    core_client: &CoreClient<'_>,
-    contract_id: &str,
-    expected_active_digest: &str,
-) -> Result<()> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let catalog = core_client
-            .rpc()
-            .trellis()
-            .catalog()
-            .await
-            .into_diagnostic()?;
-        let active_digest = catalog
-            .catalog
-            .contracts
-            .iter()
-            .find(|contract| contract.id == contract_id)
-            .map(|contract| contract.digest.as_str());
-        let has_issue = catalog
-            .catalog
-            .issues
-            .unwrap_or_default()
-            .into_iter()
-            .any(|issue| issue.contract_id.as_deref() == Some(contract_id));
-        if active_digest == Some(expected_active_digest) && !has_issue {
-            return Ok(());
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(miette!(
-                "timed out waiting for forced update for {contract_id} to activate {expected_active_digest}; active digest was {:?}, issue present: {has_issue}",
-                active_digest
-            ));
-        }
-        tokio::time::sleep(Duration::from_millis(250)).await;
-    }
 }
 
 fn assert_required_unknown_delta_fails_closed(

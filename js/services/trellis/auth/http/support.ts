@@ -94,6 +94,7 @@ type ApprovalContracts =
     ContractsModule,
     | "getActiveContractsById"
     | "getActiveEntries"
+    | "getKnownEntriesByContractId"
     | "validateContract"
   >
   & {
@@ -419,6 +420,7 @@ export async function getApprovalResolution(
   const requestedBoundary = (await analyzeContractEnvelopeBoundary(
     contracts,
     pending.contract,
+    { dependencyResolution: "known" },
   )).required;
   const identityId = pending.identity.identityId;
   const userId = pending.userId;

@@ -405,6 +405,26 @@ export const DeploymentEnvelopeSchema = Type.Object({
 });
 export type DeploymentEnvelope = StaticDecode<typeof DeploymentEnvelopeSchema>;
 
+export const EnvelopeHistoryEntrySchema = Type.Object({
+  entryId: Type.String({ minLength: 1 }),
+  scopeKind: Type.Literal("deployment"),
+  scopeId: Type.String({ minLength: 1 }),
+  action: Type.Union([Type.Literal("expand"), Type.Literal("revoke")]),
+  delta: EnvelopeBoundarySchema,
+  resultingUpdatedAt: DurableIsoDateStringSchema,
+  actor: Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
+  reason: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  source: Type.Object({
+    contractId: Type.Optional(Type.String({ minLength: 1 })),
+    contractDigest: Type.Optional(Type.String({ minLength: 1 })),
+    requestId: Type.Optional(Type.String({ minLength: 1 })),
+  }),
+  createdAt: DurableIsoDateStringSchema,
+});
+export type EnvelopeHistoryEntry = StaticDecode<
+  typeof EnvelopeHistoryEntrySchema
+>;
+
 export const DeploymentPortalRouteSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   portalId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),

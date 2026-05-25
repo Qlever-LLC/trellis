@@ -21,6 +21,7 @@ import type {
   DeploymentResourceBinding,
   EnvelopeBoundary,
   EnvelopeExpansionRequest,
+  EnvelopeHistoryEntry,
   IdentityEnvelopeRecord,
   Session,
 } from "../schemas.ts";
@@ -71,6 +72,7 @@ class InMemoryDeploymentEnvelopeStorage {
     delta: EnvelopeBoundary;
     resourceBindings: DeploymentResourceBinding[];
     contractEvidence: DeploymentContractEvidence;
+    history?: EnvelopeHistoryEntry;
     request: { requestId: string; state: "approved" };
   }) => Promise<boolean>;
 
@@ -121,6 +123,15 @@ class InMemoryDeploymentEnvelopeStorage {
       (filters.kind === undefined || record.kind === filters.kind) &&
       (filters.disabled === undefined || record.disabled === filters.disabled)
     );
+  }
+}
+
+class InMemoryEnvelopeHistoryStorage {
+  records: EnvelopeHistoryEntry[] = [];
+
+  async put(record: EnvelopeHistoryEntry): Promise<void> {
+    await Promise.resolve();
+    this.records.push(record);
   }
 }
 
@@ -614,6 +625,7 @@ function makeDeps(options: {
   const resources = new InMemoryDeploymentResourceBindingStorage();
   const evidence = new InMemoryDeploymentContractEvidenceStorage();
   const contractStorage = new InMemoryContractStorage();
+  const history = new InMemoryEnvelopeHistoryStorage();
   const contracts = options.contracts ?? createTestContracts([{
     digest: "platform-digest",
     contract: dependencyContract(),
@@ -623,10 +635,12 @@ function makeDeps(options: {
     resources,
     evidence,
     contractStorage,
+    history,
     handler: createAuthEnvelopesExpandHandler({
       contracts,
       contractStorage,
       deploymentEnvelopeStorage: envelopes,
+      envelopeHistoryStorage: history,
       deploymentResourceBindingStorage: resources,
       deploymentContractEvidenceStorage: evidence,
       provisionResourceBindings: options.provisionResourceBindings
@@ -967,7 +981,7 @@ Deno.test("Auth.EnvelopeExpansions.List returns filtered expansion requests", as
 
 Deno.test("Auth.Envelopes.Expand expands modeled rows and stores evidence", async () => {
   const contract = serviceContract();
-  const { handler, envelopes, evidence, contractStorage } = makeDeps();
+  const { handler, envelopes, evidence, contractStorage, history } = makeDeps();
 
   const result = await handler({
     input: {
@@ -1000,6 +1014,19 @@ Deno.test("Auth.Envelopes.Expand expands modeled rows and stores evidence", asyn
     value.contractEvidence.contractDigest,
     digestContractManifest(contract),
   );
+  assertEquals(history.records.length, 1);
+  assertEquals(history.records[0]?.action, "expand");
+  assertEquals(history.records[0]?.scopeId, "billing.default");
+  assertEquals(history.records[0]?.delta, value.delta);
+  assertEquals(
+    history.records[0]?.resultingUpdatedAt,
+    value.envelope.updatedAt,
+  );
+  assertEquals(history.records[0]?.actor, { type: "user", id: "admin" });
+  assertEquals(history.records[0]?.source, {
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+  });
 });
 
 Deno.test("Auth.Envelopes.Expand resolves required dependency surfaces from known inactive contracts", async () => {
@@ -1756,6 +1783,7 @@ Deno.test("Auth.Envelopes.Shrink requires confirmation, revokes impacted session
   evidence.seed(makeEvidence(contract));
   const sessions = new InMemorySessionStorage();
   sessions.seed("session-key-1", makeServiceSession());
+  const history = new InMemoryEnvelopeHistoryStorage();
   const kicked: Array<{ serverId: string; clientId: number }> = [];
   const handler = createAuthEnvelopesShrinkHandler({
     contracts: createTestContracts([{
@@ -1766,6 +1794,7 @@ Deno.test("Auth.Envelopes.Shrink requires confirmation, revokes impacted session
       contract: dependencyContract(),
     }]),
     deploymentEnvelopeStorage: envelopes,
+    envelopeHistoryStorage: history,
     deploymentResourceBindingStorage: resources,
     deploymentContractEvidenceStorage: evidence,
     envelopeExpansionRequestStorage:
@@ -1813,4 +1842,24 @@ Deno.test("Auth.Envelopes.Shrink requires confirmation, revokes impacted session
   assertEquals((await evidence.listByDeployment("billing.default")).length, 1);
   assertEquals(sessions.deleted, ["session-key-1"]);
   assertEquals(kicked, [{ serverId: "server-a", clientId: 7 }]);
+  assertEquals(history.records.length, 1);
+  assertEquals(history.records[0]?.action, "revoke");
+  assertEquals(history.records[0]?.scopeId, "billing.default");
+  assertEquals(history.records[0]?.delta, {
+    contracts: [{ contractId: "acme.platform@v1", required: true }],
+    surfaces: [{
+      contractId: "acme.platform@v1",
+      kind: "rpc",
+      name: "Read",
+      action: "call",
+      required: true,
+    }],
+    capabilities: ["platform.read"],
+    resources: [{ kind: "kv", alias: "cache", required: true }],
+  });
+  assertEquals(
+    history.records[0]?.resultingUpdatedAt,
+    value.envelope.updatedAt,
+  );
+  assertEquals(history.records[0]?.actor, { type: "user", id: "admin" });
 });

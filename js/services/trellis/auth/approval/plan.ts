@@ -6,7 +6,8 @@ import type {
 } from "@qlever-llc/trellis/contracts";
 import type { ContractApprovalCapability } from "@qlever-llc/trellis/auth";
 import {
-  resolveContractUsesFromEntries,
+  type ContractEntry,
+  resolveContractUsesFromKnownEntries,
   sortUniqueStrings,
   templateToWildcard,
 } from "../../catalog/uses.ts";
@@ -24,6 +25,11 @@ export type UserContractApprovalPlan = {
   publishSubjects: string[];
   subscribeSubjects: string[];
 };
+
+type UserContractApprovalDeps = Pick<
+  ContractsModule,
+  "validateContract" | "getKnownEntriesByContractId"
+>;
 
 const TRANSFER_UPLOAD_SUBJECT = "transfer.v1.upload.*.*";
 const TRANSFER_DOWNLOAD_SUBJECT = "transfer.v1.download.*.*";
@@ -46,13 +52,32 @@ function approvalCapabilitiesObject(
   return result;
 }
 
+async function getKnownDependencyEntries(
+  contracts: Pick<ContractsModule, "getKnownEntriesByContractId">,
+  contract: TrellisContractV1,
+): Promise<ContractEntry[]> {
+  const dependencyIds = sortUniqueStrings([
+    ...Object.values(contract.uses?.required ?? {}).map((use) => use.contract),
+    ...Object.values(contract.uses?.optional ?? {}).map((use) => use.contract),
+  ]);
+  const entriesByDigest = new Map<string, ContractEntry>();
+  for (const contractId of dependencyIds) {
+    for (
+      const entry of await contracts.getKnownEntriesByContractId(contractId)
+    ) {
+      entriesByDigest.set(entry.digest, entry);
+    }
+  }
+  return [...entriesByDigest.values()];
+}
+
 export async function planUserContractApproval(
-  contracts: Pick<ContractsModule, "validateContract" | "getActiveEntries">,
+  contracts: UserContractApprovalDeps,
   rawContract: unknown,
 ): Promise<UserContractApprovalPlan> {
   const validated = await contracts.validateContract(rawContract);
-  const uses = resolveContractUsesFromEntries(
-    await contracts.getActiveEntries(),
+  const uses = resolveContractUsesFromKnownEntries(
+    await getKnownDependencyEntries(contracts, validated.contract),
     validated.contract,
   );
   if (

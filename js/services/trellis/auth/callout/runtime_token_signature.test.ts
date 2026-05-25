@@ -34,6 +34,99 @@ const SERVICE_CONTRACT: TrellisContractV1 = {
   },
 };
 
+const DEPENDENCY_CONTRACT: TrellisContractV1 = {
+  format: "trellis.contract.v1",
+  id: "trellis.dependency@v1",
+  displayName: "Dependency",
+  description: "Dependency service",
+  kind: "service",
+  schemas: { Empty: { type: "object" } },
+  rpc: {
+    "Dependency.Read": {
+      version: "v1",
+      subject: "rpc.v1.Dependency.Read",
+      input: { schema: "Empty" },
+      output: { schema: "Empty" },
+      capabilities: { call: ["dependency.read"] },
+    },
+  },
+};
+
+const SECOND_DEPENDENCY_CONTRACT: TrellisContractV1 = {
+  format: "trellis.contract.v1",
+  id: "trellis.second-dependency@v1",
+  displayName: "Second Dependency",
+  description: "Second dependency service",
+  kind: "service",
+  schemas: { Empty: { type: "object" } },
+  rpc: {
+    "SecondDependency.Read": {
+      version: "v1",
+      subject: "rpc.v1.SecondDependency.Read",
+      input: { schema: "Empty" },
+      output: { schema: "Empty" },
+      capabilities: { call: ["second-dependency.read"] },
+    },
+  },
+};
+
+function incompatibleServiceContract(): TrellisContractV1 {
+  return {
+    ...SERVICE_CONTRACT,
+    schemas: { Empty: { type: "string" } },
+  };
+}
+
+function serviceUsingDependencyContract(): TrellisContractV1 {
+  return {
+    ...SERVICE_CONTRACT,
+    uses: {
+      required: {
+        dependency: {
+          contract: DEPENDENCY_CONTRACT.id,
+          rpc: { call: ["Dependency.Read"] },
+        },
+      },
+    },
+  };
+}
+
+function serviceUsingTwoDependencyContracts(): TrellisContractV1 {
+  return {
+    ...SERVICE_CONTRACT,
+    uses: {
+      required: {
+        dependency: {
+          contract: DEPENDENCY_CONTRACT.id,
+          rpc: { call: ["Dependency.Read"] },
+        },
+        secondDependency: {
+          contract: SECOND_DEPENDENCY_CONTRACT.id,
+          rpc: { call: ["SecondDependency.Read"] },
+        },
+      },
+    },
+  };
+}
+
+function staleDependencyContract(): TrellisContractV1 {
+  return {
+    ...DEPENDENCY_CONTRACT,
+    schemas: {
+      Empty: { type: "object", properties: { stale: { type: "string" } } },
+    },
+    rpc: {
+      "Dependency.Read": {
+        version: "v1",
+        subject: "rpc.v1.Dependency.LegacyRead",
+        input: { schema: "Empty" },
+        output: { schema: "Empty" },
+        capabilities: { call: ["dependency.legacy"] },
+      },
+    },
+  };
+}
+
 let currentContracts: Array<{ digest: string; contract: TrellisContractV1 }> =
   [];
 
@@ -145,20 +238,40 @@ function makeContractRecord(args: {
 
 async function serviceDigestCheck(args: {
   presentedContractDigest?: string;
+  presentedContract?: TrellisContractV1;
   currentContractDigest?: string;
   currentContractId?: string;
   envelope?: DeploymentEnvelope | null;
   contractStorageMiss?: boolean;
   moduleContractKnown?: boolean;
+  knownContracts?: Array<{ digest: string; contract: TrellisContractV1 }>;
+  activeContracts?: Array<{ digest: string; contract: TrellisContractV1 }>;
   deploymentEvidenceExists?: boolean;
+  contractCompatibilityMode?: "strict" | "mutable-dev";
 }) {
   const contracts = createTestContracts();
   const validated = await contracts.validateContract(SERVICE_CONTRACT);
-  if (args.moduleContractKnown) {
+  if (!args.contractStorageMiss) {
     contracts.addKnownTestContract({
       digest: validated.digest,
       contract: SERVICE_CONTRACT,
     });
+  }
+  const presentedContract = args.presentedContract ?? SERVICE_CONTRACT;
+  const validatedPresented = await contracts.validateContract(
+    presentedContract,
+  );
+  if (args.moduleContractKnown) {
+    contracts.addKnownTestContract({
+      digest: validatedPresented.digest,
+      contract: presentedContract,
+    });
+  }
+  for (const entry of args.knownContracts ?? []) {
+    contracts.addKnownTestContract(entry);
+  }
+  for (const entry of args.activeContracts ?? []) {
+    contracts.activateTestContract(entry);
   }
   const currentContractDigest = args.currentContractDigest ?? validated.digest;
   const presentedContractDigest = "presentedContractDigest" in args
@@ -172,33 +285,40 @@ async function serviceDigestCheck(args: {
     },
     deployment: {
       deploymentId: "worker.default",
+      contractCompatibilityMode: args.contractCompatibilityMode ?? "strict",
     },
     contractStorage: {
-      get: async (digest: string) =>
-        !args.contractStorageMiss && digest === validated.digest
-          ? makeContractRecord({ digest, contract: SERVICE_CONTRACT })
-          : undefined,
+      get: (digest: string) =>
+        Promise.resolve(
+          !args.contractStorageMiss && digest === validatedPresented.digest
+            ? makeContractRecord({ digest, contract: presentedContract })
+            : undefined,
+        ),
     },
     deploymentContractEvidenceStorage: {
-      get: async (deploymentId: string, digest: string) =>
-        args.deploymentEvidenceExists && deploymentId === "worker.default" &&
-          digest === validated.digest
-          ? {
-            deploymentId,
-            contractId: SERVICE_CONTRACT.id,
-            contractDigest: digest,
-            contract: SERVICE_CONTRACT,
-            firstSeenAt: "2026-01-01T00:00:00.000Z",
-            lastSeenAt: "2026-01-01T00:00:00.000Z",
-          }
-          : undefined,
+      get: (deploymentId: string, digest: string) =>
+        Promise.resolve(
+          args.deploymentEvidenceExists && deploymentId === "worker.default" &&
+            digest === validated.digest
+            ? {
+              deploymentId,
+              contractId: SERVICE_CONTRACT.id,
+              contractDigest: digest,
+              contract: SERVICE_CONTRACT,
+              firstSeenAt: "2026-01-01T00:00:00.000Z",
+              lastSeenAt: "2026-01-01T00:00:00.000Z",
+            }
+            : undefined,
+        ),
     },
     contracts,
     deploymentEnvelopeStorage: {
-      get: async () =>
-        args.envelope === undefined
-          ? FITTING_SERVICE_ENVELOPE
-          : args.envelope ?? undefined,
+      get: () =>
+        Promise.resolve(
+          args.envelope === undefined
+            ? FITTING_SERVICE_ENVELOPE
+            : args.envelope ?? undefined,
+        ),
     },
   };
   return await __testing__.validateServiceRuntimeDigest(digestCheckInput);
@@ -252,7 +372,54 @@ Deno.test("auth callout rejects device token digest tampering via signature", as
 Deno.test("auth callout accepts service reconnect when current digest fits the deployment envelope", async () => {
   const result = await serviceDigestCheck({});
 
-  assertEquals(result, { ok: true, value: undefined });
+  assertEquals(result.ok, true);
+});
+
+Deno.test("auth callout accepts service reconnect when presented contract id fits despite digest change", async () => {
+  const contracts = createTestContracts();
+  const updatedContract: TrellisContractV1 = {
+    ...SERVICE_CONTRACT,
+    capabilities: {
+      "worker.run": {
+        displayName: "Run worker",
+        description: "Call worker RPCs.",
+      },
+    },
+  };
+  const validatedUpdated = await contracts.validateContract(updatedContract);
+  const result = await serviceDigestCheck({
+    presentedContractDigest: validatedUpdated.digest,
+    presentedContract: updatedContract,
+  });
+
+  assertEquals(result.ok, true);
+});
+
+Deno.test("auth callout rejects incompatible same-contract digest replacement in strict mode", async () => {
+  const contracts = createTestContracts();
+  const replacement = await contracts.validateContract(
+    incompatibleServiceContract(),
+  );
+  const result = await serviceDigestCheck({
+    presentedContractDigest: replacement.digest,
+    presentedContract: replacement.contract,
+  });
+
+  assertEquals(result, { ok: false, denial: "contract_changed" });
+});
+
+Deno.test("auth callout accepts incompatible same-contract digest replacement in mutable-dev mode", async () => {
+  const contracts = createTestContracts();
+  const replacement = await contracts.validateContract(
+    incompatibleServiceContract(),
+  );
+  const result = await serviceDigestCheck({
+    presentedContractDigest: replacement.digest,
+    presentedContract: replacement.contract,
+    contractCompatibilityMode: "mutable-dev",
+  });
+
+  assertEquals(result.ok, true);
 });
 
 Deno.test("auth callout accepts service reconnect using known contract module fallback", async () => {
@@ -261,7 +428,214 @@ Deno.test("auth callout accepts service reconnect using known contract module fa
     moduleContractKnown: true,
   });
 
-  assertEquals(result, { ok: true, value: undefined });
+  assertEquals(result.ok, true);
+});
+
+Deno.test("auth callout accepts service reconnect when known dependency metadata fits envelope", async () => {
+  const contracts = createTestContracts();
+  const dependency = await contracts.validateContract(DEPENDENCY_CONTRACT);
+  const service = await contracts.validateContract(
+    serviceUsingDependencyContract(),
+  );
+
+  const result = await serviceDigestCheck({
+    presentedContractDigest: service.digest,
+    presentedContract: service.contract,
+    knownContracts: [{
+      digest: dependency.digest,
+      contract: dependency.contract,
+    }],
+    envelope: {
+      ...FITTING_SERVICE_ENVELOPE,
+      boundary: {
+        contracts: [
+          { contractId: SERVICE_CONTRACT.id, required: true },
+          { contractId: DEPENDENCY_CONTRACT.id, required: true },
+        ],
+        surfaces: [
+          ...FITTING_SERVICE_ENVELOPE.boundary.surfaces,
+          {
+            contractId: DEPENDENCY_CONTRACT.id,
+            kind: "rpc",
+            name: "Dependency.Read",
+            action: "call",
+            required: true,
+          },
+        ],
+        capabilities: ["dependency.read"],
+        resources: [],
+      },
+    },
+  });
+
+  assertEquals(result.ok, true);
+});
+
+Deno.test("auth callout accepts service reconnect when multiple known dependencies resolve together", async () => {
+  const contracts = createTestContracts();
+  const dependency = await contracts.validateContract(DEPENDENCY_CONTRACT);
+  const secondDependency = await contracts.validateContract(
+    SECOND_DEPENDENCY_CONTRACT,
+  );
+  const service = await contracts.validateContract(
+    serviceUsingTwoDependencyContracts(),
+  );
+
+  const result = await serviceDigestCheck({
+    presentedContractDigest: service.digest,
+    presentedContract: service.contract,
+    knownContracts: [
+      {
+        digest: dependency.digest,
+        contract: dependency.contract,
+      },
+      {
+        digest: secondDependency.digest,
+        contract: secondDependency.contract,
+      },
+    ],
+    envelope: {
+      ...FITTING_SERVICE_ENVELOPE,
+      boundary: {
+        contracts: [
+          { contractId: SERVICE_CONTRACT.id, required: true },
+          { contractId: DEPENDENCY_CONTRACT.id, required: true },
+          { contractId: SECOND_DEPENDENCY_CONTRACT.id, required: true },
+        ],
+        surfaces: [
+          ...FITTING_SERVICE_ENVELOPE.boundary.surfaces,
+          {
+            contractId: DEPENDENCY_CONTRACT.id,
+            kind: "rpc",
+            name: "Dependency.Read",
+            action: "call",
+            required: true,
+          },
+          {
+            contractId: SECOND_DEPENDENCY_CONTRACT.id,
+            kind: "rpc",
+            name: "SecondDependency.Read",
+            action: "call",
+            required: true,
+          },
+        ],
+        capabilities: ["dependency.read", "second-dependency.read"],
+        resources: [],
+      },
+    },
+  });
+
+  assertEquals(result.ok, true);
+});
+
+Deno.test("auth callout ignores stale incompatible dependency manifests when active dependency resolves", async () => {
+  const contracts = createTestContracts();
+  const staleDependency = await contracts.validateContract(
+    staleDependencyContract(),
+  );
+  const dependency = await contracts.validateContract(DEPENDENCY_CONTRACT);
+  const service = await contracts.validateContract(
+    serviceUsingDependencyContract(),
+  );
+
+  const result = await serviceDigestCheck({
+    presentedContractDigest: service.digest,
+    presentedContract: service.contract,
+    knownContracts: [{
+      digest: staleDependency.digest,
+      contract: staleDependency.contract,
+    }],
+    activeContracts: [{
+      digest: dependency.digest,
+      contract: dependency.contract,
+    }],
+    envelope: {
+      ...FITTING_SERVICE_ENVELOPE,
+      boundary: {
+        contracts: [
+          { contractId: SERVICE_CONTRACT.id, required: true },
+          { contractId: DEPENDENCY_CONTRACT.id, required: true },
+        ],
+        surfaces: [
+          ...FITTING_SERVICE_ENVELOPE.boundary.surfaces,
+          {
+            contractId: DEPENDENCY_CONTRACT.id,
+            kind: "rpc",
+            name: "Dependency.Read",
+            action: "call",
+            required: true,
+          },
+        ],
+        capabilities: ["dependency.read"],
+        resources: [],
+      },
+    },
+  });
+
+  assertEquals(result.ok, true);
+});
+
+Deno.test("service runtime permission dependencies ignore stale incompatible known manifests", async () => {
+  const contracts = createTestContracts();
+  const staleDependency = await contracts.validateContract(
+    staleDependencyContract(),
+  );
+  const dependency = await contracts.validateContract(DEPENDENCY_CONTRACT);
+  const service = await contracts.validateContract(
+    serviceUsingDependencyContract(),
+  );
+  contracts.activateTestContract({
+    digest: dependency.digest,
+    contract: dependency.contract,
+  });
+  contracts.addKnownTestContract({
+    digest: staleDependency.digest,
+    contract: staleDependency.contract,
+  });
+
+  const entries = await __testing__.withKnownDependencyEntries(contracts, [
+    ...(await contracts.getActiveEntries()),
+    { digest: service.digest, contract: service.contract },
+  ]);
+  assertEquals(entries.ok, true);
+  if (!entries.ok) return;
+
+  const subjects = getServicePublishSubjectsForContracts(
+    ["service", "dependency.read", "dependency.legacy"],
+    {
+      sessionKey: "service-key",
+      contractDigest: service.digest,
+      envelopeBoundary: {
+        contracts: [{ contractId: DEPENDENCY_CONTRACT.id, required: true }],
+        surfaces: [{
+          contractId: DEPENDENCY_CONTRACT.id,
+          kind: "rpc",
+          name: "Dependency.Read",
+          action: "call",
+          required: true,
+        }],
+        capabilities: ["dependency.read"],
+        resources: [],
+      },
+    },
+    entries.value,
+  );
+
+  assertEquals(subjects.includes("rpc.v1.Dependency.Read"), true);
+  assertEquals(subjects.includes("rpc.v1.Dependency.LegacyRead"), false);
+});
+
+Deno.test("service runtime permission dependency misses deny cleanly", async () => {
+  const contracts = createTestContracts();
+  const service = await contracts.validateContract(
+    serviceUsingDependencyContract(),
+  );
+
+  const entries = await __testing__.withKnownDependencyEntries(contracts, [
+    { digest: service.digest, contract: service.contract },
+  ]);
+
+  assertEquals(entries, { ok: false, denial: "insufficient_permissions" });
 });
 
 Deno.test("auth callout rejects service reconnect when global storage misses even if evidence exists", async () => {
@@ -290,7 +664,7 @@ Deno.test("auth callout rejects service reconnect when deployment envelope is mi
   );
 });
 
-Deno.test("auth callout still rejects missing or stale service digests", async () => {
+Deno.test("auth callout still rejects missing or unknown service digests", async () => {
   assertEquals(
     await serviceDigestCheck({ presentedContractDigest: undefined }),
     { ok: false, denial: "invalid_auth_token" },

@@ -36,39 +36,6 @@ export type ActiveCatalogRecordSet = {
   deploymentContractEvidence: Iterable<ActiveDeploymentContractEvidenceRecord>;
 };
 
-/** Adds all deployment evidence digests for active deployments to the active set. */
-export function addDeploymentEvidenceDigests<
-  T extends ActiveDeploymentEnvelopeRecord,
->(
-  active: Set<string>,
-  deployments: Iterable<T>,
-  evidence: Iterable<ActiveDeploymentContractEvidenceRecord>,
-  isActive: (record: T) => boolean,
-  ignoredContractIds: Set<string> = new Set(),
-): void {
-  const activeContractsByDeployment = new Map<string, Set<string>>();
-  for (const deployment of deployments) {
-    if (!isActive(deployment)) continue;
-    activeContractsByDeployment.set(
-      deployment.deploymentId,
-      new Set([
-        ...deployment.boundary.contracts.map((contract) => contract.contractId),
-        ...deployment.boundary.surfaces.map((surface) => surface.contractId),
-      ]),
-    );
-  }
-  for (const record of evidence) {
-    if (record.ignoredAt) continue;
-    if (ignoredContractIds.has(record.contractId)) continue;
-    if (
-      !activeContractsByDeployment.get(record.deploymentId)?.has(
-        record.contractId,
-      )
-    ) continue;
-    active.add(record.contractDigest);
-  }
-}
-
 /** Returns persisted records with staged records overlaid by key. */
 export function overlayStagedRecords<T>(
   records: Iterable<T>,
@@ -87,15 +54,6 @@ export function collectActiveContractDigests(
 ): Set<string> {
   const active = new Set<string>();
   for (const digest of records.builtinDigests) active.add(digest);
-  const builtinContractIds = new Set(records.builtinContractIds ?? []);
-
-  addDeploymentEvidenceDigests(
-    active,
-    records.deploymentEnvelopes,
-    records.deploymentContractEvidence,
-    (deployment) => !deployment.disabled,
-    builtinContractIds,
-  );
 
   return active;
 }

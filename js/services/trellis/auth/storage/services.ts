@@ -29,6 +29,7 @@ function decodeServiceDeploymentRow(
   return Value.Decode(ServiceDeploymentSchema, {
     deploymentId: row.deploymentId,
     namespaces: parseJsonField("service deployment namespaces", row.namespaces),
+    contractCompatibilityMode: row.contractCompatibilityMode,
     disabled: row.disabled,
   });
 }
@@ -39,6 +40,7 @@ function encodeServiceDeploymentRecord(
   return {
     deploymentId: record.deploymentId,
     namespaces: JSON.stringify(record.namespaces),
+    contractCompatibilityMode: record.contractCompatibilityMode ?? "strict",
     disabled: record.disabled,
   };
 }
@@ -108,6 +110,7 @@ export class SqlServiceDeploymentRepository {
       target: serviceDeployments.deploymentId,
       set: {
         namespaces: row.namespaces,
+        contractCompatibilityMode: row.contractCompatibilityMode,
         disabled: row.disabled,
       },
     });

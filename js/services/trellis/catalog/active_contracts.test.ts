@@ -2,7 +2,6 @@ import { assertEquals } from "@std/assert";
 
 import {
   type ActiveDeploymentEnvelopeRecord,
-  addDeploymentEvidenceDigests,
   collectActiveContractDigests,
   overlayStagedRecords,
 } from "./active_contracts.ts";
@@ -21,65 +20,6 @@ function envelope(
     },
   };
 }
-
-Deno.test("addDeploymentEvidenceDigests includes every active deployment evidence digest", () => {
-  const active = new Set<string>(["builtin"]);
-
-  addDeploymentEvidenceDigests(
-    active,
-    [
-      envelope("service.enabled", ["service-a@v1", "service-b@v1"]),
-      envelope("service.disabled", ["service-c@v1"], true),
-      envelope("service.empty", []),
-    ],
-    [
-      {
-        deploymentId: "service.enabled",
-        contractId: "service-a@v1",
-        contractDigest: "digest-a",
-      },
-      {
-        deploymentId: "service.enabled",
-        contractId: "service-b@v1",
-        contractDigest: "digest-b",
-      },
-      {
-        deploymentId: "service.disabled",
-        contractId: "service-c@v1",
-        contractDigest: "digest-c",
-      },
-    ],
-    (deployment) => !deployment.disabled,
-  );
-
-  assertEquals([...active].sort(), ["builtin", "digest-a", "digest-b"]);
-});
-
-Deno.test("addDeploymentEvidenceDigests includes concurrent digests for each deployment contract", () => {
-  const active = new Set<string>();
-
-  addDeploymentEvidenceDigests(
-    active,
-    [envelope("service.enabled", ["service@v1"])],
-    [
-      {
-        deploymentId: "service.enabled",
-        contractId: "service@v1",
-        contractDigest: "old-digest",
-        lastSeenAt: "2026-05-01T00:00:00.000Z",
-      },
-      {
-        deploymentId: "service.enabled",
-        contractId: "service@v1",
-        contractDigest: "new-digest",
-        lastSeenAt: "2026-05-02T00:00:00.000Z",
-      },
-    ],
-    (deployment) => !deployment.disabled,
-  );
-
-  assertEquals([...active].sort(), ["new-digest", "old-digest"]);
-});
 
 Deno.test("overlayStagedRecords replaces persisted records by key", () => {
   const records = overlayStagedRecords(
@@ -101,7 +41,7 @@ Deno.test("overlayStagedRecords replaces persisted records by key", () => {
   ]);
 });
 
-Deno.test("collectActiveContractDigests builds candidate active set", () => {
+Deno.test("collectActiveContractDigests keeps builtins active", () => {
   const active = collectActiveContractDigests({
     builtinDigests: ["builtin"],
     builtinContractIds: ["trellis.core@v1"],
@@ -129,14 +69,10 @@ Deno.test("collectActiveContractDigests builds candidate active set", () => {
     ],
   });
 
-  assertEquals([...active].sort(), [
-    "builtin",
-    "device-digest",
-    "service-digest",
-  ]);
+  assertEquals([...active], ["builtin"]);
 });
 
-Deno.test("collectActiveContractDigests includes enabled service deployment evidence without instances", () => {
+Deno.test("collectActiveContractDigests ignores enabled deployment evidence", () => {
   const active = collectActiveContractDigests({
     builtinDigests: [],
     deploymentEnvelopes: [envelope("service.enabled", ["service@v1"])],
@@ -147,7 +83,7 @@ Deno.test("collectActiveContractDigests includes enabled service deployment evid
     }],
   });
 
-  assertEquals([...active], ["service-digest"]);
+  assertEquals([...active], []);
 });
 
 Deno.test("collectActiveContractDigests excludes disabled service deployment evidence", () => {
@@ -164,7 +100,7 @@ Deno.test("collectActiveContractDigests excludes disabled service deployment evi
   assertEquals([...active], []);
 });
 
-Deno.test("collectActiveContractDigests skips deployment evidence for built-in lineages", () => {
+Deno.test("collectActiveContractDigests ignores non-builtin evidence while preserving builtin digests", () => {
   const active = collectActiveContractDigests({
     builtinDigests: ["builtin-current"],
     builtinContractIds: ["trellis.jobs@v1"],
@@ -185,5 +121,5 @@ Deno.test("collectActiveContractDigests skips deployment evidence for built-in l
     ],
   });
 
-  assertEquals([...active].sort(), ["app-digest", "builtin-current"]);
+  assertEquals([...active], ["builtin-current"]);
 });

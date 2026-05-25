@@ -6,6 +6,7 @@ import {
   NatsAuthTokenV1Schema,
   trellisIdFromOriginId,
 } from "@qlever-llc/trellis/auth";
+import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { AsyncResult, isErr } from "@qlever-llc/result";
 import type { StaticDecode } from "typebox";
 import { Value } from "typebox/value";
@@ -31,12 +32,16 @@ import {
   getUserSubscribeSubjectsForContracts,
 } from "../../catalog/permissions.ts";
 import {
+  ContractUseDependencyError,
+  resolveContractUsesFromEntries,
+  validateActiveContractCompatibility,
+} from "../../catalog/uses.ts";
+import {
   deriveDeviceRuntimeAccess,
   type DeviceRuntimeAccess,
   type DeviceRuntimeAccessDenialReason,
 } from "../device_activation/runtime_access.ts";
 import type {
-  Connection,
   DeviceActivationRecordSchema,
   DeviceDeploymentSchema,
   DeviceSchema,
@@ -55,7 +60,6 @@ import {
 } from "../nats_schemas.ts";
 import { resolveSessionPrincipal } from "../session/principal.ts";
 import {
-  connectionFilterForSession,
   connectionFilterForUserNkey,
   connectionKey,
   parseConnectionKey,
@@ -81,9 +85,13 @@ type ParsedNatsAuthToken = StaticDecode<typeof NatsAuthTokenV1Schema>;
 type CalloutContractDeps = Pick<
   ContractsModule,
   | "getActiveEntries"
+  | "getContract"
+  | "getKnownEntriesByContractId"
   | "getKnownContract"
   | "validateContract"
 >;
+type RuntimeContractEntry = { digest: string; contract: TrellisContractV1 };
+type ServiceRuntimeContract = { contractId: string; contractDigest: string };
 type AuthCalloutDenialCode =
   | "auth_token_required"
   | "invalid_auth_token"
@@ -113,6 +121,12 @@ type AuthCalloutStageResult<T> =
   | { ok: true; value: T }
   | { ok: false; denial: AuthCalloutDenialCode };
 
+type SerializedErrorDetails = {
+  err?: Error;
+  errorMessage: string;
+  errorName?: string;
+};
+
 type DecodedAuthCalloutRequest = {
   serverXkey: string;
   serverName: string;
@@ -136,6 +150,17 @@ function stageDeny<T>(
   denial: AuthCalloutDenialCode,
 ): AuthCalloutStageResult<T> {
   return { ok: false, denial };
+}
+
+function serializedErrorDetails(error: unknown): SerializedErrorDetails {
+  if (error instanceof Error) {
+    return {
+      err: error,
+      errorMessage: error.message,
+      errorName: error.name,
+    };
+  }
+  return { errorMessage: String(error) };
 }
 
 const AUTH_CALLOUT_DRAIN_TIMEOUT_MS = 5_000;
@@ -276,6 +301,149 @@ function mergeBoundaries(...boundaries: EnvelopeBoundary[]): EnvelopeBoundary {
   });
 }
 
+function dependencyContractIds(contract: TrellisContractV1): string[] {
+  const ids = new Set<string>();
+  for (const group of [contract.uses?.required, contract.uses?.optional]) {
+    for (const use of Object.values(group ?? {})) ids.add(use.contract);
+  }
+  return [...ids].sort((left, right) => left.localeCompare(right));
+}
+
+function canResolveKnownDependencyEntries(
+  entries: RuntimeContractEntry[],
+  contract: TrellisContractV1,
+): boolean {
+  try {
+    validateActiveContractCompatibility(entries);
+    resolveContractUsesFromEntries(entries, contract);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function searchKnownDependencyEntries(args: {
+  contract: TrellisContractV1;
+  dependencyIds: string[];
+  candidatesByContractId: Map<string, RuntimeContractEntry[]>;
+  dependencyIndex: number;
+  selected: Map<string, RuntimeContractEntry>;
+}): Map<string, RuntimeContractEntry> | null {
+  if (
+    canResolveKnownDependencyEntries([...args.selected.values()], args.contract)
+  ) {
+    return args.selected;
+  }
+  if (args.dependencyIndex >= args.dependencyIds.length) return null;
+
+  const withoutCandidate = searchKnownDependencyEntries({
+    ...args,
+    dependencyIndex: args.dependencyIndex + 1,
+  });
+  if (withoutCandidate) return withoutCandidate;
+
+  const contractId = args.dependencyIds[args.dependencyIndex]!;
+  for (const candidate of args.candidatesByContractId.get(contractId) ?? []) {
+    if (args.selected.has(candidate.digest)) continue;
+    const next = new Map(args.selected);
+    next.set(candidate.digest, candidate);
+    try {
+      validateActiveContractCompatibility([...next.values()]);
+    } catch {
+      continue;
+    }
+    const resolved = searchKnownDependencyEntries({
+      ...args,
+      dependencyIndex: args.dependencyIndex + 1,
+      selected: next,
+    });
+    if (resolved) return resolved;
+  }
+  return null;
+}
+
+async function withKnownDependencyEntries(
+  contracts: CalloutContractDeps,
+  entries: RuntimeContractEntry[],
+): Promise<AuthCalloutStageResult<RuntimeContractEntry[]>> {
+  const byDigest = new Map(entries.map((entry) => [entry.digest, entry]));
+  const pending = [...entries].sort((left, right) =>
+    left.digest.localeCompare(right.digest)
+  );
+  for (const entry of pending) {
+    if (
+      canResolveKnownDependencyEntries([...byDigest.values()], entry.contract)
+    ) {
+      continue;
+    }
+
+    const dependencyIds = dependencyContractIds(entry.contract);
+    const candidatesByContractId = new Map<string, RuntimeContractEntry[]>();
+    for (const contractId of dependencyIds) {
+      const candidates = (await contracts.getKnownEntriesByContractId(
+        contractId,
+      )).sort((left, right) => left.digest.localeCompare(right.digest));
+      candidatesByContractId.set(contractId, candidates);
+    }
+
+    const resolved = searchKnownDependencyEntries({
+      contract: entry.contract,
+      dependencyIds,
+      candidatesByContractId,
+      dependencyIndex: 0,
+      selected: byDigest,
+    });
+    if (!resolved) {
+      return stageDeny("insufficient_permissions");
+    }
+    byDigest.clear();
+    for (const [digest, selectedEntry] of resolved.entries()) {
+      byDigest.set(digest, selectedEntry);
+    }
+  }
+  return stageOk(
+    [...byDigest.values()].sort((left, right) =>
+      left.digest.localeCompare(right.digest)
+    ),
+  );
+}
+
+async function serviceContractCompatibilityError(input: {
+  contracts: CalloutContractDeps;
+  deployment: Pick<
+    AdminServiceDeployment,
+    "contractCompatibilityMode"
+  >;
+  service: Pick<
+    AdminServiceInstance,
+    "currentContractId" | "currentContractDigest"
+  >;
+  presentedDigest: string;
+  presentedContract: TrellisContractV1;
+}): Promise<string | null> {
+  if (input.deployment.contractCompatibilityMode === "mutable-dev") return null;
+  const currentDigest = input.service.currentContractDigest;
+  if (
+    !currentDigest || currentDigest === input.presentedDigest ||
+    input.service.currentContractId !== input.presentedContract.id
+  ) {
+    return null;
+  }
+  const currentContract = await input.contracts.getContract(currentDigest, {
+    includeInactive: true,
+  });
+  if (!currentContract) return "previous_contract_unknown";
+  try {
+    validateActiveContractCompatibility([
+      { digest: currentDigest, contract: currentContract },
+      { digest: input.presentedDigest, contract: input.presentedContract },
+    ]);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 async function findDeviceInstanceByIdentityKey(
   deps: Pick<DeviceRuntimeGrantDeps, "deviceInstanceStorage">,
   publicIdentityKey: string,
@@ -360,6 +528,7 @@ async function resolveDeviceRuntimeGrant(
   const analysis = await analyzeContractEnvelopeBoundary(
     contracts,
     contract,
+    { dependencyResolution: "known" },
   );
   const requestedBoundary = mergeBoundaries(
     analysis.required,
@@ -417,11 +586,14 @@ async function validateServiceRuntimeDigest(args: {
     AdminServiceInstance,
     "currentContractId" | "currentContractDigest"
   >;
-  deployment: Pick<AdminServiceDeployment, "deploymentId">;
+  deployment: Pick<
+    AdminServiceDeployment,
+    "deploymentId" | "contractCompatibilityMode"
+  >;
   contractStorage: Pick<SqlContractStorageRepository, "get">;
   contracts: CalloutContractDeps;
   deploymentEnvelopeStorage: Pick<SqlDeploymentEnvelopeRepository, "get">;
-}): Promise<AuthCalloutStageResult<void>> {
+}): Promise<AuthCalloutStageResult<ServiceRuntimeContract>> {
   const presentedContractDigest = args.presentedContractDigest;
   if (
     typeof presentedContractDigest !== "string" ||
@@ -430,32 +602,33 @@ async function validateServiceRuntimeDigest(args: {
     return stageDeny("invalid_auth_token");
   }
 
-  const currentContractDigest = args.service.currentContractDigest;
   const currentContractId = args.service.currentContractId;
-  if (
-    typeof currentContractDigest !== "string" ||
-    currentContractDigest.length === 0 ||
-    typeof currentContractId !== "string" ||
-    currentContractId.length === 0 ||
-    presentedContractDigest !== currentContractDigest
-  ) {
-    return stageDeny("contract_changed");
-  }
 
   const contractRecord = await args.contractStorage.get(
     presentedContractDigest,
   );
-  let contract: unknown;
+  let contract: TrellisContractV1;
   if (contractRecord) {
-    if (contractRecord.id !== currentContractId) {
+    if (
+      typeof currentContractId === "string" &&
+      currentContractId.length > 0 &&
+      contractRecord.id !== currentContractId
+    ) {
       return stageDeny("contract_changed");
     }
-    contract = JSON.parse(contractRecord.contract);
+    contract = JSON.parse(contractRecord.contract) as TrellisContractV1;
   } else {
     const knownContract = await args.contracts.getKnownContract(
       presentedContractDigest,
     );
-    if (!knownContract || knownContract.id !== currentContractId) {
+    if (!knownContract) {
+      return stageDeny("contract_changed");
+    }
+    if (
+      typeof currentContractId === "string" &&
+      currentContractId.length > 0 &&
+      knownContract.id !== currentContractId
+    ) {
       return stageDeny("contract_changed");
     }
     contract = knownContract;
@@ -467,24 +640,60 @@ async function validateServiceRuntimeDigest(args: {
     return stageDeny("service_envelope_miss");
   }
 
-  const analysis = await analyzeContractEnvelopeBoundary(
+  const activeContractEntries = await args.contracts.getActiveEntries();
+  const runtimeContractEntries = await withKnownDependencyEntries(
     args.contracts,
-    contract,
+    [
+      ...activeContractEntries.filter((entry) =>
+        entry.digest !== presentedContractDigest
+      ),
+      { digest: presentedContractDigest, contract },
+    ],
   );
+  if (!runtimeContractEntries.ok) return runtimeContractEntries;
+
+  let analysis: Awaited<ReturnType<typeof analyzeContractEnvelopeBoundary>>;
+  try {
+    analysis = await analyzeContractEnvelopeBoundary(
+      {
+        ...args.contracts,
+        getActiveEntries: () => Promise.resolve(runtimeContractEntries.value),
+      },
+      contract,
+      { dependencyResolution: "active" },
+    );
+  } catch (error) {
+    if (error instanceof ContractUseDependencyError) {
+      return stageDeny("service_envelope_miss");
+    }
+    throw error;
+  }
   const requestedBoundary = mergeBoundaries(
     analysis.required,
     analysis.contributedAvailability,
   );
   const fit = evaluateEnvelopeFit(envelope.boundary, requestedBoundary);
   if (!fit.fits) return stageDeny("service_envelope_miss");
+  const compatibilityError = await serviceContractCompatibilityError({
+    contracts: args.contracts,
+    deployment: args.deployment,
+    service: args.service,
+    presentedDigest: presentedContractDigest,
+    presentedContract: contract,
+  });
+  if (compatibilityError) return stageDeny("contract_changed");
 
-  return stageOk(undefined);
+  return stageOk({
+    contractId: analysis.contract.id,
+    contractDigest: presentedContractDigest,
+  });
 }
 
 function refreshServiceSessionFromInstance(args: {
   session: ServiceSession;
   service: AdminServiceInstance;
   deployment: AdminServiceDeployment | null;
+  contract?: ServiceRuntimeContract | null;
   now: Date;
 }): ServiceSession {
   return {
@@ -493,8 +702,10 @@ function refreshServiceSessionFromInstance(args: {
     instanceId: args.service.instanceId,
     deploymentId: args.service.deploymentId,
     instanceKey: args.service.instanceKey,
-    currentContractId: args.service.currentContractId ?? null,
-    currentContractDigest: args.service.currentContractDigest ?? null,
+    currentContractId: args.contract?.contractId ??
+      args.service.currentContractId ?? null,
+    currentContractDigest: args.contract?.contractDigest ??
+      args.service.currentContractDigest ?? null,
     lastAuth: args.now,
   };
 }
@@ -534,7 +745,10 @@ export function startDisconnectCleanup(deps: {
       }
     } catch (error) {
       if (!stopping) {
-        logger.error({ error }, "Disconnect cleanup loop stopped unexpectedly");
+        logger.error(
+          serializedErrorDetails(error),
+          "Disconnect cleanup loop stopped unexpectedly",
+        );
       }
     }
   })();
@@ -797,6 +1011,7 @@ export function startAuthCallout(
     const { sessionKey, token: authToken } = auth;
     const service = await loadServiceInstanceByKey(sessionKey);
     let serviceDeployment: AdminServiceDeployment | null = null;
+    let serviceRuntimeContract: ServiceRuntimeContract | null = null;
     if (service) {
       if (service.disabled) return stageDeny("service_disabled");
       serviceDeployment = await loadServiceDeployment(service.deploymentId);
@@ -812,6 +1027,7 @@ export function startAuthCallout(
         deploymentEnvelopeStorage,
       });
       if (!digestCheck.ok) return digestCheck;
+      serviceRuntimeContract = digestCheck.value;
     }
 
     let session = await sessionStorage.getOneBySessionKey(sessionKey);
@@ -830,8 +1046,10 @@ export function startAuthCallout(
           instanceId: service.instanceId,
           deploymentId: service.deploymentId,
           instanceKey: service.instanceKey,
-          currentContractId: service.currentContractId ?? null,
-          currentContractDigest: service.currentContractDigest ?? null,
+          currentContractId: serviceRuntimeContract?.contractId ??
+            service.currentContractId ?? null,
+          currentContractDigest: serviceRuntimeContract?.contractDigest ??
+            service.currentContractDigest ?? null,
           createdAt: now,
           lastAuth: now,
         });
@@ -951,6 +1169,7 @@ export function startAuthCallout(
         session,
         service,
         deployment: serviceDeployment,
+        contract: serviceRuntimeContract,
         now,
       }));
     }
@@ -1000,6 +1219,20 @@ export function startAuthCallout(
 
     const inboxPrefix = `_INBOX.${sessionKey.slice(0, 16)}`;
     const activeContractEntries = await opts.contracts.getActiveEntries();
+    const serviceContractEntries = isService
+      ? await (async () => {
+        const digest = principal.value.serviceState?.currentContractDigest;
+        if (!digest) return activeContractEntries;
+        const contract = await opts.contracts.getKnownContract(digest);
+        if (!contract) return activeContractEntries;
+        const entries = await withKnownDependencyEntries(opts.contracts, [
+          ...activeContractEntries.filter((entry) => entry.digest !== digest),
+          { digest, contract },
+        ]);
+        return entries.ok ? entries.value : entries;
+      })()
+      : activeContractEntries;
+    if (!Array.isArray(serviceContractEntries)) return serviceContractEntries;
     const userContractEntries =
       session.type === "user" && session.identityEnvelope
         ? await (async () => {
@@ -1007,14 +1240,16 @@ export function startAuthCallout(
             session.contractDigest,
           );
           if (!contract) return activeContractEntries;
-          return [
+          const entries = await withKnownDependencyEntries(opts.contracts, [
             ...activeContractEntries.filter((entry) =>
               entry.digest !== session.contractDigest
             ),
             { digest: session.contractDigest, contract },
-          ];
+          ]);
+          return entries.ok ? entries.value : entries;
         })()
         : [];
+    if (!Array.isArray(userContractEntries)) return userContractEntries;
     const userAllowedPublishSubjects =
       session.type === "user" && session.identityEnvelope
         ? getUserPublishSubjectsForContracts(
@@ -1063,7 +1298,7 @@ export function startAuthCallout(
                 ?.currentContractDigest,
               envelopeBoundary: serviceEnvelope?.boundary,
             },
-            activeContractEntries,
+            serviceContractEntries,
           )
           : delegatedPublish),
         ...resourcePermissions.publish,
@@ -1078,7 +1313,7 @@ export function startAuthCallout(
                 ?.currentContractDigest,
               envelopeBoundary: serviceEnvelope?.boundary,
             },
-            activeContractEntries,
+            serviceContractEntries,
           ),
           ...resourcePermissions.subscribe,
         ]
@@ -1251,7 +1486,7 @@ export function startAuthCallout(
     } catch (error) {
       logger.error(
         {
-          error,
+          ...serializedErrorDetails(error),
           serverName,
           userNkey: userNkey ? `${userNkey.substring(0, 8)}...` : undefined,
         },
@@ -1270,7 +1505,7 @@ export function startAuthCallout(
       });
       if (respondResult.isErr()) {
         logger.error(
-          { error: respondResult.error },
+          serializedErrorDetails(respondResult.error),
           "Failed to respond to auth callout error",
         );
       }
@@ -1285,7 +1520,10 @@ export function startAuthCallout(
   function trackAuthCallout(message: Msg): void {
     const handler = handleAuthCallout(message)
       .catch((error) => {
-        logger.error({ error }, "Auth callout handler failed unexpectedly");
+        logger.error(
+          serializedErrorDetails(error),
+          "Auth callout handler failed unexpectedly",
+        );
       })
       .finally(() => {
         inFlight.delete(handler);
@@ -1300,7 +1538,10 @@ export function startAuthCallout(
       }
     } catch (error) {
       if (!stopping) {
-        logger.error({ error }, "Auth callout loop stopped unexpectedly");
+        logger.error(
+          serializedErrorDetails(error),
+          "Auth callout loop stopped unexpectedly",
+        );
       }
     }
   })();
@@ -1334,4 +1575,5 @@ export const __testing__ = {
   validateServiceRuntimeDigest,
   verifyRuntimeAuthTokenSignature,
   waitForInFlightHandlers,
+  withKnownDependencyEntries,
 };

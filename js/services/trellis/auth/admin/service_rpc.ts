@@ -547,6 +547,7 @@ export function createAuthDeploymentsServiceCreateHandler(
       input: {
         deploymentId: string;
         namespaces: string[];
+        contractCompatibilityMode?: "strict" | "mutable-dev";
       };
       context: { caller: RpcUser };
     },

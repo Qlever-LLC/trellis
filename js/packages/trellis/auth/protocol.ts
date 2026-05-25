@@ -27,10 +27,14 @@ export const OpenObjectSchema = Type.Unsafe<Record<string, unknown>>({
 export const ServiceDeploymentSchema = Type.Unsafe<{
   deploymentId: string;
   namespaces: string[];
+  contractCompatibilityMode?: "strict" | "mutable-dev";
   disabled: boolean;
 }>(Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   namespaces: Type.Array(Type.String({ minLength: 1 })),
+  contractCompatibilityMode: Type.Optional(
+    Type.Union([Type.Literal("strict"), Type.Literal("mutable-dev")]),
+  ),
   disabled: Type.Boolean(),
 }));
 
@@ -1110,6 +1114,9 @@ export const AuthDeploymentSchema = Type.Union([
     kind: Type.Literal("service"),
     deploymentId: Type.String({ minLength: 1 }),
     namespaces: Type.Array(Type.String({ minLength: 1 })),
+    contractCompatibilityMode: Type.Optional(
+      Type.Union([Type.Literal("strict"), Type.Literal("mutable-dev")]),
+    ),
     disabled: Type.Boolean(),
   }),
   Type.Object({
@@ -1128,6 +1135,9 @@ export const AuthDeploymentsCreateSchema = Type.Union([
     kind: Type.Literal("service"),
     deploymentId: Type.String({ minLength: 1 }),
     namespaces: Type.Array(Type.String({ minLength: 1 })),
+    contractCompatibilityMode: Type.Optional(
+      Type.Union([Type.Literal("strict"), Type.Literal("mutable-dev")]),
+    ),
   }),
   Type.Object({
     kind: Type.Literal("device"),

@@ -17,6 +17,7 @@ import {
   envelopeExpansionRequestResources,
   envelopeExpansionRequests,
   envelopeExpansionRequestSurfaces,
+  envelopeHistoryEntries,
 } from "../../storage/schema.ts";
 import {
   type DeploymentContractEvidence,
@@ -35,6 +36,8 @@ import {
   EnvelopeExpansionRequestSchema,
   type EnvelopeExpansionRequestStateUpdate,
   EnvelopeExpansionRequestStateUpdateSchema,
+  type EnvelopeHistoryEntry,
+  EnvelopeHistoryEntrySchema,
 } from "../schemas.ts";
 import {
   type BoundedListQuery,
@@ -56,6 +59,8 @@ type ContractEvidenceRow = typeof deploymentContractEvidence.$inferSelect;
 type ContractEvidenceInsert = typeof deploymentContractEvidence.$inferInsert;
 type ExpansionRequestRow = typeof envelopeExpansionRequests.$inferSelect;
 type ExpansionRequestInsert = typeof envelopeExpansionRequests.$inferInsert;
+type HistoryEntryRow = typeof envelopeHistoryEntries.$inferSelect;
+type HistoryEntryInsert = typeof envelopeHistoryEntries.$inferInsert;
 type BoundaryParts = {
   contracts: Array<{ contractId: string; required: boolean }>;
   surfaces: Array<{
@@ -275,6 +280,51 @@ function encodeExpansionRequest(
   };
 }
 
+function decodeHistoryEntry(row: HistoryEntryRow): EnvelopeHistoryEntry {
+  return Value.Decode(EnvelopeHistoryEntrySchema, {
+    entryId: row.entryId,
+    scopeKind: row.scopeKind,
+    scopeId: row.scopeId,
+    action: row.action,
+    delta: parseJsonField("envelope history delta", row.deltaJson),
+    resultingUpdatedAt: row.resultingUpdatedAt,
+    actor: row.actorJson === null
+      ? null
+      : parseJsonField("envelope history actor", row.actorJson),
+    reason: row.reason,
+    source: {
+      ...(row.sourceContractId === null
+        ? {}
+        : { contractId: row.sourceContractId }),
+      ...(row.sourceContractDigest === null
+        ? {}
+        : { contractDigest: row.sourceContractDigest }),
+      ...(row.sourceRequestId === null
+        ? {}
+        : { requestId: row.sourceRequestId }),
+    },
+    createdAt: row.createdAt,
+  });
+}
+
+function encodeHistoryEntry(record: EnvelopeHistoryEntry): HistoryEntryInsert {
+  const decoded = Value.Decode(EnvelopeHistoryEntrySchema, record);
+  return {
+    entryId: decoded.entryId,
+    scopeKind: decoded.scopeKind,
+    scopeId: decoded.scopeId,
+    action: decoded.action,
+    deltaJson: JSON.stringify(decoded.delta),
+    resultingUpdatedAt: decoded.resultingUpdatedAt,
+    actorJson: decoded.actor === null ? null : JSON.stringify(decoded.actor),
+    reason: decoded.reason,
+    sourceContractId: decoded.source.contractId ?? null,
+    sourceContractDigest: decoded.source.contractDigest ?? null,
+    sourceRequestId: decoded.source.requestId ?? null,
+    createdAt: decoded.createdAt,
+  };
+}
+
 function keyField(value: string | boolean): string {
   const text = typeof value === "boolean" ? (value ? "1" : "0") : value;
   return `${text.length}:${text}`;
@@ -424,6 +474,7 @@ export class SqlDeploymentEnvelopeRepository {
     delta: EnvelopeBoundary;
     resourceBindings: DeploymentResourceBinding[];
     contractEvidence: DeploymentContractEvidence;
+    history?: EnvelopeHistoryEntry;
   }): Promise<void> {
     const envelope = Value.Decode(DeploymentEnvelopeSchema, record.envelope);
     const delta = Value.Decode(EnvelopeBoundarySchema, record.delta);
@@ -432,6 +483,9 @@ export class SqlDeploymentEnvelopeRepository {
       encodeResourceBinding(binding)
     );
     const contractEvidence = encodeContractEvidence(record.contractEvidence);
+    const history = record.history === undefined
+      ? undefined
+      : encodeHistoryEntry(record.history);
 
     await this.#db.transaction(async (tx) => {
       await tx.insert(deploymentEnvelopes).values(header).onConflictDoUpdate({
@@ -548,6 +602,9 @@ export class SqlDeploymentEnvelopeRepository {
             lastSeenAt: contractEvidence.lastSeenAt,
           },
         });
+      if (history !== undefined) {
+        await tx.insert(envelopeHistoryEntries).values(history);
+      }
     });
   }
 
@@ -560,6 +617,7 @@ export class SqlDeploymentEnvelopeRepository {
     delta: EnvelopeBoundary;
     resourceBindings: DeploymentResourceBinding[];
     contractEvidence: DeploymentContractEvidence;
+    history?: EnvelopeHistoryEntry;
     request: {
       requestId: string;
       state: "approved";
@@ -575,6 +633,9 @@ export class SqlDeploymentEnvelopeRepository {
       encodeResourceBinding(binding)
     );
     const contractEvidence = encodeContractEvidence(record.contractEvidence);
+    const history = record.history === undefined
+      ? undefined
+      : encodeHistoryEntry(record.history);
 
     return await this.#db.transaction(async (tx) => {
       const updated = await tx.update(envelopeExpansionRequests).set({
@@ -702,6 +763,10 @@ export class SqlDeploymentEnvelopeRepository {
             lastSeenAt: contractEvidence.lastSeenAt,
           },
         });
+
+      if (history !== undefined) {
+        await tx.insert(envelopeHistoryEntries).values(history);
+      }
 
       return true;
     });
@@ -952,6 +1017,42 @@ export class SqlDeploymentEnvelopeRepository {
       decoded.set(deploymentId, Value.Decode(EnvelopeBoundarySchema, boundary));
     }
     return decoded;
+  }
+}
+
+/** Stores append-only envelope authority audit entries in SQL. */
+export class SqlEnvelopeHistoryRepository {
+  readonly #db: TrellisStorageDb;
+
+  /** Creates an envelope history repository backed by a Trellis storage DB. */
+  constructor(db: TrellisStorageDb) {
+    this.#db = db;
+  }
+
+  /** Appends one envelope history entry. */
+  async put(record: EnvelopeHistoryEntry): Promise<void> {
+    await this.#db.insert(envelopeHistoryEntries).values(
+      encodeHistoryEntry(record),
+    );
+  }
+
+  /** Lists envelope history entries for one scope ordered by append time. */
+  async listByScope(
+    scopeKind: EnvelopeHistoryEntry["scopeKind"],
+    scopeId: string,
+    query: BoundedListQuery,
+  ): Promise<EnvelopeHistoryEntry[]> {
+    const { offset, limit } = boundedListQuery(query);
+    const rows = await this.#db.select().from(envelopeHistoryEntries).where(
+      and(
+        eq(envelopeHistoryEntries.scopeKind, scopeKind),
+        eq(envelopeHistoryEntries.scopeId, scopeId),
+      ),
+    ).orderBy(
+      envelopeHistoryEntries.createdAt,
+      envelopeHistoryEntries.entryId,
+    ).limit(limit).offset(offset);
+    return rows.map(decodeHistoryEntry);
   }
 }
 

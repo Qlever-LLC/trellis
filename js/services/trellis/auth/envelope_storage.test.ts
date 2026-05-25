@@ -13,6 +13,7 @@ import type {
   DeploymentPortalRoute,
   DeploymentResourceBinding,
   EnvelopeExpansionRequest,
+  EnvelopeHistoryEntry,
 } from "./schemas.ts";
 import {
   SqlDeploymentContractEvidenceRepository,
@@ -21,6 +22,7 @@ import {
   SqlDeploymentPortalRouteRepository,
   SqlDeploymentResourceBindingRepository,
   SqlEnvelopeExpansionRequestRepository,
+  SqlEnvelopeHistoryRepository,
 } from "./storage.ts";
 
 async function withEnvelopeRepositories(
@@ -32,6 +34,7 @@ async function withEnvelopeRepositories(
       resourceBindings: SqlDeploymentResourceBindingRepository;
       contractEvidence: SqlDeploymentContractEvidenceRepository;
       expansionRequests: SqlEnvelopeExpansionRequestRepository;
+      history: SqlEnvelopeHistoryRepository;
     },
     storage: TrellisStorage,
   ) => Promise<void>,
@@ -52,11 +55,35 @@ async function withEnvelopeRepositories(
       resourceBindings: new SqlDeploymentResourceBindingRepository(storage.db),
       contractEvidence: new SqlDeploymentContractEvidenceRepository(storage.db),
       expansionRequests: new SqlEnvelopeExpansionRequestRepository(storage.db),
+      history: new SqlEnvelopeHistoryRepository(storage.db),
     }, storage);
   } finally {
     storage.client.close();
     await Deno.remove(dbPath).catch(() => undefined);
   }
+}
+
+function makeHistoryEntry(
+  overrides: Partial<EnvelopeHistoryEntry> = {},
+): EnvelopeHistoryEntry {
+  return {
+    entryId: "envh-a",
+    scopeKind: "deployment",
+    scopeId: "svc-a",
+    action: "expand",
+    delta: {
+      contracts: [{ contractId: "a.contract@v1", required: true }],
+      surfaces: [],
+      capabilities: ["a.use"],
+      resources: [],
+    },
+    resultingUpdatedAt: "2026-05-07T00:00:02.000Z",
+    actor: { type: "user", id: "admin" },
+    reason: null,
+    source: { contractId: "a.contract@v1", contractDigest: "sha256-a" },
+    createdAt: "2026-05-07T00:00:02.000Z",
+    ...overrides,
+  };
 }
 
 function makeEnvelope(
@@ -190,6 +217,39 @@ Deno.test("deployment envelope repository validates records and enforces unique 
         deploymentId: "svc-a",
         capability: "a.use",
       })
+    );
+  });
+});
+
+Deno.test("envelope history repository appends and lists entries by scope", async () => {
+  await withEnvelopeRepositories(async ({ history }) => {
+    await history.put(makeHistoryEntry({
+      entryId: "envh-b",
+      createdAt: "2026-05-07T00:00:03.000Z",
+      action: "revoke",
+      reason: "cleanup",
+      source: {},
+    }));
+    await history.put(makeHistoryEntry());
+    await history.put(makeHistoryEntry({
+      entryId: "envh-other",
+      scopeId: "svc-b",
+    }));
+
+    assertEquals(
+      await history.listByScope("deployment", "svc-a", {
+        limit: 10,
+      }),
+      [
+        makeHistoryEntry(),
+        makeHistoryEntry({
+          entryId: "envh-b",
+          createdAt: "2026-05-07T00:00:03.000Z",
+          action: "revoke",
+          reason: "cleanup",
+          source: {},
+        }),
+      ],
     );
   });
 });

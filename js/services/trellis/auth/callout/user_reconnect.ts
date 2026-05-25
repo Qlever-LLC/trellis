@@ -33,6 +33,7 @@ export async function resolveUserReconnectSession(args: {
   contracts: Pick<
     ContractsModule,
     | "getActiveEntries"
+    | "getKnownEntriesByContractId"
     | "getKnownContract"
     | "validateContract"
   >;
@@ -72,6 +73,7 @@ export async function resolveUserReconnectSession(args: {
   const requestedBoundary = (await analyzeContractEnvelopeBoundary(
     args.contracts,
     knownContract,
+    { dependencyResolution: "known" },
   )).required;
   const existingEnvelope = args.session.identityEnvelope ?? EMPTY_BOUNDARY;
   const envelopeFit = evaluateEnvelopeFit(existingEnvelope, requestedBoundary);

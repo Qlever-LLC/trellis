@@ -11,10 +11,13 @@
   const trellis = getTrellis();
   const notifications = getNotifications();
 
+  type ContractCompatibilityMode = "strict" | "mutable-dev";
+
   let error = $state<string | null>(null);
   let createPending = $state(false);
   let deploymentId = $state("");
   let namespaces = $state("");
+  let contractCompatibilityMode = $state<ContractCompatibilityMode>("strict");
 
   function parseNamespaces(value: string): string[] {
     return value.split(/[,\n]/).map((part) => part.trim()).filter(Boolean);
@@ -29,11 +32,13 @@
         deploymentId: nextDeploymentId,
         kind: "service",
         namespaces: parseNamespaces(namespaces),
+        contractCompatibilityMode,
       }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Service deployment ${nextDeploymentId} created.`, "Created");
       deploymentId = "";
       namespaces = "";
+      contractCompatibilityMode = "strict";
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -65,6 +70,26 @@
         <textarea class="textarea textarea-bordered textarea-sm font-mono" rows="4" bind:value={namespaces} placeholder="billing, invoices" required></textarea>
         <span class="label-text-alt text-base-content/60">Separate namespaces with commas or new lines.</span>
       </label>
+
+      <fieldset class="grid gap-2">
+        <legend class="label-text text-xs">Compatibility mode</legend>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <label class="flex cursor-pointer gap-3 rounded-box border border-base-300 bg-base-100 px-3 py-2">
+            <input type="radio" class="radio radio-sm mt-0.5" bind:group={contractCompatibilityMode} value="strict" />
+            <span class="min-w-0">
+              <span class="block text-sm font-medium">Strict</span>
+              <span class="block text-xs leading-4 text-base-content/60">Production default. Rejects incompatible same-contract digest replacements.</span>
+            </span>
+          </label>
+          <label class="flex cursor-pointer gap-3 rounded-box border border-base-300 bg-base-100 px-3 py-2">
+            <input type="radio" class="radio radio-sm mt-0.5" bind:group={contractCompatibilityMode} value="mutable-dev" />
+            <span class="min-w-0">
+              <span class="block text-sm font-medium">Mutable dev</span>
+              <span class="block text-xs leading-4 text-base-content/60">Development only. Permits incompatible same-contract replacement when the envelope fits.</span>
+            </span>
+          </label>
+        </div>
+      </fieldset>
 
       <div class="flex flex-wrap justify-end gap-2">
         <a href={resolve("/admin/services")} class="btn btn-ghost btn-sm">Cancel</a>

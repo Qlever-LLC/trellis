@@ -60,7 +60,6 @@ pub(crate) fn admin_setup_contract_json() -> Result<String> {
             "Auth.CapabilityGroups.Get",
             "Auth.CapabilityGroups.List",
             "Auth.CapabilityGroups.Put",
-            "Auth.CatalogIssues.Resolve",
             "Auth.Connections.List",
             "Auth.Deployments.Create",
             "Auth.Deployments.Disable",

@@ -1641,7 +1641,7 @@ async fn publish_fresh_worker_heartbeat(nats: &async_nats::Client) -> Result<()>
 
 async fn await_jobs_health(jobs_client: &JobsClient<'_>) -> Result<()> {
     let mut last_error = None;
-    for _ in 0..200 {
+    for _ in 0..1_200 {
         match jobs_client.rpc().jobs().health().await {
             Ok(_) => return Ok(()),
             Err(error) => last_error = Some(error),

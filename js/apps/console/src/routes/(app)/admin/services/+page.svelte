@@ -28,8 +28,6 @@
   import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
-  import SelectableRecordButton from "$lib/components/SelectableRecordButton.svelte";
-  import SelectionRail from "$lib/components/SelectionRail.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
   import { boundaryCounts } from "$lib/envelope_console";
   import {
@@ -55,6 +53,7 @@
   import { getTrellis } from "../../../../lib/trellis";
 
   type Deployment = Extract<AuthDeploymentsListOutput["entries"][number], { kind: "service" }>;
+  type ContractCompatibilityMode = "strict" | "mutable-dev";
   type ServiceInstance = AuthServiceInstancesListOutput["entries"][number];
   type Job = JobsListOutput["entries"][number];
   type CatalogIssue = {
@@ -579,6 +578,87 @@
     return tokens;
   }
 
+  function escapeHtml(value: string): string {
+    return value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function renderInlineMarkdown(value: string): string {
+    return escapeHtml(value)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|\s)\*([^*]+)\*(?=\s|$)/g, "$1<em>$2</em>");
+  }
+
+  function renderMarkdown(markdown: string): string {
+    const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+    const blocks: string[] = [];
+    let paragraph: string[] = [];
+    let list: string[] = [];
+    let code: string[] | null = null;
+
+    const flushParagraph = () => {
+      if (paragraph.length === 0) return;
+      blocks.push(`<p>${renderInlineMarkdown(paragraph.join(" "))}</p>`);
+      paragraph = [];
+    };
+    const flushList = () => {
+      if (list.length === 0) return;
+      blocks.push(`<ul>${list.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
+      list = [];
+    };
+
+    for (const line of lines) {
+      if (line.trim().startsWith("```")) {
+        if (code) {
+          blocks.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+          code = null;
+        } else {
+          flushParagraph();
+          flushList();
+          code = [];
+        }
+        continue;
+      }
+      if (code) {
+        code.push(line);
+        continue;
+      }
+
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flushParagraph();
+        flushList();
+        continue;
+      }
+      const heading = /^(#{1,3})\s+(.+)$/.exec(trimmed);
+      if (heading) {
+        flushParagraph();
+        flushList();
+        const level = heading[1].length + 2;
+        blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+        continue;
+      }
+      const listItem = /^[-*]\s+(.+)$/.exec(trimmed);
+      if (listItem) {
+        flushParagraph();
+        list.push(listItem[1]);
+        continue;
+      }
+      flushList();
+      paragraph.push(trimmed);
+    }
+
+    if (code) blocks.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+    flushParagraph();
+    flushList();
+    return blocks.join("\n");
+  }
+
   function healthServiceMatchesContractRefs(service: HealthServiceView, refs: readonly ContractRef[]): boolean {
     return service.instances.some((instance) => contractRefMatches(instance.contractId, instance.contractDigest, refs));
   }
@@ -646,6 +726,18 @@
     return tab === "rpc" || tab === "events" || tab === "operations" || tab === "feeds";
   }
 
+  function selectFirstSurfaceForTab(tab: Tab) {
+    if (!isApiTab(tab)) return;
+    const surfaces = surfacesForTab(tab);
+    selectedSurfaceKey = surfaces.some((surface) => surface.key === selectedSurfaceKey) ? selectedSurfaceKey : surfaces[0]?.key ?? null;
+    const surface = surfaces.find((entry) => entry.key === selectedSurfaceKey);
+    if (surface) void ensureContractDetailForSurface(surface.representative);
+  }
+
+  function selectedSurfaceForGroups(groups: SurfaceGroup[]): SurfaceGroup | null {
+    return groups.find((surface) => surface.key === selectedSurfaceKey) ?? groups[0] ?? null;
+  }
+
   function tabId(tab: Tab): string {
     return `service-detail-tab-${tab}`;
   }
@@ -663,6 +755,24 @@
 
   function formatMaybeDate(value?: string): string {
     return value ? formatDate(value) : "—";
+  }
+
+  function deploymentCompatibilityMode(deployment: Deployment): ContractCompatibilityMode {
+    return objectRecord(deployment)?.contractCompatibilityMode === "mutable-dev" ? "mutable-dev" : "strict";
+  }
+
+  function compatibilityModeLabel(mode: ContractCompatibilityMode): string {
+    return mode === "mutable-dev" ? "Mutable dev" : "Strict";
+  }
+
+  function compatibilityModeDescription(mode: ContractCompatibilityMode): string {
+    return mode === "mutable-dev"
+      ? "Development only; incompatible same-contract replacements are allowed when the envelope fits."
+      : "Production default; incompatible same-contract digest replacements are rejected.";
+  }
+
+  function compatibilityModeBadgeClass(mode: ContractCompatibilityMode): string {
+    return mode === "mutable-dev" ? "badge-warning" : "badge-outline";
   }
 
   function formatSeenAt(value?: number): string {
@@ -752,12 +862,14 @@
   function selectDeployment(nextDeploymentId: string) {
     selectedDeploymentId = nextDeploymentId;
     selectedSurfaceKey = null;
+    if (isApiTab(activeTab)) selectFirstSurfaceForTab(activeTab);
     if (isApiTab(activeTab) || activeTab === "schemas") void ensureSelectedServiceContractDetails();
     void ensureDependencyBlockDetailsForDeployment(nextDeploymentId);
   }
 
   function selectTab(tab: Tab) {
     activeTab = tab;
+    if (isApiTab(tab)) selectFirstSurfaceForTab(tab);
     if (isApiTab(tab) || tab === "schemas") void ensureSelectedServiceContractDetails();
   }
 
@@ -801,9 +913,8 @@
   }
 
   function toggleSurface(group: SurfaceGroup) {
-    const key = group.key;
-    selectedSurfaceKey = selectedSurfaceKey === key ? null : key;
-    if (selectedSurfaceKey) void ensureContractDetailForSurface(group.representative);
+    selectedSurfaceKey = group.key;
+    void ensureContractDetailForSurface(group.representative);
   }
 
   async function load() {
@@ -853,6 +964,7 @@
       jobsUnavailableMessage = jobsData.available ? null : jobsData.message ?? "Jobs admin runtime is unavailable.";
       syncSelectedDeployment(deployments);
       void ensureDependencyBlockDetailsForDeployment(selectedDeploymentId);
+      if (isApiTab(activeTab)) selectFirstSurfaceForTab(activeTab);
       if (isApiTab(activeTab) || activeTab === "schemas") void ensureSelectedServiceContractDetails();
     } catch (e) {
       error = errorMessage(e);
@@ -990,7 +1102,7 @@
     void load();
     void (async () => {
       try {
-        const result = await trellis.event("Health.Heartbeat", {}, handleHeartbeat, {
+        const result = await trellis.event.health.heartbeat.listen(handleHeartbeat, {}, {
           mode: "ephemeral",
           replay: "new",
           signal: controller.signal,
@@ -1026,9 +1138,13 @@
   {#if loading}
     <Panel><LoadingState label="Loading services" /></Panel>
   {:else}
-    <div class="grid min-h-[calc(100vh-12rem)] items-stretch gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
-      <SelectionRail title="Deployments" eyebrow={`${deployments.length} deployment${deployments.length === 1 ? "" : "s"}`}>
-        <div class="mb-3">
+    <div class="flex min-h-[calc(100vh-12rem)] min-w-0 flex-col gap-4">
+      <Panel>
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-base-content/70">Services fleet</h2>
+            <p class="text-xs text-base-content/50">{deployments.length} deployment{deployments.length === 1 ? "" : "s"} · {disabledCount} disabled / archived</p>
+          </div>
           <label class="input input-bordered input-sm flex items-center gap-2">
             <Icon name="search" size={14} class="text-base-content/50" />
             <input bind:value={search} class="grow" placeholder="Search deployments" aria-label="Search deployments" />
@@ -1038,37 +1154,40 @@
         {#if deployments.length === 0}
           <EmptyState title="No deployments" description="Run services create to add a deployment." />
         {:else}
-          <div class="space-y-2">
-            {#each filteredDeployments as deployment (deployment.deploymentId)}
-              {@const serviceInstances = instances.filter((instance) => instance.deploymentId === deployment.deploymentId)}
-              {@const activeServiceInstances = serviceInstances.filter((instance) => !instance.disabled)}
-              {@const healthService = healthServiceForDeployment(deployment.deploymentId, serviceInstances, healthServices, contractRefDeploymentIds)}
-              {@const rowStatus = deployment.disabled ? "Disabled" : (healthService ? statusLabel(healthService.status) : (activeServiceInstances.length > 0 ? "Enabled" : "No instances"))}
-              <SelectableRecordButton
-                selected={selectedDeploymentId === deployment.deploymentId}
-                onclick={() => selectDeployment(deployment.deploymentId)}
-              >
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0">
-                    <div class="flex items-center gap-2">
-                      <span class={["h-2.5 w-2.5 rounded-full", dotClassForStatus(rowStatus)]}></span>
-                      <span class="trellis-identifier truncate font-medium">{deployment.deploymentId}</span>
-                    </div>
-                    <div class="mt-1 text-xs text-base-content/60">{activeServiceInstances.length}/{serviceInstances.length} enabled instances</div>
-                  </div>
-                  <span class={["badge badge-sm", badgeClassForStatus(rowStatus)]}>{rowStatus}</span>
-                </div>
-              </SelectableRecordButton>
-            {:else}
-              <EmptyState title="No matches" description="Try a different deployment ID." class="py-4" />
-            {/each}
-          </div>
+          <DataTable>
+            <thead><tr><th>Deployment</th><th>Status</th><th>Instances</th><th>Mode</th><th>Heartbeat</th><th>Jobs</th></tr></thead>
+            <tbody>
+              {#each filteredDeployments as deployment (deployment.deploymentId)}
+                {@const serviceInstances = instances.filter((instance) => instance.deploymentId === deployment.deploymentId)}
+                {@const activeServiceInstances = serviceInstances.filter((instance) => !instance.disabled)}
+                {@const healthService = healthServiceForDeployment(deployment.deploymentId, serviceInstances, healthServices, contractRefDeploymentIds)}
+                {@const rowStatus = deployment.disabled ? "Disabled" : (healthService ? statusLabel(healthService.status) : (activeServiceInstances.length > 0 ? "Enabled" : "No instances"))}
+                {@const rowCompatibilityMode = deploymentCompatibilityMode(deployment)}
+                {@const deploymentJobs = jobs.filter((job) => job.service === deployment.deploymentId)}
+                <tr class={["hover:bg-base-200/60", selectedDeploymentId === deployment.deploymentId && "bg-base-200/70"]}>
+                  <td class="min-w-72">
+                    <button
+                      type="button"
+                      class="btn btn-ghost h-auto min-h-0 justify-start gap-2 px-2 py-1 text-left"
+                      aria-current={selectedDeploymentId === deployment.deploymentId ? "true" : undefined}
+                      onclick={() => selectDeployment(deployment.deploymentId)}
+                    >
+                      <span class={["h-2.5 w-2.5 rounded-full", dotClassForStatus(rowStatus)]}></span><span class="trellis-identifier font-medium">{deployment.deploymentId}</span>
+                    </button>
+                  </td>
+                  <td><span class={["badge badge-sm", badgeClassForStatus(rowStatus)]}>{rowStatus}</span></td>
+                  <td>{activeServiceInstances.length}/{serviceInstances.length} enabled</td>
+                  <td>{#if rowCompatibilityMode === "mutable-dev"}<span class="badge badge-warning badge-xs">mutable-dev</span>{:else}<span class="badge badge-outline badge-xs">strict</span>{/if}</td>
+                  <td class="text-base-content/60">{healthService ? formatSeenAt(healthService.lastSeenAt) : "—"}</td>
+                  <td>{deploymentJobs.length}</td>
+                </tr>
+              {:else}
+                <tr><td colspan="6" class="text-base-content/50">No matching deployments.</td></tr>
+              {/each}
+            </tbody>
+          </DataTable>
         {/if}
-
-        {#snippet footer()}
-          <span>{disabledCount} disabled / archived</span>
-        {/snippet}
-      </SelectionRail>
+      </Panel>
 
       <div class="flex min-w-0 flex-col gap-4">
         {#if allPendingRequestRows.length > 0}
@@ -1118,8 +1237,9 @@
         {/if}
 
         {#if !selectedDeployment}
-          <Panel><EmptyState title="Select a deployment" description="Choose a deployment from the left rail to inspect runtime state." /></Panel>
+          <Panel><EmptyState title="Select a deployment" description="Choose a deployment from the services table to inspect runtime state." /></Panel>
         {:else}
+          {@const selectedCompatibilityMode = deploymentCompatibilityMode(selectedDeployment)}
           <Panel class="flex min-w-0 flex-1 flex-col [&>.card-body]:flex-1">
             <div class="flex flex-wrap items-start justify-between gap-3 border-b border-base-300 pb-3">
               <div class="flex min-w-0 items-start gap-3">
@@ -1135,6 +1255,13 @@
 
             <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
               <span class="badge badge-outline badge-sm">{activeInstances.length}/{selectedInstances.length} enabled instances</span>
+              <span
+                class={[
+                  "badge badge-sm",
+                  compatibilityModeBadgeClass(selectedCompatibilityMode),
+                ]}
+                title={compatibilityModeDescription(selectedCompatibilityMode)}
+              >Envelope mode: {compatibilityModeLabel(selectedCompatibilityMode)}</span>
               {#if selectedHealthService}
                 {@const runtimeLabel = formatRuntime(selectedHealthService.runtime, selectedHealthService.instances[0]?.runtimeVersion)}
                 <span class="badge badge-outline badge-sm">Heartbeat {formatSeenAt(selectedHealthService.lastSeenAt)}</span>
@@ -1247,82 +1374,91 @@
                 <EmptyState title="No API boundary" description="No current service envelope was returned for this deployment." />
               {:else}
                 {@const apiSurfaces = surfacesForTab(activeTab)}
+                {@const selectedApiSurface = selectedSurfaceForGroups(apiSurfaces)}
                 <div class="space-y-2">
                   <div class="text-xs text-base-content/60">
                     <span class="font-medium">Offers:</span> Offered {tabLabel(activeTab).toLowerCase()} surfaces for this service. Actions are labeled from the consumer perspective.
                   </div>
-                  <DataTable>
-                      <thead><tr><th>Surface</th><th>Actions</th><th>Requirement</th><th>Contract</th></tr></thead>
-                      <tbody>
-                        {#each apiSurfaces as surface (surface.key)}
-                          {@const digest = catalogDigestForContractId(surface.contractId)}
-                          {@const docs = docsForSurface(surface.representative)}
-                          {@const panels = selectedSurfaceKey === surface.key ? schemaPanelsForSurface(surface.representative) : []}
-                          <tr class="cursor-pointer hover:bg-base-200/60" onclick={() => toggleSurface(surface)}>
-                            <td>
-                              <div class="trellis-identifier font-medium">{surface.name}</div>
-                              {#if docs?.summary}
-                                <div class="mt-1 max-w-xl text-xs leading-4 text-base-content/60">{docs.summary}</div>
+                  {#if apiSurfaces.length === 0}
+                    <DataTable><tbody><tr><td class="text-base-content/50">No {tabLabel(activeTab).toLowerCase()} surfaces.</td></tr></tbody></DataTable>
+                  {:else if selectedApiSurface}
+                    {@const digest = catalogDigestForContractId(selectedApiSurface.contractId)}
+                    {@const docs = docsForSurface(selectedApiSurface.representative)}
+                    {@const panels = schemaPanelsForSurface(selectedApiSurface.representative)}
+                    <div class="grid gap-3 lg:grid-cols-[18rem_minmax(0,1fr)]">
+                      <div class="rounded-box border border-base-300 bg-base-200/30 p-2">
+                        <div class="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-base-content/60">Surfaces</div>
+                        <div class="space-y-1">
+                          {#each apiSurfaces as surface (surface.key)}
+                            <button type="button" class={["btn h-auto min-h-0 w-full justify-start px-2 py-2 text-left", selectedApiSurface.key === surface.key ? "btn-primary" : "btn-ghost"]} onclick={() => toggleSurface(surface)}>
+                              <span class="min-w-0 flex-1">
+                                <span class="trellis-identifier block truncate text-xs font-medium">{surface.name}</span>
+                                <span class="mt-1 flex flex-wrap gap-1">
+                                  {#each surface.actions as action (action)}<span class="badge badge-outline badge-xs">{actionLabel(surface.kind, action)}</span>{/each}
+                                  <span class="badge badge-outline badge-xs">{requirementLabel(surface.required)}</span>
+                                </span>
+                              </span>
+                            </button>
+                          {/each}
+                        </div>
+                      </div>
+
+                      <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
+                        <div class="mb-3 flex flex-wrap items-start justify-between gap-2">
+                          <div class="min-w-0">
+                            <div class="trellis-identifier text-base font-semibold">{selectedApiSurface.name}</div>
+                            <div class="trellis-identifier text-xs text-base-content/60">{selectedApiSurface.contractId}</div>
+                            {#if digest}
+                              <div class="trellis-identifier text-xs text-base-content/50">Digest {digest}</div>
+                            {/if}
+                          </div>
+                          <div class="flex flex-wrap gap-1">
+                            {#each selectedApiSurface.actions as action (action)}<span class="badge badge-outline badge-xs">{actionLabel(selectedApiSurface.kind, action)}</span>{/each}
+                            <span class="badge badge-outline badge-xs">{requirementLabel(selectedApiSurface.required)}</span>
+                          </div>
+                        </div>
+
+                        {#if !digest}
+                          <p class="text-xs text-base-content/60">No catalog digest is available for this contract.</p>
+                        {:else if contractDetailLoading.includes(digest)}
+                          <LoadingState label="Loading contract schemas" />
+                        {:else if contractDetailErrors[digest]}
+                          <p class="text-xs text-error">{contractDetailErrors[digest]}</p>
+                        {:else}
+                          {#if docs}
+                            <div class="mb-3 rounded-box border border-base-300 bg-base-100/70 p-3">
+                              {#if docs.summary}
+                                <div class="mb-2 text-sm font-medium">{docs.summary}</div>
                               {/if}
-                            </td>
-                            <td><div class="flex flex-wrap gap-1">{#each surface.actions as action (action)}<span class="badge badge-outline badge-xs">{actionLabel(surface.kind, action)}</span>{/each}</div></td>
-                            <td>{requirementLabel(surface.required)}</td>
-                            <td class="trellis-identifier text-base-content/60">{surface.contractId}</td>
-                          </tr>
-                          {#if selectedSurfaceKey === surface.key}
-                            <tr>
-                              <td colspan="4">
-                                <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
-                                  {#if !digest}
-                                    <p class="text-xs text-base-content/60">No catalog digest is available for this contract.</p>
-                                  {:else if contractDetailLoading.includes(digest)}
-                                    <LoadingState label="Loading contract schemas" />
-                                  {:else if contractDetailErrors[digest]}
-                                    <p class="text-xs text-error">{contractDetailErrors[digest]}</p>
+                              <div class="markdown-block">{@html renderMarkdown(docs.markdown)}</div>
+                            </div>
+                          {/if}
+                          {#if panels.length === 0}
+                            <p class="text-xs text-base-content/60">No schema details were found for this surface.</p>
+                          {:else}
+                            <div class="grid gap-3 xl:grid-cols-2">
+                              {#each panels as panel (panel.label)}
+                                <div>
+                                  <div class="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-base-content/60">
+                                    <span>{panel.label}</span>
+                                    {#if panel.schemaName}<span class="trellis-identifier normal-case">{panel.schemaName}</span>{/if}
+                                  </div>
+                                  {#if panel.schema}
+                                    <pre class="json-block">{#each jsonTokens(jsonString(panel.schema)) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</pre>
+                                    {#if panel.example !== null}
+                                      <div class="mt-2 text-xs font-medium uppercase tracking-wide text-base-content/60">Example</div>
+                                      <pre class="json-block mt-1">{#each jsonTokens(jsonString(panel.example)) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</pre>
+                                    {/if}
                                   {:else}
-                                    {#if docs}
-                                      <div class="mb-3 rounded-box border border-base-300 bg-base-100/70 p-3">
-                                        {#if docs.summary}
-                                          <div class="mb-2 text-sm font-medium">{docs.summary}</div>
-                                        {/if}
-                                        <pre class="markdown-block">{docs.markdown}</pre>
-                                      </div>
-                                    {/if}
-                                    {#if panels.length === 0}
-                                      <p class="text-xs text-base-content/60">No schema details were found for this surface.</p>
-                                    {:else}
-                                    <div class="grid gap-3 lg:grid-cols-2">
-                                      {#each panels as panel (panel.label)}
-                                        <div>
-                                          <div class="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-base-content/60">
-                                            <span>{panel.label}</span>
-                                            {#if panel.schemaName}<span class="trellis-identifier normal-case">{panel.schemaName}</span>{/if}
-                                          </div>
-                                          {#if panel.schema}
-                                            <pre class="json-block">{#each jsonTokens(jsonString(panel.schema)) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</pre>
-                                            {#if panel.example !== null}
-                                              <div class="mt-2 text-xs font-medium uppercase tracking-wide text-base-content/60">Example</div>
-                                              <pre class="json-block mt-1">{#each jsonTokens(jsonString(panel.example)) as token (token.key)}<span class={jsonTokenClass(token.kind)}>{token.text}</span>{/each}</pre>
-                                            {/if}
-                                          {:else}
-                                            <p class="text-xs text-base-content/60">No schema is declared.</p>
-                                          {/if}
-                                        </div>
-                                      {/each}
-                                    </div>
-                                    {/if}
+                                    <p class="text-xs text-base-content/60">No schema is declared.</p>
                                   {/if}
                                 </div>
-                              </td>
-                            </tr>
+                              {/each}
+                            </div>
                           {/if}
-                        {:else}
-                          <tr><td colspan="4" class="text-base-content/50">No {tabLabel(activeTab).toLowerCase()} surfaces.</td></tr>
-                        {/each}
-                      </tbody>
-                  </DataTable>
-                  {#if apiSurfaces.length > 0}
-                    <p class="text-xs text-base-content/50">Click a surface row to inspect schemas from its contract manifest.</p>
+                        {/if}
+                      </div>
+                    </div>
                   {/if}
                 </div>
               {/if}
@@ -1454,13 +1590,55 @@
   }
 
   .markdown-block {
-    white-space: pre-wrap;
     border-radius: var(--radius-box);
     background: color-mix(in oklab, var(--color-base-100) 88%, var(--color-base-content));
     padding: 0.75rem;
     font-size: 0.78rem;
     line-height: 1.5;
     color: color-mix(in oklab, var(--color-base-content) 78%, transparent);
+  }
+
+  .markdown-block :global(p + p),
+  .markdown-block :global(p + ul),
+  .markdown-block :global(ul + p),
+  .markdown-block :global(pre + p),
+  .markdown-block :global(p + pre) {
+    margin-top: 0.65rem;
+  }
+
+  .markdown-block :global(ul) {
+    margin-left: 1rem;
+    list-style: disc;
+  }
+
+  .markdown-block :global(h3),
+  .markdown-block :global(h4),
+  .markdown-block :global(h5) {
+    margin-top: 0.75rem;
+    font-weight: 600;
+    color: var(--color-base-content);
+  }
+
+  .markdown-block :global(pre),
+  .markdown-block :global(code) {
+    border-radius: var(--radius-field);
+    background: color-mix(in oklab, var(--color-base-100) 82%, var(--color-base-content));
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  }
+
+  .markdown-block :global(pre) {
+    overflow-x: auto;
+    padding: 0.65rem;
+    white-space: pre;
+  }
+
+  .markdown-block :global(code) {
+    padding: 0.08rem 0.25rem;
+  }
+
+  .markdown-block :global(pre code) {
+    padding: 0;
+    background: transparent;
   }
 </style>
 

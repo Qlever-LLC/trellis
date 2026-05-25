@@ -13,6 +13,7 @@ import {
   SqlDeviceInstanceRepository,
   SqlDeviceProvisioningSecretRepository,
   SqlEnvelopeExpansionRequestRepository,
+  SqlEnvelopeHistoryRepository,
   SqlIdentityEnvelopeRepository,
   SqlLocalCredentialRepository,
   SqlLoginPortalRepository,
@@ -38,6 +39,7 @@ export async function createStorage(config: Config) {
     storage,
     contractStorage: new SqlContractStorageRepository(storage.db),
     deploymentEnvelopeStorage: new SqlDeploymentEnvelopeRepository(storage.db),
+    envelopeHistoryStorage: new SqlEnvelopeHistoryRepository(storage.db),
     deploymentResourceBindingStorage:
       new SqlDeploymentResourceBindingRepository(
         storage.db,

@@ -228,6 +228,8 @@ pub(crate) async fn ensure_jobs_shared_streams(servers: &str, trellis_creds: &Pa
         "JOBS",
         &["trellis.jobs.>"],
         stream::RetentionPolicy::Limits,
+        true,
+        None,
     )
     .await?;
     ensure_stream(
@@ -235,6 +237,21 @@ pub(crate) async fn ensure_jobs_shared_streams(servers: &str, trellis_creds: &Pa
         "JOBS_WORK",
         &["trellis.work.>"],
         stream::RetentionPolicy::WorkQueue,
+        false,
+        Some(vec![stream::Source {
+            name: "JOBS".to_string(),
+            subject_transforms: vec![
+                stream::SubjectTransform {
+                    source: "trellis.jobs.*.*.*.created".to_string(),
+                    destination: "trellis.work.$1.$2".to_string(),
+                },
+                stream::SubjectTransform {
+                    source: "trellis.jobs.*.*.*.retried".to_string(),
+                    destination: "trellis.work.$1.$2".to_string(),
+                },
+            ],
+            ..Default::default()
+        }]),
     )
     .await?;
     ensure_stream(
@@ -242,6 +259,8 @@ pub(crate) async fn ensure_jobs_shared_streams(servers: &str, trellis_creds: &Pa
         "JOBS_ADVISORIES",
         &["$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.JOBS_WORK.>"],
         stream::RetentionPolicy::Limits,
+        false,
+        None,
     )
     .await?;
     Ok(())
@@ -346,6 +365,8 @@ async fn ensure_stream(
     name: &str,
     subjects: &[&str],
     retention: stream::RetentionPolicy,
+    allow_direct: bool,
+    sources: Option<Vec<stream::Source>>,
 ) -> Result<()> {
     if js.get_stream(name).await.is_ok() {
         return Ok(());
@@ -354,6 +375,8 @@ async fn ensure_stream(
         name: name.to_string(),
         subjects: subjects.iter().map(|subject| subject.to_string()).collect(),
         retention,
+        allow_direct,
+        sources,
         num_replicas: 1,
         ..Default::default()
     })
@@ -460,7 +483,11 @@ async fn assert_jobs_work_sources(js: &jetstream::Context) -> Result<()> {
         ("trellis.jobs.*.*.*.created", "trellis.work.$1.$2"),
         ("trellis.jobs.*.*.*.retried", "trellis.work.$1.$2"),
     ];
-    if sources.len() != expected.len() {
+    let transform_count = sources
+        .iter()
+        .flat_map(|source| source.subject_transforms.iter())
+        .count();
+    if transform_count != expected.len() {
         return Err(miette!(
             "shared Jobs stream `JOBS_WORK` sources {:?} did not match expected transforms",
             sources

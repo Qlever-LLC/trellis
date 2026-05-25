@@ -144,6 +144,7 @@ function makeServiceDeployment(
   return {
     deploymentId: "svc-deployment-a",
     namespaces: ["graph", "search"],
+    contractCompatibilityMode: "strict",
     disabled: false,
     ...overrides,
   };
@@ -1754,6 +1755,7 @@ Deno.test("service deployment storage upserts, deletes, and lists by deployment 
       const second = makeServiceDeployment({
         deploymentId: "svc-deployment-a",
         namespaces: [],
+        contractCompatibilityMode: "mutable-dev",
       });
       await deployments.put(first);
       await deployments.put(second);
@@ -1763,22 +1765,35 @@ Deno.test("service deployment storage upserts, deletes, and lists by deployment 
       );
       assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
       assertEquals(row.deploymentId, first.deploymentId);
+      assertEquals(row.contractCompatibilityMode, "strict");
+      assertEquals(await deployments.get("svc-deployment-a"), second);
 
       const updated = makeServiceDeployment({
         deploymentId: "svc-deployment-b",
         disabled: true,
         namespaces: ["search"],
+        contractCompatibilityMode: "mutable-dev",
       });
       await deployments.put(updated);
 
       assertEquals(await deployments.get("svc-deployment-b"), updated);
+
+      const strictAgain = makeServiceDeployment({
+        deploymentId: "svc-deployment-b",
+        disabled: true,
+        namespaces: ["search"],
+        contractCompatibilityMode: "strict",
+      });
+      await deployments.put(strictAgain);
+
+      assertEquals(await deployments.get("svc-deployment-b"), strictAgain);
       assertEquals(await deployments.listPage({ limit: 10 }), [
         second,
-        updated,
+        strictAgain,
       ]);
       assertEquals(
         await deployments.listByDeploymentIds(["svc-deployment-b", "missing"]),
-        [updated],
+        [strictAgain],
       );
       await deployments.delete("svc-deployment-a");
       assertEquals(await deployments.get("svc-deployment-a"), undefined);

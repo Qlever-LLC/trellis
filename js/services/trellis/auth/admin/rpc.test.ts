@@ -520,8 +520,21 @@ Deno.test("validateServiceDeploymentRequest normalizes namespaces without displa
     {
       deploymentId: "billing.default",
       namespaces: ["billing", "audit"],
+      contractCompatibilityMode: "strict",
       disabled: false,
     },
+  );
+
+  const mutableDev = validateServiceDeploymentRequest({
+    deploymentId: "catalog.default",
+    namespaces: ["catalog"],
+    contractCompatibilityMode: "mutable-dev",
+  });
+  assert(!mutableDev.isErr());
+  assertEquals(
+    (mutableDev.take() as { deployment: Record<string, unknown> }).deployment
+      .contractCompatibilityMode,
+    "mutable-dev",
   );
 
   assert(
@@ -567,7 +580,41 @@ Deno.test("Auth.Deployments.Create service initializes an empty service envelope
       resources: [],
     },
   );
-  assertEquals(deployments.getValue("demo-js")?.deploymentId, "demo-js");
+  assertEquals(deployments.getValue("demo-js"), {
+    deploymentId: "demo-js",
+    namespaces: [],
+    contractCompatibilityMode: "strict",
+    disabled: false,
+  });
+});
+
+Deno.test("Auth.Deployments.Create service returns mutable-dev compatibility mode", async () => {
+  const deployments = new InMemoryServiceDeploymentStorage();
+  const result = await createAuthDeploymentsServiceCreateHandler({
+    logger: { trace: () => {} },
+    serviceDeploymentStorage: deployments,
+    serviceInstanceStorage: serviceAdminDeps().serviceInstanceStorage,
+  })({
+    input: {
+      deploymentId: "catalog-js",
+      namespaces: ["catalog"],
+      contractCompatibilityMode: "mutable-dev",
+    },
+    context: adminContext,
+  });
+
+  assert(result.isOk());
+  const value = result.take();
+  if (!("deployment" in value)) {
+    throw new Error("expected service deployment create response");
+  }
+  assertEquals(value.deployment, {
+    deploymentId: "catalog-js",
+    namespaces: ["catalog"],
+    contractCompatibilityMode: "mutable-dev",
+    disabled: false,
+  });
+  assertEquals(deployments.getValue("catalog-js"), value.deployment);
 });
 
 Deno.test("Auth.Deployments.Disable service validates staged deployment before persisting or kicking", async () => {
@@ -2044,6 +2091,12 @@ function deviceAdminDeps(args: {
     },
     keys: () => AsyncResult.ok(emptyKeys()),
   };
+  const eventPublisher = (event: string) => ({
+    publish: (payload: Record<string, unknown>) => {
+      args.publishes?.push({ event, payload });
+      return AsyncResult.ok(undefined);
+    },
+  });
   const deps: AdminRpcDeps & {
     installDeviceContract: (contract: unknown) => Promise<{
       id: string;
@@ -2357,9 +2410,25 @@ function deviceAdminDeps(args: {
       },
     },
     eventPublisher: {
-      publish: (event, payload) => {
-        args.publishes?.push({ event, payload });
-        return AsyncResult.ok(undefined);
+      event: {
+        auth: {
+          connectionsClosed: eventPublisher("connectionsClosed"),
+          connectionsKicked: eventPublisher("connectionsKicked"),
+          connectionsOpened: eventPublisher("connectionsOpened"),
+          deviceUserAuthoritiesApproved: eventPublisher(
+            "Auth.DeviceUserAuthorities.Approved",
+          ),
+          deviceUserAuthoritiesRequested: eventPublisher(
+            "deviceUserAuthoritiesRequested",
+          ),
+          deviceUserAuthoritiesResolved: eventPublisher(
+            "Auth.DeviceUserAuthorities.Resolved",
+          ),
+          deviceUserAuthoritiesReviewRequested: eventPublisher(
+            "deviceUserAuthoritiesReviewRequested",
+          ),
+          sessionsRevoked: eventPublisher("sessionsRevoked"),
+        },
       },
     },
     userStorage: { get: async () => undefined },

@@ -24,6 +24,7 @@ import type {
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlEnvelopeExpansionRequestRepository,
+  SqlEnvelopeHistoryRepository,
   SqlIdentityEnvelopeRepository,
   SqlLocalCredentialRepository,
   SqlLoginPortalRepository,
@@ -43,6 +44,7 @@ type AuthRegistrationDeps =
     contracts: AuthContractsRuntime;
     contractStorage: SqlContractStorageRepository;
     deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+    envelopeHistoryStorage: SqlEnvelopeHistoryRepository;
     deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
     deploymentContractEvidenceStorage: SqlDeploymentContractEvidenceRepository;
     deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
