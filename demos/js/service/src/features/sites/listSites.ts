@@ -5,12 +5,12 @@ import contract from "../../../contract.ts";
 type Args = RpcArgs<typeof contract, "Sites.List">;
 type Result = RpcResult<typeof contract, "Sites.List">;
 
-export async function listSites({ input, trellis }: Args): Promise<Result> {
+export async function listSites({ input, client }: Args): Promise<Result> {
   const sites: SiteSummary[] = [];
-  const keys = await trellis.kv.siteSummaries.keys(">").orThrow();
+  const keys = await client.kv.siteSummaries.keys(">").orThrow();
 
   for await (const key of keys) {
-    const entry = await trellis.kv.siteSummaries.get(key).take();
+    const entry = await client.kv.siteSummaries.get(key).take();
     if (!isErr(entry)) {
       sites.push(entry.value);
     }

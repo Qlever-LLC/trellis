@@ -136,7 +136,7 @@ const service = await TrellisService.connect({
   server: { log: undefined },
 }).orThrow();
 
-await service.operation("Harness.Ts.Operation").handle(
+await service.handle.operation.harness.tsOperation(
   async ({ input, op }) => {
     await op.started().orThrow();
     if (input.mode === "durable-running") {
@@ -194,7 +194,7 @@ await service.operation("Harness.Ts.Operation").handle(
     if (input.mode === "deferred") {
       void (async () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
-        const controlled = await service.operation("Harness.Ts.Operation")
+        const controlled = await service.handle.operation.harness.tsOperation
           .control(op.id).orThrow();
         await controlled.complete({ message: input.message, mode: input.mode })
           .orThrow();
@@ -208,7 +208,7 @@ await service.operation("Harness.Ts.Operation").handle(
   },
 );
 
-await service.operation("Harness.Ts.Status").handle(async ({ input, op }) => {
+await service.handle.operation.harness.tsStatus(async ({ input, op }) => {
   await op.started().orThrow();
   await op.progress({ message: input.message, mode: input.mode }).orThrow();
   if (input.mode === "status") {
@@ -218,25 +218,26 @@ await service.operation("Harness.Ts.Status").handle(async ({ input, op }) => {
 });
 
 async function assertProviderInvalidControl() {
-  const accepted = await service.operation("Harness.Ts.Operation").accept({
+  const accepted = await service.handle.operation.harness.tsOperation.accept({
     sessionKey: service.auth.sessionKey,
   }).orThrow();
-  const missing = await service.operation("Harness.Ts.Operation").control(
+  const missing = await service.handle.operation.harness.tsOperation.control(
     "missing-ts-provider-operation",
   ).take();
   // @ts-expect-error Invalid-control tests intentionally assert Result shape for rejected controls.
   if (missing.isOk()) {
     throw new Error("TS provider accepted missing operation control");
   }
-  const wrongOperation = await service.operation("Harness.Ts.Status").control(
-    accepted.id,
-  ).take();
+  const wrongOperation = await service.handle.operation.harness.tsStatus
+    .control(
+      accepted.id,
+    ).take();
   // @ts-expect-error Invalid-control tests intentionally assert Result shape for rejected controls.
   if (wrongOperation.isOk()) {
     throw new Error("TS provider accepted wrong operation control");
   }
 
-  const status = await service.operation("Harness.Ts.Status").accept({
+  const status = await service.handle.operation.harness.tsStatus.accept({
     sessionKey: service.auth.sessionKey,
   }).orThrow();
   const statusCancel = await status.cancel().take();
@@ -245,7 +246,7 @@ async function assertProviderInvalidControl() {
     throw new Error("TS provider accepted non-cancelable cancel");
   }
 
-  const controlled = await service.operation("Harness.Ts.Operation").control(
+  const controlled = await service.handle.operation.harness.tsOperation.control(
     accepted.id,
   ).orThrow();
   const invalidProgress = await controlled.progress({ message: 123 }).take();
@@ -271,7 +272,7 @@ await assertProviderInvalidControl();
 
 const durableAction = Deno.env.get("HARNESS_TS_SERVICE_DURABLE_ACTION");
 if (durableAction === "start") {
-  const accepted = await service.operation("Harness.Ts.Operation").accept({
+  const accepted = await service.handle.operation.harness.tsOperation.accept({
     sessionKey: Deno.env.get("HARNESS_TS_SERVICE_DURABLE_SESSION_KEY") ??
       service.auth.sessionKey,
   }).orThrow();
@@ -280,7 +281,7 @@ if (durableAction === "start") {
 } else if (durableAction === "complete") {
   const operationId = Deno.env.get("HARNESS_TS_SERVICE_DURABLE_ID")!;
   const message = Deno.env.get("HARNESS_TS_SERVICE_DURABLE_MESSAGE")!;
-  const controlled = await service.operation("Harness.Ts.Operation").control(
+  const controlled = await service.handle.operation.harness.tsOperation.control(
     operationId,
   ).orThrow();
   void (async () => {

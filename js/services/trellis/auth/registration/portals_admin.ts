@@ -29,42 +29,34 @@ export async function registerPortalAdminRpcs(deps: {
   loginPortalStorage: SqlLoginPortalRepository;
 }): Promise<void> {
   const federatedProviders = federatedProviderViews(deps.config);
-  await deps.trellis.mount(
-    "Auth.Portals.List",
+  await deps.trellis.handle.rpc.auth.portalsList(
     createAuthPortalsListHandler(deps.loginPortalStorage),
   );
-  await deps.trellis.mount(
-    "Auth.Portals.Get",
+  await deps.trellis.handle.rpc.auth.portalsGet(
     createAuthPortalsGetHandler(deps.loginPortalStorage, federatedProviders),
   );
-  await deps.trellis.mount(
-    "Auth.Portals.Put",
+  await deps.trellis.handle.rpc.auth.portalsPut(
     createAuthPortalsPutHandler(deps.loginPortalStorage),
   );
-  await deps.trellis.mount(
-    "Auth.Portals.Remove",
+  await deps.trellis.handle.rpc.auth.portalsRemove(
     createAuthPortalsRemoveHandler(deps.loginPortalStorage),
   );
-  await deps.trellis.mount(
-    "Auth.Portals.LoginSettings.Get",
+  await deps.trellis.handle.rpc.auth.portalsLoginSettingsGet(
     createAuthPortalsLoginSettingsGetHandler(
       deps.loginPortalStorage,
       federatedProviders,
     ),
   );
-  await deps.trellis.mount(
-    "Auth.Portals.LoginSettings.Update",
+  await deps.trellis.handle.rpc.auth.portalsLoginSettingsUpdate(
     createAuthPortalsLoginSettingsUpdateHandler(
       deps.loginPortalStorage,
       federatedProviders,
     ),
   );
-  await deps.trellis.mount(
-    "Auth.Portals.Routes.Put",
+  await deps.trellis.handle.rpc.auth.portalsRoutesPut(
     createAuthPortalsRoutesPutHandler(deps.loginPortalStorage),
   );
-  await deps.trellis.mount(
-    "Auth.Portals.Routes.Remove",
+  await deps.trellis.handle.rpc.auth.portalsRoutesRemove(
     createAuthPortalsRoutesRemoveHandler(deps.loginPortalStorage),
   );
 }

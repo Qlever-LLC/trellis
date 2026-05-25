@@ -560,7 +560,7 @@ async function processDisconnectMessage(deps: {
     AuthRuntimeDeps["sessionStorage"],
     "getOneBySessionKey"
   >;
-  trellis: Pick<AuthRuntimeDeps["trellis"], "publish">;
+  trellis: Pick<AuthRuntimeDeps["trellis"], "event">;
 }): Promise<void> {
   const {
     connectionsKV,
@@ -609,7 +609,7 @@ async function processDisconnectMessage(deps: {
     if (sessionValue) {
       if (sessionValue.type !== "device") {
         (
-          await trellis.publish("Auth.Connections.Closed", {
+          await trellis.event.auth.connectionsClosed.publish({
             origin: sessionValue.type === "user"
               ? sessionValue.identity.provider
               : sessionValue.origin,
@@ -1232,7 +1232,7 @@ export function startAuthCallout(
 
       if (session.type !== "device") {
         (
-          await trellis.publish("Auth.Connections.Opened", {
+          await trellis.event.auth.connectionsOpened.publish({
             origin: session.type === "user"
               ? session.identity.provider
               : session.origin,

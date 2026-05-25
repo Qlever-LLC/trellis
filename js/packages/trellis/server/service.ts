@@ -60,7 +60,6 @@ import type {
   OperationTransferContextOf,
   RpcHandlerContext,
   RpcHandlerErrorOf,
-  RpcRequestErrorOf,
 } from "../trellis.ts";
 import type {
   NatsConnectFn,
@@ -80,6 +79,7 @@ import {
   TransferError,
   TransportError,
   UnexpectedError,
+  ValidationError,
 } from "../errors/index.ts";
 import type { ReceiveTransferGrant } from "../transfer.ts";
 import {
@@ -194,10 +194,9 @@ type RpcMethodInput<TA extends TrellisAPI, M extends RpcMethodName<TA>> =
   InferSchemaType<TA["rpc"][M]["input"]>;
 type RpcMethodOutput<TA extends TrellisAPI, M extends RpcMethodName<TA>> =
   InferSchemaType<TA["rpc"][M]["output"]>;
-
 type TrellisServiceRuntimeCreateOpts<
   TOwnedApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI = TOwnedApi,
+  TTrellisApi extends TrellisAPI | undefined = TOwnedApi,
 > = {
   log?: LoggerLike | false;
   timeout?: number;
@@ -229,6 +228,35 @@ function resolveServiceLogger(log?: LoggerLike | false): LoggerLike {
   }
 
   return log ?? serverLogger;
+}
+
+function surfaceGroupName(key: string): string {
+  return lowerCamelIdent(key.split(".")[0] ?? key);
+}
+
+function surfaceLeafName(key: string): string {
+  const parts = key.split(".");
+  parts.shift();
+  return lowerCamelIdent(parts.length === 0 ? key : parts.join("."));
+}
+
+function lowerCamelIdent(value: string): string {
+  const pascal = value
+    .split(/[^A-Za-z0-9]+/)
+    .filter((part) => part.length > 0)
+    .map((part) => part[0]!.toUpperCase() + part.slice(1))
+    .join("");
+  return pascal.length === 0 ? "_" : pascal[0]!.toLowerCase() + pascal.slice(1);
+}
+
+function addSurfaceLeaf<TLeaf>(
+  surface: Record<string, Record<string, TLeaf>>,
+  key: string,
+  leaf: TLeaf,
+): void {
+  const group = surfaceGroupName(key);
+  surface[group] ??= {};
+  surface[group][surfaceLeafName(key)] = leaf;
 }
 
 export type ResourceBindingKV = {
@@ -745,7 +773,7 @@ type TrellisServiceRuntimeConnectOpts<
 
 export type TrellisServiceConnectOpts<
   TOwnedApi extends TrellisAPI = TrellisAPI,
-  TTrellisApi extends TrellisAPI = TOwnedApi,
+  TTrellisApi extends TrellisAPI | undefined = TOwnedApi,
 > = {
   trellisUrl: string;
   contract: ServiceContract<TOwnedApi, TTrellisApi>;
@@ -753,35 +781,6 @@ export type TrellisServiceConnectOpts<
   sessionKeySeed: string;
   server?: TrellisServiceServerOpts;
 };
-
-export type ServiceTrellis<
-  TOwnedApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  TKv extends ContractKvMetadata = ContractKvMetadata,
-  TJobs extends ContractJobsMetadata = {},
-> =
-  & Omit<RootTrellis<TTrellisApi>, "mount">
-  & {
-    mount<M extends RpcMethodName<TOwnedApi>>(
-      method: M,
-      fn: ({
-        input,
-        context,
-        trellis,
-      }: {
-        input: RpcMethodInput<TOwnedApi, M>;
-        context: RpcHandlerContext;
-        trellis: Trellis<TTrellisApi, TKv, TJobs>;
-      }) =>
-        | Promise<
-          Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>
-        >
-        | Result<
-          RpcMethodOutput<TOwnedApi, M>,
-          RpcHandlerErrorOf<TOwnedApi, M>
-        >,
-    ): Promise<void>;
-  };
 
 type ServiceKvFacade<TKv extends ContractKvMetadata> = {
   [K in keyof TKv]: TKv[K]["required"] extends false
@@ -807,13 +806,9 @@ export type Trellis<
   & HandlerTrellis<TTrellisApi>
   & ServiceHandlerResources<TKv, TJobs, TTrellisApi>;
 
-type RequestOpts = {
-  timeout?: number;
-};
-
 export type ServiceContract<
   TOwnedApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
+  TTrellisApi extends TrellisAPI | undefined,
   TJobs extends ContractJobsMetadata = {},
   TKv extends ContractKvMetadata = ContractKvMetadata,
 > = {
@@ -822,7 +817,7 @@ export type ServiceContract<
   CONTRACT: TrellisContractV1;
   API: {
     owned: TOwnedApi;
-    trellis: TTrellisApi;
+    trellis?: TTrellisApi;
   };
   readonly [CONTRACT_JOBS_METADATA]?: TJobs;
   readonly [CONTRACT_KV_METADATA]?: TKv;
@@ -831,7 +826,7 @@ export type ServiceContract<
 type ContractOwnedApi<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata
   >,
 > = TContract["API"]["owned"];
@@ -839,15 +834,17 @@ type ContractOwnedApi<
 type ContractTrellisApi<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata
   >,
-> = TContract["API"]["trellis"];
+> = NonNullable<TContract["API"]["trellis"]> extends TrellisAPI
+  ? NonNullable<TContract["API"]["trellis"]>
+  : ContractOwnedApi<TContract>;
 
 type ContractJobsOf<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata,
     ContractKvMetadata
   >,
@@ -856,7 +853,7 @@ type ContractJobsOf<
 type ContractKvOf<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata,
     ContractKvMetadata
   >,
@@ -865,7 +862,7 @@ type ContractKvOf<
 type ContractJobName<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata
   >,
 > = keyof ContractJobsOf<TContract> & string;
@@ -873,7 +870,7 @@ type ContractJobName<
 type ContractOperationName<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata
   >,
 > = keyof ContractOwnedApi<TContract>["operations"] & string;
@@ -881,7 +878,7 @@ type ContractOperationName<
 type ContractJobPayload<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata
   >,
   TJob extends ContractJobName<TContract>,
@@ -890,7 +887,7 @@ type ContractJobPayload<
 type ContractJobResult<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata
   >,
   TJob extends ContractJobName<TContract>,
@@ -900,7 +897,7 @@ type ContractJobResult<
 export type JobArgs<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata,
     ContractKvMetadata
   >,
@@ -910,7 +907,7 @@ export type JobArgs<
     ContractJobPayload<TContract, TJob>,
     ContractJobResult<TContract, TJob>
   >;
-  trellis: Trellis<
+  client: Trellis<
     ContractTrellisApi<TContract>,
     ContractKvOf<TContract>,
     ContractJobsOf<TContract>
@@ -921,7 +918,7 @@ export type JobArgs<
 export type JobResult<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata,
     ContractKvMetadata
   >,
@@ -931,7 +928,7 @@ export type JobResult<
 export type RpcHandler<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata,
     ContractKvMetadata
   >,
@@ -939,11 +936,11 @@ export type RpcHandler<
 > = ({
   input,
   context,
-  trellis,
+  client,
 }: {
   input: RpcMethodInput<ContractOwnedApi<TContract>, M>;
   context: RpcHandlerContext;
-  trellis: Trellis<
+  client: Trellis<
     ContractTrellisApi<TContract>,
     ContractKvOf<TContract>,
     ContractJobsOf<TContract>
@@ -963,7 +960,7 @@ export type RpcHandler<
 export type JobHandler<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata,
     ContractKvMetadata
   >,
@@ -973,7 +970,7 @@ export type JobHandler<
 export type OperationHandler<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata,
     ContractKvMetadata
   >,
@@ -987,7 +984,7 @@ export type OperationHandler<
       OperationTransferContextOf<ContractOwnedApi<TContract>, O>
     >
     & {
-      trellis: Trellis<
+      client: Trellis<
         ContractTrellisApi<TContract>,
         ContractKvOf<TContract>,
         ContractJobsOf<TContract>
@@ -1006,7 +1003,7 @@ export type JobQueue<
   handle(
     handler: (args: {
       job: PublicActiveJob<TPayload, TResult>;
-      trellis: Trellis<TTrellisApi, TKv, TJobs>;
+      client: Trellis<TTrellisApi, TKv, TJobs>;
     }) => Promise<Result<TResult, BaseError>>,
   ): void;
 };
@@ -1039,6 +1036,167 @@ type ManagedJobsFacade<
 > = JobsFacadeOf<TJobs, TTrellisApi, TKv> & {
   [MANAGED_JOB_WORKERS]: ManagedJobWorkers;
 };
+
+type ServiceHandleOperationLeaf =
+  & ((handler: (context: unknown) => unknown) => Promise<void>)
+  & {
+    accept(
+      args: { sessionKey: string },
+    ): AsyncResult<AcceptedOperation, UnexpectedError>;
+    control(
+      operationId: string,
+    ): AsyncResult<OperationRuntimeHandle, BaseError>;
+  };
+
+type ServiceHandleFacade = {
+  readonly rpc: Record<
+    string,
+    Record<string, (handler: (args: unknown) => unknown) => Promise<void>>
+  >;
+  readonly feed: Record<
+    string,
+    Record<string, (handler: (args: unknown) => unknown) => Promise<void>>
+  >;
+  readonly operation: Record<
+    string,
+    Record<string, ServiceHandleOperationLeaf>
+  >;
+};
+
+type PascalSurfaceName<T extends string> = T extends
+  `${infer Head}.${infer Tail}`
+  ? `${Capitalize<Head>}${PascalSurfaceName<Tail>}`
+  : Capitalize<T>;
+type LowerCamelSurfaceName<T extends string> = Uncapitalize<
+  PascalSurfaceName<T>
+>;
+type SurfaceGroupName<T extends string> = T extends `${infer Head}.${string}`
+  ? LowerCamelSurfaceName<Head>
+  : LowerCamelSurfaceName<T>;
+type SurfaceLeafName<T extends string> = T extends `${string}.${infer Tail}`
+  ? LowerCamelSurfaceName<Tail>
+  : LowerCamelSurfaceName<T>;
+type SurfaceKeysForGroup<TKeys extends string, TGroup extends string> =
+  TKeys extends string ? SurfaceGroupName<TKeys> extends TGroup ? TKeys : never
+    : never;
+
+type TypedServiceHandleFacade<
+  TOwnedApi extends TrellisAPI,
+  TTrellisApi extends TrellisAPI,
+  TKv extends ContractKvMetadata,
+  TJobs extends ContractJobsMetadata,
+> = {
+  readonly rpc: {
+    readonly [TGroup in SurfaceGroupName<RpcMethodName<TOwnedApi>>]: {
+      readonly [
+        M in SurfaceKeysForGroup<
+          RpcMethodName<TOwnedApi>,
+          TGroup
+        > as SurfaceLeafName<M>
+      ]: (
+        handler: RpcHandleFn<TOwnedApi, TTrellisApi, M, TKv, TJobs>,
+      ) => Promise<void>;
+    };
+  };
+  readonly feed: {
+    readonly [TGroup in SurfaceGroupName<keyof TOwnedApi["feeds"] & string>]: {
+      readonly [
+        F in SurfaceKeysForGroup<
+          keyof TOwnedApi["feeds"] & string,
+          TGroup
+        > as SurfaceLeafName<F>
+      ]: (
+        handler: FeedHandleFn<TOwnedApi, TTrellisApi, F, TKv, TJobs>,
+      ) => Promise<void>;
+    };
+  };
+  readonly operation: {
+    readonly [
+      TGroup in SurfaceGroupName<keyof TOwnedApi["operations"] & string>
+    ]: {
+      readonly [
+        O in SurfaceKeysForGroup<
+          keyof TOwnedApi["operations"] & string,
+          TGroup
+        > as SurfaceLeafName<O>
+      ]: OperationHandleFn<
+        TOwnedApi,
+        TTrellisApi,
+        O,
+        TKv,
+        TJobs
+      >;
+    };
+  };
+};
+
+type RpcHandleFn<
+  TOwnedApi extends TrellisAPI,
+  TTrellisApi extends TrellisAPI,
+  M extends RpcMethodName<TOwnedApi>,
+  TKv extends ContractKvMetadata,
+  TJobs extends ContractJobsMetadata,
+> = (args: {
+  input: RpcMethodInput<TOwnedApi, M>;
+  context: RpcHandlerContext;
+  client: Trellis<TTrellisApi, TKv, TJobs>;
+}) =>
+  | Promise<
+    Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>
+  >
+  | Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>;
+
+type FeedHandleFn<
+  TOwnedApi extends TrellisAPI,
+  TTrellisApi extends TrellisAPI,
+  F extends keyof TOwnedApi["feeds"] & string,
+  TKv extends ContractKvMetadata,
+  TJobs extends ContractJobsMetadata,
+> = (context: {
+  input: FeedInputOf<TOwnedApi, F>;
+  caller: unknown;
+  signal: AbortSignal;
+  emit(
+    event: FeedEventOf<TOwnedApi, F>,
+  ): AsyncResult<void, ValidationError | UnexpectedError>;
+  client: Trellis<TTrellisApi, TKv, TJobs>;
+}) => unknown | Promise<unknown>;
+
+type OperationHandleFn<
+  TOwnedApi extends TrellisAPI,
+  TTrellisApi extends TrellisAPI,
+  O extends keyof TOwnedApi["operations"] & string,
+  TKv extends ContractKvMetadata,
+  TJobs extends ContractJobsMetadata,
+> =
+  & ((
+    handler: (
+      context:
+        & OperationHandlerContext<
+          InferSchemaType<TOwnedApi["operations"][O]["input"]>,
+          OperationProgressOf<TOwnedApi, O>,
+          OperationOutputOf<TOwnedApi, O>,
+          OperationTransferContextOf<TOwnedApi, O>
+        >
+        & { client: Trellis<TTrellisApi, TKv, TJobs> },
+    ) => unknown | Promise<unknown>,
+  ) => Promise<void>)
+  & {
+    accept(args: { sessionKey: string }): AsyncResult<
+      AcceptedOperation<
+        OperationProgressOf<TOwnedApi, O>,
+        OperationOutputOf<TOwnedApi, O>
+      >,
+      UnexpectedError
+    >;
+    control(operationId: string): AsyncResult<
+      OperationRuntimeHandle<
+        OperationProgressOf<TOwnedApi, O>,
+        OperationOutputOf<TOwnedApi, O>
+      >,
+      BaseError
+    >;
+  };
 
 export type OperationRegistration<
   TOwnedApi extends TrellisAPI,
@@ -1078,7 +1236,7 @@ export type OperationRegistration<
           OperationOutputOf<TOwnedApi, O>,
           OperationTransferContextOf<TOwnedApi, O>
         >
-        & { trellis: Trellis<TTrellisApi, TKv, TJobs> },
+        & { client: Trellis<TTrellisApi, TKv, TJobs> },
     ) => unknown | Promise<unknown>,
   ): Promise<void>;
 };
@@ -1091,7 +1249,7 @@ export type FeedRegistration<
 export type TrellisServiceConnectArgs<
   TContract extends ServiceContract<
     TrellisAPI,
-    TrellisAPI,
+    TrellisAPI | undefined,
     ContractJobsMetadata,
     ContractKvMetadata
   >,
@@ -1207,16 +1365,19 @@ export async function createConnectedService<
   };
 
   const handlerTrellis: Trellis<TTrellisApi, TKv, TJobs> = {
+    rpc: outbound.rpc,
+    event: outbound.event,
+    feed: outbound.feed,
+    operation: outbound.operation,
     request: outbound.request.bind(outbound),
     publish: (event, data) => outbound.publish(event, data),
-    event: (event, subjectData, fn, opts) =>
-      outbound.event(
+    listenEvent: (event, subjectData, fn, opts) =>
+      outbound.listenEvent(
         event,
         subjectData,
         fn as (message: unknown) => ReturnType<typeof fn>,
         opts,
       ),
-    operation: (operation) => outbound.operation(operation),
     get kv() {
       return getHandlerResources().kv;
     },
@@ -1227,44 +1388,6 @@ export async function createConnectedService<
       return getHandlerResources().jobs;
     },
   };
-  const trellis = Object.assign(
-    outbound,
-    {
-      mount: <M extends RpcMethodName<TOwnedApi>>(
-        method: M,
-        fn: ({
-          input,
-          context,
-          trellis,
-        }: {
-          input: RpcMethodInput<TOwnedApi, M>;
-          context: RpcHandlerContext;
-          trellis: Trellis<TTrellisApi, TKv, TJobs>;
-        }) =>
-          | Promise<
-            Result<
-              RpcMethodOutput<TOwnedApi, M>,
-              RpcHandlerErrorOf<TOwnedApi, M>
-            >
-          >
-          | Result<
-            RpcMethodOutput<TOwnedApi, M>,
-            RpcHandlerErrorOf<TOwnedApi, M>
-          >,
-      ) =>
-        server.mountRuntime(
-          method as string,
-          async ({ input, context }) =>
-            await Promise.resolve(
-              fn({
-                input: input as RpcMethodInput<TOwnedApi, M>,
-                context,
-                trellis: handlerTrellis,
-              }),
-            ) as Result<unknown, BaseError>,
-        ),
-    },
-  ) as ServiceTrellis<TOwnedApi, TTrellisApi, TKv, TJobs>;
 
   const health = new ServiceHealth({
     serviceName: args.name,
@@ -1348,7 +1471,6 @@ export async function createConnectedService<
     args.auth,
     args.nc,
     server,
-    trellis,
     handlerTrellis,
     kv,
     args.contractJobs,
@@ -1782,7 +1904,7 @@ function createJobsFacade<
   serviceName: string;
   nc: NatsConnection;
   contractJobs: TJobs;
-  trellis: Trellis<TTrellisApi, TKv, TJobs>;
+  client: Trellis<TTrellisApi, TKv, TJobs>;
   jobsBinding?: ResourceBindingJobs;
   workStream?: string;
 }): ManagedJobsFacade<TJobs, TTrellisApi, TKv> {
@@ -1852,11 +1974,11 @@ function createJobsFacade<
           async (job) =>
             await handler({
               job,
-              trellis: args.trellis,
+              client: args.client,
             }),
         );
       },
-    } satisfies JobQueue<unknown, unknown, TTrellisApi, TKv>;
+    } satisfies JobQueue<unknown, unknown, TTrellisApi, TKv, TJobs>;
   }
 
   const managedWorkers: ManagedJobWorkers = {
@@ -2036,12 +2158,12 @@ export class TrellisService<
   readonly auth: SessionAuth;
   readonly nc: NatsConnection;
   readonly #server: TrellisServiceRuntimeFor<TOwnedApi & TTrellisApi>;
-  readonly trellis: ServiceTrellis<TOwnedApi, TTrellisApi, TKv, TJobs>;
   readonly #handlerTrellis: Trellis<TTrellisApi, TKv, TJobs>;
   readonly kv: ServiceKvFacade<TKv>;
   readonly store: Record<string, StoreHandle>;
   readonly jobs: JobsFacadeOf<TJobs, TTrellisApi, TKv>;
   readonly health: ServiceHealth;
+  readonly handle: TypedServiceHandleFacade<TOwnedApi, TTrellisApi, TKv, TJobs>;
   /** Framework-neutral lifecycle handle for the service runtime connection. */
   readonly connection: TrellisConnection;
   readonly #operationTransfer: ServiceTransfer;
@@ -2055,7 +2177,6 @@ export class TrellisService<
     auth: SessionAuth,
     nc: NatsConnection,
     server: TrellisServiceRuntimeFor<TOwnedApi & TTrellisApi>,
-    trellis: ServiceTrellis<TOwnedApi, TTrellisApi, TKv, TJobs>,
     handlerTrellis: Trellis<TTrellisApi, TKv, TJobs>,
     kv: ServiceKvFacade<TKv>,
     contractJobs: TJobs,
@@ -2075,7 +2196,6 @@ export class TrellisService<
       value: server,
       enumerable: false,
     });
-    this.trellis = trellis;
     this.#handlerTrellis = handlerTrellis;
     this.kv = kv;
     this.store = Object.fromEntries(
@@ -2088,15 +2208,86 @@ export class TrellisService<
       serviceName: name,
       nc,
       contractJobs,
-      trellis: handlerTrellis,
+      client: handlerTrellis,
       jobsBinding: bindings.jobs,
       workStream: bindings.jobs?.workStream,
     });
     this.jobs = jobs;
     this.#managedJobWorkers = jobs[MANAGED_JOB_WORKERS];
     this.health = health;
+    this.handle = this.#createHandleFacade() as TypedServiceHandleFacade<
+      TOwnedApi,
+      TTrellisApi,
+      TKv,
+      TJobs
+    >;
     this.connection = connection;
     this.#stopHealthPublishing = stopHealthPublishing;
+  }
+
+  #createHandleFacade(): ServiceHandleFacade {
+    const rpc: ServiceHandleFacade["rpc"] = {};
+    for (const method of Object.keys(this.#server.api.rpc ?? {})) {
+      addSurfaceLeaf(rpc, method, (handler) =>
+        this.#server.mountRuntime(
+          method,
+          async ({ input, context }) =>
+            await Promise.resolve(
+              (handler as (
+                args: unknown,
+              ) =>
+                | Promise<Result<unknown, BaseError>>
+                | Result<unknown, BaseError>)({
+                  input,
+                  context,
+                  client: this.#handlerTrellis,
+                }),
+            ),
+        ));
+    }
+
+    const feed: ServiceHandleFacade["feed"] = {};
+    for (const feedName of Object.keys(this.#server.api.feeds ?? {})) {
+      addSurfaceLeaf(
+        feed,
+        feedName,
+        (handler) =>
+          this.#server.feedHandle(feedName).handle((context) =>
+            (handler as (args: unknown) => unknown | Promise<unknown>)({
+              ...context,
+              client: this.#handlerTrellis,
+            })
+          ),
+      );
+    }
+
+    const operation: Record<
+      string,
+      Record<string, ServiceHandleOperationLeaf>
+    > = {};
+    for (
+      const operationName of Object.keys(this.#server.api.operations ?? {})
+    ) {
+      const registration = this.#operation(
+        operationName as keyof TOwnedApi["operations"] & string,
+      );
+      const leaf = Object.assign(
+        (handler: (context: unknown) => unknown) =>
+          registration.handle((context) =>
+            handler({
+              ...context,
+              client: this.#handlerTrellis,
+            })
+          ),
+        {
+          accept: (args: { sessionKey: string }) => registration.accept(args),
+          control: (operationId: string) => registration.control(operationId),
+        },
+      ) as ServiceHandleOperationLeaf;
+      addSurfaceLeaf(operation, operationName, leaf);
+    }
+
+    return { rpc, feed, operation };
   }
 
   /**
@@ -2157,7 +2348,7 @@ export class TrellisService<
   static connect<
     const TContract extends ServiceContract<
       TrellisAPI,
-      TrellisAPI,
+      TrellisAPI | undefined,
       ContractJobsMetadata,
       ContractKvMetadata
     >,
@@ -2234,6 +2425,17 @@ export class TrellisService<
         }
 
         try {
+          const server = args.contract.API.trellis
+            ? {
+              ...(args.server ?? {}),
+              api: args.contract.API.owned,
+              trellisApi: args.contract.API.trellis as TTrellisApi,
+            }
+            : {
+              ...(args.server ?? {}),
+              api: args.contract.API.owned,
+            };
+
           return Result.ok(
             await createConnectedService<
               TOwnedApi,
@@ -2254,11 +2456,7 @@ export class TrellisService<
                 (args.contract[CONTRACT_KV_METADATA] ?? {}) as ContractKvOf<
                   TContract
                 >,
-              server: {
-                ...(args.server ?? {}),
-                api: args.contract.API.owned,
-                trellisApi: args.contract.API.trellis,
-              },
+              server,
               bindings: bootstrap.binding.resources,
             }),
           );
@@ -2274,9 +2472,6 @@ export class TrellisService<
     })());
   }
 
-  /**
-   * Starts managed job workers for registered handlers and waits for shutdown.
-   */
   async wait(): Promise<void> {
     this.#waitPromise ??= (async () => {
       try {
@@ -2315,34 +2510,10 @@ export class TrellisService<
     await this.#stopPromise;
   }
 
-  request<M extends RpcMethodName<TTrellisApi>>(
-    method: M,
-    input: RpcMethodInput<TTrellisApi, M>,
-    opts?: RequestOpts,
-  ): AsyncResult<
-    RpcMethodOutput<TTrellisApi, M>,
-    RpcRequestErrorOf<TTrellisApi, M>
-  > {
-    return this.trellis.request(
-      method as never,
-      input as never,
-      opts,
-    ) as AsyncResult<
-      RpcMethodOutput<TTrellisApi, M>,
-      RpcRequestErrorOf<TTrellisApi, M>
-    >;
-  }
-
-  feed<F extends keyof TOwnedApi["feeds"] & string>(
-    feed: F,
-  ): FeedRegistration<TOwnedApi, F> {
-    return this.#server.feed(feed) as FeedRegistration<TOwnedApi, F>;
-  }
-
-  operation<O extends keyof TOwnedApi["operations"] & string>(
+  #operation<O extends keyof TOwnedApi["operations"] & string>(
     operation: O,
   ): OperationRegistration<TOwnedApi, TTrellisApi, O, TKv, TJobs> {
-    const registration = this.#server.operation(
+    const registration = this.#server.operationHandle(
       operation,
     ) as RootOperationRegistration<
       InferSchemaType<TOwnedApi["operations"][O]["input"]>,
@@ -2363,13 +2534,13 @@ export class TrellisService<
               OperationOutputOf<TOwnedApi, O>,
               OperationTransferContextOf<TOwnedApi, O>
             >
-            & { trellis: Trellis<TTrellisApi, TKv, TJobs> },
+            & { client: Trellis<TTrellisApi, TKv, TJobs> },
         ) => unknown | Promise<unknown>,
       ) =>
         registration.handle((context) =>
           handler({
             ...context,
-            trellis: this.#handlerTrellis,
+            client: this.#handlerTrellis,
           })
         ),
     };

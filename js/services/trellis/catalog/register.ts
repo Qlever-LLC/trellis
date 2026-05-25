@@ -22,7 +22,16 @@ type CatalogRpcMethod =
   | "Trellis.Surface.Status";
 
 type RpcRegistrar = {
-  mount(method: CatalogRpcMethod, handler: unknown): Promise<void>;
+  handle: {
+    rpc: {
+      trellis: {
+        catalog(handler: unknown): Promise<void>;
+        contractGet(handler: unknown): Promise<void>;
+        bindingsGet(handler: unknown): Promise<void>;
+        surfaceStatus(handler: unknown): Promise<void>;
+      };
+    };
+  };
 };
 
 type CatalogRegistrationDeps = {
@@ -86,8 +95,7 @@ export async function registerCatalog(
     );
   }
 
-  await deps.trellis.mount(
-    "Trellis.Catalog",
+  await deps.trellis.handle.rpc.trellis.catalog(
     createTrellisCatalogHandler(
       deps.contracts,
       deps.deploymentEnvelopeStorage,
@@ -95,8 +103,7 @@ export async function registerCatalog(
       deps.logger,
     ),
   );
-  await deps.trellis.mount(
-    "Trellis.Contract.Get",
+  await deps.trellis.handle.rpc.trellis.contractGet(
     ({ input }: { input: ContractGetInput }) =>
       createTrellisContractGetHandler(
         deps.contracts,
@@ -105,13 +112,11 @@ export async function registerCatalog(
         input,
       ),
   );
-  await deps.trellis.mount(
-    "Trellis.Bindings.Get",
+  await deps.trellis.handle.rpc.trellis.bindingsGet(
     ({ input, context }: BindingsGetEnvelope) =>
       trellisBindingsGetHandler(input, context),
   );
-  await deps.trellis.mount(
-    "Trellis.Surface.Status",
+  await deps.trellis.handle.rpc.trellis.surfaceStatus(
     ({ input, context }: SurfaceStatusEnvelope) =>
       trellisSurfaceStatusHandler(input, context),
   );

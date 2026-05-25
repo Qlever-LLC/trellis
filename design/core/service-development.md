@@ -93,10 +93,10 @@ const stagedUpload = (await uploadsStore.waitFor("incoming/report.pdf", {
   timeoutMs: 10_000,
 })).take();
 
-await service.trellis.mount("SomeMethod", handler);
-await service.trellis.event("SomeEvent", {}, eventHandler);
+await service.handle.rpc.some.method(handler);
+await service.event.some.event.listen(eventHandler, {});
 
-const catalog = await service.request("Trellis.Catalog", {});
+const catalog = await service.rpc.trellis.catalog({});
 if (catalog.isErr()) {
   throw catalog.error;
 }
@@ -190,7 +190,7 @@ const service = await TrellisService.connect({
   server: {},
 });
 
-export async function health({ trellis }: Args): Promise<Return> {
+export async function health({ client }: Args): Promise<Return> {
   return Result.ok({
     status: "healthy",
     service: "echo",
@@ -199,7 +199,7 @@ export async function health({ trellis }: Args): Promise<Return> {
   });
 }
 
-await service.trellis.mount("Echo.Health", health);
+await service.handle.rpc.echo.health(health);
 ```
 
 Rules:
@@ -322,7 +322,8 @@ Behavior:
 - public APIs must not expose weak raw wire types except in explicit
   raw/debug/admin surfaces
 - public service APIs should hang off connected runtime objects such as
-  `service.jobs` and `service.operation(...)`
+  `service.jobs`, `service.operation.<group>.<leaf>`, and
+  `service.handle.operation.<group>.<leaf>`
 
 ### Files and transfer
 
@@ -343,7 +344,7 @@ Behavior:
 Example:
 
 ```ts
-const op = await billing.operation("Billing.Refund").input(input).start();
+const op = await billing.operation.billing.refund.start(input);
 const done = await op.wait();
 
 const job = await service.jobs.refundCharge.create({
@@ -359,7 +360,7 @@ fields.
 
 ```ts
 service.jobs.refundCharge.handle(async ({ job }) => {
-  const op = await service.operation("Billing.Refund")
+  const op = await service.handle.operation.billing.refund
     .control(job.payload.operationId)
     .orThrow();
 

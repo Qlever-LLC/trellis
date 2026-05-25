@@ -124,13 +124,13 @@ const service = await TrellisService.connect({
   },
 });
 
-await service.trellis.mount("User.Find", async ({ input }) => {
+await service.handle.rpc.user.find(async ({ input }) => {
   const user = await db.findUser(input.userId);
   if (!user) return Result.err(new NotFoundError("User"));
   return Result.ok({ user });
 });
 
-await service.trellis.mount("Graph.Health", () => {
+await service.handle.rpc.graph.health(() => {
   return Result.ok({ status: "healthy" as const });
 });
 ```
@@ -141,11 +141,13 @@ Rules:
 - operations and events are contract-driven rather than raw-subject-driven in
   normal app code
 - admin jobs access should use `Jobs.*` RPCs declared through the jobs SDK
-  rather than a client-side `trellis.jobs()` helper
+  through generated `client.rpc.jobs.*` facades rather than a client-side jobs
+  helper
 - service handlers mounted from contract-owned RPCs receive typed payloads from
   Trellis and may return either `Result` or `Promise<Result>`
 - transfer execution belongs to transfer-capable operations and is initiated by
-  the higher-level `operation(...).input(...).transfer(...).start()` helper
+  the higher-level `operation.<group>.<leaf>.input(...).transfer(...).start()`
+  helper
 - both sides use explicit `Result` conventions rather than exception-driven
   remote error handling
 
@@ -158,7 +160,7 @@ Rules:
 - service code should use `service.kv`, `service.store`, and `service.jobs`
   rather than a nested `service.resources.*` runtime shape
 - schema-backed service KV resources are exposed directly as typed
-  `service.kv.<alias>` and handler `trellis.kv.<alias>` stores; only store
+  `service.kv.<alias>` and handler `client.kv.<alias>` stores; only store
   resources use `.open()`
 - jobs-enabled services should declare top-level contract `jobs` and use
   `service.jobs.<queue>` plus `service.wait()` / `service.stop()` rather than

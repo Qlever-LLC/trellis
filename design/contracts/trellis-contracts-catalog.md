@@ -1477,7 +1477,8 @@ Generated TypeScript SDK packages SHOULD export:
 
 - the defined contract module itself (for example `auth`, `core`, or `activity`)
 - `use` - the dependency selector for local `uses` declarations
-- `API` - the derived `API.owned`, `API.used`, and `API.trellis` projections
+- `API` - the derived owned and used API projections that drive generated active
+  and provider facades
 - request/response/event TypeScript types
 - `CONTRACT`
 - `CONTRACT_ID`

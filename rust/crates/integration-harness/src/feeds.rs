@@ -154,7 +154,9 @@ pub(crate) async fn run_feeds_fixture(
     let service_contract_json = harness_service_contract_json()?;
     let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
     SdkAuthClient::new(&admin_client)
-        .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+        .rpc()
+        .auth()
+        .envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(&service_contract_json)?,
             deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
             expected_digest: contract_digest.clone(),

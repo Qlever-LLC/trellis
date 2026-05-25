@@ -49,7 +49,6 @@ export {
   type ResourceBindingStore,
   type RpcHandler,
   type ServiceContract,
-  type ServiceTrellis,
   StoreHandle,
   type Trellis,
   TrellisService,

@@ -72,7 +72,9 @@ async fn validate_request_with_session_retry(
 ) -> Result<AuthRequestsValidateResponse, TrellisClientError> {
     for attempt in 0..AUTH_VALIDATE_SESSION_RETRY_ATTEMPTS {
         match AuthClient::new(client.as_ref())
-            .auth_requests_validate(request)
+            .rpc()
+            .auth()
+            .requests_validate(request)
             .await
         {
             Ok(response) => return Ok(response),

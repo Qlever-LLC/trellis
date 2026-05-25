@@ -43,14 +43,14 @@ The `capabilities` here mean: only `service`-tier principals may publish or subs
 Now publish the event from `main.ts`. Here we call it after marking an order as fulfilled. You would do this wherever your fulfillment logic lives:
 
 ```ts
-await service.trellis.publish("Orders.Shipped", {
+await service.event.orders.shipped.publish({
   orderId,
   customerId,
   shippedAt: new Date().toISOString(),
 });
 ```
 
-`publish` validates the payload against `OrderShippedEvent` before sending. If the shape is wrong, it returns a `Result.err(...)` rather than silently dropping the event.
+`event.orders.shipped.publish(...)` validates the payload against `OrderShippedEvent` before sending. If the shape is wrong, it returns a `Result.err(...)` rather than silently dropping the event.
 
 {/snippet}
 {#snippet rust()}

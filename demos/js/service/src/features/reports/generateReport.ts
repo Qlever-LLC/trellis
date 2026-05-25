@@ -9,7 +9,7 @@ import { buildReportRecord, recordReport } from "./reportStore.ts";
 export const generateReport: OperationHandler<
   typeof contract,
   "Reports.Generate"
-> = async ({ input, op, trellis }) => {
+> = async ({ input, op, client }) => {
   function toBaseError(cause: unknown): BaseError {
     return cause instanceof BaseError ? cause : new UnexpectedError({ cause });
   }
@@ -105,9 +105,9 @@ export const generateReport: OperationHandler<
     siteId: inspection?.siteId,
     publishedAt,
   };
-  await trellis.publish("Reports.Published", reportsPublishedEvent).orThrow();
+  await client.event.reports.published.publish(reportsPublishedEvent).orThrow();
   recordReport(report);
-  await recordActivity(trellis, {
+  await recordActivity(client, {
     kind: "closeout-published",
     message: `Published closeout status for ${inspectionLabel}`,
     relatedSiteId: inspection?.siteId,

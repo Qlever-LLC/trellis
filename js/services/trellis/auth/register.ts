@@ -89,7 +89,7 @@ export async function registerAuth(deps: AuthRegistrationDeps): Promise<void> {
     sessionKey: string;
     revokedBy: string;
   }) => {
-    (await deps.trellis.publish("Auth.Sessions.Revoked", event)).inspectErr(
+    (await deps.trellis.event.auth.sessionsRevoked.publish(event)).inspectErr(
       (error) =>
         deps.logger.warn({ error }, "Failed to publish Auth.Sessions.Revoked"),
     );

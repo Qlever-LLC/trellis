@@ -55,31 +55,26 @@ async function main(): Promise<void> {
 
   service.jobs.refreshSiteSummary.handle(features.sites.refreshSiteSummary);
 
-  await service.trellis.mount(
-    "Assignments.List",
+  await service.handle.rpc.assignments.list(
     features.assignments.listAssignments,
   );
-  await service.trellis.mount("Sites.List", features.sites.listSites);
-  await service.trellis.mount("Sites.Get", features.sites.getSite);
-  await service.trellis.mount("Evidence.List", features.evidence.listEvidence);
-  await service.trellis.mount(
-    "Evidence.Download",
+  await service.handle.rpc.sites.list(features.sites.listSites);
+  await service.handle.rpc.sites.get(features.sites.getSite);
+  await service.handle.rpc.evidence.list(features.evidence.listEvidence);
+  await service.handle.rpc.evidence.download(
     features.evidence.downloadEvidence(service),
   );
-  await service.trellis.mount(
-    "Evidence.Delete",
-    features.evidence.deleteEvidence,
-  );
-  await service.trellis.mount("Reports.List", features.reports.listReports);
-  await service.operation("Sites.Refresh").handle(features.sites.refreshSite);
-  await service.operation("Reports.Generate").handle(
+  await service.handle.rpc.evidence.delete(features.evidence.deleteEvidence);
+  await service.handle.rpc.reports.list(features.reports.listReports);
+  await service.handle.operation.sites.refresh(features.sites.refreshSite);
+  await service.handle.operation.reports.generate(
     features.reports.generateReport,
   );
-  await service.operation("Evidence.Upload").handle(
+  await service.handle.operation.evidence.upload(
     features.evidence.uploadEvidence,
   );
-  await service.feed("Audit.Feed").handle(
-    async ({ emit, signal }) => {
+  await service.handle.feed.audit.feed(
+    async ({ emit, signal, client }) => {
       const controller = new AbortController();
       const stop = () => {
         controller.abort();
@@ -87,36 +82,32 @@ async function main(): Promise<void> {
       signal.addEventListener("abort", stop, { once: true });
 
       try {
-        await service.trellis.event(
-          "Audit.Recorded",
-          {},
+        await client.event.audit.recorded.listen(
           (event) => {
             return emit({ name: "Audit.Recorded", event });
           },
+          {},
           { mode: "ephemeral", replay: "new", signal: controller.signal },
         ).orThrow();
-        await service.trellis.event(
-          "Reports.Published",
-          {},
+        await client.event.reports.published.listen(
           (event) => {
             return emit({ name: "Reports.Published", event });
           },
+          {},
           { mode: "ephemeral", replay: "new", signal: controller.signal },
         ).orThrow();
-        await service.trellis.event(
-          "Evidence.Uploaded",
-          {},
+        await client.event.evidence.uploaded.listen(
           (event) => {
             return emit({ name: "Evidence.Uploaded", event });
           },
+          {},
           { mode: "ephemeral", replay: "new", signal: controller.signal },
         ).orThrow();
-        await service.trellis.event(
-          "Sites.Refreshed",
-          {},
+        await client.event.sites.refreshed.listen(
           (event) => {
             return emit({ name: "Sites.Refreshed", event });
           },
+          {},
           { mode: "ephemeral", replay: "new", signal: controller.signal },
         ).orThrow();
 

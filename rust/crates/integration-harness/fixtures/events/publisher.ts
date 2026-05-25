@@ -66,8 +66,8 @@ const client = await TrellisClient.connect({
   },
   log: undefined,
 }).orThrow();
-await client.publish("Harness.Ts.Event", {
+await client.event.harness.tsEvent.publish({
   message: Deno.env.get("HARNESS_MESSAGE")!,
 }).orThrow();
-await client.natsConnection.drain();
+await client.connection.close();
 console.log("TS_EVENTS_PUBLISHER_OK");

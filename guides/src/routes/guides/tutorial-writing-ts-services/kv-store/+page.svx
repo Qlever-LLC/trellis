@@ -57,7 +57,7 @@ if (isErr(kvResult)) throw kvResult.error;
 const startupOrdersKV = kvResult;
 ```
 
-`startupOrdersKV` is now a fully typed `TypedKV<Order>` for any startup work such as seeding or health checks. Handler code does not need this variable; typed handlers receive `trellis.kv.orders` in their method parameters.
+`startupOrdersKV` is now a fully typed `TypedKV<Order>` for any startup work such as seeding or health checks. Handler code does not need this variable; typed handlers receive `client.kv.orders` in their method parameters.
 
 > The `.take()` / `isErr(...)` pattern shows up throughout Trellis. Rather than throwing exceptions, Trellis returns `Result<T, E>` values. Call `.take()` to get either the success value or error value, then use `isErr(value)` before using the value.
 

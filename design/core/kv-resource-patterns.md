@@ -51,20 +51,20 @@ Rules:
   provisioning is unavailable or fails, so service code must treat the binding
   as optional
 - Trellis validates KV declarations from the presented contract evidence at the
-  service deployment envelope boundary, but physical bucket identity is scoped to
-  the deployment/profile and contract lineage rather than the digest so
+  service deployment envelope boundary, but physical bucket identity is scoped
+  to the deployment/profile and contract lineage rather than the digest so
   compatible service updates preserve data
 - service bootstrap resolves `service.kv.<alias>` and injected handler
-  `trellis.kv.<alias>` as direct typed KV stores; service code does not call
+  `client.kv.<alias>` as direct typed KV stores; service code does not call
   `.open(schema)`
 
 ### Bucket Naming
 
 Use service-scoped names with lowercase underscores. Contract-requested service
 KV buckets use `svc_<service>_<alias>` (or an equivalent Trellis-assigned
-physical name with that scope) rather than shared `trellis_*` names. Bucket names
-should describe the service-owned resource purpose rather than an implementation
-table or domain model that belongs behind a service boundary.
+physical name with that scope) rather than shared `trellis_*` names. Bucket
+names should describe the service-owned resource purpose rather than an
+implementation table or domain model that belongs behind a service boundary.
 
 Examples:
 

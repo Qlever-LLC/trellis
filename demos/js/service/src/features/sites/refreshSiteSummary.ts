@@ -11,7 +11,7 @@ function pause(ms: number): Promise<void> {
 }
 
 export async function refreshSiteSummary(
-  { job, trellis }: Args,
+  { job, client }: Args,
 ): Promise<Return> {
   const siteSummary = getSiteSummary(job.payload.siteId);
   console.info(
@@ -36,7 +36,7 @@ export async function refreshSiteSummary(
     lastReportAt: new Date().toISOString(),
   };
 
-  await trellis.kv.siteSummaries.put(refreshed.siteId, refreshed).orThrow();
+  await client.kv.siteSummaries.put(refreshed.siteId, refreshed).orThrow();
   await pause(1_000);
   await job.progress({
     step: "stored-summary",

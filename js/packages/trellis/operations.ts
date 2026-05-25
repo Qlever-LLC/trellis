@@ -248,7 +248,9 @@ interface OperationInputBuilderBase<
   TOutput,
   TBuilder,
 > extends OperationObserverBuilderBase<TBuilder, TProgress, TOutput> {
-  start(): AsyncResult<
+  start(
+    callbacks?: OperationObserverCallbacks<TProgress, TOutput>,
+  ): AsyncResult<
     OperationRef<TDesc, TProgress, TOutput>,
     TransportError | UnexpectedError
   >;
@@ -269,7 +271,9 @@ export interface TransferOperationBuilder<
       OperationObserverCallbacks<TProgress, TOutput>["onTransfer"]
     >,
   ): TransferOperationBuilder<TDesc, TProgress, TOutput>;
-  start(): AsyncResult<
+  start(
+    callbacks?: OperationObserverCallbacks<TProgress, TOutput>,
+  ): AsyncResult<
     StartedTransfer<TDesc, TProgress, TOutput>,
     TransportError | UnexpectedError | TransferError
   >;
@@ -1290,12 +1294,12 @@ function createOperationInputBuilder<
     ) {
       return rebuild({ ...callbacks, onEvent: handler });
     },
-    start() {
+    start(startCallbacks?: OperationObserverCallbacks<TProgress, TOutput>) {
       return startObservedOperation<TDesc, TProgress, TOutput>(
         transport,
         descriptor,
         input,
-        callbacks,
+        { ...callbacks, ...startCallbacks },
       );
     },
   } satisfies OperationInputBuilderBase<
@@ -1374,13 +1378,13 @@ function createTransferOperationBuilder<
     onEvent(handler) {
       return rebuild({ ...callbacks, onEvent: handler });
     },
-    start() {
+    start(startCallbacks?: OperationObserverCallbacks<TProgress, TOutput>) {
       return startObservedTransfer<TDesc, TProgress, TOutput>(
         transport,
         descriptor,
         input,
         body,
-        callbacks,
+        { ...callbacks, ...startCallbacks },
       );
     },
   };
@@ -1409,6 +1413,20 @@ export class OperationInvoker<
       ),
       {},
     );
+  }
+
+  start(
+    input: TInput,
+    callbacks?: OperationObserverCallbacks<TProgress, TOutput>,
+  ): AsyncResult<
+    OperationRef<TDesc, TProgress, TOutput>,
+    TransportError | UnexpectedError
+  > {
+    return createOperationInputBuilder<TDesc, TProgress, TOutput>(
+      this.#transport,
+      this.#descriptor,
+      input as OperationInputOf<TDesc>,
+    ).start(callbacks);
   }
 
   input(

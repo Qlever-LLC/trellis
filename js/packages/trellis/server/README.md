@@ -9,8 +9,7 @@ Server-side helpers for Trellis services.
 
 Use the runtime-specific subpath when connecting a service.
 
-Connected services keep `mount(...)` typed from `contract.API.owned`, while
-outbound calls stay typed from `contract.API.trellis`. Prefer
-`service.request(...)` when you want the raw `Result`, and use
-`await service.request(...).orThrow()` as the throw-on-error outlet when that
-fits the caller.
+Connected services keep provider registration under `service.handle`, typed from
+the owned contract surface. Outbound calls use generated active facades such as
+`service.rpc.<group>.<leaf>(...)`, `service.event.<group>.<leaf>.publish(...)`,
+and `service.operation.<group>.<leaf>.start(...)`.

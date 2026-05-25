@@ -6,10 +6,10 @@ type Args = RpcArgs<typeof contract, "Evidence.Delete">;
 type Result = RpcResult<typeof contract, "Evidence.Delete">;
 
 /** Deletes a stored evidence object from the demo evidence locker. */
-export async function deleteEvidence({ input, trellis }: Args): Promise<Result> {
-  const uploads = await trellis.store.uploads.open().orThrow();
+export async function deleteEvidence({ input, client }: Args): Promise<Result> {
+  const uploads = await client.store.uploads.open().orThrow();
   await uploads.delete(input.key).orThrow();
-  await recordActivity(trellis, {
+  await recordActivity(client, {
     kind: "evidence-deleted",
     message: `Deleted evidence upload ${input.key}`,
   });

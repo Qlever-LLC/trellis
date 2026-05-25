@@ -143,7 +143,7 @@ export async function registerDeviceAdminAndActivation(
     deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
     deviceDeploymentStorage: deps.deviceDeploymentStorage,
   });
-  await deps.trellis.mount("Auth.Deployments.Create", async (args) => {
+  await deps.trellis.handle.rpc.auth.deploymentsCreate(async (args) => {
     if (args.input.kind === "service") {
       const result = await createServiceDeployment({
         ...args,
@@ -167,7 +167,7 @@ export async function registerDeviceAdminAndActivation(
       deployment: { kind: "device" as const, ...deployment },
     }));
   });
-  await deps.trellis.mount("Auth.Deployments.List", async (args) => {
+  await deps.trellis.handle.rpc.auth.deploymentsList(async (args) => {
     if (args.input.kind === "service") {
       const result = await listServiceDeployments(args);
       return result.map((page) => ({
@@ -219,7 +219,7 @@ export async function registerDeviceAdminAndActivation(
       };
     });
   });
-  await deps.trellis.mount("Auth.Deployments.Disable", async (args) => {
+  await deps.trellis.handle.rpc.auth.deploymentsDisable(async (args) => {
     if (args.input.kind === "service") {
       const result = await disableServiceDeployment(args);
       return result.map(({ deployment }) => ({
@@ -231,11 +231,10 @@ export async function registerDeviceAdminAndActivation(
       deployment: { kind: "device" as const, ...deployment },
     }));
   });
-  await deps.trellis.mount(
-    "Auth.CatalogIssues.Resolve",
+  await deps.trellis.handle.rpc.auth.catalogIssuesResolve(
     handlers.resolveCatalogIssue,
   );
-  await deps.trellis.mount("Auth.Deployments.Enable", async (args) => {
+  await deps.trellis.handle.rpc.auth.deploymentsEnable(async (args) => {
     if (args.input.kind === "service") {
       const result = await enableServiceDeployment(args);
       return result.map(({ deployment }) => ({
@@ -247,58 +246,46 @@ export async function registerDeviceAdminAndActivation(
       deployment: { kind: "device" as const, ...deployment },
     }));
   });
-  await deps.trellis.mount("Auth.Deployments.Remove", async (args) => {
+  await deps.trellis.handle.rpc.auth.deploymentsRemove(async (args) => {
     return args.input.kind === "service"
       ? await removeServiceDeployment(args)
       : await handlers.removeDeviceDeployment(args);
   });
-  await deps.trellis.mount(
-    "Auth.Devices.Provision",
+  await deps.trellis.handle.rpc.auth.devicesProvision(
     handlers.provisionDeviceInstance,
   );
-  await deps.trellis.mount(
-    "Auth.Devices.List",
-    handlers.listDeviceInstances,
-  );
-  await deps.trellis.mount(
-    "Auth.Devices.Disable",
+  await deps.trellis.handle.rpc.auth.devicesList(handlers.listDeviceInstances);
+  await deps.trellis.handle.rpc.auth.devicesDisable(
     handlers.disableDeviceInstance,
   );
-  await deps.trellis.mount(
-    "Auth.Devices.Enable",
+  await deps.trellis.handle.rpc.auth.devicesEnable(
     handlers.enableDeviceInstance,
   );
-  await deps.trellis.mount(
-    "Auth.Devices.Remove",
+  await deps.trellis.handle.rpc.auth.devicesRemove(
     handlers.removeDeviceInstance,
   );
-  await deps.trellis.mount(
-    "Auth.DeviceUserAuthorities.List",
+  await deps.trellis.handle.rpc.auth.deviceUserAuthoritiesList(
     handlers.listDeviceActivations,
   );
-  await deps.trellis.mount(
-    "Auth.DeviceUserAuthorities.Revoke",
+  await deps.trellis.handle.rpc.auth.deviceUserAuthoritiesRevoke(
     handlers.revokeDeviceActivation,
   );
-  await deps.trellis.operation("Auth.DeviceUserAuthorities.Resolve").handle(
+  await deps.trellis.handle.operation.auth.deviceUserAuthoritiesResolve(
     createResolveDeviceUserAuthoritiesHandler({
       ...deps,
       contracts: deps.contracts,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Devices.ConnectInfo.Get",
+  await deps.trellis.handle.rpc.auth.devicesConnectInfoGet(
     createGetDeviceConnectInfoHandler({
       ...deps,
       contracts: deps.contracts,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.DeviceUserAuthorities.Reviews.List",
+  await deps.trellis.handle.rpc.auth.deviceUserAuthoritiesReviewsList(
     handlers.listDeviceActivationReviews,
   );
-  await deps.trellis.mount(
-    "Auth.DeviceUserAuthorities.Reviews.Decide",
+  await deps.trellis.handle.rpc.auth.deviceUserAuthoritiesReviewsDecide(
     handlers.decideDeviceActivationReview,
   );
 }

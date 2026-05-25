@@ -139,10 +139,9 @@ async function waitForCondition(
   }
 }
 
-await service.trellis.mount(
-  "Harness.Ts.Resources",
-  async ({ input, trellis }) => {
-    const store = await trellis.store.blobs.open().orThrow();
+await service.handle.rpc.harness.tsResources(
+  async ({ input, client }) => {
+    const store = await client.store.blobs.open().orThrow();
     const storeKey = `${input.key}.ts.store`;
     const typedWaitKey = `${input.key}.ts.typed-wait`;
     const delayedWaitKey = `${input.key}.ts.delayed-wait`;
@@ -156,7 +155,7 @@ await service.trellis.mount(
         `store create unexpectedly overwrote ${storeKey}`,
       );
     }
-    const handleEntry = await trellis.store.blobs.waitFor(storeKey, {
+    const handleEntry = await client.store.blobs.waitFor(storeKey, {
       timeoutMs: 5000,
       pollIntervalMs: 25,
     }).orThrow();
@@ -235,7 +234,7 @@ await service.trellis.mount(
       );
     }
     const handleAbortController = new AbortController();
-    const handleAborted = trellis.store.blobs.waitFor(
+    const handleAborted = client.store.blobs.waitFor(
       `${input.key}.ts.handle-abort`,
       { signal: handleAbortController.signal, pollIntervalMs: 5000 },
     );
@@ -283,11 +282,11 @@ await service.trellis.mount(
     }
 
     const kvKey = `${input.key}.ts.kv`;
-    await trellis.kv.records.create(kvKey, { message: input.message })
+    await client.kv.records.create(kvKey, { message: input.message })
       .orThrow();
-    await trellis.kv.records.put(kvKey, { message: `ts-kv:${input.message}` })
+    await client.kv.records.put(kvKey, { message: `ts-kv:${input.message}` })
       .orThrow();
-    const entry = await trellis.kv.records.get(kvKey).orThrow();
+    const entry = await client.kv.records.get(kvKey).orThrow();
     const updateEvents: Array<{ type: string; value?: { message: string } }> =
       [];
     const unsubscribeUpdates = await entry.watch((event) => {
@@ -309,7 +308,7 @@ await service.trellis.mount(
     );
     const eventsBeforeUnsubscribe = updateEvents.length;
     unsubscribeUpdates();
-    await trellis.kv.records.put(kvKey, { message: "after-unsubscribe" })
+    await client.kv.records.put(kvKey, { message: "after-unsubscribe" })
       .orThrow();
     await new Promise((resolve) => setTimeout(resolve, 100));
     if (updateEvents.length !== eventsBeforeUnsubscribe) {
@@ -317,30 +316,30 @@ await service.trellis.mount(
     }
 
     const invalidGetKey = `${input.key}.ts.invalid-get`;
-    await trellis.kv.records.kv.put(
+    await client.kv.records.kv.put(
       invalidGetKey,
       JSON.stringify({ missing: "message" }),
     );
-    const invalidGet = await trellis.kv.records.get(invalidGetKey);
+    const invalidGet = await client.kv.records.get(invalidGetKey);
     if (invalidGet.isOk()) {
       throw new Error("TypedKV.get unexpectedly accepted invalid raw entry");
     }
-    if (!(await trellis.kv.records.kv.get(invalidGetKey))) {
+    if (!(await client.kv.records.kv.get(invalidGetKey))) {
       throw new Error("TypedKV.get removed invalid raw entry");
     }
 
     const invalidCreateKey = `${input.key}.ts.invalid-create`;
-    await trellis.kv.records.kv.put(
+    await client.kv.records.kv.put(
       invalidCreateKey,
       JSON.stringify({ missing: "message" }),
     );
-    const invalidRawEntry = await trellis.kv.records.kv.get(invalidCreateKey);
+    const invalidRawEntry = await client.kv.records.kv.get(invalidCreateKey);
     if (!invalidRawEntry) {
       throw new Error("raw invalid create entry was not written");
     }
     const invalidCreate = await TypedKVEntry.create(
       schemas.ResourceRecord,
-      trellis.kv.records.kv,
+      client.kv.records.kv,
       invalidRawEntry,
     );
     if (invalidCreate.isOk()) {
@@ -348,20 +347,20 @@ await service.trellis.mount(
         "TypedKVEntry.create unexpectedly accepted invalid raw entry",
       );
     }
-    if (!(await trellis.kv.records.kv.get(invalidCreateKey))) {
+    if (!(await client.kv.records.kv.get(invalidCreateKey))) {
       throw new Error("TypedKVEntry.create removed invalid raw entry");
     }
 
     const invalidWatchKey = `${input.key}.ts.invalid-watch`;
-    await trellis.kv.records.create(invalidWatchKey, { message: "valid" })
+    await client.kv.records.create(invalidWatchKey, { message: "valid" })
       .orThrow();
-    const invalidWatchEntry = await trellis.kv.records.get(invalidWatchKey)
+    const invalidWatchEntry = await client.kv.records.get(invalidWatchKey)
       .orThrow();
     const invalidEvents: Array<{ type: string }> = [];
     const unsubscribeInvalid = await invalidWatchEntry.watch((event) => {
       invalidEvents.push(event);
     }, { includeDeletes: true });
-    await trellis.kv.records.kv.put(
+    await client.kv.records.kv.put(
       invalidWatchKey,
       JSON.stringify({ missing: "message" }),
     );
@@ -369,16 +368,16 @@ await service.trellis.mount(
       () => invalidEvents.some((event) => event.type === "error"),
       "typed KV invalid watch event",
     );
-    if (!(await trellis.kv.records.kv.get(invalidWatchKey))) {
+    if (!(await client.kv.records.kv.get(invalidWatchKey))) {
       throw new Error("TypedKV.watch removed invalid raw entry");
     }
     unsubscribeInvalid();
 
     const staleCasKey = `${input.key}.ts.cas-stale`;
-    await trellis.kv.records.create(staleCasKey, { message: "initial" })
+    await client.kv.records.create(staleCasKey, { message: "initial" })
       .orThrow();
-    const staleCasEntry = await trellis.kv.records.get(staleCasKey).orThrow();
-    await trellis.kv.records.put(staleCasKey, { message: "updated" }).orThrow();
+    const staleCasEntry = await client.kv.records.get(staleCasKey).orThrow();
+    await client.kv.records.put(staleCasKey, { message: "updated" }).orThrow();
     const staleDelete = await staleCasEntry.delete(true);
     if (staleDelete.isOk()) {
       throw new Error(
@@ -387,8 +386,8 @@ await service.trellis.mount(
     }
 
     const casKey = `${input.key}.ts.cas-delete`;
-    await trellis.kv.records.create(casKey, { message: "initial" }).orThrow();
-    const casEntry = await trellis.kv.records.get(casKey).orThrow();
+    await client.kv.records.create(casKey, { message: "initial" }).orThrow();
+    const casEntry = await client.kv.records.get(casKey).orThrow();
     await casEntry.delete(true).orThrow();
     const secondCasDelete = await casEntry.delete(true);
     if (secondCasDelete.isOk()) {
@@ -399,16 +398,16 @@ await service.trellis.mount(
 
     let foundKey = false;
     for await (
-      const key of await trellis.kv.records.keys(`${input.key}.>`).orThrow()
+      const key of await client.kv.records.keys(`${input.key}.>`).orThrow()
     ) {
       if (key === kvKey) foundKey = true;
     }
     if (!foundKey) throw new Error(`kv keys did not include ${kvKey}`);
-    await trellis.kv.records.delete(kvKey).orThrow();
-    await trellis.kv.records.delete(invalidGetKey).orThrow();
-    await trellis.kv.records.delete(invalidCreateKey).orThrow();
-    await trellis.kv.records.delete(invalidWatchKey).orThrow();
-    await trellis.kv.records.delete(staleCasKey).orThrow();
+    await client.kv.records.delete(kvKey).orThrow();
+    await client.kv.records.delete(invalidGetKey).orThrow();
+    await client.kv.records.delete(invalidCreateKey).orThrow();
+    await client.kv.records.delete(invalidWatchKey).orThrow();
+    await client.kv.records.delete(staleCasKey).orThrow();
 
     return ok({
       provider: "ts",

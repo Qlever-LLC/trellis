@@ -188,8 +188,20 @@ const statusOperation: Record<OperationName, StatusOperationName> = {
   "Harness.Ts.Operation": "Harness.Ts.Status",
 };
 
+function operationFacade(method: OperationName) {
+  return method === "Harness.Rust.Operation"
+    ? client.operation.harness.rustOperation
+    : client.operation.harness.tsOperation;
+}
+
+function statusFacade(method: StatusOperationName) {
+  return method === "Harness.Rust.Status"
+    ? client.operation.harness.rustStatus
+    : client.operation.harness.tsStatus;
+}
+
 async function assertNormalOperation(method: OperationName, message: string) {
-  const ref = await client.operation(method).input({ message }).start()
+  const ref = await operationFacade(method).start({ message })
     .orThrow();
   const snapshot = await ref.get().orThrow();
   if (
@@ -209,8 +221,8 @@ async function assertNormalOperation(method: OperationName, message: string) {
 }
 
 async function assertWatchedOperation(method: OperationName, message: string) {
-  const ref = await client.operation(method).input({ message, mode: "watch" })
-    .start().orThrow();
+  const ref = await operationFacade(method).start({ message, mode: "watch" })
+    .orThrow();
   const events = await ref.watch().orThrow();
   let sawProgress = false;
   for await (const event of events) {
@@ -245,8 +257,8 @@ async function assertWatchedOperation(method: OperationName, message: string) {
 }
 
 async function assertCancelOperation(method: OperationName, message: string) {
-  const ref = await client.operation(method).input({ message, mode: "cancel" })
-    .start().orThrow();
+  const ref = await operationFacade(method).start({ message, mode: "cancel" })
+    .orThrow();
   const cancelled = await ref.cancel().orThrow();
   if (cancelled.state !== "cancelled") {
     throw new Error(`${method} cancel returned ${cancelled.state}`);
@@ -254,10 +266,10 @@ async function assertCancelOperation(method: OperationName, message: string) {
 }
 
 async function assertDeferredOperation(method: OperationName, message: string) {
-  const ref = await client.operation(method).input({
+  const ref = await operationFacade(method).start({
     message,
     mode: "deferred",
-  }).start().orThrow();
+  }).orThrow();
   const terminal = await ref.wait().orThrow();
   if (terminal.state !== "completed") {
     throw new Error(`${method} deferred wait returned ${terminal.state}`);
@@ -273,8 +285,8 @@ async function assertDeferredOperation(method: OperationName, message: string) {
 }
 
 async function assertAttachedOperation(method: OperationName, message: string) {
-  const ref = await client.operation(method).input({ message, mode: "attach" })
-    .start().orThrow();
+  const ref = await operationFacade(method).start({ message, mode: "attach" })
+    .orThrow();
   await waitFor(async () => {
     const snapshot = await ref.get().orThrow();
     const progress = snapshot.progress as
@@ -299,8 +311,8 @@ async function assertAttachedOperation(method: OperationName, message: string) {
 }
 
 async function assertSignalOperation(method: OperationName, message: string) {
-  const ref = await client.operation(method).input({ message, mode: "signal" })
-    .start().orThrow();
+  const ref = await operationFacade(method).start({ message, mode: "signal" })
+    .orThrow();
   await waitFor(async () => {
     const snapshot = await ref.get().orThrow();
     return snapshot.state === "running";
@@ -330,8 +342,8 @@ async function assertInvalidSignalRejected(
   method: OperationName,
   message: string,
 ) {
-  const ref = await client.operation(method).input({ message, mode: "cancel" })
-    .start().orThrow();
+  const ref = await operationFacade(method).start({ message, mode: "cancel" })
+    .orThrow();
   await waitFor(async () => {
     const snapshot = await ref.get().orThrow();
     return snapshot.state === "running";
@@ -347,9 +359,9 @@ async function assertInvalidControlRejected(
   method: OperationName,
   message: string,
 ) {
-  const ref = await client.operation(method).input({ message }).start()
+  const ref = await operationFacade(method).start({ message })
     .orThrow();
-  const missing = await client.operation(method).resume({
+  const missing = await operationFacade(method).resume({
     id: `missing-${message}`,
     service: ref.service,
     operation: method,
@@ -358,7 +370,7 @@ async function assertInvalidControlRejected(
     throw new Error(`${method} accepted missing id get`);
   }
 
-  const wrongOperation = await client.operation(statusOperation[method]).resume(
+  const wrongOperation = await statusFacade(statusOperation[method]).resume(
     {
       id: ref.id,
       service: ref.service,
@@ -377,10 +389,10 @@ async function assertInvalidControlRejected(
     throw new Error(`${method} accepted terminal cancel`);
   }
 
-  const status = await client.operation(statusOperation[method]).input({
+  const status = await statusFacade(statusOperation[method]).start({
     message,
     mode: "status",
-  }).start().orThrow();
+  }).orThrow();
   await waitFor(async () => {
     const snapshot = await status.get().orThrow();
     return snapshot.state === "running";
@@ -398,9 +410,9 @@ async function assertTraceOperation() {
   const expectedTraceId = span.spanContext().traceId;
   try {
     const terminal = await withSpanAsync(span, async () => {
-      const ref = await client.operation("Harness.Rust.TraceOperation").input({
+      const ref = await client.operation.harness.rustTraceOperation.start({
         message: "ts-client-rust-operation-trace",
-      }).start().orThrow();
+      }).orThrow();
       return await ref.wait().orThrow();
     });
     if (terminal.state !== "completed") {
@@ -426,7 +438,7 @@ async function assertTraceOperation() {
 }
 
 async function runDurableStart(method: OperationName, message: string) {
-  const ref = await client.operation(method).input({ message }).start()
+  const ref = await operationFacade(method).start({ message })
     .orThrow();
   const terminal = await ref.wait().orThrow();
   if (terminal.state !== "completed") {
@@ -460,7 +472,7 @@ async function runDurableAssert(
       `durable ref operation ${refData.operation} did not match ${method}`,
     );
   }
-  const ref = client.operation(method).resume(refData);
+  const ref = operationFacade(method).resume(refData);
   const snapshot = await ref.get().orThrow();
   if (snapshot.state !== "completed") {
     throw new Error(`${method} durable get returned ${snapshot.state}`);
@@ -484,7 +496,7 @@ async function runDurableRunningAssert(
       `durable ref operation ${refData.operation} did not match ${method}`,
     );
   }
-  const ref = client.operation(method).resume(refData);
+  const ref = operationFacade(method).resume(refData);
   const running = await ref.get().orThrow();
   if (running.state !== "running") {
     throw new Error(`${method} durable running get returned ${running.state}`);
@@ -615,5 +627,5 @@ if (!durableAction) {
 } else {
   throw new Error(`unknown durable action '${durableAction}'`);
 }
-await client.natsConnection.drain();
+await client.connection.close();
 console.log("TS_OPERATIONS_CLIENT_OK");

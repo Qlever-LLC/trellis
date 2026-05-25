@@ -7,7 +7,11 @@ import {
 } from "@qlever-llc/result";
 import type { StaticDecode } from "typebox";
 
-import type { AuthLogger, RuntimeKV } from "../runtime_deps.ts";
+import type {
+  AuthLogger,
+  AuthRuntimeDeps,
+  RuntimeKV,
+} from "../runtime_deps.ts";
 import {
   type AdminCaller,
   type DeviceActivationReview,
@@ -295,7 +299,10 @@ export type AdminRpcDeps = {
     ): Promise<Array<{ currentContractDigest?: string | null }>>;
   };
   eventPublisher?: {
-    publish(event: string, payload: unknown): AsyncResult<unknown, BaseError>;
+    event: Pick<
+      AuthRuntimeDeps["trellis"]["event"],
+      "auth"
+    >;
   };
   userStorage: Pick<SqlUserProjectionRepository, "get">;
 };
@@ -1683,7 +1690,7 @@ export const authDecideDeviceActivationReviewHandler = async (
     operationOutput,
   );
   if (completed.isErr()) return completed;
-  (await ctx.eventPublisher?.publish("Auth.DeviceUserAuthorities.Approved", {
+  (await ctx.eventPublisher?.event.auth.deviceUserAuthoritiesApproved.publish({
     reviewId: updatedReview.reviewId,
     flowId: updatedReview.flowId,
     instanceId: updatedReview.instanceId,
@@ -1701,7 +1708,7 @@ export const authDecideDeviceActivationReviewHandler = async (
       "Failed to publish Auth.DeviceUserAuthorities.Approved",
     )
   );
-  (await ctx.eventPublisher?.publish("Auth.DeviceUserAuthorities.Resolved", {
+  (await ctx.eventPublisher?.event.auth.deviceUserAuthoritiesResolved.publish({
     instanceId: activation.instanceId,
     publicIdentityKey: activation.publicIdentityKey,
     deploymentId: activation.deploymentId,

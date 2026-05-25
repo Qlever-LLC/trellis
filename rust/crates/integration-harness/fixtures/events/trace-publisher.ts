@@ -82,7 +82,7 @@ await trace.getTracer("trellis-integration-events").startActiveSpan(
   async (span) => {
     traceId = span.spanContext().traceId;
     try {
-      await client.publish("Harness.Ts.Event", {
+      await client.event.harness.tsEvent.publish({
         message: Deno.env.get("HARNESS_MESSAGE")!,
       }).orThrow();
     } finally {
@@ -90,6 +90,6 @@ await trace.getTracer("trellis-integration-events").startActiveSpan(
     }
   },
 );
-await client.natsConnection.drain();
+await client.connection.close();
 console.log(`TS_EVENTS_TRACE_ID ${traceId}`);
 console.log("TS_EVENTS_TRACE_PUBLISHER_OK");

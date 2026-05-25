@@ -8,12 +8,15 @@ order: 60
 
 ## Prerequisites
 
-- [trellis-patterns.md](./trellis-patterns.md) - Trellis architecture and communication model
-- [type-system-patterns.md](./type-system-patterns.md) - Result and error conventions
+- [trellis-patterns.md](./trellis-patterns.md) - Trellis architecture and
+  communication model
+- [type-system-patterns.md](./type-system-patterns.md) - Result and error
+  conventions
 
 ## Scope
 
-This document defines Trellis observability, documentation, tracing, and request-correlation patterns.
+This document defines Trellis observability, documentation, tracing, and
+request-correlation patterns.
 
 ## Service Observability
 
@@ -79,7 +82,7 @@ Heartbeat behavior:
 Stats example:
 
 ```ts
-await service.trellis.mount("Graph.Stats", async () => {
+await service.handle.rpc.graph.stats(async () => {
   return Result.ok({
     users: { count: await db.countUsers() },
     partners: { count: await db.countPartners() },
@@ -103,7 +106,8 @@ Skip JSDoc for private helpers when the code is self-evident and for tests.
 
 ## Tracing
 
-`TrellisService.connect()` initializes OpenTelemetry automatically using the service name.
+`TrellisService.connect()` initializes OpenTelemetry automatically using the
+service name.
 
 Span naming:
 
@@ -121,7 +125,8 @@ Required attributes:
 
 Library support rule:
 
-- libraries performing I/O must accept trace context, create child spans, and propagate context
+- libraries performing I/O must accept trace context, create child spans, and
+  propagate context
 - `TrellisError` subclasses should include `traceId` when tracing is active
 - if a runtime has not installed an OpenTelemetry tracer provider, RPC error
   responses should still attach `traceId` from a valid inbound `traceparent`
@@ -129,29 +134,30 @@ Library support rule:
 
 ## Request Correlation
 
-Every RPC, event, and job includes a `requestId` for correlation and audit.
+RPCs and jobs include a `requestId` for correlation and audit. Domain events
+carry their own `header.id` and trace context; they do not currently emit a
+separate `request-id` NATS header unless they are job lifecycle events.
 
 Rules:
 
 - the client supplies a unique `request-id` for signed RPCs; auth includes it in
   the RPC proof and replay-cache key
 - after auth validation, the server may use the request id as correlation
-  context but must still treat logs/traces as observability data, not as a source
-  of authorization policy
-- request IDs propagate across downstream RPC and event flows
+  context but must still treat logs/traces as observability data, not as a
+  source of authorization policy
+- request IDs propagate across downstream RPC and job flows
 - logs and traces include `requestId`
 
 Propagation:
 
-| Context | `request-id` value |
-| --- | --- |
-| RPC handler | generated on receipt |
-| RPC response | echoed from handler |
-| Event from RPC | inherited from triggering RPC |
-| Event from event handler | inherited from triggering event |
+| Context                        | `request-id` value                           |
+| ------------------------------ | -------------------------------------------- |
+| RPC handler                    | generated on receipt                         |
+| RPC response                   | echoed from handler                          |
+| Domain event                   | not set; use event `header.id` and trace     |
 | Job created from RPC/event/job | inherited when available; otherwise new ULID |
-| Job lifecycle event | copied from `job.context.requestId` |
-| Scheduled or cron event | new ULID |
+| Job lifecycle event            | copied from `job.context.requestId`          |
+| Scheduled or cron job/event    | new ULID for jobs; event `header.id` only    |
 
 Job correlation:
 
@@ -175,6 +181,6 @@ Auth/admin control-plane correlation:
 
 Event deduplication:
 
-- events include `Nats-Msg-Id: <requestId>`
+- domain events include `Nats-Msg-Id: <event.header.id>`
 - JetStream deduplicates within its configured window
 - this protects against duplicate publication on retries and reconnects

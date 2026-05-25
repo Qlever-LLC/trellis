@@ -10,7 +10,6 @@ export {
   type ResourceBindings,
   type RpcHandler,
   type ServiceContract,
-  type ServiceTrellis,
   type Trellis,
   TrellisService,
   type TrellisServiceConnectOpts,

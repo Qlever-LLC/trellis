@@ -32,7 +32,7 @@ Listing is prefix plus standard page request oriented in v1. Callers send pagina
 When a caller sends bytes to a service, file bytes use an operation-native model:
 
 1. a contract-owned operation accepts JSON input and declares `direction: "send"` transfer support
-2. the caller configures input and sends bytes through `operation(...).input(input).transfer(body).start()`
+2. the caller configures input and sends bytes through `operation.<group>.<leaf>.input(input).transfer(body).start()`
 3. the provider waits for durable transfer completion before continuing service-owned processing
 
 Callers do not start the operation first and attach bytes later. The transfer is part of the operation start flow.

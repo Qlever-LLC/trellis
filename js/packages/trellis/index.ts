@@ -210,6 +210,7 @@ export type {
   MapStateStoreClient,
   OperationHandlerContext,
   OperationRegistration,
+  OperationRuntimeHandle,
   OperationTransferContextOf,
   OperationTransferHandle,
   RequestOpts,

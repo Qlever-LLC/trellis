@@ -336,7 +336,7 @@ Deno.test({
       }, { connect: nats.connect }).orThrow();
       nats.installOperationRecords(service);
 
-      assertEquals(typeof service.operation, "function");
+      assertEquals(typeof service.handle.operation.billing.refund, "function");
 
       const clientNc = nats.clientConnection(
         `_INBOX.${service.auth.sessionKey.slice(0, 16)}`,
@@ -349,17 +349,17 @@ Deno.test({
         name: "billing-client",
       });
 
-      await service.operation("Billing.Refund").handle(
-        async ({ input, op, trellis }) => {
+      await service.handle.operation.billing.refund(
+        async ({ input, op, client }) => {
           assertEquals(input.chargeId, "ch_123");
-          assertExists(trellis);
+          assertExists(client);
           await op.started();
           await op.progress({ message: "working" });
           return ok({ refundId: "rf_123" });
         },
       );
 
-      const ref = await client.operation("Billing.Refund").input({
+      const ref = await client.operation.billing.refund.input({
         chargeId: "ch_123",
       }).start().match({
         ok: (value) => value,
@@ -457,7 +457,7 @@ Deno.test({
       });
 
       let handlerSettled = false;
-      await service.operation("Billing.Refund").handle(
+      await service.handle.operation.billing.refund(
         async ({ op }) => {
           await op.started();
           await op.progress({ message: "waiting for external approval" });
@@ -466,7 +466,7 @@ Deno.test({
         },
       );
 
-      const ref = await client.operation("Billing.Refund").input({
+      const ref = await client.operation.billing.refund.input({
         chargeId: "ch_123",
       }).start().match({
         ok: (value) => value,
@@ -534,20 +534,20 @@ Deno.test({
       }, { name: "billing-client" });
 
       let handlerRuns = 0;
-      await service.operation("Billing.Refund").handle(async ({ op }) => {
+      await service.handle.operation.billing.refund(async ({ op }) => {
         handlerRuns += 1;
         await op.started();
         return op.defer();
       });
 
-      const ref = await client.operation("Billing.Refund").input({
+      const ref = await client.operation.billing.refund.input({
         chargeId: "ch_123",
       }).start().orThrow();
       await waitFor(() => handlerRuns === 1, {
         description: "deferred handler to run once",
       });
 
-      const controlled = await service.operation("Billing.Refund")
+      const controlled = await service.handle.operation.billing.refund
         .control(ref.id).orThrow();
       await controlled.progress({ message: "approved" }).orThrow();
       await controlled.complete({ refundId: "rf_controlled" }).orThrow();
@@ -589,10 +589,11 @@ Deno.test({
         server: {},
       }, { connect: nats.connect }).orThrow();
       nats.installOperationRecords(service1);
-      const accepted = await service1.operation("Billing.Refund").accept({
+      const accepted = await service1.handle.operation.billing.refund.accept({
         sessionKey: service1.auth.sessionKey,
       }).orThrow();
-      const acceptedForRemoteCancel = await service1.operation("Billing.Refund")
+      const acceptedForRemoteCancel = await service1.handle.operation.billing
+        .refund
         .accept({
           sessionKey: service1.auth.sessionKey,
         }).orThrow();
@@ -608,7 +609,7 @@ Deno.test({
       }, { connect: nats.connect }).orThrow();
       nats.installOperationRecords(service2);
 
-      const controlled = await service2.operation("Billing.Refund")
+      const controlled = await service2.handle.operation.billing.refund
         .control(accepted.id).orThrow();
 
       const clientNc = nats.clientConnection(
@@ -618,11 +619,11 @@ Deno.test({
         sessionKey: service2.auth.sessionKey,
         sign: service2.auth.sign,
       }, { name: "billing-restarted-client" });
-      const resumed = client.operation("Billing.Refund").resume(accepted.ref);
+      const resumed = client.operation.billing.refund.resume(accepted.ref);
       const running = await resumed.get().orThrow();
       assertEquals(running.state, "running");
 
-      const resumedForCancel = client.operation("Billing.Refund").resume(
+      const resumedForCancel = client.operation.billing.refund.resume(
         acceptedForRemoteCancel.ref,
       );
       const remoteCancelled = await resumedForCancel.cancel().orThrow();
@@ -667,29 +668,30 @@ Deno.test({
         server: {},
       }, { connect: nats.connect }).orThrow();
       nats.installOperationRecords(service);
-      const accepted = await service.operation("Billing.Refund").accept({
+      const accepted = await service.handle.operation.billing.refund.accept({
         sessionKey: service.auth.sessionKey,
       }).orThrow();
 
-      const missing = await service.operation("Billing.Refund")
+      const missing = await service.handle.operation.billing.refund
         .control("missing-operation-id").take();
       assertEquals(isErr(missing), true);
 
-      const wrongOperation = await service.operation("Billing.Status")
+      const wrongOperation = await service.handle.operation.billing.status
         .control(accepted.id).take();
       assertEquals(isErr(wrongOperation), true);
 
-      const statusAccepted = await service.operation("Billing.Status").accept({
-        sessionKey: service.auth.sessionKey,
-      }).orThrow();
+      const statusAccepted = await service.handle.operation.billing.status
+        .accept({
+          sessionKey: service.auth.sessionKey,
+        }).orThrow();
       const statusAcceptedCancel = await statusAccepted.cancel().take();
       assertEquals(isErr(statusAcceptedCancel), true);
-      const statusControlled = await service.operation("Billing.Status")
+      const statusControlled = await service.handle.operation.billing.status
         .control(statusAccepted.id).orThrow();
       const statusControlledCancel = await statusControlled.cancel().take();
       assertEquals(isErr(statusControlledCancel), true);
 
-      const controlled = await service.operation("Billing.Refund")
+      const controlled = await service.handle.operation.billing.refund
         .control(accepted.id).orThrow();
 
       const clientNc = nats.clientConnection(
@@ -699,8 +701,8 @@ Deno.test({
         sessionKey: service.auth.sessionKey,
         sign: service.auth.sign,
       }, { name: "billing-terminal-client" });
-      const resumed = client.operation("Billing.Refund").resume(accepted.ref);
-      const wrongRemoteOperation = await client.operation("Billing.Status")
+      const resumed = client.operation.billing.refund.resume(accepted.ref);
+      const wrongRemoteOperation = await client.operation.billing.status
         .resume(accepted.ref).get().take();
       assertEquals(isErr(wrongRemoteOperation), true);
 
@@ -733,7 +735,7 @@ Deno.test({
         server: {},
       }, { connect: nats.connect }).orThrow();
       nats.installOperationRecords(otherService);
-      const wrongService = await otherService.operation("Billing.Refund")
+      const wrongService = await otherService.handle.operation.billing.refund
         .control(accepted.id).take();
       assertEquals(isErr(wrongService), true);
 
@@ -816,7 +818,7 @@ Deno.test({
         name: "billing-client",
       });
 
-      const accepted = await service.operation("Billing.Refund").accept({
+      const accepted = await service.handle.operation.billing.refund.accept({
         sessionKey: service.auth.sessionKey,
       });
       const acceptedValue = accepted.take();
@@ -824,7 +826,7 @@ Deno.test({
         throw acceptedValue.error;
       }
 
-      const resumed = client.operation("Billing.Refund").resume(
+      const resumed = client.operation.billing.refund.resume(
         acceptedValue.ref,
       );
       void (async () => {

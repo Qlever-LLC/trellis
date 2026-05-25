@@ -384,7 +384,9 @@ async fn assert_generated_state_sdk(
 ) -> Result<()> {
     let sdk = SdkStateClient::new(client);
     let initial = sdk
-        .state_get(&StateGetRequest {
+        .rpc()
+        .state()
+        .get(&StateGetRequest {
             store: "preferences".to_string(),
             key: None,
         })
@@ -393,7 +395,9 @@ async fn assert_generated_state_sdk(
     assert_found_false(&initial.0, "generated State.Get initial preferences")?;
 
     let created = sdk
-        .state_put(&StatePutRequest {
+        .rpc()
+        .state()
+        .put(&StatePutRequest {
             store: "preferences".to_string(),
             key: None,
             value: json!({ "theme": "sdk-dark", "density": "roomy" }),
@@ -405,7 +409,9 @@ async fn assert_generated_state_sdk(
     let created_revision = current_revision(&created.0, "generated State.Put preferences")?;
 
     let found = sdk
-        .state_get(&StateGetRequest {
+        .rpc()
+        .state()
+        .get(&StateGetRequest {
             store: "preferences".to_string(),
             key: None,
         })
@@ -419,7 +425,9 @@ async fn assert_generated_state_sdk(
     }
 
     let stale = sdk
-        .state_put(&StatePutRequest {
+        .rpc()
+        .state()
+        .put(&StatePutRequest {
             store: "preferences".to_string(),
             key: None,
             value: json!({ "theme": "sdk-light", "density": "compact" }),
@@ -436,7 +444,9 @@ async fn assert_generated_state_sdk(
     }
 
     let draft = sdk
-        .state_put(&StatePutRequest {
+        .rpc()
+        .state()
+        .put(&StatePutRequest {
             store: "drafts".to_string(),
             key: Some("sdk/draft".to_string()),
             value: json!({ "title": "SDK Draft", "body": "from generated Rust SDK" }),
@@ -448,7 +458,9 @@ async fn assert_generated_state_sdk(
     let draft_revision = current_revision(&draft.0, "generated State.Put draft")?;
 
     let listed = sdk
-        .state_list(&StateListRequest {
+        .rpc()
+        .state()
+        .list(&StateListRequest {
             store: "drafts".to_string(),
             prefix: Some("sdk".to_string()),
             offset: Some(0),
@@ -465,7 +477,9 @@ async fn assert_generated_state_sdk(
 
     let admin_target = admin_user_target(login);
     let admin_found = sdk
-        .state_admin_get(&StateAdminGetRequest(json!({
+        .rpc()
+        .state()
+        .admin_get(&StateAdminGetRequest(json!({
             "scope": "userApp",
             "contractId": HARNESS_CONTRACT_ID,
             "contractDigest": caller_contract_digest()?,
@@ -483,7 +497,9 @@ async fn assert_generated_state_sdk(
     }
 
     let admin_listed = sdk
-        .state_admin_list(&StateAdminListRequest(json!({
+        .rpc()
+        .state()
+        .admin_list(&StateAdminListRequest(json!({
             "scope": "userApp",
             "contractId": HARNESS_CONTRACT_ID,
             "contractDigest": caller_contract_digest()?,
@@ -503,7 +519,9 @@ async fn assert_generated_state_sdk(
     }
 
     let admin_deleted = sdk
-        .state_admin_delete(&StateAdminDeleteRequest(json!({
+        .rpc()
+        .state()
+        .admin_delete(&StateAdminDeleteRequest(json!({
             "scope": "userApp",
             "contractId": HARNESS_CONTRACT_ID,
             "contractDigest": caller_contract_digest()?,
@@ -519,7 +537,9 @@ async fn assert_generated_state_sdk(
     }
 
     let admin_missing = sdk
-        .state_admin_get(&StateAdminGetRequest(json!({
+        .rpc()
+        .state()
+        .admin_get(&StateAdminGetRequest(json!({
             "scope": "userApp",
             "contractId": HARNESS_CONTRACT_ID,
             "contractDigest": caller_contract_digest()?,
@@ -532,7 +552,9 @@ async fn assert_generated_state_sdk(
     assert_found_false(&admin_missing.0, "generated State.Admin.Get deleted draft")?;
 
     let deleted = sdk
-        .state_delete(&StateDeleteRequest {
+        .rpc()
+        .state()
+        .delete(&StateDeleteRequest {
             store: "preferences".to_string(),
             key: None,
             expected_revision: Some(created_revision),

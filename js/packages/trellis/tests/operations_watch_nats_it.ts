@@ -331,11 +331,13 @@ async function createOperationTestRuntime(
   const { auth } = await createTestAuth();
   const serverNc = createConnection();
   const clientNc = createConnection();
-  const server = TrellisServiceRuntime.create(
+  const api = billing.API.trellis;
+  if (!api) throw new Error("expected billing Trellis API");
+  const server = TrellisServiceRuntime.create<NonNullable<typeof api>>(
     "billing-server",
     serverNc,
     auth,
-    { api: billing.API.trellis },
+    { api },
   );
   const operationRecords = new Map<string, DurableOperationRecord>();
   server.saveOperationRecord = async (runtime: RuntimeOperationRecord) => {
@@ -404,17 +406,17 @@ Deno.test({
       (input) => authRequests.push({ capabilities: input.capabilities }),
     );
 
-    await server.operation("Billing.Refund").handle(async ({ op }) => {
+    await server.operationHandle("Billing.Refund").handle(async ({ op }) => {
       await op.started();
       return op.defer();
     });
-    await server.operation("Billing.Status").handle(async ({ op }) => {
+    await server.operationHandle("Billing.Status").handle(async ({ op }) => {
       await op.started();
       return op.defer();
     });
 
     try {
-      const cancellable = await client.operation("Billing.Refund").input({
+      const cancellable = await client.operation.billing.refund.input({
         chargeId: "ch_cancel",
       }).start().match({
         ok: (value) => value,
@@ -451,7 +453,7 @@ Deno.test({
         ),
       );
 
-      const nonCancellable = await client.operation("Billing.Status").input({
+      const nonCancellable = await client.operation.billing.status.input({
         chargeId: "ch_status",
       }).start().match({
         ok: (value) => value,
@@ -481,21 +483,23 @@ Deno.test({
 
     const gate = deferred();
 
-    await server.operation("Billing.Refund").handle(async ({ input, op }) => {
-      assertEquals(input.chargeId, "ch_123");
+    await server.operationHandle("Billing.Refund").handle(
+      async ({ input, op }) => {
+        assertEquals(input.chargeId, "ch_123");
 
-      await gate.promise;
-      await op.started();
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      await op.progress({ message: "working" });
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      await op.complete({ refundId: "rf_123" });
-      return ok({ refundId: "rf_123" });
-    });
+        await gate.promise;
+        await op.started();
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        await op.progress({ message: "working" });
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        await op.complete({ refundId: "rf_123" });
+        return ok({ refundId: "rf_123" });
+      },
+    );
 
     try {
       const events: Array<{ type: string }> = [];
-      const op = await client.operation("Billing.Refund").input({
+      const op = await client.operation.billing.refund.input({
         chargeId: "ch_123",
       })
         .onAccepted((event) => {
@@ -548,17 +552,19 @@ Deno.test({
       "watch-client-fast-complete",
     );
 
-    await server.operation("Billing.Refund").handle(async ({ input, op }) => {
-      assertEquals(input.chargeId, "ch_fast");
+    await server.operationHandle("Billing.Refund").handle(
+      async ({ input, op }) => {
+        assertEquals(input.chargeId, "ch_fast");
 
-      await op.started();
-      await op.complete({ refundId: "rf_fast" });
-      return ok({ refundId: "rf_fast" });
-    });
+        await op.started();
+        await op.complete({ refundId: "rf_fast" });
+        return ok({ refundId: "rf_fast" });
+      },
+    );
 
     try {
       const events: string[] = [];
-      const op = await client.operation("Billing.Refund").input({
+      const op = await client.operation.billing.refund.input({
         chargeId: "ch_fast",
       })
         .onAccepted(() => {
@@ -599,30 +605,32 @@ Deno.test({
       "signal-client",
     );
 
-    await server.operation("Billing.Refund").handle(async ({ input, op }) => {
-      assertEquals(input.chargeId, "ch_signal");
-      await op.started();
+    await server.operationHandle("Billing.Refund").handle(
+      async ({ input, op }) => {
+        assertEquals(input.chargeId, "ch_signal");
+        await op.started();
 
-      const seen: string[] = [];
-      for await (const signal of op.signals()) {
-        seen.push(signal.signal);
-        if (signal.signal === "selectWorkspace") {
-          assertEquals(signal.input, { workspaceId: "ws_123" });
-          await op.progress({ message: "workspace selected" });
+        const seen: string[] = [];
+        for await (const signal of op.signals()) {
+          seen.push(signal.signal);
+          if (signal.signal === "selectWorkspace") {
+            assertEquals(signal.input, { workspaceId: "ws_123" });
+            await op.progress({ message: "workspace selected" });
+          }
+          if (signal.signal === "continue") {
+            assertEquals(signal.input, { confirmed: true });
+            assertEquals(seen, ["selectWorkspace", "continue"]);
+            await op.complete({ refundId: "rf_signal" });
+            return ok({ refundId: "rf_signal" });
+          }
         }
-        if (signal.signal === "continue") {
-          assertEquals(signal.input, { confirmed: true });
-          assertEquals(seen, ["selectWorkspace", "continue"]);
-          await op.complete({ refundId: "rf_signal" });
-          return ok({ refundId: "rf_signal" });
-        }
-      }
 
-      throw new Error("signal stream ended before continue");
-    });
+        throw new Error("signal stream ended before continue");
+      },
+    );
 
     try {
-      const ref = await client.operation("Billing.Refund").input({
+      const ref = await client.operation.billing.refund.input({
         chargeId: "ch_signal",
       }).start().match({
         ok: (value) => value,
@@ -689,30 +697,32 @@ Deno.test({
     );
     const gate = deferred();
 
-    await server.operation("Billing.Refund").handle(async ({ input, op }) => {
-      assertEquals(input.chargeId, "ch_queued");
-      await op.started();
-      await gate.promise;
-      const first = await op.nextSignal().match({
-        ok: (value) => value,
-        err: (error) => {
-          throw error;
-        },
-      });
-      assertEquals(first.signal, "selectWorkspace");
-      const second = await op.nextSignal("continue").match({
-        ok: (value) => value,
-        err: (error) => {
-          throw error;
-        },
-      });
-      assertEquals(second.signal, "continue");
-      await op.complete({ refundId: "rf_queued" });
-      return ok({ refundId: "rf_queued" });
-    });
+    await server.operationHandle("Billing.Refund").handle(
+      async ({ input, op }) => {
+        assertEquals(input.chargeId, "ch_queued");
+        await op.started();
+        await gate.promise;
+        const first = await op.nextSignal().match({
+          ok: (value) => value,
+          err: (error) => {
+            throw error;
+          },
+        });
+        assertEquals(first.signal, "selectWorkspace");
+        const second = await op.nextSignal("continue").match({
+          ok: (value) => value,
+          err: (error) => {
+            throw error;
+          },
+        });
+        assertEquals(second.signal, "continue");
+        await op.complete({ refundId: "rf_queued" });
+        return ok({ refundId: "rf_queued" });
+      },
+    );
 
     try {
-      const ref = await client.operation("Billing.Refund").input({
+      const ref = await client.operation.billing.refund.input({
         chargeId: "ch_queued",
       }).start().match({
         ok: (value) => value,
@@ -756,17 +766,19 @@ Deno.test({
       "rejected-signal-client",
     );
 
-    await server.operation("Billing.Refund").handle(async ({ input, op }) => {
-      await op.started();
-      if (input.chargeId === "ch_terminal") {
-        await op.complete({ refundId: "rf_terminal" });
-        return ok({ refundId: "rf_terminal" });
-      }
-      return op.defer();
-    });
+    await server.operationHandle("Billing.Refund").handle(
+      async ({ input, op }) => {
+        await op.started();
+        if (input.chargeId === "ch_terminal") {
+          await op.complete({ refundId: "rf_terminal" });
+          return ok({ refundId: "rf_terminal" });
+        }
+        return op.defer();
+      },
+    );
 
     try {
-      const invalidRef = await client.operation("Billing.Refund").input({
+      const invalidRef = await client.operation.billing.refund.input({
         chargeId: "ch_invalid",
       }).start().match({
         ok: (value) => value,
@@ -783,7 +795,7 @@ Deno.test({
         "trellis.operation.control_error",
       );
 
-      const terminalRef = await client.operation("Billing.Refund").input({
+      const terminalRef = await client.operation.billing.refund.input({
         chargeId: "ch_terminal",
       }).start().match({
         ok: (value) => value,

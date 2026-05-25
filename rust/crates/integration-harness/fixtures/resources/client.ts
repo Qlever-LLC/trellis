@@ -121,7 +121,10 @@ async function assertResourceRpc(
   key: string,
   message: string,
 ) {
-  const output = await client.request(method, { key, message }).orThrow();
+  const output =
+    await (method === "Harness.Rust.Resources"
+      ? client.rpc.harness.rustResources({ key, message })
+      : client.rpc.harness.tsResources({ key, message })).orThrow();
   if (output.provider !== provider) {
     throw new Error(`${method} provider mismatch: ${JSON.stringify(output)}`);
   }
@@ -145,5 +148,5 @@ await assertResourceRpc(
   "ts-client.ts-provider",
   "ts to ts resources",
 );
-await client.natsConnection.drain();
+await client.connection.close();
 console.log("TS_RESOURCES_CLIENT_OK");

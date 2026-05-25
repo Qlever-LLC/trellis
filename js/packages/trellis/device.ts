@@ -954,8 +954,8 @@ export async function connectDeviceWithDeps<
   return {
     request: trellis.request.bind(trellis),
     publish: trellis.publish.bind(trellis),
-    event: trellis.event.bind(trellis),
-    operation: trellis.operation.bind(trellis),
+    event: trellis.event,
+    operation: trellis.operation,
     transfer: trellis.transfer.bind(trellis),
     state: trellis.state,
     name: trellis.name,

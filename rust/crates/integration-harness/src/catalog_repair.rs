@@ -135,7 +135,9 @@ pub(crate) async fn run_catalog_repair_fixture(
     .await?;
 
     let repair = sdk_auth_client
-        .auth_catalog_issues_resolve(&AuthCatalogIssuesResolveRequest {
+        .rpc()
+        .auth()
+        .catalog_issues_resolve(&AuthCatalogIssuesResolveRequest {
             issue_id: issue.issue_id.clone(),
             action: json!("keep-current"),
         })
@@ -171,7 +173,9 @@ pub(crate) async fn verify_catalog_repair_persistence_after_restart(
         .await
         .into_diagnostic()?;
     let catalog = CoreClient::new(&admin_client)
-        .trellis_catalog()
+        .rpc()
+        .trellis()
+        .catalog()
         .await
         .into_diagnostic()?;
     let issue = catalog
@@ -414,7 +418,9 @@ async fn approve_pending_expansions(
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         let response = auth_client
-            .auth_envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
+            .rpc()
+            .auth()
+            .envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
                 deployment_id: Some(deployment_id.to_string()),
                 limit: 20,
                 offset: None,
@@ -433,7 +439,9 @@ async fn approve_pending_expansions(
         if !request_ids.is_empty() {
             for request_id in request_ids {
                 auth_client
-                    .auth_envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
+                    .rpc()
+                    .auth()
+                    .envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
                         request_id,
                         reason: Some("integration harness catalog repair setup".to_string()),
                     })
@@ -458,7 +466,12 @@ async fn wait_for_catalog_issue(
 ) -> Result<TrellisCatalogResponseCatalogIssuesItem> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        let catalog = core_client.trellis_catalog().await.into_diagnostic()?;
+        let catalog = core_client
+            .rpc()
+            .trellis()
+            .catalog()
+            .await
+            .into_diagnostic()?;
         let active_digest = catalog
             .catalog
             .contracts
@@ -504,7 +517,12 @@ async fn wait_for_catalog_issue_clear(
 ) -> Result<()> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        let catalog = core_client.trellis_catalog().await.into_diagnostic()?;
+        let catalog = core_client
+            .rpc()
+            .trellis()
+            .catalog()
+            .await
+            .into_diagnostic()?;
         let has_issue = catalog
             .catalog
             .issues

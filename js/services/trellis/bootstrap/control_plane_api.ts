@@ -80,8 +80,8 @@ function assertComposableApi() {
       for (const kind of TRELLIS_API_KINDS) {
         assertNoConflictingOverlap(
           kind === "operations" ? "operation" : kind.slice(0, -1),
-          left.trellis[kind],
-          right.trellis[kind],
+          left.trellis?.[kind] ?? {},
+          right.trellis?.[kind] ?? {},
         );
       }
     }
@@ -117,28 +117,28 @@ export const trellisControlPlaneApi = {
   },
   trellis: {
     rpc: {
-      ...trellisCoreApi.trellis.rpc,
-      ...trellisAuthApi.trellis.rpc,
-      ...trellisStateApi.trellis.rpc,
-      ...trellisHealthApi.trellis.rpc,
+      ...trellisCoreApi.trellis?.rpc,
+      ...trellisAuthApi.trellis?.rpc,
+      ...trellisStateApi.trellis?.rpc,
+      ...trellisHealthApi.trellis?.rpc,
     },
     operations: {
-      ...trellisCoreApi.trellis.operations,
-      ...trellisAuthApi.trellis.operations,
-      ...trellisStateApi.trellis.operations,
-      ...trellisHealthApi.trellis.operations,
+      ...trellisCoreApi.trellis?.operations,
+      ...trellisAuthApi.trellis?.operations,
+      ...trellisStateApi.trellis?.operations,
+      ...trellisHealthApi.trellis?.operations,
     },
     events: {
-      ...trellisCoreApi.trellis.events,
-      ...trellisAuthApi.trellis.events,
-      ...trellisStateApi.trellis.events,
-      ...trellisHealthApi.trellis.events,
+      ...trellisCoreApi.trellis?.events,
+      ...trellisAuthApi.trellis?.events,
+      ...trellisStateApi.trellis?.events,
+      ...trellisHealthApi.trellis?.events,
     },
     subjects: {
-      ...trellisCoreApi.trellis.subjects,
-      ...trellisAuthApi.trellis.subjects,
-      ...trellisStateApi.trellis.subjects,
-      ...trellisHealthApi.trellis.subjects,
+      ...trellisCoreApi.trellis?.subjects,
+      ...trellisAuthApi.trellis?.subjects,
+      ...trellisStateApi.trellis?.subjects,
+      ...trellisHealthApi.trellis?.subjects,
     },
   },
 } as const;

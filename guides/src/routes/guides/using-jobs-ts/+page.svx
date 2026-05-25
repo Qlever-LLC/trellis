@@ -103,20 +103,20 @@ export type NotifyWarehouseResult = Static<typeof NotifyWarehouseResultSchema>;
 Update the `Orders.Create` handler in `main.ts` to enqueue a fulfillment job after saving the order:
 
 ```ts
-await service.trellis.mount("Orders.Create", async (req) => {
+await service.handle.rpc.orders.create(async ({ input }) => {
   const orderId = crypto.randomUUID();
   const order = {
     orderId,
-    customerId: req.customerId,
+    customerId: input.customerId,
     status: "pending",
-    items: req.items,
+    items: input.items,
     createdAt: new Date().toISOString(),
   };
   await ordersKV.put(orderId, order);
 
   const job = await service.jobs.reserveInventory.create({
     orderId,
-    items: req.items,
+    items: input.items,
   });
   if (job.isErr()) throw job.error;
 
@@ -184,7 +184,7 @@ service.jobs.notifyWarehouse.handle(async ({ job }) => {
 
   // notify warehouse...
 
-  await service.trellis.publish("Orders.Shipped", {
+  await service.event.orders.shipped.publish({
     orderId: job.payload.orderId,
     customerId: "cust_placeholder",
     shippedAt: new Date().toISOString(),

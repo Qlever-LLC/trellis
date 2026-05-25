@@ -9,8 +9,38 @@ impl<'a> AuthClient<'a> {
     pub fn new(inner: &'a crate::client::TrellisClient) -> Self {
         Self { inner }
     }
+    /// Access typed RPC calls.
+    pub fn rpc(&self) -> Rpc<'a> {
+        Rpc { _inner: self.inner }
+    }
+    /// Access typed events.
+    pub fn event(&self) -> Event<'a> {
+        Event { _inner: self.inner }
+    }
+    /// Access typed feeds.
+    pub fn feed(&self) -> Feed<'a> {
+        Feed { _inner: self.inner }
+    }
+    /// Access typed operations.
+    pub fn operation(&self) -> Operation<'a> {
+        Operation { _inner: self.inner }
+    }
+}
+/// Typed RPC surface.
+pub struct Rpc<'a> {
+    pub(crate) _inner: &'a crate::client::TrellisClient,
+}
+impl<'a> Rpc<'a> {
+    pub fn auth(&self) -> AuthRpc<'a> {
+        AuthRpc { inner: self._inner }
+    }
+}
+pub struct AuthRpc<'a> {
+    inner: &'a crate::client::TrellisClient,
+}
+impl<'a> AuthRpc<'a> {
     /// Call `Auth.Capabilities.List`.
-    pub async fn auth_capabilities_list(
+    pub async fn capabilities_list(
         &self,
         input: &super::types::AuthCapabilitiesListRequest,
     ) -> Result<super::types::AuthCapabilitiesListResponse, TrellisClientError> {
@@ -19,7 +49,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.CapabilityGroups.Delete`.
-    pub async fn auth_capability_groups_delete(
+    pub async fn capability_groups_delete(
         &self,
         input: &super::types::AuthCapabilityGroupsDeleteRequest,
     ) -> Result<super::types::AuthCapabilityGroupsDeleteResponse, TrellisClientError> {
@@ -28,7 +58,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.CapabilityGroups.Get`.
-    pub async fn auth_capability_groups_get(
+    pub async fn capability_groups_get(
         &self,
         input: &super::types::AuthCapabilityGroupsGetRequest,
     ) -> Result<super::types::AuthCapabilityGroupsGetResponse, TrellisClientError> {
@@ -37,7 +67,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.CapabilityGroups.List`.
-    pub async fn auth_capability_groups_list(
+    pub async fn capability_groups_list(
         &self,
         input: &super::types::AuthCapabilityGroupsListRequest,
     ) -> Result<super::types::AuthCapabilityGroupsListResponse, TrellisClientError> {
@@ -46,7 +76,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.CapabilityGroups.Put`.
-    pub async fn auth_capability_groups_put(
+    pub async fn capability_groups_put(
         &self,
         input: &super::types::AuthCapabilityGroupsPutRequest,
     ) -> Result<super::types::AuthCapabilityGroupsPutResponse, TrellisClientError> {
@@ -55,7 +85,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.CatalogIssues.Resolve`.
-    pub async fn auth_catalog_issues_resolve(
+    pub async fn catalog_issues_resolve(
         &self,
         input: &super::types::AuthCatalogIssuesResolveRequest,
     ) -> Result<super::types::AuthCatalogIssuesResolveResponse, TrellisClientError> {
@@ -64,7 +94,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Connections.Kick`.
-    pub async fn auth_connections_kick(
+    pub async fn connections_kick(
         &self,
         input: &super::types::AuthConnectionsKickRequest,
     ) -> Result<super::types::AuthConnectionsKickResponse, TrellisClientError> {
@@ -73,7 +103,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Connections.List`.
-    pub async fn auth_connections_list(
+    pub async fn connections_list(
         &self,
         input: &super::types::AuthConnectionsListRequest,
     ) -> Result<super::types::AuthConnectionsListResponse, TrellisClientError> {
@@ -82,7 +112,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Deployments.Create`.
-    pub async fn auth_deployments_create(
+    pub async fn deployments_create(
         &self,
         input: &super::types::AuthDeploymentsCreateRequest,
     ) -> Result<super::types::AuthDeploymentsCreateResponse, TrellisClientError> {
@@ -91,7 +121,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Deployments.Disable`.
-    pub async fn auth_deployments_disable(
+    pub async fn deployments_disable(
         &self,
         input: &super::types::AuthDeploymentsDisableRequest,
     ) -> Result<super::types::AuthDeploymentsDisableResponse, TrellisClientError> {
@@ -100,7 +130,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Deployments.Enable`.
-    pub async fn auth_deployments_enable(
+    pub async fn deployments_enable(
         &self,
         input: &super::types::AuthDeploymentsEnableRequest,
     ) -> Result<super::types::AuthDeploymentsEnableResponse, TrellisClientError> {
@@ -109,7 +139,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Deployments.List`.
-    pub async fn auth_deployments_list(
+    pub async fn deployments_list(
         &self,
         input: &super::types::AuthDeploymentsListRequest,
     ) -> Result<super::types::AuthDeploymentsListResponse, TrellisClientError> {
@@ -118,7 +148,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Deployments.Remove`.
-    pub async fn auth_deployments_remove(
+    pub async fn deployments_remove(
         &self,
         input: &super::types::AuthDeploymentsRemoveRequest,
     ) -> Result<super::types::AuthDeploymentsRemoveResponse, TrellisClientError> {
@@ -127,7 +157,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.DeviceUserAuthorities.List`.
-    pub async fn auth_device_user_authorities_list(
+    pub async fn device_user_authorities_list(
         &self,
         input: &super::types::AuthDeviceUserAuthoritiesListRequest,
     ) -> Result<super::types::AuthDeviceUserAuthoritiesListResponse, TrellisClientError> {
@@ -136,7 +166,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.DeviceUserAuthorities.Reviews.Decide`.
-    pub async fn auth_device_user_authorities_reviews_decide(
+    pub async fn device_user_authorities_reviews_decide(
         &self,
         input: &super::types::AuthDeviceUserAuthoritiesReviewsDecideRequest,
     ) -> Result<super::types::AuthDeviceUserAuthoritiesReviewsDecideResponse, TrellisClientError>
@@ -146,7 +176,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.DeviceUserAuthorities.Reviews.List`.
-    pub async fn auth_device_user_authorities_reviews_list(
+    pub async fn device_user_authorities_reviews_list(
         &self,
         input: &super::types::AuthDeviceUserAuthoritiesReviewsListRequest,
     ) -> Result<super::types::AuthDeviceUserAuthoritiesReviewsListResponse, TrellisClientError>
@@ -156,7 +186,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.DeviceUserAuthorities.Revoke`.
-    pub async fn auth_device_user_authorities_revoke(
+    pub async fn device_user_authorities_revoke(
         &self,
         input: &super::types::AuthDeviceUserAuthoritiesRevokeRequest,
     ) -> Result<super::types::AuthDeviceUserAuthoritiesRevokeResponse, TrellisClientError> {
@@ -165,7 +195,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Devices.ConnectInfo.Get`.
-    pub async fn auth_devices_connect_info_get(
+    pub async fn devices_connect_info_get(
         &self,
         input: &super::types::AuthDevicesConnectInfoGetRequest,
     ) -> Result<super::types::AuthDevicesConnectInfoGetResponse, TrellisClientError> {
@@ -174,7 +204,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Devices.Disable`.
-    pub async fn auth_devices_disable(
+    pub async fn devices_disable(
         &self,
         input: &super::types::AuthDevicesDisableRequest,
     ) -> Result<super::types::AuthDevicesDisableResponse, TrellisClientError> {
@@ -183,7 +213,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Devices.Enable`.
-    pub async fn auth_devices_enable(
+    pub async fn devices_enable(
         &self,
         input: &super::types::AuthDevicesEnableRequest,
     ) -> Result<super::types::AuthDevicesEnableResponse, TrellisClientError> {
@@ -192,7 +222,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Devices.List`.
-    pub async fn auth_devices_list(
+    pub async fn devices_list(
         &self,
         input: &super::types::AuthDevicesListRequest,
     ) -> Result<super::types::AuthDevicesListResponse, TrellisClientError> {
@@ -201,7 +231,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Devices.Provision`.
-    pub async fn auth_devices_provision(
+    pub async fn devices_provision(
         &self,
         input: &super::types::AuthDevicesProvisionRequest,
     ) -> Result<super::types::AuthDevicesProvisionResponse, TrellisClientError> {
@@ -210,7 +240,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Devices.Remove`.
-    pub async fn auth_devices_remove(
+    pub async fn devices_remove(
         &self,
         input: &super::types::AuthDevicesRemoveRequest,
     ) -> Result<super::types::AuthDevicesRemoveResponse, TrellisClientError> {
@@ -219,7 +249,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.EnvelopeExpansions.Approve`.
-    pub async fn auth_envelope_expansions_approve(
+    pub async fn envelope_expansions_approve(
         &self,
         input: &super::types::AuthEnvelopeExpansionsApproveRequest,
     ) -> Result<super::types::AuthEnvelopeExpansionsApproveResponse, TrellisClientError> {
@@ -228,7 +258,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.EnvelopeExpansions.List`.
-    pub async fn auth_envelope_expansions_list(
+    pub async fn envelope_expansions_list(
         &self,
         input: &super::types::AuthEnvelopeExpansionsListRequest,
     ) -> Result<super::types::AuthEnvelopeExpansionsListResponse, TrellisClientError> {
@@ -237,7 +267,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.EnvelopeExpansions.Reject`.
-    pub async fn auth_envelope_expansions_reject(
+    pub async fn envelope_expansions_reject(
         &self,
         input: &super::types::AuthEnvelopeExpansionsRejectRequest,
     ) -> Result<super::types::AuthEnvelopeExpansionsRejectResponse, TrellisClientError> {
@@ -246,7 +276,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Envelopes.Changes.Preview`.
-    pub async fn auth_envelopes_changes_preview(
+    pub async fn envelopes_changes_preview(
         &self,
         input: &super::types::AuthEnvelopesChangesPreviewRequest,
     ) -> Result<super::types::AuthEnvelopesChangesPreviewResponse, TrellisClientError> {
@@ -255,7 +285,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Envelopes.Expand`.
-    pub async fn auth_envelopes_expand(
+    pub async fn envelopes_expand(
         &self,
         input: &super::types::AuthEnvelopesExpandRequest,
     ) -> Result<super::types::AuthEnvelopesExpandResponse, TrellisClientError> {
@@ -264,7 +294,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Envelopes.Get`.
-    pub async fn auth_envelopes_get(
+    pub async fn envelopes_get(
         &self,
         input: &super::types::AuthEnvelopesGetRequest,
     ) -> Result<super::types::AuthEnvelopesGetResponse, TrellisClientError> {
@@ -273,7 +303,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Envelopes.GrantOverrides.List`.
-    pub async fn auth_envelopes_grant_overrides_list(
+    pub async fn envelopes_grant_overrides_list(
         &self,
         input: &super::types::AuthEnvelopesGrantOverridesListRequest,
     ) -> Result<super::types::AuthEnvelopesGrantOverridesListResponse, TrellisClientError> {
@@ -282,7 +312,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Envelopes.GrantOverrides.Put`.
-    pub async fn auth_envelopes_grant_overrides_put(
+    pub async fn envelopes_grant_overrides_put(
         &self,
         input: &super::types::AuthEnvelopesGrantOverridesPutRequest,
     ) -> Result<super::types::AuthEnvelopesGrantOverridesPutResponse, TrellisClientError> {
@@ -291,7 +321,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Envelopes.GrantOverrides.Remove`.
-    pub async fn auth_envelopes_grant_overrides_remove(
+    pub async fn envelopes_grant_overrides_remove(
         &self,
         input: &super::types::AuthEnvelopesGrantOverridesRemoveRequest,
     ) -> Result<super::types::AuthEnvelopesGrantOverridesRemoveResponse, TrellisClientError> {
@@ -300,7 +330,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Envelopes.List`.
-    pub async fn auth_envelopes_list(
+    pub async fn envelopes_list(
         &self,
         input: &super::types::AuthEnvelopesListRequest,
     ) -> Result<super::types::AuthEnvelopesListResponse, TrellisClientError> {
@@ -309,7 +339,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Envelopes.Shrink`.
-    pub async fn auth_envelopes_shrink(
+    pub async fn envelopes_shrink(
         &self,
         input: &super::types::AuthEnvelopesShrinkRequest,
     ) -> Result<super::types::AuthEnvelopesShrinkResponse, TrellisClientError> {
@@ -318,15 +348,13 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Health`.
-    pub async fn auth_health(
-        &self,
-    ) -> Result<super::types::AuthHealthResponse, TrellisClientError> {
+    pub async fn health(&self) -> Result<super::types::AuthHealthResponse, TrellisClientError> {
         self.inner
             .call::<super::rpc::AuthHealthRpc>(&super::rpc::Empty {})
             .await
     }
     /// Call `Auth.Identities.Grants.List`.
-    pub async fn auth_identities_grants_list(
+    pub async fn identities_grants_list(
         &self,
         input: &super::types::AuthIdentitiesGrantsListRequest,
     ) -> Result<super::types::AuthIdentitiesGrantsListResponse, TrellisClientError> {
@@ -335,7 +363,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Identities.List`.
-    pub async fn auth_identities_list(
+    pub async fn identities_list(
         &self,
         input: &super::types::AuthIdentitiesListRequest,
     ) -> Result<super::types::AuthIdentitiesListResponse, TrellisClientError> {
@@ -344,7 +372,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.IdentityEnvelopes.Revoke`.
-    pub async fn auth_identity_envelopes_revoke(
+    pub async fn identity_envelopes_revoke(
         &self,
         input: &super::types::AuthIdentityEnvelopesRevokeRequest,
     ) -> Result<super::types::AuthIdentityEnvelopesRevokeResponse, TrellisClientError> {
@@ -353,7 +381,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Portals.Get`.
-    pub async fn auth_portals_get(
+    pub async fn portals_get(
         &self,
         input: &super::types::AuthPortalsGetRequest,
     ) -> Result<super::types::AuthPortalsGetResponse, TrellisClientError> {
@@ -362,7 +390,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Portals.List`.
-    pub async fn auth_portals_list(
+    pub async fn portals_list(
         &self,
         input: &super::types::AuthPortalsListRequest,
     ) -> Result<super::types::AuthPortalsListResponse, TrellisClientError> {
@@ -371,7 +399,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Portals.LoginSettings.Get`.
-    pub async fn auth_portals_login_settings_get(
+    pub async fn portals_login_settings_get(
         &self,
         input: &super::types::AuthPortalsLoginSettingsGetRequest,
     ) -> Result<super::types::AuthPortalsLoginSettingsGetResponse, TrellisClientError> {
@@ -380,7 +408,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Portals.LoginSettings.Update`.
-    pub async fn auth_portals_login_settings_update(
+    pub async fn portals_login_settings_update(
         &self,
         input: &super::types::AuthPortalsLoginSettingsUpdateRequest,
     ) -> Result<super::types::AuthPortalsLoginSettingsUpdateResponse, TrellisClientError> {
@@ -389,7 +417,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Portals.Put`.
-    pub async fn auth_portals_put(
+    pub async fn portals_put(
         &self,
         input: &super::types::AuthPortalsPutRequest,
     ) -> Result<super::types::AuthPortalsPutResponse, TrellisClientError> {
@@ -398,7 +426,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Portals.Remove`.
-    pub async fn auth_portals_remove(
+    pub async fn portals_remove(
         &self,
         input: &super::types::AuthPortalsRemoveRequest,
     ) -> Result<super::types::AuthPortalsRemoveResponse, TrellisClientError> {
@@ -407,7 +435,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Portals.Routes.Put`.
-    pub async fn auth_portals_routes_put(
+    pub async fn portals_routes_put(
         &self,
         input: &super::types::AuthPortalsRoutesPutRequest,
     ) -> Result<super::types::AuthPortalsRoutesPutResponse, TrellisClientError> {
@@ -416,7 +444,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Portals.Routes.Remove`.
-    pub async fn auth_portals_routes_remove(
+    pub async fn portals_routes_remove(
         &self,
         input: &super::types::AuthPortalsRoutesRemoveRequest,
     ) -> Result<super::types::AuthPortalsRoutesRemoveResponse, TrellisClientError> {
@@ -425,7 +453,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Requests.Validate`.
-    pub async fn auth_requests_validate(
+    pub async fn requests_validate(
         &self,
         input: &super::types::AuthRequestsValidateRequest,
     ) -> Result<super::types::AuthRequestsValidateResponse, TrellisClientError> {
@@ -434,7 +462,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.ServiceInstances.Disable`.
-    pub async fn auth_service_instances_disable(
+    pub async fn service_instances_disable(
         &self,
         input: &super::types::AuthServiceInstancesDisableRequest,
     ) -> Result<super::types::AuthServiceInstancesDisableResponse, TrellisClientError> {
@@ -443,7 +471,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.ServiceInstances.Enable`.
-    pub async fn auth_service_instances_enable(
+    pub async fn service_instances_enable(
         &self,
         input: &super::types::AuthServiceInstancesEnableRequest,
     ) -> Result<super::types::AuthServiceInstancesEnableResponse, TrellisClientError> {
@@ -452,7 +480,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.ServiceInstances.List`.
-    pub async fn auth_service_instances_list(
+    pub async fn service_instances_list(
         &self,
         input: &super::types::AuthServiceInstancesListRequest,
     ) -> Result<super::types::AuthServiceInstancesListResponse, TrellisClientError> {
@@ -461,7 +489,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.ServiceInstances.Provision`.
-    pub async fn auth_service_instances_provision(
+    pub async fn service_instances_provision(
         &self,
         input: &super::types::AuthServiceInstancesProvisionRequest,
     ) -> Result<super::types::AuthServiceInstancesProvisionResponse, TrellisClientError> {
@@ -470,7 +498,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.ServiceInstances.Remove`.
-    pub async fn auth_service_instances_remove(
+    pub async fn service_instances_remove(
         &self,
         input: &super::types::AuthServiceInstancesRemoveRequest,
     ) -> Result<super::types::AuthServiceInstancesRemoveResponse, TrellisClientError> {
@@ -479,7 +507,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Sessions.List`.
-    pub async fn auth_sessions_list(
+    pub async fn sessions_list(
         &self,
         input: &super::types::AuthSessionsListRequest,
     ) -> Result<super::types::AuthSessionsListResponse, TrellisClientError> {
@@ -488,7 +516,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Sessions.Logout`.
-    pub async fn auth_sessions_logout(
+    pub async fn sessions_logout(
         &self,
     ) -> Result<super::types::AuthSessionsLogoutResponse, TrellisClientError> {
         self.inner
@@ -496,7 +524,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Sessions.Me`.
-    pub async fn auth_sessions_me(
+    pub async fn sessions_me(
         &self,
     ) -> Result<super::types::AuthSessionsMeResponse, TrellisClientError> {
         self.inner
@@ -504,7 +532,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Sessions.Revoke`.
-    pub async fn auth_sessions_revoke(
+    pub async fn sessions_revoke(
         &self,
         input: &super::types::AuthSessionsRevokeRequest,
     ) -> Result<super::types::AuthSessionsRevokeResponse, TrellisClientError> {
@@ -513,7 +541,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.UserIdentities.List`.
-    pub async fn auth_user_identities_list(
+    pub async fn user_identities_list(
         &self,
         input: &super::types::AuthUserIdentitiesListRequest,
     ) -> Result<super::types::AuthUserIdentitiesListResponse, TrellisClientError> {
@@ -522,7 +550,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.UserIdentities.Unlink`.
-    pub async fn auth_user_identities_unlink(
+    pub async fn user_identities_unlink(
         &self,
         input: &super::types::AuthUserIdentitiesUnlinkRequest,
     ) -> Result<super::types::AuthUserIdentitiesUnlinkResponse, TrellisClientError> {
@@ -531,7 +559,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Users.Create`.
-    pub async fn auth_users_create(
+    pub async fn users_create(
         &self,
         input: &super::types::AuthUsersCreateRequest,
     ) -> Result<super::types::AuthUsersCreateResponse, TrellisClientError> {
@@ -540,14 +568,14 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Users.Get`.
-    pub async fn auth_users_get(
+    pub async fn users_get(
         &self,
         input: &super::types::AuthUsersGetRequest,
     ) -> Result<super::types::AuthUsersGetResponse, TrellisClientError> {
         self.inner.call::<super::rpc::AuthUsersGetRpc>(input).await
     }
     /// Call `Auth.Users.IdentityLink.Create`.
-    pub async fn auth_users_identity_link_create(
+    pub async fn users_identity_link_create(
         &self,
         input: &super::types::AuthUsersIdentityLinkCreateRequest,
     ) -> Result<super::types::AuthUsersIdentityLinkCreateResponse, TrellisClientError> {
@@ -556,14 +584,14 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Users.List`.
-    pub async fn auth_users_list(
+    pub async fn users_list(
         &self,
         input: &super::types::AuthUsersListRequest,
     ) -> Result<super::types::AuthUsersListResponse, TrellisClientError> {
         self.inner.call::<super::rpc::AuthUsersListRpc>(input).await
     }
     /// Call `Auth.Users.Password.Change`.
-    pub async fn auth_users_password_change(
+    pub async fn users_password_change(
         &self,
         input: &super::types::AuthUsersPasswordChangeRequest,
     ) -> Result<super::types::AuthUsersPasswordChangeResponse, TrellisClientError> {
@@ -572,7 +600,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Users.PasswordReset.Create`.
-    pub async fn auth_users_password_reset_create(
+    pub async fn users_password_reset_create(
         &self,
         input: &super::types::AuthUsersPasswordResetCreateRequest,
     ) -> Result<super::types::AuthUsersPasswordResetCreateResponse, TrellisClientError> {
@@ -581,7 +609,7 @@ impl<'a> AuthClient<'a> {
             .await
     }
     /// Call `Auth.Users.Update`.
-    pub async fn auth_users_update(
+    pub async fn users_update(
         &self,
         input: &super::types::AuthUsersUpdateRequest,
     ) -> Result<super::types::AuthUsersUpdateResponse, TrellisClientError> {
@@ -589,19 +617,52 @@ impl<'a> AuthClient<'a> {
             .call::<super::rpc::AuthUsersUpdateRpc>(input)
             .await
     }
-    /// Start or control `Auth.DeviceUserAuthorities.Resolve`.
-    pub fn auth_device_user_authorities_resolve(
-        &self,
-    ) -> crate::client::OperationInvoker<
-        'a,
-        crate::client::TrellisClient,
-        super::operations::AuthDeviceUserAuthoritiesResolveOperation,
-    > {
-        self.inner
-            .operation::<super::operations::AuthDeviceUserAuthoritiesResolveOperation>()
+}
+/// Typed event surface.
+pub struct Event<'a> {
+    pub(crate) _inner: &'a crate::client::TrellisClient,
+}
+impl<'a> Event<'a> {
+    pub fn auth(&self) -> AuthEvent<'a> {
+        AuthEvent { inner: self._inner }
     }
-    /// Publish `Auth.Connections.Closed`.
-    pub async fn publish_auth_connections_closed(
+}
+pub struct AuthEvent<'a> {
+    inner: &'a crate::client::TrellisClient,
+}
+impl<'a> AuthEvent<'a> {
+    pub fn connections_closed(&self) -> AuthConnectionsClosedEvent<'a> {
+        AuthConnectionsClosedEvent { inner: self.inner }
+    }
+    pub fn connections_kicked(&self) -> AuthConnectionsKickedEvent<'a> {
+        AuthConnectionsKickedEvent { inner: self.inner }
+    }
+    pub fn connections_opened(&self) -> AuthConnectionsOpenedEvent<'a> {
+        AuthConnectionsOpenedEvent { inner: self.inner }
+    }
+    pub fn device_user_authorities_approved(&self) -> AuthDeviceUserAuthoritiesApprovedEvent<'a> {
+        AuthDeviceUserAuthoritiesApprovedEvent { inner: self.inner }
+    }
+    pub fn device_user_authorities_requested(&self) -> AuthDeviceUserAuthoritiesRequestedEvent<'a> {
+        AuthDeviceUserAuthoritiesRequestedEvent { inner: self.inner }
+    }
+    pub fn device_user_authorities_resolved(&self) -> AuthDeviceUserAuthoritiesResolvedEvent<'a> {
+        AuthDeviceUserAuthoritiesResolvedEvent { inner: self.inner }
+    }
+    pub fn device_user_authorities_review_requested(
+        &self,
+    ) -> AuthDeviceUserAuthoritiesReviewRequestedEvent<'a> {
+        AuthDeviceUserAuthoritiesReviewRequestedEvent { inner: self.inner }
+    }
+    pub fn sessions_revoked(&self) -> AuthSessionsRevokedEvent<'a> {
+        AuthSessionsRevokedEvent { inner: self.inner }
+    }
+}
+pub struct AuthConnectionsClosedEvent<'a> {
+    inner: &'a crate::client::TrellisClient,
+}
+impl<'a> AuthConnectionsClosedEvent<'a> {
+    pub async fn publish(
         &self,
         event: &super::types::AuthConnectionsClosedEvent,
     ) -> Result<(), TrellisClientError> {
@@ -609,8 +670,26 @@ impl<'a> AuthClient<'a> {
             .publish::<super::events::AuthConnectionsClosedEventDescriptor>(event)
             .await
     }
-    /// Publish `Auth.Connections.Kicked`.
-    pub async fn publish_auth_connections_kicked(
+    pub async fn listen<F, Fut>(&self, handler: F) -> Result<(), TrellisClientError>
+    where
+        F: Fn(super::types::AuthConnectionsClosedEvent) -> Fut,
+        Fut: std::future::Future<Output = Result<(), TrellisClientError>>,
+    {
+        let mut stream = self
+            .inner
+            .subscribe::<super::events::AuthConnectionsClosedEventDescriptor>()
+            .await?;
+        while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
+            handler(event?).await?;
+        }
+        Ok(())
+    }
+}
+pub struct AuthConnectionsKickedEvent<'a> {
+    inner: &'a crate::client::TrellisClient,
+}
+impl<'a> AuthConnectionsKickedEvent<'a> {
+    pub async fn publish(
         &self,
         event: &super::types::AuthConnectionsKickedEvent,
     ) -> Result<(), TrellisClientError> {
@@ -618,8 +697,26 @@ impl<'a> AuthClient<'a> {
             .publish::<super::events::AuthConnectionsKickedEventDescriptor>(event)
             .await
     }
-    /// Publish `Auth.Connections.Opened`.
-    pub async fn publish_auth_connections_opened(
+    pub async fn listen<F, Fut>(&self, handler: F) -> Result<(), TrellisClientError>
+    where
+        F: Fn(super::types::AuthConnectionsKickedEvent) -> Fut,
+        Fut: std::future::Future<Output = Result<(), TrellisClientError>>,
+    {
+        let mut stream = self
+            .inner
+            .subscribe::<super::events::AuthConnectionsKickedEventDescriptor>()
+            .await?;
+        while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
+            handler(event?).await?;
+        }
+        Ok(())
+    }
+}
+pub struct AuthConnectionsOpenedEvent<'a> {
+    inner: &'a crate::client::TrellisClient,
+}
+impl<'a> AuthConnectionsOpenedEvent<'a> {
+    pub async fn publish(
         &self,
         event: &super::types::AuthConnectionsOpenedEvent,
     ) -> Result<(), TrellisClientError> {
@@ -627,8 +724,26 @@ impl<'a> AuthClient<'a> {
             .publish::<super::events::AuthConnectionsOpenedEventDescriptor>(event)
             .await
     }
-    /// Publish `Auth.DeviceUserAuthorities.Approved`.
-    pub async fn publish_auth_device_user_authorities_approved(
+    pub async fn listen<F, Fut>(&self, handler: F) -> Result<(), TrellisClientError>
+    where
+        F: Fn(super::types::AuthConnectionsOpenedEvent) -> Fut,
+        Fut: std::future::Future<Output = Result<(), TrellisClientError>>,
+    {
+        let mut stream = self
+            .inner
+            .subscribe::<super::events::AuthConnectionsOpenedEventDescriptor>()
+            .await?;
+        while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
+            handler(event?).await?;
+        }
+        Ok(())
+    }
+}
+pub struct AuthDeviceUserAuthoritiesApprovedEvent<'a> {
+    inner: &'a crate::client::TrellisClient,
+}
+impl<'a> AuthDeviceUserAuthoritiesApprovedEvent<'a> {
+    pub async fn publish(
         &self,
         event: &super::types::AuthDeviceUserAuthoritiesApprovedEvent,
     ) -> Result<(), TrellisClientError> {
@@ -636,8 +751,26 @@ impl<'a> AuthClient<'a> {
             .publish::<super::events::AuthDeviceUserAuthoritiesApprovedEventDescriptor>(event)
             .await
     }
-    /// Publish `Auth.DeviceUserAuthorities.Requested`.
-    pub async fn publish_auth_device_user_authorities_requested(
+    pub async fn listen<F, Fut>(&self, handler: F) -> Result<(), TrellisClientError>
+    where
+        F: Fn(super::types::AuthDeviceUserAuthoritiesApprovedEvent) -> Fut,
+        Fut: std::future::Future<Output = Result<(), TrellisClientError>>,
+    {
+        let mut stream = self
+            .inner
+            .subscribe::<super::events::AuthDeviceUserAuthoritiesApprovedEventDescriptor>()
+            .await?;
+        while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
+            handler(event?).await?;
+        }
+        Ok(())
+    }
+}
+pub struct AuthDeviceUserAuthoritiesRequestedEvent<'a> {
+    inner: &'a crate::client::TrellisClient,
+}
+impl<'a> AuthDeviceUserAuthoritiesRequestedEvent<'a> {
+    pub async fn publish(
         &self,
         event: &super::types::AuthDeviceUserAuthoritiesRequestedEvent,
     ) -> Result<(), TrellisClientError> {
@@ -645,8 +778,26 @@ impl<'a> AuthClient<'a> {
             .publish::<super::events::AuthDeviceUserAuthoritiesRequestedEventDescriptor>(event)
             .await
     }
-    /// Publish `Auth.DeviceUserAuthorities.Resolved`.
-    pub async fn publish_auth_device_user_authorities_resolved(
+    pub async fn listen<F, Fut>(&self, handler: F) -> Result<(), TrellisClientError>
+    where
+        F: Fn(super::types::AuthDeviceUserAuthoritiesRequestedEvent) -> Fut,
+        Fut: std::future::Future<Output = Result<(), TrellisClientError>>,
+    {
+        let mut stream = self
+            .inner
+            .subscribe::<super::events::AuthDeviceUserAuthoritiesRequestedEventDescriptor>()
+            .await?;
+        while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
+            handler(event?).await?;
+        }
+        Ok(())
+    }
+}
+pub struct AuthDeviceUserAuthoritiesResolvedEvent<'a> {
+    inner: &'a crate::client::TrellisClient,
+}
+impl<'a> AuthDeviceUserAuthoritiesResolvedEvent<'a> {
+    pub async fn publish(
         &self,
         event: &super::types::AuthDeviceUserAuthoritiesResolvedEvent,
     ) -> Result<(), TrellisClientError> {
@@ -654,8 +805,26 @@ impl<'a> AuthClient<'a> {
             .publish::<super::events::AuthDeviceUserAuthoritiesResolvedEventDescriptor>(event)
             .await
     }
-    /// Publish `Auth.DeviceUserAuthorities.ReviewRequested`.
-    pub async fn publish_auth_device_user_authorities_review_requested(
+    pub async fn listen<F, Fut>(&self, handler: F) -> Result<(), TrellisClientError>
+    where
+        F: Fn(super::types::AuthDeviceUserAuthoritiesResolvedEvent) -> Fut,
+        Fut: std::future::Future<Output = Result<(), TrellisClientError>>,
+    {
+        let mut stream = self
+            .inner
+            .subscribe::<super::events::AuthDeviceUserAuthoritiesResolvedEventDescriptor>()
+            .await?;
+        while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
+            handler(event?).await?;
+        }
+        Ok(())
+    }
+}
+pub struct AuthDeviceUserAuthoritiesReviewRequestedEvent<'a> {
+    inner: &'a crate::client::TrellisClient,
+}
+impl<'a> AuthDeviceUserAuthoritiesReviewRequestedEvent<'a> {
+    pub async fn publish(
         &self,
         event: &super::types::AuthDeviceUserAuthoritiesReviewRequestedEvent,
     ) -> Result<(), TrellisClientError> {
@@ -665,13 +834,88 @@ impl<'a> AuthClient<'a> {
             )
             .await
     }
-    /// Publish `Auth.Sessions.Revoked`.
-    pub async fn publish_auth_sessions_revoked(
+    pub async fn listen<F, Fut>(&self, handler: F) -> Result<(), TrellisClientError>
+    where
+        F: Fn(super::types::AuthDeviceUserAuthoritiesReviewRequestedEvent) -> Fut,
+        Fut: std::future::Future<Output = Result<(), TrellisClientError>>,
+    {
+        let mut stream = self
+            .inner
+            .subscribe::<super::events::AuthDeviceUserAuthoritiesReviewRequestedEventDescriptor>()
+            .await?;
+        while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
+            handler(event?).await?;
+        }
+        Ok(())
+    }
+}
+pub struct AuthSessionsRevokedEvent<'a> {
+    inner: &'a crate::client::TrellisClient,
+}
+impl<'a> AuthSessionsRevokedEvent<'a> {
+    pub async fn publish(
         &self,
         event: &super::types::AuthSessionsRevokedEvent,
     ) -> Result<(), TrellisClientError> {
         self.inner
             .publish::<super::events::AuthSessionsRevokedEventDescriptor>(event)
+            .await
+    }
+    pub async fn listen<F, Fut>(&self, handler: F) -> Result<(), TrellisClientError>
+    where
+        F: Fn(super::types::AuthSessionsRevokedEvent) -> Fut,
+        Fut: std::future::Future<Output = Result<(), TrellisClientError>>,
+    {
+        let mut stream = self
+            .inner
+            .subscribe::<super::events::AuthSessionsRevokedEventDescriptor>()
+            .await?;
+        while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
+            handler(event?).await?;
+        }
+        Ok(())
+    }
+}
+/// Typed feed surface.
+pub struct Feed<'a> {
+    pub(crate) _inner: &'a crate::client::TrellisClient,
+}
+impl<'a> Feed<'a> {}
+/// Typed operation surface.
+pub struct Operation<'a> {
+    pub(crate) _inner: &'a crate::client::TrellisClient,
+}
+impl<'a> Operation<'a> {
+    pub fn auth(&self) -> AuthOperation<'a> {
+        AuthOperation { inner: self._inner }
+    }
+}
+pub struct AuthOperation<'a> {
+    inner: &'a crate::client::TrellisClient,
+}
+impl<'a> AuthOperation<'a> {
+    pub fn device_user_authorities_resolve(&self) -> AuthDeviceUserAuthoritiesResolveOperation<'a> {
+        AuthDeviceUserAuthoritiesResolveOperation { inner: self.inner }
+    }
+}
+pub struct AuthDeviceUserAuthoritiesResolveOperation<'a> {
+    inner: &'a crate::client::TrellisClient,
+}
+impl<'a> AuthDeviceUserAuthoritiesResolveOperation<'a> {
+    pub async fn start(
+        &self,
+        input: &super::types::AuthDeviceUserAuthoritiesResolveInput,
+    ) -> Result<
+        crate::client::OperationRef<
+            'a,
+            crate::client::TrellisClient,
+            super::operations::AuthDeviceUserAuthoritiesResolveOperation,
+        >,
+        TrellisClientError,
+    > {
+        self.inner
+            .operation::<super::operations::AuthDeviceUserAuthoritiesResolveOperation>()
+            .start(input)
             .await
     }
 }

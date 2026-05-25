@@ -28,11 +28,11 @@ Now subscribe to the event in `main.ts`:
 ```ts
 import { ok } from "@qlever-llc/trellis";
 
-await service.trellis.event("Auth.Connections.Opened", {}, async (event) => {
+await service.event.auth.connectionsOpened.listen(async (event) => {
   const e = event as { sessionKey: string };
   console.info("connection opened", { sessionKey: e.sessionKey });
   return ok(undefined);
-});
+}, {});
 ```
 
 Returning `ok(undefined)` acknowledges the message. If your handler returns `err(...)`, Trellis will NAK the delivery and redeliver it, which is useful for transient failures like a downstream service being temporarily unavailable.

@@ -95,11 +95,6 @@ export type DeviceIdentity = {
   activationKeyBase64url: string;
 };
 
-type DeviceActivationRpcMethod =
-  | "Auth.DeviceUserAuthorities.List"
-  | "Auth.DeviceUserAuthorities.Revoke"
-  | "Auth.Devices.ConnectInfo.Get";
-
 type AuthResolveDeviceUserAuthoritiesOperationShape = {
   subject: string;
   input: typeof AuthResolveDeviceUserAuthoritiesSchema;
@@ -113,35 +108,35 @@ export type AuthResolveDeviceUserAuthoritiesOperation = OperationRef<
   AuthResolveDeviceUserAuthoritiesOutput
 >;
 
-type DeviceActivationRpcInputMap = {
-  "Auth.DeviceUserAuthorities.List": AuthDeviceUserAuthoritiesListInput;
-  "Auth.DeviceUserAuthorities.Revoke": AuthDeviceUserAuthoritiesRevokeInput;
-  "Auth.Devices.ConnectInfo.Get": GetDeviceConnectInfoInput;
-};
-
-type DeviceActivationRpcOutputMap = {
-  "Auth.DeviceUserAuthorities.List": AuthDeviceUserAuthoritiesListOutput;
-  "Auth.DeviceUserAuthorities.Revoke": AuthDeviceUserAuthoritiesRevokeResponse;
-  "Auth.Devices.ConnectInfo.Get": GetDeviceConnectInfoOutput;
-};
-
 type RequestClient = {
-  request<M extends DeviceActivationRpcMethod>(
-    method: M,
-    input: DeviceActivationRpcInputMap[M],
-    opts?: unknown,
-  ): AsyncResult<DeviceActivationRpcOutputMap[M], BaseError>;
+  rpc: {
+    auth: {
+      deviceUserAuthoritiesList(
+        input: AuthDeviceUserAuthoritiesListInput,
+      ): AsyncResult<AuthDeviceUserAuthoritiesListOutput, BaseError>;
+      deviceUserAuthoritiesRevoke(
+        input: AuthDeviceUserAuthoritiesRevokeInput,
+      ): AsyncResult<AuthDeviceUserAuthoritiesRevokeResponse, BaseError>;
+      devicesConnectInfoGet(
+        input: GetDeviceConnectInfoInput,
+      ): AsyncResult<GetDeviceConnectInfoOutput, BaseError>;
+    };
+  };
 };
 
 type ResolveDeviceUserAuthoritiesOperationClient = {
-  operation(method: "Auth.DeviceUserAuthorities.Resolve"): {
-    input(
-      input: AuthResolveDeviceUserAuthoritiesInput,
-    ): {
-      start(): AsyncResult<
-        AuthResolveDeviceUserAuthoritiesOperation,
-        BaseError
-      >;
+  operation: {
+    auth: {
+      deviceUserAuthoritiesResolve: {
+        input(
+          input: AuthResolveDeviceUserAuthoritiesInput,
+        ): {
+          start(): AsyncResult<
+            AuthResolveDeviceUserAuthoritiesOperation,
+            BaseError
+          >;
+        };
+      };
     };
   };
 };
@@ -674,19 +669,19 @@ export function createDeviceActivationClient(
 ) {
   return {
     resolveDeviceUserAuthorities(input: AuthResolveDeviceUserAuthoritiesInput) {
-      return client.operation("Auth.DeviceUserAuthorities.Resolve").input(input)
+      return client.operation.auth.deviceUserAuthoritiesResolve.input(input)
         .start()
         .orThrow();
     },
     listDeviceActivations(input: AuthDeviceUserAuthoritiesListInput) {
-      return client.request("Auth.DeviceUserAuthorities.List", input).orThrow();
+      return client.rpc.auth.deviceUserAuthoritiesList(input).orThrow();
     },
     revokeDeviceActivation(input: AuthDeviceUserAuthoritiesRevokeInput) {
-      return client.request("Auth.DeviceUserAuthorities.Revoke", input)
+      return client.rpc.auth.deviceUserAuthoritiesRevoke(input)
         .orThrow();
     },
     getDeviceConnectInfo(input: GetDeviceConnectInfoInput) {
-      return client.request("Auth.Devices.ConnectInfo.Get", input).orThrow();
+      return client.rpc.auth.devicesConnectInfoGet(input).orThrow();
     },
   };
 }

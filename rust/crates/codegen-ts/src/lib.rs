@@ -1120,16 +1120,6 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     lines.push("export const API = {".to_string());
     lines.push("  owned: OWNED_API,".to_string());
     lines.push("  used: USED_API,".to_string());
-    lines.push("  get trellis() {".to_string());
-    lines.push("    return {".to_string());
-    lines.push("      rpc: { ...OWNED_API.rpc, ...USED_API.rpc },".to_string());
-    lines
-        .push("      operations: { ...OWNED_API.operations, ...USED_API.operations },".to_string());
-    lines.push("      events: { ...OWNED_API.events, ...USED_API.events },".to_string());
-    lines.push("      feeds: { ...OWNED_API.feeds, ...USED_API.feeds },".to_string());
-    lines.push("      subjects: { ...OWNED_API.subjects, ...USED_API.subjects },".to_string());
-    lines.push("    };".to_string());
-    lines.push("  },".to_string());
     lines.push("} as const;".to_string());
     lines.push(String::new());
     lines.push("export type ApiViews = typeof API;".to_string());
@@ -1433,10 +1423,10 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
         format!(
-            "import type {{ AsyncResult, BaseError, EventOpts, FeedInputBuilder, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationRef, OperationRefData, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, SendTransferGrant, SendTransferHandle, TerminalOperation, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
+            "import type {{ AcceptedOperation, AsyncResult, BaseError, EventOpts, FeedSubscribeOpts, FeedSubscription, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationObserverCallbacks, OperationRef, OperationRefData, OperationRuntimeHandle, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, RpcHandlerContext, SendTransferGrant, SendTransferHandle, TerminalOperation, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
             js_string(&trellis_import)
         ),
-        "import type { API } from \"./api.ts\";".to_string(),
+        "import type { API, Api } from \"./api.ts\";".to_string(),
         "import type * as Types from \"./types.ts\";".to_string(),
     ];
 
@@ -1460,6 +1450,8 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
         "type EventCallback<TMessage> = {".to_string(),
         "  bivarianceHack(message: TMessage): MaybeAsync<void, BaseError>;".to_string(),
         "}[\"bivarianceHack\"];".to_string(),
+        String::new(),
+        "type RpcHandler<TInput, TOutput> = (args: { input: TInput; context: RpcHandlerContext; client: Client }) => MaybeAsync<TOutput, BaseError>;".to_string(),
         String::new(),
         state_type,
         String::new(),
@@ -1500,149 +1492,25 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
         "  readonly name: string;".to_string(),
         "  readonly timeout: number;".to_string(),
         "  readonly stream: string;".to_string(),
-        "  readonly api: typeof API.trellis;".to_string(),
+        "  readonly api: Api;".to_string(),
         format!("  readonly state: {state_type_name};"),
         "  readonly connection: TrellisConnection;".to_string(),
         "  transfer(grant: SendTransferGrant): SendTransferHandle;".to_string(),
         "  transfer(grant: ReceiveTransferGrant): ReceiveTransferHandle;".to_string(),
     ]);
-
-    for key in loaded.manifest.rpc.keys() {
-        let base = key_to_pascal(key);
-        lines.push(format!(
-            "  request(method: {}, input: Types.{base}Input, opts?: RequestOpts): AsyncResult<Types.{base}Output, BaseError>;",
-            js_string(key)
-        ));
-    }
-
-    for use_dep in &uses {
-        for key in use_dep.rpc_call_keys() {
-            if use_dep.manifest.manifest.rpc.contains_key(key) {
-                let base = key_to_pascal(key);
-                lines.push(format!(
-                    "  request(method: {}, input: {}.{base}Input, opts?: RequestOpts): AsyncResult<{}.{base}Output, BaseError>;",
-                    js_string(key),
-                    use_dep.namespace,
-                    use_dep.namespace
-                ));
-            }
-        }
-    }
-
-    for key in loaded.manifest.operations.keys() {
-        let base = key_to_pascal(key);
-        lines.push(format!(
-            "  operation(operation: {}): {base}Operation;",
-            js_string(key)
-        ));
-    }
-
-    for use_dep in &uses {
-        for key in use_dep.operation_call_keys() {
-            if use_dep.manifest.manifest.operations.contains_key(key) {
-                let base = format!("{}{}", use_dep.prefix, key_to_pascal(key));
-                lines.push(format!(
-                    "  operation(operation: {}): {base}Operation;",
-                    js_string(key)
-                ));
-            }
-        }
-    }
-
-    let mut publish_events = loaded.manifest.events.keys().collect::<Vec<_>>();
-    let mut subscribe_events = loaded.manifest.events.keys().collect::<Vec<_>>();
-    let mut used_publish_events = Vec::new();
-    let mut used_subscribe_events = Vec::new();
-    for use_dep in &uses {
-        for key in use_dep.event_publish_keys() {
-            if use_dep.manifest.manifest.events.contains_key(key) {
-                used_publish_events.push((use_dep, key));
-            }
-        }
-        for key in use_dep.event_subscribe_keys() {
-            if use_dep.manifest.manifest.events.contains_key(key) {
-                used_subscribe_events.push((use_dep, key));
-            }
-        }
-    }
-
-    if publish_events.is_empty() && used_publish_events.is_empty() {
-        lines.extend([
-            "  publish(event: string, data: Record<string, unknown>): AsyncResult<void, ValidationError | UnexpectedError>;".to_string(),
-        ]);
-    } else {
-        for key in publish_events.drain(..) {
-            let base = key_to_pascal(key);
-            lines.push(format!(
-                "  publish(event: {}, data: Omit<Types.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>;",
-                js_string(key)
-            ));
-        }
-        for (use_dep, key) in used_publish_events {
-            let base = key_to_pascal(key);
-            lines.push(format!(
-                "  publish(event: {}, data: Omit<{}.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>;",
-                js_string(key),
-                use_dep.namespace
-            ));
-        }
-    }
-
-    if subscribe_events.is_empty() && used_subscribe_events.is_empty() {
-        lines.extend([
-            "  event(event: string, subjectData: Record<string, unknown>, fn: EventCallback<unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>;".to_string(),
-        ]);
-    } else {
-        for key in subscribe_events.drain(..) {
-            let base = key_to_pascal(key);
-            lines.push(format!(
-                "  event(event: {}, subjectData: Record<string, unknown>, fn: EventCallback<Types.{base}Event>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>;",
-                js_string(key)
-            ));
-        }
-        for (use_dep, key) in used_subscribe_events {
-            let base = key_to_pascal(key);
-            lines.push(format!(
-                "  event(event: {}, subjectData: Record<string, unknown>, fn: EventCallback<{}.{base}Event>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>;",
-                js_string(key),
-                use_dep.namespace
-            ));
-        }
-    }
-
-    let mut feed_keys = loaded.manifest.feeds.keys().collect::<Vec<_>>();
-    let mut used_feed_keys = Vec::new();
-    for use_dep in &uses {
-        for key in use_dep.feed_subscribe_keys() {
-            if use_dep.manifest.manifest.feeds.contains_key(key) {
-                used_feed_keys.push((use_dep, key));
-            }
-        }
-    }
-
-    if feed_keys.is_empty() && used_feed_keys.is_empty() {
-        lines.extend(["  feed(feed: string): FeedInputBuilder<unknown, unknown>;".to_string()]);
-    } else {
-        for key in feed_keys.drain(..) {
-            let base = key_to_pascal(key);
-            lines.push(format!(
-                "  feed(feed: {}): FeedInputBuilder<Types.{base}Input, Types.{base}Event>;",
-                js_string(key)
-            ));
-        }
-        for (use_dep, key) in used_feed_keys {
-            let base = key_to_pascal(key);
-            lines.push(format!(
-                "  feed(feed: {}): FeedInputBuilder<{}.{base}Input, {}.{base}Event>;",
-                js_string(key),
-                use_dep.namespace,
-                use_dep.namespace
-            ));
-        }
-    }
+    lines.push(render_client_rpc_surface(loaded, &uses));
+    lines.push(render_client_event_surface(loaded, &uses));
+    lines.push(render_client_feed_surface(loaded, &uses));
+    lines.push(render_client_operation_surface(loaded, &uses));
 
     lines.push("  wait(): AsyncResult<void, BaseError>;".to_string());
     lines.push("}".to_string());
+    lines.push(String::new());
+    lines.push("export interface Service extends Client {".to_string());
+    lines.push("  readonly handle: ServiceHandle;".to_string());
+    lines.push("}".to_string());
+    lines.push(String::new());
+    lines.push(render_service_handle_surface(loaded));
     lines.push(String::new());
     lines.push(format!("export type Client = {interface_name};"));
 
@@ -1654,6 +1522,247 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
 "
         )
     )
+}
+
+fn render_client_rpc_surface(loaded: &LoadedManifest, uses: &[ClientUseDependency]) -> String {
+    let mut leaves = Vec::new();
+    for key in loaded.manifest.rpc.keys() {
+        let base = key_to_pascal(key);
+        leaves.push(surface_leaf(
+            key,
+            format!(
+                "{}(input: Types.{base}Input, opts?: RequestOpts): AsyncResult<Types.{base}Output, BaseError>;",
+                surface_leaf_name(key)
+            ),
+        ));
+    }
+    for use_dep in uses {
+        for key in use_dep.rpc_call_keys() {
+            if use_dep.manifest.manifest.rpc.contains_key(key) {
+                let base = key_to_pascal(key);
+                leaves.push(surface_leaf(
+                    key,
+                    format!(
+                        "{}(input: {}.{base}Input, opts?: RequestOpts): AsyncResult<{}.{base}Output, BaseError>;",
+                        surface_leaf_name(key),
+                        use_dep.namespace,
+                        use_dep.namespace
+                    ),
+                ));
+            }
+        }
+    }
+    render_surface_property("rpc", leaves)
+}
+
+fn render_client_event_surface(loaded: &LoadedManifest, uses: &[ClientUseDependency]) -> String {
+    let mut leaves = Vec::new();
+    for key in loaded.manifest.events.keys() {
+        let base = key_to_pascal(key);
+        leaves.push(surface_leaf(
+            key,
+            format!(
+                "{}: {{ publish(event: Omit<Types.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; listen(handler: EventCallback<Types.{base}Event>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
+                surface_leaf_name(key)
+            ),
+        ));
+    }
+    for use_dep in uses {
+        let mut keys = BTreeSet::new();
+        for key in use_dep.event_publish_keys() {
+            keys.insert(key);
+        }
+        for key in use_dep.event_subscribe_keys() {
+            keys.insert(key);
+        }
+        for key in keys {
+            if use_dep.manifest.manifest.events.contains_key(key) {
+                let base = key_to_pascal(key);
+                leaves.push(surface_leaf(
+                    key,
+                    format!(
+                        "{}: {{ publish(event: Omit<{}.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; listen(handler: EventCallback<{}.{base}Event>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
+                        surface_leaf_name(key),
+                        use_dep.namespace,
+                        use_dep.namespace
+                    ),
+                ));
+            }
+        }
+    }
+    render_surface_property("event", leaves)
+}
+
+fn render_client_feed_surface(loaded: &LoadedManifest, uses: &[ClientUseDependency]) -> String {
+    let mut leaves = Vec::new();
+    for key in loaded.manifest.feeds.keys() {
+        let base = key_to_pascal(key);
+        leaves.push(surface_leaf(
+            key,
+            format!(
+                "{}(input: Types.{base}Input, opts?: FeedSubscribeOpts): AsyncResult<FeedSubscription<Types.{base}Event>, BaseError>;",
+                surface_leaf_name(key)
+            ),
+        ));
+    }
+    for use_dep in uses {
+        for key in use_dep.feed_subscribe_keys() {
+            if use_dep.manifest.manifest.feeds.contains_key(key) {
+                let base = key_to_pascal(key);
+                leaves.push(surface_leaf(
+                    key,
+                    format!(
+                        "{}(input: {}.{base}Input, opts?: FeedSubscribeOpts): AsyncResult<FeedSubscription<{}.{base}Event>, BaseError>;",
+                        surface_leaf_name(key),
+                        use_dep.namespace,
+                        use_dep.namespace
+                    ),
+                ));
+            }
+        }
+    }
+    render_surface_property("feed", leaves)
+}
+
+fn render_client_operation_surface(
+    loaded: &LoadedManifest,
+    uses: &[ClientUseDependency],
+) -> String {
+    let mut leaves = Vec::new();
+    for key in loaded.manifest.operations.keys() {
+        let base = key_to_pascal(key);
+        leaves.push(surface_leaf(
+            key,
+            format!("{}: {base}Operation;", surface_leaf_name(key)),
+        ));
+    }
+    for use_dep in uses {
+        for key in use_dep.operation_call_keys() {
+            if use_dep.manifest.manifest.operations.contains_key(key) {
+                let base = format!("{}{}", use_dep.prefix, key_to_pascal(key));
+                leaves.push(surface_leaf(
+                    key,
+                    format!("{}: {base}Operation;", surface_leaf_name(key)),
+                ));
+            }
+        }
+    }
+    render_surface_property("operation", leaves)
+}
+
+fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
+    let rpc = loaded
+        .manifest
+        .rpc
+        .keys()
+        .map(|key| {
+            let base = key_to_pascal(key);
+            surface_leaf(
+                key,
+                format!(
+                    "{}(handler: RpcHandler<Types.{base}Input, Types.{base}Output>): Promise<void>;",
+                    surface_leaf_name(key)
+                ),
+            )
+        })
+        .collect::<Vec<_>>();
+    let feed = loaded
+        .manifest
+        .feeds
+        .keys()
+        .map(|key| {
+            let base = key_to_pascal(key);
+            surface_leaf(
+                key,
+                format!(
+                    "{}(handler: (context: {{ input: Types.{base}Input; caller: unknown; signal: AbortSignal; emit(event: Types.{base}Event): AsyncResult<void, ValidationError | UnexpectedError>; client: Client }}) => unknown | Promise<unknown>): Promise<void>;",
+                    surface_leaf_name(key)
+                ),
+            )
+        })
+        .collect::<Vec<_>>();
+    let operation = loaded
+        .manifest
+        .operations
+        .iter()
+        .map(|(key, operation)| {
+            let base = key_to_pascal(key);
+            let progress = if operation.progress.is_some() {
+                format!("Types.{base}Progress")
+            } else {
+                "unknown".to_string()
+            };
+            let output = if operation.output.is_some() {
+                format!("Types.{base}Output")
+            } else {
+                "unknown".to_string()
+            };
+            surface_leaf(
+                key,
+                format!(
+                    "{}: ((handler: (context: {{ input: Types.{base}Input; client: Client }}) => unknown | Promise<unknown>) => Promise<void>) & {{ accept(args: {{ sessionKey: string }}): AsyncResult<AcceptedOperation<{progress}, {output}>, UnexpectedError>; control(operationId: string): AsyncResult<OperationRuntimeHandle<{progress}, {output}>, BaseError>; }};",
+                    surface_leaf_name(key)
+                ),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    [
+        "export interface ServiceHandle {".to_string(),
+        render_surface_property("rpc", rpc),
+        render_surface_property("feed", feed),
+        render_surface_property("operation", operation),
+        "}".to_string(),
+    ]
+    .join("\n")
+}
+
+fn surface_leaf(key: &str, declaration: String) -> (String, String) {
+    (surface_group_name(key), declaration)
+}
+
+fn render_surface_property(name: &str, leaves: Vec<(String, String)>) -> String {
+    if leaves.is_empty() {
+        return format!("  readonly {name}: {{}};");
+    }
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (group, declaration) in leaves {
+        groups.entry(group).or_default().push(declaration);
+    }
+    let mut lines = vec![format!("  readonly {name}: {{")];
+    for (group, declarations) in groups {
+        lines.push(format!("    readonly {group}: {{"));
+        for declaration in declarations {
+            lines.push(format!("      {declaration}"));
+        }
+        lines.push("    };".to_string());
+    }
+    lines.push("  };".to_string());
+    lines.join("\n")
+}
+
+fn surface_group_name(key: &str) -> String {
+    let first = key.split('.').next().unwrap_or(key);
+    lower_camel_ident(first)
+}
+
+fn surface_leaf_name(key: &str) -> String {
+    let mut parts = key.split('.');
+    parts.next();
+    let rest = parts.collect::<Vec<_>>();
+    if rest.is_empty() {
+        return lower_camel_ident(key);
+    }
+    lower_camel_ident(&rest.join("."))
+}
+
+fn lower_camel_ident(value: &str) -> String {
+    let pascal = key_to_pascal(value);
+    let mut chars = pascal.chars();
+    match chars.next() {
+        Some(first) => first.to_ascii_lowercase().to_string() + chars.as_str(),
+        None => "_".to_string(),
+    }
 }
 
 fn render_client_operation_interface(
@@ -1681,7 +1790,7 @@ fn render_client_operation_interface(
     };
 
     format!(
-        "type {base}OperationDesc = {desc_type};\nexport type {base}OperationRef = OperationRef<{base}OperationDesc, {progress}, {output}>;\nexport type {base}Terminal = TerminalOperation<{progress}, {output}>;\nexport interface {base}Operation {{\n  resume(ref: OperationRefData): {base}OperationRef;\n  input(input: {type_prefix}{type_base}Input): {builder}<{base}OperationDesc, {progress}, {output}>;\n}}"
+        "type {base}OperationDesc = {desc_type};\nexport type {base}OperationRef = OperationRef<{base}OperationDesc, {progress}, {output}>;\nexport type {base}Terminal = TerminalOperation<{progress}, {output}>;\nexport interface {base}Operation {{\n  resume(ref: OperationRefData): {base}OperationRef;\n  start(input: {type_prefix}{type_base}Input, opts?: OperationObserverCallbacks<{progress}, {output}>): AsyncResult<{base}OperationRef, BaseError>;\n  input(input: {type_prefix}{type_base}Input): {builder}<{base}OperationDesc, {progress}, {output}>;\n}}"
     )
 }
 
@@ -1831,7 +1940,7 @@ fn render_readme(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let use_example = example_use_block("dependency", loaded);
     let import_specifier = sdk_readme_import_specifier(&opts.package_name);
     format!(
-        "# {}\n\nGenerated Trellis SDK for contract `{}`.\n\n## Usage\n\n```ts\nimport {{ defineContract }} from \"@qlever-llc/trellis\";\nimport {{ sdk as dependency }} from \"{}\";\n\nconst app = defineContract({{\n  id: \"example.app@v1\",\n  displayName: \"Example App\",\n  description: \"User-facing app for the example deployment.\",\n  kind: \"app\",\n  uses: {{\n{}\n  }},\n}});\n\nconst client = app.createClient(nc, authSession);\n```\n\n## Contents\n\n- `sdk`: generated contract module with `CONTRACT_ID`, `CONTRACT_DIGEST`, `CONTRACT`, `API`, and `use(...)`\n- `API`: nested contract API views with `API.owned`, `API.used`, and `API.trellis`\n- `types.ts`: TypeScript types derived from JSON Schemas\n- `schemas.ts`: Raw JSON Schemas (as `as const` objects)\n- `contract.ts`: embedded contract metadata and typed `use(...)` helper\n",
+        "# {}\n\nGenerated Trellis SDK for contract `{}`.\n\n## Usage\n\n```ts\nimport {{ defineContract }} from \"@qlever-llc/trellis\";\nimport {{ sdk as dependency }} from \"{}\";\n\nconst app = defineContract({{\n  id: \"example.app@v1\",\n  displayName: \"Example App\",\n  description: \"User-facing app for the example deployment.\",\n  kind: \"app\",\n  uses: {{\n{}\n  }},\n}});\n\nconst client = app.createClient(nc, authSession);\n```\n\n## Contents\n\n- `sdk`: generated contract module with `CONTRACT_ID`, `CONTRACT_DIGEST`, `CONTRACT`, `API`, and `use(...)`\n- `API`: nested contract API views with `API.owned` and `API.used`\n- `types.ts`: TypeScript types derived from JSON Schemas\n- `schemas.ts`: Raw JSON Schemas (as `as const` objects)\n- `contract.ts`: embedded contract metadata and typed `use(...)` helper\n",
         opts.package_name, loaded.manifest.id, import_specifier, use_example
     )
 }
@@ -2721,8 +2830,8 @@ mod tests {
         assert!(api.contains("owned: OWNED_API"));
         assert!(api.contains("export const USED_API: UsedApi = {"));
         assert!(api.contains("used: USED_API"));
-        assert!(api.contains("rpc: { ...OWNED_API.rpc, ...USED_API.rpc }"));
-        assert!(api.contains("subjects: { ...OWNED_API.subjects, ...USED_API.subjects }"));
+        assert!(!api.contains("...OWNED_API.rpc"));
+        assert!(!api.contains("get trellis()"));
         assert!(owned_api.contains("operations: {"));
         assert!(owned_api.contains("\"Example.Process\": {"));
         assert!(owned_api.contains("callerCapabilities: [\"service\"]"));
@@ -2738,7 +2847,7 @@ mod tests {
         assert!(owned_api.contains("input: schema<Types.ExampleLiveInput>"));
         assert!(owned_api.contains("event: schema<Types.ExampleLiveEvent>"));
         assert!(owned_api.contains("subscribeCapabilities: [\"service\"]"));
-        assert!(api.contains("feeds: { ...OWNED_API.feeds, ...USED_API.feeds }"));
+        assert!(!api.contains("...OWNED_API.feeds"));
         assert!(api.contains("export type Api = {"));
 
         fs::remove_dir_all(root).unwrap();
@@ -2804,11 +2913,11 @@ mod tests {
             )]))
         );
         assert!(client.contains("export interface TrellisDemoKvServiceClient {"));
-        assert!(client.contains("import type { API } from \"./api.ts\";"));
+        assert!(client.contains("import type { API, Api } from \"./api.ts\";"));
         assert!(client.contains("import type * as Types from \"./types.ts\";"));
         assert!(client.contains("TerminalOperation"));
         assert!(client.contains(
-            "request(method: \"Example.Ping\", input: Types.ExamplePingInput, opts?: RequestOpts): AsyncResult<Types.ExamplePingOutput, BaseError>;"
+            "ping(input: Types.ExamplePingInput, opts?: RequestOpts): AsyncResult<Types.ExamplePingOutput, BaseError>;"
         ));
         assert!(client.contains("export interface ExampleProcessOperation {"));
         assert!(client.contains(
@@ -2819,15 +2928,24 @@ mod tests {
         ));
         assert!(client.contains("resume(ref: OperationRefData): ExampleProcessOperationRef;"));
         assert!(client.contains(
+            "start(input: Types.ExampleProcessInput, opts?: OperationObserverCallbacks<Types.ExampleProcessProgress, Types.ExampleProcessOutput>): AsyncResult<ExampleProcessOperationRef, BaseError>;"
+        ));
+        assert!(client.contains(
             "input(input: Types.ExampleProcessInput): OperationInputBuilder<ExampleProcessOperationDesc, Types.ExampleProcessProgress, Types.ExampleProcessOutput>;"
         ));
         assert!(
             types.contains("export type ExampleProcessContinueSignal = { confirmed: boolean; };")
         );
-        assert!(client.contains("FeedInputBuilder"));
+        assert!(client.contains("FeedSubscription"));
         assert!(client.contains(
-            "feed(feed: \"Example.Live\"): FeedInputBuilder<Types.ExampleLiveInput, Types.ExampleLiveEvent>;"
+            "live(input: Types.ExampleLiveInput, opts?: FeedSubscribeOpts): AsyncResult<FeedSubscription<Types.ExampleLiveEvent>, BaseError>;"
         ));
+        assert!(client.contains("readonly handle: ServiceHandle;"));
+        assert!(client.contains("client: Client"));
+        assert!(!client.contains("request(method:"));
+        assert!(!client.contains("publish(event:"));
+        assert!(!client.contains("event(event:"));
+        assert!(!client.contains("feed(feed:"));
         assert!(client.contains("export type Client = TrellisDemoKvServiceClient;"));
         assert!(mod_ts
             .contains("export type { Client, TrellisDemoKvServiceClient, TrellisDemoKvServiceState } from \"./client.ts\";"));
@@ -2982,7 +3100,7 @@ mod tests {
         assert!(client.contains("\"profiles\": MapStateStoreClient<Types.Settings>;"));
         assert!(client.contains("readonly state: TrellisDemoAppState;"));
         assert!(client.contains(
-            "request(method: \"Jobs.Get\", input: JobsSdk.JobsGetInput, opts?: RequestOpts): AsyncResult<JobsSdk.JobsGetOutput, BaseError>;"
+            "get(input: JobsSdk.JobsGetInput, opts?: RequestOpts): AsyncResult<JobsSdk.JobsGetOutput, BaseError>;"
         ));
         assert!(client.contains("export interface JobsJobsRunOperation {"));
         assert!(client.contains(
@@ -2992,16 +3110,15 @@ mod tests {
             "input(input: JobsSdk.JobsRunInput): TransferCapableOperationInputBuilder<JobsJobsRunOperationDesc, JobsSdk.JobsRunProgress, JobsSdk.JobsRunOutput>;"
         ));
         assert!(client.contains(
-            "publish(event: \"Jobs.Updated\", data: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>;"
+            "updated: { publish(event: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; listen(handler: EventCallback<JobsSdk.JobsUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
         ));
         assert!(client.contains(
-            "fn: EventCallback<JobsSdk.JobsUpdatedEvent>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>;"
-        ));
-        assert!(client.contains(
-            "feed(feed: \"Jobs.Live\"): FeedInputBuilder<JobsSdk.JobsLiveInput, JobsSdk.JobsLiveEvent>;"
+            "live(input: JobsSdk.JobsLiveInput, opts?: FeedSubscribeOpts): AsyncResult<FeedSubscription<JobsSdk.JobsLiveEvent>, BaseError>;"
         ));
         assert!(!client.contains("publish(event: string, data: Record<string, unknown>)"));
         assert!(!client.contains("event(event: string, subjectData: Record<string, unknown>"));
+        assert!(!client.contains("request(method:"));
+        assert!(!client.contains("feed(feed:"));
         assert!(!client.contains("StateFacade<"));
         assert!(
             api.contains("import { OWNED_API as JobsApi } from \"@qlever-llc/trellis/sdk/jobs\";")
@@ -3012,7 +3129,7 @@ mod tests {
         assert!(api.contains("\"Jobs.Run\"() { return JobsApi.operations[\"Jobs.Run\"]"));
         assert!(api.contains("\"Jobs.Updated\"() { return JobsApi.events[\"Jobs.Updated\"]"));
         assert!(api.contains("\"Jobs.Live\"() { return JobsApi.feeds[\"Jobs.Live\"]"));
-        assert!(api.contains("get trellis()"));
+        assert!(!api.contains("get trellis()"));
 
         let jobs_loaded = load_manifest(&jobs_manifest_path).unwrap();
         let jobs_owned_api = render_owned_api_ts(&opts, &jobs_loaded);
@@ -3133,7 +3250,7 @@ mod tests {
         );
         assert!(!client.contains("../demo-kv-service/mod.ts"));
         assert!(client.contains(
-            "request(method: \"Kv.Get\", input: KvDemoSdk.KvGetInput, opts?: RequestOpts): AsyncResult<KvDemoSdk.KvGetOutput, BaseError>;"
+            "get(input: KvDemoSdk.KvGetInput, opts?: RequestOpts): AsyncResult<KvDemoSdk.KvGetOutput, BaseError>;"
         ));
         assert!(client
             .contains("type KvDemoKvRunOperationDesc = KvDemoApi[\"operations\"][\"Kv.Run\"];"));
@@ -3141,7 +3258,7 @@ mod tests {
             "input(input: KvDemoSdk.KvRunInput): OperationInputBuilder<KvDemoKvRunOperationDesc, KvDemoSdk.KvRunProgress, KvDemoSdk.KvRunOutput>;"
         ));
         assert!(client.contains(
-            "fn: EventCallback<KvDemoSdk.KvUpdatedEvent>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>;"
+            "updated: { publish(event: Omit<KvDemoSdk.KvUpdatedEvent, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; listen(handler: EventCallback<KvDemoSdk.KvUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
         ));
         assert!(api.contains(
             "import { OWNED_API as KvDemoApi } from \"../demo-kv-service/owned_api.ts\";"

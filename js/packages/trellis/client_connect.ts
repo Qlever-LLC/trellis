@@ -70,10 +70,17 @@ type ClientContract<
   CONTRACT: TContract;
   CONTRACT_DIGEST?: string;
   API: {
-    trellis: TApi;
+    owned?: TApi;
+    trellis?: TApi;
   };
   readonly [CONTRACT_STATE_METADATA]?: ContractStateMetadata;
 };
+
+type ApiForClientContract<TContract extends ClientContract> = TContract extends
+  { API: { trellis: infer TApi } } ? TApi extends TrellisAPI ? TApi : TrellisAPI
+  : TContract extends { API: { owned: infer TApi } }
+    ? TApi extends TrellisAPI ? TApi : TrellisAPI
+  : TrellisAPI;
 
 function createConnectedClient(args: {
   name: string;
@@ -1185,7 +1192,10 @@ export async function connectClientWithDeps<
       : {}),
   });
 
-  const api: TrellisAPI = args.contract.API.trellis;
+  const api = args.contract.API.trellis ?? args.contract.API.owned;
+  if (!api) {
+    throw new Error("Contract is missing an owned or trellis API view");
+  }
   const state = args.contract[CONTRACT_STATE_METADATA] as TrellisOpts<
     TrellisAPI
   >["state"];
@@ -1316,7 +1326,9 @@ export class TrellisClient {
   >(
     args: ClientConnectArgsFor<TContract>,
   ): AsyncResult<
-    ConnectedTrellisClient<TContract>,
+    ConnectedTrellisClient<
+      TContract & { API: { trellis: ApiForClientContract<TContract> } }
+    >,
     TransportError | UnexpectedError
   >;
   static connect(

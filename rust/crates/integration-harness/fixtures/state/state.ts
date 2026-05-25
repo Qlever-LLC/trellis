@@ -136,5 +136,5 @@ if (!("found" in finalDraft) || finalDraft.found !== false) {
   throw new Error(`expected missing TS draft: ${JSON.stringify(finalDraft)}`);
 }
 
-await client.natsConnection.drain();
+await client.connection.close();
 console.log("TS_STATE_OK");

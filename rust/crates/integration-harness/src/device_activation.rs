@@ -51,7 +51,9 @@ pub(crate) async fn run_device_activation_fixture(
         .await
         .into_diagnostic()?;
     sdk_auth
-        .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+        .rpc()
+        .auth()
+        .envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(&device_contract_json)?,
             deployment_id: deployment_id.clone(),
             expected_digest: device_contract_digest.clone(),
@@ -266,7 +268,12 @@ pub(crate) async fn run_device_activation_fixture(
     .await
     .into_diagnostic()?;
     let device_auth = SdkAuthClient::new(&device_client);
-    let me = device_auth.auth_sessions_me().await.into_diagnostic()?;
+    let me = device_auth
+        .rpc()
+        .auth()
+        .sessions_me()
+        .await
+        .into_diagnostic()?;
     if me.participant_kind != json!("device") {
         return Err(miette!(
             "activated device Auth.Sessions.Me returned participant kind `{}`",
@@ -424,7 +431,9 @@ async fn run_review_required_activation(
         .await
         .into_diagnostic()?;
     sdk_auth
-        .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+        .rpc()
+        .auth()
+        .envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(device_contract_json)?,
             deployment_id: deployment_id.clone(),
             expected_digest: device_contract_digest.to_string(),
@@ -559,7 +568,12 @@ async fn run_review_required_activation(
             .await
             .into_diagnostic()?;
             let device_auth = SdkAuthClient::new(&device_client);
-            let me = device_auth.auth_sessions_me().await.into_diagnostic()?;
+            let me = device_auth
+                .rpc()
+                .auth()
+                .sessions_me()
+                .await
+                .into_diagnostic()?;
             if me.participant_kind != json!("device") {
                 return Err(miette!(
                     "approved device Auth.Sessions.Me returned participant kind `{}`",
@@ -647,7 +661,9 @@ async fn assert_device_undeclared_access_denied(
     deployment_id: &str,
 ) -> Result<()> {
     if device_auth
-        .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+        .rpc()
+        .auth()
+        .envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(device_contract_json)?,
             deployment_id: deployment_id.to_string(),
             expected_digest: digest_contract_json(device_contract_json).into_diagnostic()?,

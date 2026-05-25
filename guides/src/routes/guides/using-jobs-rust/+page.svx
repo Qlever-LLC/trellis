@@ -47,8 +47,10 @@ Update the `Orders.Create` handler:
 
 ```rust
 service
-    .router()
-    .mount::<orders_participant::rpc::OrdersCreate, _>(|req| async move {
+    .handle()
+    .rpc()
+    .orders()
+    .create(|_ctx, req| async move {
         let order_id = uuid::Uuid::new_v4().to_string();
         // save order...
 

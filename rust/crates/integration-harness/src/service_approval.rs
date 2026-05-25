@@ -87,7 +87,9 @@ pub(crate) async fn run_service_approval_fixture(
         wait_for_pending_expansion_requests(&sdk_auth_client, &contract_digest).await?;
     for request_id in &pending_request_ids {
         sdk_auth_client
-            .auth_envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
+            .rpc()
+            .auth()
+            .envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
                 request_id: request_id.clone(),
                 reason: Some("integration harness service startup approval".to_string()),
             })
@@ -199,7 +201,9 @@ async fn wait_for_pending_expansion_requests(
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         let response = auth_client
-            .auth_envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
+            .rpc()
+            .auth()
+            .envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
                 deployment_id: Some(APPROVAL_DEPLOYMENT_ID.to_string()),
                 limit: 20,
                 offset: None,

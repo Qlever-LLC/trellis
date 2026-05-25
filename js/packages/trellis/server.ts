@@ -71,13 +71,13 @@ type TrellisServiceRuntimeOpts<TA extends AnyTrellisAPI> =
   };
 
 export type TrellisServiceRuntimeFor<TA extends AnyTrellisAPI = TrellisAPI> =
-  & Omit<TrellisServiceRuntime, "mount" | "operation">
+  & Omit<TrellisServiceRuntime, "mount" | "operationHandle">
   & {
     mount<M extends MethodsOf<TA>>(
       method: M,
       fn: HandlerFn<TA, M>,
     ): Promise<void>;
-    operation<O extends OperationsOf<TA>>(
+    operationHandle<O extends OperationsOf<TA>>(
       operation: O,
     ): OperationRegistration<
       OperationInputOf<TA, O>,
@@ -1144,7 +1144,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
     return runtime as TrellisServiceRuntime & TrellisServiceRuntimeFor<TA>;
   }
 
-  override operation(
+  override operationHandle(
     operation: string,
   ): OperationRegistration<unknown, unknown, unknown> {
     const ctx = this.api["operations"]

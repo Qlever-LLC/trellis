@@ -531,9 +531,9 @@ The contract definition produces three distinct projected API views:
 - `API.owned` - the operations, RPCs, events, and feeds owned by the local
   participant and therefore mountable or publishable as owner behavior
 - `API.used` - the subset of remote SDK APIs explicitly permitted by `uses`
-- `API.trellis` - the merged runtime surface used for outbound
-  `operation(...).input(...).start()`, `request`, `publish`, `event`, and `feed`
-  operations
+- generated client and service facades - the concrete runtime surfaces derived
+  from the merged owned and used API, exposed as `rpc`, `event`, `feed`, and
+  `operation`
 
 Rules:
 
@@ -543,11 +543,12 @@ Rules:
   through `use(...)`, plus Trellis-owned baseline surfaces that are derived from
   participant kind or local features
 - contracts that declare top-level `state` receive baseline `State.*` RPCs in
-  `API.used`; those entries also appear in `API.trellis`, while normal
-  application code uses `trellis.state.<store>`
-- `API.trellis` is the only general outbound runtime API surface
-- `API.trellis` is the merge of `API.used` and `API.owned`
-- server-side handler registration uses `API.owned`, not `API.trellis`
+  `API.used`, while normal application code uses `client.state.<store>`
+- generated active facades are the only general outbound runtime API surface
+- generated active facades are derived from the merge of `API.used` and
+  `API.owned`
+- server-side handler registration uses `service.handle` surfaces derived from
+  `API.owned`, not the outbound active facade
 
 This preserves the distinction between what a participant owns and what it is
 merely allowed to use.
@@ -589,15 +590,16 @@ const service = await TrellisService.connect({
 
 Rules:
 
-- the client or service `trellis` object is typed from `contract.API.trellis`
+- connected clients and services expose generated active facades typed from the
+  merged owned and used contract surface
 - server handler registration is typed from `contract.API.owned`
-- `service.trellis.mount(...)` handlers should use the payload type that Trellis
-  derives from the contract; docs and examples should not re-parse mounted RPC
-  payloads just to recover types
+- `service.handle.rpc.<group>.<leaf>(...)` handlers should use the payload type
+  that Trellis derives from the contract; docs and examples should not re-parse
+  mounted RPC payloads just to recover types
 - mounted RPC handlers may return either `Result` or `Promise<Result>`
-- returned runtimes expose typed operation, request, publish, and subscribe
-  helpers derived from the contract and must not widen the callable surface
-  beyond what the contract allows
+- returned runtimes expose typed `rpc`, `event`, `feed`, and `operation` helpers
+  derived from the contract and must not widen the callable surface beyond what
+  the contract allows
 - service-side helpers must not expose used remote APIs as mountable local
   handlers
 - request and operation helpers may fail with `TransportError` for Trellis
@@ -615,9 +617,8 @@ Rules:
 - service-owned RPC handlers should normally use explicit function declarations
   with those aliases, for example
   `async function myHandler({ input, context }: Args): Promise<Return> { ... }`
-- if a service needs a whole-handler alias for `service.trellis.mount(...)`, the
-  service runtime package may still expose one, but docs and examples should
-  prefer the explicit `Args` and `Return` form
+- docs and examples should prefer explicit `Args` and `Return` aliases for
+  handler signatures instead of handwritten request parsing
 - callers do not manually assemble runtime API arrays for normal usage
 - locally authored contracts should normally export the helper return value
   directly; do not wrap it in a handwritten default-export object that
@@ -671,8 +672,9 @@ The architectural rules are:
   contract-module shape
 - `uses` declarations remain SDK-backed and contract-driven rather than
   handwritten dependency objects in normal usage
-- the participant runtime surface remains derived from `API.owned`, `API.used`,
-  and `API.trellis`
+- the participant runtime surface remains derived from `API.owned` and
+  `API.used`, with generated active and provider facades as the public runtime
+  entrypoints
 - generated TypeScript SDKs include consumer client facade types that apps and
   peer services can use as concrete editor-friendly views over the runtime
   client
@@ -692,8 +694,8 @@ The architectural rules are:
 - generated SDK outputs must include stable contract identity, canonical
   manifest metadata, derived API projections, typed dependency selection, and a
   concrete generated client facade for consumers
-- generated client facades should expose explicit request, operation, event,
-  publish, state, and common runtime members without requiring consumers to name
+- generated client facades should expose explicit `rpc`, `operation`, `event`,
+  `feed`, state, and common runtime members without requiring consumers to name
   deep contract-derived runtime aliases
 
 The replacement rule also remains the same: normal TypeScript user code should
@@ -727,14 +729,13 @@ Rules:
 
 Expected type behavior:
 
-- `service.request("Trellis.Catalog", {})` is valid because it is declared in
-  `uses`
+- `service.rpc.trellis.catalog({})` is valid because it is declared in `uses`
 - non-baseline auth RPCs remain type errors unless the service contract
   explicitly declares them in `uses`; baseline auth RPCs such as
   `Auth.Requests.Validate` may be generated or granted automatically by the
   service runtime
-- `service.trellis.mount("Trellis.Catalog", ...)` is a type error because that
-  RPC is used, not owned
+- `service.handle.rpc.trellis.catalog(...)` is a type error because that RPC is
+  used, not owned
 - `auth.use({ rpc: { call: ["Trellis.Catalog"] } })` is a type error because
   that RPC is not part of `trellis.auth@v1`
 

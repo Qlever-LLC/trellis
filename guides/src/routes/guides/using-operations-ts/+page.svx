@@ -82,7 +82,7 @@ export type ProcessOrderResult = Static<typeof ProcessOrderResultSchema>;
 The operation handler calls `op.started()`, optionally publishes initial progress, creates a job, and awaits `op.attach(job.value)`. The framework then automatically wires the job's terminal result through to the operation:
 
 ```ts
-await service.operation("Orders.Process").handle(async ({ input, op }) => {
+await service.handle.operation.orders.process(async ({ input, op }) => {
   const started = await op.started();
   if (started.isErr()) return Result.err(started.error);
 
@@ -114,7 +114,7 @@ handler records progress, then an admin decision completes or rejects the same
 operation id.
 
 ```ts
-await service.operation("Orders.Process").handle(async ({ input, op }) => {
+await service.handle.operation.orders.process(async ({ input, op }) => {
   const job = await service.jobs.reserveInventory.create({
     operationId: op.id,
     orderId: input.orderId,
@@ -139,7 +139,7 @@ private service internals.
 
 ```ts
 service.jobs.reserveInventory.handle(async ({ job }) => {
-  const op = await service.operation("Orders.Process")
+  const op = await service.handle.operation.orders.process
     .control(job.payload.operationId)
     .orThrow();
 
@@ -162,7 +162,7 @@ service.jobs.reserveInventory.handle(async ({ job }) => {
 For `op.attach(job)` flows, the job workers from [Jobs: TypeScript](/guides/using-jobs-ts) run unchanged. They report progress via `job.progress(...)` and return `Result.ok(result)`. The `op.attach()` wires their results to the operation automatically.
 
 For `op.defer()` flows, the worker owns the operation terminal path and should use
-`service.operation(key).control(operationId)` to publish caller-visible progress,
+`service.handle.operation.<group>.<leaf>.control(operationId)` to publish caller-visible progress,
 completion, failure, or cancellation after the original handler has returned.
 
 ## 4. Caller side
@@ -171,10 +171,7 @@ A caller starts the operation and observes it:
 
 ```ts
 // Start
-const orders = client; // The connected Trellis client
-const ref = await orders.operation("Orders.Process")
-  .input({ orderId: "ord_123" })
-  .start();
+const ref = await client.operation.orders.process.start({ orderId: "ord_123" });
 if (ref.isErr()) throw ref.error;
 const op = ref.value;
 
@@ -247,7 +244,7 @@ operations: {
 Callers attach the bytes before starting the operation. Use transfer callbacks for progress bars that track bytes, and use operation progress for domain milestones such as `stored`, `queued`, or `processed`:
 
 ```ts
-const upload = await client.operation("Documents.Files.Upload")
+const upload = await client.operation.documents.filesUpload
   .input({
     key: "incoming/report.pdf",
     contentType: "application/pdf",
@@ -268,7 +265,7 @@ const completed = await upload.wait().orThrow();
 On the provider side, `transfer.completed()` is the bridge from transport to store-backed processing. Once it resolves, the staged bytes are durable in the service store named by the contract. Process them directly, or enqueue a private job if follow-up work should retry or outlive the current process:
 
 ```ts
-await service.operation("Documents.Files.Upload").handle(
+await service.handle.operation.documents.filesUpload(
   async ({ input, op, transfer }) => {
     const transferred = await transfer.completed();
     if (transferred.isErr()) return Result.err(transferred.error);

@@ -70,7 +70,10 @@ async fn assert_generated_health_publish_subscribe(client: &TrellisClient) -> Re
 
     let heartbeat = heartbeat_event("health-sdk-positive")?;
     SdkHealthClient::new(client)
-        .publish_health_heartbeat(&heartbeat)
+        .event()
+        .health()
+        .heartbeat()
+        .publish(&heartbeat)
         .await
         .into_diagnostic()?;
     client.nats().flush().await.into_diagnostic()?;
@@ -99,7 +102,10 @@ async fn assert_generated_health_publish_subscribe(client: &TrellisClient) -> Re
 async fn assert_generated_health_denied_publish(client: &TrellisClient) -> Result<()> {
     let result = async {
         SdkHealthClient::new(client)
-            .publish_health_heartbeat(&heartbeat_event("health-sdk-denied")?)
+            .event()
+            .health()
+            .heartbeat()
+            .publish(&heartbeat_event("health-sdk-denied")?)
             .await
             .into_diagnostic()?;
         client.nats().flush().await.into_diagnostic()

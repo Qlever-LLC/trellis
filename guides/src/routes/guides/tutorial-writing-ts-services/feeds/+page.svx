@@ -48,12 +48,10 @@ import * as schemas from "../schemas.ts";
 Now handle the feed in `main.ts`. This example listens to the service's own order events and only emits frames the caller is allowed to see:
 
 ```ts
-await service.feed("Orders.Live").handle(async ({ input, caller, emit, signal }) => {
+await service.handle.feed.orders.live(async ({ input, caller, emit, signal }) => {
   const visibleCustomerIds = await listCustomersVisibleTo(caller);
 
-  await service.trellis.event(
-    "Orders.Shipped",
-    {},
+  await service.event.orders.shipped.listen(
     async (event) => {
       if (input.customerId && event.customerId !== input.customerId) {
         return;
@@ -64,6 +62,7 @@ await service.feed("Orders.Live").handle(async ({ input, caller, emit, signal })
 
       return emit({ name: "Orders.Shipped", event });
     },
+    {},
     { mode: "ephemeral", replay: "new", signal },
   ).orThrow();
 
@@ -148,7 +147,7 @@ fn orders_live_stream(
     })
 }
 
-service.register_orders_live({
+service.handle().feed().orders().live({
     let context = Arc::clone(&context);
     move |_ctx, input| orders_live_stream(Arc::clone(&context), input)
 });

@@ -3,7 +3,6 @@ import {
   defineError,
   defineServiceContract,
   isErr,
-  Trellis,
   TrellisClient,
 } from "@qlever-llc/trellis";
 import {
@@ -166,9 +165,10 @@ async function assertPing(
   method: "Harness.Rust.Ping" | "Harness.Ts.Ping",
   message: string,
 ) {
-  const response = await client.request(method, { message }).orThrow() as {
-    message: string;
-  };
+  const response =
+    await (method === "Harness.Rust.Ping"
+      ? client.rpc.harness.rustPing({ message })
+      : client.rpc.harness.tsPing({ message })).orThrow();
   if (response.message !== message) {
     throw new Error(`${method} returned ${JSON.stringify(response)}`);
   }
@@ -203,13 +203,22 @@ async function assertCallerContext(
   method: "Harness.Rust.CallerContext" | "Harness.Ts.CallerContext",
   provider: "rust" | "ts",
 ) {
-  const response = await client.request(method, {
-    message: "caller-context-or-throw",
-  }).orThrow() as CallerContextResponse;
+  const response =
+    await (method === "Harness.Rust.CallerContext"
+      ? client.rpc.harness.rustCallerContext({
+        message: "caller-context-or-throw",
+      })
+      : client.rpc.harness.tsCallerContext({
+        message: "caller-context-or-throw",
+      })).orThrow() as CallerContextResponse;
   assertCallerContextValue(response, provider);
-  const result = await client.request(method, {
-    message: "caller-context-take",
-  });
+  const result = method === "Harness.Rust.CallerContext"
+    ? await client.rpc.harness.rustCallerContext({
+      message: "caller-context-take",
+    })
+    : await client.rpc.harness.tsCallerContext({
+      message: "caller-context-take",
+    });
   const taken = result.take();
   if (isErr(taken)) {
     throw taken.error;
@@ -230,7 +239,9 @@ async function assertTraceContext(
   const span = getTracer().startSpan(`harness.ts.${provider}.trace`);
   const expectedTraceId = span.spanContext().traceId;
   const response = await withSpanAsync(span, async () => {
-    return await client.request(method, { message: "trace-context" })
+    return await (method === "Harness.Rust.TraceContext"
+      ? client.rpc.harness.rustTraceContext({ message: "trace-context" })
+      : client.rpc.harness.tsTraceContext({ message: "trace-context" }))
       .orThrow() as TraceContextResponse;
   });
   span.end();
@@ -253,7 +264,9 @@ async function assertTraceContext(
 async function assertHandlerError(
   method: "Harness.Rust.Ping" | "Harness.Ts.Ping",
 ) {
-  const result = await client.request(method, { message: "handler-error" });
+  const result = method === "Harness.Rust.Ping"
+    ? await client.rpc.harness.rustPing({ message: "handler-error" })
+    : await client.rpc.harness.tsPing({ message: "handler-error" });
   if (result.isOk()) {
     throw new Error(`${method} handler error unexpectedly succeeded`);
   }
@@ -268,7 +281,9 @@ async function assertHandlerError(
 async function assertNotFoundError(
   method: "Harness.Rust.Ping" | "Harness.Ts.Ping",
 ) {
-  const result = await client.request(method, { message: "not-found" });
+  const result = method === "Harness.Rust.Ping"
+    ? await client.rpc.harness.rustPing({ message: "not-found" })
+    : await client.rpc.harness.tsPing({ message: "not-found" });
   if (result.isOk()) {
     throw new Error(`${method} not-found unexpectedly succeeded`);
   }
@@ -311,10 +326,7 @@ function assertTemplateBehavior() {
 }
 
 async function assertInputValidationBeforeSend() {
-  const result = await client.request(
-    "Harness.Rust.Ping",
-    JSON.parse('{"message":1}'),
-  );
+  const result = await client.rpc.harness.rustPing(JSON.parse('{"message":1}'));
   assert(result.isErr(), "invalid RPC input unexpectedly succeeded");
 }
 
@@ -351,31 +363,17 @@ async function assertServiceStopLifecycle(
   );
 }
 
-async function assertExternalConnectionLifecycle() {
-  const trellis = new Trellis("external-live-client", client.natsConnection, {
-    sessionKey: "external-live-token",
-    sign: () => new Uint8Array(64),
-  }, { api: contract.API.trellis });
+async function assertClientConnectionLifecycle() {
   assertEqual(
-    trellis.name,
-    "external-live-client",
-    "external Trellis name mismatch",
+    client.connection.status.phase,
+    "connected",
+    "client connection should start connected",
   );
-  assert(
-    trellis.natsConnection === client.natsConnection,
-    "external Trellis did not retain caller NATS connection",
-  );
+  await client.connection.close();
   assertEqual(
-    client.natsConnection.isClosed(),
-    false,
-    "external NATS connection should start open",
-  );
-
-  await client.natsConnection.drain();
-  assertEqual(
-    client.natsConnection.isClosed(),
-    true,
-    "external NATS connection should be closed after caller drain",
+    client.connection.status.phase,
+    "closed",
+    "client connection should be closed after close",
   );
 }
 
@@ -397,5 +395,5 @@ await assertServiceStopLifecycle(
   "harness-rpc-ts-stop-concurrent",
   "concurrent",
 );
-await assertExternalConnectionLifecycle();
+await assertClientConnectionLifecycle();
 console.log("TS_CLIENT_OK");

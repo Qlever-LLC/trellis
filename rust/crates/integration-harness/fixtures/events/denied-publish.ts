@@ -64,13 +64,13 @@ const client = await TrellisClient.connect({
 }).orThrow();
 let publishSucceeded = false;
 try {
-  await client.publish("Harness.Ts.Event", { message: "ts-denied-publish" })
+  await client.event.harness.tsEvent.publish({ message: "ts-denied-publish" })
     .orThrow();
   publishSucceeded = true;
 } catch (_error) {
   // Expected: the contract only grants event subscribe permission.
 }
-await client.natsConnection.drain();
+await client.connection.close();
 if (publishSucceeded) {
   throw new Error(
     "TS event publish unexpectedly succeeded without publish permission",

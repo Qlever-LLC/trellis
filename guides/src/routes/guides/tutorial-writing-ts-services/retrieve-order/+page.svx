@@ -98,9 +98,9 @@ type Result = RpcHandlerResult<"Orders.Get">;
 
 export async function getOrderHandler({
   input,
-  trellis,
+  client,
 }: Args): Promise<Result> {
-  const result = await trellis.kv.orders.get(input.orderId).take();
+  const result = await client.kv.orders.get(input.orderId).take();
   if (isErr(result)) {
     return err(new NotFoundError({
       resource: "Order",
@@ -117,10 +117,10 @@ Mount it from `main.ts`:
 ```ts
 import { getOrderHandler } from "./handlers/orders.ts";
 
-await service.trellis.mount("Orders.Get", getOrderHandler);
+await service.handle.rpc.orders.get(getOrderHandler);
 ```
 
-`trellis.kv.orders.get(key)` returns a `Result<TypedKVEntry<Order>, KVError>`. When the key doesn't exist, it returns an `Err`. Translate that into a declared service-local `NotFoundError` for the caller.
+`client.kv.orders.get(key)` returns a `Result<TypedKVEntry<Order>, KVError>`. When the key doesn't exist, it returns an `Err`. Translate that into a declared service-local `NotFoundError` for the caller.
 
 Callers can now branch on the declared error class:
 
@@ -128,7 +128,7 @@ Callers can now branch on the declared error class:
 import { isErr } from "@qlever-llc/trellis";
 import { NotFoundError } from "./errors.ts";
 
-const result = await client.request("Orders.Get", { orderId: "ord_123" });
+const result = await client.rpc.orders.get({ orderId: "ord_123" });
 const value = result.take();
 
 if (isErr(value) && value.error instanceof NotFoundError) {
@@ -225,10 +225,10 @@ pub async fn get_order(
 }
 ```
 
-Mount it with the generated registration helper:
+Register it with the generated provider helper:
 
 ```rust
-service.register_orders_get({
+service.handle().rpc().orders().get({
     let context = Arc::clone(&context);
     move |ctx, input| handlers::get_order(Arc::clone(&context), ctx, input)
 });

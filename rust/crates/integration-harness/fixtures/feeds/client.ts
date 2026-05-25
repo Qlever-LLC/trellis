@@ -90,6 +90,12 @@ const client = await TrellisClient.connect({
 
 type FeedName = "Harness.Rust.Feed" | "Harness.Ts.Feed";
 
+function feedFacade(feed: FeedName) {
+  return feed === "Harness.Rust.Feed"
+    ? client.feed.harness.rustFeed
+    : client.feed.harness.tsFeed;
+}
+
 async function firstAsyncIterableValue<T>(
   stream: AsyncIterable<T>,
 ): Promise<T> {
@@ -121,7 +127,7 @@ async function assertFeed(
 ) {
   const controller = new AbortController();
   try {
-    const stream = await client.feed(feed).input({ topic }).subscribe({
+    const stream = await feedFacade(feed)({ topic }, {
       signal: controller.signal,
     }).orThrow();
     const event = await withTimeout(
@@ -161,9 +167,9 @@ async function assertTraceFeed() {
       try {
         const controller = new AbortController();
         try {
-          const stream = await client.feed("Harness.Rust.Feed").input({
+          const stream = await client.feed.harness.rustFeed({
             topic: "ts-client-rust-feed-trace",
-          }).subscribe({ signal: controller.signal }).orThrow();
+          }, { signal: controller.signal }).orThrow();
           const event = await withTimeout(
             firstAsyncIterableValue(stream),
             "Harness.Rust.Feed trace first event",
@@ -211,5 +217,5 @@ await assertConcurrentFeeds(
 );
 await assertConcurrentFeeds("Harness.Ts.Feed", "ts-client-ts-feed", "ts-feed");
 await assertTraceFeed();
-await client.natsConnection.drain();
+await client.connection.close();
 console.log("TS_FEEDS_CLIENT_OK");

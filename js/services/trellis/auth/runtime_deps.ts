@@ -37,6 +37,10 @@ export type RuntimeKV<Value = unknown> = {
   ): AsyncResult<RuntimeTaken<AsyncIterable<string>>, BaseError>;
 };
 
+type RuntimeEventPublisher = {
+  publish(payload: Record<string, unknown>): AsyncResult<unknown, BaseError>;
+};
+
 export type AuthRuntimeDeps = {
   browserFlowsKV: RuntimeKV;
   connectionsKV: RuntimeKV<Connection>;
@@ -60,10 +64,18 @@ export type AuthRuntimeDeps = {
   pendingAuthKV: RuntimeKV;
   sentinelCreds: SentinelCreds;
   trellis: {
-    publish(
-      event: string,
-      payload: unknown,
-    ): AsyncResult<unknown, BaseError>;
+    event: {
+      auth: {
+        connectionsClosed: RuntimeEventPublisher;
+        connectionsKicked: RuntimeEventPublisher;
+        connectionsOpened: RuntimeEventPublisher;
+        deviceUserAuthoritiesApproved: RuntimeEventPublisher;
+        deviceUserAuthoritiesRequested: RuntimeEventPublisher;
+        deviceUserAuthoritiesResolved: RuntimeEventPublisher;
+        deviceUserAuthoritiesReviewRequested: RuntimeEventPublisher;
+        sessionsRevoked: RuntimeEventPublisher;
+      };
+    };
   };
   contractApprovalStorage: SqlIdentityEnvelopeRepository;
   capabilityGroupStorage: SqlCapabilityGroupRepository;

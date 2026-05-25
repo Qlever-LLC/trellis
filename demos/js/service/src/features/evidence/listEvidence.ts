@@ -12,8 +12,8 @@ function evidenceIdForKey(
 }
 
 /** Lists image evidence staged in the demo object store. */
-export async function listEvidence({ input, trellis }: Args): Promise<Result> {
-  const uploads = await trellis.store.uploads.open().orThrow();
+export async function listEvidence({ input, client }: Args): Promise<Result> {
+  const uploads = await client.store.uploads.open().orThrow();
   const page = await uploads.list({
     prefix: input.prefix ?? "evidence/",
     offset: input.offset,

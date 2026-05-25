@@ -5,9 +5,9 @@ import { recordActivity } from "../activity/index.ts";
 export const uploadEvidence: OperationHandler<
   typeof contract,
   "Evidence.Upload"
-> = async ({ input, op, transfer, trellis }) => {
+> = async ({ input, op, transfer, client }) => {
   const transferred = await transfer.completed().orThrow();
-  const uploads = await trellis.store.uploads.open().orThrow();
+  const uploads = await client.store.uploads.open().orThrow();
 
   await op.started().orThrow();
   await op.progress({
@@ -54,7 +54,7 @@ export const uploadEvidence: OperationHandler<
     disposition: "ready-for-review",
   };
 
-  await trellis.publish("Evidence.Uploaded", {
+  await client.event.evidence.uploaded.publish({
     evidenceId: output.evidenceId,
     key: output.key,
     size: output.size,
@@ -63,7 +63,7 @@ export const uploadEvidence: OperationHandler<
     evidenceType: input.evidenceType,
     uploadedAt: new Date().toISOString(),
   }).orThrow();
-  await recordActivity(trellis, {
+  await recordActivity(client, {
     kind: "evidence-uploaded",
     message: `Uploaded ${input.evidenceType} evidence from ${transferred.key}`,
   });

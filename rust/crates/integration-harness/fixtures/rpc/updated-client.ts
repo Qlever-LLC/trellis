@@ -83,12 +83,12 @@ const client = await TrellisClient.connect({
   log: undefined,
 }).orThrow();
 
-const response = await client.request("Harness.Rust.Ping", {
+const response = await client.rpc.harness.rustPing({
   message: "ts-updated-contract",
-}).orThrow() as { message: string };
+}).orThrow();
 if (response.message !== "ts-updated-contract") {
   throw new Error(`Harness.Rust.Ping returned ${JSON.stringify(response)}`);
 }
 
-await client.natsConnection.drain();
+await client.connection.close();
 console.log("TS_UPDATED_CLIENT_OK");

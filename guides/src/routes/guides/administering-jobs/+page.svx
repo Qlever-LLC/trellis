@@ -22,9 +22,7 @@ Use the admin client to query jobs. The client is available from a Trellis CLI t
 **List all pending fulfillment jobs for the orders service:**
 
 ```ts
-const jobs = trellis.jobs();
-
-const pending = await jobs.list({
+const pending = await client.rpc.jobs.list({
   service: "orders-service",
   type: "reserve-inventory",
   state: ["pending"],
@@ -39,7 +37,7 @@ for (const job of pending.entries) {
 **Get a specific job:**
 
 ```ts
-const job = await jobs.get({
+const job = await client.rpc.jobs.get({
   id: "job_abc123",
 });
 
@@ -56,7 +54,7 @@ from a job to related RPC, event, operation, and service logs.
 `Jobs.Cancel` is valid for jobs in `pending`, `active`, or `retry` states.
 
 ```ts
-await jobs.cancel({
+await client.rpc.jobs.cancel({
   id: "job_abc123",
 });
 ```
@@ -72,7 +70,7 @@ The jobs system distinguishes `failed` from `dead`. They require different admin
 A job enters the `failed` state when it has exhausted its automatic retries. Use `Jobs.Retry` to re-enqueue it:
 
 ```ts
-await jobs.retry({
+await client.rpc.jobs.retry({
   id: "job_abc123",
 });
 ```
@@ -88,7 +86,7 @@ The `dead` state is **not terminal** — dead jobs can be either replayed or dis
 **Replay** (when the underlying issue is fixed):
 
 ```ts
-await jobs.replayDLQ({
+await client.rpc.jobs.replayDLQ({
   id: "job_abc123",
 });
 ```
@@ -98,7 +96,7 @@ This re-enqueues the job at `pending`.
 **Dismiss** (when the work is no longer needed):
 
 ```ts
-await jobs.dismissDLQ({
+await client.rpc.jobs.dismissDLQ({
   id: "job_abc123",
 });
 ```

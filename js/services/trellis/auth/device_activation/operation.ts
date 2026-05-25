@@ -260,7 +260,7 @@ async function activateInstance(args: {
     activatedAt,
     revokedAt: null,
   });
-  (await args.deps.trellis.publish("Auth.DeviceUserAuthorities.Resolved", {
+  (await args.deps.trellis.event.auth.deviceUserAuthoritiesResolved.publish({
     instanceId: args.instance.instanceId,
     publicIdentityKey: args.instance.publicIdentityKey,
     deploymentId: args.deployment.deploymentId,
@@ -404,7 +404,7 @@ async function publishDeviceUserAuthoritiesRequested(args: {
   requestedBy: DeviceActivationActor;
   requestedAt: string;
 }): Promise<void> {
-  (await args.deps.trellis.publish("Auth.DeviceUserAuthorities.Requested", {
+  (await args.deps.trellis.event.auth.deviceUserAuthoritiesRequested.publish({
     flowId: args.flow.flowId,
     instanceId: args.instance.instanceId,
     publicIdentityKey: args.instance.publicIdentityKey,
@@ -532,7 +532,7 @@ export function createResolveDeviceUserAuthoritiesHandler(
         decidedAt: null,
       };
       await deviceActivationReviewStorage.put(review);
-      await trellis.publish("Auth.DeviceUserAuthorities.ReviewRequested", {
+      await trellis.event.auth.deviceUserAuthoritiesReviewRequested.publish({
         reviewId: review.reviewId,
         flowId: flow.flowId,
         instanceId: instance.instanceId,

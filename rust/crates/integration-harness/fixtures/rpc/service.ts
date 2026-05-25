@@ -121,7 +121,7 @@ const service = await TrellisService.connect({
   server: { log: undefined },
 }).orThrow();
 
-await service.trellis.mount("Harness.Ts.Ping", ({ input }) => {
+await service.handle.rpc.harness.tsPing(({ input }) => {
   if (input.message === "handler-error") {
     return err(
       new UnexpectedError({ cause: new Error("ts handler error marker") }),
@@ -132,7 +132,7 @@ await service.trellis.mount("Harness.Ts.Ping", ({ input }) => {
   }
   return ok({ message: input.message });
 });
-await service.trellis.mount("Harness.Ts.CallerContext", ({ context }) => {
+await service.handle.rpc.harness.tsCallerContext(({ context }) => {
   const caller = context.caller;
   if (caller.type !== "user") {
     throw new Error(`expected user caller, got ${caller.type}`);
@@ -147,7 +147,7 @@ await service.trellis.mount("Harness.Ts.CallerContext", ({ context }) => {
     userId: caller.userId,
   });
 });
-await service.trellis.mount("Harness.Ts.TraceContext", () => {
+await service.handle.rpc.harness.tsTraceContext(() => {
   const span = getActiveSpan();
   const traceId = span?.spanContext().traceId ?? "";
   return ok({

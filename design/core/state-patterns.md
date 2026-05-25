@@ -19,7 +19,7 @@ should be available across authenticated app and device sessions.
 `State` is not a replacement for service-owned `resources.kv`. Services that
 need private projections or internal checkpoints should continue to use
 schema-backed `resources.kv` directly through `service.kv.<alias>` or injected
-handler `trellis.kv.<alias>` stores.
+handler `client.kv.<alias>` stores.
 
 ## Contract Model
 
@@ -113,21 +113,21 @@ storage backing remains an implementation detail.
 ## Normal Runtime Surface
 
 The normal client/device runtime exposes declared stores at
-`trellis.state.<store>`. Contracts that declare state automatically include the
-Trellis-owned `State.*` RPCs in `API.used`; those entries are also present in
-the merged `API.trellis` runtime surface.
+`client.state.<store>`. Contracts that declare state automatically include the
+Trellis-owned `State.*` RPCs in `API.used`, but the named-store facade is the
+normal runtime entrypoint.
 
 Example:
 
 ```ts
-const preferences = await trellis.state.preferences.get();
+const preferences = await client.state.preferences.get();
 
-const created = await trellis.state.preferences.put(
+const created = await client.state.preferences.put(
   { theme: "dark" },
   { expectedRevision: null },
 );
 
-const activeDrafts = trellis.state.drafts.prefix("inspection/active");
+const activeDrafts = client.state.drafts.prefix("inspection/active");
 const page = await activeDrafts.list({ limit: 20 });
 for (const draft of page.entries) {
   console.log(draft.key, draft.value.title);
@@ -137,9 +137,8 @@ for (const draft of page.entries) {
 Rules:
 
 - the store name comes from the contract's top-level `state` map
-- the generated contract API exposes supporting `State.*` RPCs through
-  `API.used` and `API.trellis`, but the named-store facade is the normal runtime
-  entrypoint
+- generated facades may include supporting `State.*` RPCs through `API.used`,
+  but the named-store facade is the normal runtime entrypoint
 - normal callers do not provide `contractId`, `scope`, user identity, or device
   identity
 - the runtime derives the target namespace from the authenticated session and

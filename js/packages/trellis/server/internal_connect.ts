@@ -19,7 +19,6 @@ import type { TrellisServiceRuntimeDeps } from "./runtime.ts";
 import {
   createConnectedService,
   type ResourceBindings,
-  type ServiceTrellis,
   type Trellis,
   type TrellisService,
   type TrellisServiceInternalConnectArgs,
@@ -181,7 +180,7 @@ export async function connectTrellisServiceInternal<
             );
           },
         },
-      ) as ServiceTrellis<TOwnedApi, TTrellisApi>;
+      );
       const bootstrapRequest = trellis.request.bind(trellis) as Pick<
         Trellis<BootstrapTrellisApi>,
         "request"

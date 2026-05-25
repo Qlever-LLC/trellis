@@ -45,7 +45,12 @@ pub(crate) async fn run_admin_api_fixture(
     let auth_client = SdkAuthClient::new(&admin_client);
     let core_client = CoreClient::new(&admin_client);
 
-    let me = auth_client.auth_sessions_me().await.into_diagnostic()?;
+    let me = auth_client
+        .rpc()
+        .auth()
+        .sessions_me()
+        .await
+        .into_diagnostic()?;
     let user_id = value_string(&me.user, "userId")?;
     if user_id != setup_login.user.user_id {
         return Err(miette!(
@@ -64,7 +69,7 @@ pub(crate) async fn run_admin_api_fixture(
     let suffix = unique_suffix();
     assert_traced_auth_users_get_error(&admin_client, &format!("missing-user-{suffix}")).await?;
 
-    let health = auth_client.auth_health().await.into_diagnostic()?;
+    let health = auth_client.rpc().auth().health().await.into_diagnostic()?;
     if health.service != "trellis-auth" && health.service != "trellis" {
         return Err(miette!(
             "Auth.Health returned unexpected service `{}`",
@@ -73,7 +78,9 @@ pub(crate) async fn run_admin_api_fixture(
     }
 
     let capabilities = auth_client
-        .auth_capabilities_list(&AuthCapabilitiesListRequest {
+        .rpc()
+        .auth()
+        .capabilities_list(&AuthCapabilitiesListRequest {
             limit: 100,
             offset: None,
         })
@@ -89,7 +96,9 @@ pub(crate) async fn run_admin_api_fixture(
 
     let group_key = format!("harness.builtin-rpc.{suffix}");
     let put_group = auth_client
-        .auth_capability_groups_put(&AuthCapabilityGroupsPutRequest {
+        .rpc()
+        .auth()
+        .capability_groups_put(&AuthCapabilityGroupsPutRequest {
             group_key: group_key.clone(),
             display_name: "Harness Built-In RPC Group".to_string(),
             description: "Created by live built-in RPC matrix coverage.".to_string(),
@@ -104,7 +113,9 @@ pub(crate) async fn run_admin_api_fixture(
         ));
     }
     let got_group = auth_client
-        .auth_capability_groups_get(&AuthCapabilityGroupsGetRequest {
+        .rpc()
+        .auth()
+        .capability_groups_get(&AuthCapabilityGroupsGetRequest {
             group_key: group_key.clone(),
         })
         .await
@@ -113,7 +124,9 @@ pub(crate) async fn run_admin_api_fixture(
         return Err(miette!("Auth.CapabilityGroups.Get returned wrong group"));
     }
     let groups = auth_client
-        .auth_capability_groups_list(&AuthCapabilityGroupsListRequest {
+        .rpc()
+        .auth()
+        .capability_groups_list(&AuthCapabilityGroupsListRequest {
             limit: 100,
             offset: None,
         })
@@ -129,7 +142,9 @@ pub(crate) async fn run_admin_api_fixture(
         ));
     }
     let deleted_group = auth_client
-        .auth_capability_groups_delete(&AuthCapabilityGroupsDeleteRequest {
+        .rpc()
+        .auth()
+        .capability_groups_delete(&AuthCapabilityGroupsDeleteRequest {
             group_key: group_key.clone(),
         })
         .await
@@ -139,7 +154,9 @@ pub(crate) async fn run_admin_api_fixture(
     }
 
     let users = auth_client
-        .auth_users_list(&AuthUsersListRequest {
+        .rpc()
+        .auth()
+        .users_list(&AuthUsersListRequest {
             limit: 100,
             offset: None,
         })
@@ -149,7 +166,9 @@ pub(crate) async fn run_admin_api_fixture(
         return Err(miette!("Auth.Users.List did not include admin user"));
     }
     let user = auth_client
-        .auth_users_get(&AuthUsersGetRequest {
+        .rpc()
+        .auth()
+        .users_get(&AuthUsersGetRequest {
             user_id: user_id.clone(),
         })
         .await
@@ -158,7 +177,9 @@ pub(crate) async fn run_admin_api_fixture(
         return Err(miette!("Auth.Users.Get returned wrong user"));
     }
     let updated_user = auth_client
-        .auth_users_update(&AuthUsersUpdateRequest {
+        .rpc()
+        .auth()
+        .users_update(&AuthUsersUpdateRequest {
             user_id: user_id.clone(),
             active: None,
             capabilities: None,
@@ -173,7 +194,9 @@ pub(crate) async fn run_admin_api_fixture(
     }
 
     let identities = auth_client
-        .auth_user_identities_list(&AuthUserIdentitiesListRequest {
+        .rpc()
+        .auth()
+        .user_identities_list(&AuthUserIdentitiesListRequest {
             limit: 100,
             offset: None,
             user_id: user_id.clone(),
@@ -190,7 +213,9 @@ pub(crate) async fn run_admin_api_fixture(
         ));
     }
     auth_client
-        .auth_identities_list(&AuthIdentitiesListRequest {
+        .rpc()
+        .auth()
+        .identities_list(&AuthIdentitiesListRequest {
             user: Some(user_id.clone()),
             limit: 100,
             offset: None,
@@ -198,7 +223,9 @@ pub(crate) async fn run_admin_api_fixture(
         .await
         .into_diagnostic()?;
     auth_client
-        .auth_identities_grants_list(&AuthIdentitiesGrantsListRequest {
+        .rpc()
+        .auth()
+        .identities_grants_list(&AuthIdentitiesGrantsListRequest {
             limit: 100,
             offset: None,
         })
@@ -206,7 +233,9 @@ pub(crate) async fn run_admin_api_fixture(
         .into_diagnostic()?;
 
     let sessions = auth_client
-        .auth_sessions_list(&AuthSessionsListRequest {
+        .rpc()
+        .auth()
+        .sessions_list(&AuthSessionsListRequest {
             user: Some(user_id.clone()),
             limit: 100,
             offset: None,
@@ -222,7 +251,9 @@ pub(crate) async fn run_admin_api_fixture(
         return Err(miette!("Auth.Sessions.List did not include admin session"));
     }
     auth_client
-        .auth_connections_list(&AuthConnectionsListRequest {
+        .rpc()
+        .auth()
+        .connections_list(&AuthConnectionsListRequest {
             limit: 100,
             offset: None,
             session_key: None,
@@ -232,7 +263,9 @@ pub(crate) async fn run_admin_api_fixture(
         .into_diagnostic()?;
 
     let portals = auth_client
-        .auth_portals_list(&AuthPortalsListRequest {
+        .rpc()
+        .auth()
+        .portals_list(&AuthPortalsListRequest {
             limit: 100,
             offset: None,
         })
@@ -244,7 +277,9 @@ pub(crate) async fn run_admin_api_fixture(
         .find(|portal| portal.built_in)
         .ok_or_else(|| miette!("Auth.Portals.List did not include built-in portal"))?;
     let settings = auth_client
-        .auth_portals_login_settings_get(&AuthPortalsLoginSettingsGetRequest {
+        .rpc()
+        .auth()
+        .portals_login_settings_get(&AuthPortalsLoginSettingsGetRequest {
             portal_id: default_portal.portal_id.clone(),
         })
         .await
@@ -255,7 +290,9 @@ pub(crate) async fn run_admin_api_fixture(
         ));
     }
     auth_client
-        .auth_portals_get(&AuthPortalsGetRequest {
+        .rpc()
+        .auth()
+        .portals_get(&AuthPortalsGetRequest {
             portal_id: default_portal.portal_id.clone(),
         })
         .await
@@ -265,7 +302,9 @@ pub(crate) async fn run_admin_api_fixture(
     let service_deployment_id = format!("harness-admin-service-{suffix}");
     let device_deployment_id = format!("harness-admin-device-{suffix}");
     auth_client
-        .auth_deployments_create(&AuthDeploymentsCreateRequest(json!({
+        .rpc()
+        .auth()
+        .deployments_create(&AuthDeploymentsCreateRequest(json!({
             "kind": "service",
             "deploymentId": service_deployment_id,
             "namespaces": ["harness-admin"],
@@ -273,7 +312,9 @@ pub(crate) async fn run_admin_api_fixture(
         .await
         .into_diagnostic()?;
     auth_client
-        .auth_deployments_create(&AuthDeploymentsCreateRequest(json!({
+        .rpc()
+        .auth()
+        .deployments_create(&AuthDeploymentsCreateRequest(json!({
             "kind": "device",
             "deploymentId": device_deployment_id,
         })))
@@ -281,7 +322,9 @@ pub(crate) async fn run_admin_api_fixture(
         .into_diagnostic()?;
 
     let deployments = auth_client
-        .auth_deployments_list(&AuthDeploymentsListRequest {
+        .rpc()
+        .auth()
+        .deployments_list(&AuthDeploymentsListRequest {
             disabled: None,
             kind: None,
             limit: 100,
@@ -299,7 +342,9 @@ pub(crate) async fn run_admin_api_fixture(
     let device_contract_json = device_contract_json(&device_contract_id)?;
     let device_contract_digest = digest_contract_json(&device_contract_json).into_diagnostic()?;
     let expanded = auth_client
-        .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+        .rpc()
+        .auth()
+        .envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(&service_contract_json)?,
             deployment_id: service_deployment_id.clone(),
             expected_digest: service_contract_digest.clone(),
@@ -315,7 +360,9 @@ pub(crate) async fn run_admin_api_fixture(
         ));
     }
     auth_client
-        .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+        .rpc()
+        .auth()
+        .envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(&device_contract_json)?,
             deployment_id: device_deployment_id.clone(),
             expected_digest: device_contract_digest.clone(),
@@ -324,7 +371,9 @@ pub(crate) async fn run_admin_api_fixture(
         .into_diagnostic()?;
 
     let envelopes = auth_client
-        .auth_envelopes_list(&AuthEnvelopesListRequest {
+        .rpc()
+        .auth()
+        .envelopes_list(&AuthEnvelopesListRequest {
             disabled: None,
             kind: None,
             limit: 100,
@@ -343,7 +392,9 @@ pub(crate) async fn run_admin_api_fixture(
     }
 
     let envelope = auth_client
-        .auth_envelopes_get(&AuthEnvelopesGetRequest {
+        .rpc()
+        .auth()
+        .envelopes_get(&AuthEnvelopesGetRequest {
             deployment_id: service_deployment_id.clone(),
         })
         .await
@@ -360,7 +411,9 @@ pub(crate) async fn run_admin_api_fixture(
 
     let (service_seed, service_key) = generate_session_keypair();
     let service_instance = auth_client
-        .auth_service_instances_provision(&AuthServiceInstancesProvisionRequest {
+        .rpc()
+        .auth()
+        .service_instances_provision(&AuthServiceInstancesProvisionRequest {
             deployment_id: service_deployment_id.clone(),
             instance_key: service_key.clone(),
         })
@@ -368,7 +421,9 @@ pub(crate) async fn run_admin_api_fixture(
         .into_diagnostic()?
         .instance;
     let service_instances = auth_client
-        .auth_service_instances_list(&AuthServiceInstancesListRequest {
+        .rpc()
+        .auth()
+        .service_instances_list(&AuthServiceInstancesListRequest {
             deployment_id: Some(service_deployment_id.clone()),
             disabled: None,
             limit: 100,
@@ -394,7 +449,9 @@ pub(crate) async fn run_admin_api_fixture(
     let (_device_seed, device_public_identity_key) = generate_session_keypair();
     let (_activation_seed, activation_key) = generate_session_keypair();
     let device_instance = auth_client
-        .auth_devices_provision(&AuthDevicesProvisionRequest {
+        .rpc()
+        .auth()
+        .devices_provision(&AuthDevicesProvisionRequest {
             deployment_id: device_deployment_id.clone(),
             public_identity_key: device_public_identity_key.clone(),
             activation_key,
@@ -404,7 +461,9 @@ pub(crate) async fn run_admin_api_fixture(
         .into_diagnostic()?
         .instance;
     let device_instances = auth_client
-        .auth_devices_list(&AuthDevicesListRequest {
+        .rpc()
+        .auth()
+        .devices_list(&AuthDevicesListRequest {
             deployment_id: Some(device_deployment_id.clone()),
             limit: 100,
             offset: None,
@@ -427,7 +486,12 @@ pub(crate) async fn run_admin_api_fixture(
     )
     .await?;
 
-    let catalog = core_client.trellis_catalog().await.into_diagnostic()?;
+    let catalog = core_client
+        .rpc()
+        .trellis()
+        .catalog()
+        .await
+        .into_diagnostic()?;
     if !catalog.catalog.contracts.iter().any(|contract| {
         contract.id == service_contract_id && contract.digest == service_contract_digest
     }) {
@@ -436,7 +500,9 @@ pub(crate) async fn run_admin_api_fixture(
         ));
     }
     let contract = core_client
-        .trellis_contract_get(&TrellisContractGetRequest {
+        .rpc()
+        .trellis()
+        .contract_get(&TrellisContractGetRequest {
             digest: service_contract_digest.clone(),
         })
         .await
@@ -448,7 +514,9 @@ pub(crate) async fn run_admin_api_fixture(
         ));
     }
     let surface_status = core_client
-        .trellis_surface_status(&TrellisSurfaceStatusRequest {
+        .rpc()
+        .trellis()
+        .surface_status(&TrellisSurfaceStatusRequest {
             contract_id: "trellis.core@v1".to_string(),
             kind: json!("rpc"),
             surface: "Trellis.Catalog".to_string(),
@@ -475,7 +543,9 @@ pub(crate) async fn run_password_change_fixture(admin_login: &AdminLoginOutcome)
     let auth_client = SdkAuthClient::new(&admin_client);
 
     match auth_client
-        .auth_users_password_change(&AuthUsersPasswordChangeRequest {
+        .rpc()
+        .auth()
+        .users_password_change(&AuthUsersPasswordChangeRequest {
             current_password: "not-the-admin-password".to_string(),
             new_password: "temporary-admin-password".to_string(),
         })
@@ -501,7 +571,9 @@ pub(crate) async fn run_password_change_fixture(admin_login: &AdminLoginOutcome)
     }
 
     let changed = auth_client
-        .auth_users_password_change(&AuthUsersPasswordChangeRequest {
+        .rpc()
+        .auth()
+        .users_password_change(&AuthUsersPasswordChangeRequest {
             current_password: "trellis-admin-password".to_string(),
             new_password: "temporary-admin-password".to_string(),
         })
@@ -512,7 +584,9 @@ pub(crate) async fn run_password_change_fixture(admin_login: &AdminLoginOutcome)
     }
 
     let restored = auth_client
-        .auth_users_password_change(&AuthUsersPasswordChangeRequest {
+        .rpc()
+        .auth()
+        .users_password_change(&AuthUsersPasswordChangeRequest {
             current_password: "temporary-admin-password".to_string(),
             new_password: "trellis-admin-password".to_string(),
         })
@@ -562,7 +636,9 @@ async fn assert_external_portal_origin_hardening(
     let portal_id = format!("harness.portal.{suffix}");
     let allowed_origin = format!("https://portal-{suffix}.example.test");
     auth_client
-        .auth_portals_put(&AuthPortalsPutRequest {
+        .rpc()
+        .auth()
+        .portals_put(&AuthPortalsPutRequest {
             portal_id: portal_id.clone(),
             display_name: "Harness External Portal".to_string(),
             entry_url: format!("{allowed_origin}/login"),
@@ -571,7 +647,9 @@ async fn assert_external_portal_origin_hardening(
         .await
         .into_diagnostic()?;
     auth_client
-        .auth_portals_routes_put(&AuthPortalsRoutesPutRequest {
+        .rpc()
+        .auth()
+        .portals_routes_put(&AuthPortalsRoutesPutRequest {
             portal_id: portal_id.clone(),
             contract_id: Some(json!("trellis.integration-agent@v1")),
             origin: None,
@@ -582,7 +660,9 @@ async fn assert_external_portal_origin_hardening(
 
     let result = assert_live_flow_origin(trellis_url, &allowed_origin).await;
     let remove_route = auth_client
-        .auth_portals_routes_remove(&AuthPortalsRoutesRemoveRequest {
+        .rpc()
+        .auth()
+        .portals_routes_remove(&AuthPortalsRoutesRemoveRequest {
             portal_id: portal_id.clone(),
             contract_id: Some(json!("trellis.integration-agent@v1")),
             origin: None,
@@ -590,7 +670,9 @@ async fn assert_external_portal_origin_hardening(
         .await
         .into_diagnostic();
     let remove_portal = auth_client
-        .auth_portals_remove(&AuthPortalsRemoveRequest {
+        .rpc()
+        .auth()
+        .portals_remove(&AuthPortalsRemoveRequest {
             portal_id: portal_id.clone(),
         })
         .await
@@ -750,7 +832,9 @@ async fn assert_trellis_surface_status_device_implementer(
     surface: &str,
 ) -> Result<()> {
     let surface_status = core_client
-        .trellis_surface_status(&TrellisSurfaceStatusRequest {
+        .rpc()
+        .trellis()
+        .surface_status(&TrellisSurfaceStatusRequest {
             contract_id: contract_id.to_string(),
             kind: json!("rpc"),
             surface: surface.to_string(),
@@ -786,7 +870,9 @@ async fn assert_trellis_bindings_get(
     .await
     .into_diagnostic()?;
     let response = CoreClient::new(&service_client)
-        .trellis_bindings_get(&TrellisBindingsGetRequest {
+        .rpc()
+        .trellis()
+        .bindings_get(&TrellisBindingsGetRequest {
             contract_id: Some(contract_id.to_string()),
             digest: Some(contract_digest.to_string()),
         })

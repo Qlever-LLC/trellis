@@ -59,7 +59,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-await service.feed("Harness.Ts.Feed").handle(async ({ input, emit }) => {
+await service.handle.feed.harness.tsFeed(async ({ input, emit }) => {
   if (input.topic.startsWith("slow-")) await sleep(500);
   await emit({ message: `ts-feed:${input.topic}`, topic: input.topic })
     .orThrow();

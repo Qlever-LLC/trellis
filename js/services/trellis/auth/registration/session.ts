@@ -57,7 +57,7 @@ export async function registerSessionRpcs(deps: {
     serviceInstanceStorage: deps.serviceInstanceStorage,
     kick,
     publishSessionRevoked: async (event) => {
-      (await deps.trellis.publish("Auth.Sessions.Revoked", event)).inspectErr(
+      (await deps.trellis.event.auth.sessionsRevoked.publish(event)).inspectErr(
         (error: unknown) =>
           deps.logger.warn(
             { error },
@@ -67,12 +67,10 @@ export async function registerSessionRpcs(deps: {
     },
   });
 
-  await deps.trellis.mount(
-    "Auth.Health",
+  await deps.trellis.handle.rpc.auth.health(
     createAuthHealthHandler({ logger: deps.logger }),
   );
-  await deps.trellis.mount(
-    "Auth.Sessions.Me",
+  await deps.trellis.handle.rpc.auth.sessionsMe(
     createAuthSessionsMeHandler({
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
@@ -85,8 +83,7 @@ export async function registerSessionRpcs(deps: {
       loadServiceDeployment: serviceLookup.loadServiceDeployment,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Requests.Validate",
+  await deps.trellis.handle.rpc.auth.requestsValidate(
     createAuthRequestsValidateHandler({
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
@@ -99,8 +96,7 @@ export async function registerSessionRpcs(deps: {
       loadServiceDeployment: serviceLookup.loadServiceDeployment,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Sessions.Logout",
+  await deps.trellis.handle.rpc.auth.sessionsLogout(
     createAuthSessionsLogoutHandler({
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
@@ -108,28 +104,24 @@ export async function registerSessionRpcs(deps: {
       natsSystem: deps.natsSystem,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Sessions.List",
+  await deps.trellis.handle.rpc.auth.sessionsList(
     createAuthSessionsListHandler({
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Sessions.Revoke",
+  await deps.trellis.handle.rpc.auth.sessionsRevoke(
     ({ input, context }: RevokeSessionEnvelope) =>
       revokeSessionHandler(input, context),
   );
-  await deps.trellis.mount(
-    "Auth.Connections.List",
+  await deps.trellis.handle.rpc.auth.connectionsList(
     createAuthConnectionsListHandler({
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Connections.Kick",
+  await deps.trellis.handle.rpc.auth.connectionsKick(
     createAuthConnectionsKickHandler({
       logger: deps.logger,
       kick,

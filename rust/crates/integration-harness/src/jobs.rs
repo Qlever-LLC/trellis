@@ -128,7 +128,9 @@ pub(crate) async fn run_jobs_fixture(
     let jobs_contract_json = trellis::sdk::jobs::contract::CONTRACT_JSON;
     let jobs_contract_digest = digest_contract_json(jobs_contract_json).into_diagnostic()?;
     SdkAuthClient::new(&admin_client)
-        .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+        .rpc()
+        .auth()
+        .envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(jobs_contract_json)?,
             deployment_id: JOBS_DEPLOYMENT_ID.to_string(),
             expected_digest: jobs_contract_digest,
@@ -206,7 +208,9 @@ pub(crate) async fn run_jobs_fixture(
         }
 
         let list = jobs_client
-            .jobs_list(&JobsListRequest {
+            .rpc()
+            .jobs()
+            .list(&JobsListRequest {
                 limit: 20,
                 offset: None,
                 service: Some(HARNESS_JOBS_SERVICE.to_string()),
@@ -222,7 +226,9 @@ pub(crate) async fn run_jobs_fixture(
         assert_jobs_list_filters(&jobs_client).await?;
 
         let cancelled = jobs_client
-            .jobs_cancel(&JobsCancelRequest {
+            .rpc()
+            .jobs()
+            .cancel(&JobsCancelRequest {
                 id: "job-cancel-1".to_string(),
             })
             .await
@@ -230,7 +236,9 @@ pub(crate) async fn run_jobs_fixture(
         assert_state(&cancelled.job.state, "cancelled", "Jobs.Cancel")?;
 
         let retried = jobs_client
-            .jobs_retry(&JobsRetryRequest {
+            .rpc()
+            .jobs()
+            .retry(&JobsRetryRequest {
                 id: "job-failed-1".to_string(),
             })
             .await
@@ -238,7 +246,9 @@ pub(crate) async fn run_jobs_fixture(
         assert_state(&retried.job.state, "pending", "Jobs.Retry")?;
 
         let dlq = jobs_client
-            .jobs_list_dlq(&JobsListDLQRequest {
+            .rpc()
+            .jobs()
+            .list_dlq(&JobsListDLQRequest {
                 limit: 20,
                 offset: None,
                 service: Some(HARNESS_JOBS_SERVICE.to_string()),
@@ -254,7 +264,9 @@ pub(crate) async fn run_jobs_fixture(
         }
 
         let replayed = jobs_client
-            .jobs_replay_dlq(&JobsReplayDLQRequest {
+            .rpc()
+            .jobs()
+            .replay_dlq(&JobsReplayDLQRequest {
                 id: "job-dead-replay-1".to_string(),
             })
             .await
@@ -262,7 +274,9 @@ pub(crate) async fn run_jobs_fixture(
         assert_state(&replayed.job.state, "pending", "Jobs.ReplayDLQ")?;
 
         let dismissed = jobs_client
-            .jobs_dismiss_dlq(&JobsDismissDLQRequest {
+            .rpc()
+            .jobs()
+            .dismiss_dlq(&JobsDismissDLQRequest {
                 id: "job-dead-dismiss-1".to_string(),
             })
             .await
@@ -276,7 +290,9 @@ pub(crate) async fn run_jobs_fixture(
             "Jobs.Get dismissed DLQ job",
         )?;
         let dlq_after_mutations = jobs_client
-            .jobs_list_dlq(&JobsListDLQRequest {
+            .rpc()
+            .jobs()
+            .list_dlq(&JobsListDLQRequest {
                 limit: 20,
                 offset: None,
                 service: Some(HARNESS_JOBS_SERVICE.to_string()),
@@ -296,7 +312,9 @@ pub(crate) async fn run_jobs_fixture(
         }
 
         if jobs_client
-            .jobs_retry(&JobsRetryRequest {
+            .rpc()
+            .jobs()
+            .retry(&JobsRetryRequest {
                 id: "job-dead-dismiss-1".to_string(),
             })
             .await
@@ -389,7 +407,9 @@ async fn setup_service_local_jobs(
     let contract_json = local_jobs_service_contract_json()?;
     let contract_digest = digest_contract_json(&contract_json).into_diagnostic()?;
     SdkAuthClient::new(admin_client)
-        .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+        .rpc()
+        .auth()
+        .envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(&contract_json)?,
             deployment_id: LOCAL_JOBS_DEPLOYMENT_ID.to_string(),
             expected_digest: contract_digest.clone(),
@@ -739,7 +759,9 @@ fn assert_job_result_echoed_context(
 
 async fn assert_jobs_list_filters(jobs_client: &JobsClient<'_>) -> Result<()> {
     let filtered = jobs_client
-        .jobs_list(&JobsListRequest {
+        .rpc()
+        .jobs()
+        .list(&JobsListRequest {
             limit: 10,
             offset: None,
             service: Some(HARNESS_JOBS_SERVICE.to_string()),
@@ -917,7 +939,9 @@ async fn assert_jobs_read_denied(
         .await
         .into_diagnostic()?;
     if JobsClient::new(&read_denied_client)
-        .jobs_list(&JobsListRequest {
+        .rpc()
+        .jobs()
+        .list(&JobsListRequest {
             limit: 1,
             offset: None,
             service: None,
@@ -937,7 +961,9 @@ async fn assert_jobs_read_denied(
 
 async fn assert_invalid_jobs_mutations(jobs_client: &JobsClient<'_>) -> Result<()> {
     if jobs_client
-        .jobs_cancel(&JobsCancelRequest {
+        .rpc()
+        .jobs()
+        .cancel(&JobsCancelRequest {
             id: "job-completed-invalid-1".to_string(),
         })
         .await
@@ -946,7 +972,9 @@ async fn assert_invalid_jobs_mutations(jobs_client: &JobsClient<'_>) -> Result<(
         return Err(miette!("Jobs.Cancel unexpectedly accepted completed job"));
     }
     if jobs_client
-        .jobs_retry(&JobsRetryRequest {
+        .rpc()
+        .jobs()
+        .retry(&JobsRetryRequest {
             id: "job-failed-1".to_string(),
         })
         .await
@@ -955,7 +983,9 @@ async fn assert_invalid_jobs_mutations(jobs_client: &JobsClient<'_>) -> Result<(
         return Err(miette!("Jobs.Retry unexpectedly accepted pending job"));
     }
     if jobs_client
-        .jobs_dismiss_dlq(&JobsDismissDLQRequest {
+        .rpc()
+        .jobs()
+        .dismiss_dlq(&JobsDismissDLQRequest {
             id: "job-janitor-future-1".to_string(),
         })
         .await
@@ -1195,7 +1225,9 @@ async fn assert_cancelled_before_worker_start(
     await_job_state(jobs_client, &job.id, "pending").await?;
 
     let cancelled = jobs_client
-        .jobs_cancel(&JobsCancelRequest { id: job.id.clone() })
+        .rpc()
+        .jobs()
+        .cancel(&JobsCancelRequest { id: job.id.clone() })
         .await
         .into_diagnostic()?;
     assert_state(
@@ -1610,7 +1642,7 @@ async fn publish_fresh_worker_heartbeat(nats: &async_nats::Client) -> Result<()>
 async fn await_jobs_health(jobs_client: &JobsClient<'_>) -> Result<()> {
     let mut last_error = None;
     for _ in 0..200 {
-        match jobs_client.jobs_health().await {
+        match jobs_client.rpc().jobs().health().await {
             Ok(_) => return Ok(()),
             Err(error) => last_error = Some(error),
         }
@@ -1629,7 +1661,9 @@ async fn await_worker_presence(
 ) -> Result<JobsListServicesResponseEntriesItemWorkersItem> {
     for _ in 0..60 {
         let response = jobs_client
-            .jobs_list_services(&JobsListServicesRequest {
+            .rpc()
+            .jobs()
+            .list_services(&JobsListServicesRequest {
                 limit: 50,
                 offset: None,
             })
@@ -1659,7 +1693,9 @@ async fn await_worker_presence_by_instance(
 ) -> Result<JobsListServicesResponseEntriesItemWorkersItem> {
     for _ in 0..80 {
         let response = jobs_client
-            .jobs_list_services(&JobsListServicesRequest {
+            .rpc()
+            .jobs()
+            .list_services(&JobsListServicesRequest {
                 limit: 50,
                 offset: None,
             })
@@ -1687,7 +1723,9 @@ async fn await_job_state(
 ) -> Result<trellis::sdk::jobs::types::JobsGetResponseJob> {
     for _ in 0..400 {
         let response = jobs_client
-            .jobs_get(&JobsGetRequest { id: id.to_string() })
+            .rpc()
+            .jobs()
+            .get(&JobsGetRequest { id: id.to_string() })
             .await
             .into_diagnostic()?;
         let job = response.job;

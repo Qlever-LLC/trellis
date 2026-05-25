@@ -54,17 +54,24 @@ export const pendingAuthKV = testKv();
 export const browserFlowsKV = testKv();
 export const connectionsKV = testKv();
 export const trellisService = {
-  trellis: {
-    mount: () => {},
-    publish: () => ({ inspectErr: () => {} }),
-  },
-  operation: () => ({ handle: async () => {} }),
+  handle: { rpc: {}, operation: {} },
   stop: async () => {},
 };
+const eventPublisher = { publish: () => ({ inspectErr: () => {} }) };
 export const trellis = {
-  mount: trellisService.trellis.mount.bind(trellisService.trellis),
-  publish: trellisService.trellis.publish.bind(trellisService.trellis),
-  operation: trellisService.operation.bind(trellisService),
+  handle: trellisService.handle,
+  event: {
+    auth: {
+      connectionsClosed: eventPublisher,
+      connectionsKicked: eventPublisher,
+      connectionsOpened: eventPublisher,
+      deviceUserAuthoritiesApproved: eventPublisher,
+      deviceUserAuthoritiesRequested: eventPublisher,
+      deviceUserAuthoritiesResolved: eventPublisher,
+      deviceUserAuthoritiesReviewRequested: eventPublisher,
+      sessionsRevoked: eventPublisher,
+    },
+  },
 };
 
 export async function shutdownGlobals(): Promise<void> {}

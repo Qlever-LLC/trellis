@@ -202,12 +202,20 @@ type ReceiveTransferGrant = Extract<
   { direction: "receive" }
 >;
 
+function uploadFacade(
+  method: "Harness.Rust.TransferUpload" | "Harness.Ts.TransferUpload",
+) {
+  return method === "Harness.Rust.TransferUpload"
+    ? client.operation.harness.rustTransferUpload
+    : client.operation.harness.tsTransferUpload;
+}
+
 async function assertUpload(
   method: "Harness.Rust.TransferUpload" | "Harness.Ts.TransferUpload",
   key: string,
   text: string,
 ) {
-  const upload = await client.operation(method).input({
+  const upload = await uploadFacade(method).input({
     key,
     contentType: "text/plain",
   }).transfer(new TextEncoder().encode(text)).start().orThrow();
@@ -236,7 +244,7 @@ async function assertTracedRustTransferUpload() {
       expectedTraceId = span.spanContext().traceId;
       try {
         const text = "ts to rust traced upload";
-        const upload = await client.operation("Harness.Rust.TransferUpload")
+        const upload = await client.operation.harness.rustTransferUpload
           .input({
             key: "ts-client/rust-transfer-trace.txt",
             contentType: "text/plain",
@@ -285,7 +293,7 @@ async function assertOversizedUpload(
   key: string,
 ) {
   const oversized = new Uint8Array(1025);
-  const result = await client.operation(method).input({
+  const result = await uploadFacade(method).input({
     key,
     contentType: "application/octet-stream",
   }).transfer(oversized).start();
@@ -309,8 +317,11 @@ async function assertDownload(
   key: string,
   expected: string,
 ) {
-  const grant = await client.request(method, { key })
-    .orThrow() as ReceiveTransferGrant;
+  const grant =
+    await (method === "Harness.Rust.TransferDownload"
+      ? client.rpc.harness.rustTransferDownload({ key })
+      : client.rpc.harness.tsTransferDownload({ key }))
+      .orThrow() as ReceiveTransferGrant;
   const bytes = await client.transfer(grant).bytes().orThrow();
   const text = new TextDecoder().decode(bytes);
   if (text !== expected) throw new Error(`${method} returned ${text}`);
@@ -345,5 +356,5 @@ await assertDownload(
   "ts-client/ts-download.txt",
   "ts-download:ts-client/ts-download.txt",
 );
-await client.natsConnection.drain();
+await client.connection.close();
 console.log("TS_TRANSFER_CLIENT_OK");

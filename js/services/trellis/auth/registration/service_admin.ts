@@ -80,15 +80,13 @@ export async function registerServiceAdminRpcs(deps: {
     serviceInstanceStorage: deps.serviceInstanceStorage,
   };
 
-  await deps.trellis.mount(
-    "Auth.Envelopes.List",
+  await deps.trellis.handle.rpc.auth.envelopesList(
     createAuthEnvelopesListHandler({
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
       logger: deps.logger,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Envelopes.Get",
+  await deps.trellis.handle.rpc.auth.envelopesGet(
     createAuthEnvelopesGetHandler({
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
       deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
@@ -99,31 +97,27 @@ export async function registerServiceAdminRpcs(deps: {
       logger: deps.logger,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Envelopes.GrantOverrides.List",
+  await deps.trellis.handle.rpc.auth.envelopesGrantOverridesList(
     createAuthEnvelopesGrantOverridesListHandler({
       deploymentGrantOverrideStorage: deps.deploymentGrantOverrideStorage,
       logger: deps.logger,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Envelopes.GrantOverrides.Put",
+  await deps.trellis.handle.rpc.auth.envelopesGrantOverridesPut(
     createAuthEnvelopesGrantOverridesPutHandler({
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
       deploymentGrantOverrideStorage: deps.deploymentGrantOverrideStorage,
       logger: deps.logger,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Envelopes.GrantOverrides.Remove",
+  await deps.trellis.handle.rpc.auth.envelopesGrantOverridesRemove(
     createAuthEnvelopesGrantOverridesRemoveHandler({
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
       deploymentGrantOverrideStorage: deps.deploymentGrantOverrideStorage,
       logger: deps.logger,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Envelopes.Expand",
+  await deps.trellis.handle.rpc.auth.envelopesExpand(
     createAuthEnvelopesExpandHandler({
       contracts: deps.contracts,
       contractStorage: deps.contractStorage,
@@ -137,8 +131,7 @@ export async function registerServiceAdminRpcs(deps: {
       logger: deps.logger,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.EnvelopeExpansions.Approve",
+  await deps.trellis.handle.rpc.auth.envelopeExpansionsApprove(
     createAuthEnvelopesApproveRequestHandler({
       contracts: deps.contracts,
       contractStorage: deps.contractStorage,
@@ -153,22 +146,19 @@ export async function registerServiceAdminRpcs(deps: {
       logger: deps.logger,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.EnvelopeExpansions.List",
+  await deps.trellis.handle.rpc.auth.envelopeExpansionsList(
     createAuthEnvelopeExpansionsListHandler({
       envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
       logger: deps.logger,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.EnvelopeExpansions.Reject",
+  await deps.trellis.handle.rpc.auth.envelopeExpansionsReject(
     createAuthEnvelopeExpansionsRejectHandler({
       envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
       logger: deps.logger,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Envelopes.Changes.Preview",
+  await deps.trellis.handle.rpc.auth.envelopesChangesPreview(
     createAuthEnvelopesChangesPreviewHandler({
       contracts: deps.contracts,
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
@@ -180,8 +170,7 @@ export async function registerServiceAdminRpcs(deps: {
       logger: deps.logger,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Envelopes.Shrink",
+  await deps.trellis.handle.rpc.auth.envelopesShrink(
     createAuthEnvelopesShrinkHandler({
       contracts: deps.contracts,
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
@@ -195,16 +184,13 @@ export async function registerServiceAdminRpcs(deps: {
       logger: deps.logger,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.ServiceInstances.Provision",
+  await deps.trellis.handle.rpc.auth.serviceInstancesProvision(
     createAuthServiceInstancesProvisionHandler(serviceAdminDeps),
   );
-  await deps.trellis.mount(
-    "Auth.ServiceInstances.List",
+  await deps.trellis.handle.rpc.auth.serviceInstancesList(
     createAuthServiceInstancesListHandler(serviceAdminDeps),
   );
-  await deps.trellis.mount(
-    "Auth.ServiceInstances.Disable",
+  await deps.trellis.handle.rpc.auth.serviceInstancesDisable(
     createAuthServiceInstancesDisableHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
@@ -214,8 +200,7 @@ export async function registerServiceAdminRpcs(deps: {
       serviceInstanceStorage: deps.serviceInstanceStorage,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.ServiceInstances.Enable",
+  await deps.trellis.handle.rpc.auth.serviceInstancesEnable(
     createAuthServiceInstancesEnableHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,
@@ -225,8 +210,7 @@ export async function registerServiceAdminRpcs(deps: {
       serviceInstanceStorage: deps.serviceInstanceStorage,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.ServiceInstances.Remove",
+  await deps.trellis.handle.rpc.auth.serviceInstancesRemove(
     createAuthServiceInstancesRemoveHandler({
       kick,
       refreshActiveContracts: deps.contracts.refreshActiveContracts,

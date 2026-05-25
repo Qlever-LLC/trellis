@@ -108,7 +108,9 @@ pub(crate) async fn run_optional_uses_fixture(
         wait_for_consumer_pending_optional_delta(&sdk_auth_client, &consumer_digest, false).await?;
     for request_id in request_ids {
         sdk_auth_client
-            .auth_envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
+            .rpc()
+            .auth()
+            .envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
                 request_id,
                 reason: Some("integration harness optional dependency setup".to_string()),
             })
@@ -122,7 +124,9 @@ pub(crate) async fn run_optional_uses_fixture(
     let dependency_contract_json = optional_dependency_contract_json()?;
     let dependency_digest = digest_contract_json(&dependency_contract_json).into_diagnostic()?;
     sdk_auth_client
-        .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+        .rpc()
+        .auth()
+        .envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(&dependency_contract_json)?,
             deployment_id: DEPENDENCY_DEPLOYMENT_ID.to_string(),
             expected_digest: dependency_digest.clone(),
@@ -180,7 +184,9 @@ pub(crate) async fn run_optional_uses_fixture(
         wait_for_consumer_pending_optional_delta(&sdk_auth_client, &consumer_digest, true).await?;
     for request_id in request_ids {
         sdk_auth_client
-            .auth_envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
+            .rpc()
+            .auth()
+            .envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
                 request_id,
                 reason: Some("integration harness active optional dependency".to_string()),
             })
@@ -293,7 +299,9 @@ async fn run_required_dependency_closure_fixture(
         .await
         .map_err(|error| miette!("failed to provision required dependency instance: {error}"))?;
     sdk_auth_client
-        .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+        .rpc()
+        .auth()
+        .envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(&dependency_contract_json)?,
             deployment_id: REQUIRED_DEPLOYMENT_ID.to_string(),
             expected_digest: dependency_digest.clone(),
@@ -378,7 +386,9 @@ async fn run_required_dependency_closure_fixture(
     let updated_dependency_digest =
         digest_contract_json(&updated_dependency_contract_json).into_diagnostic()?;
     sdk_auth_client
-        .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+        .rpc()
+        .auth()
+        .envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(&updated_dependency_contract_json)?,
             deployment_id: REQUIRED_DEPLOYMENT_ID.to_string(),
             expected_digest: updated_dependency_digest.clone(),
@@ -391,7 +401,9 @@ async fn run_required_dependency_closure_fixture(
         wait_for_forced_update_issue(core_client, REQUIRED_DEP_CONTRACT_ID, &dependency_digest)
             .await?;
     let resolved_update = sdk_auth_client
-        .auth_catalog_issues_resolve(&AuthCatalogIssuesResolveRequest {
+        .rpc()
+        .auth()
+        .catalog_issues_resolve(&AuthCatalogIssuesResolveRequest {
             issue_id: forced_update_issue.issue_id.clone(),
             action: json!("force-replace"),
         })
@@ -471,7 +483,9 @@ async fn run_required_dependency_closure_fixture(
     )
     .await?;
     let resolved_consumer_update = sdk_auth_client
-        .auth_catalog_issues_resolve(&AuthCatalogIssuesResolveRequest {
+        .rpc()
+        .auth()
+        .catalog_issues_resolve(&AuthCatalogIssuesResolveRequest {
             issue_id: consumer_update_issue.issue_id.clone(),
             action: json!("force-replace"),
         })
@@ -831,7 +845,9 @@ async fn wait_for_pending_delta(
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         let response = auth_client
-            .auth_envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
+            .rpc()
+            .auth()
+            .envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
                 deployment_id: Some(deployment_id.to_string()),
                 limit: 20,
                 offset: None,
@@ -865,7 +881,9 @@ async fn approve_requests(
 ) -> Result<()> {
     for request in requests {
         auth_client
-            .auth_envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
+            .rpc()
+            .auth()
+            .envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
                 request_id: request.request_id,
                 reason: Some(reason.to_string()),
             })
@@ -882,7 +900,12 @@ async fn wait_for_forced_update_issue(
 ) -> Result<TrellisCatalogResponseCatalogIssuesItem> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        let catalog = core_client.trellis_catalog().await.into_diagnostic()?;
+        let catalog = core_client
+            .rpc()
+            .trellis()
+            .catalog()
+            .await
+            .into_diagnostic()?;
         let active_digest = catalog
             .catalog
             .contracts
@@ -920,7 +943,12 @@ async fn wait_for_forced_update_clear(
 ) -> Result<()> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        let catalog = core_client.trellis_catalog().await.into_diagnostic()?;
+        let catalog = core_client
+            .rpc()
+            .trellis()
+            .catalog()
+            .await
+            .into_diagnostic()?;
         let active_digest = catalog
             .catalog
             .contracts
@@ -1176,7 +1204,9 @@ async fn wait_for_consumer_pending_optional_delta(
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         let response = auth_client
-            .auth_envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
+            .rpc()
+            .auth()
+            .envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
                 deployment_id: Some(CONSUMER_DEPLOYMENT_ID.to_string()),
                 limit: 20,
                 offset: None,
@@ -1248,7 +1278,9 @@ async fn wait_for_consumer_pending_optional_delta(
 
 async fn assert_consumer_envelope_omits_dependency(auth_client: &SdkAuthClient<'_>) -> Result<()> {
     let envelope = auth_client
-        .auth_envelopes_get(&AuthEnvelopesGetRequest {
+        .rpc()
+        .auth()
+        .envelopes_get(&AuthEnvelopesGetRequest {
             deployment_id: CONSUMER_DEPLOYMENT_ID.to_string(),
         })
         .await
@@ -1278,7 +1310,9 @@ async fn assert_consumer_envelope_includes_dependency(
     auth_client: &SdkAuthClient<'_>,
 ) -> Result<()> {
     let envelope = auth_client
-        .auth_envelopes_get(&AuthEnvelopesGetRequest {
+        .rpc()
+        .auth()
+        .envelopes_get(&AuthEnvelopesGetRequest {
             deployment_id: CONSUMER_DEPLOYMENT_ID.to_string(),
         })
         .await

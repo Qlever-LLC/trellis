@@ -251,7 +251,9 @@ pub(crate) async fn run_resources_fixture(
             digest_contract_json(&stale_service_contract_json).into_diagnostic()?;
         let sdk_auth_client = SdkAuthClient::new(&admin_client);
         sdk_auth_client
-            .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+            .rpc()
+            .auth()
+            .envelopes_expand(&AuthEnvelopesExpandRequest {
                 contract: contract_json_object(&stale_service_contract_json)?,
                 deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
                 expected_digest: stale_contract_digest.clone(),
@@ -262,7 +264,9 @@ pub(crate) async fn run_resources_fixture(
         let service_contract_json = harness_service_contract_json()?;
         let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
         sdk_auth_client
-            .auth_envelopes_expand(&AuthEnvelopesExpandRequest {
+            .rpc()
+            .auth()
+            .envelopes_expand(&AuthEnvelopesExpandRequest {
                 contract: contract_json_object(&service_contract_json)?,
                 deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
                 expected_digest: contract_digest.clone(),
@@ -428,7 +432,9 @@ async fn assert_pending_resource_service_approval(
         wait_for_pending_resource_expansion_requests(sdk_auth_client, contract_digest).await?;
     for request_id in pending_request_ids {
         sdk_auth_client
-            .auth_envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
+            .rpc()
+            .auth()
+            .envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
                 request_id,
                 reason: Some("integration harness resource service startup approval".to_string()),
             })
@@ -467,7 +473,9 @@ async fn wait_for_pending_resource_expansion_requests(
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         let response = auth_client
-            .auth_envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
+            .rpc()
+            .auth()
+            .envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
                 deployment_id: Some(HARNESS_PENDING_DEPLOYMENT_ID.to_string()),
                 limit: 20,
                 offset: None,
@@ -505,7 +513,9 @@ async fn resolve_forced_update(
 ) -> Result<()> {
     let issue = wait_for_forced_update_issue(core_client, contract_id, old_digest).await?;
     let resolved = auth_client
-        .auth_catalog_issues_resolve(&AuthCatalogIssuesResolveRequest {
+        .rpc()
+        .auth()
+        .catalog_issues_resolve(&AuthCatalogIssuesResolveRequest {
             issue_id: issue.issue_id.clone(),
             action: json!("force-replace"),
         })
@@ -527,7 +537,12 @@ async fn wait_for_forced_update_issue(
 ) -> Result<TrellisCatalogResponseCatalogIssuesItem> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        let catalog = core_client.trellis_catalog().await.into_diagnostic()?;
+        let catalog = core_client
+            .rpc()
+            .trellis()
+            .catalog()
+            .await
+            .into_diagnostic()?;
         let active_digest = catalog
             .catalog
             .contracts
@@ -565,7 +580,12 @@ async fn wait_for_forced_update_clear(
 ) -> Result<()> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        let catalog = core_client.trellis_catalog().await.into_diagnostic()?;
+        let catalog = core_client
+            .rpc()
+            .trellis()
+            .catalog()
+            .await
+            .into_diagnostic()?;
         let active_digest = catalog
             .catalog
             .contracts

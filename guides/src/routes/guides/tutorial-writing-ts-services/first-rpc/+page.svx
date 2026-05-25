@@ -2,7 +2,7 @@
   import LanguageTabs from "$lib/components/LanguageTabs.svelte";
 </script>
 
-Let's allow other services to create an order. Add request and response schemas, declare the capability-gated RPC, then mount the handler.
+Let's allow other services to create an order. Add request and response schemas, declare the capability-gated RPC, then register the handler.
 
 <LanguageTabs>
 {#snippet ts()}
@@ -71,7 +71,7 @@ type Result = RpcHandlerResult<"Orders.Create">;
 
 export async function createOrderHandler({
   input,
-  trellis,
+  client,
 }: Args): Promise<Result> {
   const orderId = crypto.randomUUID();
   const order = {
@@ -82,7 +82,7 @@ export async function createOrderHandler({
     createdAt: new Date().toISOString(),
   };
 
-  await trellis.kv.orders.put(orderId, order).orThrow();
+  await client.kv.orders.put(orderId, order).orThrow();
 
   return ok({ orderId, status: "pending" });
 }
@@ -93,7 +93,7 @@ Mount it from `main.ts`:
 ```ts
 import { createOrderHandler } from "./handlers/orders.ts";
 
-await service.trellis.mount("Orders.Create", createOrderHandler);
+await service.handle.rpc.orders.create(createOrderHandler);
 ```
 
 Handlers return `ok(value)` on success or `err(error)` for declared, caller-visible failures. Input validation has already happened by the time your handler is called. If the caller sends a malformed request, Trellis rejects it before reaching your code. Use `.orThrow()` only for unexpected platform failures that should become `UnexpectedError` responses.
@@ -165,7 +165,7 @@ use trellis_contracts::{rpc, ContractCapabilityMetadata};
 )
 ```
 
-Run `trellis-generate prepare .` again. The generated SDK now includes request/response types and a typed `register_orders_create(...)` helper on the connected service.
+Run `trellis-generate prepare .` again. The generated SDK now includes request/response types and a typed `service.handle().rpc().orders().create(...)` provider helper on the connected service.
 
 Create `src/handlers.rs`:
 
@@ -225,7 +225,7 @@ pub async fn create_order(
 }
 ```
 
-Mount it in `main.rs`:
+Register it in `main.rs`:
 
 ```rust
 mod handlers;
@@ -236,7 +236,7 @@ let resources = service.resources().clone();
 let orders = open_orders_kv(service.client().as_ref(), &resources).await?;
 let context = Arc::new(AppContext { orders });
 
-service.register_orders_create({
+service.handle().rpc().orders().create({
     let context = Arc::clone(&context);
     move |ctx, input| handlers::create_order(Arc::clone(&context), ctx, input)
 });

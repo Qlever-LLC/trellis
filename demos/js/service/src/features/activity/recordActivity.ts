@@ -10,11 +10,11 @@ type ActivityInput = {
 
 /** Publishes a compact activity event for demo workflows. */
 export async function recordActivity(
-  trellis: TrellisFor<typeof contract>,
+  client: TrellisFor<typeof contract>,
   activity: ActivityInput,
 ): Promise<void> {
   const occurredAt = new Date().toISOString();
-  await trellis.publish("Audit.Recorded", {
+  await client.event.audit.recorded.publish({
     activityId: `activity-${crypto.randomUUID()}`,
     occurredAt,
     ...activity,

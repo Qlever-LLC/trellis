@@ -206,7 +206,7 @@ pub fn generate_rust_sdk(opts: &GenerateRustSdkOpts) -> Result<(), CodegenRustEr
     let emit_service_facade = should_emit_service_runtime_facade(opts, &loaded);
     let cargo_toml = render_cargo_toml(
         opts,
-        !loaded.manifest.feeds.is_empty(),
+        !loaded.manifest.feeds.is_empty() || !loaded.manifest.events.is_empty(),
         emit_service_facade,
         is_trellis_owned_sdk_contract(&loaded.manifest.id),
     )?;
@@ -764,7 +764,7 @@ fn render_participant_shim_lib_rs() -> String {
 }
 
 fn render_participant_connect_rs() -> String {
-    "//! Generic connection helpers for the local participant facade.\n\nuse trellis::client::{TrellisClient, TrellisClientError, UserConnectOptions};\n\nuse crate::{Client, Service};\n\npub use trellis::service::ServiceConnectOptions;\n\npub struct Contract;\n\nimpl trellis::service::GeneratedServiceContract for Contract {\n    const CONTRACT_ID: &'static str = crate::contract::CONTRACT_ID;\n    const CONTRACT_DIGEST: &'static str = crate::contract::CONTRACT_DIGEST;\n    const CONTRACT_JSON: &'static str = crate::contract::CONTRACT_JSON;\n}\n\npub struct ConnectedService {\n    inner: trellis::service::ConnectedServiceRuntime<Contract>,\n}\n\nimpl ConnectedService {\n    pub async fn connect(opts: ServiceConnectOptions<'_>) -> Result<Self, trellis::service::ServiceRuntimeError> {\n        Ok(Self { inner: trellis::service::ConnectedServiceRuntime::<Contract>::connect(opts).await? })\n    }\n    pub fn facade(&self) -> Service<'_> { Service::new(self.inner.client()) }\n    pub fn client(&self) -> &std::sync::Arc<trellis::client::TrellisClient> { self.inner.client() }\n    pub(crate) fn runtime(&self) -> &trellis::service::ConnectedServiceRuntime<Contract> { &self.inner }\n    pub(crate) fn runtime_mut(&mut self) -> &mut trellis::service::ConnectedServiceRuntime<Contract> { &mut self.inner }\n    pub async fn run(self) -> Result<(), trellis::service::ServiceRuntimeError> { self.inner.run().await }\n}\n\npub struct ConnectedClient { inner: TrellisClient }\n\nimpl ConnectedClient {\n    pub fn new(inner: TrellisClient) -> Self { Self { inner } }\n    pub fn facade(&self) -> Client<'_> { Client::new(&self.inner) }\n    pub fn raw(&self) -> &TrellisClient { &self.inner }\n}\n\npub async fn connect_service(opts: ServiceConnectOptions<'_>) -> Result<ConnectedService, trellis::service::ServiceRuntimeError> {\n    ConnectedService::connect(opts).await\n}\n\npub async fn connect_user(opts: UserConnectOptions<'_>) -> Result<ConnectedClient, TrellisClientError> {\n    Ok(ConnectedClient::new(TrellisClient::connect_user(opts).await?))\n}\n".to_string()
+    "//! Generic connection helpers for the local participant facade.\n\nuse trellis::client::{TrellisClient, TrellisClientError, UserConnectOptions};\n\nuse crate::{Client, Service};\n\npub use trellis::service::ServiceConnectOptions;\n\npub struct Contract;\n\nimpl trellis::service::GeneratedServiceContract for Contract {\n    const CONTRACT_ID: &'static str = crate::contract::CONTRACT_ID;\n    const CONTRACT_DIGEST: &'static str = crate::contract::CONTRACT_DIGEST;\n    const CONTRACT_JSON: &'static str = crate::contract::CONTRACT_JSON;\n}\n\npub struct ConnectedService {\n    inner: trellis::service::ConnectedServiceRuntime<Contract>,\n}\n\nimpl ConnectedService {\n    pub async fn connect(opts: ServiceConnectOptions<'_>) -> Result<Self, trellis::service::ServiceRuntimeError> {\n        Ok(Self { inner: trellis::service::ConnectedServiceRuntime::<Contract>::connect(opts).await? })\n    }\n    pub fn service(&self) -> Service<'_> { Service::new(self.inner.client()) }\n    pub fn client(&self) -> &std::sync::Arc<trellis::client::TrellisClient> { self.inner.client() }\n    pub(crate) fn runtime(&self) -> &trellis::service::ConnectedServiceRuntime<Contract> { &self.inner }\n    pub(crate) fn runtime_mut(&mut self) -> &mut trellis::service::ConnectedServiceRuntime<Contract> { &mut self.inner }\n    pub async fn run(self) -> Result<(), trellis::service::ServiceRuntimeError> { self.inner.run().await }\n}\n\npub struct ConnectedClient { inner: TrellisClient }\n\nimpl ConnectedClient {\n    pub fn new(inner: TrellisClient) -> Self { Self { inner } }\n    pub fn client(&self) -> Client<'_> { Client::new(&self.inner) }\n    pub fn trellis_client(&self) -> &TrellisClient { &self.inner }\n}\n\npub async fn connect_service(opts: ServiceConnectOptions<'_>) -> Result<ConnectedService, trellis::service::ServiceRuntimeError> {\n    ConnectedService::connect(opts).await\n}\n\npub async fn connect_user(opts: UserConnectOptions<'_>) -> Result<ConnectedClient, TrellisClientError> {\n    Ok(ConnectedClient::new(TrellisClient::connect_user(opts).await?))\n}\n".to_string()
 }
 
 fn render_participant_contract_rs(
@@ -943,23 +943,28 @@ fn render_participant_owned_rs(
             format!("sdk::{base}Response")
         };
         if input_empty {
-            lines.push(format!("    pub async fn {method}(&self) -> Result<{output_type}, trellis::client::TrellisClientError> {{ self.inner.{method}().await }}"));
+            let (group, surface_method) = surface_group_and_method(key);
+            lines.push(format!("    pub async fn {method}(&self) -> Result<{output_type}, trellis::client::TrellisClientError> {{ self.inner.rpc().{group}().{surface_method}().await }}"));
         } else {
-            lines.push(format!("    pub async fn {method}(&self, input: &sdk::{base}Request) -> Result<{output_type}, trellis::client::TrellisClientError> {{ self.inner.{method}(input).await }}"));
+            let (group, surface_method) = surface_group_and_method(key);
+            lines.push(format!("    pub async fn {method}(&self, input: &sdk::{base}Request) -> Result<{output_type}, trellis::client::TrellisClientError> {{ self.inner.rpc().{group}().{surface_method}(input).await }}"));
         }
     }
     for key in loaded.manifest.events.keys() {
         let method = format!("publish_{}", key_to_snake(key));
         let base = key_to_pascal(key);
-        lines.push(format!("    pub async fn {method}(&self, event: &sdk::{base}Event) -> Result<(), trellis::client::TrellisClientError> {{ self.inner.{method}(event).await }}"));
+        let (group, surface_method) = surface_group_and_method(key);
+        lines.push(format!("    pub async fn {method}(&self, event: &sdk::{base}Event) -> Result<(), trellis::client::TrellisClientError> {{ self.inner.event().{group}().{surface_method}().publish(event).await }}"));
     }
     for (key, feed) in &loaded.manifest.feeds {
         let method = key_to_snake(key);
         let base = key_to_pascal(key);
         if is_empty_object_schema(resolve_schema_ref(loaded, &feed.input.schema)) {
-            lines.push(format!("    pub async fn {method}(&self) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis::client::TrellisClientError>>, trellis::client::TrellisClientError> {{ self.inner.{method}().await }}"));
+            let (group, surface_method) = surface_group_and_method(key);
+            lines.push(format!("    pub async fn {method}(&self) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis::client::TrellisClientError>>, trellis::client::TrellisClientError> {{ self.inner.feed().{group}().{surface_method}().await }}"));
         } else {
-            lines.push(format!("    pub async fn {method}(&self, input: &sdk::{base}Input) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis::client::TrellisClientError>>, trellis::client::TrellisClientError> {{ self.inner.{method}(input).await }}"));
+            let (group, surface_method) = surface_group_and_method(key);
+            lines.push(format!("    pub async fn {method}(&self, input: &sdk::{base}Input) -> Result<futures_util::stream::BoxStream<'static, Result<sdk::{base}Event, trellis::client::TrellisClientError>>, trellis::client::TrellisClientError> {{ self.inner.feed().{group}().{surface_method}(input).await }}"));
         }
     }
     lines.push("}".to_string());
@@ -983,6 +988,7 @@ fn render_participant_owned_rs(
         || !loaded.manifest.events.is_empty()
         || !loaded.manifest.feeds.is_empty()
     {
+        render_participant_owned_provider_surface(loaded, &mut lines);
         lines.push("impl crate::ConnectedService {".to_string());
         for key in loaded.manifest.rpc.keys() {
             let method = format!("register_{}", key_to_snake(key));
@@ -1003,12 +1009,12 @@ fn render_participant_owned_rs(
             } else {
                 format!("sdk::{base}Response")
             };
-            lines.push(format!("    pub fn {method}<F, Fut>(&mut self, handler: F) where F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> Fut + Send + Sync + 'static, Fut: std::future::Future<Output = trellis::service::HandlerResult<{output_type}>> + Send + 'static {{ self.runtime_mut().register_rpc::<sdk::rpc::{base}Rpc, _, _>(handler); }}"));
+            lines.push(format!("    fn {method}<F, Fut>(&mut self, handler: F) where F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> Fut + Send + Sync + 'static, Fut: std::future::Future<Output = trellis::service::HandlerResult<{output_type}>> + Send + 'static {{ self.runtime_mut().register_rpc::<sdk::rpc::{base}Rpc, _, _>(handler); }}"));
         }
         for key in loaded.manifest.operations.keys() {
             let method = format!("register_{}_provider", key_to_snake(key));
             let base = key_to_pascal(key);
-            lines.push(format!("    pub fn {method}<P>(&mut self, provider: P) where P: trellis::service::ServiceOperationProvider<sdk::operations::{base}Operation> {{ self.runtime_mut().register_operation_provider::<sdk::operations::{base}Operation, _>(provider); }}"));
+            lines.push(format!("    fn {method}<P>(&mut self, provider: P) where P: trellis::service::ServiceOperationProvider<sdk::operations::{base}Operation> {{ self.runtime_mut().register_operation_provider::<sdk::operations::{base}Operation, _>(provider); }}"));
         }
         for key in loaded.manifest.events.keys() {
             let method = format!("publish_{}", key_to_snake(key));
@@ -1024,12 +1030,120 @@ fn render_participant_owned_rs(
                 } else {
                     format!("sdk::{base}Input")
                 };
-            lines.push(format!("    pub fn {method}<F, S>(&mut self, handler: F) where F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> S + Send + Sync + 'static, S: futures_util::Stream<Item = Result<sdk::{base}Event, trellis::service::ServerError>> + Send + 'static {{ self.runtime_mut().register_feed::<sdk::feeds::{base}FeedDescriptor, _, _>(handler); }}"));
+            lines.push(format!("    fn {method}<F, S>(&mut self, handler: F) where F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> S + Send + Sync + 'static, S: futures_util::Stream<Item = Result<sdk::{base}Event, trellis::service::ServerError>> + Send + 'static {{ self.runtime_mut().register_feed::<sdk::feeds::{base}FeedDescriptor, _, _>(handler); }}"));
         }
         lines.push("}".to_string());
         lines.push(String::new());
     }
     format!("{}\n", lines.join("\n"))
+}
+
+fn render_participant_owned_provider_surface(
+    loaded: &trellis_contracts::LoadedManifest,
+    lines: &mut Vec<String>,
+) {
+    lines.extend([
+        "impl crate::ConnectedService {".to_string(),
+        "    pub fn handle(&mut self) -> ServiceHandle<'_> { ServiceHandle { service: self } }".to_string(),
+        "}".to_string(),
+        String::new(),
+        "pub struct ServiceHandle<'a> { service: &'a mut crate::ConnectedService }".to_string(),
+        "impl<'a> ServiceHandle<'a> {".to_string(),
+        "    pub fn rpc(&mut self) -> ProviderRpc<'_> { ProviderRpc { service: self.service } }".to_string(),
+        "    pub fn feed(&mut self) -> ProviderFeed<'_> { ProviderFeed { service: self.service } }".to_string(),
+        "    pub fn operation(&mut self) -> ProviderOperation<'_> { ProviderOperation { service: self.service } }".to_string(),
+        "}".to_string(),
+        String::new(),
+        "pub struct ProviderRpc<'a> { service: &'a mut crate::ConnectedService }".to_string(),
+        "impl<'a> ProviderRpc<'a> {".to_string(),
+    ]);
+    for group in grouped_keys(&loaded.manifest.rpc).keys() {
+        let group_ty = format!("{}ProviderRpc", key_to_pascal(group));
+        lines.push(format!("    pub fn {group}(&mut self) -> {group_ty}<'_> {{ {group_ty} {{ service: self.service }} }}"));
+    }
+    lines.extend(["}".to_string(), String::new()]);
+    for (group, keys) in grouped_keys(&loaded.manifest.rpc) {
+        let group_ty = format!("{}ProviderRpc", key_to_pascal(&group));
+        lines.push(format!(
+            "pub struct {group_ty}<'a> {{ service: &'a mut crate::ConnectedService }}"
+        ));
+        lines.push(format!("impl<'a> {group_ty}<'a> {{"));
+        for key in keys {
+            let (_, method) = surface_group_and_method(key);
+            let register = format!("register_{}", key_to_snake(key));
+            let base = key_to_pascal(key);
+            let rpc = &loaded.manifest.rpc[key];
+            let input_type =
+                if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.input.schema)) {
+                    "sdk::rpc::Empty".to_string()
+                } else {
+                    format!("sdk::{base}Request")
+                };
+            let output_type =
+                if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.output.schema)) {
+                    "sdk::rpc::Empty".to_string()
+                } else {
+                    format!("sdk::{base}Response")
+                };
+            lines.push(format!("    pub fn {method}<F, Fut>(&mut self, handler: F) where F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> Fut + Send + Sync + 'static, Fut: std::future::Future<Output = trellis::service::HandlerResult<{output_type}>> + Send + 'static {{ self.service.{register}(handler); }}"));
+        }
+        lines.extend(["}".to_string(), String::new()]);
+    }
+
+    lines.extend([
+        "pub struct ProviderFeed<'a> { service: &'a mut crate::ConnectedService }".to_string(),
+        "impl<'a> ProviderFeed<'a> {".to_string(),
+    ]);
+    for group in grouped_keys(&loaded.manifest.feeds).keys() {
+        let group_ty = format!("{}ProviderFeed", key_to_pascal(group));
+        lines.push(format!("    pub fn {group}(&mut self) -> {group_ty}<'_> {{ {group_ty} {{ service: self.service }} }}"));
+    }
+    lines.extend(["}".to_string(), String::new()]);
+    for (group, keys) in grouped_keys(&loaded.manifest.feeds) {
+        let group_ty = format!("{}ProviderFeed", key_to_pascal(&group));
+        lines.push(format!(
+            "pub struct {group_ty}<'a> {{ service: &'a mut crate::ConnectedService }}"
+        ));
+        lines.push(format!("impl<'a> {group_ty}<'a> {{"));
+        for key in keys {
+            let (_, method) = surface_group_and_method(key);
+            let register = format!("register_{}", key_to_snake(key));
+            let base = key_to_pascal(key);
+            let feed = &loaded.manifest.feeds[key];
+            let input_type =
+                if is_empty_object_schema(resolve_schema_ref(loaded, &feed.input.schema)) {
+                    "sdk::rpc::Empty".to_string()
+                } else {
+                    format!("sdk::{base}Input")
+                };
+            lines.push(format!("    pub fn {method}<F, S>(&mut self, handler: F) where F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> S + Send + Sync + 'static, S: futures_util::Stream<Item = Result<sdk::{base}Event, trellis::service::ServerError>> + Send + 'static {{ self.service.{register}(handler); }}"));
+        }
+        lines.extend(["}".to_string(), String::new()]);
+    }
+
+    lines.extend([
+        "pub struct ProviderOperation<'a> { service: &'a mut crate::ConnectedService }".to_string(),
+        "impl<'a> ProviderOperation<'a> {".to_string(),
+    ]);
+    for group in grouped_keys(&loaded.manifest.operations).keys() {
+        let group_ty = format!("{}ProviderOperation", key_to_pascal(group));
+        lines.push(format!("    pub fn {group}(&mut self) -> {group_ty}<'_> {{ {group_ty} {{ service: self.service }} }}"));
+    }
+    lines.extend(["}".to_string(), String::new()]);
+    for (group, keys) in grouped_keys(&loaded.manifest.operations) {
+        let group_ty = format!("{}ProviderOperation", key_to_pascal(&group));
+        lines.push(format!(
+            "pub struct {group_ty}<'a> {{ service: &'a mut crate::ConnectedService }}"
+        ));
+        lines.push(format!("impl<'a> {group_ty}<'a> {{"));
+        for key in keys {
+            let (_, method) = surface_group_and_method(key);
+            let register = format!("register_{}_provider", key_to_snake(key));
+            let base = key_to_pascal(key);
+            lines.push(format!("    pub fn {method}<P>(&mut self, provider: P) where P: trellis::service::ServiceOperationProvider<sdk::operations::{base}Operation> {{ self.service.{register}(provider); }}"));
+        }
+        lines.extend(["}".to_string(), String::new()]);
+    }
 }
 
 fn render_participant_state_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
@@ -1751,93 +1865,270 @@ fn render_client_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         "        Self { inner }".to_string(),
         "    }".to_string(),
         String::new(),
+        "    /// Access typed RPC calls.".to_string(),
+        "    pub fn rpc(&self) -> Rpc<'a> { Rpc { _inner: self.inner } }".to_string(),
+        String::new(),
+        "    /// Access typed events.".to_string(),
+        "    pub fn event(&self) -> Event<'a> { Event { _inner: self.inner } }".to_string(),
+        String::new(),
+        "    /// Access typed feeds.".to_string(),
+        "    pub fn feed(&self) -> Feed<'a> { Feed { _inner: self.inner } }".to_string(),
+        String::new(),
+        "    /// Access typed operations.".to_string(),
+        "    pub fn operation(&self) -> Operation<'a> { Operation { _inner: self.inner } }"
+            .to_string(),
+        String::new(),
+        "}".to_string(),
+        String::new(),
     ];
 
-    for (key, rpc) in &loaded.manifest.rpc {
-        let base = key_to_pascal(key);
-        let method_name = key_to_snake(key);
-        let input_type = if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.input.schema)) {
-            None
-        } else {
-            Some(format!("crate::types::{base}Request"))
-        };
-        let output_type = if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.output.schema))
-        {
-            "crate::rpc::Empty".to_string()
-        } else {
-            format!("crate::types::{base}Response")
-        };
-        lines.push(format!("    /// Call `{key}`."));
-        match input_type {
-            Some(input_type) => {
-                lines.push(format!(
-                    "    pub async fn {method_name}(&self, input: &{input_type}) -> Result<{output_type}, TrellisClientError> {{"
-                ));
-                lines.push(format!(
-                    "        self.inner.call::<crate::rpc::{base}Rpc>(input).await"
-                ));
-            }
-            None => {
+    render_client_rpc_surface(loaded, &mut lines);
+    render_client_event_surface(loaded, &mut lines);
+    render_client_feed_surface(loaded, &mut lines);
+    render_client_operation_surface(loaded, &mut lines);
+
+    format!("{}\n", lines.join("\n"))
+}
+
+fn surface_group_and_method(key: &str) -> (String, String) {
+    let parts = key
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    let group = parts.first().copied().unwrap_or(key);
+    let tail = if parts.len() > 1 {
+        parts[1..].join(".")
+    } else {
+        key.to_string()
+    };
+    (
+        rust_ident(&key_to_snake(group)),
+        rust_ident(&key_to_snake(&tail)),
+    )
+}
+
+fn grouped_keys<'a, T>(
+    items: &'a std::collections::BTreeMap<String, T>,
+) -> std::collections::BTreeMap<String, Vec<&'a str>> {
+    let mut groups = std::collections::BTreeMap::<String, Vec<&'a str>>::new();
+    for key in items.keys() {
+        groups
+            .entry(surface_group_and_method(key).0)
+            .or_default()
+            .push(key.as_str());
+    }
+    groups
+}
+
+fn render_client_rpc_surface(loaded: &trellis_contracts::LoadedManifest, lines: &mut Vec<String>) {
+    lines.extend([
+        "/// Typed RPC surface.".to_string(),
+        "pub struct Rpc<'a> { pub(crate) _inner: &'a trellis::client::TrellisClient }".to_string(),
+        "impl<'a> Rpc<'a> {".to_string(),
+    ]);
+    for group in grouped_keys(&loaded.manifest.rpc).keys() {
+        let group_ty = format!("{}Rpc", key_to_pascal(group));
+        lines.push(format!(
+            "    pub fn {group}(&self) -> {group_ty}<'a> {{ {group_ty} {{ inner: self._inner }} }}"
+        ));
+    }
+    lines.extend(["}".to_string(), String::new()]);
+
+    for (group, keys) in grouped_keys(&loaded.manifest.rpc) {
+        let group_ty = format!("{}Rpc", key_to_pascal(&group));
+        lines.push(format!(
+            "pub struct {group_ty}<'a> {{ inner: &'a trellis::client::TrellisClient }}"
+        ));
+        lines.push(format!("impl<'a> {group_ty}<'a> {{"));
+        for key in keys {
+            let rpc = &loaded.manifest.rpc[key];
+            let base = key_to_pascal(key);
+            let (_, method_name) = surface_group_and_method(key);
+            let output_type =
+                if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.output.schema)) {
+                    "crate::rpc::Empty".to_string()
+                } else {
+                    format!("crate::types::{base}Response")
+                };
+            lines.push(format!("    /// Call `{key}`."));
+            if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.input.schema)) {
                 lines.push(format!(
                     "    pub async fn {method_name}(&self) -> Result<{output_type}, TrellisClientError> {{"
                 ));
                 lines.push(format!(
                     "        self.inner.call::<crate::rpc::{base}Rpc>(&crate::rpc::Empty {{}}).await"
                 ));
+            } else {
+                lines.push(format!(
+                    "    pub async fn {method_name}(&self, input: &crate::types::{base}Request) -> Result<{output_type}, TrellisClientError> {{"
+                ));
+                lines.push(format!(
+                    "        self.inner.call::<crate::rpc::{base}Rpc>(input).await"
+                ));
             }
+            lines.push("    }".to_string());
+            lines.push(String::new());
         }
-        lines.push("    }".to_string());
-        lines.push(String::new());
+        lines.extend(["}".to_string(), String::new()]);
     }
+}
 
-    for key in loaded.manifest.operations.keys() {
-        let base = key_to_pascal(key);
-        let method_name = key_to_snake(key);
-        lines.push(format!("    /// Start or control `{key}`."));
+fn render_client_event_surface(
+    loaded: &trellis_contracts::LoadedManifest,
+    lines: &mut Vec<String>,
+) {
+    lines.extend([
+        "/// Typed event surface.".to_string(),
+        "pub struct Event<'a> { pub(crate) _inner: &'a trellis::client::TrellisClient }"
+            .to_string(),
+        "impl<'a> Event<'a> {".to_string(),
+    ]);
+    for group in grouped_keys(&loaded.manifest.events).keys() {
+        let group_ty = format!("{}Event", key_to_pascal(group));
         lines.push(format!(
-            "    pub fn {method_name}(&self) -> trellis::client::OperationInvoker<'a, trellis::client::TrellisClient, crate::operations::{base}Operation> {{"
+            "    pub fn {group}(&self) -> {group_ty}<'a> {{ {group_ty} {{ inner: self._inner }} }}"
         ));
-        lines.push(format!(
-            "        self.inner.operation::<crate::operations::{base}Operation>()"
-        ));
-        lines.push("    }".to_string());
-        lines.push(String::new());
     }
+    lines.extend(["}".to_string(), String::new()]);
 
-    for key in loaded.manifest.events.keys() {
-        let base = key_to_pascal(key);
-        let method_name = format!("publish_{}", key_to_snake(key));
-        lines.push(format!("    /// Publish `{key}`."));
+    for (group, keys) in grouped_keys(&loaded.manifest.events) {
+        let group_ty = format!("{}Event", key_to_pascal(&group));
+        let mut leaf_lines = Vec::new();
         lines.push(format!(
-            "    pub async fn {method_name}(&self, event: &crate::types::{base}Event) -> Result<(), TrellisClientError> {{"
+            "pub struct {group_ty}<'a> {{ inner: &'a trellis::client::TrellisClient }}"
         ));
-        lines.push(format!(
-            "        self.inner.publish::<crate::events::{base}EventDescriptor>(event).await"
-        ));
-        lines.push("    }".to_string());
-        lines.push(String::new());
-    }
-
-    for (key, feed) in &loaded.manifest.feeds {
-        let base = key_to_pascal(key);
-        let method_name = key_to_snake(key);
-        lines.push(format!("    /// Subscribe to `{key}`."));
-        if is_empty_object_schema(resolve_schema_ref(loaded, &feed.input.schema)) {
-            lines.push(format!("    pub async fn {method_name}(&self) -> Result<futures_util::stream::BoxStream<'static, Result<crate::types::{base}Event, TrellisClientError>>, TrellisClientError> {{"));
-            lines.push(format!("        self.inner.feed::<crate::feeds::{base}FeedDescriptor>(&crate::rpc::Empty {{}}).await"));
-        } else {
-            lines.push(format!("    pub async fn {method_name}(&self, input: &crate::types::{base}Input) -> Result<futures_util::stream::BoxStream<'static, Result<crate::types::{base}Event, TrellisClientError>>, TrellisClientError> {{"));
+        lines.push(format!("impl<'a> {group_ty}<'a> {{"));
+        for key in keys {
+            let base = key_to_pascal(key);
+            let (_, method_name) = surface_group_and_method(key);
+            let leaf_ty = format!(
+                "{}{}Event",
+                key_to_pascal(&group),
+                key_to_pascal(&method_name)
+            );
             lines.push(format!(
-                "        self.inner.feed::<crate::feeds::{base}FeedDescriptor>(input).await"
+                "    pub fn {method_name}(&self) -> {leaf_ty}<'a> {{ {leaf_ty} {{ inner: self.inner }} }}"
             ));
+            lines.push(String::new());
+            leaf_lines.push(format!(
+                "pub struct {leaf_ty}<'a> {{ inner: &'a trellis::client::TrellisClient }}"
+            ));
+            leaf_lines.push(format!("impl<'a> {leaf_ty}<'a> {{"));
+            leaf_lines.push(format!(
+                "    pub async fn publish(&self, event: &crate::types::{base}Event) -> Result<(), TrellisClientError> {{"
+            ));
+            leaf_lines.push(format!(
+                "        self.inner.publish::<crate::events::{base}EventDescriptor>(event).await"
+            ));
+            leaf_lines.push("    }".to_string());
+            leaf_lines.push(format!("    pub async fn listen<F, Fut>(&self, handler: F) -> Result<(), TrellisClientError> where F: Fn(crate::types::{base}Event) -> Fut, Fut: std::future::Future<Output = Result<(), TrellisClientError>> {{"));
+            leaf_lines.push(format!(
+                "        let mut stream = self.inner.subscribe::<crate::events::{base}EventDescriptor>().await?;"
+            ));
+            leaf_lines.push("        while let Some(event) = futures_util::StreamExt::next(&mut stream).await {".to_string());
+            leaf_lines.push("            handler(event?).await?;".to_string());
+            leaf_lines.push("        }".to_string());
+            leaf_lines.push("        Ok(())".to_string());
+            leaf_lines.push("    }".to_string());
+            leaf_lines.extend(["}".to_string(), String::new()]);
         }
-        lines.push("    }".to_string());
-        lines.push(String::new());
+        lines.extend(["}".to_string(), String::new()]);
+        lines.extend(leaf_lines);
     }
+}
 
-    lines.push("}".to_string());
-    lines.push(String::new());
-    format!("{}\n", lines.join("\n"))
+fn render_client_feed_surface(loaded: &trellis_contracts::LoadedManifest, lines: &mut Vec<String>) {
+    lines.extend([
+        "/// Typed feed surface.".to_string(),
+        "pub struct Feed<'a> { pub(crate) _inner: &'a trellis::client::TrellisClient }".to_string(),
+        "impl<'a> Feed<'a> {".to_string(),
+    ]);
+    for group in grouped_keys(&loaded.manifest.feeds).keys() {
+        let group_ty = format!("{}Feed", key_to_pascal(group));
+        lines.push(format!(
+            "    pub fn {group}(&self) -> {group_ty}<'a> {{ {group_ty} {{ inner: self._inner }} }}"
+        ));
+    }
+    lines.extend(["}".to_string(), String::new()]);
+
+    for (group, keys) in grouped_keys(&loaded.manifest.feeds) {
+        let group_ty = format!("{}Feed", key_to_pascal(&group));
+        lines.push(format!(
+            "pub struct {group_ty}<'a> {{ inner: &'a trellis::client::TrellisClient }}"
+        ));
+        lines.push(format!("impl<'a> {group_ty}<'a> {{"));
+        for key in keys {
+            let feed = &loaded.manifest.feeds[key];
+            let base = key_to_pascal(key);
+            let (_, method_name) = surface_group_and_method(key);
+            lines.push(format!("    /// Subscribe to `{key}`."));
+            if is_empty_object_schema(resolve_schema_ref(loaded, &feed.input.schema)) {
+                lines.push(format!("    pub async fn {method_name}(&self) -> Result<futures_util::stream::BoxStream<'static, Result<crate::types::{base}Event, TrellisClientError>>, TrellisClientError> {{"));
+                lines.push(format!("        self.inner.feed::<crate::feeds::{base}FeedDescriptor>(&crate::rpc::Empty {{}}).await"));
+            } else {
+                lines.push(format!("    pub async fn {method_name}(&self, input: &crate::types::{base}Input) -> Result<futures_util::stream::BoxStream<'static, Result<crate::types::{base}Event, TrellisClientError>>, TrellisClientError> {{"));
+                lines.push(format!(
+                    "        self.inner.feed::<crate::feeds::{base}FeedDescriptor>(input).await"
+                ));
+            }
+            lines.push("    }".to_string());
+            lines.push(String::new());
+        }
+        lines.extend(["}".to_string(), String::new()]);
+    }
+}
+
+fn render_client_operation_surface(
+    loaded: &trellis_contracts::LoadedManifest,
+    lines: &mut Vec<String>,
+) {
+    lines.extend([
+        "/// Typed operation surface.".to_string(),
+        "pub struct Operation<'a> { pub(crate) _inner: &'a trellis::client::TrellisClient }"
+            .to_string(),
+        "impl<'a> Operation<'a> {".to_string(),
+    ]);
+    for group in grouped_keys(&loaded.manifest.operations).keys() {
+        let group_ty = format!("{}Operation", key_to_pascal(group));
+        lines.push(format!(
+            "    pub fn {group}(&self) -> {group_ty}<'a> {{ {group_ty} {{ inner: self._inner }} }}"
+        ));
+    }
+    lines.extend(["}".to_string(), String::new()]);
+
+    for (group, keys) in grouped_keys(&loaded.manifest.operations) {
+        let group_ty = format!("{}Operation", key_to_pascal(&group));
+        let mut leaf_lines = Vec::new();
+        lines.push(format!(
+            "pub struct {group_ty}<'a> {{ inner: &'a trellis::client::TrellisClient }}"
+        ));
+        lines.push(format!("impl<'a> {group_ty}<'a> {{"));
+        for key in keys {
+            let base = key_to_pascal(key);
+            let (_, method_name) = surface_group_and_method(key);
+            let leaf_ty = format!(
+                "{}{}Operation",
+                key_to_pascal(&group),
+                key_to_pascal(&method_name)
+            );
+            lines.push(format!(
+                "    pub fn {method_name}(&self) -> {leaf_ty}<'a> {{ {leaf_ty} {{ inner: self.inner }} }}"
+            ));
+            lines.push(String::new());
+            leaf_lines.push(format!(
+                "pub struct {leaf_ty}<'a> {{ inner: &'a trellis::client::TrellisClient }}"
+            ));
+            leaf_lines.push(format!("impl<'a> {leaf_ty}<'a> {{"));
+            leaf_lines.push(format!("    pub async fn start(&self, input: &crate::types::{base}Input) -> Result<trellis::client::OperationRef<'a, trellis::client::TrellisClient, crate::operations::{base}Operation>, TrellisClientError> {{"));
+            leaf_lines.push(format!(
+                "        self.inner.operation::<crate::operations::{base}Operation>().start(input).await"
+            ));
+            leaf_lines.push("    }".to_string());
+            leaf_lines.extend(["}".to_string(), String::new()]);
+        }
+        lines.extend(["}".to_string(), String::new()]);
+        lines.extend(leaf_lines);
+    }
 }
 
 fn render_service_connect_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
@@ -1881,6 +2172,21 @@ fn render_service_connect_rs(loaded: &trellis_contracts::LoadedManifest) -> Stri
         "    /// Return an event publisher backed by the connected NATS client.".to_string(),
         "    pub fn event_publisher(&self) -> trellis::service::EventPublisher { self.inner.event_publisher() }".to_string(),
         String::new(),
+        "    /// Access typed outbound RPC calls.".to_string(),
+        "    pub fn rpc(&self) -> crate::client::Rpc<'_> { crate::client::Rpc { _inner: self.inner.client() } }".to_string(),
+        String::new(),
+        "    /// Access typed outbound events.".to_string(),
+        "    pub fn event(&self) -> crate::client::Event<'_> { crate::client::Event { _inner: self.inner.client() } }".to_string(),
+        String::new(),
+        "    /// Access typed outbound feeds.".to_string(),
+        "    pub fn feed(&self) -> crate::client::Feed<'_> { crate::client::Feed { _inner: self.inner.client() } }".to_string(),
+        String::new(),
+        "    /// Access typed outbound operations.".to_string(),
+        "    pub fn operation(&self) -> crate::client::Operation<'_> { crate::client::Operation { _inner: self.inner.client() } }".to_string(),
+        String::new(),
+        "    /// Access typed provider registration surfaces.".to_string(),
+        "    pub fn handle(&mut self) -> ServiceHandle<'_> { ServiceHandle { service: self } }".to_string(),
+        String::new(),
     ];
 
     for (key, rpc) in &loaded.manifest.rpc {
@@ -1898,9 +2204,7 @@ fn render_service_connect_rs(loaded: &trellis_contracts::LoadedManifest) -> Stri
             format!("crate::types::{base}Response")
         };
         lines.push(format!("    /// Register a handler for `{key}`."));
-        lines.push(format!(
-            "    pub fn {method}<F, Fut>(&mut self, handler: F)"
-        ));
+        lines.push(format!("    fn {method}<F, Fut>(&mut self, handler: F)"));
         lines.push("    where".to_string());
         lines.push(format!("        F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> Fut + Send + Sync + 'static,"));
         lines.push(format!("        Fut: std::future::Future<Output = trellis::service::HandlerResult<{output_type}>> + Send + 'static,"));
@@ -1935,7 +2239,7 @@ fn render_service_connect_rs(loaded: &trellis_contracts::LoadedManifest) -> Stri
             format!("crate::types::{base}Input")
         };
         lines.push(format!("    /// Register a feed handler for `{key}`."));
-        lines.push(format!("    pub fn {method}<F, S>(&mut self, handler: F)"));
+        lines.push(format!("    fn {method}<F, S>(&mut self, handler: F)"));
         lines.push("    where".to_string());
         lines.push(format!("        F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> S + Send + Sync + 'static,"));
         lines.push(format!("        S: futures_util::Stream<Item = Result<crate::types::{base}Event, trellis::service::ServerError>> + Send + 'static,"));
@@ -1970,7 +2274,7 @@ fn render_service_connect_rs(loaded: &trellis_contracts::LoadedManifest) -> Stri
         };
         lines.push(format!("    /// Register a provider for `{key}`."));
         lines.push(format!(
-            "    pub fn {method}_provider<P>(&mut self, provider: P)"
+            "    fn {method}_provider<P>(&mut self, provider: P)"
         ));
         lines.push("    where".to_string());
         lines.push(format!("        P: trellis::service::ServiceOperationProvider<crate::operations::{base}Operation>,"));
@@ -1982,7 +2286,7 @@ fn render_service_connect_rs(loaded: &trellis_contracts::LoadedManifest) -> Stri
         lines.push(format!(
             "    /// Register handlers with a watch stream for `{key}`."
         ));
-        lines.push(format!("    pub fn {method}_with_watch<FStart, FutStart, FGet, FutGet, FWatch, FCancel, FutCancel>(&mut self, start: FStart, get: FGet, watch: FWatch, cancel: FCancel)"));
+        lines.push(format!("    fn {method}_with_watch<FStart, FutStart, FGet, FutGet, FWatch, FCancel, FutCancel>(&mut self, start: FStart, get: FGet, watch: FWatch, cancel: FCancel)"));
         lines.push("    where".to_string());
         lines.push(format!("        FStart: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> FutStart + Send + Sync + 'static,"));
         lines.push(format!("        FutStart: std::future::Future<Output = Result<trellis::service::AcceptedOperation<{progress_type}, {output_type}>, trellis::service::ServerError>> + Send + 'static,"));
@@ -2002,6 +2306,11 @@ fn render_service_connect_rs(loaded: &trellis_contracts::LoadedManifest) -> Stri
         "    pub async fn run(self) -> Result<(), trellis::service::ServiceRuntimeError> { self.inner.run().await }".to_string(),
         "}".to_string(),
         String::new(),
+    ]);
+
+    render_service_provider_surface(loaded, &mut lines);
+
+    lines.extend([
         "/// Connect this generated service contract to Trellis.".to_string(),
         "pub async fn connect_service(opts: ServiceConnectOptions<'_>) -> Result<ConnectedService, trellis::service::ServiceRuntimeError> {".to_string(),
         "    ConnectedService::connect(opts).await".to_string(),
@@ -2010,6 +2319,113 @@ fn render_service_connect_rs(loaded: &trellis_contracts::LoadedManifest) -> Stri
     ]);
 
     format!("{}\n", lines.join("\n"))
+}
+
+fn render_service_provider_surface(
+    loaded: &trellis_contracts::LoadedManifest,
+    lines: &mut Vec<String>,
+) {
+    lines.extend([
+        "/// Typed provider registration surface.".to_string(),
+        "pub struct ServiceHandle<'a> { service: &'a mut ConnectedService }".to_string(),
+        "impl<'a> ServiceHandle<'a> {".to_string(),
+        "    pub fn rpc(&mut self) -> ProviderRpc<'_> { ProviderRpc { service: self.service } }".to_string(),
+        "    pub fn feed(&mut self) -> ProviderFeed<'_> { ProviderFeed { service: self.service } }".to_string(),
+        "    pub fn operation(&mut self) -> ProviderOperation<'_> { ProviderOperation { service: self.service } }".to_string(),
+        "}".to_string(),
+        String::new(),
+        "pub struct ProviderRpc<'a> { service: &'a mut ConnectedService }".to_string(),
+        "impl<'a> ProviderRpc<'a> {".to_string(),
+    ]);
+    for group in grouped_keys(&loaded.manifest.rpc).keys() {
+        let group_ty = format!("{}ProviderRpc", key_to_pascal(group));
+        lines.push(format!(
+            "    pub fn {group}(&mut self) -> {group_ty}<'_> {{ {group_ty} {{ service: self.service }} }}"
+        ));
+    }
+    lines.extend(["}".to_string(), String::new()]);
+    for (group, keys) in grouped_keys(&loaded.manifest.rpc) {
+        let group_ty = format!("{}ProviderRpc", key_to_pascal(&group));
+        lines.push(format!(
+            "pub struct {group_ty}<'a> {{ service: &'a mut ConnectedService }}"
+        ));
+        lines.push(format!("impl<'a> {group_ty}<'a> {{"));
+        for key in keys {
+            let (_, method) = surface_group_and_method(key);
+            let register = format!("register_{}", key_to_snake(key));
+            let base = key_to_pascal(key);
+            let rpc = &loaded.manifest.rpc[key];
+            let input_type =
+                if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.input.schema)) {
+                    "crate::rpc::Empty".to_string()
+                } else {
+                    format!("crate::types::{base}Request")
+                };
+            let output_type =
+                if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.output.schema)) {
+                    "crate::rpc::Empty".to_string()
+                } else {
+                    format!("crate::types::{base}Response")
+                };
+            lines.push(format!("    pub fn {method}<F, Fut>(&mut self, handler: F) where F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> Fut + Send + Sync + 'static, Fut: std::future::Future<Output = trellis::service::HandlerResult<{output_type}>> + Send + 'static {{ self.service.{register}(handler); }}"));
+        }
+        lines.extend(["}".to_string(), String::new()]);
+    }
+
+    lines.extend([
+        "pub struct ProviderFeed<'a> { service: &'a mut ConnectedService }".to_string(),
+        "impl<'a> ProviderFeed<'a> {".to_string(),
+    ]);
+    for group in grouped_keys(&loaded.manifest.feeds).keys() {
+        let group_ty = format!("{}ProviderFeed", key_to_pascal(group));
+        lines.push(format!("    pub fn {group}(&mut self) -> {group_ty}<'_> {{ {group_ty} {{ service: self.service }} }}"));
+    }
+    lines.extend(["}".to_string(), String::new()]);
+    for (group, keys) in grouped_keys(&loaded.manifest.feeds) {
+        let group_ty = format!("{}ProviderFeed", key_to_pascal(&group));
+        lines.push(format!(
+            "pub struct {group_ty}<'a> {{ service: &'a mut ConnectedService }}"
+        ));
+        lines.push(format!("impl<'a> {group_ty}<'a> {{"));
+        for key in keys {
+            let (_, method) = surface_group_and_method(key);
+            let register = format!("register_{}", key_to_snake(key));
+            let base = key_to_pascal(key);
+            let feed = &loaded.manifest.feeds[key];
+            let input_type =
+                if is_empty_object_schema(resolve_schema_ref(loaded, &feed.input.schema)) {
+                    "crate::rpc::Empty".to_string()
+                } else {
+                    format!("crate::types::{base}Input")
+                };
+            lines.push(format!("    pub fn {method}<F, S>(&mut self, handler: F) where F: Fn(trellis::service::ServiceHandlerContext, {input_type}) -> S + Send + Sync + 'static, S: futures_util::Stream<Item = Result<crate::types::{base}Event, trellis::service::ServerError>> + Send + 'static {{ self.service.{register}(handler); }}"));
+        }
+        lines.extend(["}".to_string(), String::new()]);
+    }
+
+    lines.extend([
+        "pub struct ProviderOperation<'a> { service: &'a mut ConnectedService }".to_string(),
+        "impl<'a> ProviderOperation<'a> {".to_string(),
+    ]);
+    for group in grouped_keys(&loaded.manifest.operations).keys() {
+        let group_ty = format!("{}ProviderOperation", key_to_pascal(group));
+        lines.push(format!("    pub fn {group}(&mut self) -> {group_ty}<'_> {{ {group_ty} {{ service: self.service }} }}"));
+    }
+    lines.extend(["}".to_string(), String::new()]);
+    for (group, keys) in grouped_keys(&loaded.manifest.operations) {
+        let group_ty = format!("{}ProviderOperation", key_to_pascal(&group));
+        lines.push(format!(
+            "pub struct {group_ty}<'a> {{ service: &'a mut ConnectedService }}"
+        ));
+        lines.push(format!("impl<'a> {group_ty}<'a> {{"));
+        for key in keys {
+            let (_, method) = surface_group_and_method(key);
+            let register = format!("register_{}_provider", key_to_snake(key));
+            let base = key_to_pascal(key);
+            lines.push(format!("    pub fn {method}<P>(&mut self, provider: P) where P: trellis::service::ServiceOperationProvider<crate::operations::{base}Operation> {{ self.service.{register}(provider); }}"));
+        }
+        lines.extend(["}".to_string(), String::new()]);
+    }
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> Result<(), CodegenRustError> {
@@ -2838,30 +3254,37 @@ mod tests {
             "const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[\"audit.feed.subscribe\"];"
         ));
         assert!(client_rs.contains("pub struct CoreClient<'a>"));
-        assert!(client_rs.contains("pub async fn trellis_catalog("));
-        assert!(client_rs.contains("pub async fn audit_feed("));
+        assert!(client_rs.contains("pub fn rpc(&self) -> Rpc<'a>"));
+        assert!(client_rs.contains("pub fn trellis(&self) -> TrellisRpc<'a>"));
+        assert!(client_rs.contains("pub async fn catalog("));
+        assert!(client_rs.contains("pub fn feed(&self) -> Feed<'a>"));
+        assert!(client_rs.contains("pub fn audit(&self) -> AuditFeed<'a>"));
+        assert!(client_rs.contains("pub async fn feed("));
         assert!(client_rs.contains("futures_util::stream::BoxStream"));
         assert!(client_rs.contains(".feed::<"));
         assert!(client_rs.contains("crate::feeds::AuditFeedFeedDescriptor"));
-        assert!(client_rs.contains("trellis::client::OperationInvoker<"));
+        assert!(client_rs.contains("pub fn operation(&self) -> Operation<'a>"));
         assert!(client_rs.contains("crate::operations::TrellisProcessOperation"));
-        assert!(connect_rs.contains("pub fn register_trellis_catalog<F, Fut>"));
+        assert!(connect_rs.contains("pub fn handle(&mut self) -> ServiceHandle<'_>"));
+        assert!(connect_rs.contains("pub fn rpc(&mut self) -> ProviderRpc<'_>"));
+        assert!(connect_rs.contains("pub fn trellis(&mut self) -> TrellisProviderRpc<'_>"));
+        assert!(connect_rs.contains("pub fn catalog<F, Fut>(&mut self, handler: F)"));
         assert!(connect_rs.contains("trellis::service::ServiceHandlerContext"));
         assert!(connect_rs.contains("crate::types::TrellisCatalogResponse"));
         assert!(connect_rs.contains("register_rpc::<crate::rpc::TrellisCatalogRpc"));
-        assert!(connect_rs.contains("pub fn register_audit_feed<F, S>"));
+        assert!(connect_rs.contains("pub fn feed<F, S>(&mut self, handler: F)"));
         assert!(connect_rs.contains("crate::types::AuditFeedInput"));
         assert!(connect_rs.contains("crate::types::AuditFeedEvent"));
         assert!(connect_rs.contains("register_feed::<crate::feeds::AuditFeedFeedDescriptor"));
-        assert!(connect_rs.contains("pub fn register_trellis_process_provider<P>"));
+        assert!(connect_rs.contains("pub fn process<P>(&mut self, provider: P)"));
         assert!(connect_rs.contains("trellis::service::ServiceOperationProvider<"));
-        assert!(connect_rs.contains("pub fn register_trellis_process_with_watch"));
         assert!(connect_rs.contains("trellis::service::AcceptedOperation<"));
         assert!(connect_rs.contains("trellis::service::OperationSnapshot<"));
         assert!(connect_rs.contains("trellis::service::ServiceOperationWatch<"));
         assert!(connect_rs.contains("register_operation_with_watch::<"));
-        assert!(connect_rs.contains("pub async fn publish_auth_changed"));
+        assert!(connect_rs.contains("pub fn event(&self) -> crate::client::Event<'_>"));
         assert!(connect_rs.contains("publish::<crate::events::AuthChangedEventDescriptor"));
+        assert!(!connect_rs.contains("pub fn register_"));
         assert!(!connect_rs.contains("raw_mut().register_rpc::<"));
         assert!(!connect_rs.contains("raw_mut().register_feed::<"));
         assert!(!connect_rs.contains("raw_mut().register_operation_provider::<"));
@@ -3419,13 +3842,16 @@ mod tests {
         assert!(contract_rs.contains("pub const CONTRACT_DIGEST: &str = "));
         assert!(contract_rs.contains("pub const CONTRACT_JSON: &str = include_str!"));
         assert!(owned_rs.contains("impl crate::ConnectedService"));
-        assert!(owned_rs.contains("pub fn register_audit_list<F, Fut>(&mut self, handler: F)"));
+        assert!(owned_rs.contains("pub fn handle(&mut self) -> ServiceHandle<'_>"));
+        assert!(owned_rs.contains("pub fn rpc(&mut self) -> ProviderRpc<'_>"));
+        assert!(owned_rs.contains("pub fn audit(&mut self) -> AuditProviderRpc<'_>"));
+        assert!(owned_rs.contains("pub fn list<F, Fut>(&mut self, handler: F)"));
         assert!(owned_rs.contains(".register_rpc::<sdk::rpc::AuditListRpc"));
         assert!(owned_rs.contains("runtime_mut()"));
-        assert!(!owned_rs.contains("pub fn register_audit_list<F, Fut>(&mut self, router"));
-        assert!(owned_rs.contains("pub fn register_audit_feed<F, S>(&mut self, handler: F)"));
+        assert!(!owned_rs.contains("pub fn register_audit_list"));
+        assert!(owned_rs.contains("pub fn feed<F, S>(&mut self, handler: F)"));
         assert!(owned_rs.contains(".register_feed::<sdk::feeds::AuditFeedFeedDescriptor"));
-        assert!(!owned_rs.contains("pub fn register_audit_feed<F, S>(&mut self, router"));
+        assert!(!owned_rs.contains("pub fn register_audit_feed"));
         assert!(out_dir.join("facade/contracts/core.json").exists());
         assert!(out_dir.join("facade/contracts/auth.json").exists());
 
@@ -3481,7 +3907,8 @@ mod tests {
 
         let owned_rs = fs::read_to_string(out_dir.join("generated/src/owned.rs")).unwrap();
         assert!(owned_rs.contains("impl crate::ConnectedService"));
-        assert!(owned_rs.contains("pub fn register_op_run_provider<P>(&mut self, provider: P)"));
+        assert!(owned_rs.contains("pub fn run<P>(&mut self, provider: P)"));
+        assert!(!owned_rs.contains("pub fn register_op_run_provider"));
         assert!(owned_rs.contains("sdk::operations::OpRunOperation"));
 
         fs::remove_dir_all(out_dir).unwrap();

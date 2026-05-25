@@ -89,11 +89,10 @@ function waitFor(condition: () => boolean, description: string): Promise<void> {
 const testCase = Deno.env.get("HARNESS_EVENT_CASE");
 if (testCase === "durable-resubscribe") {
   const durableName = `ts-events-durable-${Deno.env.get("HARNESS_MESSAGE")}`;
-  await client.event("Harness.Rust.Event", {}, () => ok(undefined), {
+  await client.event.harness.rustEvent.listen(() => ok(undefined), {}, {
     durableName,
   }).orThrow();
-  await client.natsConnection.flush();
-  await client.natsConnection.drain();
+  await client.connection.close();
   const second = await TrellisClient.connect({
     trellisUrl: Deno.env.get("TRELLIS_URL")!,
     contract,
@@ -104,38 +103,44 @@ if (testCase === "durable-resubscribe") {
     },
     log: undefined,
   }).orThrow();
-  await second.event("Harness.Rust.Event", {}, () => ok(undefined), {
+  await second.event.harness.rustEvent.listen(() => ok(undefined), {}, {
     durableName,
   }).orThrow();
-  await second.natsConnection.drain();
+  await second.connection.close();
 } else if (testCase === "handler-nak") {
   let attempts = 0;
-  await client.event("Harness.Rust.Event", {}, () => {
-    attempts += 1;
-    if (attempts === 1) {
-      return err(new UnexpectedError({ cause: new Error("fail once") }));
-    }
-    return ok(undefined);
-  }, {
-    durableName: `ts-events-nak-${Deno.env.get("HARNESS_MESSAGE")}`,
-    replay: "new",
-  }).orThrow();
-  await client.natsConnection.flush();
-  await client.publish("Harness.Rust.Event", {
+  await client.event.harness.rustEvent.listen(
+    () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return err(new UnexpectedError({ cause: new Error("fail once") }));
+      }
+      return ok(undefined);
+    },
+    {},
+    {
+      durableName: `ts-events-nak-${Deno.env.get("HARNESS_MESSAGE")}`,
+      replay: "new",
+    },
+  ).orThrow();
+  await client.event.harness.rustEvent.publish({
     message: Deno.env.get("HARNESS_MESSAGE")!,
   }).orThrow();
   await waitFor(() => attempts >= 2, "TS event redelivery after NAK");
-  await client.natsConnection.drain();
+  await client.connection.close();
 } else if (testCase === "invalid-term") {
   let calls = 0;
-  await client.event("Harness.Rust.Event", {}, () => {
-    calls += 1;
-    return ok(undefined);
-  }, {
-    durableName: `ts-events-invalid-${Deno.env.get("HARNESS_MESSAGE")}`,
-    replay: "new",
-  }).orThrow();
-  await client.natsConnection.flush();
+  await client.event.harness.rustEvent.listen(
+    () => {
+      calls += 1;
+      return ok(undefined);
+    },
+    {},
+    {
+      durableName: `ts-events-invalid-${Deno.env.get("HARNESS_MESSAGE")}`,
+      replay: "new",
+    },
+  ).orThrow();
   await jetstream(client.natsConnection).publish(
     "events.v1.Harness.Rust.Event",
     JSON.stringify({
@@ -146,25 +151,30 @@ if (testCase === "durable-resubscribe") {
   if (calls !== 0) {
     throw new Error(`invalid event reached TS handler ${calls} time(s)`);
   }
-  await client.natsConnection.drain();
+  await client.connection.close();
 } else if (testCase === "ephemeral-abort") {
   const controller = new AbortController();
   const received: string[] = [];
-  await client.event("Harness.Rust.Event", {}, (event) => {
-    received.push((event as { message: string }).message);
-    return ok(undefined);
-  }, { mode: "ephemeral", replay: "new", signal: controller.signal }).orThrow();
-  await client.natsConnection.flush();
-  await client.publish("Harness.Rust.Event", { message: "first" }).orThrow();
+  await client.event.harness.rustEvent.listen(
+    (event) => {
+      received.push((event as { message: string }).message);
+      return ok(undefined);
+    },
+    {},
+    { mode: "ephemeral", replay: "new", signal: controller.signal },
+  )
+    .orThrow();
+  await client.event.harness.rustEvent.publish({ message: "first" }).orThrow();
   await waitFor(() => received.length === 1, "TS ephemeral first event");
   controller.abort();
   await new Promise((resolve) => setTimeout(resolve, 100));
-  await client.publish("Harness.Rust.Event", { message: "second" }).orThrow();
+  await client.event.harness.rustEvent.publish({ message: "second" })
+    .orThrow();
   await new Promise((resolve) => setTimeout(resolve, 250));
   if (received.join(",") !== "first") {
     throw new Error(`unexpected TS ephemeral events ${received.join(",")}`);
   }
-  await client.natsConnection.drain();
+  await client.connection.close();
 } else {
   throw new Error(`unknown HARNESS_EVENT_CASE ${testCase}`);
 }

@@ -187,7 +187,7 @@ Keep metadata small and descriptive. If the service needs richer typed state or 
 Transfer-capable operations can stage caller-sent bytes into a service store. After the provider-side `transfer.completed()` resolves, the staged object is durable in the owning service store and the next step is normal store access.
 
 ```ts
-await service.operation("Documents.Files.Upload").handle(
+await service.handle.operation.documents.filesUpload(
   async ({ input, transfer }) => {
     const transferred = await transfer.completed();
     if (transferred.isErr()) return Result.err(transferred.error);
@@ -222,4 +222,4 @@ Prefer `stream()` for large files and use `bytes()` only when buffering the full
 
 `resources.store` is the service-owned storage layer. Do not expose raw store bindings to callers.
 
-For caller-sent bytes, expose a contract-owned operation with `transfer: { direction: "send", store, key, contentType }` and let the service process the staged object after `transfer.completed()`. For caller-received bytes, expose a contract-owned RPC or operation that returns a `direction: "receive"` transfer grant; callers consume that grant with `trellis.transfer(grant).stream()` or `.bytes()`.
+For caller-sent bytes, expose a contract-owned operation with `transfer: { direction: "send", store, key, contentType }` and let the service process the staged object after `transfer.completed()`. For caller-received bytes, expose a contract-owned RPC or operation that returns a `direction: "receive"` transfer grant; callers consume that grant with `client.transfer(grant).stream()` or `.bytes()`.

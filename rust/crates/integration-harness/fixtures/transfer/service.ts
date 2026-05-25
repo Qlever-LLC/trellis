@@ -150,7 +150,7 @@ const service = await TrellisService.connect({
   server: { log: undefined },
 }).orThrow();
 
-await service.operation("Harness.Ts.TransferUpload").handle(async (context) => {
+await service.handle.operation.harness.tsTransferUpload(async (context) => {
   const input = requireUploadInput(context.input, "Harness.Ts.TransferUpload");
   // @ts-expect-error Transfer-enabled operation context exposes transfer at runtime.
   const transfer = context.transfer;
@@ -172,12 +172,11 @@ await service.operation("Harness.Ts.TransferUpload").handle(async (context) => {
   });
 });
 
-await service.trellis.mount(
-  "Harness.Ts.TransferDownload",
-  async ({ input, context, trellis }) => {
+await service.handle.rpc.harness.tsTransferDownload(
+  async ({ input, context, client }) => {
     const typedInput = requireUploadInput(input, "Harness.Ts.TransferDownload");
     const payload = new TextEncoder().encode(`ts-download:${typedInput.key}`);
-    const store = await trellis.store.uploads.open().orThrow();
+    const store = await client.store.uploads.open().orThrow();
     await store.put(typedInput.key, payload, { contentType: "text/plain" })
       .orThrow();
     const grant = await service.createTransfer({

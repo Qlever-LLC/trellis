@@ -10,7 +10,7 @@ function pause(ms: number): Promise<void> {
 export const refreshSite: OperationHandler<
   typeof contract,
   "Sites.Refresh"
-> = async ({ input, op, trellis }) => {
+> = async ({ input, op, client }) => {
   await op.started().orThrow();
   await op.progress({
     stage: "queued",
@@ -18,7 +18,7 @@ export const refreshSite: OperationHandler<
   }).orThrow();
   await pause(900);
 
-  const job = await trellis.jobs.refreshSiteSummary.create({
+  const job = await client.jobs.refreshSiteSummary.create({
     siteId: input.siteId,
   }).orThrow();
   await pause(700);
@@ -44,14 +44,14 @@ export const refreshSite: OperationHandler<
 
   const completed = await op.complete(completedJob.result).orThrow();
 
-  await trellis.publish("Sites.Refreshed", {
+  await client.event.sites.refreshed.publish({
     refreshId: completedJob.result.refreshId,
     site: completedJob.result.site,
     refreshedAt: new Date().toISOString(),
   }).orThrow();
   await pause(700);
 
-  await recordActivity(trellis, {
+  await recordActivity(client, {
     kind: "site-refreshed",
     message: `Refreshed ${completedJob.result.site.siteName}`,
     relatedSiteId: completedJob.result.site.siteId,

@@ -66,21 +66,18 @@ export async function registerApprovalAndUserRpcs(deps: {
   const kick = createKick(deps);
   const portalBaseUrl = deps.config.web.publicOrigin ??
     deps.config.oauth.redirectBase;
-  await deps.trellis.mount(
-    "Auth.Identities.List",
+  await deps.trellis.handle.rpc.auth.identitiesList(
     createAuthIdentitiesListHandler({
       contractApprovalStorage: deps.contractApprovalStorage,
       logger: deps.logger,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Identities.Grants.List",
+  await deps.trellis.handle.rpc.auth.identitiesGrantsList(
     createAuthIdentitiesGrantsListHandler({
       contractApprovalStorage: deps.contractApprovalStorage,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.IdentityEnvelopes.Revoke",
+  await deps.trellis.handle.rpc.auth.identityEnvelopesRevoke(
     createAuthIdentityEnvelopesRevokeHandler({
       connectionsKV: deps.connectionsKV,
       contractApprovalStorage: deps.contractApprovalStorage,
@@ -91,77 +88,66 @@ export async function registerApprovalAndUserRpcs(deps: {
     }),
   );
 
-  await deps.trellis.mount(
-    "Auth.Users.List",
+  await deps.trellis.handle.rpc.auth.usersList(
     createAuthUsersListHandler(
       deps.accountStorage,
       deps.userIdentityStorage,
       deps.logger,
     ),
   );
-  await deps.trellis.mount(
-    "Auth.Users.Get",
+  await deps.trellis.handle.rpc.auth.usersGet(
     createAuthUsersGetHandler(
       deps.accountStorage,
       deps.userIdentityStorage,
       deps.logger,
     ),
   );
-  await deps.trellis.mount(
-    "Auth.Users.Create",
+  await deps.trellis.handle.rpc.auth.usersCreate(
     createAuthUsersCreateHandler(deps.accountStorage, deps.logger),
   );
-  await deps.trellis.mount(
-    "Auth.Capabilities.List",
+  await deps.trellis.handle.rpc.auth.capabilitiesList(
     createAuthCapabilitiesListHandler(deps.contracts, deps.logger),
   );
-  await deps.trellis.mount(
-    "Auth.CapabilityGroups.List",
+  await deps.trellis.handle.rpc.auth.capabilityGroupsList(
     createAuthCapabilityGroupsListHandler(
       deps.capabilityGroupStorage,
       deps.logger,
     ),
   );
-  await deps.trellis.mount(
-    "Auth.CapabilityGroups.Get",
+  await deps.trellis.handle.rpc.auth.capabilityGroupsGet(
     createAuthCapabilityGroupsGetHandler(
       deps.capabilityGroupStorage,
       deps.logger,
     ),
   );
-  await deps.trellis.mount(
-    "Auth.CapabilityGroups.Put",
+  await deps.trellis.handle.rpc.auth.capabilityGroupsPut(
     createAuthCapabilityGroupsPutHandler(
       deps.capabilityGroupStorage,
       deps.contracts,
       deps.logger,
     ),
   );
-  await deps.trellis.mount(
-    "Auth.CapabilityGroups.Delete",
+  await deps.trellis.handle.rpc.auth.capabilityGroupsDelete(
     createAuthCapabilityGroupsDeleteHandler(
       deps.capabilityGroupStorage,
       deps.logger,
     ),
   );
-  await deps.trellis.mount(
-    "Auth.Users.Update",
+  await deps.trellis.handle.rpc.auth.usersUpdate(
     createAuthUsersUpdateHandler(
       deps.accountStorage,
       deps.logger,
       deps.capabilityGroupStorage,
     ),
   );
-  await deps.trellis.mount(
-    "Auth.UserIdentities.List",
+  await deps.trellis.handle.rpc.auth.userIdentitiesList(
     createAuthUserIdentitiesListHandler(
       deps.accountStorage,
       deps.userIdentityStorage,
       deps.logger,
     ),
   );
-  await deps.trellis.mount(
-    "Auth.UserIdentities.Unlink",
+  await deps.trellis.handle.rpc.auth.userIdentitiesUnlink(
     createAuthUserIdentitiesUnlinkHandler(
       deps.accountStorage,
       deps.userIdentityStorage,
@@ -169,8 +155,7 @@ export async function registerApprovalAndUserRpcs(deps: {
       deps.capabilityGroupStorage,
     ),
   );
-  await deps.trellis.mount(
-    "Auth.Users.IdentityLink.Create",
+  await deps.trellis.handle.rpc.auth.usersIdentityLinkCreate(
     createAuthUsersIdentityLinkCreateHandler({
       accountStorage: deps.accountStorage,
       accountFlowStorage: deps.accountFlowStorage,
@@ -178,8 +163,7 @@ export async function registerApprovalAndUserRpcs(deps: {
       portalBaseUrl,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Users.Password.Change",
+  await deps.trellis.handle.rpc.auth.usersPasswordChange(
     createAuthUsersPasswordChangeHandler({
       accountStorage: deps.accountStorage,
       userIdentityStorage: deps.userIdentityStorage,
@@ -193,8 +177,7 @@ export async function registerApprovalAndUserRpcs(deps: {
         deps.config.auth.localIdentity.passwordPolicy.minLength,
     }),
   );
-  await deps.trellis.mount(
-    "Auth.Users.PasswordReset.Create",
+  await deps.trellis.handle.rpc.auth.usersPasswordResetCreate(
     createAuthUsersPasswordResetCreateHandler({
       accountStorage: deps.accountStorage,
       userIdentityStorage: deps.userIdentityStorage,

@@ -203,8 +203,7 @@ export function registerAccountFlowRoutes(
       connectionsKV: opts.runtimeDeps.connectionsKV,
       kick: opts.kick,
       publishSessionRevoked: async (event) => {
-        (await opts.runtimeDeps.trellis.publish(
-          "Auth.Sessions.Revoked",
+        (await opts.runtimeDeps.trellis.event.auth.sessionsRevoked.publish(
           event,
         )).inspectErr((error) =>
           logger.warn({ error }, "Failed to publish Auth.Sessions.Revoked")

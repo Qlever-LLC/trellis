@@ -11,7 +11,7 @@ import {
   AuthSessionsMeResponseSchema,
   AuthSessionsMeSchema,
 } from "@qlever-llc/trellis/auth";
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals } from "@std/assert";
 
 import { Type } from "typebox";
 import { err, isErr, ok } from "../../result/mod.ts";
@@ -347,8 +347,7 @@ Deno.test({
     );
 
     let validateCalls = 0;
-    await authService.mount(
-      "Auth.Requests.Validate",
+    await authService.handle.rpc.auth.requestsValidate(
       async ({ input }: { input: unknown }) => {
         const sessionKey = typeof input === "object" && input !== null
           ? Reflect.get(input, "sessionKey")
@@ -368,7 +367,7 @@ Deno.test({
       },
     );
 
-    await meService.mount("Auth.Sessions.Me", async ({ context: ctx }) => {
+    await meService.handle.rpc.auth.sessionsMe(async ({ context: ctx }) => {
       if (ctx.caller.type !== "user") {
         throw new Error("expected user caller");
       }
@@ -383,7 +382,7 @@ Deno.test({
       { name: "client-retry" },
     );
 
-    const result = await client.request("Auth.Sessions.Me", {}, {
+    const result = await client.rpc.auth.sessionsMe({}, {
       timeout: 500,
     });
     const response = result.take();
@@ -395,7 +394,7 @@ Deno.test({
   },
 });
 
-Deno.test("mount rejects unknown RPC methods with an explicit error", async () => {
+Deno.test("RPC handle facade omits unknown RPC methods", async () => {
   const service = createClient(
     emptyContract,
     { options: { inboxPrefix: "_INBOX.test" } } as never,
@@ -403,9 +402,5 @@ Deno.test("mount rejects unknown RPC methods with an explicit error", async () =
     { name: "unknown-rpc-service" },
   );
 
-  await assertRejects(
-    () => service.mount("Does.Not.Exist" as never, async () => ok({} as never)),
-    Error,
-    "Unknown RPC method",
-  );
+  assertEquals(Reflect.get(service.handle.rpc, "does"), undefined);
 });

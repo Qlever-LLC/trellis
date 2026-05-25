@@ -89,8 +89,8 @@ Descriptor rules:
 - `progress` is optional; if omitted, the operation does not emit typed progress
   payloads
 - `capabilities.call` gates initial invocation
-- `capabilities.observe` gates `get`, `wait`, and `watch`; if omitted, it defaults
-  to `capabilities.call`
+- `capabilities.observe` gates `get`, `wait`, and `watch`; if omitted, it
+  defaults to `capabilities.call`
 - `capabilities.cancel` gates `cancel`; if omitted, cancellation is not
   caller-accessible unless the runtime is acting as the owning service
 - `capabilities.control` gates named operation signals; if omitted, signal
@@ -138,14 +138,14 @@ Rules:
   `/api`
 - callers configure new operations through typed builders derived from
   contract-owned operation keys, not free-form string dispatch
-- `operation(...).input(...).start()` returns an `OperationRef`, not a terminal
-  result
+- `operation.<group>.<leaf>.start(input)` returns an `OperationRef`, not a
+  terminal result
 - `OperationRef.get()` returns the current durable snapshot
 - `OperationRef.wait()` resolves from durable state and live events to a
   terminal snapshot
 - `OperationRef.watch()` returns a live async stream of typed operation events
 - transfer-capable operations initiate caller-to-service send transfer through
-  `operation(...).input(...).transfer(body).start()`
+  `operation.<group>.<leaf>.input(input).transfer(body).start()`
 - transfer initiation is builder-only: callers MUST NOT start an operation once
   and attach bytes later, and resumed operation references MUST only observe
   transfer-backed operations
@@ -173,17 +173,18 @@ Rules:
 
 Caller surface:
 
-- callers start async workflows with `operation(key).input(input).start()` and
+- callers start async workflows with `operation.<group>.<leaf>.start(input)` and
   receive an `OperationRef`
 - callers observe the operation through `get()`, `wait()`, `watch()`, and
   operation-reference control helpers such as `cancel()` and `signal(...)`
-- callers send bytes for transfer-backed operations through
-  `operation(key).input(input).transfer(body).start()`
+- callers send bytes for transfer-backed operations through the generated
+  operation leaf's builder path,
+  `operation.<group>.<leaf>.input(input).transfer(body).start()`
 
 Owning-service surface:
 
 - owning services register handlers with
-  `service.operation(key).handle(handler)`
+  `service.handle.operation.<group>.<leaf>(handler)`
 - generated service surfaces expose typed input, caller identity, and an active
   operation handle to handlers
 - transfer-capable handlers receive provider-side transfer progress and durable
@@ -194,9 +195,10 @@ Owning-service surface:
   publishing lifecycle changes, progress, terminal success, terminal failure,
   cancellation, or job attachment
 - owning services also expose an operation-scoped control path such as
-  `service.operation(key).control(operationId)` for service-private jobs and
-  other durable service-owned execution paths that only have the operation id
-  after handler return, restart, redelivery, retry, or delayed execution
+  `service.handle.operation.<group>.<leaf>.control(operationId)` for
+  service-private jobs and other durable service-owned execution paths that only
+  have the operation id after handler return, restart, redelivery, retry, or
+  delayed execution
 - service-side control by id MUST load the durable operation record, verify the
   record belongs to the current service and requested operation key, validate
   progress/output against the operation descriptor, reject terminal mutations,
@@ -289,7 +291,7 @@ general-purpose cross-service subscribe grants.
 
 ### 7) Operation wire model
 
-The TypeScript public API is `operation(...).input(...).start()` plus
+The TypeScript public API is `operation.<group>.<leaf>.start(input)` plus
 `OperationRef.get/wait/watch/cancel/signal`. Other language runtimes expose the
 same protocol through their generated facade support as it lands. The underlying
 wire model is standardized enough for auth and codegen.
@@ -340,7 +342,7 @@ Rules:
   session data needed to execute the builder-managed send step
 - the initial snapshot revision MUST be `1`
 - the accepted reply is the only response sent for
-  `operation(...).input(...).start()`
+  `operation.<group>.<leaf>.start(input)`
 
 #### 7b) Internal control request envelope
 
@@ -509,8 +511,8 @@ Authorization rules:
 - the owning service MUST persist enough operation ownership metadata to
   authorize follow-up access to a specific operation id
 - the default runtime rule is creator-bound visibility: the principal that
-  created the operation may observe it later unless the owning service explicitly
-  grants broader domain access
+  created the operation may observe it later unless the owning service
+  explicitly grants broader domain access
 
 Trellis MUST NOT introduce a broad deployment-wide capability equivalent to
 "observe every operation everywhere" for ordinary clients.
@@ -586,7 +588,7 @@ await billing.operation("Billing.Refund").handle(async ({ input, op }) => {
 
 await service.jobs.submitRefund.handle(async ({ job }) => {
   const { operationId, chargeId, amount } = job.payload;
-  const op = await service.operation("Billing.Refund")
+  const op = await service.handle.operation.billing.refund
     .control(operationId)
     .orThrow();
 
@@ -596,12 +598,10 @@ await service.jobs.submitRefund.handle(async ({ job }) => {
     message: "Submitting refund to payment processor",
   }).orThrow();
 
-  const payment = await payments.operation("Payments.Refund")
-    .input({
-      chargeId,
-      amount,
-    })
-    .start();
+  const payment = await payments.operation.payments.refund.start({
+    chargeId,
+    amount,
+  });
 
   const paymentDone = await payment.wait();
   if (paymentDone.isErr()) {

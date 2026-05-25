@@ -7,7 +7,10 @@ import { assertEquals, assertExists } from "jsr:@std/assert";
 import { Type } from "typebox";
 import { AsyncResult, type BaseError, Result } from "@qlever-llc/result";
 import { defineServiceContract } from "../contract.ts";
-import { CONTRACT_KV_METADATA } from "../contract_support/mod.ts";
+import {
+  CONTRACT_JOBS_METADATA,
+  CONTRACT_KV_METADATA,
+} from "../contract_support/mod.ts";
 import type {
   EventHandler,
   EventName,
@@ -37,7 +40,6 @@ import {
   type ServiceContract,
   StoreHandle,
   type SubscribeOpts,
-  type Trellis as ServiceTrellisHandler,
   type TrellisService,
   TrellisService as TrellisServiceClass,
   TrellisServiceRuntime,
@@ -260,12 +262,10 @@ Deno.test("service wrapper type surface stays specific", () => {
     >,
     storeHandle: StoreHandle,
   ): {
-    request: AsyncResult<{ ok: boolean }, BaseError>;
     kv: TypedKV<typeof typeTestSchemas.KVValue>;
     storeOpen: AsyncResult<TypedStore, StoreError>;
   } {
     return {
-      request: service.request("Test.Ping", { value: "ping" }),
       kv: service.kv.items,
       storeOpen: storeHandle.open(),
     };
@@ -276,53 +276,11 @@ Deno.test("service wrapper type surface stays specific", () => {
   assertEquals(true, true);
 });
 
-Deno.test("service wrapper mount handlers stay method-typed", () => {
-  function expectTypedMount(
-    service: TrellisService<
-      typeof typeTestContract.API.owned,
-      typeof typeTestContract.API.trellis,
-      {},
-      TypeTestKv
-    >,
-  ) {
-    void service.trellis.mount(
-      "Test.Ping",
-      async ({ input, context, trellis }) => {
-        const value: string = input.value;
-        const sessionKey: string = context.sessionKey;
-        const ping = trellis.request("Test.Ping", { value });
-        const kv: TypedKV<typeof typeTestSchemas.KVValue> = trellis.kv.items;
-        const store = trellis.store.uploads.open();
-        assertExists(ping);
-        assertExists(kv);
-        assertExists(store);
-        assertExists(sessionKey);
-        return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
-      },
-    );
-
-    void service.trellis.mount("Test.Ping", ({ input, context, trellis }) => {
-      const value: string = input.value;
-      const sessionKey: string = context.sessionKey;
-      const ping = trellis.request("Test.Ping", { value });
-      const kv: TypedKV<typeof typeTestSchemas.KVValue> = trellis.kv.items;
-      const store = trellis.store.uploads.open();
-      assertExists(ping);
-      assertExists(kv);
-      assertExists(store);
-      assertExists(sessionKey);
-      return Result.ok({ ok: value.length > 0 && sessionKey.length >= 0 });
-    });
-  }
-
-  assertExists(expectTypedMount);
-});
-
 Deno.test("optional KV aliases stay optional in the service type", () => {
   function expectOptionalKv(
     service: TrellisService<
       typeof optionalKvTypeTestContract.API.owned,
-      typeof optionalKvTypeTestContract.API.trellis,
+      typeof optionalKvTypeTestContract.API.owned,
       {},
       OptionalKvTypeTest
     >,
@@ -337,25 +295,19 @@ Deno.test("service wrapper exposes typed jobs facade", () => {
   type JobsContract = typeof jobsTypeTestContract;
   type JobsService = TrellisService<
     JobsContract["API"]["owned"],
-    JobsContract["API"]["trellis"],
-    JobsContract extends ServiceContract<
-      infer _TOwned,
-      infer _TTrellis,
-      infer TJobs,
-      infer _TKv
-    > ? TJobs
-      : never
+    JobsContract["API"]["owned"],
+    NonNullable<JobsContract[typeof CONTRACT_JOBS_METADATA]>
   >;
 
   function expectTypedJobs(service: JobsService) {
     const created = service.jobs.refreshSummaries.create({ siteId: "site-1" });
     const registered = service.jobs.refreshSummaries.handle(
-      async ({ job, trellis }) => {
+      async ({ job, client }) => {
         const siteId: string = job.payload.siteId;
         assertEquals(siteId, job.payload.siteId);
-        assertExists(trellis.kv);
-        assertExists(trellis.store);
-        assertExists(trellis.jobs.refreshSummaries.create({ siteId }));
+        assertExists(client.kv);
+        assertExists(client.store);
+        assertExists(client.jobs.refreshSummaries.create({ siteId }));
         return Result.ok({ refreshId: `refresh-${siteId}` });
       },
     );
@@ -370,12 +322,12 @@ Deno.test("service wrapper exposes typed jobs facade", () => {
 Deno.test("server RPC helper types support extracted handlers", () => {
   type PingHandler = RpcHandler<typeof typeTestContract, "Test.Ping">;
 
-  const pingHandler: PingHandler = ({ input, context, trellis }) => {
+  const pingHandler: PingHandler = ({ input, context, client }) => {
     const value: string = input.value;
     const sessionKey: string = context.sessionKey;
-    const ping = trellis.request("Test.Ping", { value });
-    const kv: TypedKV<typeof typeTestSchemas.KVValue> = trellis.kv.items;
-    const store = trellis.store.uploads.open();
+    const ping = client.rpc.test.ping({ value });
+    const kv: TypedKV<typeof typeTestSchemas.KVValue> = client.kv.items;
+    const store = client.store.uploads.open();
     assertExists(ping);
     assertExists(kv);
     assertExists(store);
@@ -419,17 +371,17 @@ Deno.test("contract-oriented helper types support local Args and Return aliases"
   const ping = ({
     input,
     context,
-    trellis,
+    client,
   }: Args): Return => {
     const value: string = input.value;
     const sessionKey: string = context.sessionKey;
-    const outbound: TypeTestTrellis = trellis;
-    assertExists(outbound.request("Test.Ping", { value }));
-    const kv: TypedKV<typeof typeTestSchemas.KVValue> = trellis.kv.items;
-    const store = trellis.store.uploads.open();
+    const outbound: TypeTestTrellis = client;
+    assertExists(outbound.rpc.test.ping({ value }));
+    const kv: TypedKV<typeof typeTestSchemas.KVValue> = client.kv.items;
+    const store = client.store.uploads.open();
     assertExists(kv);
     assertExists(store);
-    assertExists(trellis.jobs);
+    assertExists(client.jobs);
     const output = {
       ok: value.length > 0 && sessionKey.length >= 0,
     };
@@ -454,11 +406,11 @@ Deno.test("job helper types support local Args and Return aliases", () => {
   type Return = JobResult<typeof jobsTypeTestContract, "refreshSummaries">;
   const argsTypeCheck: Args | undefined = undefined;
 
-  const refresh = async ({ job, trellis }: Args): Promise<Return> => {
+  const refresh = async ({ job, client }: Args): Promise<Return> => {
     const siteId: string = job.payload.siteId;
-    const kv: TypedKV<typeof jobsTypeTestSchemas.KVValue> = trellis.kv.items;
-    const created = trellis.jobs.refreshSummaries.create({ siteId });
-    const store = trellis.store.uploads.open();
+    const kv: TypedKV<typeof jobsTypeTestSchemas.KVValue> = client.kv.items;
+    const created = client.jobs.refreshSummaries.create({ siteId });
+    const store = client.store.uploads.open();
     assertExists(kv);
     assertExists(created);
     assertExists(store);
@@ -469,11 +421,7 @@ Deno.test("job helper types support local Args and Return aliases", () => {
   assertEquals(argsTypeCheck, undefined);
 });
 
-Deno.test("service handler aliases expose narrow trellis object args", () => {
-  type ServiceRuntime = ServiceTrellisHandler<
-    typeof typeTestContract.API.trellis,
-    TypeTestKv
-  >;
+Deno.test("service handler aliases expose narrow client object args", () => {
   type PingRpcHandler = RpcHandler<typeof typeTestContract, "Test.Ping">;
   type RefreshJobHandler = JobHandler<
     typeof jobsTypeTestContract,
@@ -484,31 +432,35 @@ Deno.test("service handler aliases expose narrow trellis object args", () => {
     "Test.Run"
   >;
 
-  const expectRuntime = (trellis: ServiceRuntime) => {
-    assertExists(trellis.request("Test.Ping", { value: "ok" }));
-    assertExists(trellis.kv.items);
-    assertExists(trellis.store.uploads.open());
+  const expectRuntime = (
+    client: Parameters<PingRpcHandler>[0]["client"],
+  ) => {
+    assertExists(client.rpc.test.ping({ value: "ok" }));
+    assertExists(client.kv.items);
+    assertExists(client.store.uploads.open());
   };
 
-  const rpcHandler: PingRpcHandler = ({ input, context, trellis }) => {
-    expectRuntime(trellis);
+  const rpcHandler: PingRpcHandler = ({ input, context, client }) => {
+    expectRuntime(client);
     return Result.ok({
       ok: input.value.length >
         context.sessionKey.length - context.sessionKey.length,
     });
   };
 
-  const jobHandler: RefreshJobHandler = async ({ job, trellis }) => {
-    expectRuntime(trellis);
+  const jobHandler: RefreshJobHandler = async ({ job, client }) => {
+    assertExists(
+      client.jobs.refreshSummaries.create({ siteId: job.payload.siteId }),
+    );
     return Result.ok({ refreshId: job.payload.siteId });
   };
 
   const operationHandler: PingOperationHandler = async (
-    { input, op, trellis },
+    { input, op, client },
   ) => {
     assertEquals(input.value, "run");
     assertExists(op.started());
-    expectRuntime(trellis);
+    assertExists(client.kv.items);
     return Result.ok(undefined);
   };
 

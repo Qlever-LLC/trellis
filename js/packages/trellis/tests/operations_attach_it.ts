@@ -160,11 +160,13 @@ async function createAttachTestRuntime() {
   const { auth } = await createTestAuth();
   const serverNc = createConnection();
   const clientNc = createConnection();
-  const server = TrellisServiceRuntime.create(
+  const api = billing.API.trellis;
+  if (!api) throw new Error("expected billing Trellis API");
+  const server = TrellisServiceRuntime.create<NonNullable<typeof api>>(
     "billing-server",
     serverNc,
     auth,
-    { api: billing.API.trellis },
+    { api },
   );
   const operationRecords = new Map<string, DurableOperationRecord>();
   server.saveOperationRecord = async (runtime: RuntimeOperationRecord) => {
@@ -194,29 +196,31 @@ Deno.test({
     const jobDone = deferred();
     let jobWaitStarted = false;
 
-    await server.operation("Billing.Refund").handle(async ({ input, op }) => {
-      assertEquals(input.chargeId, "ch_123");
+    await server.operationHandle("Billing.Refund").handle(
+      async ({ input, op }) => {
+        assertEquals(input.chargeId, "ch_123");
 
-      const job = {
-        id: "job_123",
-        service: "billing-server",
-        type: "submit-refund",
-        wait: () =>
-          AsyncResult.from((async () => {
-            await server.operations.started(op.id);
-            await server.operations.progress(op.id, { message: "working" });
-            jobWaitStarted = true;
-            await jobDone.promise;
-            await server.operations.complete(op.id, { refundId: "rf_123" });
-            return ok(undefined);
-          })()),
-      };
+        const job = {
+          id: "job_123",
+          service: "billing-server",
+          type: "submit-refund",
+          wait: () =>
+            AsyncResult.from((async () => {
+              await server.operations.started(op.id);
+              await server.operations.progress(op.id, { message: "working" });
+              jobWaitStarted = true;
+              await jobDone.promise;
+              await server.operations.complete(op.id, { refundId: "rf_123" });
+              return ok(undefined);
+            })()),
+        };
 
-      return await op.attach(job);
-    });
+        return await op.attach(job);
+      },
+    );
 
     try {
-      const ref = await client.operation("Billing.Refund").input({
+      const ref = await client.operation.billing.refund.input({
         chargeId: "ch_123",
       }).start().match({
         ok: (value) => value,

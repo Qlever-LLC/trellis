@@ -1020,6 +1020,105 @@ export type FeedRegistration<TInput, TEvent> = {
   ): Promise<void>;
 };
 
+type SurfaceGroups<TLeaf> = Record<string, Record<string, TLeaf>>;
+type RuntimeRpcLeaf = (
+  input: unknown,
+  opts?: RequestOpts,
+) => AsyncResult<unknown, BaseError>;
+type RuntimeEventLeaf = {
+  publish(
+    event: Record<string, unknown>,
+  ): AsyncResult<void, ValidationError | UnexpectedError>;
+  listen(
+    handler: EventCallback<unknown>,
+    subjectData?: Record<string, unknown>,
+    opts?: EventOpts,
+  ): AsyncResult<void, ValidationError | UnexpectedError>;
+};
+type RuntimeFeedLeaf = (
+  input: unknown,
+  opts?: FeedSubscribeOpts,
+) => AsyncResult<FeedSubscription<unknown>, BaseError>;
+type RuntimeOperationLeaf = OperationInvoker<RuntimeOperationDesc>;
+type PascalSurfaceName<T extends string> = T extends
+  `${infer Head}.${infer Tail}`
+  ? `${Capitalize<Head>}${PascalSurfaceName<Tail>}`
+  : Capitalize<T>;
+type LowerCamelSurfaceName<T extends string> = Uncapitalize<
+  PascalSurfaceName<T>
+>;
+type SurfaceGroupName<T extends string> = T extends `${infer Head}.${string}`
+  ? LowerCamelSurfaceName<Head>
+  : LowerCamelSurfaceName<T>;
+type SurfaceLeafName<T extends string> = T extends `${string}.${infer Tail}`
+  ? LowerCamelSurfaceName<Tail>
+  : LowerCamelSurfaceName<T>;
+type SurfaceKeysForGroup<TKeys extends string, TGroup extends string> =
+  TKeys extends string ? SurfaceGroupName<TKeys> extends TGroup ? TKeys : never
+    : never;
+
+export type ActiveRpcFacade<TA extends AnyTrellisAPI = TrellisAPI> = {
+  readonly [TGroup in SurfaceGroupName<MethodsOf<TA>>]: {
+    readonly [
+      M in SurfaceKeysForGroup<MethodsOf<TA>, TGroup> as SurfaceLeafName<M>
+    ]: (
+      input: RpcInputOf<TA, M>,
+      opts?: RequestOpts,
+    ) => AsyncResult<RpcOutputOf<TA, M>, BaseError>;
+  };
+};
+
+export type ActiveEventFacade<TA extends AnyTrellisAPI = TrellisAPI> = {
+  readonly [TGroup in SurfaceGroupName<EventsOf<TA>>]: {
+    readonly [
+      E in SurfaceKeysForGroup<EventsOf<TA>, TGroup> as SurfaceLeafName<E>
+    ]: {
+      publish(
+        event: EventPayloadOf<TA, E>,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      listen(
+        handler: EventCallback<EventOf<TA, E>>,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+  };
+};
+
+export type ActiveFeedFacade<TA extends AnyTrellisAPI = TrellisAPI> = {
+  readonly [TGroup in SurfaceGroupName<FeedsOf<TA>>]: {
+    readonly [
+      F in SurfaceKeysForGroup<FeedsOf<TA>, TGroup> as SurfaceLeafName<F>
+    ]: (
+      input: FeedInputOf<TA, F>,
+      opts?: FeedSubscribeOpts,
+    ) => AsyncResult<FeedSubscription<FeedEventOf<TA, F>>, BaseError>;
+  };
+};
+
+export type ActiveOperationFacade<TA extends AnyTrellisAPI = TrellisAPI> = {
+  readonly [TGroup in SurfaceGroupName<OperationsOf<TA>>]: {
+    readonly [
+      O in SurfaceKeysForGroup<OperationsOf<TA>, TGroup> as SurfaceLeafName<O>
+    ]: OperationInvoker<
+      TA["operations"][O] & RuntimeOperationDesc
+    >;
+  };
+};
+
+export type ActiveRpcHandleFacade<
+  TA extends AnyTrellisAPI = TrellisAPI,
+  TRequests = RpcRequestShapes<TA>,
+> = {
+  readonly [TGroup in SurfaceGroupName<MethodsOf<TA>>]: {
+    readonly [
+      M in SurfaceKeysForGroup<MethodsOf<TA>, TGroup> as SurfaceLeafName<M>
+    ]: (
+      handler: HandlerFn<TA, M, TA, HandlerTrellis<TA, TRequests>>,
+    ) => Promise<void>;
+  };
+};
+
 export type FeedSurface<
   TA extends AnyTrellisAPI,
   TMode extends TrellisMode,
@@ -1043,6 +1142,10 @@ export type HandlerTrellis<
   TA extends AnyTrellisAPI,
   TRequests = RpcRequestShapes<TA>,
 > = {
+  readonly rpc: ActiveRpcFacade<TA>;
+  readonly event: ActiveEventFacade<TA>;
+  readonly feed: ActiveFeedFacade<TA>;
+  readonly operation: ActiveOperationFacade<TA>;
   request<const M extends RequestMethodOf<TRequests>>(
     method: M,
     input: RequestInputOf<TRequests, M>,
@@ -1052,16 +1155,42 @@ export type HandlerTrellis<
     event: string,
     data: Record<string, unknown>,
   ): AsyncResult<void, ValidationError | UnexpectedError>;
-  event<E extends EventsOf<TA>>(
+  listenEvent<E extends EventsOf<TA>>(
     event: E,
     subjectData: Record<string, unknown>,
     fn: EventCallback<EventOf<TA, E>>,
     opts?: EventOpts,
   ): AsyncResult<void, ValidationError | UnexpectedError>;
-  operation<O extends OperationsOf<TA>>(
-    operation: O,
-  ): OperationSurface<TA, TrellisMode, O>;
 };
+
+function surfaceGroupName(key: string): string {
+  return lowerCamelIdent(key.split(".")[0] ?? key);
+}
+
+function surfaceLeafName(key: string): string {
+  const parts = key.split(".");
+  parts.shift();
+  return lowerCamelIdent(parts.length === 0 ? key : parts.join("."));
+}
+
+function lowerCamelIdent(value: string): string {
+  const pascal = value
+    .split(/[^A-Za-z0-9]+/)
+    .filter((part) => part.length > 0)
+    .map((part) => part[0]!.toUpperCase() + part.slice(1))
+    .join("");
+  return pascal.length === 0 ? "_" : pascal[0]!.toLowerCase() + pascal.slice(1);
+}
+
+function addSurfaceLeaf<TLeaf>(
+  surface: SurfaceGroups<TLeaf>,
+  key: string,
+  leaf: TLeaf,
+): void {
+  const group = surfaceGroupName(key);
+  surface[group] ??= {};
+  surface[group][surfaceLeafName(key)] = leaf;
+}
 
 export type HandlerKvFacade<TKv extends ContractKvMetadata> = {
   [K in keyof TKv]: TKv[K]["required"] extends false
@@ -1086,7 +1215,7 @@ export type HandlerJobQueue<
   handle(
     handler: (args: {
       job: ActiveJob<TPayload, TResult>;
-      trellis: TTrellis;
+      client: TTrellis;
     }) => Promise<Result<TResult, BaseError>>,
   ): void;
 };
@@ -1126,6 +1255,11 @@ export type ClientTrellis<
   readonly state: StateFacade<TState>;
   readonly connection: TrellisConnection;
   readonly natsConnection: NatsConnection;
+  readonly rpc: ActiveRpcFacade<TA>;
+  readonly event: ActiveEventFacade<TA>;
+  readonly feed: ActiveFeedFacade<TA>;
+  readonly operation: ActiveOperationFacade<TA>;
+  readonly handle: { readonly rpc: ActiveRpcHandleFacade<TA, TRequests> };
   request<const M extends RequestMethodOf<TRequests>>(
     method: M,
     input: RequestInputOf<TRequests, M>,
@@ -1135,18 +1269,6 @@ export type ClientTrellis<
     event: E,
     data: EventPayloadOf<TA, E>,
   ): AsyncResult<void, ValidationError | UnexpectedError>;
-  event(
-    event: string,
-    subjectData: Record<string, unknown>,
-    fn: EventCallback<unknown>,
-    opts?: EventOpts,
-  ): AsyncResult<void, ValidationError | UnexpectedError>;
-  feed<F extends FeedsOf<TA>>(
-    feed: F,
-  ): FeedInputBuilder<FeedInputOf<TA, F>, FeedEventOf<TA, F>>;
-  operation<O extends OperationsOf<TA>>(
-    operation: O,
-  ): OperationSurface<TA, "client", O>;
   transfer(grant: SendTransferGrant): SendTransferHandle;
   transfer(grant: ReceiveTransferGrant): ReceiveTransferHandle;
   wait(): AsyncResult<void, BaseError>;
@@ -1170,7 +1292,7 @@ export type HandlerArgs<
 > = {
   input: MethodInputOf<TMountApi, M>;
   context: RpcHandlerContext;
-  trellis: TTrellis;
+  client: TTrellis;
 };
 
 export type HandlerFn<
@@ -1663,6 +1785,11 @@ export class Trellis<
   readonly timeout: number;
   readonly stream: string;
   readonly state: StateFacade<TState>;
+  readonly rpc: ActiveRpcFacade<TA>;
+  readonly event: ActiveEventFacade<TA>;
+  readonly feed: ActiveFeedFacade<TA>;
+  readonly operation: ActiveOperationFacade<TA>;
+  readonly handle: { readonly rpc: ActiveRpcHandleFacade<TA, TRequests> };
   /** Framework-neutral lifecycle handle for this Trellis runtime connection. */
   readonly connection: TrellisConnection;
 
@@ -1705,6 +1832,11 @@ export class Trellis<
 
     this.#tasks = new TrellisTasks({ log: this.#log });
     this.state = this.#createStateFacade(opts?.state as TState | undefined);
+    this.rpc = this.#createRpcFacade();
+    this.handle = { rpc: this.#createRpcHandleFacade() };
+    this.event = this.#createEventFacade();
+    this.feed = this.#createFeedFacade();
+    this.operation = this.#createOperationFacade();
   }
 
   /**
@@ -1852,6 +1984,106 @@ export class Trellis<
     );
 
     return facade as StateFacade<TState>;
+  }
+
+  #createRpcFacade(): ActiveRpcFacade<TA> {
+    const surface: SurfaceGroups<RuntimeRpcLeaf> = {};
+    for (const method of Object.keys(this.api.rpc ?? {})) {
+      const leaf: RuntimeRpcLeaf = (input, opts) =>
+        this.request(
+          method as RequestMethodOf<TRequests>,
+          input as RequestInputOf<TRequests, RequestMethodOf<TRequests>>,
+          opts,
+        );
+      addSurfaceLeaf(surface, method, leaf);
+    }
+    return surface as ActiveRpcFacade<TA>;
+  }
+
+  #createRpcHandleFacade(): ActiveRpcHandleFacade<TA, TRequests> {
+    const surface: SurfaceGroups<
+      (
+        handler: HandlerFn<
+          TA,
+          MethodsOf<TA>,
+          TA,
+          HandlerTrellis<TA, TRequests>
+        >,
+      ) => Promise<void>
+    > = {};
+    for (const method of Object.keys(this.api.rpc ?? {})) {
+      addSurfaceLeaf(
+        surface,
+        method,
+        (handler) =>
+          this.mount(
+            method,
+            handler as Parameters<
+              Trellis<TA, TMode, TState, TRequests>["mount"]
+            >[1],
+          ),
+      );
+    }
+    return surface as ActiveRpcHandleFacade<TA, TRequests>;
+  }
+
+  #createEventFacade(): ActiveEventFacade<TA> {
+    const surface: SurfaceGroups<RuntimeEventLeaf> = {};
+    for (const event of Object.keys(this.api.events ?? {})) {
+      addSurfaceLeaf(surface, event, {
+        publish: (payload) => this.publish(event, payload),
+        listen: (handler, subjectData = {}, opts) =>
+          this.listenEvent(event, subjectData, handler, opts),
+      });
+    }
+    return surface as ActiveEventFacade<TA>;
+  }
+
+  #createFeedFacade(): ActiveFeedFacade<TA> {
+    const surface: SurfaceGroups<RuntimeFeedLeaf> = {};
+    for (const feed of Object.keys(this.api.feeds ?? {})) {
+      const leaf: RuntimeFeedLeaf = (input, opts) =>
+        this.feedHandle(feed as FeedsOf<TA>).input(
+          input as FeedInputOf<TA, FeedsOf<TA>>,
+        ).subscribe(opts) as AsyncResult<
+          FeedSubscription<unknown>,
+          BaseError
+        >;
+      addSurfaceLeaf(surface, feed, leaf);
+    }
+    return surface as ActiveFeedFacade<TA>;
+  }
+
+  #createHandlerTrellis(): HandlerTrellis<TA, TRequests> {
+    return {
+      rpc: this.rpc,
+      event: this.event,
+      feed: this.feed,
+      operation: this.operation,
+      request: this.request.bind(this),
+      publish: (event, data) => this.publish(event, data),
+      listenEvent: (event, subjectData, fn, opts) =>
+        this.listenEvent(
+          event,
+          subjectData,
+          fn as EventCallback<EventOf<TA, EventsOf<TA>>>,
+          opts,
+        ),
+    };
+  }
+
+  #createOperationFacade(): ActiveOperationFacade<TA> {
+    const surface: SurfaceGroups<RuntimeOperationLeaf> = {};
+    for (const operation of Object.keys(this.api.operations ?? {})) {
+      addSurfaceLeaf(
+        surface,
+        operation,
+        this.operationHandle(operation) as OperationInvoker<
+          RuntimeOperationDesc
+        >,
+      );
+    }
+    return surface as ActiveOperationFacade<TA>;
   }
 
   #unknownApiError(
@@ -2232,7 +2464,7 @@ export class Trellis<
     return ok(auth.caller);
   }
 
-  feed<F extends FeedsOf<TA>>(
+  feedHandle<F extends FeedsOf<TA>>(
     feed: F,
   ):
     & FeedInputBuilder<FeedInputOf<TA, F>, FeedEventOf<TA, F>>
@@ -2523,7 +2755,7 @@ export class Trellis<
     }
   }
 
-  operation<O extends OperationsOf<TA>>(
+  operationHandle<O extends OperationsOf<TA>>(
     operation: O,
   ): OperationSurface<TA, TMode, O> {
     const descriptor = this.api["operations"]?.[operation];
@@ -2581,7 +2813,7 @@ export class Trellis<
     fn: (args: {
       input: unknown;
       context: RpcHandlerContext;
-      trellis: HandlerTrellis<TA, TRequests>;
+      client: HandlerTrellis<TA, TRequests>;
     }) => MaybePromise<Result<unknown, BaseError>>,
   ) {
     const methodName = method as MethodsOf<TA>;
@@ -2609,7 +2841,7 @@ export class Trellis<
       return AsyncResult.lift(subject);
     }
 
-    const handlerTrellis: HandlerTrellis<TA, TRequests> = this;
+    const handlerTrellis = this.#createHandlerTrellis();
 
     this.#log.info(
       { method: String(method) },
@@ -2923,7 +3155,7 @@ export class Trellis<
           args: {
             input: unknown;
             context: RpcHandlerContext;
-            trellis: HandlerTrellis<TA, TRequests>;
+            client: HandlerTrellis<TA, TRequests>;
           },
         ) => MaybeAsync<unknown, BaseError>;
         const handlerResultWrapped = await AsyncResult.try(async () =>
@@ -2934,7 +3166,7 @@ export class Trellis<
                 caller,
                 sessionKey: callerSessionKey,
               },
-              trellis: handlerTrellis,
+              client: handlerTrellis,
             }),
           )
         );
@@ -3156,7 +3388,7 @@ export class Trellis<
     })());
   }
 
-  event<E extends EventsOf<TA>>(
+  listenEvent<E extends EventsOf<TA>>(
     event: E,
     subjectData: Record<string, unknown>,
     fn: EventCallback<EventOf<TA, E>>,

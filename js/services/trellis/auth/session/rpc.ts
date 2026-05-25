@@ -1152,7 +1152,7 @@ export function createAuthConnectionsKickHandler(opts: {
           if (session.type === "device") {
             continue;
           }
-          (await opts.trellis.publish("Auth.Connections.Kicked", {
+          (await opts.trellis.event.auth.connectionsKicked.publish({
             origin: session.type === "user"
               ? session.identity.provider
               : session.origin,

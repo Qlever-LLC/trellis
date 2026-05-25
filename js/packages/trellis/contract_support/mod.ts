@@ -1070,7 +1070,7 @@ export type ContractApiViews<
 > = {
   owned: TOwnedApi;
   used: TUsedApi;
-  trellis: TTrellisApi;
+  trellis?: TTrellisApi;
 };
 
 export type UseSpec<TApi extends ApiShape> = {
