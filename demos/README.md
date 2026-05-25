@@ -40,6 +40,8 @@ The TypeScript demo is the full end-to-end runtime path today. It includes:
 - browser app sign-in and SDK calls
 - operations, operation progress, cancel, events, state, send transfers, receive
   transfer previews, and private jobs behind public operations
+- integration-harness coverage for prepared event outbox dispatch and inbox
+  duplicate suppression
 
 See `demos/js/README.md` for the complete walkthrough.
 
@@ -69,3 +71,11 @@ and reusable public device persistence ergonomics beyond the demo-local file.
 
 See `demos/rust/README.md` for Rust-specific setup, supported modes, and current
 limitations.
+
+## Event Outbox/Inbox Coverage
+
+The demo contracts and integration harness now exercise prepared outbox/inbox
+behavior for both TypeScript and Rust. The Field Ops walkthrough still publishes
+its demo events directly for normal runtime flows; do not treat it as a
+production persisted-outbox example unless a specific service implementation
+adds that storage path.

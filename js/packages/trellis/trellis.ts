@@ -386,8 +386,8 @@ export type RuntimeStateStoresForContract<TContract> = TContract extends {
   : {}
   : {};
 type TrellisApiFor<TContract> = TContract extends
-  { API: { trellis: infer TTrellisApi } }
-  ? TTrellisApi extends AnyTrellisAPI ? TTrellisApi
+  { API: { trellis?: infer TTrellisApi } }
+  ? NonNullable<TTrellisApi> extends AnyTrellisAPI ? NonNullable<TTrellisApi>
   : OwnedApiFor<TContract>
   : OwnedApiFor<TContract>;
 type RpcMethodsOf<TA extends AnyTrellisAPI> = TA["rpc"];
@@ -487,6 +487,16 @@ type EventPayloadOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> = Omit<
   EventOf<TA, E>,
   "header"
 >;
+/** A fully encoded event whose subject, payload, and headers are stable. */
+export type PreparedTrellisEvent<
+  TPayload extends Record<string, unknown> = Record<string, unknown>,
+> = Readonly<{
+  event: string;
+  subject: string;
+  payload: Readonly<TPayload & { header: { id: string; time: string } }>;
+  encodedPayload: string;
+  headers: Readonly<Record<string, string>>;
+}>;
 export type FeedInputOf<TA extends AnyTrellisAPI, F extends FeedsOf<TA>> =
   NonNullable<TA["feeds"]>[F] extends FeedDesc<infer TInput, infer _TEvent>
     ? InferSchemaType<TInput>
@@ -1026,6 +1036,9 @@ type RuntimeRpcLeaf = (
   opts?: RequestOpts,
 ) => AsyncResult<unknown, BaseError>;
 type RuntimeEventLeaf = {
+  prepare(
+    event: Record<string, unknown>,
+  ): Result<PreparedTrellisEvent, ValidationError | UnexpectedError>;
   publish(
     event: Record<string, unknown>,
   ): AsyncResult<void, ValidationError | UnexpectedError>;
@@ -1073,6 +1086,12 @@ export type ActiveEventFacade<TA extends AnyTrellisAPI = TrellisAPI> = {
     readonly [
       E in SurfaceKeysForGroup<EventsOf<TA>, TGroup> as SurfaceLeafName<E>
     ]: {
+      prepare(
+        event: EventPayloadOf<TA, E>,
+      ): Result<
+        PreparedTrellisEvent<EventPayloadOf<TA, E>>,
+        ValidationError | UnexpectedError
+      >;
       publish(
         event: EventPayloadOf<TA, E>,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
@@ -1155,6 +1174,13 @@ export type HandlerTrellis<
     event: string,
     data: Record<string, unknown>,
   ): AsyncResult<void, ValidationError | UnexpectedError>;
+  prepare(
+    event: string,
+    data: Record<string, unknown>,
+  ): Result<PreparedTrellisEvent, ValidationError | UnexpectedError>;
+  publishPrepared(
+    event: PreparedTrellisEvent,
+  ): AsyncResult<void, UnexpectedError>;
   listenEvent<E extends EventsOf<TA>>(
     event: E,
     subjectData: Record<string, unknown>,
@@ -1269,6 +1295,16 @@ export type ClientTrellis<
     event: E,
     data: EventPayloadOf<TA, E>,
   ): AsyncResult<void, ValidationError | UnexpectedError>;
+  prepare<E extends EventsOf<TA>>(
+    event: E,
+    data: EventPayloadOf<TA, E>,
+  ): Result<
+    PreparedTrellisEvent<EventPayloadOf<TA, E>>,
+    ValidationError | UnexpectedError
+  >;
+  publishPrepared(
+    event: PreparedTrellisEvent,
+  ): AsyncResult<void, UnexpectedError>;
   transfer(grant: SendTransferGrant): SendTransferHandle;
   transfer(grant: ReceiveTransferGrant): ReceiveTransferHandle;
   wait(): AsyncResult<void, BaseError>;
@@ -1277,8 +1313,8 @@ export type ClientTrellis<
 /** Connected client type for a generated Trellis contract. */
 export type ConnectedTrellisClient<TContract> = Simplify<
   ClientTrellis<
-    TContract extends { API: { trellis: infer TApi } }
-      ? TApi extends AnyTrellisAPI ? TApi : TrellisAPI
+    TContract extends { API: { trellis?: infer TApi } }
+      ? NonNullable<TApi> extends AnyTrellisAPI ? NonNullable<TApi> : TrellisAPI
       : TrellisAPI,
     RuntimeStateStoresForContract<TContract>
   >
@@ -2031,6 +2067,7 @@ export class Trellis<
     const surface: SurfaceGroups<RuntimeEventLeaf> = {};
     for (const event of Object.keys(this.api.events ?? {})) {
       addSurfaceLeaf(surface, event, {
+        prepare: (payload) => this.prepare(event, payload),
         publish: (payload) => this.publish(event, payload),
         listen: (handler, subjectData = {}, opts) =>
           this.listenEvent(event, subjectData, handler, opts),
@@ -2061,7 +2098,9 @@ export class Trellis<
       feed: this.feed,
       operation: this.operation,
       request: this.request.bind(this),
+      prepare: (event, data) => this.prepare(event, data),
       publish: (event, data) => this.publish(event, data),
+      publishPrepared: (event) => this.publishPrepared(event),
       listenEvent: (event, subjectData, fn, opts) =>
         this.listenEvent(
           event,
@@ -3333,58 +3372,111 @@ export class Trellis<
     this.#respondWithError(msg, error);
   }
 
+  /**
+   * Builds a stable event subject, encoded payload, and publish headers.
+   *
+   * The prepared event intentionally carries no contract id or digest so callers
+   * can persist it in a service-owned outbox without coupling storage to the
+   * publisher's current deployment metadata.
+   */
+  prepare(
+    event: string,
+    data: Record<string, unknown>,
+  ): Result<PreparedTrellisEvent, ValidationError | UnexpectedError> {
+    try {
+      const eventName = event as EventsOf<TA>;
+      const ctx = this.api["events"][eventName] as EventDescriptorOf<
+        TA,
+        typeof eventName
+      >;
+      if (!ctx) {
+        return err(
+          new UnexpectedError({
+            cause: this.#unknownApiError("event", event.toString()),
+            context: { event: event.toString() },
+          }),
+        );
+      }
+
+      const subject = this.template(ctx.subject, data).take();
+      if (isErr(subject)) {
+        logger.error({ err: subject.error }, "Failed to template event.");
+        return subject;
+      }
+
+      const header = {
+        id: ulid(),
+        time: new Date().toISOString(),
+      };
+      const payload = Object.freeze({
+        ...data,
+        header: Object.freeze(header),
+      });
+      const msg = encodeSchema(ctx.event, payload).take();
+      if (isErr(msg)) {
+        logger.error({ err: msg.error }, "Failed to encode event.");
+        return err(new UnexpectedError({ cause: msg.error }));
+      }
+
+      const headers = natsHeaders();
+      headers.set("Nats-Msg-Id", header.id);
+      injectTraceContext(createNatsHeaderCarrier(headers));
+
+      const headerRecord: Record<string, string> = {};
+      for (const [key, value] of headers) {
+        headerRecord[key] = value.join(",");
+      }
+
+      return ok(Object.freeze({
+        event: event.toString(),
+        subject,
+        payload,
+        encodedPayload: msg,
+        headers: Object.freeze(headerRecord),
+      }));
+    } catch (cause) {
+      return err(
+        new UnexpectedError({ cause, context: { event: event.toString() } }),
+      );
+    }
+  }
+
+  /**
+   * Publishes a previously prepared event without regenerating its id, time,
+   * subject, payload, or headers.
+   */
+  publishPrepared(
+    event: PreparedTrellisEvent,
+  ): AsyncResult<void, UnexpectedError> {
+    return AsyncResult.from((async () => {
+      try {
+        const headers = natsHeaders();
+        for (const [key, value] of Object.entries(event.headers)) {
+          headers.set(key, value);
+        }
+
+        logger.trace(
+          { subject: event.subject },
+          `Publishing ${event.event} event.`,
+        );
+        await this.js.publish(event.subject, event.encodedPayload, { headers });
+        return ok(undefined);
+      } catch (cause) {
+        return err(
+          new UnexpectedError({ cause, context: { event: event.event } }),
+        );
+      }
+    })());
+  }
+
   publish(
     event: string,
     data: Record<string, unknown>,
   ): AsyncResult<void, ValidationError | UnexpectedError> {
     return AsyncResult.from((async () => {
-      try {
-        const eventName = event as EventsOf<TA>;
-        const ctx = this.api["events"][eventName] as EventDescriptorOf<
-          TA,
-          typeof eventName
-        >;
-        if (!ctx) {
-          return err(
-            new UnexpectedError({
-              cause: this.#unknownApiError("event", event.toString()),
-              context: { event: event.toString() },
-            }),
-          );
-        }
-
-        const subject = this.template(ctx.subject, data).take();
-        if (isErr(subject)) {
-          logger.error({ err: subject.error }, "Failed to template event.");
-          return subject;
-        }
-
-        const header = {
-          id: ulid(),
-          time: new Date().toISOString(),
-        };
-        const payload: Record<string, unknown> = {
-          ...data,
-          header,
-        };
-        const msg = encodeSchema(ctx.event, payload).take();
-        if (isErr(msg)) {
-          logger.error({ err: msg.error }, "Failed to encode event.");
-          return err(new UnexpectedError({ cause: msg.error }));
-        }
-
-        const headers = natsHeaders();
-        headers.set("Nats-Msg-Id", header.id);
-        injectTraceContext(createNatsHeaderCarrier(headers));
-
-        logger.trace({ subject }, `Publishing ${event.toString()} event.`);
-        await this.js.publish(subject, msg, { headers });
-        return ok(undefined);
-      } catch (cause) {
-        return err(
-          new UnexpectedError({ cause, context: { event: event.toString() } }),
-        );
-      }
+      const prepared = this.prepare(event, data).take();
+      if (isErr(prepared)) return prepared;
+      return await this.publishPrepared(prepared);
     })());
   }
 

@@ -121,6 +121,13 @@ RPCs and operations, generated state helpers for `selectedSite` and
 `draftInspections`, generated transfer helpers for evidence upload/download, and
 generated event-subscription helpers for service events.
 
+## Event Outbox/Inbox Coverage
+
+Prepared outbox dispatch and inbox duplicate suppression are covered by the
+integration harness for the Rust runtime. The Field Ops service's normal demo
+flows publish events directly; they are not a production persisted-outbox
+example.
+
 ## Current Gaps
 
 - live authenticated service/device smoke coverage against a running Trellis

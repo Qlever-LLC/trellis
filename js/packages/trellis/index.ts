@@ -213,6 +213,7 @@ export type {
   OperationRuntimeHandle,
   OperationTransferContextOf,
   OperationTransferHandle,
+  PreparedTrellisEvent,
   RequestOpts,
   RpcArgs,
   RpcHandlerContext,

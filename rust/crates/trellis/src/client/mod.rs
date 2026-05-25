@@ -9,6 +9,7 @@ mod auth;
 mod client;
 mod descriptor;
 mod error;
+mod events;
 mod operations;
 mod proof;
 mod state;
@@ -22,6 +23,12 @@ pub use client::{
 };
 pub use descriptor::{EventDescriptor, FeedDescriptor, RpcDescriptor};
 pub use error::{RpcErrorPayload, TrellisClientError};
+pub use events::{
+    dispatch_outbox_once, prepare_event, prepare_event_value, EventStoreError, InboxReceipt,
+    InboxStore, MemoryInboxStore, MemoryOutboxStore, NatsKvInboxStore, NatsKvOutboxStore,
+    OutboxDispatchResult, OutboxEventRecord, OutboxStore, PostgresInboxStore, PostgresOutboxStore,
+    PreparedTrellisEvent, SqliteInboxStore, SqliteOutboxStore,
+};
 pub use operations::{
     control_subject, OperationDescriptor, OperationEvent, OperationInputBuilder, OperationInvoker,
     OperationRef, OperationRefData, OperationSignalAccepted, OperationSnapshot, OperationState,

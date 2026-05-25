@@ -169,6 +169,73 @@ while let Some(event) = events.next().await {
 
 For explicit ack/nak/term control, use `subscribe_messages(...)`.
 
+Direct `publish::<Descriptor>(...)` is the normal default. It prepares the event
+payload, assigns event metadata, publishes to JetStream, and returns when the
+publish is acknowledged.
+
+Use `prepare_event::<Descriptor>(...)` plus an outbox only when publishing must be
+coupled to service-local database state. `PreparedTrellisEvent` preserves the
+subject, encoded payload, and message metadata for later publishing, but
+intentionally carries no contract id or contract digest. Persisted outbox rows
+therefore do not depend on the publisher's current deployment metadata.
+
+```rust
+use orders_sdk::events::OrdersShippedEventDescriptor;
+use orders_sdk::OrdersShippedEvent;
+use trellis::client::{dispatch_outbox_once, OutboxStore, SqliteOutboxStore};
+
+let prepared = trellis_client.prepare_event::<OrdersShippedEventDescriptor>(
+    &OrdersShippedEvent {
+        order_id: "ord_123".into(),
+        customer_id: "cust_456".into(),
+        shipped_at: now_iso(),
+    },
+)?;
+
+let tx = sqlite.transaction()?;
+update_order_status(&tx, "ord_123", "shipped")?;
+
+{
+    // Use the same transaction connection so local state and the outbox row
+    // commit or roll back together.
+    let mut outbox = SqliteOutboxStore::new(&tx);
+    outbox.enqueue("outbox:ord_123:shipped", &prepared).await?;
+}
+
+tx.commit()?;
+
+let mut outbox = SqliteOutboxStore::new(&sqlite);
+dispatch_outbox_once(&mut outbox, |event| async {
+    trellis_client.publish_prepared(&event).await
+})
+.await?;
+```
+
+SQL-backed services own migrations and transaction boundaries. The SQLite and
+Postgres stores are adapters over caller-owned connections; put the Trellis
+outbox/inbox tables into your normal service migration flow, and use your
+service's database transaction when the event enqueue must be atomic with local
+state.
+
+Use an inbox only when a handler is not naturally idempotent. If replaying the
+message would be harmless because the handler writes by a stable business key, no
+inbox is needed.
+
+```rust
+use trellis::client::{InboxReceipt, InboxStore, SqliteInboxStore};
+
+let mut inbox = SqliteInboxStore::new(&sqlite);
+match inbox.record_received(event.header.id.as_str()).await? {
+    InboxReceipt::Accepted => apply_non_idempotent_side_effect(&event).await?,
+    InboxReceipt::Duplicate => return Ok(()),
+}
+```
+
+`NatsKvOutboxStore` and `NatsKvInboxStore` are durable NATS KV queue and dedupe
+helpers for services that do not have SQL state. They are not transactional with
+unrelated database side effects, so do not use them to claim that an arbitrary DB
+write and an event enqueue committed atomically.
+
 ### Feeds
 
 Feeds return async streams of typed events.

@@ -1,17 +1,20 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::time::Duration;
 
+use async_nats::jetstream::{self, kv};
+use async_nats::ConnectOptions;
 use futures_util::StreamExt;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use trellis::auth::{connect_admin_client_async, AdminLoginOutcome};
 use trellis::client::{
-    EventDescriptor, EventMessage, EventReplayPolicy, EventSubscribeOptions, EventSubscriptionMode,
-    TrellisClient,
+    dispatch_outbox_once, EventDescriptor, EventMessage, EventReplayPolicy, EventSubscribeOptions,
+    EventSubscriptionMode, InboxReceipt, InboxStore, NatsKvInboxStore, NatsKvOutboxStore,
+    OutboxDispatchResult, OutboxStore, TrellisClient,
 };
 use trellis::contracts::{
     digest_contract_json, event, use_contract, ContractKind, ContractManifestBuilder,
@@ -28,7 +31,7 @@ const HARNESS_DEPLOYMENT_ID: &str = "harness.events";
 const HARNESS_CONTRACT_ID: &str = "trellis.integration-harness.events@v1";
 const HARNESS_RUST_EVENT_SUBJECT: &str = "events.v1.Harness.Rust.Event";
 const HARNESS_TS_EVENT_SUBJECT: &str = "events.v1.Harness.Ts.Event";
-const PASSING_CASES: usize = 19;
+const PASSING_CASES: usize = 21;
 
 fn harness_service_contract_json() -> Result<String> {
     let event_schema = json!({
@@ -181,6 +184,8 @@ pub(crate) async fn run_events_fixture(
     trellis_url: &str,
     admin_login: &AdminLoginOutcome,
     browser: &BrowserContainer,
+    nats_server: &str,
+    trellis_creds: &Path,
 ) -> Result<usize> {
     let setup_login = reauth_admin_setup(admin_login, browser).await?;
     let admin_client = connect_admin_client_async(&setup_login.state)
@@ -266,6 +271,8 @@ pub(crate) async fn run_events_fixture(
         &caller_login.state.session_seed,
         "durable-resubscribe",
         "durable-resubscribe",
+        nats_server,
+        trellis_creds,
     )
     .await
     .map_err(|error| miette!("TS durable event re-subscribe failed: {error}"))?;
@@ -277,6 +284,8 @@ pub(crate) async fn run_events_fixture(
         &caller_login.state.session_seed,
         "handler-nak",
         "handler-nak",
+        nats_server,
+        trellis_creds,
     )
     .await
     .map_err(|error| miette!("TS event NAK redelivery failed: {error}"))?;
@@ -288,6 +297,8 @@ pub(crate) async fn run_events_fixture(
         &caller_login.state.session_seed,
         "invalid-term",
         "invalid-term",
+        nats_server,
+        trellis_creds,
     )
     .await
     .map_err(|error| miette!("TS invalid event termination failed: {error}"))?;
@@ -299,9 +310,30 @@ pub(crate) async fn run_events_fixture(
         &caller_login.state.session_seed,
         "ephemeral-abort",
         "ephemeral-abort",
+        nats_server,
+        trellis_creds,
     )
     .await
     .map_err(|error| miette!("TS ephemeral event abort failed: {error}"))?;
+    assert_rust_prepared_outbox_inbox(&caller_client, nats_server, trellis_creds)
+        .await
+        .map_err(|error| miette!("Rust prepared outbox/inbox case failed: {error}"))?;
+    open_events_kv_store(nats_server, trellis_creds, "inbox_prepared_outbox_inbox")
+        .await
+        .map_err(|error| miette!("failed to prepare TS inbox KV bucket: {error}"))?;
+    open_events_kv_store(nats_server, trellis_creds, "outbox_prepared_outbox_inbox")
+        .await
+        .map_err(|error| miette!("failed to prepare TS outbox KV bucket: {error}"))?;
+    run_ts_event_behavior(
+        trellis_url,
+        &caller_login.state.session_seed,
+        "prepared-outbox-inbox",
+        "prepared-outbox-inbox",
+        nats_server,
+        trellis_creds,
+    )
+    .await
+    .map_err(|error| miette!("TS prepared outbox/inbox case failed: {error}"))?;
     let subscribe_only_login = reauth_contract(
         &caller_login.state,
         &harness_subscribe_only_contract_json()?,
@@ -614,6 +646,100 @@ async fn assert_rust_ephemeral_abort(client: &TrellisClient) -> Result<()> {
         .await
         .into_diagnostic()?;
     expect_no_event_message::<HarnessRustEvent>(&mut fresh).await
+}
+
+async fn assert_rust_prepared_outbox_inbox(
+    client: &TrellisClient,
+    nats_server: &str,
+    trellis_creds: &Path,
+) -> Result<()> {
+    let mut events = client
+        .subscribe_messages::<HarnessRustEvent>(EventSubscribeOptions {
+            mode: EventSubscriptionMode::Ephemeral,
+            replay: EventReplayPolicy::New,
+            durable_name: None,
+        })
+        .await
+        .into_diagnostic()?;
+    client.nats().flush().await.into_diagnostic()?;
+
+    let expected = HarnessEventPayload {
+        message: "rust-prepared-outbox-inbox".to_string(),
+        header: Some(event_header("rust-prepared-outbox-inbox")),
+    };
+    let prepared = client
+        .prepare_event::<HarnessRustEvent>(&expected)
+        .into_diagnostic()?;
+    let store = open_events_kv_store(nats_server, trellis_creds, "prepared_outbox_inbox")
+        .await
+        .map_err(|error| miette!("{error}"))?;
+    let mut outbox = NatsKvOutboxStore::new(store.clone(), "rust-prepared/");
+    outbox
+        .enqueue("rust-prepared-outbox-inbox", &prepared)
+        .await
+        .into_diagnostic()?;
+
+    let dispatched = dispatch_outbox_once(&mut outbox, |event| async move {
+        client.publish_prepared(&event).await
+    })
+    .await
+    .into_diagnostic()?;
+    if dispatched
+        != (OutboxDispatchResult::Published {
+            id: "rust-prepared-outbox-inbox".to_string(),
+        })
+    {
+        return Err(miette!(
+            "unexpected Rust outbox dispatch result: {dispatched:?}"
+        ));
+    }
+
+    let event = expect_event_message::<HarnessRustEvent>(&mut events).await?;
+    if event.decode().into_diagnostic()? != expected {
+        return Err(miette!("prepared outbox event payload mismatch"));
+    }
+
+    let event_id = event_header_value(&event, "Nats-Msg-Id")?.to_string();
+    let mut inbox = NatsKvInboxStore::new(store, "rust-prepared/");
+    let mut processed = 0;
+    if inbox.record_received(&event_id).await.into_diagnostic()? == InboxReceipt::Accepted {
+        processed += 1;
+    }
+    let duplicate = inbox.record_received(&event_id).await.into_diagnostic()?;
+    if duplicate != InboxReceipt::Duplicate || processed != 1 {
+        return Err(miette!(
+            "Rust inbox duplicate suppression failed: duplicate={duplicate:?}, processed={processed}"
+        ));
+    }
+
+    event.ack().await.into_diagnostic()
+}
+
+async fn open_events_kv_store(
+    nats_server: &str,
+    trellis_creds: &Path,
+    bucket_suffix: &str,
+) -> std::result::Result<async_nats::jetstream::kv::Store, String> {
+    let bucket = format!("trellis_harness_events_{bucket_suffix}");
+    let nats = ConnectOptions::new()
+        .credentials_file(trellis_creds)
+        .await
+        .map_err(|error| format!("failed to load events KV NATS credentials: {error}"))?
+        .connect(nats_server)
+        .await
+        .map_err(|error| format!("failed to connect events KV NATS client: {error}"))?;
+    let jetstream = jetstream::new(nats);
+    match jetstream.get_key_value(bucket.clone()).await {
+        Ok(store) => Ok(store),
+        Err(_) => jetstream
+            .create_key_value(kv::Config {
+                bucket,
+                history: 1,
+                ..Default::default()
+            })
+            .await
+            .map_err(|error| format!("failed to create events KV bucket: {error}")),
+    }
 }
 
 async fn assert_rust_denied_publish(client: &TrellisClient) -> Result<()> {
@@ -936,6 +1062,8 @@ async fn run_ts_event_behavior(
     caller_session_seed: &str,
     case_name: &str,
     message: &str,
+    nats_server: &str,
+    trellis_creds: &Path,
 ) -> Result<()> {
     let repo = repo_root()?;
     let script_path = deno_fixture_path("events/behavior.ts")?;
@@ -954,6 +1082,8 @@ async fn run_ts_event_behavior(
         .env("HARNESS_CALLER_SESSION_SEED", caller_session_seed)
         .env("HARNESS_EVENT_CASE", case_name)
         .env("HARNESS_MESSAGE", message)
+        .env("HARNESS_NATS_SERVER", nats_server)
+        .env("HARNESS_NATS_CREDS", trellis_creds)
         .output()
         .into_diagnostic()
         .map_err(|error| miette!("failed to run TS events fixture {case_name}: {error}"))?;

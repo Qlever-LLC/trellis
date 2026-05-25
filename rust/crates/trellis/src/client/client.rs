@@ -20,8 +20,8 @@ use crate::client::transfer::{
     get_download_grant, put_upload_grant, DownloadTransferGrant, FileInfo, UploadTransferGrant,
 };
 use crate::client::{
-    EventDescriptor, FeedDescriptor, RpcDescriptor, RpcErrorPayload, SessionAuth,
-    TrellisClientError,
+    prepare_event, prepare_event_value, EventDescriptor, FeedDescriptor, PreparedTrellisEvent,
+    RpcDescriptor, RpcErrorPayload, SessionAuth, TrellisClientError,
 };
 
 const HEALTH_HEARTBEAT_SUBJECT: &str = "events.v1.Health.Heartbeat";
@@ -1166,23 +1166,52 @@ impl TrellisClient {
     where
         D: EventDescriptor,
     {
-        let value = serde_json::to_value(event)?;
-        let message_id = value
-            .get("header")
-            .and_then(|header| header.get("id"))
-            .and_then(Value::as_str)
-            .map(ToString::to_string);
-        let payload = Bytes::from(serde_json::to_vec(&value)?);
+        let prepared = prepare_event::<D>(event)?;
+        self.publish_prepared(&prepared).await
+    }
+
+    /// Prepare one descriptor-backed event without publishing it.
+    pub fn prepare_event<D>(
+        &self,
+        event: &D::Event,
+    ) -> Result<PreparedTrellisEvent, TrellisClientError>
+    where
+        D: EventDescriptor,
+    {
+        Ok(prepare_event::<D>(event)?)
+    }
+
+    /// Prepare one generic JSON-serializable event for a concrete subject.
+    pub fn prepare_event_value<T>(
+        &self,
+        subject: &str,
+        event: &T,
+    ) -> Result<PreparedTrellisEvent, TrellisClientError>
+    where
+        T: Serialize + ?Sized,
+    {
+        Ok(prepare_event_value(subject, event)?)
+    }
+
+    /// Publish an event that was already prepared, preserving its subject, payload, and message id.
+    pub async fn publish_prepared(
+        &self,
+        event: &PreparedTrellisEvent,
+    ) -> Result<(), TrellisClientError> {
         let jetstream = jetstream::new(self.nats.clone());
         let publish = async {
-            if let Some(message_id) = message_id {
-                let mut headers = HeaderMap::new();
-                headers.insert("Nats-Msg-Id", message_id.as_str());
+            if let Some(headers) = event.publish_headers() {
                 jetstream
-                    .publish_with_headers(D::SUBJECT.to_string(), headers, payload)
+                    .publish_with_headers(
+                        event.subject().to_string(),
+                        headers,
+                        event.payload_bytes(),
+                    )
                     .await
             } else {
-                jetstream.publish(D::SUBJECT.to_string(), payload).await
+                jetstream
+                    .publish(event.subject().to_string(), event.payload_bytes())
+                    .await
             }
         };
         let ack = timeout(std::time::Duration::from_millis(self.timeout_ms), publish)

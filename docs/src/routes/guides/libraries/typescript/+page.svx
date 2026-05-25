@@ -172,6 +172,74 @@ await service.handle.rpc.orders.ship(async ({ input, client }) => {
 });
 ```
 
+Direct `publish(...)` is the normal default. It prepares the event payload,
+assigns the event header, publishes to JetStream, and returns when the publish is
+acknowledged.
+
+Use `prepare(...)` plus an outbox only when the event must be committed together
+with service-local database state. The prepared form freezes the subject,
+encoded payload, event header, and publish headers so a worker can publish the
+same event later. `PreparedTrellisEvent` intentionally has no contract id or
+contract digest; persisted outbox rows should not be coupled to the publisher's
+current deployment metadata.
+
+```ts
+import {
+  dispatchOutbox,
+  SqlOutboxRepository,
+  type SqlExecutor,
+} from "@qlever-llc/trellis/service";
+import { Result } from "@qlever-llc/trellis";
+
+await service.handle.rpc.orders.ship(async ({ input, client }) => {
+  const prepared = client.event.orders.shipped.prepare({
+    orderId: input.orderId,
+    customerId: input.customerId,
+    shippedAt: new Date().toISOString(),
+  }).orThrow();
+
+  await db.transaction(async (tx) => {
+    await tx.update(orders).set({ status: "shipped" });
+
+    // Wrap the same transaction executor so the local DB write and outbox row
+    // commit or roll back together.
+    const executor: SqlExecutor = drizzleTransactionExecutor(tx);
+    const outbox = new SqlOutboxRepository(executor, "postgres");
+    await outbox.enqueue(prepared);
+  });
+
+  return Result.ok({ accepted: true });
+});
+
+// Run from a service-owned worker, cron, or job after the transaction commits.
+await dispatchOutbox(outboxRepository, client);
+```
+
+SQL and Drizzle-based services own their schema migrations and transaction
+boundaries. Trellis provides SQL repository adapters and DDL helpers, but your
+service should put the outbox/inbox tables into its normal migration flow and use
+the same database transaction when coupling an outbox row to local state.
+
+Use an inbox only for handlers that are not naturally idempotent. If replaying a
+message would be harmless because the handler writes idempotently by business
+key, no inbox is needed.
+
+```ts
+import { SqlInboxRepository } from "@qlever-llc/trellis/service";
+
+await client.event.orders.shipped.listen(async (event) => {
+  const inbox = new SqlInboxRepository(db, "postgres");
+  if (!(await inbox.record(event.header.id))) return;
+
+  await applyNonIdempotentSideEffect(event);
+});
+```
+
+`NatsKvOutboxRepository` and `NatsKvInboxRepository` are durable queue and dedupe
+helpers for services that do not have SQL state. They are not transactional with
+unrelated database side effects, so do not use them to claim that an arbitrary DB
+write and an event enqueue committed atomically.
+
 ### Feeds
 
 Use feeds for filtered live views where the caller sends an input and receives a

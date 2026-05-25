@@ -1,12 +1,20 @@
+import { connect } from "@nats-io/transport-deno";
+import { credsAuthenticator } from "@nats-io/nats-core";
 import { jetstream } from "@nats-io/jetstream";
 import {
   defineAgentContract,
   defineServiceContract,
   err,
+  isErr,
   ok,
   TrellisClient,
   UnexpectedError,
 } from "@qlever-llc/trellis";
+import {
+  dispatchOutbox,
+  NatsKvInboxRepository,
+  NatsKvOutboxRepository,
+} from "@qlever-llc/trellis/service";
 import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 import { Type } from "typebox";
 
@@ -174,6 +182,89 @@ if (testCase === "durable-resubscribe") {
   if (received.join(",") !== "first") {
     throw new Error(`unexpected TS ephemeral events ${received.join(",")}`);
   }
+  await client.connection.close();
+} else if (testCase === "prepared-outbox-inbox") {
+  const bucketSuffix = (Deno.env.get("HARNESS_MESSAGE") ?? "prepared")
+    .replaceAll(/[^A-Za-z0-9_]/g, "_");
+  const serviceNats = await connect({
+    servers: Deno.env.get("HARNESS_NATS_SERVER")!,
+    authenticator: credsAuthenticator(
+      Deno.readFileSync(Deno.env.get("HARNESS_NATS_CREDS")!),
+    ),
+  });
+  let processed = 0;
+  const inbox = await NatsKvInboxRepository.open(
+    serviceNats,
+    `trellis_harness_events_inbox_${bucketSuffix}`,
+  );
+  const received = new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error("timed out waiting for prepared outbox event")),
+      10000,
+    );
+    void client.event.harness.tsEvent.listen(
+      async (event) => {
+        const payload = event as {
+          message?: string;
+          header?: { id?: unknown; time?: unknown };
+        };
+        if (payload.message !== Deno.env.get("HARNESS_MESSAGE")) {
+          clearTimeout(timeout);
+          reject(
+            new Error(`unexpected prepared event ${JSON.stringify(event)}`),
+          );
+          return ok(undefined);
+        }
+        if (
+          typeof payload.header?.id !== "string" ||
+          typeof payload.header.time !== "string"
+        ) {
+          clearTimeout(timeout);
+          reject(
+            new Error(`missing prepared event header ${JSON.stringify(event)}`),
+          );
+          return ok(undefined);
+        }
+
+        if (await inbox.record(payload.header.id)) processed += 1;
+        const duplicate = await inbox.record(payload.header.id);
+        if (duplicate || processed !== 1) {
+          clearTimeout(timeout);
+          reject(
+            new Error(
+              `TS inbox duplicate suppression failed: duplicate=${duplicate}, processed=${processed}`,
+            ),
+          );
+          return ok(undefined);
+        }
+
+        clearTimeout(timeout);
+        resolve();
+        return ok(undefined);
+      },
+      {},
+      { mode: "ephemeral", replay: "new" },
+    ).orThrow();
+  });
+
+  const prepared = client.event.harness.tsEvent.prepare({
+    message: Deno.env.get("HARNESS_MESSAGE")!,
+  }).take();
+  if (isErr(prepared)) throw prepared.error;
+  const outbox = await NatsKvOutboxRepository.open(
+    serviceNats,
+    `trellis_harness_events_outbox_${bucketSuffix}`,
+  );
+  await outbox.enqueue(prepared);
+  const dispatched = await dispatchOutbox(outbox, client, { limit: 1 });
+  if (dispatched.dispatched !== 1 || dispatched.failed !== 0) {
+    throw new Error(
+      `unexpected TS outbox dispatch ${JSON.stringify(dispatched)}`,
+    );
+  }
+
+  await received;
+  await serviceNats.close();
   await client.connection.close();
 } else {
   throw new Error(`unknown HARNESS_EVENT_CASE ${testCase}`);

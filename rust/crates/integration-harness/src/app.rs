@@ -381,7 +381,14 @@ impl IntegrationRunner {
                         &browser,
                     )
                     .await?;
-                    run_events_fixture(&host_trellis_origin, &admin_login, &browser).await?
+                    run_events_fixture(
+                        &host_trellis_origin,
+                        &admin_login,
+                        &browser,
+                        &nats.server_url(),
+                        &nats_dir.join(trellis_creds),
+                    )
+                    .await?
                 }
                 "health" => {
                     let admin_login = fresh_admin_login(

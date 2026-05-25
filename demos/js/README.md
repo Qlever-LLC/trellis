@@ -187,6 +187,11 @@ option for a short terminal subscription. Report generation, evidence upload,
 and site refresh workflows publish service events that these subscribers can
 display.
 
+Prepared outbox dispatch and inbox duplicate suppression are covered by the
+integration harness. The Field Ops service itself uses normal direct event
+publish for the demo workflows; it is not claiming to persist a production
+outbox.
+
 ## Cleanup
 
 Revoke activated device access and disable the deployments you created when you

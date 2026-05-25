@@ -1370,7 +1370,9 @@ export async function createConnectedService<
     feed: outbound.feed,
     operation: outbound.operation,
     request: outbound.request.bind(outbound),
+    prepare: (event, data) => outbound.prepare(event, data),
     publish: (event, data) => outbound.publish(event, data),
+    publishPrepared: (event) => outbound.publishPrepared(event),
     listenEvent: (event, subjectData, fn, opts) =>
       outbound.listenEvent(
         event,

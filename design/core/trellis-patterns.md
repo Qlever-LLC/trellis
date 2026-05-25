@@ -12,7 +12,8 @@ None.
 
 ## Context
 
-Trellis is a distributed system for aggregating, processing, and distributing organizational data. Services communicate exclusively over NATS.
+Trellis is a distributed system for aggregating, processing, and distributing
+organizational data. Services communicate exclusively over NATS.
 
 This document establishes the top-level cross-cutting system patterns for:
 
@@ -21,21 +22,23 @@ This document establishes the top-level cross-cutting system patterns for:
 - platform boundaries
 - the relationship between subsystem-specific pattern docs
 
-Detailed coding, storage, type-system, observability, frontend, and capability guidance is split into companion documents.
+Detailed coding, storage, type-system, observability, frontend, and capability
+guidance is split into companion documents.
 
 ## Architecture
 
 ### Service Categories
 
-| Category | Purpose | Examples |
-| --- | --- | --- |
-| Infrastructure | Platform capabilities for all services | Auth, Jobs |
-| Ingest | Pull external data, emit domain events | Zendesk, FoodLogiQ |
-| Repository | Persist and query domain data | Graph, Search |
-| Processing | Transform, enrich, derive knowledge | Classification |
-| Egress | Push data to external systems | Laserfiche |
+| Category       | Purpose                                | Examples           |
+| -------------- | -------------------------------------- | ------------------ |
+| Infrastructure | Platform capabilities for all services | Auth, Jobs         |
+| Ingest         | Pull external data, emit domain events | Zendesk, FoodLogiQ |
+| Repository     | Persist and query domain data          | Graph, Search      |
+| Processing     | Transform, enrich, derive knowledge    | Classification     |
+| Egress         | Push data to external systems          | Laserfiche         |
 
-Categories describe primary responsibility. Any service may still subscribe to events for cache invalidation or local state.
+Categories describe primary responsibility. Any service may still subscribe to
+events for cache invalidation or local state.
 
 ### Platform Boundary
 
@@ -43,10 +46,15 @@ Trellis platform code and cloud/domain code are intentionally separate.
 
 Rules:
 
-- the Trellis platform repo owns protocol/runtime libraries, the `trellis` runtime service, jobs, Trellis-owned contracts, and contract tooling
-- cloud repos own domain services, domain contracts, apps, and domain models unless a model is required by a Trellis-owned contract or shared Trellis runtime library
-- `@qlever-llc/trellis` is a runtime library, not a central registry for every service API
-- service APIs are defined with the service that owns them and consumed through contract packages
+- the Trellis platform repo owns protocol/runtime libraries, the `trellis`
+  runtime service, jobs, Trellis-owned contracts, and contract tooling
+- cloud repos own domain services, domain contracts, apps, and domain models
+  unless a model is required by a Trellis-owned contract or shared Trellis
+  runtime library
+- `@qlever-llc/trellis` is a runtime library, not a central registry for every
+  service API
+- service APIs are defined with the service that owns them and consumed through
+  contract packages
 
 ### Communication Patterns
 
@@ -70,17 +78,28 @@ events.v1.Document.Uploaded.<contentType>.<partnerId>
 
 Rules:
 
-- add subject tokens only when consumers need selective subscription and the cardinality is bounded and stable
+- add subject tokens only when consumers need selective subscription and the
+  cardinality is bounded and stable
 - token order matters; put the most-filtered tokens first
 - event handlers must be idempotent because delivery is at-least-once
+- direct event publish is the default; use a prepared event and service-owned
+  outbox only when event publication must be coupled to service-local durable
+  state
+- consumers should use an inbox only for handlers that are not naturally
+  idempotent
+- SQL services own migrations and transactions for local state, outbox rows, and
+  inbox rows; NATS KV inbox/outbox helpers provide durable dedupe/queue storage
+  but are not transactional with unrelated database side effects
+- a prepared event transport record MUST NOT duplicate the publisher's contract
+  id or contract digest
 - event subscribe permissions are event-type gates, not per-entity ACLs; do not
   encode user-owned object lists into Trellis runtime permissions
 
 #### Feeds
 
-Feeds expose caller-visible live views that are authorized by the owning service.
-They are request/reply streams: a caller requests a feed with typed input, and the
-service emits typed frames to the caller's reply inbox.
+Feeds expose caller-visible live views that are authorized by the owning
+service. They are request/reply streams: a caller requests a feed with typed
+input, and the service emits typed frames to the caller's reply inbox.
 
 Subject naming:
 
@@ -110,7 +129,8 @@ Rules:
 
 #### RPCs
 
-RPCs query data or perform bounded synchronous operations. Caller-visible long-running workflows use operations.
+RPCs query data or perform bounded synchronous operations. Caller-visible
+long-running workflows use operations.
 
 Subject naming is domain-based rather than service-based:
 
@@ -128,7 +148,8 @@ Rules:
 
 #### Operations
 
-Operations are caller-visible asynchronous workflows with durable state, explicit progress, and watchable completion.
+Operations are caller-visible asynchronous workflows with durable state,
+explicit progress, and watchable completion.
 
 Subject naming:
 
@@ -139,8 +160,10 @@ operations.v1.<Domain>.<...tokens>
 Rules:
 
 - use operations when the caller must observe progress or wait across reconnects
-- use RPCs for bounded synchronous work and jobs for service-private execution machinery
-- operation control and watch semantics are defined in [../operations/trellis-operations.md](./../operations/trellis-operations.md)
+- use RPCs for bounded synchronous work and jobs for service-private execution
+  machinery
+- operation control and watch semantics are defined in
+  [../operations/trellis-operations.md](./../operations/trellis-operations.md)
 
 #### Runtime subject spaces
 
@@ -163,14 +186,24 @@ Rules:
 
 ## Companion Documents
 
-This document defines the high-level system style. Detailed companion docs are split by concern:
+This document defines the high-level system style. Detailed companion docs are
+split by concern:
 
-- [platform-libraries.md](./platform-libraries.md) - package responsibilities and core runtime/library guidance
-- [files-transfer-patterns.md](./files-transfer-patterns.md) - public files API and operation-native transfer patterns over NATS
-- [kv-resource-patterns.md](./kv-resource-patterns.md) - KV naming, keys, TTLs, and projections
-- [store-resource-patterns.md](./store-resource-patterns.md) - service-owned blob store resource patterns and runtime semantics
-- [type-system-patterns.md](./type-system-patterns.md) - schemas, validation, `Result`, and errors
-- [service-development.md](./service-development.md) - service layout, lifecycle, and jobs vs operations usage
-- [observability-patterns.md](./observability-patterns.md) - health, stats, docs, tracing, and request correlation
-- [frontend-svelte-patterns.md](./frontend-svelte-patterns.md) - Svelte frontend guidance
-- [capability-patterns.md](./capability-patterns.md) - capability naming and deployment policy patterns
+- [platform-libraries.md](./platform-libraries.md) - package responsibilities
+  and core runtime/library guidance
+- [files-transfer-patterns.md](./files-transfer-patterns.md) - public files API
+  and operation-native transfer patterns over NATS
+- [kv-resource-patterns.md](./kv-resource-patterns.md) - KV naming, keys, TTLs,
+  and projections
+- [store-resource-patterns.md](./store-resource-patterns.md) - service-owned
+  blob store resource patterns and runtime semantics
+- [type-system-patterns.md](./type-system-patterns.md) - schemas, validation,
+  `Result`, and errors
+- [service-development.md](./service-development.md) - service layout,
+  lifecycle, and jobs vs operations usage
+- [observability-patterns.md](./observability-patterns.md) - health, stats,
+  docs, tracing, and request correlation
+- [frontend-svelte-patterns.md](./frontend-svelte-patterns.md) - Svelte frontend
+  guidance
+- [capability-patterns.md](./capability-patterns.md) - capability naming and
+  deployment policy patterns

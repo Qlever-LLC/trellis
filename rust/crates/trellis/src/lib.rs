@@ -3,6 +3,22 @@
 //! This crate is the normal Rust authoring entrypoint. It re-exports stable,
 //! commonly used runtime types without exposing low-level service loops,
 //! bootstrap hosts, or generated artifact internals.
+//!
+//! Generated SDK crates and participant facades include a package-local
+//! `TRELLIS.md` for AI-agent use. Prefer descriptor and generated facade APIs:
+//! `TrellisClient::call::<RpcDescriptor>(...)`,
+//! `TrellisClient::publish::<EventDescriptor>(...)`,
+//! `TrellisClient::subscribe::<EventDescriptor>()`,
+//! `TrellisClient::feed::<FeedDescriptor>(input)`,
+//! `TrellisClient::operation::<Operation>().start(...)`, generated wrappers
+//! like `.rpc().group().method(...)`, and service registration through
+//! `handle().rpc().group().method(handler)` where generated.
+//!
+//! Prepared event and outbox/inbox support lives under [`client`]:
+//! `PreparedTrellisEvent`, `prepare_event::<Descriptor>(...)`,
+//! `publish_prepared`, `dispatch_outbox_once`, `OutboxStore`, `InboxStore`,
+//! `SqliteOutboxStore`, `SqliteInboxStore`, `PostgresOutboxStore`,
+//! `PostgresInboxStore`, `NatsKvOutboxStore`, and `NatsKvInboxStore`.
 
 /// Authenticated outbound client runtime types for generated SDKs and normal clients.
 pub mod client;

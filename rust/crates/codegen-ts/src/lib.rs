@@ -123,6 +123,10 @@ pub fn collect_ts_sdk_sources(
             path: PathBuf::from("README.md"),
             contents: render_readme(opts, &loaded),
         },
+        GeneratedTsSource {
+            path: PathBuf::from("TRELLIS.md"),
+            contents: render_trellis_md(opts, &loaded),
+        },
     ])
 }
 
@@ -1244,6 +1248,7 @@ fn selected_used_api_keys(use_dep: &ClientUseDependency, selectors: UsedApiSelec
 
 #[derive(Debug, Clone)]
 struct ClientUseDependency {
+    alias: String,
     namespace: String,
     api_type: String,
     prefix: String,
@@ -1315,6 +1320,7 @@ fn client_uses(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Vec<ClientU
                 format!("{namespace}.Api")
             };
             Some(ClientUseDependency {
+                alias: alias.clone(),
                 namespace,
                 api_type,
                 prefix,
@@ -1423,7 +1429,7 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
         format!(
-            "import type {{ AcceptedOperation, AsyncResult, BaseError, EventOpts, FeedSubscribeOpts, FeedSubscription, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationObserverCallbacks, OperationRef, OperationRefData, OperationRuntimeHandle, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, RpcHandlerContext, SendTransferGrant, SendTransferHandle, TerminalOperation, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
+            "import type {{ AcceptedOperation, AsyncResult, BaseError, EventOpts, FeedSubscribeOpts, FeedSubscription, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationObserverCallbacks, OperationRef, OperationRefData, OperationRuntimeHandle, PreparedTrellisEvent, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, Result, RpcHandlerContext, SendTransferGrant, SendTransferHandle, TerminalOperation, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
             js_string(&trellis_import)
         ),
         "import type { API, Api } from \"./api.ts\";".to_string(),
@@ -1562,7 +1568,7 @@ fn render_client_event_surface(loaded: &LoadedManifest, uses: &[ClientUseDepende
         leaves.push(surface_leaf(
             key,
             format!(
-                "{}: {{ publish(event: Omit<Types.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; listen(handler: EventCallback<Types.{base}Event>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
+                "{}: {{ publish(event: Omit<Types.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<Types.{base}Event, \"header\">): Result<PreparedTrellisEvent<Omit<Types.{base}Event, \"header\">>, ValidationError | UnexpectedError>; listen(handler: EventCallback<Types.{base}Event>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
                 surface_leaf_name(key)
             ),
         ));
@@ -1581,8 +1587,10 @@ fn render_client_event_surface(loaded: &LoadedManifest, uses: &[ClientUseDepende
                 leaves.push(surface_leaf(
                     key,
                     format!(
-                        "{}: {{ publish(event: Omit<{}.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; listen(handler: EventCallback<{}.{base}Event>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
+                        "{}: {{ publish(event: Omit<{}.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<{}.{base}Event, \"header\">): Result<PreparedTrellisEvent<Omit<{}.{base}Event, \"header\">>, ValidationError | UnexpectedError>; listen(handler: EventCallback<{}.{base}Event>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
                         surface_leaf_name(key),
+                        use_dep.namespace,
+                        use_dep.namespace,
                         use_dep.namespace,
                         use_dep.namespace
                     ),
@@ -1940,9 +1948,190 @@ fn render_readme(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     let use_example = example_use_block("dependency", loaded);
     let import_specifier = sdk_readme_import_specifier(&opts.package_name);
     format!(
-        "# {}\n\nGenerated Trellis SDK for contract `{}`.\n\n## Usage\n\n```ts\nimport {{ defineContract }} from \"@qlever-llc/trellis\";\nimport {{ sdk as dependency }} from \"{}\";\n\nconst app = defineContract({{\n  id: \"example.app@v1\",\n  displayName: \"Example App\",\n  description: \"User-facing app for the example deployment.\",\n  kind: \"app\",\n  uses: {{\n{}\n  }},\n}});\n\nconst client = app.createClient(nc, authSession);\n```\n\n## Contents\n\n- `sdk`: generated contract module with `CONTRACT_ID`, `CONTRACT_DIGEST`, `CONTRACT`, `API`, and `use(...)`\n- `API`: nested contract API views with `API.owned` and `API.used`\n- `types.ts`: TypeScript types derived from JSON Schemas\n- `schemas.ts`: Raw JSON Schemas (as `as const` objects)\n- `contract.ts`: embedded contract metadata and typed `use(...)` helper\n",
+        "# {}\n\nGenerated Trellis SDK for contract `{}`. See `TRELLIS.md` for AI-agent-oriented contract and facade guidance.\n\n## Usage\n\n```ts\nimport {{ defineAppContract, TrellisClient }} from \"@qlever-llc/trellis\";\nimport {{ sdk as dependency }} from \"{}\";\n\nconst app = defineAppContract(() => ({{\n  id: \"example.app@v1\",\n  displayName: \"Example App\",\n  description: \"User-facing app for the example deployment.\",\n  uses: {{\n    required: {{\n{}\n    }},\n  }},\n}}));\n\nconst client = await TrellisClient.connect({{\n  trellisUrl: \"https://trellis.example.com\",\n  contract: app,\n}});\n```\n\n## Contents\n\n- `sdk`: generated contract module with `CONTRACT_ID`, `CONTRACT_DIGEST`, `CONTRACT`, `API`, and `use(...)`\n- `API`: nested contract API views with `API.owned` and `API.used`\n- `client.ts`: generated surface-first facades such as `client.rpc.<group>.<leaf>(input)`, `client.event.<group>.<leaf>.publish(event)`, and `client.operation.<group>.<leaf>.start(input)`\n- `TRELLIS.md`: self-contained guidance for agents using this package from out-of-tree services\n- `types.ts`: TypeScript types derived from JSON Schemas\n- `schemas.ts`: Raw JSON Schemas (as `as const` objects)\n- `contract.ts`: embedded contract metadata and typed `use(...)` helper\n",
         opts.package_name, loaded.manifest.id, import_specifier, use_example
     )
+}
+
+fn render_trellis_md(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
+    let uses = client_uses(opts, loaded);
+    let mut lines = vec![
+        format!("# Trellis Contract Guide: {}", loaded.manifest.id),
+        String::new(),
+        "This file is generated for AI agents and out-of-tree Trellis services.".to_string(),
+        String::new(),
+        "## Global Trellis Context".to_string(),
+        String::new(),
+        "- llms.txt: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt".to_string(),
+        "- llms-full.txt: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt".to_string(),
+        String::new(),
+        "## Package".to_string(),
+        String::new(),
+        format!("- package: `{}`", opts.package_name),
+        format!("- contract id: `{}`", loaded.manifest.id),
+        format!("- kind: `{:?}`", loaded.manifest.kind),
+        String::new(),
+        "## TypeScript Facades".to_string(),
+        String::new(),
+        "Use generated surface-first APIs. Do not use old stringly `client.request` or `client.publish` examples.".to_string(),
+        String::new(),
+        "Owned service surfaces:".to_string(),
+    ];
+
+    push_ts_owned_surfaces(&mut lines, loaded);
+    lines.extend([String::new(), "Used dependency surfaces:".to_string()]);
+    push_ts_used_surfaces(&mut lines, loaded, &uses);
+    lines.extend([
+        String::new(),
+        "Prepared events:".to_string(),
+        "- For owned or publishable event surfaces, `client.event.<group>.<leaf>.prepare(event)` returns a `PreparedTrellisEvent`.".to_string(),
+        "- Publish prepared events with `client.publishPrepared(prepared)` or persist them in an outbox and dispatch later with service outbox/inbox helpers.".to_string(),
+        String::new(),
+    ]);
+    lines.join("\n")
+}
+
+fn push_ts_owned_surfaces(lines: &mut Vec<String>, loaded: &LoadedManifest) {
+    for key in loaded.manifest.rpc.keys() {
+        let group = surface_group_name(key);
+        let leaf = surface_leaf_name(key);
+        lines.push(format!("- RPC `{key}`: `client.rpc.{group}.{leaf}(input)`; service handler `service.handle.rpc.{group}.{leaf}(handler)`"));
+    }
+    for key in loaded.manifest.events.keys() {
+        let group = surface_group_name(key);
+        let leaf = surface_leaf_name(key);
+        lines.push(format!("- Event `{key}`: `client.event.{group}.{leaf}.publish(event)`, `client.event.{group}.{leaf}.prepare(event)`, `client.event.{group}.{leaf}.listen(handler)`"));
+    }
+    for key in loaded.manifest.feeds.keys() {
+        let group = surface_group_name(key);
+        let leaf = surface_leaf_name(key);
+        lines.push(format!("- Feed `{key}`: `client.feed.{group}.{leaf}(input)`; service handler `service.handle.feed.{group}.{leaf}(handler)`"));
+    }
+    for key in loaded.manifest.operations.keys() {
+        let group = surface_group_name(key);
+        let leaf = surface_leaf_name(key);
+        lines.push(format!("- Operation `{key}`: `client.operation.{group}.{leaf}.start(input)`; service provider `service.handle.operation.{group}.{leaf}(provider)`"));
+    }
+    if loaded.manifest.rpc.is_empty()
+        && loaded.manifest.events.is_empty()
+        && loaded.manifest.feeds.is_empty()
+        && loaded.manifest.operations.is_empty()
+    {
+        lines.push("- No owned RPC, event, feed, or operation surfaces.".to_string());
+    }
+}
+
+fn push_ts_used_surfaces(
+    lines: &mut Vec<String>,
+    loaded: &LoadedManifest,
+    uses: &[ClientUseDependency],
+) {
+    let mut wrote = false;
+    let mut resolved_aliases = BTreeSet::new();
+
+    for use_dep in uses {
+        wrote = true;
+        resolved_aliases.insert(use_dep.alias.as_str());
+        lines.push(format!(
+            "- alias `{}` uses contract `{}`",
+            use_dep.alias, use_dep.use_ref.contract
+        ));
+        push_ts_resolved_use_surfaces(lines, use_dep);
+    }
+
+    for (alias, use_ref) in loaded.manifest.uses.iter() {
+        if resolved_aliases.contains(alias.as_str()) {
+            continue;
+        }
+        wrote = true;
+        lines.push(format!(
+            "- alias `{alias}` declares contract `{}`; dependency manifest was not resolved, so check the local generated package before using concrete client facades.",
+            use_ref.contract
+        ));
+    }
+
+    if !wrote {
+        lines.push("- No resolved used dependency surfaces in this generated package.".to_string());
+    }
+}
+
+fn push_ts_resolved_use_surfaces(lines: &mut Vec<String>, use_dep: &ClientUseDependency) {
+    let mut wrote = false;
+    for key in use_dep.rpc_call_keys() {
+        if use_dep.manifest.manifest.rpc.contains_key(key) {
+            wrote = true;
+            lines.push(format_used_ts_surface(
+                &use_dep.use_ref.contract,
+                "RPC",
+                key,
+                "client.rpc",
+                "(input)",
+            ));
+        }
+    }
+    for key in use_dep.operation_call_keys() {
+        if use_dep.manifest.manifest.operations.contains_key(key) {
+            wrote = true;
+            lines.push(format_used_ts_surface(
+                &use_dep.use_ref.contract,
+                "Operation",
+                key,
+                "client.operation",
+                ".start(input)",
+            ));
+        }
+    }
+    for key in use_dep.event_publish_keys() {
+        if use_dep.manifest.manifest.events.contains_key(key) {
+            wrote = true;
+            lines.push(format_used_ts_surface(
+                &use_dep.use_ref.contract,
+                "Event publish",
+                key,
+                "client.event",
+                ".publish(event) / .prepare(event)",
+            ));
+        }
+    }
+    for key in use_dep.event_subscribe_keys() {
+        if use_dep.manifest.manifest.events.contains_key(key) {
+            wrote = true;
+            lines.push(format_used_ts_surface(
+                &use_dep.use_ref.contract,
+                "Event subscribe",
+                key,
+                "client.event",
+                ".listen(handler)",
+            ));
+        }
+    }
+    for key in use_dep.feed_subscribe_keys() {
+        if use_dep.manifest.manifest.feeds.contains_key(key) {
+            wrote = true;
+            lines.push(format_used_ts_surface(
+                &use_dep.use_ref.contract,
+                "Feed",
+                key,
+                "client.feed",
+                "(input)",
+            ));
+        }
+    }
+    if !wrote {
+        lines.push("  - No callable dependency surfaces selected by this alias.".to_string());
+    }
+}
+
+fn format_used_ts_surface(
+    contract: &str,
+    kind: &str,
+    key: &str,
+    prefix: &str,
+    suffix: &str,
+) -> String {
+    let group = surface_group_name(key);
+    let leaf = surface_leaf_name(key);
+    format!("- {kind} `{key}` from `{contract}`: `{prefix}.{group}.{leaf}{suffix}`")
 }
 
 fn write_generated_file(path: &Path, contents: &str) -> Result<(), CodegenTsError> {
@@ -2735,10 +2924,14 @@ mod tests {
         assert!(paths.contains(&Path::new("mod.ts")));
         assert!(paths.contains(&Path::new("contract.ts")));
         assert!(paths.contains(&Path::new("README.md")));
+        assert!(paths.contains(&Path::new("TRELLIS.md")));
         assert!(sources
             .iter()
             .any(|source| source.path == Path::new("mod.ts")
                 && source.contents.contains("./contract.ts")));
+        assert!(sources.iter().any(|source| source.path == Path::new("TRELLIS.md")
+            && source.contents.contains("client.rpc.example.ping(input)")
+            && source.contents.contains("https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt")));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -2943,7 +3136,7 @@ mod tests {
         assert!(client.contains("readonly handle: ServiceHandle;"));
         assert!(client.contains("client: Client"));
         assert!(!client.contains("request(method:"));
-        assert!(!client.contains("publish(event:"));
+        assert!(!client.contains("publish(event: string"));
         assert!(!client.contains("event(event:"));
         assert!(!client.contains("feed(feed:"));
         assert!(client.contains("export type Client = TrellisDemoKvServiceClient;"));
@@ -3110,7 +3303,7 @@ mod tests {
             "input(input: JobsSdk.JobsRunInput): TransferCapableOperationInputBuilder<JobsJobsRunOperationDesc, JobsSdk.JobsRunProgress, JobsSdk.JobsRunOutput>;"
         ));
         assert!(client.contains(
-            "updated: { publish(event: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; listen(handler: EventCallback<JobsSdk.JobsUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
+            "updated: { publish(event: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): Result<PreparedTrellisEvent<Omit<JobsSdk.JobsUpdatedEvent, \"header\">>, ValidationError | UnexpectedError>; listen(handler: EventCallback<JobsSdk.JobsUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
         ));
         assert!(client.contains(
             "live(input: JobsSdk.JobsLiveInput, opts?: FeedSubscribeOpts): AsyncResult<FeedSubscription<JobsSdk.JobsLiveEvent>, BaseError>;"
@@ -3258,7 +3451,7 @@ mod tests {
             "input(input: KvDemoSdk.KvRunInput): OperationInputBuilder<KvDemoKvRunOperationDesc, KvDemoSdk.KvRunProgress, KvDemoSdk.KvRunOutput>;"
         ));
         assert!(client.contains(
-            "updated: { publish(event: Omit<KvDemoSdk.KvUpdatedEvent, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; listen(handler: EventCallback<KvDemoSdk.KvUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
+            "updated: { publish(event: Omit<KvDemoSdk.KvUpdatedEvent, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<KvDemoSdk.KvUpdatedEvent, \"header\">): Result<PreparedTrellisEvent<Omit<KvDemoSdk.KvUpdatedEvent, \"header\">>, ValidationError | UnexpectedError>; listen(handler: EventCallback<KvDemoSdk.KvUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
         ));
         assert!(api.contains(
             "import { OWNED_API as KvDemoApi } from \"../demo-kv-service/owned_api.ts\";"
@@ -3581,17 +3774,20 @@ mod tests {
             sample_opts_and_loaded("@qlever-llc/trellis-sdk-audit", "acme.audit@v1");
         let readme = render_readme(&opts, &loaded);
 
-        assert!(readme.contains("import { defineContract } from \"@qlever-llc/trellis\";"));
+        assert!(readme
+            .contains("import { defineAppContract, TrellisClient } from \"@qlever-llc/trellis\";"));
         assert!(
             readme.contains("import { sdk as dependency } from \"@qlever-llc/trellis/sdk/audit\";")
         );
         assert!(readme.contains("displayName: \"Example App\""));
         assert!(readme.contains("description: \"User-facing app for the example deployment.\""));
-        assert!(readme.contains("kind: \"app\""));
         assert!(readme.contains("dependency: dependency.use({"));
-        assert!(readme.contains("const client = app.createClient(nc, authSession);"));
+        assert!(readme.contains("const client = await TrellisClient.connect({"));
+        assert!(readme.contains("TRELLIS.md"));
+        assert!(readme.contains("client.rpc.<group>.<leaf>(input)"));
         assert!(!readme.contains("mergeApis"));
         assert!(!readme.contains("createClient(nc, auth, [api] as const)"));
+        assert!(!readme.contains("defineContract"));
 
         fs::remove_dir_all(root).unwrap();
     }
