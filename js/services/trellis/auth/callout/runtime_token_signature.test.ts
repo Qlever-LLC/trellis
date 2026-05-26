@@ -9,6 +9,7 @@ import type { ContractRecord } from "../../catalog/schemas.ts";
 import { createTestContracts } from "../../catalog/test_contracts.ts";
 import {
   getServicePublishSubjectsForContracts,
+  getServiceSubscribeSubjectsForContracts,
 } from "../../catalog/permissions.ts";
 import type { DeploymentEnvelope } from "../schemas.ts";
 import { __testing__ } from "./callout.ts";
@@ -52,6 +53,24 @@ const DEPENDENCY_CONTRACT: TrellisContractV1 = {
   },
 };
 
+function dependencyWithEventContract(): TrellisContractV1 {
+  return {
+    ...DEPENDENCY_CONTRACT,
+    schemas: {
+      ...DEPENDENCY_CONTRACT.schemas,
+      DependencyChangedEvent: { type: "object" },
+    },
+    events: {
+      "Dependency.Changed": {
+        version: "v1",
+        subject: "events.v1.Dependency.Changed",
+        event: { schema: "DependencyChangedEvent" },
+        capabilities: { subscribe: ["dependency.events"] },
+      },
+    },
+  };
+}
+
 const SECOND_DEPENDENCY_CONTRACT: TrellisContractV1 = {
   format: "trellis.contract.v1",
   id: "trellis.second-dependency@v1",
@@ -85,6 +104,49 @@ function serviceUsingDependencyContract(): TrellisContractV1 {
         dependency: {
           contract: DEPENDENCY_CONTRACT.id,
           rpc: { call: ["Dependency.Read"] },
+        },
+      },
+    },
+  };
+}
+
+function serviceUsingOptionalDependencyContract(): TrellisContractV1 {
+  return {
+    ...SERVICE_CONTRACT,
+    uses: {
+      optional: {
+        dependency: {
+          contract: DEPENDENCY_CONTRACT.id,
+          rpc: { call: ["Dependency.Read"] },
+        },
+      },
+    },
+  };
+}
+
+function serviceUsingOptionalDependencyContractWithEvent(): TrellisContractV1 {
+  return {
+    ...SERVICE_CONTRACT,
+    uses: {
+      optional: {
+        dependency: {
+          contract: DEPENDENCY_CONTRACT.id,
+          rpc: { call: ["Dependency.Read"] },
+          events: { subscribe: ["Dependency.Changed"] },
+        },
+      },
+    },
+  };
+}
+
+function serviceSubscribingToDependencyEventContract(): TrellisContractV1 {
+  return {
+    ...SERVICE_CONTRACT,
+    uses: {
+      required: {
+        dependency: {
+          contract: DEPENDENCY_CONTRACT.id,
+          events: { subscribe: ["Dependency.Changed"] },
         },
       },
     },
@@ -623,6 +685,268 @@ Deno.test("service runtime permission dependencies ignore stale incompatible kno
 
   assertEquals(subjects.includes("rpc.v1.Dependency.Read"), true);
   assertEquals(subjects.includes("rpc.v1.Dependency.LegacyRead"), false);
+});
+
+Deno.test("service runtime permissions include envelope-granted optional uses", async () => {
+  const contracts = createTestContracts();
+  const dependency = await contracts.validateContract(DEPENDENCY_CONTRACT);
+  const service = await contracts.validateContract(
+    serviceUsingOptionalDependencyContract(),
+  );
+  contracts.addKnownTestContract({
+    digest: service.digest,
+    contract: service.contract,
+  });
+  contracts.addKnownTestContract({
+    digest: dependency.digest,
+    contract: dependency.contract,
+  });
+  const envelopeBoundary: DeploymentEnvelope["boundary"] = {
+    contracts: [
+      { contractId: SERVICE_CONTRACT.id, required: true },
+      { contractId: DEPENDENCY_CONTRACT.id, required: false },
+    ],
+    surfaces: [{
+      contractId: DEPENDENCY_CONTRACT.id,
+      kind: "rpc",
+      name: "Dependency.Read",
+      action: "call",
+      required: false,
+    }],
+    capabilities: [],
+    resources: [],
+  };
+
+  const entries = await __testing__.serviceContractEntriesForPermissions({
+    activeContractEntries: [],
+    contracts,
+    currentContractDigest: service.digest,
+    envelopeBoundary,
+  });
+  assertEquals(entries.ok, true);
+  if (!entries.ok) return;
+
+  const subjects = getServicePublishSubjectsForContracts(
+    ["service", "dependency.read"],
+    {
+      sessionKey: "service-key",
+      contractDigest: service.digest,
+      envelopeBoundary,
+    },
+    entries.value,
+  );
+
+  assertEquals(subjects.includes("rpc.v1.Dependency.Read"), true);
+});
+
+Deno.test("service runtime permissions include known inactive required event uses", async () => {
+  const contracts = createTestContracts();
+  const dependency = await contracts.validateContract(
+    dependencyWithEventContract(),
+  );
+  const service = await contracts.validateContract(
+    serviceSubscribingToDependencyEventContract(),
+  );
+  contracts.addKnownTestContract({
+    digest: service.digest,
+    contract: service.contract,
+  });
+  contracts.addKnownTestContract({
+    digest: dependency.digest,
+    contract: dependency.contract,
+  });
+  const envelopeBoundary: DeploymentEnvelope["boundary"] = {
+    contracts: [
+      { contractId: SERVICE_CONTRACT.id, required: true },
+      { contractId: DEPENDENCY_CONTRACT.id, required: true },
+    ],
+    surfaces: [{
+      contractId: DEPENDENCY_CONTRACT.id,
+      kind: "event",
+      name: "Dependency.Changed",
+      action: "subscribe",
+      required: true,
+    }],
+    capabilities: ["dependency.events"],
+    resources: [],
+  };
+
+  const entries = await __testing__.serviceContractEntriesForPermissions({
+    activeContractEntries: [],
+    contracts,
+    currentContractDigest: service.digest,
+    envelopeBoundary,
+  });
+  assertEquals(entries.ok, true);
+  if (!entries.ok) return;
+
+  const serviceDescriptor = {
+    sessionKey: "service-key",
+    contractDigest: service.digest,
+    envelopeBoundary,
+  };
+  const publishSubjects = getServicePublishSubjectsForContracts(
+    ["service", "dependency.events"],
+    serviceDescriptor,
+    entries.value,
+  );
+  const subscribeSubjects = getServiceSubscribeSubjectsForContracts(
+    ["service", "dependency.events"],
+    serviceDescriptor,
+    entries.value,
+  );
+
+  assertEquals(
+    subscribeSubjects.includes("events.v1.Dependency.Changed"),
+    true,
+  );
+  assertEquals(publishSubjects.includes("$JS.API.INFO"), true);
+  assertEquals(
+    publishSubjects.includes("$JS.API.CONSUMER.DURABLE.CREATE.trellis.>"),
+    false,
+  );
+  assertEquals(
+    publishSubjects.includes("$JS.API.CONSUMER.INFO.trellis.>"),
+    false,
+  );
+  assertEquals(
+    publishSubjects.includes("$JS.API.CONSUMER.MSG.NEXT.trellis.>"),
+    false,
+  );
+  assertEquals(publishSubjects.includes("$JS.ACK.>"), false);
+});
+
+Deno.test("service runtime permissions ignore optional uses without granted surfaces", async () => {
+  const contracts = createTestContracts();
+  const service = await contracts.validateContract(
+    serviceUsingOptionalDependencyContract(),
+  );
+  contracts.addKnownTestContract({
+    digest: service.digest,
+    contract: service.contract,
+  });
+
+  const entries = await __testing__.serviceContractEntriesForPermissions({
+    activeContractEntries: [],
+    contracts,
+    currentContractDigest: service.digest,
+    envelopeBoundary: {
+      contracts: [
+        { contractId: SERVICE_CONTRACT.id, required: true },
+        { contractId: DEPENDENCY_CONTRACT.id, required: false },
+      ],
+      surfaces: [],
+      capabilities: [],
+      resources: [],
+    },
+  });
+
+  assertEquals(entries.ok, true);
+  if (!entries.ok) return;
+  assertEquals(
+    entries.value.some((entry) => entry.contract.id === DEPENDENCY_CONTRACT.id),
+    false,
+  );
+});
+
+Deno.test("callout permission helpers use envelope capabilities and deployment bindings", () => {
+  assertEquals(
+    __testing__.serviceCapabilitiesForPermissions([], {
+      contracts: [],
+      surfaces: [],
+      capabilities: ["dependency.events"],
+      resources: [],
+    }),
+    ["dependency.events", "service"],
+  );
+
+  assertEquals(
+    __testing__.resourceBindingsForPermissions([{
+      kind: "event-consumer",
+      alias: "ingest",
+      binding: {
+        stream: "trellis",
+        consumerName: "consumer-1",
+        filterSubjects: ["events.v1.Dependency.Changed"],
+        replay: "new",
+        ordering: "strict",
+        concurrency: 1,
+        ackWaitMs: 300000,
+        maxDeliver: 5,
+        backoffMs: [5000],
+      },
+    }]),
+    {
+      eventConsumers: {
+        ingest: {
+          stream: "trellis",
+          consumerName: "consumer-1",
+          filterSubjects: ["events.v1.Dependency.Changed"],
+          replay: "new",
+          ordering: "strict",
+          concurrency: 1,
+          ackWaitMs: 300000,
+          maxDeliver: 5,
+          backoffMs: [5000],
+        },
+      },
+    },
+  );
+});
+
+Deno.test("service runtime permissions do not promote ungranted optional event uses", async () => {
+  const contracts = createTestContracts();
+  const dependency = await contracts.validateContract(
+    dependencyWithEventContract(),
+  );
+  const service = await contracts.validateContract(
+    serviceUsingOptionalDependencyContractWithEvent(),
+  );
+  contracts.addKnownTestContract({
+    digest: service.digest,
+    contract: service.contract,
+  });
+  contracts.addKnownTestContract({
+    digest: dependency.digest,
+    contract: dependency.contract,
+  });
+  const envelopeBoundary: DeploymentEnvelope["boundary"] = {
+    contracts: [
+      { contractId: SERVICE_CONTRACT.id, required: true },
+      { contractId: DEPENDENCY_CONTRACT.id, required: false },
+    ],
+    surfaces: [{
+      contractId: DEPENDENCY_CONTRACT.id,
+      kind: "rpc",
+      name: "Dependency.Read",
+      action: "call",
+      required: false,
+    }],
+    capabilities: [],
+    resources: [],
+  };
+
+  const entries = await __testing__.serviceContractEntriesForPermissions({
+    activeContractEntries: [],
+    contracts,
+    currentContractDigest: service.digest,
+    envelopeBoundary,
+  });
+  assertEquals(entries.ok, true);
+  if (!entries.ok) return;
+
+  const subjects = getServicePublishSubjectsForContracts(
+    ["service", "dependency.read", "dependency.events"],
+    {
+      sessionKey: "service-key",
+      contractDigest: service.digest,
+      envelopeBoundary,
+    },
+    entries.value,
+  );
+
+  assertEquals(subjects.includes("rpc.v1.Dependency.Read"), true);
+  assertEquals(subjects.includes("$JS.API.CONSUMER.CREATE.trellis"), false);
 });
 
 Deno.test("service runtime permission dependency misses deny cleanly", async () => {

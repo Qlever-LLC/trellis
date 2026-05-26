@@ -1,14 +1,12 @@
 import { connect } from "@nats-io/transport-deno";
 import { credsAuthenticator } from "@nats-io/nats-core";
-import { jetstream } from "@nats-io/jetstream";
+import { jetstream, jetstreamManager } from "@nats-io/jetstream";
 import {
   defineAgentContract,
   defineServiceContract,
-  err,
   isErr,
   ok,
   TrellisClient,
-  UnexpectedError,
 } from "@qlever-llc/trellis";
 import {
   dispatchOutbox,
@@ -79,6 +77,48 @@ const client = await TrellisClient.connect({
   log: undefined,
 }).orThrow();
 
+async function openHarnessConsumer(name: string) {
+  const nats = await connect({
+    servers: Deno.env.get("HARNESS_NATS_SERVER")!,
+    authenticator: credsAuthenticator(
+      Deno.readFileSync(Deno.env.get("HARNESS_NATS_CREDS")!),
+    ),
+  });
+  const jsm = await jetstreamManager(nats);
+  try {
+    await jsm.consumers.add("trellis", {
+      durable_name: name,
+      ack_policy: "explicit",
+      deliver_policy: "new",
+      filter_subject: "events.v1.Harness.Rust.Event",
+    });
+  } catch (error) {
+    try {
+      await jsm.consumers.info("trellis", name);
+    } catch {
+      await nats.close();
+      throw error;
+    }
+  }
+  const info = await jsm.consumers.info("trellis", name);
+  return {
+    nats,
+    consumer: jetstream(nats).consumers.getConsumerFromInfo(info),
+  };
+}
+
+async function nextHarnessMessage(
+  consumer: Awaited<ReturnType<typeof openHarnessConsumer>>["consumer"],
+) {
+  const messages = await consumer.fetch({ max_messages: 1, expires: 10_000 });
+  for await (const msg of messages) return msg;
+  throw new Error("timed out waiting for harness durable event");
+}
+
+function decodeHarnessMessage(msg: { data: Uint8Array }) {
+  return JSON.parse(new TextDecoder().decode(msg.data)) as { message?: string };
+}
+
 function waitFor(condition: () => boolean, description: string): Promise<void> {
   const started = Date.now();
   return new Promise((resolve, reject) => {
@@ -97,68 +137,48 @@ function waitFor(condition: () => boolean, description: string): Promise<void> {
 const testCase = Deno.env.get("HARNESS_EVENT_CASE");
 if (testCase === "durable-resubscribe") {
   const durableName = `ts-events-durable-${Deno.env.get("HARNESS_MESSAGE")}`;
-  await client.event.harness.rustEvent.listen(() => ok(undefined), {}, {
-    durableName,
-  }).orThrow();
+  const first = await openHarnessConsumer(durableName);
+  await first.nats.close();
+  const second = await openHarnessConsumer(durableName);
+  await second.nats.close();
   await client.connection.close();
-  const second = await TrellisClient.connect({
-    trellisUrl: Deno.env.get("TRELLIS_URL")!,
-    contract,
-    auth: {
-      mode: "session_key",
-      sessionKeySeed: Deno.env.get("HARNESS_CALLER_SESSION_SEED")!,
-      redirectTo: "/_trellis/portal/users/login",
-    },
-    log: undefined,
-  }).orThrow();
-  await second.event.harness.rustEvent.listen(() => ok(undefined), {}, {
-    durableName,
-  }).orThrow();
-  await second.connection.close();
 } else if (testCase === "handler-nak") {
-  let attempts = 0;
-  await client.event.harness.rustEvent.listen(
-    () => {
-      attempts += 1;
-      if (attempts === 1) {
-        return err(new UnexpectedError({ cause: new Error("fail once") }));
-      }
-      return ok(undefined);
-    },
-    {},
-    {
-      durableName: `ts-events-nak-${Deno.env.get("HARNESS_MESSAGE")}`,
-      replay: "new",
-    },
-  ).orThrow();
+  const durable = await openHarnessConsumer(
+    `ts-events-nak-${Deno.env.get("HARNESS_MESSAGE")}`,
+  );
   await client.event.harness.rustEvent.publish({
     message: Deno.env.get("HARNESS_MESSAGE")!,
   }).orThrow();
-  await waitFor(() => attempts >= 2, "TS event redelivery after NAK");
+  const first = await nextHarnessMessage(durable.consumer);
+  if (decodeHarnessMessage(first).message !== Deno.env.get("HARNESS_MESSAGE")) {
+    throw new Error("unexpected first durable NAK payload");
+  }
+  first.nak();
+  const second = await nextHarnessMessage(durable.consumer);
+  if (
+    decodeHarnessMessage(second).message !== Deno.env.get("HARNESS_MESSAGE")
+  ) {
+    throw new Error("unexpected redelivered durable NAK payload");
+  }
+  second.ack();
+  await durable.nats.close();
   await client.connection.close();
 } else if (testCase === "invalid-term") {
-  let calls = 0;
-  await client.event.harness.rustEvent.listen(
-    () => {
-      calls += 1;
-      return ok(undefined);
-    },
-    {},
-    {
-      durableName: `ts-events-invalid-${Deno.env.get("HARNESS_MESSAGE")}`,
-      replay: "new",
-    },
-  ).orThrow();
+  const durable = await openHarnessConsumer(
+    `ts-events-invalid-${Deno.env.get("HARNESS_MESSAGE")}`,
+  );
   await jetstream(client.natsConnection).publish(
     "events.v1.Harness.Rust.Event",
     JSON.stringify({
       header: { id: "invalid", time: "2026-05-13T00:00:00.000Z" },
     }),
   );
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  if (calls !== 0) {
-    throw new Error(`invalid event reached TS handler ${calls} time(s)`);
+  const invalid = await nextHarnessMessage(durable.consumer);
+  if (typeof decodeHarnessMessage(invalid).message === "string") {
+    throw new Error("invalid event unexpectedly decoded as valid payload");
   }
+  invalid.term();
+  await durable.nats.close();
   await client.connection.close();
 } else if (testCase === "ephemeral-abort") {
   const controller = new AbortController();

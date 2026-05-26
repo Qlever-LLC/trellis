@@ -18,6 +18,11 @@ resources: {
 
 The key (`items`) is a logical alias. During envelope expansion, Trellis provisions the resource before making the boundary available and persists the deployment binding. Physical bucket names remain scoped to the deployment/profile/lineage rather than to a single digest, so compatible rollouts can reuse the same underlying resource. `TrellisService.connect(...)` consumes those persisted bindings, resolves required bindings plus any optional bindings that were successfully provisioned, and exposes them as `service.kv.items`, which can be opened directly with a schema.
 
+Resolved binding payloads are Trellis runtime internals. Service authors should
+not call `Trellis.Bindings.Get`, construct `TrellisService` or resource handles,
+or pass binding/resource data into `Trellis` constructors; connect with
+`TrellisService.connect(...)` and use the returned resource handles.
+
 ## Store resources
 
 Service-owned stores hold larger opaque blobs such as uploaded files, generated exports, or intermediate workflow artifacts.
@@ -37,6 +42,12 @@ resources: {
 Like KV, the key (`uploads`) is a logical alias and Trellis assigns the physical store identity when the service deployment is applied, installed, or upgraded. The intended service runtime shape mirrors KV closely: `service.store.uploads.open()` resolves a higher-level store object from the persisted binding, and its failable methods return `Result` values. Store bindings expose effective installed runtime limits; omitting `maxTotalBytes` means no finite total-size request and reconciles the object store back to the runtime's unlimited/default setting. v1 does not advertise per-object limits until the runtime write path enforces them.
 
 These examples use the default `required: true`. Optional KV and store resources may not appear in runtime bindings if provisioning is unavailable or fails.
+
+## Event consumer bindings
+
+Durable service event processing is also binding-backed, but it is declared with top-level `eventConsumers` rather than under `resources`. Each group references events already subscribed through `uses.events.subscribe`. During envelope expansion or service bootstrap, Trellis provisions the physical JetStream consumer, persists the binding, and grants the service token only the exact consumer info, pull-next, and ack subjects for that binding.
+
+Use `eventConsumers` when a service needs replay, redelivery, or an independent cursor. Use an ephemeral event listener for live-only reactions that do not need a durable cursor.
 
 ## Public app state
 

@@ -5,10 +5,11 @@ use crate::sdk::core::types::{
     TrellisBindingsGetRequest, TrellisBindingsGetResponse, TrellisBindingsGetResponseBinding,
     TrellisCatalogResponse,
 };
-use crate::sdk::core::CoreClient;
+use crate::sdk::core::{rpc::TrellisBindingsGetRpc, CoreClient};
 
 use super::{
     BootstrapBinding, BootstrapBindingInfo, BootstrapContractRef, CoreBootstrapPort,
+    EventConsumerOrdering, EventConsumerReplay, EventConsumerResourceBinding,
     JobsQueueResourceBinding, JobsResourceBinding, JobsSchemaRef, KvResourceBinding, ServerError,
     ServiceResourceBindings, StoreResourceBinding,
 };
@@ -35,7 +36,7 @@ impl<'a> CoreBootstrapClientPort for CoreClient<'a> {
         &'b self,
         input: &'b TrellisBindingsGetRequest,
     ) -> BoxFuture<'b, Result<TrellisBindingsGetResponse, TrellisClientError>> {
-        Box::pin(async move { self.trellis_bindings_get(input).await })
+        Box::pin(async move { self.inner().call::<TrellisBindingsGetRpc>(input).await })
     }
 }
 
@@ -157,6 +158,36 @@ fn resource_bindings_from_core_binding(
                     })
                     .collect(),
             }),
+        event_consumers: binding
+            .resources
+            .event_consumers
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(name, consumer)| {
+                (
+                    name,
+                    EventConsumerResourceBinding {
+                        stream: consumer.stream,
+                        consumer_name: consumer.consumer_name,
+                        filter_subjects: consumer.filter_subjects,
+                        replay: match consumer.replay.as_str() {
+                            "new" => EventConsumerReplay::New,
+                            "all" => EventConsumerReplay::All,
+                            _ => EventConsumerReplay::Unknown,
+                        },
+                        ordering: match consumer.ordering.as_str() {
+                            "strict" => EventConsumerOrdering::Strict,
+                            _ => EventConsumerOrdering::Unknown,
+                        },
+                        concurrency: consumer.concurrency,
+                        ack_wait_ms: consumer.ack_wait_ms,
+                        max_deliver: consumer.max_deliver,
+                        backoff_ms: consumer.backoff_ms,
+                    },
+                )
+            })
+            .collect(),
     }
 }
 

@@ -7,7 +7,12 @@ import { Type } from "typebox";
 import { createClient } from "../client.ts";
 import { defineServiceContract } from "../contract.ts";
 import { AuthError } from "../errors/index.ts";
-import { Trellis, type TrellisAuth } from "../trellis.ts";
+import { API as CORE_API } from "../sdk/core.ts";
+import {
+  createTrellisInternal,
+  Trellis,
+  type TrellisAuth,
+} from "../trellis.ts";
 
 function createMockAuth(token = "test-token"): TrellisAuth {
   return {
@@ -171,6 +176,145 @@ function createEphemeralSubscriptionTestConnection(): {
   return { connection, subscribeCalls, requestCalls };
 }
 
+function createDurableSubscriptionTestConnection(): {
+  connection: NatsConnection;
+  subscribeCalls: string[];
+  requestCalls: string[];
+} {
+  const base = createEphemeralSubscriptionTestConnection();
+  const connection = base.connection as NatsConnection & {
+    addCloseListener(listener: () => void): void;
+    removeCloseListener(listener: () => void): void;
+    request: NatsConnection["request"];
+  };
+
+  connection.addCloseListener = () => {};
+  connection.removeCloseListener = () => {};
+  connection.status = () =>
+    ({
+      stop: () => {},
+      async *[Symbol.asyncIterator]() {},
+    }) as ReturnType<NatsConnection["status"]>;
+
+  connection.request = async (subject) => {
+    base.requestCalls.push(subject);
+    const response = {
+      type: "io.nats.jetstream.api.v1.consumer_info_response",
+      stream_name: "EVENTS",
+      name: "bound-consumer",
+      created: new Date(0).toISOString(),
+      config: {
+        durable_name: "bound-consumer",
+        ack_policy: "explicit",
+        deliver_policy: "new",
+      },
+      delivered: { consumer_seq: 0, stream_seq: 0 },
+      ack_floor: { consumer_seq: 0, stream_seq: 0 },
+      num_ack_pending: 0,
+      num_redelivered: 0,
+      num_waiting: 0,
+      num_pending: 0,
+    };
+    const body = JSON.stringify(response);
+    return {
+      subject,
+      sid: 1,
+      data: new TextEncoder().encode(body),
+      respond: () => true,
+      json: <T>() => response as T,
+      string: () => body,
+    };
+  };
+
+  return base;
+}
+
+function createDurablePullTestConnection(): {
+  connection: NatsConnection;
+  pullRequests: string[];
+  requestCalls: string[];
+  responses: string[];
+  deliver(subject: string): void;
+} {
+  const base = createDurableSubscriptionTestConnection();
+  const connection = base.connection as NatsConnection & {
+    publish: NatsConnection["publish"];
+    subscribe: NatsConnection["subscribe"];
+  };
+  const pullRequests: string[] = [];
+  const responses: string[] = [];
+  const callbacks: Array<
+    (err: Error | null, msg: Msg) => void | Promise<never>
+  > = [];
+  let subscriptionId = 0;
+
+  connection.publish = (subject) => {
+    if (subject.includes("CONSUMER.MSG.NEXT")) pullRequests.push(subject);
+  };
+  connection.subscribe = (subject, opts) => {
+    if (opts?.callback) callbacks.push(opts.callback);
+    const subscription: Subscription = {
+      closed: Promise.resolve(),
+      unsubscribe: () => {},
+      drain: async () => {},
+      isDraining: () => false,
+      isClosed: () => false,
+      callback: opts?.callback ?? (() => {}),
+      getSubject: () => subject,
+      getReceived: () => 0,
+      getProcessed: () => 0,
+      getPending: () => 0,
+      getID: () => ++subscriptionId,
+      getMax: () => undefined,
+      [Symbol.asyncIterator]: async function* () {
+        return;
+      },
+    };
+    return subscription;
+  };
+
+  return {
+    connection,
+    pullRequests,
+    requestCalls: base.requestCalls,
+    responses,
+    deliver: (subject) => {
+      const data = new TextEncoder().encode(JSON.stringify({
+        header: { id: "event-1", time: new Date(0).toISOString() },
+        value: "value",
+      }));
+      const message: Msg & { size(): number } = {
+        subject,
+        sid: 1,
+        reply: "$JS.ACK._._.EVENTS.bound-consumer.1.1.1.1.0",
+        data,
+        respond: (payload = new Uint8Array()) => {
+          responses.push(
+            typeof payload === "string"
+              ? payload
+              : new TextDecoder().decode(payload),
+          );
+          return true;
+        },
+        json: <T>() => JSON.parse(new TextDecoder().decode(data)) as T,
+        string: () => new TextDecoder().decode(data),
+        size: () => data.byteLength,
+      };
+      callbacks.at(-1)?.(null, message);
+    },
+  };
+}
+
+async function waitFor(assertion: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (!assertion()) {
+    if (Date.now() > deadline) {
+      throw new Error("timed out waiting for test state");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
 const eventTestContract = defineServiceContract(
   {
     schemas: {
@@ -196,6 +340,110 @@ const eventTestContract = defineServiceContract(
   }),
 );
 
+const eventConsumerSourceContract = defineServiceContract(
+  {
+    schemas: {
+      EventPayload: Type.Object({
+        header: Type.Object({
+          id: Type.String(),
+          time: Type.String(),
+        }),
+        value: Type.String(),
+      }),
+    },
+  },
+  (ref) => ({
+    id: "trellis.client.event-source-test@v1",
+    displayName: "Event Source Test",
+    description: "Exposes events for durable event consumer tests.",
+    events: {
+      "Test.Ping": {
+        version: "v1",
+        event: ref.schema("EventPayload"),
+      },
+      "Test.Pong": {
+        version: "v1",
+        event: ref.schema("EventPayload"),
+      },
+    },
+  }),
+);
+
+const eventConsumerTestContract = defineServiceContract(
+  {},
+  () => ({
+    id: "trellis.client.event-consumer-test@v1",
+    displayName: "Event Consumer Test",
+    description: "Covers durable event consumer binding behavior.",
+    uses: {
+      required: {
+        source: eventConsumerSourceContract.use({
+          events: { subscribe: ["Test.Ping", "Test.Pong"] },
+        }),
+      },
+    },
+    eventConsumers: {
+      primary: {
+        events: [{ use: "source", event: "Test.Ping" }],
+        replay: "new",
+        ordering: "strict",
+        concurrency: 1,
+      },
+      secondary: {
+        events: [{ use: "source", event: "Test.Ping" }],
+        replay: "new",
+        ordering: "strict",
+        concurrency: 1,
+      },
+      pong: {
+        events: [{ use: "source", event: "Test.Pong" }],
+        replay: "new",
+        ordering: "strict",
+        concurrency: 1,
+      },
+    },
+  }),
+);
+
+const groupedEventConsumerTestContract = defineServiceContract(
+  {},
+  () => ({
+    id: "trellis.client.grouped-event-consumer-test@v1",
+    displayName: "Grouped Event Consumer Test",
+    description: "Covers durable grouped event consumer behavior.",
+    uses: {
+      required: {
+        source: eventConsumerSourceContract.use({
+          events: { subscribe: ["Test.Ping", "Test.Pong"] },
+        }),
+      },
+    },
+    eventConsumers: {
+      paired: {
+        events: [
+          { use: "source", event: "Test.Ping" },
+          { use: "source", event: "Test.Pong" },
+        ],
+        replay: "new",
+        ordering: "strict",
+        concurrency: 1,
+      },
+    },
+  }),
+);
+
+const eventConsumerBinding = {
+  stream: "EVENTS",
+  consumerName: "bound-consumer",
+  filterSubjects: ["events.v1.Test.Ping"],
+  replay: "new" as const,
+  ordering: "strict" as const,
+  concurrency: 1,
+  ackWaitMs: 30_000,
+  maxDeliver: 5,
+  backoffMs: [],
+};
+
 const rpcTestContract = defineServiceContract(
   {
     schemas: {
@@ -217,8 +465,15 @@ const rpcTestContract = defineServiceContract(
   }),
 );
 
+Deno.test("generated core SDK keeps internal bindings RPC descriptor", () => {
+  assertEquals(
+    CORE_API.owned.rpc["Trellis.Bindings.Get"].subject,
+    "rpc.v1.Trellis.Bindings.Get",
+  );
+});
+
 Deno.test("Trellis explains how to provide an API surface when none was configured", async () => {
-  const trellis = new Trellis(
+  const trellis = createTrellisInternal(
     "test-client",
     createMockNatsConnection(),
     createMockAuth(),
@@ -237,7 +492,7 @@ Deno.test("Trellis explains how to provide an API surface when none was configur
 
 Deno.test("Trellis invokes session recovery for session_not_found RPC errors", async () => {
   let recoveries = 0;
-  const trellis = new Trellis(
+  const trellis = createTrellisInternal(
     "test-client",
     createErrorResponseConnection(
       new AuthError({ reason: "session_not_found" }),
@@ -270,13 +525,371 @@ Deno.test("Trellis ephemeral event subscriptions avoid JetStream manager request
     { name: "ephemeral-subscriber" },
   );
 
-  const result = await trellis.event("Test.Ping", {}, () => ok(undefined), {
-    mode: "ephemeral",
-    replay: "new",
-  });
+  const result = await trellis.listenEvent(
+    "Test.Ping",
+    {},
+    () => ok(undefined),
+    {
+      mode: "ephemeral",
+      replay: "new",
+    },
+  );
   const value = result.take();
 
   assertEquals(isErr(value), false);
   assertEquals(subscribeCalls, ["events.v1.Test.Ping"]);
   assertEquals(requestCalls, []);
+});
+
+Deno.test("Trellis durable event listen fails without declared event consumer group", async () => {
+  const trellis = createTrellisInternal(
+    "durable-missing-group",
+    createMockNatsConnection(),
+    createMockAuth(),
+    { api: eventTestContract.API.owned },
+  );
+
+  const result = await trellis.listenEvent(
+    "Test.Ping",
+    {},
+    () => ok(undefined),
+  );
+  const value = result.take();
+
+  assert(isErr(value));
+  assertStringIncludes(
+    value.error.cause instanceof Error ? value.error.cause.message : "",
+    "is not declared in any event consumer group",
+  );
+});
+
+Deno.test("Trellis durable event listen requires group for ambiguous event consumer groups", async () => {
+  const trellis = createTrellisInternal(
+    "durable-ambiguous-group",
+    createMockNatsConnection(),
+    createMockAuth(),
+    {
+      api: eventConsumerSourceContract.API.owned,
+      eventConsumers: {
+        metadata: eventConsumerTestContract.CONTRACT.eventConsumers,
+        bindings: {
+          primary: eventConsumerBinding,
+          secondary: eventConsumerBinding,
+        },
+      },
+    },
+  );
+
+  const result = await trellis.listenEvent(
+    "Test.Ping",
+    {},
+    () => ok(undefined),
+  );
+  const value = result.take();
+
+  assert(isErr(value));
+  assertStringIncludes(
+    value.error.cause instanceof Error ? value.error.cause.message : "",
+    "is declared in multiple event consumer groups",
+  );
+});
+
+Deno.test("Trellis durable event listen rejects caller-provided durableName", async () => {
+  const trellis = createTrellisInternal(
+    "durable-name-rejected",
+    createMockNatsConnection(),
+    createMockAuth(),
+    {
+      api: eventConsumerSourceContract.API.owned,
+      eventConsumers: {
+        metadata: eventConsumerTestContract.CONTRACT.eventConsumers,
+        bindings: { pong: eventConsumerBinding },
+      },
+    },
+  );
+
+  const result = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+    {
+      durableName: "caller-name",
+    },
+  );
+  const value = result.take();
+
+  assert(isErr(value));
+  assertStringIncludes(
+    value.error.cause instanceof Error ? value.error.cause.message : "",
+    "provisioned by Trellis event consumer bindings",
+  );
+});
+
+Deno.test("Trellis durable event listen uses bound consumer without creating consumers", async () => {
+  const { connection, requestCalls } =
+    createDurableSubscriptionTestConnection();
+  const trellis = createTrellisInternal(
+    "durable-bound-consumer",
+    connection,
+    createMockAuth(),
+    {
+      api: eventConsumerSourceContract.API.owned,
+      eventConsumers: {
+        metadata: eventConsumerTestContract.CONTRACT.eventConsumers,
+        bindings: { pong: eventConsumerBinding },
+      },
+    },
+  );
+  const controller = new AbortController();
+
+  const result = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+    {
+      signal: controller.signal,
+    },
+  );
+  const value = result.take();
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  controller.abort();
+
+  assertEquals(isErr(value), false);
+  assertEquals(
+    requestCalls.some((subject) => subject.includes("CONSUMER.DURABLE.CREATE")),
+    false,
+  );
+  assertEquals(
+    requestCalls.some((subject) =>
+      subject.includes("CONSUMER.INFO.EVENTS.bound-consumer")
+    ),
+    true,
+  );
+});
+
+Deno.test("Trellis durable event listen starts one pull loop for a shared group", async () => {
+  const { connection, requestCalls } =
+    createDurableSubscriptionTestConnection();
+  const trellis = createTrellisInternal(
+    "durable-shared-group",
+    connection,
+    createMockAuth(),
+    {
+      api: eventConsumerSourceContract.API.owned,
+      eventConsumers: {
+        metadata: eventConsumerTestContract.CONTRACT.eventConsumers,
+        bindings: { pong: eventConsumerBinding },
+      },
+    },
+  );
+  const controller = new AbortController();
+
+  const first = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+    {
+      signal: controller.signal,
+    },
+  );
+  const second = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+    {
+      signal: controller.signal,
+    },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  controller.abort();
+
+  assertEquals(isErr(first.take()), false);
+  assertEquals(isErr(second.take()), false);
+  assertEquals(
+    requestCalls.filter((subject) =>
+      subject.includes("CONSUMER.INFO.EVENTS.bound-consumer")
+    ).length,
+    1,
+  );
+});
+
+Deno.test("Trellis durable event loop restarts after handlers are removed", async () => {
+  const { connection, requestCalls } =
+    createDurableSubscriptionTestConnection();
+  const trellis = createTrellisInternal(
+    "durable-restart-group",
+    connection,
+    createMockAuth(),
+    {
+      api: eventConsumerSourceContract.API.owned,
+      eventConsumers: {
+        metadata: eventConsumerTestContract.CONTRACT.eventConsumers,
+        bindings: { pong: eventConsumerBinding },
+      },
+    },
+  );
+  const firstController = new AbortController();
+  const secondController = new AbortController();
+
+  const first = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+    { signal: firstController.signal },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  firstController.abort();
+  await trellis.wait().orThrow();
+  const second = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+    { signal: secondController.signal },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  secondController.abort();
+
+  assertEquals(isErr(first.take()), false);
+  assertEquals(isErr(second.take()), false);
+  assertEquals(
+    requestCalls.filter((subject) =>
+      subject.includes("CONSUMER.INFO.EVENTS.bound-consumer")
+    ).length,
+    2,
+  );
+});
+
+Deno.test("Trellis durable grouped event listener waits for all group handlers", async () => {
+  const { connection, requestCalls } =
+    createDurableSubscriptionTestConnection();
+  const trellis = createTrellisInternal(
+    "durable-group-waits",
+    connection,
+    createMockAuth(),
+    {
+      api: eventConsumerSourceContract.API.owned,
+      eventConsumers: {
+        metadata: groupedEventConsumerTestContract.CONTRACT.eventConsumers,
+        bindings: { paired: eventConsumerBinding },
+      },
+    },
+  );
+  const controller = new AbortController();
+
+  const first = await trellis.listenEvent(
+    "Test.Ping",
+    {},
+    () => ok(undefined),
+    { group: "paired", signal: controller.signal },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assertEquals(isErr(first.take()), false);
+  assertEquals(
+    requestCalls.some((subject) =>
+      subject.includes("CONSUMER.INFO.EVENTS.bound-consumer")
+    ),
+    false,
+  );
+
+  const second = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+    { group: "paired", signal: controller.signal },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  controller.abort();
+
+  assertEquals(isErr(second.take()), false);
+  assertEquals(
+    requestCalls.some((subject) =>
+      subject.includes("CONSUMER.INFO.EVENTS.bound-consumer")
+    ),
+    true,
+  );
+});
+
+Deno.test("Trellis durable grouped event listener pauses when readiness is lost", async () => {
+  const { connection, pullRequests, responses, deliver } =
+    createDurablePullTestConnection();
+  const trellis = createTrellisInternal(
+    "durable-group-pauses",
+    connection,
+    createMockAuth(),
+    {
+      api: eventConsumerSourceContract.API.owned,
+      eventConsumers: {
+        metadata: groupedEventConsumerTestContract.CONTRACT.eventConsumers,
+        bindings: { paired: eventConsumerBinding },
+      },
+    },
+  );
+  const pingController = new AbortController();
+  const pongController = new AbortController();
+
+  const ping = await trellis.listenEvent(
+    "Test.Ping",
+    {},
+    () => ok(undefined),
+    { group: "paired", signal: pingController.signal },
+  );
+  const pong = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+    { group: "paired", signal: pongController.signal },
+  );
+  await waitFor(() => pullRequests.length === 1);
+
+  pongController.abort();
+  await trellis.wait().orThrow();
+  deliver("events.v1.Test.Pong");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  pingController.abort();
+
+  assertEquals(isErr(ping.take()), false);
+  assertEquals(isErr(pong.take()), false);
+  assertEquals(pullRequests.length, 1);
+  assertEquals(responses.includes("-NAK"), false);
+});
+
+Deno.test("Trellis durable event loop restarts after immediate re-register", async () => {
+  const { connection, pullRequests } = createDurablePullTestConnection();
+  const trellis = createTrellisInternal(
+    "durable-immediate-restart",
+    connection,
+    createMockAuth(),
+    {
+      api: eventConsumerSourceContract.API.owned,
+      eventConsumers: {
+        metadata: eventConsumerTestContract.CONTRACT.eventConsumers,
+        bindings: { pong: eventConsumerBinding },
+      },
+    },
+  );
+  const firstController = new AbortController();
+  const secondController = new AbortController();
+
+  const first = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+    { signal: firstController.signal },
+  );
+  await waitFor(() => pullRequests.length === 1);
+  firstController.abort();
+  const second = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+    { signal: secondController.signal },
+  );
+  await waitFor(() => pullRequests.length === 2);
+  secondController.abort();
+  await trellis.wait().orThrow();
+
+  assertEquals(isErr(first.take()), false);
+  assertEquals(isErr(second.take()), false);
 });

@@ -77,6 +77,7 @@ fn sample_core_binding() -> TrellisBindingsGetResponseBinding {
         contract_id: "trellis.jobs@v1".to_string(),
         digest: "sha256:expected".to_string(),
         resources: TrellisBindingsGetResponseBindingResources {
+            event_consumers: None,
             jobs: Some(TrellisBindingsGetResponseBindingResourcesJobs {
                 namespace: "documents".to_string(),
                 work_stream: Some("JOBS_WORK".to_string()),

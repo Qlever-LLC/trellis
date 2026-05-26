@@ -384,6 +384,39 @@ Deno.test("analyzeContractEnvelopeBoundary derives resources and jobs", async ()
   ]);
 });
 
+Deno.test("analyzeContractEnvelopeBoundary derives event consumer resources", async () => {
+  const store = createTestContracts([{
+    digest: "dep-digest",
+    contract: dependencyContract(),
+  }]);
+
+  const analysis = await analyzeContractEnvelopeBoundary(store, {
+    format: "trellis.contract.v1",
+    id: "example.service@v1",
+    displayName: "Example Service",
+    description: "Service contract",
+    kind: "service",
+    uses: {
+      required: {
+        api: {
+          contract: "example.api@v1",
+          events: { subscribe: ["Changed"] },
+        },
+      },
+    },
+    eventConsumers: {
+      ingest: { events: [{ use: "api", event: "Changed" }] },
+    },
+  });
+
+  assertEquals(analysis.resources, [
+    { kind: "event-consumer", alias: "ingest", required: true },
+  ]);
+  assertEquals(analysis.required.resources, [
+    { kind: "event-consumer", alias: "ingest", required: true },
+  ]);
+});
+
 Deno.test("analyzeContractEnvelopeBoundary includes operation control and open cancel boundaries", async () => {
   const store = createTestContracts([{
     digest: "dep-digest",

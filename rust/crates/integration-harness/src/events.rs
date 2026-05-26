@@ -4,20 +4,19 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::time::Duration;
 
-use async_nats::jetstream::{self, kv};
+use async_nats::jetstream::{self, consumer, kv, AckKind};
 use async_nats::ConnectOptions;
 use futures_util::StreamExt;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use trellis::auth::{connect_admin_client_async, AdminLoginOutcome};
+use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
 use trellis::client::{
-    dispatch_outbox_once, EventDescriptor, EventMessage, EventReplayPolicy, EventSubscribeOptions,
-    EventSubscriptionMode, InboxReceipt, InboxStore, NatsKvInboxStore, NatsKvOutboxStore,
-    OutboxDispatchResult, OutboxStore, TrellisClient,
+    dispatch_outbox_once, EventDescriptor, InboxReceipt, InboxStore, NatsKvInboxStore,
+    NatsKvOutboxStore, OutboxDispatchResult, OutboxStore, TrellisClient,
 };
 use trellis::contracts::{
-    digest_contract_json, event, use_contract, ContractKind, ContractManifestBuilder,
+    digest_contract_json, event, rpc, use_contract, ContractKind, ContractManifestBuilder,
 };
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
 use trellis::sdk::auth::types::AuthEnvelopesExpandRequest;
@@ -29,9 +28,15 @@ use crate::workspace::repo_root;
 
 const HARNESS_DEPLOYMENT_ID: &str = "harness.events";
 const HARNESS_CONTRACT_ID: &str = "trellis.integration-harness.events@v1";
+const HARNESS_CONSUMER_CONTRACT_ID: &str = "trellis.integration-harness.events-consumer@v1";
 const HARNESS_RUST_EVENT_SUBJECT: &str = "events.v1.Harness.Rust.Event";
 const HARNESS_TS_EVENT_SUBJECT: &str = "events.v1.Harness.Ts.Event";
-const PASSING_CASES: usize = 21;
+const HARNESS_EVENT_STREAM: &str = "trellis";
+const PASSING_CASES: usize = 22;
+const RUST_DURABLE_RESUBSCRIBE_GROUP: &str = "rustDurableResubscribe";
+const RUST_HANDLER_NAK_GROUP: &str = "rustHandlerNak";
+const RUST_INVALID_TERM_GROUP: &str = "rustInvalidTerm";
+const SERVICE_EVENT_CONSUMER_GROUP: &str = "serviceEvents";
 
 fn harness_service_contract_json() -> Result<String> {
     let event_schema = json!({
@@ -70,7 +75,6 @@ fn harness_service_contract_json() -> Result<String> {
     )
     .build()
     .map_err(|error| miette!("failed to build events harness service contract: {error}"))?;
-
     serde_json::to_string(&manifest)
         .map_err(|error| miette!("failed to serialize events harness service contract: {error}"))
 }
@@ -97,6 +101,136 @@ fn harness_caller_contract_json() -> Result<String> {
 
     serde_json::to_string(&manifest)
         .map_err(|error| miette!("failed to serialize events harness caller contract: {error}"))
+}
+
+fn harness_service_consumer_contract_json() -> Result<String> {
+    let event_schema = json!({
+        "type": "object",
+        "properties": {
+            "message": { "type": "string" },
+            "header": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" },
+                    "time": { "type": "string" }
+                },
+                "required": ["id", "time"]
+            }
+        },
+        "required": ["message"]
+    });
+    let empty_request_schema = json!({
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+    });
+    let start_response_schema = json!({
+        "type": "object",
+        "properties": { "started": { "type": "boolean" } },
+        "required": ["started"]
+    });
+    let status_response_schema = json!({
+        "type": "object",
+        "properties": {
+            "received": { "type": "boolean" },
+            "message": { "type": "string" }
+        },
+        "required": ["received", "message"]
+    });
+    let manifest = ContractManifestBuilder::new(
+        HARNESS_CONSUMER_CONTRACT_ID,
+        "Trellis Integration Harness Event Consumer",
+        "Harness-owned service contract for service-level durable event consumer verification.",
+        ContractKind::Service,
+    )
+    .schema("EventPayload", event_schema)
+    .schema("EmptyRequest", empty_request_schema)
+    .schema("StartConsumerResponse", start_response_schema)
+    .schema("StatusResponse", status_response_schema)
+    .use_ref(
+        "auth",
+        use_contract("trellis.auth@v1").with_rpc_call(["Auth.Requests.Validate"]),
+    )
+    .use_ref(
+        "harness",
+        use_contract(HARNESS_CONTRACT_ID).with_event_subscribe(["Harness.Rust.Event"]),
+    )
+    .rpc(
+        "Harness.Events.StartConsumer",
+        rpc(
+            "v1",
+            "rpc.v1.Harness.Events.StartConsumer",
+            "EmptyRequest",
+            "StartConsumerResponse",
+        )
+        .with_call_capabilities(std::iter::empty::<&str>())
+        .with_error_types(["UnexpectedError"]),
+    )
+    .rpc(
+        "Harness.Events.Status",
+        rpc(
+            "v1",
+            "rpc.v1.Harness.Events.Status",
+            "EmptyRequest",
+            "StatusResponse",
+        )
+        .with_call_capabilities(std::iter::empty::<&str>())
+        .with_error_types(["UnexpectedError"]),
+    )
+    .build_unvalidated();
+
+    let mut value = serde_json::to_value(manifest)
+        .map_err(|error| miette!("failed to serialize service consumer manifest: {error}"))?;
+    let Value::Object(manifest_object) = &mut value else {
+        return Err(miette!(
+            "service consumer manifest did not serialize to object"
+        ));
+    };
+    manifest_object.insert(
+        "eventConsumers".to_string(),
+        json!({
+            SERVICE_EVENT_CONSUMER_GROUP: {
+                "events": [{ "use": "harness", "event": "Harness.Rust.Event" }],
+                "replay": "new",
+                "ordering": "strict",
+                "concurrency": 1,
+                "ackWaitMs": 30_000,
+                "maxDeliver": 3
+            }
+        }),
+    );
+    let manifest = trellis::contracts::parse_manifest(value)
+        .map_err(|error| miette!("failed to validate service consumer manifest: {error}"))?;
+    serde_json::to_string(&manifest)
+        .map_err(|error| miette!("failed to serialize events consumer service contract: {error}"))
+}
+
+fn harness_service_consumer_caller_contract_json() -> Result<String> {
+    let manifest = ContractManifestBuilder::new(
+        "trellis.integration-events-service-consumer-agent@v1",
+        "Trellis Integration Events Service Consumer Agent",
+        "Verify service-level durable event consumer bootstrap and delivery.",
+        ContractKind::Agent,
+    )
+    .use_ref(
+        "auth",
+        use_contract("trellis.auth@v1").with_rpc_call(["Auth.Sessions.Logout", "Auth.Sessions.Me"]),
+    )
+    .use_ref(
+        "harness",
+        use_contract(HARNESS_CONTRACT_ID).with_event_publish(["Harness.Rust.Event"]),
+    )
+    .use_ref(
+        "consumer",
+        use_contract(HARNESS_CONSUMER_CONTRACT_ID)
+            .with_rpc_call(["Harness.Events.StartConsumer", "Harness.Events.Status"]),
+    )
+    .build()
+    .map_err(|error| miette!("failed to build events service consumer caller contract: {error}"))?;
+
+    serde_json::to_string(&manifest).map_err(|error| {
+        miette!("failed to serialize events service consumer caller contract: {error}")
+    })
 }
 
 fn harness_subscribe_only_contract_json() -> Result<String> {
@@ -199,13 +333,37 @@ pub(crate) async fn run_events_fixture(
 
     let service_contract_json = harness_service_contract_json()?;
     let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
-    SdkAuthClient::new(&admin_client)
+    let sdk_auth_client = SdkAuthClient::new(&admin_client);
+    sdk_auth_client
         .rpc()
         .auth()
         .envelopes_expand(&AuthEnvelopesExpandRequest {
             contract: contract_json_object(&service_contract_json)?,
             deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-            expected_digest: contract_digest,
+            expected_digest: contract_digest.clone(),
+        })
+        .await
+        .into_diagnostic()?;
+
+    let consumer_contract_json = harness_service_consumer_contract_json()?;
+    let consumer_contract_digest =
+        digest_contract_json(&consumer_contract_json).into_diagnostic()?;
+    sdk_auth_client
+        .rpc()
+        .auth()
+        .envelopes_expand(&AuthEnvelopesExpandRequest {
+            contract: contract_json_object(&consumer_contract_json)?,
+            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
+            expected_digest: consumer_contract_digest.clone(),
+        })
+        .await
+        .into_diagnostic()?;
+
+    let (consumer_service_seed, consumer_service_key) = generate_session_keypair();
+    auth_client
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
+            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
+            instance_key: consumer_service_key,
         })
         .await
         .into_diagnostic()?;
@@ -263,7 +421,7 @@ pub(crate) async fn run_events_fixture(
     run_ts_self_client(trellis_url, &caller_login.state.session_seed)
         .await
         .map_err(|error| miette!("TS publish -> TS subscribe failed: {error}"))?;
-    assert_rust_durable_resubscribe(&caller_client)
+    assert_rust_durable_resubscribe(nats_server, trellis_creds, RUST_DURABLE_RESUBSCRIBE_GROUP)
         .await
         .map_err(|error| miette!("Rust durable event re-subscribe failed: {error}"))?;
     run_ts_event_behavior(
@@ -276,9 +434,14 @@ pub(crate) async fn run_events_fixture(
     )
     .await
     .map_err(|error| miette!("TS durable event re-subscribe failed: {error}"))?;
-    assert_rust_handler_nak_redelivery(&caller_client)
-        .await
-        .map_err(|error| miette!("Rust event NAK redelivery failed: {error}"))?;
+    assert_rust_handler_nak_redelivery(
+        nats_server,
+        trellis_creds,
+        &caller_client,
+        RUST_HANDLER_NAK_GROUP,
+    )
+    .await
+    .map_err(|error| miette!("Rust event NAK redelivery failed: {error}"))?;
     run_ts_event_behavior(
         trellis_url,
         &caller_login.state.session_seed,
@@ -289,9 +452,14 @@ pub(crate) async fn run_events_fixture(
     )
     .await
     .map_err(|error| miette!("TS event NAK redelivery failed: {error}"))?;
-    assert_rust_invalid_payload_terminates(&caller_client)
-        .await
-        .map_err(|error| miette!("Rust invalid event termination failed: {error}"))?;
+    assert_rust_invalid_payload_terminates(
+        nats_server,
+        trellis_creds,
+        &caller_client,
+        RUST_INVALID_TERM_GROUP,
+    )
+    .await
+    .map_err(|error| miette!("Rust invalid event termination failed: {error}"))?;
     run_ts_event_behavior(
         trellis_url,
         &caller_login.state.session_seed,
@@ -363,8 +531,44 @@ pub(crate) async fn run_events_fixture(
     assert_rust_denied_subscribe(&publish_only_client)
         .await
         .map_err(|error| miette!("Rust denied subscribe case failed: {error}"))?;
+    assert_ts_service_event_consumer(
+        trellis_url,
+        &publish_only_login.state,
+        browser,
+        &consumer_contract_digest,
+        &consumer_service_seed,
+    )
+    .await
+    .map_err(|error| miette!("TS service event consumer failed: {error}"))?;
 
     Ok(PASSING_CASES)
+}
+
+async fn assert_ts_service_event_consumer(
+    trellis_url: &str,
+    state: &trellis::auth::AdminSessionState,
+    browser: &BrowserContainer,
+    consumer_contract_digest: &str,
+    consumer_service_seed: &str,
+) -> Result<()> {
+    let mut service = TsEventConsumerServiceProcess::start(
+        trellis_url,
+        consumer_contract_digest,
+        consumer_service_seed,
+    )?;
+    service.wait_ready().await?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let caller_contract_json = harness_service_consumer_caller_contract_json()?;
+    let caller_contract_digest = digest_contract_json(&caller_contract_json).into_diagnostic()?;
+    let caller_login = reauth_contract(state, &caller_contract_json, trellis_url, browser).await?;
+    run_ts_service_consumer_client(
+        trellis_url,
+        &caller_login.state.session_seed,
+        &caller_contract_digest,
+    )
+    .await?;
+    service.wait_ok().await
 }
 
 async fn reauth_admin_setup(
@@ -424,10 +628,7 @@ async fn reauth_contract(
 }
 
 async fn assert_rust_publish_rust_subscribe(client: &TrellisClient) -> Result<()> {
-    let mut events = client
-        .subscribe_messages::<HarnessRustEvent>(EventSubscribeOptions::default())
-        .await
-        .into_diagnostic()?;
+    let mut events = subscribe_live_messages::<HarnessRustEvent>(client).await?;
     client.nats().flush().await.into_diagnostic()?;
     let expected = HarnessEventPayload {
         message: "rust-publish-rust-subscribe".to_string(),
@@ -438,8 +639,8 @@ async fn assert_rust_publish_rust_subscribe(client: &TrellisClient) -> Result<()
         .await
         .into_diagnostic()?;
     client.nats().flush().await.into_diagnostic()?;
-    let event = expect_event_message::<HarnessRustEvent>(&mut events).await?;
-    if event.decode().into_diagnostic()? != expected {
+    let event = expect_live_message::<HarnessRustEvent>(&mut events).await?;
+    if decode_live_message::<HarnessRustEvent>(&event)? != expected {
         return Err(miette!("{} event mismatch", HarnessRustEvent::KEY));
     }
     let expected_id = expected
@@ -447,8 +648,7 @@ async fn assert_rust_publish_rust_subscribe(client: &TrellisClient) -> Result<()
         .as_ref()
         .map(|header| header.id.as_str())
         .ok_or_else(|| miette!("{} expected event had no header", HarnessRustEvent::KEY))?;
-    assert_event_header(&event, "Nats-Msg-Id", expected_id)?;
-    event.ack().await.into_diagnostic()
+    assert_live_event_header(&event, "Nats-Msg-Id", expected_id)
 }
 
 async fn assert_rust_publish_ts_subscribe(
@@ -493,20 +693,13 @@ async fn assert_ts_trace_publish_rust_subscribe(
     caller_session_seed: &str,
     client: &TrellisClient,
 ) -> Result<()> {
-    let mut events = client
-        .subscribe_messages::<HarnessTsEvent>(EventSubscribeOptions {
-            mode: EventSubscriptionMode::Ephemeral,
-            replay: EventReplayPolicy::New,
-            durable_name: None,
-        })
-        .await
-        .into_diagnostic()?;
+    let mut events = subscribe_live_messages::<HarnessTsEvent>(client).await?;
     client.nats().flush().await.into_diagnostic()?;
     let expected_message = "ts-trace-publish-rust-subscribe";
     let trace_id =
         run_ts_trace_publisher(trellis_url, caller_session_seed, expected_message).await?;
-    let event = expect_event_message::<HarnessTsEvent>(&mut events).await?;
-    let payload = event.decode().into_diagnostic()?;
+    let event = expect_live_message::<HarnessTsEvent>(&mut events).await?;
+    let payload = decode_live_message::<HarnessTsEvent>(&event)?;
     if payload.message != expected_message {
         return Err(miette!(
             "{} traced event message mismatch: {:?}",
@@ -520,103 +713,94 @@ async fn assert_ts_trace_publish_rust_subscribe(
             HarnessTsEvent::KEY
         )
     })?;
-    assert_event_header(&event, "Nats-Msg-Id", &payload_header.id)?;
-    let traceparent = event_header_value(&event, "traceparent")?;
+    assert_live_event_header(&event, "Nats-Msg-Id", &payload_header.id)?;
+    let traceparent = live_event_header_value(&event, "traceparent")?;
     if !traceparent.contains(&trace_id) {
         return Err(miette!(
             "{} traceparent did not include active TS trace id {trace_id}: {traceparent}",
             HarnessTsEvent::KEY
         ));
     }
-    event.ack().await.into_diagnostic()
+    Ok(())
 }
 
-async fn assert_rust_durable_resubscribe(client: &TrellisClient) -> Result<()> {
-    let options = EventSubscribeOptions {
-        mode: EventSubscriptionMode::Durable,
-        replay: EventReplayPolicy::New,
-        durable_name: Some("rust_events_durable_resubscribe".to_string()),
-    };
-    let first = client
-        .subscribe_messages::<HarnessRustEvent>(options.clone())
-        .await
-        .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+async fn assert_rust_durable_resubscribe(
+    nats_server: &str,
+    trellis_creds: &Path,
+    durable_name: &str,
+) -> Result<()> {
+    let first = open_harness_durable_consumer(nats_server, trellis_creds, durable_name).await?;
+    let first = first.messages().await.into_diagnostic()?;
     drop(first);
-    let second = client
-        .subscribe_messages::<HarnessRustEvent>(options)
-        .await
-        .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+    let second = open_harness_durable_consumer(nats_server, trellis_creds, durable_name).await?;
+    let second = second.messages().await.into_diagnostic()?;
     drop(second);
     Ok(())
 }
 
-async fn assert_rust_handler_nak_redelivery(client: &TrellisClient) -> Result<()> {
-    let mut events = client
-        .subscribe_messages::<HarnessRustEvent>(EventSubscribeOptions {
-            mode: EventSubscriptionMode::Durable,
-            replay: EventReplayPolicy::New,
-            durable_name: Some("rust_events_handler_nak".to_string()),
-        })
-        .await
-        .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+async fn assert_rust_handler_nak_redelivery(
+    nats_server: &str,
+    trellis_creds: &Path,
+    publisher_client: &TrellisClient,
+    durable_name: &str,
+) -> Result<()> {
+    let consumer = open_harness_durable_consumer(nats_server, trellis_creds, durable_name).await?;
+    let mut events = consumer.messages().await.into_diagnostic()?;
     let expected = HarnessEventPayload {
         message: "rust-handler-nak".to_string(),
         header: Some(event_header("rust-handler-nak")),
     };
-    client
+    publisher_client
         .publish::<HarnessRustEvent>(&expected)
         .await
         .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+    publisher_client.nats().flush().await.into_diagnostic()?;
 
-    let first = expect_event_message::<HarnessRustEvent>(&mut events).await?;
-    if first.decode().into_diagnostic()? != expected {
+    let first = expect_jetstream_message::<HarnessRustEvent>(&mut events).await?;
+    if decode_jetstream_message::<HarnessRustEvent>(&first)? != expected {
         return Err(miette!("first NAK event payload mismatch"));
     }
-    first.nak().await.into_diagnostic()?;
-    let second = expect_event_message::<HarnessRustEvent>(&mut events).await?;
-    if second.decode().into_diagnostic()? != expected {
+    first
+        .ack_with(AckKind::Nak(None))
+        .await
+        .map_err(|error| miette!("failed to NAK durable event: {error}"))?;
+    let second = expect_jetstream_message::<HarnessRustEvent>(&mut events).await?;
+    if decode_jetstream_message::<HarnessRustEvent>(&second)? != expected {
         return Err(miette!("redelivered NAK event payload mismatch"));
     }
-    second.ack().await.into_diagnostic()
+    second
+        .ack()
+        .await
+        .map_err(|error| miette!("failed to ACK durable event: {error}"))
 }
 
-async fn assert_rust_invalid_payload_terminates(client: &TrellisClient) -> Result<()> {
-    let mut events = client
-        .subscribe_messages::<HarnessRustEvent>(EventSubscribeOptions {
-            mode: EventSubscriptionMode::Durable,
-            replay: EventReplayPolicy::New,
-            durable_name: Some("rust_events_invalid_term".to_string()),
-        })
-        .await
-        .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+async fn assert_rust_invalid_payload_terminates(
+    nats_server: &str,
+    trellis_creds: &Path,
+    publisher_client: &TrellisClient,
+    durable_name: &str,
+) -> Result<()> {
+    let consumer = open_harness_durable_consumer(nats_server, trellis_creds, durable_name).await?;
+    let mut events = consumer.messages().await.into_diagnostic()?;
     publish_raw_event(
-        client,
+        publisher_client,
         HARNESS_RUST_EVENT_SUBJECT,
         &json!({ "header": { "id": "invalid", "time": "2026-05-13T00:00:00.000Z" } }),
     )
     .await?;
-    let invalid = expect_event_message::<HarnessRustEvent>(&mut events).await?;
-    if invalid.decode().is_ok() {
+    let invalid = expect_jetstream_message::<HarnessRustEvent>(&mut events).await?;
+    if decode_jetstream_message::<HarnessRustEvent>(&invalid).is_ok() {
         return Err(miette!("invalid Rust event payload decoded successfully"));
     }
-    invalid.term().await.into_diagnostic()?;
-    expect_no_event_message::<HarnessRustEvent>(&mut events).await
+    invalid
+        .ack_with(AckKind::Term)
+        .await
+        .map_err(|error| miette!("failed to terminate durable event: {error}"))?;
+    expect_no_jetstream_message::<HarnessRustEvent>(&mut events).await
 }
 
 async fn assert_rust_ephemeral_abort(client: &TrellisClient) -> Result<()> {
-    let mut events = client
-        .subscribe_messages::<HarnessRustEvent>(EventSubscribeOptions {
-            mode: EventSubscriptionMode::Ephemeral,
-            replay: EventReplayPolicy::New,
-            durable_name: None,
-        })
-        .await
-        .into_diagnostic()?;
+    let mut events = subscribe_live_messages::<HarnessRustEvent>(client).await?;
     client.nats().flush().await.into_diagnostic()?;
     client
         .publish::<HarnessRustEvent>(&HarnessEventPayload {
@@ -625,8 +809,10 @@ async fn assert_rust_ephemeral_abort(client: &TrellisClient) -> Result<()> {
         })
         .await
         .into_diagnostic()?;
-    let first = expect_event_message::<HarnessRustEvent>(&mut events).await?;
-    first.ack().await.into_diagnostic()?;
+    let first = expect_live_message::<HarnessRustEvent>(&mut events).await?;
+    if decode_live_message::<HarnessRustEvent>(&first)?.message != "rust-ephemeral-first" {
+        return Err(miette!("Rust ephemeral first event payload mismatch"));
+    }
     drop(events);
     client
         .publish::<HarnessRustEvent>(&HarnessEventPayload {
@@ -637,15 +823,8 @@ async fn assert_rust_ephemeral_abort(client: &TrellisClient) -> Result<()> {
         .into_diagnostic()?;
     client.nats().flush().await.into_diagnostic()?;
 
-    let mut fresh = client
-        .subscribe_messages::<HarnessRustEvent>(EventSubscribeOptions {
-            mode: EventSubscriptionMode::Ephemeral,
-            replay: EventReplayPolicy::New,
-            durable_name: None,
-        })
-        .await
-        .into_diagnostic()?;
-    expect_no_event_message::<HarnessRustEvent>(&mut fresh).await
+    let mut fresh = subscribe_live_messages::<HarnessRustEvent>(client).await?;
+    expect_no_live_message::<HarnessRustEvent>(&mut fresh).await
 }
 
 async fn assert_rust_prepared_outbox_inbox(
@@ -653,14 +832,7 @@ async fn assert_rust_prepared_outbox_inbox(
     nats_server: &str,
     trellis_creds: &Path,
 ) -> Result<()> {
-    let mut events = client
-        .subscribe_messages::<HarnessRustEvent>(EventSubscribeOptions {
-            mode: EventSubscriptionMode::Ephemeral,
-            replay: EventReplayPolicy::New,
-            durable_name: None,
-        })
-        .await
-        .into_diagnostic()?;
+    let mut events = subscribe_live_messages::<HarnessRustEvent>(client).await?;
     client.nats().flush().await.into_diagnostic()?;
 
     let expected = HarnessEventPayload {
@@ -694,12 +866,12 @@ async fn assert_rust_prepared_outbox_inbox(
         ));
     }
 
-    let event = expect_event_message::<HarnessRustEvent>(&mut events).await?;
-    if event.decode().into_diagnostic()? != expected {
+    let event = expect_live_message::<HarnessRustEvent>(&mut events).await?;
+    if decode_live_message::<HarnessRustEvent>(&event)? != expected {
         return Err(miette!("prepared outbox event payload mismatch"));
     }
 
-    let event_id = event_header_value(&event, "Nats-Msg-Id")?.to_string();
+    let event_id = live_event_header_value(&event, "Nats-Msg-Id")?.to_string();
     let mut inbox = NatsKvInboxStore::new(store, "rust-prepared/");
     let mut processed = 0;
     if inbox.record_received(&event_id).await.into_diagnostic()? == InboxReceipt::Accepted {
@@ -712,7 +884,7 @@ async fn assert_rust_prepared_outbox_inbox(
         ));
     }
 
-    event.ack().await.into_diagnostic()
+    Ok(())
 }
 
 async fn open_events_kv_store(
@@ -801,47 +973,113 @@ fn event_header(id: &str) -> HarnessEventHeader {
 }
 
 async fn assert_rust_denied_subscribe(client: &TrellisClient) -> Result<()> {
-    let result = async {
-        let _events = client
-            .subscribe::<HarnessRustEvent>()
-            .await
-            .into_diagnostic()?;
-        client.nats().flush().await.into_diagnostic()
-    }
-    .await;
-    if result.is_ok() {
+    let mut events = client
+        .subscribe::<HarnessRustEvent>()
+        .await
+        .into_diagnostic()?;
+    client.nats().flush().await.into_diagnostic()?;
+    client
+        .publish::<HarnessRustEvent>(&HarnessEventPayload {
+            message: "rust-denied-subscribe".to_string(),
+            header: Some(event_header("rust-denied-subscribe")),
+        })
+        .await
+        .into_diagnostic()?;
+    client.nats().flush().await.into_diagnostic()?;
+    if let Ok(Some(Ok(_))) = tokio::time::timeout(Duration::from_millis(500), events.next()).await {
         return Err(miette!(
-            "Rust event subscribe unexpectedly succeeded without subscribe permission"
+            "Rust event subscribe unexpectedly received an event without subscribe permission"
         ));
     }
     Ok(())
 }
 
-async fn expect_event_message<D>(
-    events: &mut futures_util::stream::BoxStream<
-        'static,
-        Result<
-            trellis::client::EventMessage<HarnessEventPayload>,
-            trellis::client::TrellisClientError,
-        >,
-    >,
-) -> Result<trellis::client::EventMessage<HarnessEventPayload>>
+async fn subscribe_live_messages<D>(client: &TrellisClient) -> Result<async_nats::Subscriber>
+where
+    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+{
+    client
+        .nats()
+        .subscribe(D::SUBJECT.to_string())
+        .await
+        .into_diagnostic()
+}
+
+async fn open_harness_durable_consumer(
+    nats_server: &str,
+    trellis_creds: &Path,
+    durable_name: &str,
+) -> Result<consumer::Consumer<consumer::pull::Config>> {
+    let nats = ConnectOptions::new()
+        .credentials_file(trellis_creds)
+        .await
+        .into_diagnostic()
+        .map_err(|error| miette!("failed to load events durable NATS credentials: {error}"))?
+        .connect(nats_server)
+        .await
+        .into_diagnostic()
+        .map_err(|error| miette!("failed to connect events durable NATS client: {error}"))?;
+    let jetstream = jetstream::new(nats);
+    let stream = jetstream
+        .get_stream_no_info(HARNESS_EVENT_STREAM)
+        .await
+        .into_diagnostic()?;
+    match stream.get_consumer(durable_name).await {
+        Ok(consumer) => Ok(consumer),
+        Err(_) => stream
+            .create_consumer(consumer::pull::Config {
+                durable_name: Some(durable_name.to_string()),
+                deliver_policy: consumer::DeliverPolicy::New,
+                ack_policy: consumer::AckPolicy::Explicit,
+                filter_subject: HARNESS_RUST_EVENT_SUBJECT.to_string(),
+                ..Default::default()
+            })
+            .await
+            .into_diagnostic(),
+    }
+}
+
+async fn expect_live_message<D>(events: &mut async_nats::Subscriber) -> Result<async_nats::Message>
 where
     D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
 {
     tokio::time::timeout(Duration::from_secs(10), events.next())
         .await
-        .map_err(|_| miette!("{} message subscription timed out", D::KEY))?
-        .ok_or_else(|| miette!("{} message subscription ended before event", D::KEY))?
+        .map_err(|_| miette!("{} live subscription timed out", D::KEY))?
+        .ok_or_else(|| miette!("{} live subscription ended before event", D::KEY))
+}
+
+fn decode_live_message<D>(message: &async_nats::Message) -> Result<HarnessEventPayload>
+where
+    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+{
+    serde_json::from_slice(&message.payload).into_diagnostic()
+}
+
+async fn expect_jetstream_message<D>(
+    events: &mut consumer::pull::Stream,
+) -> Result<async_nats::jetstream::Message>
+where
+    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+{
+    tokio::time::timeout(Duration::from_secs(10), events.next())
+        .await
+        .map_err(|_| miette!("{} durable subscription timed out", D::KEY))?
+        .ok_or_else(|| miette!("{} durable subscription ended before event", D::KEY))?
         .into_diagnostic()
 }
 
-fn assert_event_header(
-    event: &EventMessage<HarnessEventPayload>,
-    name: &str,
-    expected: &str,
-) -> Result<()> {
-    let actual = event_header_value(event, name)?;
+fn decode_jetstream_message<D>(
+    message: &async_nats::jetstream::Message,
+) -> Result<HarnessEventPayload>
+where
+    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+{
+    serde_json::from_slice(&message.payload).into_diagnostic()
+}
+
+fn assert_live_event_header(event: &async_nats::Message, name: &str, expected: &str) -> Result<()> {
+    let actual = live_event_header_value(event, name)?;
     if actual != expected {
         return Err(miette!(
             "event header {name} mismatch: expected {expected}, got {actual}"
@@ -850,35 +1088,39 @@ fn assert_event_header(
     Ok(())
 }
 
-fn event_header_value<'a>(
-    event: &'a EventMessage<HarnessEventPayload>,
-    name: &str,
-) -> Result<&'a str> {
+fn live_event_header_value<'a>(event: &'a async_nats::Message, name: &str) -> Result<&'a str> {
     event
-        .headers()
+        .headers
+        .as_ref()
         .and_then(|headers| headers.get(name))
         .map(|value| value.as_str())
         .ok_or_else(|| miette!("event did not include {name} header"))
 }
 
-async fn expect_no_event_message<D>(
-    events: &mut futures_util::stream::BoxStream<
-        'static,
-        Result<
-            trellis::client::EventMessage<HarnessEventPayload>,
-            trellis::client::TrellisClientError,
-        >,
-    >,
-) -> Result<()>
+async fn expect_no_live_message<D>(events: &mut async_nats::Subscriber) -> Result<()>
+where
+    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+{
+    match tokio::time::timeout(Duration::from_millis(500), events.next()).await {
+        Ok(Some(message)) => Err(miette!(
+            "{} received unexpected live event message on {}",
+            D::KEY,
+            message.subject
+        )),
+        Ok(None) | Err(_) => Ok(()),
+    }
+}
+
+async fn expect_no_jetstream_message<D>(events: &mut consumer::pull::Stream) -> Result<()>
 where
     D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
 {
     match tokio::time::timeout(Duration::from_millis(500), events.next()).await {
         Ok(Some(Ok(message))) => {
-            let _ = message.term().await;
-            Err(miette!("{} received unexpected event message", D::KEY))
+            let _ = message.ack_with(AckKind::Term).await;
+            Err(miette!("{} received unexpected durable event", D::KEY))
         }
-        Ok(Some(Err(error))) => Err(miette!("{} stream failed: {error}", D::KEY)),
+        Ok(Some(Err(error))) => Err(miette!("{} durable stream failed: {error}", D::KEY)),
         Ok(None) | Err(_) => Ok(()),
     }
 }
@@ -993,6 +1235,114 @@ impl Drop for TsSubscriberProcess {
     }
 }
 
+#[derive(Debug)]
+struct TsEventConsumerServiceProcess {
+    child: Child,
+    stdout_log: PathBuf,
+    stderr_log: PathBuf,
+}
+
+impl TsEventConsumerServiceProcess {
+    fn start(trellis_url: &str, contract_digest: &str, service_seed: &str) -> Result<Self> {
+        let repo = repo_root()?;
+        let script_path = deno_fixture_path("events/service-consumer.ts")?;
+        let (stdout_log, stderr_log) = deno_fixture_log_paths("events-service-consumer")?;
+        let stdout = File::create(&stdout_log)
+            .into_diagnostic()
+            .map_err(|error| {
+                miette!("failed to create TS events service consumer stdout log: {error}")
+            })?;
+        let stderr = File::create(&stderr_log)
+            .into_diagnostic()
+            .map_err(|error| {
+                miette!("failed to create TS events service consumer stderr log: {error}")
+            })?;
+        let child = std::process::Command::new("deno")
+            .arg("run")
+            .arg("-c")
+            .arg(repo.join("js/deno.json"))
+            .arg("--allow-env")
+            .arg("--allow-sys")
+            .arg("--allow-net")
+            .arg("--allow-read")
+            .arg(&script_path)
+            .current_dir(repo.join("js"))
+            .env("TRELLIS_URL", trellis_url)
+            .env("HARNESS_CONSUMER_CONTRACT_DIGEST", contract_digest)
+            .env("HARNESS_TS_SERVICE_SEED", service_seed)
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr))
+            .spawn()
+            .into_diagnostic()
+            .map_err(|error| {
+                miette!("failed to start TS events service consumer fixture: {error}")
+            })?;
+        Ok(Self {
+            child,
+            stdout_log,
+            stderr_log,
+        })
+    }
+
+    async fn wait_ready(&mut self) -> Result<()> {
+        self.wait_for("TS_EVENTS_SERVICE_CONSUMER_READY", "readiness")
+            .await
+    }
+
+    async fn wait_ok(&mut self) -> Result<()> {
+        self.wait_for("TS_EVENTS_SERVICE_CONSUMER_OK", "success")
+            .await
+    }
+
+    async fn wait_for(&mut self, marker: &str, label: &str) -> Result<()> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            if std::fs::read_to_string(&self.stdout_log)
+                .unwrap_or_default()
+                .contains(marker)
+            {
+                return Ok(());
+            }
+            if let Some(status) = self.child.try_wait().into_diagnostic().map_err(|error| {
+                miette!("failed to inspect TS events service consumer child: {error}")
+            })? {
+                let stdout = std::fs::read_to_string(&self.stdout_log).unwrap_or_default();
+                let stderr = std::fs::read_to_string(&self.stderr_log).unwrap_or_default();
+                return Err(miette!(
+                    "TS events service consumer exited before {label} with status {status}; stdout: {stdout}; stderr: {stderr}"
+                ));
+            }
+            if tokio::time::Instant::now() >= deadline {
+                let stdout = std::fs::read_to_string(&self.stdout_log).unwrap_or_default();
+                let stderr = std::fs::read_to_string(&self.stderr_log).unwrap_or_default();
+                return Err(miette!(
+                    "timed out waiting for TS events service consumer {label}; stdout: {stdout}; stderr: {stderr}"
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+}
+
+impl Drop for TsEventConsumerServiceProcess {
+    fn drop(&mut self) {
+        match self.child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("warning: failed to inspect TS events service consumer child: {error}");
+                return;
+            }
+        }
+        if let Err(error) = self.child.kill() {
+            eprintln!("warning: failed to kill TS events service consumer child: {error}");
+        }
+        if let Err(error) = self.child.wait() {
+            eprintln!("warning: failed to wait for TS events service consumer child: {error}");
+        }
+    }
+}
+
 async fn run_ts_publisher(
     trellis_url: &str,
     caller_session_seed: &str,
@@ -1042,6 +1392,35 @@ async fn run_ts_self_client(trellis_url: &str, caller_session_seed: &str) -> Res
         "TS_EVENTS_SELF_OK",
     )
     .await
+}
+
+async fn run_ts_service_consumer_client(
+    trellis_url: &str,
+    caller_session_seed: &str,
+    caller_digest: &str,
+) -> Result<()> {
+    let mut last_error = None;
+    for attempt in 1..=3 {
+        match run_ts_script_with_digest(
+            "events-service-consumer-client",
+            "events/service-consumer-client.ts",
+            trellis_url,
+            caller_session_seed,
+            caller_digest,
+            Some("service-consumer"),
+            "TS_EVENTS_SERVICE_CONSUMER_CLIENT_OK",
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(error) if attempt < 3 => {
+                last_error = Some(error);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| miette!("TS service consumer client did not run")))
 }
 
 async fn run_ts_denied_publish(trellis_url: &str, caller_session_seed: &str) -> Result<()> {

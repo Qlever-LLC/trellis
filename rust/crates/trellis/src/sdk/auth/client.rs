@@ -9,6 +9,10 @@ impl<'a> AuthClient<'a> {
     pub fn new(inner: &'a crate::client::TrellisClient) -> Self {
         Self { inner }
     }
+    #[allow(dead_code)]
+    pub(crate) fn inner(&self) -> &'a crate::client::TrellisClient {
+        self.inner
+    }
     /// Access typed RPC calls.
     pub fn rpc(&self) -> Rpc<'a> {
         Rpc { _inner: self.inner }
@@ -677,7 +681,13 @@ impl<'a> AuthConnectionsClosedEvent<'a> {
     {
         let mut stream = self
             .inner
-            .subscribe::<super::events::AuthConnectionsClosedEventDescriptor>()
+            .subscribe_with_options::<super::events::AuthConnectionsClosedEventDescriptor>(
+                crate::client::EventSubscribeOptions {
+                    mode: crate::client::EventSubscriptionMode::Ephemeral,
+                    replay: crate::client::EventReplayPolicy::New,
+                    durable_name: None,
+                },
+            )
             .await?;
         while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
             handler(event?).await?;
@@ -704,7 +714,13 @@ impl<'a> AuthConnectionsKickedEvent<'a> {
     {
         let mut stream = self
             .inner
-            .subscribe::<super::events::AuthConnectionsKickedEventDescriptor>()
+            .subscribe_with_options::<super::events::AuthConnectionsKickedEventDescriptor>(
+                crate::client::EventSubscribeOptions {
+                    mode: crate::client::EventSubscriptionMode::Ephemeral,
+                    replay: crate::client::EventReplayPolicy::New,
+                    durable_name: None,
+                },
+            )
             .await?;
         while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
             handler(event?).await?;
@@ -731,7 +747,13 @@ impl<'a> AuthConnectionsOpenedEvent<'a> {
     {
         let mut stream = self
             .inner
-            .subscribe::<super::events::AuthConnectionsOpenedEventDescriptor>()
+            .subscribe_with_options::<super::events::AuthConnectionsOpenedEventDescriptor>(
+                crate::client::EventSubscribeOptions {
+                    mode: crate::client::EventSubscriptionMode::Ephemeral,
+                    replay: crate::client::EventReplayPolicy::New,
+                    durable_name: None,
+                },
+            )
             .await?;
         while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
             handler(event?).await?;
@@ -758,7 +780,13 @@ impl<'a> AuthDeviceUserAuthoritiesApprovedEvent<'a> {
     {
         let mut stream = self
             .inner
-            .subscribe::<super::events::AuthDeviceUserAuthoritiesApprovedEventDescriptor>()
+            .subscribe_with_options::<
+                super::events::AuthDeviceUserAuthoritiesApprovedEventDescriptor,
+            >(crate::client::EventSubscribeOptions {
+                mode: crate::client::EventSubscriptionMode::Ephemeral,
+                replay: crate::client::EventReplayPolicy::New,
+                durable_name: None,
+            })
             .await?;
         while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
             handler(event?).await?;
@@ -785,7 +813,13 @@ impl<'a> AuthDeviceUserAuthoritiesRequestedEvent<'a> {
     {
         let mut stream = self
             .inner
-            .subscribe::<super::events::AuthDeviceUserAuthoritiesRequestedEventDescriptor>()
+            .subscribe_with_options::<
+                super::events::AuthDeviceUserAuthoritiesRequestedEventDescriptor,
+            >(crate::client::EventSubscribeOptions {
+                mode: crate::client::EventSubscriptionMode::Ephemeral,
+                replay: crate::client::EventReplayPolicy::New,
+                durable_name: None,
+            })
             .await?;
         while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
             handler(event?).await?;
@@ -812,7 +846,13 @@ impl<'a> AuthDeviceUserAuthoritiesResolvedEvent<'a> {
     {
         let mut stream = self
             .inner
-            .subscribe::<super::events::AuthDeviceUserAuthoritiesResolvedEventDescriptor>()
+            .subscribe_with_options::<
+                super::events::AuthDeviceUserAuthoritiesResolvedEventDescriptor,
+            >(crate::client::EventSubscribeOptions {
+                mode: crate::client::EventSubscriptionMode::Ephemeral,
+                replay: crate::client::EventReplayPolicy::New,
+                durable_name: None,
+            })
             .await?;
         while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
             handler(event?).await?;
@@ -841,7 +881,13 @@ impl<'a> AuthDeviceUserAuthoritiesReviewRequestedEvent<'a> {
     {
         let mut stream = self
             .inner
-            .subscribe::<super::events::AuthDeviceUserAuthoritiesReviewRequestedEventDescriptor>()
+            .subscribe_with_options::<
+                super::events::AuthDeviceUserAuthoritiesReviewRequestedEventDescriptor,
+            >(crate::client::EventSubscribeOptions {
+                mode: crate::client::EventSubscriptionMode::Ephemeral,
+                replay: crate::client::EventReplayPolicy::New,
+                durable_name: None,
+            })
             .await?;
         while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
             handler(event?).await?;
@@ -868,7 +914,13 @@ impl<'a> AuthSessionsRevokedEvent<'a> {
     {
         let mut stream = self
             .inner
-            .subscribe::<super::events::AuthSessionsRevokedEventDescriptor>()
+            .subscribe_with_options::<super::events::AuthSessionsRevokedEventDescriptor>(
+                crate::client::EventSubscribeOptions {
+                    mode: crate::client::EventSubscriptionMode::Ephemeral,
+                    replay: crate::client::EventReplayPolicy::New,
+                    durable_name: None,
+                },
+            )
             .await?;
         while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
             handler(event?).await?;

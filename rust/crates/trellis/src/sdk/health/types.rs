@@ -13,7 +13,7 @@ pub struct HealthHeartbeatEventChecksItem {
     #[serde(rename = "latencyMs")]
     pub latency_ms: f64,
     pub name: String,
-    pub status: Value,
+    pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
 }
@@ -34,11 +34,11 @@ pub struct HealthHeartbeatEventService {
     pub info: Option<BTreeMap<String, Value>>,
     #[serde(rename = "instanceId")]
     pub instance_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     #[serde(rename = "publishIntervalMs")]
     pub publish_interval_ms: i64,
-    pub runtime: Value,
+    pub runtime: String,
     #[serde(rename = "runtimeVersion")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_version: Option<String>,
@@ -52,7 +52,7 @@ pub struct HealthHeartbeatEvent {
     pub checks: Vec<HealthHeartbeatEventChecksItem>,
     pub header: HealthHeartbeatEventHeader,
     pub service: HealthHeartbeatEventService,
-    pub status: Value,
+    pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
 }

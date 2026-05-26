@@ -31,6 +31,10 @@ envelope grant overrides, or external identity mappings.
 Rules:
 
 - contracts declare required capabilities on owned and used surfaces
+- event subscription capabilities authorize the logical event surface. Durable
+  service event consumers require an additional `eventConsumers` resource
+  binding and receive least-privilege JetStream consumer permissions from that
+  binding rather than from broader capability grants.
 - contracts SHOULD declare top-level metadata for every capability they own
 - deployments assign capability bundles to users and services
 - deployments MAY also assign auth-owned dynamic capability overlays through
@@ -39,7 +43,7 @@ Rules:
 - services receive deployment policy through deployment-envelope creation,
   expansion, and shrink decisions
 - authorization changes take effect immediately because auth derives subjects
-  from active contracts and current grants
+  from envelope-compatible presented contracts and current grants
 - auth-owned self-service RPCs may intentionally require zero granted
   capabilities when ordinary authenticated user context is sufficient, such as
   `Auth.Sessions.Me` and `Auth.Sessions.Logout`
@@ -107,7 +111,8 @@ Some operations require both:
 - the needed capabilities
 - a registered service identity
 
-Auth enforces this using service identity plus the active contract set.
+Auth enforces this using service identity plus envelope-compatible presented
+contract evidence.
 
 ## Future Direction
 

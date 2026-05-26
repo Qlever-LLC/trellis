@@ -545,7 +545,10 @@ mod tests {
         let seen_requests = Arc::new(Mutex::new(Vec::new()));
         (
             FakeCoreClient {
-                binding_result: Mutex::new(Some(Ok(TrellisBindingsGetResponse { binding }))),
+                binding_result: Mutex::new(Some(Ok(TrellisBindingsGetResponse {
+                    binding,
+                    event_consumers: None,
+                }))),
                 seen_requests: Arc::clone(&seen_requests),
             },
             seen_requests,
@@ -558,6 +561,7 @@ mod tests {
             contract_id: expected.id,
             digest: expected.digest,
             resources: TrellisBindingsGetResponseBindingResources {
+                event_consumers: None,
                 jobs: None,
                 kv: None,
                 store: None,

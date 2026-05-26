@@ -9,7 +9,6 @@ import {
   type KVError,
   type StoreError,
   type StoreWaitOptions,
-  Trellis as RootTrellis,
   TypedKV,
   TypedStore,
   TypedStoreEntry,
@@ -33,6 +32,7 @@ import {
 import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
 import type { TrellisContractV1 } from "../contract_support/mod.ts";
 import type {
+  ContractEventConsumers,
   ContractJobsMetadata,
   ContractKvMetadata,
 } from "../contract_support/mod.ts";
@@ -61,6 +61,7 @@ import type {
   RpcHandlerContext,
   RpcHandlerErrorOf,
 } from "../trellis.ts";
+import { createTrellisInternal } from "../trellis.ts";
 import type {
   NatsConnectFn,
   NatsConnectOpts,
@@ -135,6 +136,18 @@ type ResourceBindingJobs = {
   namespace: string;
   workStream?: string;
   queues: Record<string, ResourceBindingJobsQueue>;
+};
+
+type ResourceBindingEventConsumer = {
+  stream: string;
+  consumerName: string;
+  filterSubjects: string[];
+  replay: "new" | "all";
+  ordering: "strict";
+  concurrency: number;
+  ackWaitMs: number;
+  maxDeliver: number;
+  backoffMs: number[];
 };
 
 const ClientTransportEndpointsSchema = Type.Object({
@@ -277,7 +290,16 @@ export type ResourceBindings = {
   kv: Record<string, ResourceBindingKV>;
   store: Record<string, ResourceBindingStore>;
   jobs?: ResourceBindingJobs;
+  eventConsumers?: Record<string, ResourceBindingEventConsumer>;
 };
+
+const storeHandleConstructorToken: unique symbol = Symbol(
+  "StoreHandle.constructorToken",
+);
+
+const trellisServiceConstructorToken: unique symbol = Symbol(
+  "TrellisService.constructorToken",
+);
 
 function getErrorCauseMessage(error: unknown): string {
   if (error && typeof error === "object") {
@@ -658,7 +680,16 @@ export class StoreHandle {
   readonly binding: ResourceBindingStore;
   readonly #nc: NatsConnection;
 
-  constructor(nc: NatsConnection, binding: ResourceBindingStore) {
+  constructor(
+    nc: NatsConnection,
+    binding: ResourceBindingStore,
+    token: typeof storeHandleConstructorToken,
+  ) {
+    if (token !== storeHandleConstructorToken) {
+      throw new TypeError(
+        "StoreHandle instances are created by TrellisService",
+      );
+    }
     this.#nc = nc;
     this.binding = binding;
   }
@@ -1284,6 +1315,7 @@ export async function createConnectedService<
   contractDigest?: string;
   contractJobs: TJobs;
   contractKv: TKv;
+  contractEventConsumers?: ContractEventConsumers;
   server: TrellisServiceRuntimeCreateOpts<TOwnedApi, TTrellisApi>;
   bindings: ResourceBindings;
 }): Promise<TrellisService<TOwnedApi, TTrellisApi, TJobs, TKv>> {
@@ -1327,7 +1359,7 @@ export async function createConnectedService<
     },
   );
 
-  const outbound = new RootTrellis<TTrellisApi>(
+  const outbound = createTrellisInternal<TTrellisApi>(
     args.name,
     args.nc,
     { sessionKey: args.auth.sessionKey, sign: args.auth.sign },
@@ -1337,6 +1369,10 @@ export async function createConnectedService<
       stream: args.server.stream,
       noResponderRetry: args.server.noResponderRetry,
       api: runtimeApi,
+      eventConsumers: {
+        metadata: args.contractEventConsumers,
+        bindings: args.bindings.eventConsumers,
+      },
       connection,
     },
   );
@@ -1463,7 +1499,7 @@ export async function createConnectedService<
     stores: Object.fromEntries(
       Object.entries(args.bindings.store ?? {}).map(([alias, binding]) => [
         alias,
-        new StoreHandle(args.nc, binding),
+        new StoreHandle(args.nc, binding, storeHandleConstructorToken),
       ]),
     ),
   });
@@ -1481,6 +1517,7 @@ export async function createConnectedService<
     health,
     stopHealthPublishing,
     connection,
+    trellisServiceConstructorToken,
   );
   handlerResources = {
     kv: service.kv,
@@ -2187,7 +2224,11 @@ export class TrellisService<
     health: ServiceHealth,
     stopHealthPublishing: () => Promise<void>,
     connection: TrellisConnection,
+    token: typeof trellisServiceConstructorToken,
   ) {
+    if (token !== trellisServiceConstructorToken) {
+      throw new TypeError("TrellisService instances are created by connect()");
+    }
     const storeBindings = bindings.store ?? {};
 
     this.name = name;
@@ -2203,7 +2244,7 @@ export class TrellisService<
     this.store = Object.fromEntries(
       Object.entries(storeBindings).map((
         [alias, binding],
-      ) => [alias, new StoreHandle(nc, binding)]),
+      ) => [alias, new StoreHandle(nc, binding, storeHandleConstructorToken)]),
     );
     this.#operationTransfer = operationTransfer;
     const jobs = createJobsFacade<TJobs, TTrellisApi, TKv>({
@@ -2458,6 +2499,7 @@ export class TrellisService<
                 (args.contract[CONTRACT_KV_METADATA] ?? {}) as ContractKvOf<
                   TContract
                 >,
+              contractEventConsumers: args.contract.CONTRACT.eventConsumers,
               server,
               bindings: bootstrap.binding.resources,
             }),

@@ -27,6 +27,11 @@ console.log("Connected to Trellis!");
 
 `TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, verifies that the presented contract evidence fits the enabled deployment envelope, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved. Catalog activation comes from the enabled service deployment envelope and its active required dependency closure, so the contract can be active before this instance connects. If the deployment envelope does not cover the contract boundary yet, bootstrap creates or reuses a pending expansion request and waits while retrying. Required dependencies with only stale incompatible inactive manifests are recorded as unresolved blockers until current dependency evidence is uploaded.
 
+Those resolved bindings are Trellis runtime internals. Use the returned
+`service.kv`, `service.store`, and `service.jobs` handles; do not call
+`Trellis.Bindings.Get`, construct `TrellisService` or `StoreHandle`, or pass
+binding/resource payloads into `Trellis` constructors.
+
 {/snippet}
 {#snippet rust()}
 

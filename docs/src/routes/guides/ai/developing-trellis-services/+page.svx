@@ -1,0 +1,225 @@
+This guide explains how to give AI coding agents current Trellis instructions
+when they work in an out-of-tree service repository.
+
+Use the raw files as stable, pasteable references:
+
+- Short guide: <https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt>
+- Full guide: <https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt>
+- AGENTS template: `/templates/trellis-service-AGENTS.md`
+
+## When to use each file
+
+Use `llms.txt` as a small bootstrap document for every Trellis task. It tells an
+agent to use runtime authority and envelope wording, prefer generated surfaces,
+and avoid stale service APIs.
+
+Use `llms-full.txt` when the agent will change a contract, generated SDK usage,
+service handlers, operations, event publication, or outbox/inbox code. It includes
+examples for TypeScript and Rust services.
+
+Copy `templates/trellis-service-AGENTS.md` into an out-of-tree service repository
+as `AGENTS.md`, then fill in the local commands and paths. Keep local rules in
+that file; keep Trellis-wide rules linked to the raw guides.
+
+## Recommended setup for a service repo
+
+1. Copy the template:
+
+   ```sh
+   curl -fsSL \
+     https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-AGENTS.md \
+     -o AGENTS.md
+   ```
+
+2. Fill in the repository-specific contract path, generation command, format
+   command, typecheck command, test command, run command, and migration command.
+3. Link the raw `llms.txt` and `llms-full.txt` URLs from any other AI-facing
+   project instructions.
+4. Ask agents to read the short guide for all Trellis tasks and the full guide for
+   contract or runtime-surface changes.
+
+## TypeScript instructions for agents
+
+Use generated, surface-first APIs:
+
+```ts
+const order = await client.rpc.orders.get({ orderId: "ord_123" }).orThrow();
+
+await client.event.orders.shipped.publish({
+  orderId: "ord_123",
+  customerId: "cust_456",
+  shippedAt: new Date().toISOString(),
+}).orThrow();
+
+const feed = await client.feed.orders.live({ customerId: "cust_456" }).orThrow();
+
+const op = await client.operation.orders.process
+  .start({ orderId: "ord_123" })
+  .orThrow();
+```
+
+Register service providers through `service.handle`. Handler code should use the
+scoped `client` argument for allowed outbound calls:
+
+```ts
+import { Result } from "@qlever-llc/trellis";
+
+await service.handle.rpc.orders.get(async ({ input, client }) => {
+  const order = await loadOrder(input.orderId);
+  if (!order) return Result.err(orderNotFound(input.orderId));
+
+  await client.event.orders.viewed.publish({
+    orderId: input.orderId,
+    viewedAt: new Date().toISOString(),
+  }).orThrow();
+
+  return Result.ok(order);
+});
+```
+
+For events, direct publish is the default. Use `prepare(...)` and an outbox only
+when event enqueue must commit with service-local durable state:
+
+```ts
+import {
+  dispatchOutbox,
+  SqlOutboxRepository,
+  type SqlExecutor,
+} from "@qlever-llc/trellis/service";
+
+const prepared = client.event.orders.shipped.prepare({
+  orderId: input.orderId,
+  customerId: input.customerId,
+  shippedAt: new Date().toISOString(),
+}).orThrow();
+
+await db.transaction(async (tx) => {
+  await markOrderShipped(tx, input.orderId);
+
+  const executor: SqlExecutor = drizzleTransactionExecutor(tx);
+  const outbox = new SqlOutboxRepository(executor, "postgres");
+  await outbox.enqueue(prepared);
+});
+
+await dispatchOutbox(outboxRepository, client);
+```
+
+Use `SqlInboxRepository` only for handlers that are not naturally idempotent. Use
+`NatsKvOutboxRepository` and `NatsKvInboxRepository` only when NATS KV durability
+is sufficient and no unrelated database transaction must be atomic.
+
+For durable service event processing, require an explicit `eventConsumers` group
+in the service contract and call the generated event listener with that group:
+
+```ts
+await client.event.orders.shipped.listen(handleShipment, {}, {
+  group: "shipmentProjection",
+}).orThrow();
+```
+
+Never invent `durableName` values in service code. Trellis provisions the
+physical consumer and grants only that bound consumer to the service token.
+
+## Rust instructions for agents
+
+Use generated descriptors and facades. Prefer generated wrappers when available:
+
+```rust
+let response = orders_client
+    .rpc()
+    .orders()
+    .get(&orders_sdk::OrdersGetRequest {
+        order_id: "ord_123".into(),
+    })
+    .await?;
+```
+
+Use descriptor APIs for events and operations:
+
+```rust
+trellis_client
+    .publish::<orders_sdk::events::OrdersShippedEventDescriptor>(
+        &orders_sdk::OrdersShippedEvent {
+            order_id: "ord_123".into(),
+            customer_id: "cust_456".into(),
+            shipped_at: now_iso(),
+        },
+    )
+    .await?;
+
+let mut events = trellis_client
+    .subscribe::<orders_sdk::events::OrdersShippedEventDescriptor>()
+    .await?;
+
+let op = trellis_client
+    .operation::<orders_sdk::operations::OrdersProcessOperation>()
+    .start(&orders_sdk::OrdersProcessInput {
+        order_id: "ord_123".into(),
+    })
+    .await?;
+```
+
+Register service providers through generated handler facades when available:
+
+```rust
+service.handle().rpc().orders().get(get_order_handler);
+service.handle().feed().orders().live(orders_live_stream);
+service.handle().operation().orders().process(orders_process_provider);
+```
+
+Use `prepare_event::<Descriptor>(...)` and an outbox only when event enqueue must
+commit with local durable state:
+
+```rust
+use trellis::client::{dispatch_outbox_once, OutboxStore, SqliteOutboxStore};
+
+let prepared = trellis_client.prepare_event::<
+    orders_sdk::events::OrdersShippedEventDescriptor,
+>(&orders_sdk::OrdersShippedEvent {
+    order_id: "ord_123".into(),
+    customer_id: "cust_456".into(),
+    shipped_at: now_iso(),
+})?;
+
+let tx = sqlite.transaction()?;
+mark_order_shipped(&tx, "ord_123")?;
+
+{
+    let mut outbox = SqliteOutboxStore::new(&tx);
+    outbox.enqueue("outbox:ord_123:shipped", &prepared).await?;
+}
+
+tx.commit()?;
+
+let mut outbox = SqliteOutboxStore::new(&sqlite);
+dispatch_outbox_once(&mut outbox, |event| async {
+    trellis_client.publish_prepared(&event).await
+})
+.await?;
+```
+
+Use `SqliteInboxStore` or `PostgresInboxStore` only for non-idempotent handlers.
+Use `PostgresOutboxStore` for Postgres-backed outboxes. Use `NatsKvOutboxStore`
+and `NatsKvInboxStore` only when NATS KV durability is sufficient and no unrelated
+database transaction must be atomic.
+
+## What to ask agents to verify
+
+Ask agents to run the service repo's own commands. Common checks are:
+
+```sh
+deno fmt
+deno check **/*.ts
+deno test
+
+npm run format
+npm run typecheck
+npm test
+
+cargo fmt
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features
+```
+
+If contracts changed, also run the repository's Trellis generation command and
+verify generated artifacts are updated from the source contract.

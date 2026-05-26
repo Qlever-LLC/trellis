@@ -607,6 +607,12 @@ pub fn project_contract_digest_manifest(contract: &Value) -> Value {
     if let Some(jobs) = contract.get("jobs") {
         projected.insert("jobs".to_string(), project_map_without_docs(jobs));
     }
+    if let Some(event_consumers) = contract.get("eventConsumers") {
+        projected.insert(
+            "eventConsumers".to_string(),
+            project_map_without_docs(event_consumers),
+        );
+    }
     insert_if_present(
         &mut projected,
         "resources",
@@ -748,6 +754,8 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
         }
     }
 
+    validate_event_consumers(manifest)?;
+
     for (alias, kv) in &manifest.resources.kv {
         assert_schema_ref_exists(
             manifest,
@@ -756,6 +764,46 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
         )?;
     }
 
+    Ok(())
+}
+
+fn validate_event_consumers(manifest: &ContractManifest) -> Result<(), ContractsError> {
+    for (group_name, group) in &manifest.event_consumers {
+        if group.ordering == crate::ContractEventConsumerOrdering::Strict && group.concurrency != 1
+        {
+            return Err(ContractsError::SchemaValidation {
+                kind: "contract",
+                details: format!(
+                    "eventConsumers.{group_name}: strict ordering requires concurrency 1"
+                ),
+            });
+        }
+        for event in &group.events {
+            let Some(use_ref) = manifest.uses.get(&event.use_alias) else {
+                return Err(ContractsError::SchemaValidation {
+                    kind: "contract",
+                    details: format!(
+                        "eventConsumers.{group_name}: unknown use alias '{}'",
+                        event.use_alias
+                    ),
+                });
+            };
+            if !use_ref
+                .events
+                .as_ref()
+                .and_then(|events| events.subscribe.as_ref())
+                .is_some_and(|events| events.iter().any(|name| name == &event.event))
+            {
+                return Err(ContractsError::SchemaValidation {
+                    kind: "contract",
+                    details: format!(
+                        "eventConsumers.{group_name}: event '{}' is not subscribed through use alias '{}'",
+                        event.event, event.use_alias
+                    ),
+                });
+            }
+        }
+    }
     Ok(())
 }
 

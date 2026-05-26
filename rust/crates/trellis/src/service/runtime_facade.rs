@@ -1141,6 +1141,20 @@ mod tests {
             contract_id: "example.service@v1".to_string(),
             digest: "sha256:test".to_string(),
             resources: crate::sdk::core::types::TrellisBindingsGetResponseBindingResources {
+                event_consumers: Some(BTreeMap::from([(
+                    "projection".to_string(),
+                    crate::sdk::core::types::TrellisBindingsGetResponseBindingResourcesEventConsumersValue {
+                        stream: "trellis".to_string(),
+                        consumer_name: "svc-projection".to_string(),
+                        filter_subjects: vec!["events.v1.Billing.Paid".to_string()],
+                        replay: "new".to_string(),
+                        ordering: "strict".to_string(),
+                        concurrency: 1,
+                        ack_wait_ms: 30_000,
+                        max_deliver: 5,
+                        backoff_ms: vec![1_000, 5_000],
+                    },
+                )])),
                 jobs: None,
                 kv: Some(BTreeMap::from([(
                     "drafts".to_string(),
@@ -1233,6 +1247,10 @@ mod tests {
             ConnectedServiceRuntime::<TestContract>::from_test_binding("test-service", binding());
 
         assert_eq!(runtime.resources().kv.len(), 1);
+        assert_eq!(
+            runtime.resources().event_consumers["projection"].consumer_name,
+            "svc-projection"
+        );
         assert_eq!(
             runtime.kv_binding("drafts").expect("kv binding").bucket,
             "svc_drafts"

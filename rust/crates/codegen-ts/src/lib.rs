@@ -1532,7 +1532,10 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
 
 fn render_client_rpc_surface(loaded: &LoadedManifest, uses: &[ClientUseDependency]) -> String {
     let mut leaves = Vec::new();
-    for key in loaded.manifest.rpc.keys() {
+    for (key, rpc) in &loaded.manifest.rpc {
+        if !is_public_rpc(rpc) {
+            continue;
+        }
         let base = key_to_pascal(key);
         leaves.push(surface_leaf(
             key,
@@ -1544,7 +1547,13 @@ fn render_client_rpc_surface(loaded: &LoadedManifest, uses: &[ClientUseDependenc
     }
     for use_dep in uses {
         for key in use_dep.rpc_call_keys() {
-            if use_dep.manifest.manifest.rpc.contains_key(key) {
+            if use_dep
+                .manifest
+                .manifest
+                .rpc
+                .get(key)
+                .is_some_and(is_public_rpc)
+            {
                 let base = key_to_pascal(key);
                 leaves.push(surface_leaf(
                     key,
@@ -1559,6 +1568,10 @@ fn render_client_rpc_surface(loaded: &LoadedManifest, uses: &[ClientUseDependenc
         }
     }
     render_surface_property("rpc", leaves)
+}
+
+fn is_public_rpc(rpc: &trellis_contracts::ContractRpcMethod) -> bool {
+    rpc.internal != Some(true)
 }
 
 fn render_client_event_surface(loaded: &LoadedManifest, uses: &[ClientUseDependency]) -> String {
@@ -1662,8 +1675,9 @@ fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
     let rpc = loaded
         .manifest
         .rpc
-        .keys()
-        .map(|key| {
+        .iter()
+        .filter(|(_, rpc)| is_public_rpc(rpc))
+        .map(|(key, _rpc)| {
             let base = key_to_pascal(key);
             surface_leaf(
                 key,
@@ -1992,7 +2006,11 @@ fn render_trellis_md(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Strin
 }
 
 fn push_ts_owned_surfaces(lines: &mut Vec<String>, loaded: &LoadedManifest) {
-    for key in loaded.manifest.rpc.keys() {
+    let has_public_rpc = loaded.manifest.rpc.values().any(is_public_rpc);
+    for (key, rpc) in &loaded.manifest.rpc {
+        if !is_public_rpc(rpc) {
+            continue;
+        }
         let group = surface_group_name(key);
         let leaf = surface_leaf_name(key);
         lines.push(format!("- RPC `{key}`: `client.rpc.{group}.{leaf}(input)`; service handler `service.handle.rpc.{group}.{leaf}(handler)`"));
@@ -2012,7 +2030,7 @@ fn push_ts_owned_surfaces(lines: &mut Vec<String>, loaded: &LoadedManifest) {
         let leaf = surface_leaf_name(key);
         lines.push(format!("- Operation `{key}`: `client.operation.{group}.{leaf}.start(input)`; service provider `service.handle.operation.{group}.{leaf}(provider)`"));
     }
-    if loaded.manifest.rpc.is_empty()
+    if !has_public_rpc
         && loaded.manifest.events.is_empty()
         && loaded.manifest.feeds.is_empty()
         && loaded.manifest.operations.is_empty()
@@ -2058,7 +2076,13 @@ fn push_ts_used_surfaces(
 fn push_ts_resolved_use_surfaces(lines: &mut Vec<String>, use_dep: &ClientUseDependency) {
     let mut wrote = false;
     for key in use_dep.rpc_call_keys() {
-        if use_dep.manifest.manifest.rpc.contains_key(key) {
+        if use_dep
+            .manifest
+            .manifest
+            .rpc
+            .get(key)
+            .is_some_and(is_public_rpc)
+        {
             wrote = true;
             lines.push(format_used_ts_surface(
                 &use_dep.use_ref.contract,
@@ -2235,7 +2259,12 @@ fn sdk_readme_import_specifier(package_name: &str) -> String {
 }
 
 fn example_use_block(module_export: &str, loaded: &LoadedManifest) -> String {
-    if let Some(key) = loaded.manifest.rpc.keys().next() {
+    if let Some((key, _rpc)) = loaded
+        .manifest
+        .rpc
+        .iter()
+        .find(|(_, rpc)| is_public_rpc(rpc))
+    {
         return format!(
             "    dependency: {}.use({{\n      rpc: {{ call: [{}] }},\n    }}),",
             module_export,
@@ -3042,6 +3071,66 @@ mod tests {
         assert!(owned_api.contains("subscribeCapabilities: [\"service\"]"));
         assert!(!api.contains("...OWNED_API.feeds"));
         assert!(api.contains("export type Api = {"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn internal_rpcs_stay_described_but_leave_public_facades() {
+        let root = unique_temp_dir("internal-rpc-facades");
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("contract.json");
+        fs::write(
+            &manifest_path,
+            serde_json::to_string(&json!({
+                "format": "trellis.contract.v1",
+                "id": "trellis.core@v1",
+                "displayName": "Trellis Core",
+                "description": "Core contract fixture.",
+                "kind": "service",
+                "schemas": {
+                    "Empty": { "type": "object", "properties": {} }
+                },
+                "rpc": {
+                    "Trellis.Bindings.Get": {
+                        "version": "v1",
+                        "subject": "rpc.v1.Trellis.Bindings.Get",
+                        "input": { "schema": "Empty" },
+                        "output": { "schema": "Empty" },
+                        "internal": true
+                    },
+                    "Trellis.Catalog": {
+                        "version": "v1",
+                        "subject": "rpc.v1.Trellis.Catalog",
+                        "input": { "schema": "Empty" },
+                        "output": { "schema": "Empty" }
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let opts = GenerateTsSdkOpts {
+            manifest_path: manifest_path.clone(),
+            out_dir: root.join("out"),
+            package_name: "@qlever-llc/trellis-sdk-core".to_string(),
+            package_version: "0.4.0".to_string(),
+            runtime_deps: TsRuntimeDeps {
+                source: TsRuntimeSource::Registry,
+                version: "0.4.0".to_string(),
+                repo_root: None,
+            },
+        };
+        let loaded = load_manifest(&manifest_path).unwrap();
+
+        let owned_api = render_owned_api_ts(&opts, &loaded);
+        let client = render_client_ts(&opts, &loaded);
+
+        assert!(owned_api.contains("\"Trellis.Bindings.Get\": {"));
+        assert!(owned_api.contains("subject: \"rpc.v1.Trellis.Bindings.Get\""));
+        assert!(client.contains("catalog(input: Types.TrellisCatalogInput"));
+        assert!(!client.contains("bindingsGet"));
+        assert!(!client.contains("TrellisBindingsGetInput"));
 
         fs::remove_dir_all(root).unwrap();
     }

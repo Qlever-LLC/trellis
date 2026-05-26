@@ -6,7 +6,10 @@ import {
   NatsAuthTokenV1Schema,
   trellisIdFromOriginId,
 } from "@qlever-llc/trellis/auth";
-import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import type {
+  ContractUses,
+  TrellisContractV1,
+} from "@qlever-llc/trellis/contracts";
 import { AsyncResult, isErr } from "@qlever-llc/result";
 import type { StaticDecode } from "typebox";
 import { Value } from "typebox/value";
@@ -15,7 +18,10 @@ import { verifyDomainSig } from "../crypto.ts";
 import { CalloutLimiter } from "./limiter.ts";
 import { buildAuthCalloutPermissions } from "./permissions.ts";
 import type { Config } from "../../config.ts";
-import { getResourcePermissionGrants } from "../../catalog/resources.ts";
+import {
+  type ContractResourceBindings,
+  getResourcePermissionGrants,
+} from "../../catalog/resources.ts";
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
@@ -71,6 +77,7 @@ import type {
 } from "../admin/shared.ts";
 import type {
   SqlDeploymentEnvelopeRepository,
+  SqlDeploymentResourceBindingRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
   SqlEnvelopeExpansionRequestRepository,
@@ -92,6 +99,10 @@ type CalloutContractDeps = Pick<
 >;
 type RuntimeContractEntry = { digest: string; contract: TrellisContractV1 };
 type ServiceRuntimeContract = { contractId: string; contractDigest: string };
+type ContractWithUses = TrellisContractV1 & { uses?: ContractUses };
+type ContractUseRef = NonNullable<
+  NonNullable<ContractUses["optional"]>[string]
+>;
 type AuthCalloutDenialCode =
   | "auth_token_required"
   | "invalid_auth_token"
@@ -276,6 +287,68 @@ type ServiceRuntimeLoaders = {
   ): Promise<AdminServiceDeployment | null>;
 };
 
+function resourceBindingsForPermissions(
+  records: Array<
+    { kind: string; alias: string; binding: Record<string, unknown> }
+  >,
+): ContractResourceBindings {
+  const resources: ContractResourceBindings = {};
+  const resourcesByKind: Record<
+    string,
+    Record<string, Record<string, unknown>>
+  > = {};
+  let jobsBinding:
+    | {
+      namespace: unknown;
+      workStream?: unknown;
+      queues: Record<string, Record<string, unknown>>;
+    }
+    | undefined;
+  for (const record of records) {
+    if (record.kind === "jobs") {
+      const { namespace, workStream, ...queueBinding } = record.binding;
+      jobsBinding ??= {
+        namespace,
+        ...(workStream !== undefined ? { workStream } : {}),
+        queues: {},
+      };
+      jobsBinding.queues[record.alias] = queueBinding;
+      continue;
+    }
+    resourcesByKind[record.kind] ??= {};
+    resourcesByKind[record.kind][record.alias] = record.binding;
+  }
+  for (const [kind, bindings] of Object.entries(resourcesByKind)) {
+    if (kind === "kv") {
+      resources.kv = bindings as ContractResourceBindings["kv"];
+    }
+    if (kind === "store") {
+      resources.store = bindings as ContractResourceBindings["store"];
+    }
+    if (kind === "event-consumer") {
+      resources.eventConsumers =
+        bindings as ContractResourceBindings["eventConsumers"];
+    }
+  }
+  if (jobsBinding) {
+    resources.jobs = jobsBinding as ContractResourceBindings["jobs"];
+  }
+  return resources;
+}
+
+function serviceCapabilitiesForPermissions(
+  staleCapabilities: string[],
+  envelope: EnvelopeBoundary | undefined,
+): string[] {
+  return [
+    ...new Set([
+      ...staleCapabilities,
+      "service",
+      ...(envelope?.capabilities ?? []),
+    ]),
+  ].sort((left, right) => left.localeCompare(right));
+}
+
 type DeviceRuntimeGrantDeps = {
   deviceInstanceStorage: {
     get(instanceId: string): Promise<DeviceInstance | undefined>;
@@ -406,6 +479,130 @@ async function withKnownDependencyEntries(
       left.digest.localeCompare(right.digest)
     ),
   );
+}
+
+function contractWithEnvelopeGrantedOptionalUses(
+  contract: TrellisContractV1,
+  envelopeBoundary: EnvelopeBoundary | undefined,
+): TrellisContractV1 {
+  const uses = (contract as ContractWithUses).uses;
+  if (!uses?.optional || !envelopeBoundary) return contract;
+
+  const grantedSurfaceNames = (
+    use: ContractUseRef,
+    kind: "rpc" | "operation" | "event" | "feed",
+    action: "call" | "publish" | "subscribe" | "observe" | "cancel",
+    names: string[] | undefined,
+  ): string[] | undefined => {
+    const granted = names?.filter((name) =>
+      envelopeBoundary.surfaces.some((surface) =>
+        surface.contractId === use.contract &&
+        surface.kind === kind &&
+        surface.name === name &&
+        surface.action === action
+      )
+    );
+    return granted && granted.length > 0 ? granted : undefined;
+  };
+
+  const grantedOperationNames = (use: ContractUseRef): string[] | undefined => {
+    const names = use.operations?.call;
+    const granted = names?.filter((name) =>
+      envelopeBoundary.surfaces.some((surface) =>
+        surface.contractId === use.contract &&
+        surface.kind === "operation" &&
+        surface.name === name &&
+        (surface.action === "call" ||
+          surface.action === "observe" ||
+          surface.action === "cancel")
+      )
+    );
+    return granted && granted.length > 0 ? granted : undefined;
+  };
+
+  const grantedOptionalUses = Object.fromEntries(
+    Object.entries(uses.optional).flatMap(([alias, use]) => {
+      const rpcCall = grantedSurfaceNames(
+        use,
+        "rpc",
+        "call",
+        use.rpc?.call,
+      );
+      const operationCall = grantedOperationNames(use);
+      const eventPublish = grantedSurfaceNames(
+        use,
+        "event",
+        "publish",
+        use.events?.publish,
+      );
+      const eventSubscribe = grantedSurfaceNames(
+        use,
+        "event",
+        "subscribe",
+        use.events?.subscribe,
+      );
+      const feedSubscribe = grantedSurfaceNames(
+        use,
+        "feed",
+        "subscribe",
+        use.feeds?.subscribe,
+      );
+      const grantedUse: ContractUseRef = {
+        contract: use.contract,
+        ...(rpcCall ? { rpc: { call: rpcCall } } : {}),
+        ...(operationCall ? { operations: { call: operationCall } } : {}),
+        ...(eventPublish || eventSubscribe
+          ? {
+            events: {
+              ...(eventPublish ? { publish: eventPublish } : {}),
+              ...(eventSubscribe ? { subscribe: eventSubscribe } : {}),
+            },
+          }
+          : {}),
+        ...(feedSubscribe ? { feeds: { subscribe: feedSubscribe } } : {}),
+      };
+      return rpcCall || operationCall || eventPublish || eventSubscribe ||
+          feedSubscribe
+        ? [[alias, grantedUse]]
+        : [];
+    }),
+  );
+  if (Object.keys(grantedOptionalUses).length === 0) return contract;
+
+  const contractWithUses: ContractWithUses = {
+    ...contract,
+    uses: {
+      ...uses,
+      required: {
+        ...grantedOptionalUses,
+        ...uses.required,
+      },
+    },
+  };
+  return contractWithUses;
+}
+
+async function serviceContractEntriesForPermissions(args: {
+  activeContractEntries: RuntimeContractEntry[];
+  contracts: CalloutContractDeps;
+  currentContractDigest: string | undefined;
+  envelopeBoundary: EnvelopeBoundary | undefined;
+}): Promise<AuthCalloutStageResult<RuntimeContractEntry[]>> {
+  const digest = args.currentContractDigest;
+  if (!digest) return stageOk(args.activeContractEntries);
+
+  const contract = await args.contracts.getKnownContract(digest);
+  if (!contract) return stageOk(args.activeContractEntries);
+
+  const permissionContract = contractWithEnvelopeGrantedOptionalUses(
+    contract,
+    args.envelopeBoundary,
+  );
+  const entries = await withKnownDependencyEntries(args.contracts, [
+    ...args.activeContractEntries.filter((entry) => entry.digest !== digest),
+    { digest, contract: permissionContract },
+  ]);
+  return entries;
 }
 
 async function serviceContractCompatibilityError(input: {
@@ -865,6 +1062,7 @@ export function startAuthCallout(
     userStorage: SqlUserProjectionRepository;
     contractApprovalStorage: SqlIdentityEnvelopeRepository;
     deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+    deploymentResourceBindingStorage?: SqlDeploymentResourceBindingRepository;
     connectionsKV: AuthRuntimeDeps["connectionsKV"];
     deviceActivationStorage: AuthRuntimeDeps["deviceActivationStorage"];
     deviceDeploymentStorage: AuthRuntimeDeps["deviceDeploymentStorage"];
@@ -883,6 +1081,7 @@ export function startAuthCallout(
     config,
     connectionsKV,
     deploymentEnvelopeStorage,
+    deploymentResourceBindingStorage,
     deviceActivationStorage,
     deviceDeploymentStorage,
     deviceInstanceStorage,
@@ -1203,11 +1402,6 @@ export function startAuthCallout(
     }
 
     const isService = session.type === "service";
-    if (principal.value.serviceState) {
-      resourcePermissions = getResourcePermissionGrants(
-        principal.value.serviceState.resourceBindings,
-      );
-    }
     const serviceEnvelope = principal.value.serviceState
       ? await deploymentEnvelopeStorage.get(
         principal.value.serviceState.deploymentId,
@@ -1216,23 +1410,37 @@ export function startAuthCallout(
     if (isService && (!serviceEnvelope || serviceEnvelope.disabled)) {
       return stageDeny("service_envelope_miss");
     }
+    if (principal.value.serviceState) {
+      const deploymentBindings = deploymentResourceBindingStorage
+        ? resourceBindingsForPermissions(
+          await deploymentResourceBindingStorage.listByDeployment(
+            principal.value.serviceState.deploymentId,
+          ),
+        )
+        : principal.value.serviceState.resourceBindings as
+          | ContractResourceBindings
+          | undefined;
+      resourcePermissions = getResourcePermissionGrants(deploymentBindings);
+    }
+    const effectiveCapabilities = isService
+      ? serviceCapabilitiesForPermissions(
+        principal.value.capabilities,
+        serviceEnvelope?.boundary,
+      )
+      : principal.value.capabilities;
 
     const inboxPrefix = `_INBOX.${sessionKey.slice(0, 16)}`;
     const activeContractEntries = await opts.contracts.getActiveEntries();
     const serviceContractEntries = isService
-      ? await (async () => {
-        const digest = principal.value.serviceState?.currentContractDigest;
-        if (!digest) return activeContractEntries;
-        const contract = await opts.contracts.getKnownContract(digest);
-        if (!contract) return activeContractEntries;
-        const entries = await withKnownDependencyEntries(opts.contracts, [
-          ...activeContractEntries.filter((entry) => entry.digest !== digest),
-          { digest, contract },
-        ]);
-        return entries.ok ? entries.value : entries;
-      })()
-      : activeContractEntries;
-    if (!Array.isArray(serviceContractEntries)) return serviceContractEntries;
+      ? await serviceContractEntriesForPermissions({
+        activeContractEntries,
+        contracts: opts.contracts,
+        currentContractDigest: principal.value.serviceState
+          ?.currentContractDigest,
+        envelopeBoundary: serviceEnvelope?.boundary,
+      })
+      : stageOk(activeContractEntries);
+    if (!serviceContractEntries.ok) return serviceContractEntries;
     const userContractEntries =
       session.type === "user" && session.identityEnvelope
         ? await (async () => {
@@ -1291,14 +1499,14 @@ export function startAuthCallout(
       publishAllow: [
         ...(isService
           ? getServicePublishSubjectsForContracts(
-            principal.value.capabilities,
+            effectiveCapabilities,
             {
               sessionKey,
               contractDigest: principal.value.serviceState
                 ?.currentContractDigest,
               envelopeBoundary: serviceEnvelope?.boundary,
             },
-            serviceContractEntries,
+            serviceContractEntries.value,
           )
           : delegatedPublish),
         ...resourcePermissions.publish,
@@ -1306,14 +1514,14 @@ export function startAuthCallout(
       subscribeAllow: isService
         ? [
           ...getServiceSubscribeSubjectsForContracts(
-            principal.value.capabilities,
+            effectiveCapabilities,
             {
               sessionKey,
               contractDigest: principal.value.serviceState
                 ?.currentContractDigest,
               envelopeBoundary: serviceEnvelope?.boundary,
             },
-            serviceContractEntries,
+            serviceContractEntries.value,
           ),
           ...resourcePermissions.subscribe,
         ]
@@ -1572,6 +1780,9 @@ export const __testing__ = {
   processDisconnectMessage,
   resolveDeviceRuntimeGrant,
   refreshServiceSessionFromInstance,
+  resourceBindingsForPermissions,
+  serviceCapabilitiesForPermissions,
+  serviceContractEntriesForPermissions,
   validateServiceRuntimeDigest,
   verifyRuntimeAuthTokenSignature,
   waitForInFlightHandlers,

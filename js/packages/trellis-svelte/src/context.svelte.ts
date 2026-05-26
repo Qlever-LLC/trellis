@@ -14,14 +14,18 @@ export type TrellisContractLike<TA extends TrellisAPI = TrellisAPI> = {
   CONTRACT: TrellisContractV1;
   CONTRACT_DIGEST: string;
   API: {
-    trellis: TA;
+    trellis?: TA;
   };
 };
+
+type TrellisApiFor<TContract extends TrellisContractLike> = NonNullable<
+  TContract["API"]["trellis"]
+> extends TrellisAPI ? NonNullable<TContract["API"]["trellis"]> : TrellisAPI;
 
 /** Real connected Trellis client type exposed by a Svelte app context. */
 export type TrellisClientFor<TContract extends TrellisContractLike> =
   ClientTrellis<
-    TContract["API"]["trellis"],
+    TrellisApiFor<TContract>,
     RuntimeStateStoresForContract<TContract>
   >;
 

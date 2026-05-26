@@ -23,11 +23,12 @@ Operations are distinct from jobs. An operation is the public async surface that
 
 ## Events (JetStream pub/sub)
 
-Events announce state changes. Publishers fire and forget; consumers receive events through JetStream durable consumers with at-least-once delivery.
+Events announce state changes. Publishers fire and forget. Live listeners receive new messages through direct subscriptions, while durable service processing uses contract-declared `eventConsumers` groups that Trellis provisions as JetStream pull consumers with at-least-once delivery.
 
 - Subject convention: `events.v1.<Domain>.<Action>[.<tokens>]`
 - Handlers must be idempotent
 - Subject tokens enable filtered subscriptions (e.g., subscribe to `events.v1.Document.Uploaded.pdf.*` for only PDF uploads)
+- Services that need replay, redelivery, or independent durable cursors declare explicit `eventConsumers` groups in their contract. A plain `uses.events.subscribe` grant authorizes the event surface but does not create a durable cursor.
 
 Events are event-type authorized. They are a good fit for service-to-service cache invalidation, projections, and background processing. They are not the right security boundary for per-user object ownership, such as "only events for devices this user owns".
 
@@ -66,14 +67,14 @@ uses: {
 
 Contracts must declare dependencies with grouped `uses.required` and `uses.optional`:
 
-- required dependencies fail closed during active-catalog refresh and runtime permission derivation
-- service expansion planning can collect pending evidence before every required dependency is active. If a required dependency manifest is known but inactive, Trellis can use it to show the requested surfaces for review. If it is unknown or only stale incompatible inactive manifests remain, Trellis records the unresolved contract id as a blocker until that service uploads current evidence.
+- required dependencies fail closed during runtime permission derivation when the referenced contract or surface is unknown
+- service expansion planning can collect pending evidence before every required dependency is live. If a required dependency manifest is known but inactive, Trellis can use it to show the requested surfaces for review. If it is unknown or only stale incompatible inactive manifests remain, Trellis records the unresolved contract id as a blocker until that service uploads current evidence.
 - optional dependencies participate in contract identity but grant no authority when the target contract or surface is missing
 - if the same alias appears in both groups, the required entry wins
 
 If a dependency is not declared in `uses`, Trellis will not grant that cross-contract access when the contract boundary is added to the deployment envelope.
 
-Approved service boundaries only become runtime-active when the full required dependency closure resolves as active; until then service bootstrap waits instead of receiving NATS credentials. The active catalog has at most one current digest per contract id. If a service presents a different digest for an already-current contract id, Trellis waits for a Forced Contract Update decision instead of merging multiple active digests into ambiguous permissions.
+Approved service boundaries only become runtime-active when the full required dependency closure resolves from known manifests and fits the deployment envelope; until then service bootstrap waits instead of receiving NATS credentials. If a service instance presents a different digest for the same contract id, `strict` deployments reject incompatible same-contract replacement, while `mutable-dev` deployments allow unreleased local iteration.
 
 ## Surface availability
 

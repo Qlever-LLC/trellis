@@ -89,8 +89,8 @@ if ("migrationRequired" in prefs) {
 In a Svelte component, call the app-local `getTrellis()` helper during component initialization and reuse the returned client from handlers and async helpers.
 
 The runtime derives the app, user, or device namespace from the authenticated
-session and contract id lineage. The active contract digest still validates the
-store declaration and schema, but state follows the same app lineage across
+session and contract id lineage. The presented contract evidence still validates
+the store declaration and schema, but state follows the same app lineage across
 compatible upgrades. Stored entries also carry internal writer-digest provenance
 and an author-known state version. The same user signing into a different app
 contract does not see these entries.

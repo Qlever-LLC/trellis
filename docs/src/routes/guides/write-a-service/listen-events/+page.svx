@@ -4,7 +4,9 @@
 
 Our service shouldn't exist in a vacuum. Let's say we want to know whenever a user logs into Trellis so we can warm up their cache or log the activity.
 
-Events from other services are gated by your contract's `uses` block. Open `contracts/orders_service.ts` and update the contract builder output:
+Events from other services are gated by your contract's `uses` block. Durable service processing also needs an explicit `eventConsumers` group so Trellis can provision the JetStream consumer and grant only that bound consumer to your service token.
+
+Open `contracts/orders_service.ts` and update the contract builder output:
 
 <LanguageTabs>
 {#snippet ts()}
@@ -19,9 +21,17 @@ uses: {
     }),
   },
 },
+eventConsumers: {
+  authConnections: {
+    events: [{ use: "auth", event: "Auth.Connections.Opened" }],
+    replay: "new",
+    ordering: "strict",
+    concurrency: 1,
+  },
+},
 ```
 
-`auth.use(...)` explicitly declares the auth surface this service needs. In this example, the service subscribes to `Auth.Connections.Opened` events from the auth service.
+`auth.use(...)` explicitly declares the auth surface this service needs. The `authConnections` consumer group declares the durable cursor Trellis should provision for this service deployment. The group name is logical; Trellis chooses the physical durable consumer name.
 
 Now subscribe to the event in `main.ts`:
 
@@ -32,15 +42,17 @@ await service.event.auth.connectionsOpened.listen(async (event) => {
   const e = event as { sessionKey: string };
   console.info("connection opened", { sessionKey: e.sessionKey });
   return ok(undefined);
-}, {});
+}, {}, { group: "authConnections" });
 ```
 
 Returning `ok(undefined)` acknowledges the message. If your handler returns `err(...)`, Trellis will NAK the delivery and redeliver it, which is useful for transient failures like a downstream service being temporarily unavailable.
 
+Do not pass a `durableName`. Durable event consumer names, filters, and permissions are provisioned by Trellis from the contract. If you want a live-only listener that does not replay stored events, pass `{ mode: "ephemeral", replay: "new" }` and omit `eventConsumers`.
+
 {/snippet}
 {#snippet rust()}
 
-Add the auth contract use to the service manifest:
+Add the auth contract use to the service manifest. Rust client subscriptions are live/ephemeral by default; service-level durable event consumers should still be represented in the canonical manifest as `eventConsumers` so Trellis can provision matching bindings.
 
 ```rust
 use trellis_contracts::use_contract;

@@ -28,6 +28,10 @@ const EMPTY_BOUNDARY: EnvelopeBoundary = {
   resources: [],
 };
 
+type ContractWithEventConsumers = TrellisContractV1 & {
+  eventConsumers?: Record<string, unknown>;
+};
+
 function mergeBoundaries(...boundaries: EnvelopeBoundary[]): EnvelopeBoundary {
   return computeEnvelopeDelta(EMPTY_BOUNDARY, {
     contracts: boundaries.flatMap((boundary) => boundary.contracts),
@@ -147,6 +151,51 @@ function dependencyContract(): TrellisContractV1 {
       },
     },
   };
+}
+
+function eventDependencyContract(): TrellisContractV1 {
+  return {
+    ...dependencyContract(),
+    rpc: {},
+    events: {
+      Changed: {
+        version: "v1",
+        subject: "events.v1.dep.Changed.{id}",
+        params: ["id"],
+        event: { schema: "Empty" },
+      },
+      Synced: {
+        version: "v1",
+        subject: "events.v1.dep.Synced.{id}",
+        params: ["id"],
+        event: { schema: "Empty" },
+      },
+    },
+  };
+}
+
+function eventConsumerContract(): TrellisContractV1 {
+  const contract: ContractWithEventConsumers = {
+    ...baseContract(),
+    resources: {},
+    uses: {
+      required: {
+        dep: {
+          contract: "dep.example@v1",
+          events: { subscribe: ["Changed", "Synced"] },
+        },
+      },
+    },
+    eventConsumers: {
+      ingest: {
+        events: [
+          { use: "dep", event: "Changed" },
+          { use: "dep", event: "Synced" },
+        ],
+      },
+    },
+  };
+  return contract;
 }
 
 function serviceUsingDependencyContract(): TrellisContractV1 {
@@ -1035,6 +1084,108 @@ Deno.test("POST /bootstrap/service stores jobs bindings in contract resource sha
   const expected = { jobs: jobsBinding };
   assertEquals((await response.json()).binding.resources, expected);
   assertEquals(setup.services[0]?.resourceBindings, expected);
+});
+
+Deno.test("POST /bootstrap/service stores event consumer bindings", async () => {
+  const contract = await validatedContract(eventConsumerContract());
+  const binding = {
+    stream: "trellis",
+    consumerName: "svc_deployment_1_svc_example_ingest_abcd",
+    filterSubjects: ["events.v1.dep.Changed.*", "events.v1.dep.Synced.*"],
+    replay: "new" as const,
+    ordering: "strict" as const,
+    concurrency: 1,
+    ackWaitMs: 300000,
+    maxDeliver: 5,
+    backoffMs: [5000, 30000],
+  };
+  const setup = await createApp({
+    knownContracts: [
+      { digest: "dep-events-digest", contract: eventDependencyContract() },
+      { digest: contract.digest, contract: contract.contract },
+    ],
+    provisionResourceBindings: async () => ({
+      eventConsumers: { ingest: binding },
+    }),
+  });
+  setup.envelope.boundary = await contractBoundary(
+    setup.contracts,
+    contract.contract,
+    { dependencyResolution: "known" },
+  );
+
+  const response = await setup.bootstrap({
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
+    contract: contract.contract,
+  });
+
+  assertEquals(response.status, 200);
+  const expected = { eventConsumers: { ingest: binding } };
+  assertEquals((await response.json()).binding.resources, expected);
+  assertEquals(setup.services[0]?.resourceBindings, expected);
+  assertEquals(setup.bindings.map((stored) => stored.kind), [
+    "event-consumer",
+  ]);
+});
+
+Deno.test("POST /bootstrap/service stores independent event consumer groups", async () => {
+  const contract = await validatedContract({
+    ...eventConsumerContract(),
+    eventConsumers: {
+      ingest: { events: [{ use: "dep", event: "Changed" }] },
+      audit: { events: [{ use: "dep", event: "Changed" }] },
+    },
+  } as ContractWithEventConsumers);
+  const setup = await createApp({
+    knownContracts: [
+      { digest: "dep-events-digest", contract: eventDependencyContract() },
+      { digest: contract.digest, contract: contract.contract },
+    ],
+    provisionResourceBindings: async () => ({
+      eventConsumers: {
+        audit: {
+          stream: "trellis",
+          consumerName: "audit-consumer",
+          filterSubjects: ["events.v1.dep.Changed.*"],
+          replay: "new",
+          ordering: "strict",
+          concurrency: 1,
+          ackWaitMs: 300000,
+          maxDeliver: 5,
+          backoffMs: [5000],
+        },
+        ingest: {
+          stream: "trellis",
+          consumerName: "ingest-consumer",
+          filterSubjects: ["events.v1.dep.Changed.*"],
+          replay: "new",
+          ordering: "strict",
+          concurrency: 1,
+          ackWaitMs: 300000,
+          maxDeliver: 5,
+          backoffMs: [5000],
+        },
+      },
+    }),
+  });
+  setup.envelope.boundary = await contractBoundary(
+    setup.contracts,
+    contract.contract,
+    { dependencyResolution: "known" },
+  );
+
+  const response = await setup.bootstrap({
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
+    contract: contract.contract,
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals(setup.bindings.map((stored) => stored.alias), [
+    "audit",
+    "ingest",
+  ]);
 });
 
 Deno.test("POST /bootstrap/service rejects when provisioning misses a requested resource binding", async () => {

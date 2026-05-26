@@ -3,6 +3,7 @@ import { assertEquals, assertRejects } from "@std/assert";
 import { CONTRACT as TRELLIS_JOBS_CONTRACT } from "#trellis-generated-sdk/jobs";
 
 import {
+  getEventConsumerGroupRequests,
   getJobsQueueRequests,
   getKvResourceRequests,
   getResourcePermissionGrants,
@@ -13,6 +14,31 @@ import {
   reconcileStoreResourceConfig,
   type ResourcePurgeManager,
 } from "./resources.ts";
+
+function eventDependencyContract(): TrellisContractV1 {
+  return {
+    format: "trellis.contract.v1",
+    id: "events.example@v1",
+    displayName: "Events",
+    description: "Event dependency.",
+    kind: "service",
+    schemas: { Empty: { type: "object" } },
+    events: {
+      Changed: {
+        version: "v1",
+        subject: "events.v1.Example.Changed.{id}",
+        params: ["id"],
+        event: { schema: "Empty" },
+      },
+      Deleted: {
+        version: "v1",
+        subject: "events.v1.Example.Deleted.{id}",
+        params: ["id"],
+        event: { schema: "Empty" },
+      },
+    },
+  };
+}
 
 const CONTRACT = {
   format: "trellis.contract.v1",
@@ -68,6 +94,131 @@ Deno.test("resource requests apply store defaults and runtime object limits", ()
       maxObjectBytes: 100 * 1024 * 1024,
     },
   ]);
+});
+
+Deno.test("event consumer requests resolve approved subscribe filters", () => {
+  const contract = {
+    ...CONTRACT,
+    uses: {
+      required: {
+        events: {
+          contract: "events.example@v1",
+          events: { subscribe: ["Changed", "Deleted"] },
+        },
+      },
+    },
+    eventConsumers: {
+      ingest: {
+        events: [
+          { use: "events", event: "Changed" },
+          { use: "events", event: "Deleted" },
+        ],
+        replay: "all",
+        ackWaitMs: 1000,
+        maxDeliver: 2,
+        backoffMs: [100, 200],
+      },
+    },
+  } as TrellisContractV1;
+
+  assertEquals(
+    getEventConsumerGroupRequests(contract, {
+      knownContractEntries: [{
+        digest: "events-digest",
+        contract: eventDependencyContract(),
+      }],
+      envelopeBoundary: {
+        contracts: [],
+        surfaces: [
+          {
+            contractId: "events.example@v1",
+            kind: "event",
+            name: "Changed",
+            action: "subscribe",
+            required: true,
+          },
+          {
+            contractId: "events.example@v1",
+            kind: "event",
+            name: "Deleted",
+            action: "subscribe",
+            required: true,
+          },
+        ],
+        capabilities: [],
+        resources: [],
+      },
+    }),
+    [{
+      alias: "ingest",
+      stream: "trellis",
+      filterSubjects: [
+        "events.v1.Example.Changed.*",
+        "events.v1.Example.Deleted.*",
+      ],
+      replay: "all",
+      ordering: "strict",
+      concurrency: 1,
+      ackWaitMs: 1000,
+      maxDeliver: 2,
+      backoffMs: [100],
+    }],
+  );
+});
+
+Deno.test("event consumer requests ignore unrelated uses during dependency resolution", () => {
+  const contract = {
+    ...CONTRACT,
+    uses: {
+      required: {
+        auth: {
+          contract: "trellis.auth@v1",
+          rpc: { call: ["Auth.Requests.Validate"] },
+        },
+        events: {
+          contract: "events.example@v1",
+          events: { subscribe: ["Changed"] },
+        },
+      },
+    },
+    eventConsumers: {
+      ingest: {
+        events: [{ use: "events", event: "Changed" }],
+      },
+    },
+  } as TrellisContractV1;
+
+  assertEquals(
+    getEventConsumerGroupRequests(contract, {
+      knownContractEntries: [{
+        digest: "events-digest",
+        contract: eventDependencyContract(),
+      }],
+      envelopeBoundary: {
+        contracts: [],
+        surfaces: [{
+          contractId: "events.example@v1",
+          kind: "event",
+          name: "Changed",
+          action: "subscribe",
+          required: true,
+        }],
+        capabilities: [],
+        resources: [],
+      },
+    }),
+    [{
+      alias: "ingest",
+      stream: "trellis",
+      filterSubjects: ["events.v1.Example.Changed.*"],
+      replay: "new",
+      ordering: "strict",
+      concurrency: 1,
+      ackWaitMs: 300000,
+      maxDeliver: 6,
+      backoffMs: [5000, 30000, 120000, 600000, 1800000],
+    }],
+  );
 });
 
 Deno.test("store resources require NATS during provisioning", async () => {
@@ -342,6 +493,46 @@ Deno.test("resource permission grants include only bound KV usage subjects", () 
   assertEquals(
     grants.publish.includes("$JS.ACK.KV_svc_test_audit_v1_audit.>"),
     true,
+  );
+});
+
+Deno.test("resource permission grants include exact event consumer subjects", () => {
+  const grants = getResourcePermissionGrants({
+    eventConsumers: {
+      ingest: {
+        stream: "trellis",
+        consumerName: "svc_dep_contract_ingest_abcd",
+        filterSubjects: ["events.v1.Example.Changed.*"],
+        replay: "new",
+        ordering: "strict",
+        concurrency: 1,
+        ackWaitMs: 300000,
+        maxDeliver: 5,
+        backoffMs: [5000],
+      },
+    },
+  });
+
+  assertEquals(grants.publish.includes("$JS.API.INFO"), true);
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.CONSUMER.INFO.trellis.svc_dep_contract_ingest_abcd",
+    ),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.CONSUMER.MSG.NEXT.trellis.svc_dep_contract_ingest_abcd",
+    ),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.ACK.trellis.svc_dep_contract_ingest_abcd.>"),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.CONSUMER.DURABLE.CREATE.trellis.>"),
+    false,
   );
 });
 

@@ -99,6 +99,42 @@ export const ContractJobsSchema = Type.Record(
 
 export type ContractJobs = Static<typeof ContractJobsSchema>;
 
+export const ContractEventConsumerEventSchema = Type.Object({
+  use: Type.String({ minLength: 1 }),
+  event: Type.String({ minLength: 1 }),
+});
+
+export type ContractEventConsumerEvent = Static<
+  typeof ContractEventConsumerEventSchema
+>;
+
+export const ContractEventConsumerGroupSchema = Type.Object({
+  events: Type.Array(ContractEventConsumerEventSchema, { minItems: 1 }),
+  replay: Type.Optional(Type.Union([
+    Type.Literal("new"),
+    Type.Literal("all"),
+  ])),
+  ordering: Type.Optional(Type.Literal("strict")),
+  concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
+  ackWaitMs: Type.Optional(Type.Integer({ minimum: 1 })),
+  maxDeliver: Type.Optional(Type.Integer({ minimum: 1 })),
+  backoffMs: Type.Optional(Type.Array(Type.Integer({ minimum: 0 }))),
+  docs: Type.Optional(ContractDocsSchema),
+});
+
+export type ContractEventConsumerGroup = Static<
+  typeof ContractEventConsumerGroupSchema
+>;
+
+export const ContractEventConsumersSchema = Type.Record(
+  Type.String({ minLength: 1 }),
+  ContractEventConsumerGroupSchema,
+);
+
+export type ContractEventConsumers = Static<
+  typeof ContractEventConsumersSchema
+>;
+
 export const ContractResourcesSchema = Type.Object({
   kv: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), ContractKvResourceSchema),
@@ -155,6 +191,22 @@ export const JobsResourceBindingSchema = Type.Object({
 
 export type JobsResourceBinding = Static<typeof JobsResourceBindingSchema>;
 
+export const EventConsumerResourceBindingSchema = Type.Object({
+  stream: Type.String({ minLength: 1 }),
+  consumerName: Type.String({ minLength: 1 }),
+  filterSubjects: Type.Array(Type.String({ minLength: 1 })),
+  replay: Type.Union([Type.Literal("new"), Type.Literal("all")]),
+  ordering: Type.Literal("strict"),
+  concurrency: Type.Integer({ minimum: 1 }),
+  ackWaitMs: Type.Integer({ minimum: 1 }),
+  maxDeliver: Type.Integer({ minimum: 1 }),
+  backoffMs: Type.Array(Type.Integer({ minimum: 0 })),
+});
+
+export type EventConsumerResourceBinding = Static<
+  typeof EventConsumerResourceBindingSchema
+>;
+
 export const ContractResourceBindingsSchema = Type.Object({
   kv: Type.Optional(
     Type.Record(Type.String({ minLength: 1 }), KvResourceBindingSchema),
@@ -163,6 +215,12 @@ export const ContractResourceBindingsSchema = Type.Object({
     Type.Record(Type.String({ minLength: 1 }), StoreResourceBindingSchema),
   ),
   jobs: Type.Optional(JobsResourceBindingSchema),
+  eventConsumers: Type.Optional(
+    Type.Record(
+      Type.String({ minLength: 1 }),
+      EventConsumerResourceBindingSchema,
+    ),
+  ),
 });
 
 export type ContractResourceBindings = Static<

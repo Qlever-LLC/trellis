@@ -928,6 +928,22 @@ fn contract_docs_normalize_but_do_not_affect_digest() {
                 "payload": {"schema": "Empty"}
             }
         },
+        "uses": {
+            "required": {
+                "audit": {
+                    "contract": "audit@v1",
+                    "events": {"subscribe": ["Audit.Changed"]}
+                }
+            }
+        },
+        "eventConsumers": {
+            "auditProjection": {
+                "events": [{"use": "audit", "event": "Audit.Changed"}],
+                "replay": "new",
+                "ordering": "strict",
+                "concurrency": 1
+            }
+        },
         "resources": {
             "kv": {
                 "docs-cache": {
@@ -1031,6 +1047,26 @@ fn contract_docs_normalize_but_do_not_affect_digest() {
                 }
             }
         },
+        "uses": {
+            "required": {
+                "audit": {
+                    "contract": "audit@v1",
+                    "events": {"subscribe": ["Audit.Changed"]}
+                }
+            }
+        },
+        "eventConsumers": {
+            "auditProjection": {
+                "events": [{"use": "audit", "event": "Audit.Changed"}],
+                "replay": "new",
+                "ordering": "strict",
+                "concurrency": 1,
+                "docs": {
+                    "summary": "Consumer docs.",
+                    "markdown": "Event consumer docs."
+                }
+            }
+        },
         "resources": {
             "kv": {
                 "docs-cache": {
@@ -1088,6 +1124,10 @@ fn contract_docs_normalize_but_do_not_affect_digest() {
         json!("Job docs.")
     );
     assert_eq!(
+        normalized["eventConsumers"]["auditProjection"]["docs"]["markdown"],
+        json!("Event consumer docs.")
+    );
+    assert_eq!(
         normalized["resources"]["kv"]["docs-cache"]["docs"]["markdown"],
         json!("KV docs.")
     );
@@ -1101,6 +1141,9 @@ fn contract_docs_normalize_but_do_not_affect_digest() {
         .get("docs")
         .is_none());
     assert!(digest_projection["jobs"]["docs.index"]
+        .get("docs")
+        .is_none());
+    assert!(digest_projection["eventConsumers"]["auditProjection"]
         .get("docs")
         .is_none());
     assert!(digest_projection["resources"]["kv"]["docs-cache"]
@@ -1158,6 +1201,90 @@ fn contract_digest_ignores_duplicate_optional_aliases_when_required() {
         digest_contract_value(&required).expect("required digest"),
         digest_contract_value(&duplicate).expect("duplicate digest")
     );
+}
+
+#[test]
+fn manifest_parses_event_consumers_with_defaults_and_projects_digest() {
+    let manifest = json!({
+        "format": "trellis.contract.v1",
+        "id": "example.consumer@v1",
+        "displayName": "Example Consumer",
+        "description": "Consumes subscribed events through durable groups.",
+        "kind": "service",
+        "uses": {
+            "required": {
+                "billing": {
+                    "contract": "billing@v1",
+                    "events": {"subscribe": ["Billing.Paid"]}
+                }
+            }
+        },
+        "eventConsumers": {
+            "projection": {
+                "events": [{"use": "billing", "event": "Billing.Paid"}],
+                "ackWaitMs": 30000,
+                "maxDeliver": 5,
+                "backoffMs": [1000, 5000]
+            }
+        }
+    });
+
+    let parsed = parse_manifest(manifest.clone()).expect("eventConsumers should parse");
+    let group = parsed
+        .event_consumers
+        .get("projection")
+        .expect("projection group");
+    assert_eq!(group.replay, ContractEventConsumerReplay::New);
+    assert_eq!(group.ordering, ContractEventConsumerOrdering::Strict);
+    assert_eq!(group.concurrency, 1);
+
+    let normalized = normalize_manifest_value(manifest).expect("normalize manifest");
+    assert_eq!(
+        normalized["eventConsumers"]["projection"]["replay"],
+        json!("new")
+    );
+    assert_eq!(
+        normalized["eventConsumers"]["projection"]["ordering"],
+        json!("strict")
+    );
+    assert_eq!(
+        normalized["eventConsumers"]["projection"]["concurrency"],
+        json!(1)
+    );
+    assert_eq!(
+        project_contract_digest_manifest(&normalized)["eventConsumers"]["projection"],
+        normalized["eventConsumers"]["projection"]
+    );
+}
+
+#[test]
+fn manifest_validation_rejects_event_consumer_without_subscribed_use() {
+    let error = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.consumer@v1",
+        "displayName": "Example Consumer",
+        "description": "Consumes subscribed events through durable groups.",
+        "kind": "service",
+        "uses": {
+            "required": {
+                "billing": {
+                    "contract": "billing@v1",
+                    "events": {"subscribe": ["Billing.Paid"]}
+                }
+            }
+        },
+        "eventConsumers": {
+            "projection": {
+                "events": [{"use": "billing", "event": "Billing.Refunded"}]
+            }
+        }
+    }))
+    .expect_err("event consumer must reference a subscribed use event");
+
+    let ContractsError::SchemaValidation { details, .. } = error else {
+        panic!("expected schema validation error");
+    };
+    assert!(details.contains("Billing.Refunded"));
 }
 
 #[test]

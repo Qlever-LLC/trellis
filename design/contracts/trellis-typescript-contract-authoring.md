@@ -249,10 +249,10 @@ in TypeScript authoring.
 
 Contracts must place SDK-backed uses either in `uses.required` or
 `uses.optional`; aliases directly under `uses` are invalid and are not treated
-as implied required uses. Required uses fail closed during active-catalog
-validation. Optional uses are included in digest identity, but missing optional
-contracts or surfaces are skipped and grant no transport authority. If an alias
-appears in both groups, the required declaration wins.
+as implied required uses. Required uses fail closed when their referenced
+contract or surface is unknown. Optional uses are included in digest identity,
+but missing optional contracts or surfaces are skipped and grant no transport
+authority. If an alias appears in both groups, the required declaration wins.
 
 Some Trellis-owned surfaces are derived from the participant kind or local
 contract features. App, agent, and device contracts receive baseline auth RPCs
@@ -262,7 +262,57 @@ boilerplate; service runtimes may also receive baseline auth surfaces such as
 Contracts that need non-baseline auth surfaces still declare them with
 `auth.use(...)`.
 
-### 3b) Named contract state stores
+### 3b) Event consumer groups
+
+TypeScript service contracts declare durable event processing with the top-level
+`eventConsumers` map. The events in a group must reference events that the same
+contract already subscribed to through `uses.required` or `uses.optional`.
+
+Example:
+
+```ts
+const contract = defineServiceContract({ schemas }, () => ({
+  id: "billing-projection@v1",
+  displayName: "Billing Projection",
+  description: "Projects billing events into workspace state.",
+  uses: {
+    required: {
+      billing: billing.use({
+        events: { subscribe: ["Billing.SubscriptionConfirmed"] },
+      }),
+    },
+  },
+  eventConsumers: {
+    workspaceBilling: {
+      events: [
+        { use: "billing", event: "Billing.SubscriptionConfirmed" },
+      ],
+      replay: "new",
+      ordering: "strict",
+      concurrency: 1,
+      ackWaitMs: 300_000,
+      maxDeliver: 6,
+      backoffMs: [5_000, 30_000, 120_000, 600_000, 1_800_000],
+    },
+  },
+}));
+```
+
+Rules:
+
+- `replay` defaults to `"new"`; use `"all"` only when a new deployment should
+  project all retained historical events
+- `ordering` defaults to `"strict"`, and strict ordering requires
+  `concurrency: 1`
+- group names are logical aliases; service code passes the alias as
+  `opts.group`, while Trellis provisions the physical durable consumer name
+- callers must not pass `durableName` for service event processing
+- one event may appear in multiple groups when the service intentionally wants
+  independent durable cursors and duplicate delivery
+- docs metadata may describe the group for review UIs, but nested docs do not
+  affect the digest projection
+
+### 3c) Named contract state stores
 
 TypeScript contract authoring declares public Trellis-managed state through the
 top-level `state` map.
@@ -289,7 +339,7 @@ canonicalized in [../core/state-patterns.md](./../core/state-patterns.md). Exact
 state helper signatures belong in the generated TypeScript API reference under
 `/api`.
 
-### 3c) Exported schemas and SDK type reuse
+### 3d) Exported schemas and SDK type reuse
 
 Service-owned data model types that cross a contract boundary should be declared
 as named schemas and exported through `exports.schemas`.

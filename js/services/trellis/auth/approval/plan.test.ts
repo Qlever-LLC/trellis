@@ -127,13 +127,6 @@ Deno.test("planUserContractApproval derives exact app capabilities and subjects"
     },
   });
   assertEquals(plan.publishSubjects, [
-    "$JS.ACK.>",
-    "$JS.API.CONSUMER.CREATE.trellis",
-    "$JS.API.CONSUMER.CREATE.trellis.>",
-    "$JS.API.CONSUMER.DURABLE.CREATE.trellis.>",
-    "$JS.API.CONSUMER.INFO.trellis.>",
-    "$JS.API.CONSUMER.MSG.NEXT.trellis.>",
-    "$JS.API.INFO",
     "feeds.v1.example.Audit.Feed",
     "operations.v1.example.Evidence.Upload",
     "operations.v1.example.Evidence.Upload.control",
@@ -212,6 +205,111 @@ Deno.test("planUserContractApproval includes operation observe and declared canc
     "operations.v1.example.Jobs.Run",
     "operations.v1.example.Jobs.Run.control",
   ]);
+});
+
+Deno.test("planUserContractApproval prefers active dependency digest over stale known digest", async () => {
+  const activeDependency: TrellisContractV1 = {
+    format: "trellis.contract.v1",
+    id: "example.jobs@v1",
+    displayName: "Example Jobs",
+    description: "Job API",
+    kind: "service",
+    capabilities: {
+      "jobs:read": {
+        displayName: "Read jobs",
+        description: "Read job data.",
+      },
+    },
+    schemas: {
+      JobsGetRequest: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string" } },
+      },
+      JobsGetResponse: {
+        type: "object",
+        required: ["job"],
+        properties: {
+          job: {
+            type: "object",
+            required: ["id", "state"],
+            properties: {
+              id: { type: "string" },
+              state: {
+                anyOf: [
+                  { const: "pending", type: "string" },
+                  { const: "dismissed", type: "string" },
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+    rpc: {
+      "Jobs.Get": {
+        version: "v1",
+        subject: "rpc.v1.example.Jobs.Get",
+        input: { schema: "JobsGetRequest" },
+        output: { schema: "JobsGetResponse" },
+        capabilities: { call: ["jobs:read"] },
+      },
+    },
+  };
+  const staleKnownDependency: TrellisContractV1 = {
+    ...activeDependency,
+    schemas: {
+      ...activeDependency.schemas,
+      JobsGetResponse: {
+        type: "object",
+        required: ["job"],
+        properties: {
+          job: {
+            type: "object",
+            required: ["id", "state"],
+            properties: {
+              id: { type: "string" },
+              state: {
+                anyOf: [{ const: "pending", type: "string" }],
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+  const store = createTestContracts([{
+    digest: "active-jobs-digest",
+    contract: activeDependency,
+  }]);
+  store.addKnownTestContract({
+    digest: "stale-jobs-digest",
+    contract: staleKnownDependency,
+  });
+
+  const plan = await planUserContractApproval(store, {
+    format: "trellis.contract.v1",
+    id: "example.console@v1",
+    displayName: "Example Console",
+    description: "Browser app",
+    kind: "app",
+    uses: {
+      required: {
+        jobs: {
+          contract: "example.jobs@v1",
+          rpc: { call: ["Jobs.Get"] },
+        },
+      },
+    },
+  });
+
+  assertEquals(plan.approval.capabilities, {
+    "jobs:read": {
+      displayName: "Read jobs",
+      description: "Read job data.",
+    },
+  });
+  assertEquals(plan.publishSubjects, ["rpc.v1.example.Jobs.Get"]);
 });
 
 Deno.test("planUserContractApproval rejects app contracts with raw subjects", async () => {

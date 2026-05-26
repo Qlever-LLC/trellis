@@ -103,6 +103,16 @@
         "$ref": "#/$defs/jobQueue"
       }
     },
+    "eventConsumers": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/eventConsumerGroup"
+      }
+    },
     "resources": {
       "$ref": "#/$defs/resources"
     }
@@ -419,6 +429,62 @@
         }
       }
     },
+    "eventConsumerEvent": {
+      "type": "object",
+      "required": ["use", "event"],
+      "properties": {
+        "use": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "eventConsumerGroup": {
+      "type": "object",
+      "required": ["events"],
+      "properties": {
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/eventConsumerEvent"
+          }
+        },
+        "replay": {
+          "type": "string",
+          "enum": ["new", "all"]
+        },
+        "ordering": {
+          "const": "strict"
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ackWaitMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxDeliver": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "backoffMs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "docs": {
+          "$ref": "#/$defs/docs"
+        }
+      }
+    },
     "capabilities": {
       "type": "array",
       "items": {
@@ -504,6 +570,9 @@
               "const": "receive"
             }
           }
+        },
+        "internal": {
+          "type": "boolean"
         },
         "docs": {
           "$ref": "#/$defs/docs"

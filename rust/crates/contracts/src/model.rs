@@ -297,6 +297,8 @@ pub struct ContractRpcMethod {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transfer: Option<ContractRpcTransfer>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub internal: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub docs: Option<ContractDocs>,
 }
 
@@ -323,6 +325,55 @@ pub struct ContractFeed {
     pub event: ContractSchemaRef,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<FeedCapabilities>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<ContractDocs>,
+}
+
+/// One subscribed event surface included in a durable event consumer group.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractEventConsumerEvent {
+    #[serde(rename = "use")]
+    pub use_alias: String,
+    pub event: String,
+}
+
+/// Replay policy for a durable event consumer group.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ContractEventConsumerReplay {
+    #[default]
+    New,
+    All,
+}
+
+/// Ordering policy for a durable event consumer group.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ContractEventConsumerOrdering {
+    #[default]
+    Strict,
+}
+
+fn default_event_consumer_concurrency() -> i64 {
+    1
+}
+
+/// One durable event consumer group declared by a contract manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContractEventConsumerGroup {
+    pub events: Vec<ContractEventConsumerEvent>,
+    #[serde(default)]
+    pub replay: ContractEventConsumerReplay,
+    #[serde(default)]
+    pub ordering: ContractEventConsumerOrdering,
+    #[serde(default = "default_event_consumer_concurrency")]
+    pub concurrency: i64,
+    #[serde(rename = "ackWaitMs", skip_serializing_if = "Option::is_none")]
+    pub ack_wait_ms: Option<i64>,
+    #[serde(rename = "maxDeliver", skip_serializing_if = "Option::is_none")]
+    pub max_deliver: Option<i64>,
+    #[serde(rename = "backoffMs", skip_serializing_if = "Option::is_none")]
+    pub backoff_ms: Option<Vec<i64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub docs: Option<ContractDocs>,
 }
@@ -435,6 +486,12 @@ pub struct ContractManifest {
     pub errors: BTreeMap<String, ContractErrorDecl>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub jobs: BTreeMap<String, ContractJobQueueResource>,
+    #[serde(
+        rename = "eventConsumers",
+        default,
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub event_consumers: BTreeMap<String, ContractEventConsumerGroup>,
     #[serde(default, skip_serializing_if = "ContractResources::is_empty")]
     pub resources: ContractResources,
 }

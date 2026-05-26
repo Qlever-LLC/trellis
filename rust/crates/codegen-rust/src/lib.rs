@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde::Deserialize;
-use trellis_contracts::{load_manifest, ContractKind, ContractUseRef};
+use trellis_contracts::{load_manifest, ContractKind, ContractUseRef, LoadedManifest};
 
 /// Errors returned while generating a Rust SDK crate.
 #[derive(thiserror::Error, Debug)]
@@ -211,6 +211,10 @@ pub fn generate_rust_sdk(opts: &GenerateRustSdkOpts) -> Result<(), CodegenRustEr
         is_trellis_owned_sdk_contract(&loaded.manifest.id),
     )?;
     write_if_changed(&opts.out_dir.join("Cargo.toml"), &cargo_toml)?;
+    write_if_changed(
+        &opts.out_dir.join("TRELLIS.md"),
+        &render_rust_sdk_trellis_md(opts, &loaded, emit_service_facade),
+    )?;
     write_runtime_patch_config(opts)?;
     write_rust_if_changed(
         &opts.out_dir.join("src").join("contract.rs"),
@@ -368,6 +372,10 @@ pub fn generate_rust_participant_facade(
         &opts.out_dir.join("Cargo.toml"),
         &render_participant_cargo_toml(opts, &mappings, !loaded.manifest.feeds.is_empty())?,
     )?;
+    write_if_changed(
+        &opts.out_dir.join("TRELLIS.md"),
+        &render_rust_participant_trellis_md(opts, &loaded, &mappings),
+    )?;
     write_runtime_patch_config_for_participant(opts)?;
     fs::copy(&opts.manifest_path, opts.out_dir.join(&manifest_file_name))?;
     for mapping in &mappings {
@@ -449,6 +457,226 @@ fn runtime_dependency_lines(
                 .collect()
         }
     }
+}
+
+fn render_rust_sdk_trellis_md(
+    opts: &GenerateRustSdkOpts,
+    loaded: &LoadedManifest,
+    emit_service_facade: bool,
+) -> String {
+    let mut lines = vec![
+        format!("# Trellis Contract Guide: {}", loaded.manifest.id),
+        String::new(),
+        "This file is generated for AI agents and out-of-tree Trellis services.".to_string(),
+        String::new(),
+        "## Global Trellis Context".to_string(),
+        String::new(),
+        "- llms.txt: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt".to_string(),
+        "- llms-full.txt: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt".to_string(),
+        String::new(),
+        "## Crate".to_string(),
+        String::new(),
+        format!("- crate: `{}`", opts.crate_name),
+        format!("- contract id: `{}`", loaded.manifest.id),
+        format!("- kind: `{:?}`", loaded.manifest.kind),
+        String::new(),
+        "## Rust Facades".to_string(),
+        String::new(),
+        "Owned surfaces:".to_string(),
+    ];
+    push_rust_owned_surfaces(&mut lines, loaded, "crate", emit_service_facade);
+    lines.extend([
+        String::new(),
+        "Used dependency surfaces declared by the manifest:".to_string(),
+    ]);
+    push_rust_declared_uses(&mut lines, loaded);
+    push_rust_prepared_events(&mut lines);
+    lines.join("\n") + "\n"
+}
+
+fn render_rust_participant_trellis_md(
+    opts: &GenerateRustParticipantFacadeOpts,
+    loaded: &LoadedManifest,
+    mappings: &[ValidatedParticipantAlias],
+) -> String {
+    let mut lines = vec![
+        format!("# Trellis Participant Guide: {}", loaded.manifest.id),
+        String::new(),
+        "This file is generated for AI agents and out-of-tree Trellis services.".to_string(),
+        String::new(),
+        "## Global Trellis Context".to_string(),
+        String::new(),
+        "- llms.txt: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt".to_string(),
+        "- llms-full.txt: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt".to_string(),
+        String::new(),
+        "## Crate".to_string(),
+        String::new(),
+        format!("- crate: `{}`", opts.crate_name),
+        format!("- contract id: `{}`", loaded.manifest.id),
+        format!("- kind: `{:?}`", loaded.manifest.kind),
+        String::new(),
+        "## Participant Facades".to_string(),
+        String::new(),
+        "Owned surfaces are available through `connected_service.service().owned()`, `connected_service.handle()`, and `connected_client.client().owned()`:".to_string(),
+    ];
+    push_rust_owned_surfaces(&mut lines, loaded, "owned_sdk", true);
+    lines.extend([String::new(), "Mapped dependency aliases:".to_string()]);
+    if mappings.is_empty() {
+        lines.push("- No mapped dependency aliases.".to_string());
+    } else {
+        for mapping in mappings {
+            lines.push(format!(
+                "- alias `{}` -> crate `{}` contract `{}`",
+                mapping.alias, mapping.crate_name, mapping.contract_id
+            ));
+            push_rust_used_mapping_surfaces(&mut lines, mapping);
+        }
+    }
+    push_rust_prepared_events(&mut lines);
+    lines.join("\n") + "\n"
+}
+
+fn push_rust_owned_surfaces(
+    lines: &mut Vec<String>,
+    loaded: &LoadedManifest,
+    crate_prefix: &str,
+    include_service_handlers: bool,
+) {
+    for key in public_rpc_keys(loaded) {
+        let base = key_to_pascal(key);
+        let (group, method) = surface_group_and_method(key);
+        let handler = if include_service_handlers {
+            format!(", service handler `service.handle().rpc().{group}().{method}(handler)`")
+        } else {
+            String::new()
+        };
+        lines.push(format!("- RPC `{key}`: descriptor `{crate_prefix}::rpc::{base}Rpc`, low-level `trellis_client.call::<{crate_prefix}::rpc::{base}Rpc>(...)`, generated wrapper `.rpc().{group}().{method}(...)`{handler}"));
+    }
+    for key in loaded.manifest.events.keys() {
+        let base = key_to_pascal(key);
+        let (group, method) = surface_group_and_method(key);
+        lines.push(format!("- Event `{key}`: `trellis_client.publish::<{crate_prefix}::events::{base}EventDescriptor>(...)`, generated wrapper `.event().{group}().{method}().publish(...)`, prepare with `trellis_client.prepare_event::<{crate_prefix}::events::{base}EventDescriptor>(...)`"));
+    }
+    for key in loaded.manifest.feeds.keys() {
+        let base = key_to_pascal(key);
+        let (group, method) = surface_group_and_method(key);
+        let handler = if include_service_handlers {
+            format!(", service handler `service.handle().feed().{group}().{method}(handler)`")
+        } else {
+            String::new()
+        };
+        lines.push(format!("- Feed `{key}`: `trellis_client.feed::<{crate_prefix}::feeds::{base}FeedDescriptor>(input)`, generated wrapper `.feed().{group}().{method}(...)`{handler}"));
+    }
+    for key in loaded.manifest.operations.keys() {
+        let base = key_to_pascal(key);
+        let (group, method) = surface_group_and_method(key);
+        let provider = if include_service_handlers {
+            format!(
+                ", service provider `service.handle().operation().{group}().{method}(provider)`"
+            )
+        } else {
+            String::new()
+        };
+        lines.push(format!("- Operation `{key}`: `trellis_client.operation::<{crate_prefix}::operations::{base}Operation>().start(...)`, generated wrapper `.operation().{group}().{method}().start(...)`{provider}"));
+    }
+    if public_rpc_keys(loaded).is_empty()
+        && loaded.manifest.events.is_empty()
+        && loaded.manifest.feeds.is_empty()
+        && loaded.manifest.operations.is_empty()
+    {
+        lines.push("- No owned RPC, event, feed, or operation surfaces.".to_string());
+    }
+}
+
+fn push_rust_declared_uses(lines: &mut Vec<String>, loaded: &LoadedManifest) {
+    let mut wrote = false;
+    for (alias, use_ref) in loaded.manifest.uses.iter() {
+        wrote = true;
+        lines.push(format!(
+            "- alias `{alias}` uses contract `{}`",
+            use_ref.contract
+        ));
+        push_rust_declared_use_ref_lines(lines, use_ref);
+    }
+    if !wrote {
+        lines.push("- No used dependency surfaces.".to_string());
+    }
+}
+
+fn push_rust_used_mapping_surfaces(lines: &mut Vec<String>, mapping: &ValidatedParticipantAlias) {
+    push_rust_use_ref_lines(lines, &mapping.use_ref, &mapping.crate_ident);
+}
+
+fn push_rust_declared_use_ref_lines(lines: &mut Vec<String>, use_ref: &ContractUseRef) {
+    if let Some(rpc) = &use_ref.rpc {
+        for key in rpc.call.as_deref().unwrap_or(&[]) {
+            lines.push(format!("  - RPC call `{key}`"));
+        }
+    }
+    if let Some(operations) = &use_ref.operations {
+        for key in operations.call.as_deref().unwrap_or(&[]) {
+            lines.push(format!("  - Operation call `{key}`"));
+        }
+    }
+    if let Some(events) = &use_ref.events {
+        for key in events.publish.as_deref().unwrap_or(&[]) {
+            lines.push(format!("  - Event publish `{key}`"));
+        }
+        for key in events.subscribe.as_deref().unwrap_or(&[]) {
+            lines.push(format!("  - Event subscribe `{key}`"));
+        }
+    }
+    if let Some(feeds) = &use_ref.feeds {
+        for key in feeds.subscribe.as_deref().unwrap_or(&[]) {
+            lines.push(format!("  - Feed subscribe `{key}`"));
+        }
+    }
+}
+
+fn push_rust_use_ref_lines(lines: &mut Vec<String>, use_ref: &ContractUseRef, crate_prefix: &str) {
+    if let Some(rpc) = &use_ref.rpc {
+        for key in rpc.call.as_deref().unwrap_or(&[]) {
+            let base = key_to_pascal(key);
+            let (group, method) = surface_group_and_method(key);
+            lines.push(format!("  - RPC call `{key}`: `trellis_client.call::<{crate_prefix}::rpc::{base}Rpc>(...)` or generated wrapper `.rpc().{group}().{method}(...)`"));
+        }
+    }
+    if let Some(operations) = &use_ref.operations {
+        for key in operations.call.as_deref().unwrap_or(&[]) {
+            let base = key_to_pascal(key);
+            let (group, method) = surface_group_and_method(key);
+            lines.push(format!("  - Operation call `{key}`: `trellis_client.operation::<{crate_prefix}::operations::{base}Operation>().start(...)` or generated wrapper `.operation().{group}().{method}().start(...)`"));
+        }
+    }
+    if let Some(events) = &use_ref.events {
+        for key in events.publish.as_deref().unwrap_or(&[]) {
+            let base = key_to_pascal(key);
+            let (group, method) = surface_group_and_method(key);
+            lines.push(format!("  - Event publish `{key}`: `trellis_client.publish::<{crate_prefix}::events::{base}EventDescriptor>(...)` or generated wrapper `.event().{group}().{method}().publish(...)`"));
+        }
+        for key in events.subscribe.as_deref().unwrap_or(&[]) {
+            let base = key_to_pascal(key);
+            lines.push(format!("  - Event subscribe `{key}`: `trellis_client.subscribe::<{crate_prefix}::events::{base}EventDescriptor>(...)`"));
+        }
+    }
+    if let Some(feeds) = &use_ref.feeds {
+        for key in feeds.subscribe.as_deref().unwrap_or(&[]) {
+            let base = key_to_pascal(key);
+            let (group, method) = surface_group_and_method(key);
+            lines.push(format!("  - Feed subscribe `{key}`: `trellis_client.feed::<{crate_prefix}::feeds::{base}FeedDescriptor>(input)` or generated wrapper `.feed().{group}().{method}(...)`"));
+        }
+    }
+}
+
+fn push_rust_prepared_events(lines: &mut Vec<String>) {
+    lines.extend([
+        String::new(),
+        "Prepared events and outbox/inbox:".to_string(),
+        "- `PreparedTrellisEvent` captures a validated subject, payload, and idempotency header.".to_string(),
+        "- Use `prepare_event::<Descriptor>(...)`, `publish_prepared(...)`, and `dispatch_outbox_once(...)` for durable publish flows.".to_string(),
+        "- Runtime stores include `OutboxStore`, `InboxStore`, `SqliteOutboxStore`, `SqliteInboxStore`, `PostgresOutboxStore`, `PostgresInboxStore`, `NatsKvOutboxStore`, and `NatsKvInboxStore`.".to_string(),
+        String::new(),
+    ]);
 }
 
 #[derive(Debug, Clone)]
@@ -886,7 +1114,7 @@ fn render_participant_owned_rs(
     loaded: &trellis_contracts::LoadedManifest,
     owned_sdk_crate_name: Option<&str>,
 ) -> String {
-    if loaded.manifest.rpc.is_empty()
+    if public_rpc_keys(loaded).is_empty()
         && loaded.manifest.operations.is_empty()
         && loaded.manifest.events.is_empty()
         && loaded.manifest.feeds.is_empty()
@@ -927,7 +1155,7 @@ fn render_participant_owned_rs(
             + &owned_client_name
             + "::new(inner) } }",
     ];
-    for key in loaded.manifest.rpc.keys() {
+    for key in public_rpc_keys(loaded) {
         let method = key_to_snake(key);
         let base = key_to_pascal(key);
         let input_empty = is_empty_object_schema(resolve_schema_ref(
@@ -983,14 +1211,14 @@ fn render_participant_owned_rs(
     }
     lines.push("}".to_string());
     lines.push(String::new());
-    if !loaded.manifest.rpc.is_empty()
+    if !public_rpc_keys(loaded).is_empty()
         || !loaded.manifest.operations.is_empty()
         || !loaded.manifest.events.is_empty()
         || !loaded.manifest.feeds.is_empty()
     {
         render_participant_owned_provider_surface(loaded, &mut lines);
         lines.push("impl crate::ConnectedService {".to_string());
-        for key in loaded.manifest.rpc.keys() {
+        for key in public_rpc_keys(loaded) {
             let method = format!("register_{}", key_to_snake(key));
             let base = key_to_pascal(key);
             let input_type = if is_empty_object_schema(resolve_schema_ref(
@@ -1057,12 +1285,12 @@ fn render_participant_owned_provider_surface(
         "pub struct ProviderRpc<'a> { service: &'a mut crate::ConnectedService }".to_string(),
         "impl<'a> ProviderRpc<'a> {".to_string(),
     ]);
-    for group in grouped_keys(&loaded.manifest.rpc).keys() {
+    for group in grouped_public_rpc_keys(loaded).keys() {
         let group_ty = format!("{}ProviderRpc", key_to_pascal(group));
         lines.push(format!("    pub fn {group}(&mut self) -> {group_ty}<'_> {{ {group_ty} {{ service: self.service }} }}"));
     }
     lines.extend(["}".to_string(), String::new()]);
-    for (group, keys) in grouped_keys(&loaded.manifest.rpc) {
+    for (group, keys) in grouped_public_rpc_keys(loaded) {
         let group_ty = format!("{}ProviderRpc", key_to_pascal(&group));
         lines.push(format!(
             "pub struct {group_ty}<'a> {{ service: &'a mut crate::ConnectedService }}"
@@ -1313,6 +1541,9 @@ fn render_participant_use_alias_rs(mapping: &ValidatedParticipantAlias) -> Strin
 
     if let Some(rpc) = &mapping.use_ref.rpc {
         for key in rpc.call.as_deref().unwrap_or(&[]) {
+            if mapping.manifest.manifest.rpc[key].internal == Some(true) {
+                continue;
+            }
             let method = key_to_snake(key);
             let base = key_to_pascal(key);
             let input_empty = is_empty_object_schema(resolve_schema_ref(
@@ -1865,6 +2096,10 @@ fn render_client_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         "        Self { inner }".to_string(),
         "    }".to_string(),
         String::new(),
+        "    #[allow(dead_code)]".to_string(),
+        "    pub(crate) fn inner(&self) -> &'a trellis::client::TrellisClient { self.inner }"
+            .to_string(),
+        String::new(),
         "    /// Access typed RPC calls.".to_string(),
         "    pub fn rpc(&self) -> Rpc<'a> { Rpc { _inner: self.inner } }".to_string(),
         String::new(),
@@ -1920,13 +2155,35 @@ fn grouped_keys<'a, T>(
     groups
 }
 
+fn public_rpc_keys(loaded: &trellis_contracts::LoadedManifest) -> Vec<&str> {
+    loaded
+        .manifest
+        .rpc
+        .iter()
+        .filter_map(|(key, rpc)| (rpc.internal != Some(true)).then_some(key.as_str()))
+        .collect()
+}
+
+fn grouped_public_rpc_keys(
+    loaded: &trellis_contracts::LoadedManifest,
+) -> std::collections::BTreeMap<String, Vec<&str>> {
+    let mut groups = std::collections::BTreeMap::<String, Vec<&str>>::new();
+    for key in public_rpc_keys(loaded) {
+        groups
+            .entry(surface_group_and_method(key).0)
+            .or_default()
+            .push(key);
+    }
+    groups
+}
+
 fn render_client_rpc_surface(loaded: &trellis_contracts::LoadedManifest, lines: &mut Vec<String>) {
     lines.extend([
         "/// Typed RPC surface.".to_string(),
         "pub struct Rpc<'a> { pub(crate) _inner: &'a trellis::client::TrellisClient }".to_string(),
         "impl<'a> Rpc<'a> {".to_string(),
     ]);
-    for group in grouped_keys(&loaded.manifest.rpc).keys() {
+    for group in grouped_public_rpc_keys(loaded).keys() {
         let group_ty = format!("{}Rpc", key_to_pascal(group));
         lines.push(format!(
             "    pub fn {group}(&self) -> {group_ty}<'a> {{ {group_ty} {{ inner: self._inner }} }}"
@@ -1934,7 +2191,7 @@ fn render_client_rpc_surface(loaded: &trellis_contracts::LoadedManifest, lines: 
     }
     lines.extend(["}".to_string(), String::new()]);
 
-    for (group, keys) in grouped_keys(&loaded.manifest.rpc) {
+    for (group, keys) in grouped_public_rpc_keys(loaded) {
         let group_ty = format!("{}Rpc", key_to_pascal(&group));
         lines.push(format!(
             "pub struct {group_ty}<'a> {{ inner: &'a trellis::client::TrellisClient }}"
@@ -2023,7 +2280,7 @@ fn render_client_event_surface(
             leaf_lines.push("    }".to_string());
             leaf_lines.push(format!("    pub async fn listen<F, Fut>(&self, handler: F) -> Result<(), TrellisClientError> where F: Fn(crate::types::{base}Event) -> Fut, Fut: std::future::Future<Output = Result<(), TrellisClientError>> {{"));
             leaf_lines.push(format!(
-                "        let mut stream = self.inner.subscribe::<crate::events::{base}EventDescriptor>().await?;"
+                "        let mut stream = self.inner.subscribe_with_options::<crate::events::{base}EventDescriptor>(trellis::client::EventSubscribeOptions {{ mode: trellis::client::EventSubscriptionMode::Ephemeral, replay: trellis::client::EventReplayPolicy::New, durable_name: None }}).await?;"
             ));
             leaf_lines.push("        while let Some(event) = futures_util::StreamExt::next(&mut stream).await {".to_string());
             leaf_lines.push("            handler(event?).await?;".to_string());
@@ -2190,6 +2447,9 @@ fn render_service_connect_rs(loaded: &trellis_contracts::LoadedManifest) -> Stri
     ];
 
     for (key, rpc) in &loaded.manifest.rpc {
+        if rpc.internal == Some(true) {
+            continue;
+        }
         let base = key_to_pascal(key);
         let method = format!("register_{}", key_to_snake(key));
         let input_type = if is_empty_object_schema(resolve_schema_ref(loaded, &rpc.input.schema)) {
@@ -2337,14 +2597,14 @@ fn render_service_provider_surface(
         "pub struct ProviderRpc<'a> { service: &'a mut ConnectedService }".to_string(),
         "impl<'a> ProviderRpc<'a> {".to_string(),
     ]);
-    for group in grouped_keys(&loaded.manifest.rpc).keys() {
+    for group in grouped_public_rpc_keys(loaded).keys() {
         let group_ty = format!("{}ProviderRpc", key_to_pascal(group));
         lines.push(format!(
             "    pub fn {group}(&mut self) -> {group_ty}<'_> {{ {group_ty} {{ service: self.service }} }}"
         ));
     }
     lines.extend(["}".to_string(), String::new()]);
-    for (group, keys) in grouped_keys(&loaded.manifest.rpc) {
+    for (group, keys) in grouped_public_rpc_keys(loaded) {
         let group_ty = format!("{}ProviderRpc", key_to_pascal(&group));
         lines.push(format!(
             "pub struct {group_ty}<'a> {{ service: &'a mut ConnectedService }}"
@@ -2625,6 +2885,10 @@ impl TypeRenderer {
     }
 
     fn scalar_or_container_expr(&mut self, type_name: &str, schema: &serde_json::Value) -> String {
+        if let Some(ty) = union_base_type(schema) {
+            return ty.to_string();
+        }
+
         if let Some(types) = schema.get("type").and_then(serde_json::Value::as_array) {
             let non_null = types
                 .iter()
@@ -2742,6 +3006,28 @@ fn literal_base_type(schema: &serde_json::Value) -> Option<&'static str> {
         serde_json::Value::Number(_) => Some("f64"),
         _ => Some("Value"),
     }
+}
+
+fn union_base_type(schema: &serde_json::Value) -> Option<&'static str> {
+    let variants = schema
+        .get("anyOf")
+        .or_else(|| schema.get("oneOf"))?
+        .as_array()?;
+    let mut ty = None;
+
+    for variant in variants {
+        if variant.get("type").and_then(serde_json::Value::as_str) == Some("null") {
+            continue;
+        }
+
+        let variant_ty = literal_base_type(variant)?;
+        if ty.is_some_and(|ty| ty != variant_ty) {
+            return Some("Value");
+        }
+        ty = Some(variant_ty);
+    }
+
+    ty
 }
 
 fn join_string_literals(values: &[String]) -> String {
@@ -2880,6 +3166,7 @@ mod tests {
                 },
                 "exports": {"schemas": ["ExternalCheckpoint"]},
                 "rpc": {
+                    "Trellis.Bindings.Get": {"version":"v1","subject":"rpc.v1.Trellis.Bindings.Get","input":{"schema":"ProcessInput"},"output":{"schema":"ProcessOutput"},"internal":true},
                     "Trellis.Catalog": {"version":"v1","subject":"rpc.v1.Trellis.Catalog","input":{"schema":"CatalogInput"},"output":{"schema":"CatalogOutput"}}
                 },
                 "operations": {
@@ -3064,6 +3351,12 @@ mod tests {
             "trellis-sdk-core",
             "0.1.0"
         ));
+        let trellis_md = fs::read_to_string(sdk_out.join("TRELLIS.md")).unwrap();
+        assert!(trellis_md.contains("# Trellis Contract Guide: trellis.core@v1"));
+        assert!(trellis_md.contains("descriptor `crate::rpc::TrellisCatalogRpc`"));
+        assert!(trellis_md.contains(
+            "https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt"
+        ));
 
         fs::remove_dir_all(out_dir).unwrap();
     }
@@ -3218,6 +3511,8 @@ mod tests {
         assert!(contract_rs.contains("//! Generated from"));
         assert!(contract_rs.contains("pub const CONTRACT_NAME: &str = \"Trellis Core\";"));
         assert!(types_rs.contains("pub struct TrellisCatalogResponse {"));
+        assert!(types_rs.contains("pub struct TrellisBindingsGetRequest {"));
+        assert!(types_rs.contains("pub struct TrellisBindingsGetResponse {"));
         assert!(types_rs.contains("pub struct TrellisProcessInput {"));
         assert!(types_rs.contains("pub struct TrellisProcessProgress {"));
         assert!(types_rs.contains("pub struct TrellisProcessOutput {"));
@@ -3227,6 +3522,7 @@ mod tests {
         assert!(types_rs.contains("pub struct ExternalCheckpoint {"));
         assert!(types_rs.contains("pub status: String,"));
         assert!(rpc_rs.contains("pub struct TrellisCatalogRpc;"));
+        assert!(rpc_rs.contains("pub struct TrellisBindingsGetRpc;"));
         assert!(rpc_rs.contains("type Input = Empty;"));
         assert!(operations_rs.contains("pub struct TrellisProcessOperation;"));
         assert!(operations_rs
@@ -3257,6 +3553,7 @@ mod tests {
         assert!(client_rs.contains("pub fn rpc(&self) -> Rpc<'a>"));
         assert!(client_rs.contains("pub fn trellis(&self) -> TrellisRpc<'a>"));
         assert!(client_rs.contains("pub async fn catalog("));
+        assert!(!client_rs.contains("pub async fn bindings_get("));
         assert!(client_rs.contains("pub fn feed(&self) -> Feed<'a>"));
         assert!(client_rs.contains("pub fn audit(&self) -> AuditFeed<'a>"));
         assert!(client_rs.contains("pub async fn feed("));
@@ -3265,13 +3562,16 @@ mod tests {
         assert!(client_rs.contains("crate::feeds::AuditFeedFeedDescriptor"));
         assert!(client_rs.contains("pub fn operation(&self) -> Operation<'a>"));
         assert!(client_rs.contains("crate::operations::TrellisProcessOperation"));
+        assert!(client_rs.contains("EventSubscriptionMode::Ephemeral"));
         assert!(connect_rs.contains("pub fn handle(&mut self) -> ServiceHandle<'_>"));
         assert!(connect_rs.contains("pub fn rpc(&mut self) -> ProviderRpc<'_>"));
         assert!(connect_rs.contains("pub fn trellis(&mut self) -> TrellisProviderRpc<'_>"));
         assert!(connect_rs.contains("pub fn catalog<F, Fut>(&mut self, handler: F)"));
+        assert!(!connect_rs.contains("pub fn bindings_get<F, Fut>"));
         assert!(connect_rs.contains("trellis::service::ServiceHandlerContext"));
         assert!(connect_rs.contains("crate::types::TrellisCatalogResponse"));
         assert!(connect_rs.contains("register_rpc::<crate::rpc::TrellisCatalogRpc"));
+        assert!(!connect_rs.contains("register_rpc::<crate::rpc::TrellisBindingsGetRpc"));
         assert!(connect_rs.contains("pub fn feed<F, S>(&mut self, handler: F)"));
         assert!(connect_rs.contains("crate::types::AuditFeedInput"));
         assert!(connect_rs.contains("crate::types::AuditFeedEvent"));
@@ -3484,6 +3784,82 @@ mod tests {
             "pub struct TrellisBindingsGetResponseBindingResourcesStreamsValueSourcesItem {"
         ));
         assert!(!types_rs.contains("pub streams: BTreeMap<String, Value>"));
+
+        fs::remove_dir_all(out_dir).unwrap();
+    }
+
+    #[test]
+    fn generated_sdk_types_use_string_for_literal_unions() {
+        let out_dir = unique_temp_dir("sdk-literal-unions");
+        fs::create_dir_all(&out_dir).unwrap();
+        let manifest = serde_json::from_str(
+            r#"{
+                "format": "trellis.contract.v1",
+                "id": "trellis.core@v1",
+                "displayName": "Trellis Core",
+                "description": "Core.",
+                "kind": "service",
+                "schemas": {
+                    "BindingsGetInput": {"type":"object","properties":{},"required":[]},
+                    "BindingsGetOutput": {
+                        "type": "object",
+                        "properties": {
+                            "eventConsumers": {
+                                "type": "object",
+                                "patternProperties": {
+                                    "^.*$": {
+                                        "type": "object",
+                                        "required": ["replay", "ordering"],
+                                        "properties": {
+                                            "replay": {
+                                                "anyOf": [
+                                                    {"const": "new", "type": "string"},
+                                                    {"const": "all", "type": "string"}
+                                                ]
+                                            },
+                                            "ordering": {"const": "strict", "type": "string"}
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "required": ["eventConsumers"]
+                    }
+                },
+                "rpc": {
+                    "Trellis.Bindings.Get": {
+                        "version": "v1",
+                        "subject": "rpc.v1.Trellis.Bindings.Get",
+                        "input": {"schema": "BindingsGetInput"},
+                        "output": {"schema": "BindingsGetOutput"}
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let manifest_path = write_remote_manifest(&out_dir, "trellis.core@v1.json", manifest);
+        let sdk_out = out_dir.join("generated");
+
+        generate_rust_sdk(&GenerateRustSdkOpts {
+            manifest_path,
+            out_dir: sdk_out.clone(),
+            crate_name: "trellis-sdk-core".to_string(),
+            crate_version: "0.1.0".to_string(),
+            runtime_deps: RustRuntimeDeps {
+                source: RustRuntimeSource::Local,
+                version: "0.1.0".to_string(),
+                repo_root: Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")),
+            },
+            emit_service_runtime_facade: false,
+        })
+        .unwrap();
+
+        let types_rs = fs::read_to_string(sdk_out.join("src/types.rs")).unwrap();
+
+        assert!(types_rs.contains("pub replay: String,"));
+        assert!(types_rs.contains("pub ordering: String,"));
+        assert!(!types_rs.contains("pub replay: Value,"));
+        cargo_check(&sdk_out.join("Cargo.toml"));
 
         fs::remove_dir_all(out_dir).unwrap();
     }
@@ -3766,6 +4142,7 @@ mod tests {
 
         let cargo_toml = fs::read_to_string(out_dir.join("facade/Cargo.toml")).unwrap();
         let build_rs = fs::read_to_string(out_dir.join("facade/build.rs")).unwrap();
+        let trellis_md = fs::read_to_string(out_dir.join("facade/TRELLIS.md")).unwrap();
         let lib_rs = fs::read_to_string(out_dir.join("facade/src/lib.rs")).unwrap();
         let connect_rs = fs::read_to_string(out_dir.join("facade/src/connect.rs")).unwrap();
         let contract_rs = fs::read_to_string(out_dir.join("facade/src/contract.rs")).unwrap();
@@ -3807,6 +4184,10 @@ mod tests {
         assert!(cargo_toml.contains("trellis = { path = "));
         assert!(cargo_toml.contains("futures-util = \"0.3\""));
         assert!(build_rs.contains("generate_rust_participant_generated_sources"));
+        assert!(trellis_md.contains("# Trellis Participant Guide: audit@v1"));
+        assert!(trellis_md
+            .contains("alias `auth` -> crate `trellis-sdk-auth` contract `trellis.auth@v1`"));
+        assert!(trellis_md.contains("Event publish `Auth.Connections.Opened`"));
         assert!(
             lib_rs.contains("include!(concat!(env!(\"OUT_DIR\"), \"/generated/src/facade.rs\"));")
         );

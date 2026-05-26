@@ -216,7 +216,7 @@ deployment envelope. A presented device or service contract must fit the enabled
 parent deployment envelope; Trellis rejects unknown or unavailable boundaries
 instead of accepting a digest from a deployment allow-list.
 
-Same-lineage device rollouts must keep duplicate RPC, operation, event, and job surfaces schema-compatible. Optional additive fields are safe only for open object payloads; required-field changes, closed object additions, and unsupported non-identical schema constructs are rejected before Trellis projects the active catalog.
+Same-lineage device rollouts should keep duplicate RPC, operation, event, and job surfaces schema-compatible. Optional additive fields are safe only for open object payloads; required-field changes, closed object additions, and unsupported non-identical schema constructs should use a new `@vN` contract id rather than relying on a deployment-level digest switch.
 
 Shrink the deployment envelope only after deployed device runtimes no longer need
 the old boundary. Envelope shrink previews affected sessions and requests before

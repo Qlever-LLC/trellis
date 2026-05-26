@@ -17,6 +17,7 @@ import type { SqlContractStorageRepository } from "../catalog/storage.ts";
 import type {
   SqlCapabilityGroupRepository,
   SqlDeploymentEnvelopeRepository,
+  SqlDeploymentResourceBindingRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
   SqlEnvelopeExpansionRequestRepository,
@@ -61,6 +62,7 @@ export function startControlPlaneBackgroundTasks(opts: {
   userStorage: SqlUserProjectionRepository;
   contractApprovalStorage: SqlIdentityEnvelopeRepository;
   deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+  deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
   envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
@@ -76,6 +78,8 @@ export function startControlPlaneBackgroundTasks(opts: {
   contracts: Pick<
     ContractsModule,
     | "getActiveEntries"
+    | "getContract"
+    | "getKnownEntriesByContractId"
     | "getKnownContract"
     | "validateContract"
   >;
@@ -97,6 +101,7 @@ export function startControlPlaneBackgroundTasks(opts: {
     userStorage: opts.userStorage,
     contractApprovalStorage: opts.contractApprovalStorage,
     deploymentEnvelopeStorage: opts.deploymentEnvelopeStorage,
+    deploymentResourceBindingStorage: opts.deploymentResourceBindingStorage,
     connectionsKV: opts.connectionsKV,
     deviceActivationStorage: opts.deviceActivationStorage,
     deviceDeploymentStorage: opts.deviceDeploymentStorage,

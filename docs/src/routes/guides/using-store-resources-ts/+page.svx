@@ -55,7 +55,11 @@ Like `resources.kv`, the key under `store` (`uploads`) is only a logical alias. 
 
 ## 2. Connect the service and open the store
 
-The runtime shape mirrors the KV handle pattern. This example assumes the default required binding, so `service.store.uploads` is present after a successful connect:
+The runtime shape mirrors the KV handle pattern. This example assumes the
+default required binding, so `service.store.uploads` is present after a
+successful connect. Do not construct `StoreHandle` or pass binding/resource data
+into a `Trellis` constructor yourself; connect with `TrellisService.connect(...)`
+and use the returned `service.store` handle.
 
 ```ts
 import { isErr, Result } from "@qlever-llc/trellis";

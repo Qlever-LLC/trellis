@@ -231,6 +231,9 @@ pub enum TrellisClientError {
 
     #[error("transfer protocol error: {0}")]
     TransferProtocol(String),
+
+    #[error("event subscription protocol error: {0}")]
+    EventSubscriptionProtocol(String),
 }
 
 #[cfg(test)]

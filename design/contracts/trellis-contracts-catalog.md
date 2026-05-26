@@ -30,9 +30,9 @@ same time:
 Those needs apply across multiple repos and multiple implementation languages.
 
 This document is the architecture and specification for the canonical manifest,
-active catalog, digest projection, dependency model, and permission derivation.
-It is not the place for ordinary language-library usage. TypeScript and Rust
-authoring walkthroughs belong in `/guides/libraries/typescript`,
+catalog projections, digest projection, dependency model, and permission
+derivation. It is not the place for ordinary language-library usage. TypeScript
+and Rust authoring walkthroughs belong in `/guides/libraries/typescript`,
 `/guides/libraries/rust`, and exact generated APIs/Rustdoc are linked from
 `/api`.
 
@@ -62,15 +62,17 @@ authoring walkthroughs belong in `/guides/libraries/typescript`,
 Trellis defines two canonical JSON artifacts:
 
 - `trellis.contract.v1` - one service contract manifest
-- `trellis.catalog.v1` - the active set of contracts for a deployment
+- `trellis.catalog.v1` - the runtime's catalog projection of known Trellis-owned
+  contracts
 
 Both artifacts are pure JSON values. They are language-neutral and safe to
 persist, hash, validate, transmit, and use for code generation.
 
 ### 2) Contract lineage and implementation model
 
-Every contract belongs to one stable contract lineage identified by `id`, and
-each active digest is installed onto the service principal that implements it.
+Every contract belongs to one stable contract lineage identified by `id`.
+Deployment and identity envelopes decide whether a presented contract boundary
+is authorized; contract evidence records what was reviewed or presented.
 
 - Trellis-managed contracts such as `trellis.core@v1`, `trellis.auth@v1`, and
   `trellis.state@v1` are implemented by the `trellis` runtime service even when
@@ -276,14 +278,13 @@ Rules:
 - a breaking contract revision MUST use a new `@vN` suffix
 - Trellis-owned contracts, including Trellis-owned app contracts, SHOULD use the
   `trellis.` prefix so ownership is visible from the stable lineage id
-- within one Trellis runtime, each `id` is globally unique and the active
-  catalog projection has at most one current digest for that `id`
-- a new digest for the same `id` must be activated by normal envelope review
-  when only the boundary changes, or by a Forced Contract Update when it must
-  replace a different current digest
-- Forced Contract Update deletes non-selected active evidence for the `id`; it
-  is not quarantine, repair history, or a compatibility lane for multiple
-  current digests
+- within one Trellis runtime, each `id` is globally unique for subject ownership
+  and generated SDK identity
+- a new digest for the same `id` is reviewed as boundary evidence against the
+  relevant envelope; the digest is not itself durable authority
+- service deployments default to `strict` same-contract compatibility, which
+  rejects incompatible replacement for an existing service instance; development
+  deployments may opt into `mutable-dev` compatibility for fast local iteration
 
 ### 6.1) Contract digest projection
 
@@ -328,8 +329,8 @@ Rules:
 - digest-stable metadata edits may update catalog display information without
   requiring new runtime permissions or new app approvals, but capability
   metadata edits are not digest-stable
-- the active catalog projection MUST NOT publish multiple current digests for
-  one `id`
+- the runtime catalog projection MUST NOT publish multiple current digests for
+  one Trellis-owned `id`
 - install records bind one exact digest to one service principal public key
 
 Manifest normalization is separate from digest projection:
@@ -350,10 +351,11 @@ Manifest normalization is separate from digest projection:
   manifest normalization and digest projection/conformance vectors in the same
   change whenever the field has runtime or authority semantics
 
-This allows Trellis to validate a proposed replacement before it becomes the
-single current digest for the `id`. Preregistered device firmware revisions that
-map to different digests in one device lineage still resolve through the same
-one-current-digest active catalog rule.
+This allows Trellis to validate a proposed replacement before a service instance
+accepts it as the new runtime evidence for the same `id`. Preregistered device
+firmware revisions that map to different digests in one device lineage still
+resolve through deployment-envelope fit rather than a deployment digest allow
+list.
 
 Same-lineage replacement compatibility is defined by the owned communication
 surface:
@@ -362,7 +364,7 @@ surface:
   replacement compatibility is being validated
 - `uses`, metadata, and other non-owned sections MAY vary by digest as long as
   the presented contract evidence still validates successfully and dependency
-  resolution against active catalogs stays unambiguous
+  resolution against known manifests stays unambiguous
 - `resources` declarations are validated from the presented contract evidence;
   they do not need to be additive across the lineage, but Trellis MUST validate
   and bind the exact resource set requested by the evidence bound to that
@@ -381,10 +383,10 @@ Active-compatible evolution means:
   event, and job payload/result schemas when those payload objects remain open
   to unknown fields
 - a new digest MAY remove an optional field from an existing payload schema when
-  that field is not required by any active digest; because optional fields may
-  be absent on the wire, same-lineage active-compatible validation MUST NOT
-  treat removal as a compatibility failure solely because the optional field is
-  no longer declared
+  that field is not required by the previously accepted same-instance digest;
+  because optional fields may be absent on the wire, same-lineage compatibility
+  validation MUST NOT treat removal as a compatibility failure solely because
+  the optional field is no longer declared
 - a new digest MAY add new declared errors or new capabilities for newly added
   owned surfaces
 - a new digest MUST NOT remove or rename an existing owned RPC, operation,
@@ -427,10 +429,10 @@ Breaking schema changes include:
   operation/RPC/event subjects
 
 If a rollout needs one of those breaking changes, it MUST use a new contract
-`id` / major version rather than a second active digest in the same lineage.
-During early unreleased development, an operator MAY use Forced Contract Update
-to activate a new same-lineage digest only by deleting the non-selected active
-evidence so no incompatible same-lineage digest remains current.
+`id` / major version for production deployments. During early unreleased
+development, an operator MAY mark the service deployment `mutable-dev` so the
+same instance can accept incompatible same-lineage evidence without creating a
+production compatibility guarantee.
 
 ### 6.2) Capability metadata and global keys
 
@@ -484,7 +486,7 @@ Contracts MAY declare explicit dependencies on other contracts through a
 top-level `uses` object. Dependency aliases MUST be grouped under
 `uses.required` or `uses.optional`; required aliases fail closed and optional
 aliases grant authority only when their target contract and surface resolve in
-the active catalog.
+known manifests.
 
 Example:
 
@@ -546,33 +548,33 @@ Rules:
   feed name does not exist on the known contract
 - if multiple known inactive manifests for the same referenced contract cannot
   be projected into a compatible review surface, planning MUST treat that
-  dependency as unresolved instead of creating an active-catalog repair issue;
-  active-catalog issues are reserved for conflicts in the active closure that an
-  admin can repair directly
-- active-catalog refresh and runtime permission derivation MUST fail closed if a
-  required referenced contract is not active in the proposed active closure
+  dependency as unresolved instead of creating a catalog repair issue
+- runtime permission derivation MUST fail closed if a required referenced
+  contract is unknown or its referenced surface cannot be resolved from known
+  manifests
 - missing optional contracts and missing optional surfaces do not fail
   validation and do not grant transport authority
-- if a missing optional contract or surface later resolves through the active
-  catalog, a fresh envelope expansion and approval is required before reconnects
-  receive that optional authority
+- if a missing optional contract or surface later becomes known, a fresh
+  envelope expansion and approval is required before reconnects receive that
+  optional authority
 - known optional surfaces may grant transport authority even when no
   implementing service is currently connected; liveness is availability, not
   authorization
-- validation happens when resolving dependencies against active catalogs: if a
-  `uses` entry targets a contract with multiple active compatible digests,
-  Trellis projects the active surfaces together
-- that active-compatible-digest projection MAY merge additive identical logical
-  surface descriptors, but MUST reject divergent duplicate descriptors for the
-  same operation, RPC, or event name
+- validation happens when resolving dependencies against known manifests: if a
+  `uses` entry targets a contract with multiple known compatible digests,
+  Trellis projects the reviewable surfaces together
+- that compatible-digest projection MAY merge additive identical logical surface
+  descriptors, but MUST reject divergent duplicate descriptors for the same
+  operation, RPC, or event name
 - duplicate surface descriptors are compared after resolving schema refs; same
   ref names are not sufficient, and different ref names are acceptable only when
   the resolved schemas are canonically equal or proven compatible by the
   same-lineage schema verifier
 - higher-level consent scopes for user-facing applications MAY be derived from
   `uses`, but runtime enforcement remains operation-level
-- any user approval or consent record for a client contract MUST be bound to the
-  exact contract digest, not merely to the contract `id`
+- any user approval or consent record for a client contract MUST retain the
+  reviewed contract digest as evidence, while the durable authority is the
+  resulting identity-envelope boundary
 
 ### Runtime surface status
 
@@ -580,25 +582,24 @@ Catalog knowledge, reviewability, authorization, and runtime availability are
 separate decisions. A contract is known when Trellis has stored a validated
 manifest by digest. A requested deployment boundary is reviewable when required
 dependency manifests are known and referenced surfaces can be displayed for
-approval. A contract is active only when its approved deployment evidence
-belongs to an enabled active closure whose required dependencies also resolve as
-active. `Trellis.Surface.Status` is an advisory Trellis core RPC that checks the
-active catalog first, checks the caller's current capability envelope second,
-and checks live service or device implementation state only after authorization
-succeeds.
+approval. A surface is authorized only when the caller's effective envelope and
+grants cover the derived boundary. `Trellis.Surface.Status` is an advisory
+Trellis core RPC that checks known contract metadata, checks the caller's
+current capability envelope, and checks live service or device implementation
+state only after authorization succeeds.
 
 Status outcomes are:
 
 - `unknown_contract` when the contract id is not known to the catalog
-- `unknown_surface` when the active contract lineage has no matching logical
-  RPC, operation, event, or feed surface
+- `unknown_surface` when the known contract lineage has no matching logical RPC,
+  operation, event, or feed surface
 - `unauthorized` with missing capability keys when the caller's current envelope
   does not authorize the requested surface
-- `unavailable` with `envelope_unavailable` when the active contract is known
-  but no enabled deployment envelope currently covers the requested surface
+- `unavailable` with `envelope_unavailable` when the contract is known but no
+  enabled deployment envelope currently covers the requested surface
 - `available` with `liveImplementer: true` and `runtime: "live"` when an enabled
-  connected service or device instance currently implements an active digest
-  that defines the requested surface
+  connected service or device instance currently presents envelope-compatible
+  evidence that defines the requested surface
 - `available` with `liveImplementer: false` and `runtime: "no_live_implementer"`
   when the surface is authorized and deployment-covered but no connected service
   or device instance currently implements it
@@ -608,8 +609,8 @@ Status outcomes are:
 Availability MUST NOT grant authority, activate catalog entries, or remove
 transport permissions that were already granted from the caller's effective
 contract envelope. During mixed-version rollouts, availability is scoped to the
-active digests that define the requested logical surface, not merely to any live
-digest in the same contract lineage.
+presented envelope-compatible evidence that defines the requested logical
+surface, not merely to any live digest in the same contract lineage.
 
 ### 7) RPC operation descriptor
 
@@ -772,7 +773,7 @@ Rules:
   requirements
 - a wildcard authorization subject for an event is produced by replacing every
   template token with `*`
-- that effective wildcard subject is also the subject key used by active-catalog
+- that effective wildcard subject is also the subject key used by catalog
   collision checks, so two templated events with different JSON Pointer tokens
   still collide if they normalize to the same NATS wildcard subject
 
@@ -781,12 +782,84 @@ Example wildcard derivation:
 - template: `events.v1.Partner.Changed.{/partner/id/origin}.{/partner/id/id}`
 - wildcard: `events.v1.Partner.Changed.*.*`
 
+### 8a) Event consumer groups
+
+The optional top-level `eventConsumers` map declares service-owned durable event
+consumer groups. These groups are not public event surfaces. They are deployment
+resources that tell Trellis which subscribed events a service processes with a
+Trellis-provisioned JetStream pull consumer.
+
+Example:
+
+```json
+{
+  "uses": {
+    "required": {
+      "billing": {
+        "contract": "billing@v1",
+        "events": { "subscribe": ["Billing.SubscriptionConfirmed"] }
+      }
+    }
+  },
+  "eventConsumers": {
+    "workspaceBilling": {
+      "events": [
+        { "use": "billing", "event": "Billing.SubscriptionConfirmed" }
+      ],
+      "replay": "new",
+      "ordering": "strict",
+      "concurrency": 1,
+      "ackWaitMs": 300000,
+      "maxDeliver": 6,
+      "backoffMs": [5000, 30000, 120000, 600000, 1800000]
+    }
+  }
+}
+```
+
+Fields:
+
+| Field         | Required | Meaning                                                                  |
+| ------------- | -------- | ------------------------------------------------------------------------ |
+| `events`      | yes      | Subscribed dependency events included in this consumer group             |
+| `replay`      | no       | `"new"` or `"all"`; defaults to `"new"`                                  |
+| `ordering`    | no       | Ordering mode; v1 supports `"strict"` and defaults to `"strict"`         |
+| `concurrency` | no       | Handler concurrency; defaults to `1`; strict ordering requires `1`       |
+| `ackWaitMs`   | no       | JetStream ack wait in milliseconds; Trellis applies a runtime default    |
+| `maxDeliver`  | no       | Maximum delivery attempts; Trellis applies a NATS-valid runtime default  |
+| `backoffMs`   | no       | Redelivery backoff in milliseconds, capped to fit `maxDeliver` semantics |
+
+Rules:
+
+- every `eventConsumers.<group>.events[]` entry references a `uses` alias and a
+  logical event name from that dependency
+- the referenced `uses` alias MUST be present under `uses.required` or
+  `uses.optional` and MUST include that event in `events.subscribe`
+- durable service event processing is explicit-only; Trellis does not create an
+  implicit consumer group from `uses.events.subscribe`
+- the same event MAY appear in multiple groups; each group is an independent
+  durable cursor, so duplicate delivery to those groups is intentional
+- group names are logical contract aliases; Trellis owns the physical stream,
+  durable consumer name, filter subjects, and runtime binding payload
+- `eventConsumers` is part of digest identity except for nested `docs` metadata
+- envelope expansion validates the referenced subscribed event surfaces against
+  known manifests and the requested envelope before provisioning
+- event consumer bindings are deployment resources. Service code consumes the
+  binding through the connected runtime, not by constructing or naming a
+  JetStream durable consumer itself
+- service principals MUST NOT receive broad event-processing grants such as
+  `$JS.API.CONSUMER.DURABLE.CREATE.trellis.>`; auth grants only the exact bound
+  consumer subjects required for info, pull-next, and acknowledgements
+- ephemeral event listeners remain live direct subscriptions governed by the
+  normal `uses.events.subscribe` authority. They do not require an
+  `eventConsumers` binding and do not replay stored events
+
 ### 9) No raw subject descriptor
 
 The v1 contract model does not expose a top-level `subjects` map or
 `uses.*.subjects` declarations. Public and cross-contract communication must be
 modeled as RPCs, operations, or events so Trellis can derive typed SDKs,
-capabilities, and active-catalog compatibility from the same surface.
+capabilities, and compatibility from the same surface.
 
 Subsystem-owned raw NATS subjects may still exist behind those contract-owned
 APIs. Jobs work subjects, advisories, operation reply subjects, and transfer
@@ -1065,12 +1138,13 @@ workflows refer to contracts by digest.
 
 ### 13) Catalog format
 
-A deployment exposes its active contract projection as `trellis.catalog.v1`.
-Durable deployment envelope, contract-evidence, and resource-binding rows are
-the authority for the active digest set and approved surfaces. The global
-`contracts` store is the authority for full normalized manifests by digest.
-In-memory contract/catalog objects are validation, projection, and cache state
-only.
+The Trellis runtime exposes its catalog projection as `trellis.catalog.v1`.
+Deployment envelopes and identity envelopes are the authority for approved
+surfaces. Contract-evidence rows are cold review and audit data, and resource
+binding rows describe provisioned resources for envelope-covered deployments.
+The global `contracts` store is the authority for full normalized manifests by
+digest. In-memory contract/catalog objects are validation, projection, and cache
+state only.
 
 Shape:
 
@@ -1090,21 +1164,15 @@ Shape:
 
 Catalog rules:
 
-- the catalog contains only active contracts for the current deployment
+- the catalog contains the runtime's active Trellis-owned contract projection;
+  non-builtin deployment evidence does not promote a contract into the active
+  catalog
 - entries are keyed by digest and include `id`, `displayName`, and `description`
-- a catalog MUST contain at most one current digest for each `id`, even when
-  enabled deployments have submitted evidence for different digests of that
-  contract id
-- within one deployment and contract id, only the selected current evidence can
-  contribute an active digest; Forced Contract Update resolution deletes
-  non-selected evidence rather than retaining it as active quarantine or repair
-  history
+- a catalog MUST contain at most one current digest for each Trellis-owned `id`
 - catalog ordering is not semantically significant, but implementations SHOULD
   return a stable order for diffability and testing
-- active catalog refresh is fail-closed: failure to query the bounded set of
-  enabled deployment envelopes, matching deployment contract-evidence rows, or
-  hydrate required active contract state MUST fail startup or refresh rather
-  than publishing a partial active catalog
+- catalog refresh is fail-closed: failure to hydrate required builtin contract
+  state MUST fail startup or refresh rather than publishing a partial catalog
 - catalog hydration resolves full manifests from built-in Trellis contracts or
   the global `contracts` store; deployment evidence MUST NOT be used as a
   manifest lookup fallback
@@ -1112,23 +1180,22 @@ Catalog rules:
   installed-contract cleanup MUST use targeted durable-store queries keyed by
   the relevant deployment, digest, route, or install records rather than
   scanning nearby local manifests or broad in-memory catalogs
-- refresh MUST validate every proposed active digest before replacing the
-  in-memory catalog; unknown digests or divergent duplicate active surfaces keep
-  the previous catalog unavailable rather than falling back to built-in
-  manifests or a partial catalog
+- refresh MUST validate every proposed catalog digest before replacing the
+  in-memory catalog; unknown digests or divergent duplicate surfaces keep the
+  previous catalog unavailable rather than falling back to partial state
 - admin envelope expansion and shrink flows MUST use the same validation in
   dry-run mode against staged deployment-envelope records before mutating the
-  durable active set, so incompatible boundaries fail before partial catalog
-  state is persisted or exposed to callers
-- active service boundaries and digests are derived from enabled service
-  deployment envelopes plus selected deployment evidence, not from service
-  deployment rows, service instances, or their current runtime evidence fields
-- active device boundaries and digests are derived from enabled device
-  deployment envelopes plus selected deployment evidence, not from device
-  deployment rows or per-device current-contract fields
+  durable envelope set, so incompatible boundaries fail before partial state is
+  persisted or exposed to callers
+- service runtime authority is derived from enabled service deployment envelopes
+  plus presented evidence, not from active catalog promotion, service deployment
+  rows, service instances, or their current runtime evidence fields
+- device runtime authority is derived from enabled device deployment envelopes
+  plus presented evidence, not from active catalog promotion, device deployment
+  rows, or per-device current-contract fields
 - deployment enable/disable validation MUST stage the matching deployment
   envelope state, because deployment-envelope enabled state determines whether
-  that deployment's evidence can contribute to the active set
+  that deployment can authorize presented evidence
 
 Admin contract analysis records SHOULD expose enough derived metadata for CLI
 and console review without reimplementing catalog analysis in each client:
@@ -1155,7 +1222,7 @@ Repository-layout clarification:
 - colocated service contracts MUST be treated the same way as service contracts
   committed in another repo
 - a repo MAY carry additional manifests for local development, but they are not
-  implicitly part of the active catalog just because they live nearby
+  implicitly authorized or catalog-visible just because they live nearby
 
 ### 14) Trellis discovery RPCs
 
@@ -1172,18 +1239,19 @@ Semantics:
 
 #### `Trellis.Catalog`
 
-- returns the active `trellis.catalog.v1` for the deployment
+- returns the runtime `trellis.catalog.v1` projection
 - capability: `trellis.core::catalog.read`
-- returns a bounded deployment projection from durable active records; it is not
-  a repository scan or a way to enumerate inactive/local manifests
+- returns a bounded runtime projection; it is not a repository scan, an
+  authority source, or a way to enumerate inactive/local manifests
 
 #### `Trellis.Contract.Get`
 
 - input: contract `digest`
-- returns the active contract manifest for that digest, resolved from built-in
+- returns the known contract manifest for that digest, resolved from built-in
   Trellis contracts or the global `contracts` store
 - capability: `trellis.core::contract.read`
-- for v1, callers only retrieve active contracts through this RPC
+- for v1, callers only retrieve known contracts through this RPC when their
+  contract grants the relevant Trellis-owned `uses` surface
 
 Deployment envelope expansion and shrink are intentionally not part of the
 runtime discovery RPC set.
@@ -1204,7 +1272,6 @@ runtime discovery RPC set.
 - when known inactive dependency manifests are stale or mutually incompatible,
   bootstrap treats the dependency as unresolved, records the referenced contract
   id as an activation blocker, and does not return `contract_catalog_issue`
-  unless the conflict is part of the active catalog closure
 - when the presented contract boundary does not fit the deployment envelope,
   bootstrap stores the contract evidence, creates a pending envelope expansion
   request for the missing delta, and returns `envelope_expansion_required` so
@@ -1213,16 +1280,17 @@ runtime discovery RPC set.
   connection and requested delta; repeated requests from the same connected
   requester are deduplicated, and requests created by that requester are removed
   when it disconnects
-- if the presented digest has the same `contractId` as a different active
-  digest, bootstrap creates or reuses one pending Forced Contract Update for
-  that `contractId` and returns `contract_activation_pending` until an admin
-  keeps the current digest or forces the proposed digest to replace it
-- when the deployment envelope fits but the required dependency closure is not
-  active yet, bootstrap returns `contract_activation_pending`; service runtimes
-  wait and retry rather than receiving runtime credentials
-- when the presented digest has been ignored or no longer fits the enabled
-  deployment envelope, bootstrap returns `contract_changed`; runtimes must
-  restart with active evidence rather than refreshing ignored evidence
+- if the presented digest has the same `contractId` as the service instance's
+  current digest but is incompatible under `strict` mode, bootstrap returns
+  `contract_compatibility_violation`; production deployments should use a new
+  contract version, while development deployments may opt into `mutable-dev`
+- when the deployment envelope fits but required dependency surfaces cannot be
+  resolved from known manifests, bootstrap returns an expansion response with
+  unresolved blockers; service runtimes wait and retry rather than receiving
+  runtime credentials
+- when the presented digest no longer fits the enabled deployment envelope,
+  bootstrap returns `contract_changed`; runtimes must restart with
+  envelope-compatible evidence rather than refreshing ignored evidence
 - approving the pending request expands the deployment envelope, persists the
   reviewed evidence and resource bindings. Runtime bootstrap completes only
   after every required dependency in the approved closure is also active.
@@ -1248,6 +1316,9 @@ Binding rules:
 - jobs bindings expose a service namespace, the built-in jobs work stream, plus
   resolved queue bindings (`publishPrefix`, `workSubject`, `consumerName`) and
   effective per-queue runtime settings
+- event consumer bindings expose the Trellis-owned event stream, physical
+  `consumerName`, filter subjects, replay policy, ordering, concurrency, ack
+  wait, max-deliver, and redelivery backoff for each declared group
 - jobs bindings do not expose admin projection storage such as durable
   worker-presence buckets; services discover queue/runtime settings only
 - services discover concrete resources through bindings rather than through
@@ -1259,14 +1330,14 @@ Binding rules:
   directly; in that mode the bootstrapped service runtime MUST use the bootstrap
   binding instead of requiring the service principal to call `Trellis.Catalog`
   or `Trellis.Bindings.Get` after connect
-- service principals only call discovery RPCs when their active contract grants
-  the relevant Trellis-owned `uses` surface; resource bindings alone do not
-  grant general core discovery access
+- service principals only call discovery RPCs when their presented contract
+  grants the relevant Trellis-owned `uses` surface; resource bindings alone do
+  not grant general core discovery access
 
 ### 15) Installation and activation rules
 
 The `trellis` runtime service owns the durable deployment records that define a
-deployment's active contract authority.
+deployment's envelope authority.
 
 The `trellis` runtime service MUST:
 
@@ -1276,15 +1347,14 @@ The `trellis` runtime service MUST:
 - store reviewed deployment evidence by digest; any redundant contract JSON in
   evidence records is historical/review evidence only, not a manifest lookup
   fallback
-- treat `contractId` as globally unique within one Trellis runtime and project
-  at most one current active digest for each `contractId`
-- use reviewed evidence rows covered by enabled deployment envelopes when
-  projecting active digests; Forced Contract Update resolution deletes
-  non-selected evidence instead of retaining it as active quarantine, repair, or
-  ignored rollout history
+- treat `contractId` as globally unique within one Trellis runtime for subject
+  ownership and SDK identity
+- store reviewed evidence rows covered by enabled deployment envelopes as cold
+  review/audit data; evidence does not promote non-builtin contracts into the
+  active catalog
 - maintain durable deployment envelope/evidence rows for the deployment and
-  publish an in-memory active catalog only as a fail-closed projection
-- reject active subject collisions across operations, RPCs, and events using the
+  publish an in-memory catalog only as a fail-closed projection
+- reject subject collisions across operations, RPCs, and events using the
   effective subject after event-template wildcard normalization
 - provision or bind required cloud resources before service envelope expansion
   or upgrade succeeds
@@ -1305,12 +1375,14 @@ The `trellis` runtime service MUST:
 Envelope expansion validation MUST also:
 
 - reject impossible or unsafe resource combinations before provisioning begins
-- validate newly installed service digests against the proposed active catalog
+- validate newly installed service digests and their known dependency surfaces
   before external resource provisioning begins
 - reject service or device deployment envelope changes when canonical digest
   computation differs from the caller's reviewed contract evidence
-- validate the exact `resources` requested by the presented contract evidence,
-  even when other evidence in the same lineage remains active
+- validate the exact `resources` requested by the presented contract evidence
+- validate the exact `eventConsumers` requested by the presented contract
+  evidence and provision or bind their deployment-scoped consumers before
+  expansion or bootstrap succeeds
 - preserve physical resource identity across compatible contract changes for the
   same deployment and lineage unless an operator intentionally creates a new
   lineage
@@ -1329,55 +1401,51 @@ Envelope expansion validation MUST also:
 Operationally, envelope expansion fails if any of these conditions is true:
 
 - any operation, RPC, or event subject string is already owned by a different
-  active contract `id`
+  known contract `id` in the validation set
 - any required resource request cannot be provisioned or bound according to
   platform policy
+- any required event consumer group cannot be resolved to approved subscribed
+  dependency events or provisioned as a bound JetStream consumer
 - optional KV or store resources that cannot be provisioned are skipped and do
   not appear in installed bindings
 
-Forced Contract Update rule:
+Same-contract replacement rule:
 
-- `contractId` is globally unique within one Trellis runtime, so the active
-  catalog projection MUST contain at most one current digest for a `contractId`
-- when evidence for a different digest of the same `contractId` appears while a
-  current digest is active, Trellis reports one pending Forced Contract Update
-  for that `contractId`; repeated service restarts while waiting coalesce into
-  that pending update instead of creating duplicate review items
-- accepting a Forced Update is force-push-like and destructive: Trellis deletes
-  all non-selected active evidence for that `contractId`, then refreshes the
-  active catalog with the selected digest
-- rejecting or keeping the current digest deletes the proposed non-selected
-  evidence so the current digest remains the only active digest for that
-  `contractId`
-- deleted non-selected evidence is not retained in active evidence as
-  quarantine, repair history, or rollback authority; operators must resubmit
-  evidence if they later want to reintroduce that digest
-- each service instance still presents one exact contract digest at any moment,
-  and instances that present a non-current or envelope-incompatible digest are
-  rejected with `contract_changed` or held with `contract_activation_pending`
+- `contractId` is globally unique within one Trellis runtime, but deployment
+  envelopes authorize boundaries rather than selecting one non-builtin digest as
+  active authority
+- each service instance presents one exact contract digest at any moment
+- in `strict` mode, a service instance may replace its current same-contract
+  digest only when same-lineage compatibility validation succeeds
+- in `mutable-dev` mode, Trellis skips same-lineage compatibility validation for
+  that deployment so unreleased local development can iterate without inventing
+  a production compatibility promise
+- instances that present envelope-incompatible evidence are rejected with
+  `contract_changed`; instances that present incompatible same-contract evidence
+  in `strict` mode are rejected with `contract_compatibility_violation`
 - envelope expansion remains a separate review path for missing boundaries;
-  Forced Contract Update chooses one digest for an already-global `contractId`
-  and does not by itself expand the deployment envelope
+  compatibility mode does not by itself expand the deployment envelope
 
 Subject collision rule:
 
-- if two active surfaces declare the same effective subject, activation MUST
-  fail unless they are the same operation, RPC, or event surface in the same
-  contract `id` lineage
+- if two known surfaces declare the same effective subject, validation MUST fail
+  unless they are the same operation, RPC, or event surface in the same contract
+  `id` lineage
 - templated event subjects compare by the wildcard subject produced by replacing
   each template token with `*`, not by the literal JSON Pointer tokens in the
   template
 - overlapping subjects for the same operation/RPC/event surface across candidate
   replacement digests in the same lineage are allowed during validation only
-  when the resulting selected current digest remains unambiguous
+  when same-lineage compatibility keeps the subject meaning unambiguous
 
 This keeps routing, discovery, and permission derivation unambiguous.
 
 ### 16) Authorization derivation
 
-Authorization is derived from the active contract set.
+Authorization is derived from the presented contract evidence that fits the
+effective deployment or identity envelope.
 
-For each active contract:
+For each envelope-compatible presented contract:
 
 - operations contribute publish permissions for callers via `capabilities.call`
   on the declared operation subject, plus `capabilities.observe` and
@@ -1390,7 +1458,7 @@ For each active contract:
   subscribe permission
 - `uses` contributes the exact cross-contract operation/RPC/event/feed
   permissions the owning service may exercise at runtime after dependency
-  resolution validates the referenced active catalog surfaces
+  resolution validates the referenced known surfaces
 - operation uses that declare `transfer: { direction: "send", ... }` and grant
   `capabilities.call` contribute caller publish access to
   `transfer.v1.upload.*.*`
@@ -1407,6 +1475,10 @@ For each installed resource binding:
 - store bindings may require both publish and subscribe grants depending on the
   backing implementation; those grants still remain service-local to the owning
   binding
+- event-consumer bindings grant only exact bound JetStream subjects such as
+  `$JS.API.CONSUMER.INFO.<stream>.<consumerName>`,
+  `$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumerName>`, and
+  `$JS.ACK.<stream>.<consumerName>.>` plus any required JetStream info subject
 - higher-level runtimes typically call `Trellis.Bindings.Get` during connect or
   bootstrap and expose the resulting bindings or typed resource handles to
   service code

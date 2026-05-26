@@ -9,6 +9,10 @@ impl<'a> CoreClient<'a> {
     pub fn new(inner: &'a crate::client::TrellisClient) -> Self {
         Self { inner }
     }
+    #[allow(dead_code)]
+    pub(crate) fn inner(&self) -> &'a crate::client::TrellisClient {
+        self.inner
+    }
     /// Access typed RPC calls.
     pub fn rpc(&self) -> Rpc<'a> {
         Rpc { _inner: self.inner }
@@ -39,15 +43,6 @@ pub struct TrellisRpc<'a> {
     inner: &'a crate::client::TrellisClient,
 }
 impl<'a> TrellisRpc<'a> {
-    /// Call `Trellis.Bindings.Get`.
-    pub async fn bindings_get(
-        &self,
-        input: &super::types::TrellisBindingsGetRequest,
-    ) -> Result<super::types::TrellisBindingsGetResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::TrellisBindingsGetRpc>(input)
-            .await
-    }
     /// Call `Trellis.Catalog`.
     pub async fn catalog(
         &self,

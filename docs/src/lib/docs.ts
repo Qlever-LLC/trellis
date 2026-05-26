@@ -704,6 +704,13 @@ export const guideDocs: DocEntry[] = [
     section: "Advanced",
   },
   {
+    title: "Develop Trellis services with AI agents",
+    description:
+      "Use llms.txt, llms-full.txt, and a service AGENTS.md template to guide AI agents working in out-of-tree Trellis service repos.",
+    href: "/guides/ai/developing-trellis-services",
+    section: "Advanced",
+  },
+  {
     title: "Install a service from an image",
     description:
       "Deploy a published service from an OCI image into a running Trellis environment.",

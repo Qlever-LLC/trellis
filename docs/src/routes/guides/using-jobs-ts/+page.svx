@@ -128,6 +128,10 @@ await service.handle.rpc.orders.create(async ({ input }) => {
 
 Register workers for each job type before calling `service.wait()`. Handler registration is synchronous; the connected service owns worker startup and shutdown as part of its lifecycle:
 
+Use the `service.jobs` handle returned by `TrellisService.connect(...)`. Jobs
+bindings are Trellis runtime internals, not values service code should fetch with
+`Trellis.Bindings.Get` or pass into `Trellis` constructors.
+
 ```ts
 service.jobs.reserveInventory.handle(async ({ job }) => {
   console.info(

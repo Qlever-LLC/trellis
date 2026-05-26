@@ -84,7 +84,7 @@ When you publish a new image, apply the new image contract before restarting the
 trellis svc my-service apply --image ghcr.io/my-org/my-service:1.2.4
 ```
 
-Trellis validates the new boundary against the proposed active catalog, provisions any required resource changes before making it available, and keeps service instance keys the same. Restart the container with the new image tag after applying the boundary. The active catalog has one current digest per contract id, so use a Forced Update when you intentionally need the proposed digest to replace the current digest. Shrink the envelope only when you want to remove boundary that is no longer needed.
+Trellis validates the new boundary against known manifests, provisions any required resource changes before making it available, and keeps service instance keys the same. Restart the container with the new image tag after applying the boundary. Production deployments use `strict` same-contract compatibility and reject incompatible replacement for an existing service instance; use a new `@vN` contract id for breaking production changes. Use `mutable-dev` only for unreleased local iteration. Shrink the envelope only when you want to remove boundary that is no longer needed.
 
 Use Console as the primary review path for that boundary change: open **Admin → Services**, select the deployment, review the pending **Authority review required** delta, and approve or reject it before rolling out containers that require the new boundary. For local scripts or CI/CD automation, the Trellis CLI `expansions` commands can list and decide the same request.
 
@@ -114,8 +114,8 @@ Trellis derives service access from:
 5. start the container with the right env
 6. confirm the expected RPCs, events, and bindings work
 
-Deployment envelope expansion and instance provisioning should happen before the container starts serving traffic. Service resource provisioning happens when the envelope expands; after the boundary is available on an enabled deployment, it is active for catalog and auth even before an instance connects. Service bootstrap validates that the presented contract evidence fits the deployment envelope and consumes the persisted bindings; it does not activate the catalog entry.
+Deployment envelope expansion and instance provisioning should happen before the container starts serving traffic. Service resource provisioning happens when the envelope expands; after the boundary is available on an enabled deployment, runtime auth can grant presented evidence that fits the envelope even before an instance connects. Service bootstrap validates that the presented contract evidence fits the deployment envelope and consumes the persisted bindings; it does not activate a catalog entry.
 
-If a restarted container presents a new digest for the same contract id while a different digest is current, Trellis creates one pending **Forced Contract Update** for that contract id. Repeated restarts coalesce into that same pending update. Accepting the Forced Update deletes non-selected active evidence; keeping the current digest deletes the proposal.
+If a restarted container presents a new digest for the same contract id, Trellis checks it against the service instance's current digest. In `strict` mode, incompatible same-contract changes fail with a compatibility violation. In `mutable-dev` mode, Trellis accepts the replacement so local development can iterate without creating a production compatibility promise.
 
 If you are building service images, include the generated contract artifact at `/trellis/contract.json`. If the image uses a different path, add an OCI label such as `io.trellis.contract.path=/path/to/contract.json` so the CLI can discover it automatically.

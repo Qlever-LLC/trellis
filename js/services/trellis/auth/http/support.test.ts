@@ -1,5 +1,6 @@
 import { assertEquals, assertThrows } from "@std/assert";
 
+import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { ContractUseDependencyError } from "../../catalog/uses.ts";
 import { createTestContracts } from "../../catalog/test_contracts.ts";
 import type { IdentityEnvelopeRecord, PendingAuth } from "../schemas.ts";
@@ -613,6 +614,127 @@ Deno.test("getApprovalResolution uses injected loaders", async () => {
     contractId: "trellis.console@v1",
     origin: "http://localhost:5173",
   });
+});
+
+Deno.test("getApprovalResolution ignores stale known dependency digests when active digest exists", async () => {
+  const activeJobs: TrellisContractV1 = {
+    format: "trellis.contract.v1",
+    id: "trellis.jobs@v1",
+    displayName: "Trellis Jobs",
+    description: "Jobs API",
+    kind: "service",
+    capabilities: {
+      "trellis.jobs::admin.read": {
+        displayName: "Read jobs",
+        description: "Read Jobs service data.",
+      },
+    },
+    schemas: {
+      JobsGetRequest: {
+        type: "object",
+        required: ["id"],
+        properties: { id: { type: "string" } },
+      },
+      JobsGetResponse: {
+        type: "object",
+        required: ["job"],
+        properties: {
+          job: {
+            type: "object",
+            required: ["id", "state"],
+            properties: {
+              id: { type: "string" },
+              state: {
+                anyOf: [
+                  { const: "pending", type: "string" },
+                  { const: "dismissed", type: "string" },
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+    rpc: {
+      "Jobs.Get": {
+        version: "v1",
+        subject: "rpc.v1.Jobs.Get",
+        input: { schema: "JobsGetRequest" },
+        output: { schema: "JobsGetResponse" },
+        capabilities: { call: ["trellis.jobs::admin.read"] },
+      },
+    },
+  };
+  const staleJobs: TrellisContractV1 = {
+    ...activeJobs,
+    schemas: {
+      ...activeJobs.schemas,
+      JobsGetResponse: {
+        type: "object",
+        required: ["job"],
+        properties: {
+          job: {
+            type: "object",
+            required: ["id", "state"],
+            properties: {
+              id: { type: "string" },
+              state: { anyOf: [{ const: "pending", type: "string" }] },
+            },
+          },
+        },
+      },
+    },
+  };
+  const contracts = createTestContracts([{
+    digest: "active-jobs-digest",
+    contract: activeJobs,
+  }]);
+  contracts.addKnownTestContract({
+    digest: "stale-jobs-digest",
+    contract: staleJobs,
+  });
+
+  const resolution = await getApprovalResolution(contracts, {
+    userId: linkedUserId,
+    identity: linkedIdentity,
+    user: {
+      origin: "github",
+      id: "123",
+      email: "user@example.com",
+      name: "User",
+    },
+    sessionKey: "A".repeat(43),
+    redirectTo: "http://localhost:5173/callback",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "trellis.console@v1",
+      displayName: "Console",
+      description: "Admin",
+      kind: "app",
+      uses: {
+        required: {
+          jobs: {
+            contract: "trellis.jobs@v1",
+            rpc: { call: ["Jobs.Get"] },
+          },
+        },
+      },
+    },
+    createdAt: new Date(),
+  }, {
+    loadUserProjection: async () => ({
+      origin: "account",
+      id: linkedUserId,
+      name: "User",
+      email: "user@example.com",
+      active: true,
+      capabilities: [],
+      capabilityGroups: [],
+    }),
+  });
+
+  assertEquals(resolution.plan.publishSubjects, ["rpc.v1.Jobs.Get"]);
+  assertEquals(resolution.missingCapabilities, ["trellis.jobs::admin.read"]);
 });
 
 Deno.test("resolveLinkedActiveUserIdentity returns a linked active account", async () => {

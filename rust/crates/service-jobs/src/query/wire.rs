@@ -47,7 +47,7 @@ macro_rules! impl_job_to_wire {
                 result: job.result.clone(),
                 service: job.service.clone(),
                 started_at: job.started_at.clone(),
-                state: map_json_value(&job.state, $state_model)?,
+                state: map_string_value(&job.state, $state_model)?,
                 tries: map_count(job.tries, $tries_model)?,
                 r#type: job.job_type.clone(),
                 updated_at: job.updated_at.clone(),
@@ -133,7 +133,7 @@ impl_job_to_wire!(
 );
 
 trait WireLogItem {
-    fn from_log(log: &JobLogEntry, level: Value) -> Self;
+    fn from_log(log: &JobLogEntry, level: String) -> Self;
 }
 
 trait WireProgressItem {
@@ -143,7 +143,7 @@ trait WireProgressItem {
 macro_rules! impl_wire_log_item {
     ($type_name:ty) => {
         impl WireLogItem for $type_name {
-            fn from_log(log: &JobLogEntry, level: Value) -> Self {
+            fn from_log(log: &JobLogEntry, level: String) -> Self {
                 Self {
                     level,
                     message: log.message.clone(),
@@ -199,7 +199,7 @@ where
                 .map(|log| {
                     Ok(T::from_log(
                         log,
-                        map_json_value(&log.level, "job log level")?,
+                        map_string_value(&log.level, "job log level")?,
                     ))
                 })
                 .collect::<Result<Vec<_>, _>>()
@@ -243,6 +243,18 @@ where
     serde_json::to_value(input).map_err(|error| JobsQueryError::ConvertWireModel {
         model,
         details: error.to_string(),
+    })
+}
+
+fn map_string_value<T>(input: &T, model: &'static str) -> Result<String, JobsQueryError>
+where
+    T: serde::Serialize,
+{
+    serde_json::from_value(map_json_value(input, model)?).map_err(|error| {
+        JobsQueryError::ConvertWireModel {
+            model,
+            details: error.to_string(),
+        }
     })
 }
 

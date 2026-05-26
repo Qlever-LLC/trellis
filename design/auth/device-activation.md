@@ -138,8 +138,8 @@ Rules:
   deployment; it is evidence/version metadata, not authority
 - activated devices present contract evidence; auth checks that the derived
   required boundary fits the deployment envelope
-- unknown or inactive evidence is rejected instead of falling back to another
-  digest in the deployment
+- unknown or envelope-incompatible evidence is rejected instead of falling back
+  to another digest in the deployment
 - `reviewMode: "required"` means portal completion creates or resumes a pending
   review rather than activating immediately
 - there is no separate rollout-target digest field

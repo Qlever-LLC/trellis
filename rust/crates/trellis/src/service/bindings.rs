@@ -25,6 +25,46 @@ pub struct ServiceResourceBindings {
     pub store: BTreeMap<String, StoreResourceBinding>,
     /// Service-private jobs resource, when declared by the contract.
     pub jobs: Option<JobsResourceBinding>,
+    /// Durable event consumer groups keyed by contract-local group name.
+    pub event_consumers: BTreeMap<String, EventConsumerResourceBinding>,
+}
+
+/// Bound durable event consumer group.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventConsumerResourceBinding {
+    /// JetStream stream that owns the durable consumer.
+    pub stream: String,
+    /// Pre-provisioned durable consumer name.
+    pub consumer_name: String,
+    /// Concrete event subjects filtered by the consumer.
+    pub filter_subjects: Vec<String>,
+    /// Replay policy used when the consumer was provisioned.
+    pub replay: EventConsumerReplay,
+    /// Ordering policy used by the consumer group.
+    pub ordering: EventConsumerOrdering,
+    /// Handler concurrency configured for this group.
+    pub concurrency: i64,
+    /// Ack wait in milliseconds for the durable consumer.
+    pub ack_wait_ms: i64,
+    /// Maximum delivery attempts before termination.
+    pub max_deliver: i64,
+    /// Redelivery backoff schedule in milliseconds.
+    pub backoff_ms: Vec<i64>,
+}
+
+/// Replay policy attached to an event consumer binding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventConsumerReplay {
+    New,
+    All,
+    Unknown,
+}
+
+/// Ordering policy attached to an event consumer binding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventConsumerOrdering {
+    Strict,
+    Unknown,
 }
 
 /// Bound KV/state bucket resource.

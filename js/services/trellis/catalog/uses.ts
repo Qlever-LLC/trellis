@@ -859,7 +859,7 @@ export function resolveContractUsesFromKnownEntries(
 }
 
 export function createActiveContractLookup(
-  entries: ActiveCompatibleContractEntry[],
+  entries: readonly ActiveCompatibleContractEntry[],
 ): Map<string, TrellisContractV1> {
   const entriesById = new Map<string, ActiveCompatibleContract[]>();
   for (const entry of entries) {
@@ -880,6 +880,13 @@ export function createActiveContractLookup(
     if (merged) lookup.set(id, merged);
   }
   return lookup;
+}
+
+/** Projects known contract evidence by lineage for dependency resolution. */
+export function createKnownContractLookup(
+  entries: readonly ContractEntry[],
+): Map<string, TrellisContractV1> {
+  return createActiveContractLookup(entries);
 }
 
 /** Validates that concurrently active digests remain compatible by lineage. */

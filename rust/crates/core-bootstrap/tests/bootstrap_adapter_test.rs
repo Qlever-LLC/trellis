@@ -5,9 +5,10 @@ use serde_json::json;
 use trellis::client::TrellisClientError;
 use trellis::sdk::core::types::{
     TrellisBindingsGetRequest, TrellisBindingsGetResponse, TrellisBindingsGetResponseBinding,
-    TrellisBindingsGetResponseBindingResources, TrellisCatalogResponse,
-    TrellisCatalogResponseCatalog, TrellisCatalogResponseCatalogContractsItem,
-    TrellisContractGetResponse, TrellisContractGetResponseContractResources,
+    TrellisBindingsGetResponseBindingResources, TrellisBindingsGetResponseEventConsumersValue,
+    TrellisCatalogResponse, TrellisCatalogResponseCatalog,
+    TrellisCatalogResponseCatalogContractsItem, TrellisContractGetResponse,
+    TrellisContractGetResponseContractResources,
 };
 use trellis::service::{
     BootstrapBindingInfo, BootstrapContractRef, CoreBootstrapPort, ServerError,
@@ -106,13 +107,18 @@ fn map_binding_response_handles_some_and_none() {
             contract_id: "trellis.jobs@v1".to_string(),
             digest: "sha256:expected".to_string(),
             resources: TrellisBindingsGetResponseBindingResources {
+                event_consumers: None,
                 jobs: None,
                 kv: None,
                 store: None,
             },
         }),
+        event_consumers: None,
     };
-    let without_binding = TrellisBindingsGetResponse { binding: None };
+    let without_binding = TrellisBindingsGetResponse {
+        binding: None,
+        event_consumers: None,
+    };
 
     let some_binding = map_binding_response(&with_binding);
     let none_binding = map_binding_response(&without_binding);
@@ -124,6 +130,7 @@ fn map_binding_response_handles_some_and_none() {
                 contract_id: "trellis.jobs@v1".to_string(),
                 digest: "sha256:expected".to_string(),
                 resources: TrellisBindingsGetResponseBindingResources {
+                    event_consumers: None,
                     jobs: None,
                     kv: None,
                     store: None,
@@ -132,6 +139,44 @@ fn map_binding_response_handles_some_and_none() {
         ))
     );
     assert_eq!(none_binding, None);
+}
+
+#[test]
+fn bindings_get_response_deserializes_top_level_event_consumers() {
+    let response: TrellisBindingsGetResponse = serde_json::from_value(json!({
+        "eventConsumers": {
+            "projection": {
+                "stream": "EVENTS",
+                "consumerName": "svc_projection",
+                "filterSubjects": ["events.v1.Auth.Connections.Opened"],
+                "replay": "new",
+                "ordering": "strict",
+                "concurrency": 1,
+                "ackWaitMs": 30000,
+                "maxDeliver": 5,
+                "backoffMs": [1000, 5000]
+            }
+        }
+    }))
+    .expect("response should deserialize");
+
+    assert_eq!(
+        response.event_consumers,
+        Some(std::collections::BTreeMap::from([(
+            "projection".to_string(),
+            TrellisBindingsGetResponseEventConsumersValue {
+                stream: "EVENTS".to_string(),
+                consumer_name: "svc_projection".to_string(),
+                filter_subjects: vec!["events.v1.Auth.Connections.Opened".to_string()],
+                replay: "new".to_string(),
+                ordering: "strict".to_string(),
+                concurrency: 1,
+                ack_wait_ms: 30000,
+                max_deliver: 5,
+                backoff_ms: vec![1000, 5000],
+            },
+        )]))
+    );
 }
 
 #[tokio::test]
@@ -145,11 +190,13 @@ async fn adapter_fetch_binding_passes_expected_filter_to_client() {
                 contract_id: expected.id.clone(),
                 digest: expected.digest.clone(),
                 resources: TrellisBindingsGetResponseBindingResources {
+                    event_consumers: None,
                     jobs: None,
                     kv: None,
                     store: None,
                 },
             }),
+            event_consumers: None,
         }))),
         seen_binding_requests: Arc::clone(&seen_requests),
     };
@@ -175,7 +222,10 @@ async fn adapter_fetch_binding_passes_expected_filter_to_client() {
 async fn adapter_maps_client_error_to_server_error() {
     let client = FakeCoreClient {
         catalog_result: Mutex::new(Some(Err(TrellisClientError::Timeout))),
-        binding_result: Mutex::new(Some(Ok(TrellisBindingsGetResponse { binding: None }))),
+        binding_result: Mutex::new(Some(Ok(TrellisBindingsGetResponse {
+            binding: None,
+            event_consumers: None,
+        }))),
         seen_binding_requests: Arc::new(Mutex::new(Vec::new())),
     };
     let adapter = CoreBootstrapAdapter::new(client);

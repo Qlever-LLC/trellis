@@ -80,6 +80,7 @@ export const trellisCore = defineServiceContract(
         output: ref.schema("TrellisBindingsGetResponse"),
         capabilities: { call: ["service"] },
         errors: [ref.error("ValidationError"), ref.error("UnexpectedError")],
+        internal: true,
         docs: {
           summary: "Read service resource bindings.",
           markdown:

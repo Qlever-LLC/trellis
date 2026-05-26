@@ -3,6 +3,11 @@
 //! This crate owns manifest parsing, schema validation, canonicalization, and
 //! catalog packing. It intentionally stays transport-agnostic so the runtime and
 //! generators can share one contract source of truth.
+//!
+//! Generators use [`LoadedManifest`] to produce SDK-local `TRELLIS.md` files for
+//! AI agents. Those files should be treated as package-local summaries of the
+//! canonical manifest: contract id, kind, owned RPC/event/feed/operation names,
+//! used dependency surfaces, and current TypeScript/Rust facade forms.
 
 mod builder;
 mod canonical;
@@ -30,9 +35,10 @@ pub use manifest::{
 };
 pub use model::{
     Catalog, CatalogEntry, CatalogPack, ContractCapabilities, ContractCapabilityMetadata,
-    ContractDocs, ContractErrorDecl, ContractErrorRef, ContractEvent, ContractExports,
-    ContractFeed, ContractJobQueueResource, ContractKind, ContractKvResource, ContractManifest,
-    ContractOperation, ContractOperationSignal, ContractOperationTransfer,
+    ContractDocs, ContractErrorDecl, ContractErrorRef, ContractEvent, ContractEventConsumerEvent,
+    ContractEventConsumerGroup, ContractEventConsumerOrdering, ContractEventConsumerReplay,
+    ContractExports, ContractFeed, ContractJobQueueResource, ContractKind, ContractKvResource,
+    ContractManifest, ContractOperation, ContractOperationSignal, ContractOperationTransfer,
     ContractOperationTransferDirection, ContractResources, ContractRpcMethod, ContractRpcTransfer,
     ContractRpcTransferDirection, ContractSchemaRef, ContractStateKind, ContractStateStore,
     ContractStoreResource, ContractUseFeed, ContractUseOperation, ContractUsePubSub,

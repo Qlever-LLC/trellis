@@ -57,6 +57,10 @@ import {
   type SubjectParam,
 } from "./schema_pointers.ts";
 import {
+  type ContractEventConsumerEvent,
+  type ContractEventConsumerGroup,
+  type ContractEventConsumers,
+  ContractEventConsumersSchema,
   ContractJobQueueSchema,
   ContractResourcesSchema,
   ContractSchemaRefSchema,
@@ -64,6 +68,12 @@ import {
 } from "./protocol.ts";
 
 export {
+  type ContractEventConsumerEvent,
+  ContractEventConsumerEventSchema,
+  type ContractEventConsumerGroup,
+  ContractEventConsumerGroupSchema,
+  type ContractEventConsumers,
+  ContractEventConsumersSchema,
   ContractJobQueueSchema,
   ContractJobsSchema,
   ContractKvResourceSchema,
@@ -73,6 +83,8 @@ export {
   ContractStateSchema,
   ContractStateStoreSchema,
   ContractStoreResourceSchema,
+  type EventConsumerResourceBinding,
+  EventConsumerResourceBindingSchema,
   type EventHeader,
   EventHeaderSchema,
   type InstalledServiceContract,
@@ -213,6 +225,7 @@ const ContractRpcMethodSchema = Type.Object({
   capabilities: Type.Optional(RpcCapabilitiesSchema),
   errors: Type.Optional(Type.Array(ContractErrorRefSchema)),
   transfer: Type.Optional(RpcTransferSchema),
+  internal: Type.Optional(Type.Boolean()),
   docs: Type.Optional(ContractDocsSchema),
 });
 
@@ -282,6 +295,7 @@ export const TrellisContractV1Schema = Type.Object({
   jobs: Type.Optional(
     Type.Record(NonEmptyStringSchema, ContractJobQueueSchema),
   ),
+  eventConsumers: Type.Optional(ContractEventConsumersSchema),
   resources: Type.Optional(ContractResourcesSchema),
 });
 
@@ -460,6 +474,7 @@ export type ContractRpcMethod = {
   transfer?: { direction: "receive" };
   capabilities?: { call?: Capability[] };
   errors?: ContractErrorRef[];
+  internal?: boolean;
   docs?: ContractDocs;
 };
 
@@ -598,6 +613,7 @@ export type TrellisContractV1 = {
   feeds?: Record<string, ContractFeed>;
   errors?: Record<string, ContractErrorDecl>;
   jobs?: ContractJobs;
+  eventConsumers?: ContractEventConsumers;
   resources?: ContractResources;
 };
 
@@ -848,6 +864,7 @@ export type ContractSourceRpcMethod<
   errors?: readonly TErrorName[];
   authRequired?: boolean;
   subject?: string;
+  internal?: boolean;
   docs?: ContractDocs;
 };
 
@@ -935,6 +952,27 @@ export type ContractSourceJobs<TSchemaName extends string = string> = Record<
   ContractSourceJobQueue<TSchemaName>
 >;
 
+export type ContractSourceEventConsumerEvent = {
+  use: string;
+  event: string;
+};
+
+export type ContractSourceEventConsumerGroup = {
+  events: readonly ContractSourceEventConsumerEvent[];
+  replay?: "new" | "all";
+  ordering?: "strict";
+  concurrency?: number;
+  ackWaitMs?: number;
+  maxDeliver?: number;
+  backoffMs?: readonly number[];
+  docs?: ContractDocs;
+};
+
+export type ContractSourceEventConsumers = Record<
+  string,
+  ContractSourceEventConsumerGroup
+>;
+
 export type ContractSourceKvResource<TSchemaName extends string = string> = {
   purpose: string;
   schema: ContractSchemaRef<TSchemaName>;
@@ -993,6 +1031,7 @@ export type TrellisContractSource = {
   feeds?: Record<string, ContractSourceFeed>;
   errors?: Record<string, ContractSourceErrorDecl>;
   jobs?: ContractSourceJobs;
+  eventConsumers?: ContractSourceEventConsumers;
   resources?: ContractSourceResources;
 };
 
@@ -1647,15 +1686,26 @@ export type DefinedContract<
   TJobs extends ContractJobsMetadata = {},
   TState extends ContractStateMetadata = {},
   TKv extends ContractKvMetadata = ContractKvMetadata,
-> = ContractModule<
-  TContractId,
-  TOwnedApi,
-  TUsedApi,
-  TTrellisApi,
-  TJobs,
-  TState,
-  TKv
->;
+> =
+  & Omit<
+    ContractModule<
+      TContractId,
+      TOwnedApi,
+      TUsedApi,
+      TTrellisApi,
+      TJobs,
+      TState,
+      TKv
+    >,
+    "API"
+  >
+  & {
+    API: {
+      owned: TOwnedApi;
+      used: TUsedApi;
+      trellis: TTrellisApi;
+    };
+  };
 
 export type DefineContractInput<
   TCapabilities extends ContractCapabilities | undefined =
@@ -1727,6 +1777,7 @@ export type DefineContractInput<
     >
   >;
   jobs?: ContractSourceJobs<SchemaNameOf<TSchemas>>;
+  eventConsumers?: ContractSourceEventConsumers;
   resources?: ContractSourceResources<SchemaNameOf<TSchemas>>;
 };
 
@@ -1747,6 +1798,7 @@ type DefineContractSource = {
   events?: Readonly<Record<string, ContractSourceEvent>>;
   feeds?: Readonly<Record<string, ContractSourceFeed>>;
   jobs?: ContractSourceJobs;
+  eventConsumers?: ContractSourceEventConsumers;
   resources?: ContractSourceResources;
 };
 
@@ -2066,6 +2118,7 @@ type ClientContractBodyInput<
   exports?: ContractSourceExports<SchemaNameOf<TSchemas>>;
   state?: ContractSourceState<SchemaNameOf<TSchemas>>;
   uses?: TUses;
+  eventConsumers?: ContractSourceEventConsumers;
   kind?: never;
   schemas?: never;
   errors?: never;
@@ -2569,6 +2622,12 @@ function projectDigestJobs(
   return jobs ? mapValues(jobs, omitDocs) : undefined;
 }
 
+function projectDigestEventConsumers(
+  eventConsumers: ContractEventConsumers | undefined,
+): ContractEventConsumers | undefined {
+  return eventConsumers ? mapValues(eventConsumers, omitDocs) : undefined;
+}
+
 function projectDigestUsesFlat(
   uses: ContractUsesFlat | undefined,
 ): ContractUsesFlat | undefined {
@@ -2997,6 +3056,35 @@ function feed(feed: ContractFeed): ContractFeed {
   };
 }
 
+function eventConsumerEvent(
+  event: ContractEventConsumerEvent,
+): ContractEventConsumerEvent {
+  return { use: event.use, event: event.event };
+}
+
+function sortEventConsumerEvents(
+  events: readonly ContractEventConsumerEvent[],
+): ContractEventConsumerEvent[] {
+  return events.map(eventConsumerEvent).sort((left, right) =>
+    left.use.localeCompare(right.use) || left.event.localeCompare(right.event)
+  );
+}
+
+function eventConsumerGroup(
+  group: ContractEventConsumerGroup,
+): ContractEventConsumerGroup {
+  return {
+    events: sortEventConsumerEvents(group.events),
+    replay: group.replay ?? "new",
+    ordering: group.ordering ?? "strict",
+    concurrency: group.concurrency ?? 1,
+    ...(group.ackWaitMs !== undefined ? { ackWaitMs: group.ackWaitMs } : {}),
+    ...(group.maxDeliver !== undefined ? { maxDeliver: group.maxDeliver } : {}),
+    ...(group.backoffMs ? { backoffMs: [...group.backoffMs] } : {}),
+    ...(group.docs ? { docs: contractDocs(group.docs) } : {}),
+  };
+}
+
 function errorDecl(error: ContractErrorDecl): ContractErrorDecl {
   return {
     type: error.type,
@@ -3094,6 +3182,14 @@ export function normalizeContractManifest(
     ...(contract.events ? { events: mapValues(contract.events, event) } : {}),
     ...(contract.feeds ? { feeds: mapValues(contract.feeds, feed) } : {}),
     ...(contract.jobs ? { jobs: mapValues(contract.jobs, jobQueue) } : {}),
+    ...(contract.eventConsumers
+      ? {
+        eventConsumers: mapValues(
+          contract.eventConsumers,
+          eventConsumerGroup,
+        ),
+      }
+      : {}),
     ...(contract.resources
       ? {
         resources: {
@@ -3119,10 +3215,9 @@ export function normalizeContractManifest(
  * returned. Callers must use the returned value for persistence and digesting.
  */
 export function parseContractManifest(value: unknown): TrellisContractV1 {
+  let parsed: TrellisContractV1;
   try {
-    return normalizeContractManifest(
-      Value.Parse(TrellisContractV1Schema, value) as TrellisContractV1,
-    );
+    parsed = Value.Parse(TrellisContractV1Schema, value) as TrellisContractV1;
   } catch (error) {
     const details = [...Value.Errors(TrellisContractV1Schema, value)].map((
       entry,
@@ -3132,6 +3227,9 @@ export function parseContractManifest(value: unknown): TrellisContractV1 {
       { cause: error },
     );
   }
+  const contract = normalizeContractManifest(parsed);
+  assertValidEventConsumers(contract.eventConsumers, contract.uses);
+  return contract;
 }
 
 /**
@@ -3145,6 +3243,7 @@ export function projectContractDigestManifest(
   const state = projectDigestState(contract.state);
   const resources = projectDigestResources(contract.resources);
   const jobs = projectDigestJobs(contract.jobs);
+  const eventConsumers = projectDigestEventConsumers(contract.eventConsumers);
   const uses = projectDigestUses(contract.uses);
   const rpc = projectDigestRpc(contract.rpc);
   const operations = projectDigestOperations(contract.operations);
@@ -3165,6 +3264,7 @@ export function projectContractDigestManifest(
     ...(feeds ? { feeds } : {}),
     ...(errors ? { errors } : {}),
     ...(jobs ? { jobs } : {}),
+    ...(eventConsumers ? { eventConsumers } : {}),
     ...(resources ? { resources } : {}),
   };
 }
@@ -3282,6 +3382,34 @@ function emitJobs(
           : {}),
         ...(queue.docs ? { docs: contractDocs(queue.docs) } : {}),
       } satisfies ContractJobQueue,
+    ]),
+  );
+}
+
+function emitEventConsumers(
+  eventConsumers: ContractSourceEventConsumers | undefined,
+): ContractEventConsumers | undefined {
+  if (!eventConsumers) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    Object.entries(eventConsumers).map(([groupName, group]) => [
+      groupName,
+      {
+        events: sortEventConsumerEvents(group.events),
+        replay: group.replay ?? "new",
+        ordering: group.ordering ?? "strict",
+        concurrency: group.concurrency ?? 1,
+        ...(group.ackWaitMs !== undefined
+          ? { ackWaitMs: group.ackWaitMs }
+          : {}),
+        ...(group.maxDeliver !== undefined
+          ? { maxDeliver: group.maxDeliver }
+          : {}),
+        ...(group.backoffMs ? { backoffMs: [...group.backoffMs] } : {}),
+        ...(group.docs ? { docs: contractDocs(group.docs) } : {}),
+      } satisfies ContractEventConsumerGroup,
     ]),
   );
 }
@@ -3474,6 +3602,9 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
               source.errors?.[errorName]?.type ?? errorName
             ),
           ).map((type) => ({ type }));
+        }
+        if (method.internal) {
+          emitted.internal = true;
         }
         if (method.docs) {
           emitted.docs = contractDocs(method.docs);
@@ -3693,9 +3824,11 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     : undefined;
 
   const jobs = emitJobs(source.jobs);
+  const eventConsumers = emitEventConsumers(source.eventConsumers);
   const state = emitState(source.state);
   const resources = emitResources(source.resources);
   const uses = emitUses(source.uses);
+  assertValidEventConsumers(eventConsumers, uses);
 
   return {
     format: CONTRACT_FORMAT_V1,
@@ -3717,6 +3850,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
     ...(feeds ? { feeds } : {}),
     ...(errors ? { errors } : {}),
     ...(jobs ? { jobs } : {}),
+    ...(eventConsumers ? { eventConsumers } : {}),
     ...(resources ? { resources } : {}),
   };
 }
@@ -3993,6 +4127,49 @@ function assertValidUseSpec<TApi extends TrellisApiLike>(
     spec.feeds?.subscribe,
     api.feeds ?? {},
   );
+}
+
+function contractUseByAlias(
+  uses: ContractUses | undefined,
+  alias: string,
+): ContractUse | undefined {
+  return uses?.required?.[alias] ?? uses?.optional?.[alias];
+}
+
+function assertValidEventConsumers(
+  eventConsumers: ContractEventConsumers | undefined,
+  uses: ContractUses | undefined,
+): void {
+  if (!eventConsumers) {
+    return;
+  }
+
+  for (const [groupName, group] of Object.entries(eventConsumers)) {
+    if (group.events.length === 0) {
+      throw new Error(
+        `event consumer group '${groupName}' must declare events`,
+      );
+    }
+    if ((group.ordering ?? "strict") === "strict" && group.concurrency !== 1) {
+      throw new Error(
+        `event consumer group '${groupName}' with strict ordering requires concurrency 1`,
+      );
+    }
+
+    for (const eventRef of group.events) {
+      const use = contractUseByAlias(uses, eventRef.use);
+      if (!use) {
+        throw new Error(
+          `event consumer group '${groupName}' references unknown use '${eventRef.use}'`,
+        );
+      }
+      if (!use.events?.subscribe?.includes(eventRef.event)) {
+        throw new Error(
+          `event consumer group '${groupName}' references event '${eventRef.event}' that use '${eventRef.use}' does not subscribe to`,
+        );
+      }
+    }
+  }
 }
 
 function attachContractModuleMetadata<
@@ -4658,6 +4835,7 @@ function defineContract(
     ...(source.feeds ? { feeds: source.feeds } : {}),
     ...(source.errors ? { errors: source.errors } : {}),
     ...(source.jobs ? { jobs: source.jobs } : {}),
+    ...(source.eventConsumers ? { eventConsumers: source.eventConsumers } : {}),
     ...(source.resources ? { resources: source.resources } : {}),
   };
 

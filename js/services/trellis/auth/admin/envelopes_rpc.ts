@@ -22,6 +22,7 @@ import {
   type StoreResourceRequest,
 } from "../../catalog/resources.ts";
 import type { ContractRecord } from "../../catalog/schemas.ts";
+import type { ContractEntry } from "../../catalog/uses.ts";
 import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
 import {
   computeEnvelopeDelta,
@@ -87,6 +88,33 @@ function envelopeHistoryRecord(input: {
     source: input.source,
     createdAt: input.createdAt,
   };
+}
+
+async function knownDependencyEntriesForProvisioning(
+  deps: Pick<
+    EnvelopeContractDeps,
+    "getActiveEntries" | "getKnownEntriesByContractId"
+  >,
+  contract: TrellisContractV1,
+): Promise<ContractEntry[]> {
+  const entriesByDigest = new Map<string, ContractEntry>();
+  for (const entry of await deps.getActiveEntries()) {
+    entriesByDigest.set(entry.digest, entry);
+  }
+  const contractIds = new Set<string>();
+  for (const group of [contract.uses?.required, contract.uses?.optional]) {
+    for (const use of Object.values(group ?? {})) {
+      contractIds.add(use.contract);
+    }
+  }
+  for (const contractId of contractIds) {
+    for (const entry of await deps.getKnownEntriesByContractId(contractId)) {
+      entriesByDigest.set(entry.digest, entry);
+    }
+  }
+  return [...entriesByDigest.values()].sort((left, right) =>
+    left.digest.localeCompare(right.digest)
+  );
 }
 
 type EnvelopeContractDeps = Pick<
@@ -554,6 +582,38 @@ async function buildResourceBindingRecords(input: {
       };
       stored.push(record);
     }
+  }
+
+  for (
+    const [alias, consumer] of Object.entries(
+      input.bindings.eventConsumers ?? {},
+    )
+  ) {
+    if (!input.missingKeys.has(resourceKey("event-consumer", alias))) continue;
+    const existing = await input.storage.get(
+      input.deploymentId,
+      "event-consumer",
+      alias,
+    );
+    stored.push({
+      deploymentId: input.deploymentId,
+      kind: "event-consumer",
+      alias,
+      binding: {
+        stream: consumer.stream,
+        consumerName: consumer.consumerName,
+        filterSubjects: consumer.filterSubjects,
+        replay: consumer.replay,
+        ordering: consumer.ordering,
+        concurrency: consumer.concurrency,
+        ackWaitMs: consumer.ackWaitMs,
+        maxDeliver: consumer.maxDeliver,
+        backoffMs: consumer.backoffMs,
+      },
+      limits: null,
+      createdAt: existing?.createdAt ?? input.now,
+      updatedAt: input.now,
+    });
   }
 
   return stored.sort((left, right) =>
@@ -1134,7 +1194,14 @@ export function createAuthEnvelopesExpandHandler(deps: {
             deps.nats,
             validated.contract,
             req.deploymentId,
-            deps.resourceProvisioningOptions,
+            {
+              ...deps.resourceProvisioningOptions,
+              knownContractEntries: await knownDependencyEntriesForProvisioning(
+                deps.contracts,
+                validated.contract,
+              ),
+              envelopeBoundary: requested,
+            },
           );
         resourceBindings = await buildResourceBindingRecords({
           deploymentId: req.deploymentId,

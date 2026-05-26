@@ -833,10 +833,9 @@ type DeploymentGrantOverride =
 `DeploymentContractEvidence` records the manifest digest and reviewed contract
 body used for envelope resolution. It is evidence, not a standalone authority
 source. Authority comes from deployment envelopes, identity envelopes, and
-deployment grant overrides. The active projection uses deployment evidence only
-through enabled deployment envelopes, and non-ignored reviewed evidence rows
-covered by those envelopes contribute active digests. Ignored same-id rows
-remain historical rollout and audit context.
+deployment grant overrides. Deployment evidence is retained for review and audit
+history; it does not promote non-builtin contracts into runtime authority.
+Ignored rows remain historical rollout and audit context.
 
 ```ts
 type ServiceInstance = {
@@ -942,13 +941,12 @@ for the durable deployment record:
 - `Auth.Envelopes.Expand` requires a reviewed delta, validates any presented
   contract evidence by recomputing its digest and derived boundary, validates
   the staged deployment envelope, then persists the durable envelope/evidence
-  rows and refreshes the active catalog projection.
+  rows and any resource binding rows produced by provisioning.
 - `Auth.Envelopes.Shrink` validates the staged deployment envelope before
-  persistence, then refreshes the active catalog projection before kicking
-  affected runtime connections.
-- service and device deployment enable/disable mutations validate the active
-  catalog with the matching staged deployment-envelope disabled state, because
-  enabled deployment envelopes define the active evidence set.
+  persistence, then kicks affected runtime connections.
+- service and device deployment enable/disable mutations validate with the
+  matching staged deployment-envelope disabled state, because enabled deployment
+  envelopes determine whether presented evidence can authorize runtime access.
 - `Auth.Envelopes.GrantOverrides.Put` replaces all grant override rows for one
   deployment. `Auth.Envelopes.GrantOverrides.List` pages grant override rows
   across deployments. `Auth.Envelopes.GrantOverrides.Remove` removes exact
@@ -956,64 +954,58 @@ for the durable deployment record:
   Grant override rows use only two identity shapes: web rows match a
   `contractId` plus browser `origin`, and session rows match a `contractId` plus
   `sessionPublicKey`.
-- service and device deployment mutations fail closed when the proposed active
-  set has inactive or missing `uses` dependencies; Trellis validates that staged
-  catalog state before exposing it to runtime permissions.
+- service and device deployment mutations fail closed when required `uses`
+  dependencies are unknown or their referenced surfaces cannot be resolved from
+  known manifests; Trellis validates staged state before exposing it to runtime
+  permissions.
 - catalog refresh, surface-status checks, portal routing resolution, shrink
   previews, and unused installed-contract cleanup use targeted durable-store
   queries for the addressed deployment, digest, route, or binding records rather
   than broad local scans.
-- service and device deployment removal is the narrow exception: removal still
-  validates active digests and active contract compatibility, but it may refresh
-  the post-removal catalog without active `uses` validation so operators can
-  tear down an already-broken active graph instead of being trapped by stale
-  dependencies.
+- service and device deployment removal is the narrow exception: removal may
+  skip `uses` validation so operators can tear down an already-broken graph
+  instead of being trapped by stale dependencies.
 - service and device envelope changes are race-safe review submissions: auth
   must compare the reviewed contract evidence with the recomputed evidence
   before mutating durable deployment state.
-- if active-catalog refresh fails after persistence, auth rolls the deployment
-  record back; if rollback also fails, the RPC returns an unexpected aggregate
-  failure rather than reporting a successful envelope change.
+- if post-persistence validation fails, auth rolls the deployment record back;
+  if rollback also fails, the RPC returns an unexpected aggregate failure rather
+  than reporting a successful envelope change.
 - service bootstrap validates that the presented contract evidence fits the
-  enabled parent deployment envelope, has not been ignored, and matches the
-  service instance's current runtime evidence when that instance already has
-  runtime evidence. Instance state affects runtime availability; it does not
-  activate catalog/auth surfaces.
+  enabled parent deployment envelope and is compatible with the service
+  instance's current runtime evidence under the deployment compatibility mode.
+  Instance state affects runtime availability; it does not activate catalog/auth
+  surfaces.
+- envelope expansion and service bootstrap both provision or repair declared
+  `eventConsumers` as deployment resource bindings. The stored binding is what
+  runtime auth uses to grant exact JetStream consumer info, pull-next, and ack
+  subjects to service tokens.
 - service bootstrap may create pending expansion requests from presented
-  manifests whose required dependency contracts are not active yet. Unknown
+  manifests whose required dependency contracts are not live yet. Unknown
   required dependencies are recorded as unresolved contract blockers; known
   inactive dependencies can be used for review-time surface and capability
-  display, but not for runtime grants.
+  display.
 - if known inactive manifests for a required dependency are stale or mutually
   incompatible, service bootstrap treats that dependency as unresolved rather
   than returning a catalog issue with no admin repair action.
 - missing optional dependency contracts or optional requested surfaces are
   absent from the requested delta and grant no authority. If they later become
-  active, a fresh reconnect requests a normal expansion before receiving that
+  known, a fresh reconnect requests a normal expansion before receiving that
   optional authority.
 - service-originated pending envelope expansion requests are deduplicated for
   the connected requester and requested delta, and requests created by that
   requester are removed when the requester disconnects. Envelope expansion stays
-  separate from Forced Contract Update.
-- if service bootstrap presents a digest for a `contractId` that already has a
-  different current active digest, auth reports or reuses one pending Forced
-  Contract Update for that `contractId`. Repeated restarts while waiting
-  coalesce into that pending update.
-- Forced Contract Update resolution uses the current admin RPC
-  `Auth.CatalogIssues.Resolve` with `keep-current` or `force-replace`. The
-  conceptual user-facing action is a Forced Update; the backend RPC name remains
-  catalog-issue resolution.
-- resolving a Forced Update is force-push-like and destructive: Trellis deletes
-  non-selected active evidence for that `contractId` instead of retaining it as
-  quarantine, repair history, or rollback authority, then refreshes the active
-  catalog so there is at most one current digest for the `contractId`.
-- if the deployment envelope fits but the required dependency closure is not
-  active, service bootstrap returns `contract_activation_pending` and must not
-  persist liveness state, resource bindings, or active deployment evidence for
+  separate from same-contract replacement compatibility.
+- if service bootstrap presents a same-`contractId` digest that is incompatible
+  with the service instance's current digest under `strict` mode, auth returns
+  `contract_compatibility_violation`. Deployments may opt into `mutable-dev` for
+  local development iteration.
+- if the deployment envelope fits but required dependency surfaces are unknown,
+  service bootstrap must not persist liveness state or resource bindings for
   that ready attempt.
-- if the digest presented at bootstrap has been ignored or no longer fits the
-  enabled deployment envelope, service bootstrap returns `contract_changed` and
-  must not refresh that evidence row back into the active set.
+- if the digest presented at bootstrap no longer fits the enabled deployment
+  envelope, service bootstrap returns `contract_changed` and must not refresh
+  that evidence row into authority.
 - the successful service bootstrap response includes the resolved resource
   binding payload for the presented digest; service runtimes use that binding to
   initialize KV, store, jobs, and transfer helpers without requiring a
@@ -1592,8 +1584,8 @@ Rules:
 
 - `Auth.Capabilities.List` returns capabilities known to the current auth
   runtime: Trellis platform capabilities plus capability metadata projected from
-  the fail-closed active catalog projection. Durable deployment envelope and
-  contract-evidence rows remain the authority.
+  known contract manifests. Durable deployment and identity envelopes remain the
+  authority.
 - The response is an assignment catalog for admin UX; it is not a grant source
   by itself.
 - Capability keys are canonical global keys such as

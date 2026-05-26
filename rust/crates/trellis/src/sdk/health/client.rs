@@ -9,6 +9,10 @@ impl<'a> HealthClient<'a> {
     pub fn new(inner: &'a crate::client::TrellisClient) -> Self {
         Self { inner }
     }
+    #[allow(dead_code)]
+    pub(crate) fn inner(&self) -> &'a crate::client::TrellisClient {
+        self.inner
+    }
     /// Access typed RPC calls.
     pub fn rpc(&self) -> Rpc<'a> {
         Rpc { _inner: self.inner }
@@ -67,7 +71,13 @@ impl<'a> HealthHeartbeatEvent<'a> {
     {
         let mut stream = self
             .inner
-            .subscribe::<super::events::HealthHeartbeatEventDescriptor>()
+            .subscribe_with_options::<super::events::HealthHeartbeatEventDescriptor>(
+                crate::client::EventSubscribeOptions {
+                    mode: crate::client::EventSubscriptionMode::Ephemeral,
+                    replay: crate::client::EventReplayPolicy::New,
+                    durable_name: None,
+                },
+            )
             .await?;
         while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
             handler(event?).await?;

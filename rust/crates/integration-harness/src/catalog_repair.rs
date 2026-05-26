@@ -379,7 +379,7 @@ async fn approve_pending_expansions(
                 deployment_id: Some(deployment_id.to_string()),
                 limit: 20,
                 offset: None,
-                state: Some(json!("pending")),
+                state: Some("pending".to_string()),
             })
             .await
             .into_diagnostic()?;

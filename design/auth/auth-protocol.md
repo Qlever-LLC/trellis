@@ -142,7 +142,7 @@ CASE: SERVICE CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
   boundary no longer fits the deployment envelope
 - reject with `contract_changed` if the presented evidence is ignored or no
   longer fits the enabled deployment envelope; reconnects must not refresh ignored
-  evidence back into the active set
+  evidence back into authority
 - lookup or create the session keyed by `sessionKey` only after envelope fit
   succeeds
 - compute inboxPrefix
@@ -211,11 +211,11 @@ Rules:
 - services receive only the resource-derived publish/subscribe permissions
   appropriate to their installed bindings
 - operation-control publish permissions are derived only from operation
-  `observe`/`cancel` capabilities; `call` authorizes starting an operation but does
-  not authorize publishing to its control subject
+  `observe`/`cancel` capabilities; `call` authorizes starting an operation but
+  does not authorize publishing to its control subject
 - auth-callout denial paths return explicit deny responses and MUST NOT mint a
-  partially scoped user JWT when the active catalog, session, deployment, or
-  resource state needed for permission derivation is unavailable
+  partially scoped user JWT when the known manifest, session, deployment
+  envelope, or resource state needed for permission derivation is unavailable
 - unexpected auth-callout exceptions are logged with internal details but return
   a stable generic external error such as `internal_error`
 - operation streaming replies use `jwt.resp.max = OPERATION_RESPONSE_MAX`
@@ -630,8 +630,8 @@ Rules:
 
 - the durable session key is `sessionKey`
 - user sessions bind user identity, explicit app identity, and the last
-  delegated contract envelope together; reconnect re-evaluates current digest
-  authorization for that app context
+  delegated contract envelope together; reconnect re-evaluates presented
+  contract evidence against the effective envelope for that app context
 - activated-device sessions use the same `sessionKey` storage identity as user
   and service sessions; the device instance identity remains part of the stored
   session value

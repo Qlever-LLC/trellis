@@ -5,7 +5,7 @@ import type {
 
 import {
   type ContractEntry,
-  createActiveContractLookup,
+  createKnownContractLookup,
   resolveContractUses,
   templateToWildcard,
 } from "./uses.ts";
@@ -36,18 +36,8 @@ type CallerContractDescriptor = {
 
 type PermissionState = {
   contracts: ContractEntry[];
-  activeById: Map<string, ContractEntry["contract"]>;
+  knownById: Map<string, ContractEntry["contract"]>;
 };
-
-const JETSTREAM_EVENT_CONTROL_SUBJECTS = [
-  "$JS.API.INFO",
-  "$JS.API.CONSUMER.CREATE.trellis",
-  "$JS.API.CONSUMER.CREATE.trellis.>",
-  "$JS.API.CONSUMER.DURABLE.CREATE.trellis.>",
-  "$JS.API.CONSUMER.INFO.trellis.>",
-  "$JS.API.CONSUMER.MSG.NEXT.trellis.>",
-  "$JS.ACK.>",
-];
 
 const AUTH_VALIDATE_SUBJECT = trellisAuthContract.rpc
   ?.["Auth.Requests.Validate"]
@@ -67,7 +57,7 @@ function operationStoreBucket(sessionKey: string): string {
 function createPermissionState(contracts: ContractEntry[]): PermissionState {
   return {
     contracts,
-    activeById: createActiveContractLookup(contracts),
+    knownById: createKnownContractLookup(contracts),
   };
 }
 
@@ -147,13 +137,13 @@ export function operationControlCapabilityRules(
 
 function resolvedUses(entry: ContractEntry, permissionState: PermissionState) {
   return resolveContractUses(entry.contract, (alias, use, options) => {
-    const target = permissionState.activeById.get(use.contract);
+    const target = permissionState.knownById.get(use.contract);
     if (!target) {
       if (!options.required) {
         return null;
       }
       throw new Error(
-        `Dependency '${alias}' references inactive contract '${use.contract}'`,
+        `Dependency '${alias}' references unknown contract '${use.contract}'`,
       );
     }
     return target;
@@ -492,51 +482,6 @@ function jobsAdminRuntimePublishSubjects(): string[] {
   ];
 }
 
-function hasDeclaredEventSubscriptions(
-  capabilities: string[],
-  service: ServiceDescriptor,
-  permissionState: PermissionState,
-): boolean {
-  return implementedContracts(service, permissionState).some((entry) =>
-    resolvedUses(entry, permissionState).eventSubscribes.some((event) =>
-      hasRequiredCapabilities(
-        capabilities,
-        event.event.capabilities?.subscribe ?? [],
-      )
-    )
-  );
-}
-
-/**
- * Return the JetStream control publish subjects required to create and consume
- * durable event subscriptions on the Trellis event stream.
- */
-export function eventSubscriptionControlPublishSubjects(): string[] {
-  return [...JETSTREAM_EVENT_CONTROL_SUBJECTS];
-}
-
-function hasCallerEventSubscriptions(
-  capabilities: string[],
-  caller: CallerContractDescriptor,
-  entries: ContractEntry[],
-  permissionState: PermissionState,
-): boolean {
-  return entries.some((entry) =>
-    resolvedUses(entry, permissionState).eventSubscribes.some((event) =>
-      envelopeHasSurface(caller.identityEnvelope, {
-        contractId: event.contractId,
-        kind: "event",
-        name: event.key,
-        action: "subscribe",
-      }) &&
-      hasRequiredCapabilities(
-        capabilities,
-        event.event.capabilities?.subscribe ?? [],
-      )
-    )
-  );
-}
-
 /**
  * Derive publish subjects for a user/app session against an explicit contract set.
  * This is used when the caller app contract is known but is not part of the
@@ -553,14 +498,6 @@ export function getUserPublishSubjectsForContracts(
 
   return dedupe([
     ...permittedRuleSubjects(rules, capabilities, caller.identityEnvelope),
-    ...(hasCallerEventSubscriptions(
-        capabilities,
-        caller,
-        entries,
-        permissionState,
-      )
-      ? JETSTREAM_EVENT_CONTROL_SUBJECTS
-      : []),
   ]);
 }
 
@@ -606,9 +543,6 @@ export function getServicePublishSubjectsForContracts(
     ...(hasRequiredCapabilities(capabilities, ["service"]) &&
         AUTH_VALIDATE_SUBJECT
       ? [templateToWildcard(AUTH_VALIDATE_SUBJECT)]
-      : []),
-    ...(hasDeclaredEventSubscriptions(capabilities, service, permissionState)
-      ? JETSTREAM_EVENT_CONTROL_SUBJECTS
       : []),
     ...(hasRequiredCapabilities(capabilities, ["service"]) &&
         implementsJobsAdminService(service, permissionState)

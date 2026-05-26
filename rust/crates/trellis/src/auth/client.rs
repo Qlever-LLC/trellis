@@ -282,7 +282,7 @@ impl<'a> AuthClient<'a> {
         let deployments = self
             .call_rpc::<AuthDeploymentsListRpc>(&AuthDeploymentsListRequest {
                 disabled: if disabled { Some(true) } else { None },
-                kind: Some(serde_json::json!("device")),
+                kind: Some("device".to_string()),
                 limit: AUTH_CLIENT_LIST_LIMIT,
                 offset: None,
             })
@@ -323,7 +323,7 @@ impl<'a> AuthClient<'a> {
         let response = self
             .call_rpc::<AuthDeploymentsDisableRpc>(&AuthDeploymentsDisableRequest {
                 deployment_id: deployment_id.to_string(),
-                kind: serde_json::json!("device"),
+                kind: "device".to_string(),
             })
             .await?;
         let deployment: DeviceDeploymentRecord = serde_json::from_value(response.deployment)?;
@@ -338,7 +338,7 @@ impl<'a> AuthClient<'a> {
         let response = self
             .call_rpc::<AuthDeploymentsEnableRpc>(&AuthDeploymentsEnableRequest {
                 deployment_id: deployment_id.to_string(),
-                kind: serde_json::json!("device"),
+                kind: "device".to_string(),
             })
             .await?;
         let deployment: DeviceDeploymentRecord = serde_json::from_value(response.deployment)?;
@@ -380,7 +380,7 @@ impl<'a> AuthClient<'a> {
             .call_rpc::<AuthDeploymentsRemoveRpc>(&AuthDeploymentsRemoveRequest {
                 cascade: options.cascade,
                 deployment_id: deployment_id.to_string(),
-                kind: serde_json::json!("device"),
+                kind: "device".to_string(),
                 purge_unused_contracts: options.purge_unused_contracts,
             })
             .await?;
@@ -422,7 +422,7 @@ impl<'a> AuthClient<'a> {
                     deployment_id: deployment_id.map(ToOwned::to_owned),
                     limit: AUTH_CLIENT_LIST_LIMIT,
                     offset: None,
-                    state: state.map(|value| serde_json::json!(value)),
+                    state: state.map(ToOwned::to_owned),
                 },
             )
             .await?
@@ -442,7 +442,7 @@ impl<'a> AuthClient<'a> {
                 },
             )
             .await?;
-        Ok(response.instance.state == serde_json::json!("disabled"))
+        Ok(response.instance.state == "disabled")
     }
 
     /// Enable a device instance.
@@ -458,7 +458,7 @@ impl<'a> AuthClient<'a> {
                 },
             )
             .await?;
-        Ok(response.instance.state != serde_json::json!("disabled"))
+        Ok(response.instance.state != "disabled")
     }
 
     /// Remove a device instance.
@@ -495,7 +495,7 @@ impl<'a> AuthClient<'a> {
                     deployment_id: deployment_id.map(ToOwned::to_owned),
                     limit: AUTH_CLIENT_LIST_LIMIT,
                     offset: None,
-                    state: state.map(|value| serde_json::json!(value)),
+                    state: state.map(ToOwned::to_owned),
                 },
             )
             .await?
@@ -536,7 +536,7 @@ impl<'a> AuthClient<'a> {
                     deployment_id: deployment_id.map(ToOwned::to_owned),
                     limit: AUTH_CLIENT_LIST_LIMIT,
                     offset: None,
-                    state: state.map(|value| serde_json::json!(value)),
+                    state: state.map(ToOwned::to_owned),
                 },
             )
             .await?
@@ -555,7 +555,7 @@ impl<'a> AuthClient<'a> {
             "rpc.v1.Auth.DeviceUserAuthorities.Reviews.Decide",
             &crate::sdk::auth::AuthDeviceUserAuthoritiesReviewsDecideRequest {
                 review_id: review_id.to_string(),
-                decision: serde_json::json!(decision),
+                decision: decision.to_string(),
                 reason: reason.map(ToOwned::to_owned),
             },
         )
@@ -587,7 +587,7 @@ impl<'a> AuthClient<'a> {
     ) -> Result<Vec<ServiceDeploymentRecord>, TrellisAuthError> {
         self.call_rpc::<AuthDeploymentsListRpc>(&AuthDeploymentsListRequest {
             disabled: if disabled { Some(true) } else { None },
-            kind: Some(serde_json::json!("service")),
+            kind: Some("service".to_string()),
             limit: AUTH_CLIENT_LIST_LIMIT,
             offset: None,
         })
@@ -607,7 +607,7 @@ impl<'a> AuthClient<'a> {
         let response = self
             .call_rpc::<AuthDeploymentsDisableRpc>(&AuthDeploymentsDisableRequest {
                 deployment_id: deployment_id.to_string(),
-                kind: serde_json::json!("service"),
+                kind: "service".to_string(),
             })
             .await?;
         Ok(serde_json::from_value(response.deployment)?)
@@ -621,7 +621,7 @@ impl<'a> AuthClient<'a> {
         let response = self
             .call_rpc::<AuthDeploymentsEnableRpc>(&AuthDeploymentsEnableRequest {
                 deployment_id: deployment_id.to_string(),
-                kind: serde_json::json!("service"),
+                kind: "service".to_string(),
             })
             .await?;
         Ok(serde_json::from_value(response.deployment)?)
@@ -662,7 +662,7 @@ impl<'a> AuthClient<'a> {
             .call_rpc::<AuthDeploymentsRemoveRpc>(&AuthDeploymentsRemoveRequest {
                 cascade: options.cascade,
                 deployment_id: deployment_id.to_string(),
-                kind: serde_json::json!("service"),
+                kind: "service".to_string(),
                 purge_unused_contracts: options.purge_unused_contracts,
             })
             .await?
@@ -869,7 +869,7 @@ mod tests {
             serde_json::to_value(crate::sdk::auth::AuthDeploymentsRemoveRequest {
                 cascade: None,
                 deployment_id: "api".to_string(),
-                kind: json!("service"),
+                kind: "service".to_string(),
                 purge_unused_contracts: None,
             })
             .expect("serialize service remove request");
@@ -882,7 +882,7 @@ mod tests {
             serde_json::to_value(crate::sdk::auth::AuthDeploymentsRemoveRequest {
                 cascade: Some(true),
                 deployment_id: "api".to_string(),
-                kind: json!("service"),
+                kind: "service".to_string(),
                 purge_unused_contracts: None,
             })
             .expect("serialize service cascade remove request");
@@ -895,7 +895,7 @@ mod tests {
             serde_json::to_value(crate::sdk::auth::AuthDeploymentsRemoveRequest {
                 cascade: Some(true),
                 deployment_id: "reader".to_string(),
-                kind: json!("device"),
+                kind: "device".to_string(),
                 purge_unused_contracts: None,
             })
             .expect("serialize device cascade remove request");
@@ -908,7 +908,7 @@ mod tests {
             serde_json::to_value(crate::sdk::auth::AuthDeploymentsRemoveRequest {
                 cascade: Some(true),
                 deployment_id: "api".to_string(),
-                kind: json!("service"),
+                kind: "service".to_string(),
                 purge_unused_contracts: Some(true),
             })
             .expect("serialize service purge remove request");
@@ -926,7 +926,7 @@ mod tests {
             serde_json::to_value(crate::sdk::auth::AuthDeploymentsRemoveRequest {
                 cascade: Some(true),
                 deployment_id: "reader".to_string(),
-                kind: json!("device"),
+                kind: "device".to_string(),
                 purge_unused_contracts: Some(true),
             })
             .expect("serialize device purge remove request");

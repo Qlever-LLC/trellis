@@ -52,6 +52,12 @@ Services connect through the service runtime. The runtime authenticates the
 service instance, presents contract evidence, resolves resource bindings, and
 returns a typed service object.
 
+Treat those resolved bindings as runtime internals. Service code should use the
+`service.kv`, `service.store`, and `service.jobs` handles returned by
+`TrellisService.connect(...)`; do not import the core SDK to bootstrap a service,
+call `Trellis.Bindings.Get`, construct `TrellisService` or `StoreHandle`, or pass
+binding/resource payloads into `Trellis` constructors.
+
 ```ts
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { ordersService } from "./contracts/orders_service.ts";
@@ -154,6 +160,20 @@ await client.event.orders.shipped.listen(async (event) => {
   console.log("shipped", event.orderId);
 }, {}, { mode: "ephemeral", replay: "new" }).orThrow();
 ```
+
+Service code that needs durable delivery must declare an `eventConsumers` group
+in its service contract and pass that logical group name when listening:
+
+```ts
+await client.event.orders.shipped.listen(async (event) => {
+  await projectShipment(event);
+  return Result.ok(undefined);
+}, {}, { group: "shipmentProjection" }).orThrow();
+```
+
+Do not pass `durableName`; Trellis provisions the physical JetStream consumer
+from the contract and returns the binding during service bootstrap. Use
+`mode: "ephemeral"` for live-only listeners that do not need a durable cursor.
 
 Services publish events from handler or job code through the scoped `client`
 passed to that code:

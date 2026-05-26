@@ -43,6 +43,7 @@ impl ContractManifestBuilder {
                 feeds: Default::default(),
                 errors: Default::default(),
                 jobs: Default::default(),
+                event_consumers: Default::default(),
                 resources: ContractResources::default(),
             },
         }
@@ -513,6 +514,7 @@ pub fn rpc(
         capabilities: None,
         errors: None,
         transfer: None,
+        internal: None,
         docs: None,
     }
 }
@@ -680,6 +682,11 @@ impl ContractRpcMethod {
                 })
                 .collect(),
         );
+        self
+    }
+
+    pub fn internal(mut self) -> Self {
+        self.internal = Some(true);
         self
     }
 }

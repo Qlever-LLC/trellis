@@ -35,6 +35,36 @@ See `../design/tooling/trellis-cli.md` and
 Rust SDK crates are generated as disposable build output rather than tracked
 workspace crates.
 
+Generated SDK and participant crates include a package-local `TRELLIS.md` for AI
+agents. Those files summarize the contract id, kind, crate/package name, owned
+RPC/event/feed/operation descriptors, facade methods, and used dependency
+surfaces. Use them together with the raw docs index:
+
+- https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
+- https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
+
+Current Rust service code should prefer descriptor and facade APIs:
+`trellis_client.call::<RpcDescriptor>(...)`,
+`trellis_client.publish::<EventDescriptor>(...)`,
+`trellis_client.subscribe::<EventDescriptor>()`,
+`trellis_client.feed::<FeedDescriptor>(input)`,
+`trellis_client.operation::<Operation>().start(...)`, generated client wrappers
+such as `.rpc().group().method(...)`, and service registration through
+`handle().rpc().group().method(handler)` where generated.
+
+Prepared event support includes `PreparedTrellisEvent`,
+`prepare_event::<Descriptor>(...)`, `publish_prepared`, and
+`dispatch_outbox_once`. Durable stores include `OutboxStore`, `InboxStore`,
+`SqliteOutboxStore`, `SqliteInboxStore`, `PostgresOutboxStore`,
+`PostgresInboxStore`, `NatsKvOutboxStore`, and `NatsKvInboxStore`.
+
+Rust client event subscriptions are live/ephemeral by default. Service-level
+durable event processing is a contract/resource concern: declare
+`eventConsumers` in the canonical service manifest so Trellis provisions the
+consumer binding and grants exact bound JetStream subjects. Rust service code
+should not create arbitrary durable event consumers for contract event
+processing.
+
 The bootstrap-safe `trellis-generate` helper lives under `rust/tools/generate/`
 and is used by repo-local generation and clean-checkout workflows.
 

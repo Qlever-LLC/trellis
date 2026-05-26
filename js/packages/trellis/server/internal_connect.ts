@@ -243,11 +243,19 @@ export async function connectTrellisServiceInternal<
         );
       }
 
+      const resolvedResources = resolved.binding.resources as {
+        kv?: ResourceBindings["kv"];
+        store?: ResourceBindings["store"];
+        jobs?: ResourceBindings["jobs"];
+        eventConsumers?: ResourceBindings["eventConsumers"];
+      };
+
       bindings = {
         kv: resolved.binding.resources?.kv ?? {},
         store: resolved.binding.resources?.store ?? {},
-        ...(resolved.binding.resources?.jobs
-          ? { jobs: resolved.binding.resources.jobs }
+        ...(resolvedResources.jobs ? { jobs: resolvedResources.jobs } : {}),
+        ...(resolvedResources.eventConsumers
+          ? { eventConsumers: resolvedResources.eventConsumers }
           : {}),
       };
 

@@ -37,6 +37,12 @@
 - Services communicate over NATS. Public cross-service surfaces should stay
   contract-owned and follow the subject and boundary rules in
   `design/core/trellis-patterns.md`.
+- Service authors should treat resolved service resource bindings as Trellis
+  runtime internals. Services must connect with `TrellisService.connect(...)`
+  and use the returned `service.kv`, `service.store`, and `service.jobs`
+  handles; do not import the core SDK for service bootstrap, call
+  `Trellis.Bindings.Get`, construct `TrellisService` or `StoreHandle`, or pass
+  binding/resource payloads into `Trellis` constructors.
 - Use operations for caller-visible async workflows and jobs for service-private
   execution. See `design/core/service-development.md` and
   `design/operations/trellis-operations.md`.

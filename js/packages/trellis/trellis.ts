@@ -22,8 +22,10 @@ import {
   CONTRACT_JOBS_METADATA,
   CONTRACT_KV_METADATA,
   CONTRACT_STATE_METADATA,
+  type ContractEventConsumers,
   type ContractJobsMetadata,
   type ContractKvMetadata,
+  type EventConsumerResourceBinding,
 } from "./contract_support/mod.ts";
 import type { StaticDecode } from "typebox";
 import {
@@ -997,8 +999,62 @@ export type RequestOpts = {
 export type EventOpts = {
   mode?: "durable" | "ephemeral";
   replay?: "all" | "new";
+  /**
+   * Contract event consumer group to use for durable service listeners when an
+   * event is declared in more than one group.
+   */
+  group?: string;
+  /** @deprecated Durable service listener names are provisioned by Trellis bindings. */
   durableName?: string;
   signal?: AbortSignal;
+};
+
+type RuntimeEventConsumers = {
+  metadata?: ContractEventConsumers;
+  bindings?: Record<string, EventConsumerResourceBinding>;
+};
+
+type TrellisInternalOpts<TA extends AnyTrellisAPI> = TrellisOpts<TA> & {
+  eventConsumers?: RuntimeEventConsumers;
+};
+
+let pendingInternalEventConsumers: RuntimeEventConsumers | undefined;
+
+/**
+ * Creates a Trellis runtime with bootstrap-resolved bindings.
+ *
+ * @internal
+ */
+export function createTrellisInternal<
+  TA extends AnyTrellisAPI = TrellisAPI,
+  TMode extends TrellisMode = "client",
+  TState extends RuntimeStateStores = RuntimeStateStores,
+>(
+  name: string,
+  nats: NatsConnection,
+  auth: TrellisAuth,
+  opts?: TrellisInternalOpts<TA>,
+): Trellis<TA, TMode, TState> {
+  const { eventConsumers, ...publicOpts } = opts ?? {};
+  pendingInternalEventConsumers = eventConsumers;
+  try {
+    return new Trellis<TA, TMode, TState>(name, nats, auth, publicOpts);
+  } finally {
+    pendingInternalEventConsumers = undefined;
+  }
+}
+
+type DurableEventRegistration<TA extends AnyTrellisAPI> = {
+  event: EventsOf<TA>;
+  ctx: EventDescriptorOf<TA, EventsOf<TA>>;
+  subject: string;
+  fn: EventCallback<EventOf<TA, EventsOf<TA>>>;
+};
+
+type DurableEventConsumerLoop<TA extends AnyTrellisAPI> = {
+  registrations: Array<DurableEventRegistration<TA>>;
+  started: boolean;
+  messages?: ConsumerMessages;
 };
 
 export type FeedSubscribeOpts = {
@@ -1216,6 +1272,19 @@ function addSurfaceLeaf<TLeaf>(
   const group = surfaceGroupName(key);
   surface[group] ??= {};
   surface[group][surfaceLeafName(key)] = leaf;
+}
+
+function natsSubjectMatches(pattern: string, subject: string): boolean {
+  const patternParts = pattern.split(".");
+  const subjectParts = subject.split(".");
+  for (let index = 0; index < patternParts.length; index += 1) {
+    const part = patternParts[index];
+    if (part === ">") return true;
+    const subjectPart = subjectParts[index];
+    if (subjectPart === undefined) return false;
+    if (part !== "*" && part !== subjectPart) return false;
+  }
+  return patternParts.length === subjectParts.length;
 }
 
 export type HandlerKvFacade<TKv extends ContractKvMetadata> = {
@@ -1840,6 +1909,8 @@ export class Trellis<
   #noResponderRetryMs: number;
   #onSessionNotFound?: () => MaybePromise<void>;
   #operationStore?: Promise<TypedKV<typeof DurableOperationRecordSchema>>;
+  #eventConsumers: RuntimeEventConsumers;
+  #durableEventLoops = new Map<string, DurableEventConsumerLoop<TA>>();
 
   constructor(
     name: string, // Must be unique for a service
@@ -1863,6 +1934,7 @@ export class Trellis<
     this.#noResponderRetryMs = opts?.noResponderRetry?.baseDelayMs ??
       DEFAULT_NO_RESPONDER_RETRY_MS;
     this.#onSessionNotFound = opts?.onSessionNotFound;
+    this.#eventConsumers = pendingInternalEventConsumers ?? {};
     this.connection = opts?.connection ??
       new TrellisConnection({ kind: "client" });
 
@@ -3514,44 +3586,32 @@ export class Trellis<
           );
         }
 
-        const jsm = await jetstreamManager(this.nats);
-
-        const consumerName = opts?.durableName ??
-          `${this.name}-${String(event).replaceAll(".", "_")}`;
-        const addResult = await AsyncResult.try(() =>
-          jsm.consumers.add(this.stream, {
-            durable_name: consumerName,
-            ack_policy: "explicit",
-            deliver_policy: opts?.replay === "new" ? "new" : "all",
-            filter_subjects: [subject],
-          })
-        );
-
-        const consumerInfoResult = addResult.isOk()
-          ? addResult
-          : await AsyncResult.try(() =>
-            jsm.consumers.info(this.stream, consumerName)
+        if (opts?.durableName) {
+          return err(
+            new UnexpectedError({
+              cause: new Error(
+                "Durable event listener names are provisioned by Trellis event consumer bindings; use opts.group instead.",
+              ),
+              context: {
+                event: event.toString(),
+                durableName: opts.durableName,
+              },
+            }),
           );
-
-        const info = consumerInfoResult.take();
-        if (isErr(info)) return info;
-
-        const consumer = this.js.consumers.getConsumerFromInfo(info);
-        const messages = await consumer.consume();
-        if (opts?.signal) {
-          if (opts.signal.aborted) {
-            messages.stop();
-          } else {
-            opts.signal.addEventListener("abort", () => messages.stop(), {
-              once: true,
-            });
-          }
         }
 
-        this.#tasks.add(
-          `event:${eventName}:${ulid()}`,
-          this.#handleDurableEvent(eventName, ctx, messages, fn),
-        );
+        const groupResult = this.#resolveEventConsumerGroup(eventName, opts);
+        const group = groupResult.take();
+        if (isErr(group)) return group;
+
+        this.#registerDurableEventHandler({
+          group,
+          event: eventName,
+          ctx,
+          subject,
+          fn,
+          signal: opts?.signal,
+        });
         return ok(undefined);
       } catch (cause) {
         return err(
@@ -3606,6 +3666,193 @@ export class Trellis<
     return ok(undefined);
   }
 
+  #resolveEventConsumerGroup(
+    event: EventsOf<TA>,
+    opts: EventOpts | undefined,
+  ): Result<string, UnexpectedError> {
+    const metadata = this.#eventConsumers.metadata;
+    const bindings = this.#eventConsumers.bindings ?? {};
+    const groups = Object.entries(metadata ?? {})
+      .filter(([, group]) =>
+        group.events.some((entry) => entry.event === String(event))
+      )
+      .map(([group]) => group);
+
+    if (opts?.group) {
+      if (!groups.includes(opts.group)) {
+        return err(
+          new UnexpectedError({
+            cause: new Error(
+              `Event '${
+                String(event)
+              }' is not declared in event consumer group '${opts.group}'.`,
+            ),
+            context: { event: String(event), group: opts.group },
+          }),
+        );
+      }
+      if (!bindings[opts.group]) {
+        return err(
+          new UnexpectedError({
+            cause: new Error(
+              `Event consumer group '${opts.group}' has no Trellis-provisioned binding.`,
+            ),
+            context: { event: String(event), group: opts.group },
+          }),
+        );
+      }
+      return ok(opts.group);
+    }
+
+    if (groups.length === 0) {
+      return err(
+        new UnexpectedError({
+          cause: new Error(
+            `Event '${
+              String(event)
+            }' is not declared in any event consumer group.`,
+          ),
+          context: { event: String(event) },
+        }),
+      );
+    }
+    if (groups.length > 1) {
+      return err(
+        new UnexpectedError({
+          cause: new Error(
+            `Event '${
+              String(event)
+            }' is declared in multiple event consumer groups; pass opts.group.`,
+          ),
+          context: { event: String(event), groups },
+        }),
+      );
+    }
+
+    const group = groups[0]!;
+    if (!bindings[group]) {
+      return err(
+        new UnexpectedError({
+          cause: new Error(
+            `Event consumer group '${group}' has no Trellis-provisioned binding.`,
+          ),
+          context: { event: String(event), group },
+        }),
+      );
+    }
+    return ok(group);
+  }
+
+  #registerDurableEventHandler(args: {
+    group: string;
+    event: EventsOf<TA>;
+    ctx: EventDescriptorOf<TA, EventsOf<TA>>;
+    subject: string;
+    fn: EventCallback<EventOf<TA, EventsOf<TA>>>;
+    signal?: AbortSignal;
+  }): void {
+    if (args.signal?.aborted) return;
+
+    const loop = this.#durableEventLoops.get(args.group) ?? {
+      registrations: [],
+      started: false,
+    };
+    const registration: DurableEventRegistration<TA> = {
+      event: args.event,
+      ctx: args.ctx,
+      subject: args.subject,
+      fn: args.fn,
+    };
+    loop.registrations.push(registration);
+    this.#durableEventLoops.set(args.group, loop);
+
+    args.signal?.addEventListener("abort", () => {
+      const index = loop.registrations.indexOf(registration);
+      if (index >= 0) loop.registrations.splice(index, 1);
+      if (!this.#durableEventConsumerGroupReady(args.group, loop)) {
+        loop.messages?.stop();
+      }
+    }, { once: true });
+
+    this.#startDurableEventConsumer(args.group, loop);
+  }
+
+  #startDurableEventConsumer(
+    group: string,
+    loop: DurableEventConsumerLoop<TA>,
+  ): void {
+    if (loop.started || !this.#durableEventConsumerGroupReady(group, loop)) {
+      return;
+    }
+    loop.started = true;
+
+    this.#tasks.add(
+      `event-consumer:${group}:${ulid()}`,
+      this.#runDurableEventConsumer(group, loop),
+    );
+  }
+
+  #durableEventConsumerGroupReady(
+    group: string,
+    loop: DurableEventConsumerLoop<TA>,
+  ): boolean {
+    const metadata = this.#eventConsumers.metadata?.[group];
+    if (!metadata) return false;
+    return metadata.events.every((entry) =>
+      loop.registrations.some((registration) =>
+        String(registration.event) === entry.event
+      )
+    );
+  }
+
+  #runDurableEventConsumer(
+    group: string,
+    loop: DurableEventConsumerLoop<TA>,
+  ): AsyncResult<void, ValidationError | UnexpectedError> {
+    return AsyncResult.from((async () => {
+      const binding = this.#eventConsumers.bindings?.[group];
+      if (!binding) {
+        return err(
+          new UnexpectedError({
+            cause: new Error(
+              `Event consumer group '${group}' has no Trellis-provisioned binding.`,
+            ),
+            context: { group },
+          }),
+        );
+      }
+
+      try {
+        const infoResult = await AsyncResult.try(async () => {
+          const jsm = await jetstreamManager(this.nats);
+          return await jsm.consumers.info(binding.stream, binding.consumerName);
+        });
+        const info = infoResult.take();
+        if (isErr(info)) return info;
+
+        const consumer = this.js.consumers.getConsumerFromInfo(info);
+        while (this.#durableEventConsumerGroupReady(group, loop)) {
+          const messages = await consumer.fetch({
+            max_messages: 1,
+            expires: 30_000,
+          });
+          loop.messages = messages;
+          if (!this.#durableEventConsumerGroupReady(group, loop)) {
+            messages.stop();
+            break;
+          }
+          await this.#handleDurableEventConsumer(group, loop, messages)
+            .orThrow();
+        }
+      } finally {
+        loop.started = false;
+        loop.messages = undefined;
+        this.#startDurableEventConsumer(group, loop);
+      }
+      return ok(undefined);
+    })());
+  }
+
   #handleDurableEvent(
     event: EventsOf<TA>,
     ctx: EventDescriptorOf<TA, EventsOf<TA>>,
@@ -3639,6 +3886,70 @@ export class Trellis<
         }
 
         msg.ack();
+      }
+    });
+  }
+
+  #handleDurableEventConsumer(
+    group: string,
+    loop: DurableEventConsumerLoop<TA>,
+    messages: ConsumerMessages,
+  ): AsyncResult<void, ValidationError | UnexpectedError> {
+    return AsyncResult.try(async () => {
+      for await (const msg of messages) {
+        if (!this.#durableEventConsumerGroupReady(group, loop)) {
+          messages.stop();
+          break;
+        }
+        const matching = loop.registrations.filter((registration) =>
+          natsSubjectMatches(registration.subject, msg.subject)
+        );
+        if (matching.length === 0) {
+          this.#log.warn(
+            { group, subject: msg.subject },
+            "Durable event consumer received message without registered handler",
+          );
+          msg.nak();
+          continue;
+        }
+
+        let failed = false;
+        for (const registration of matching) {
+          const parsedEvent = this.#parseEventMessage(
+            registration.event,
+            registration.ctx,
+            msg,
+          );
+          const eventPayload = parsedEvent.take();
+          if (isErr(eventPayload)) {
+            this.#log.error(
+              { error: eventPayload.error },
+              "Event validation failed",
+            );
+            msg.term();
+            failed = true;
+            break;
+          }
+
+          const handlerResult = await AsyncResult.lift(
+            registration.fn(eventPayload as EventOf<TA, EventsOf<TA>>),
+          );
+          if (handlerResult.isErr()) {
+            this.#log.error(
+              {
+                error: handlerResult.error.toSerializable(),
+                event: registration.event,
+                subject: msg.subject,
+              },
+              "Event handler failed",
+            );
+            msg.nak();
+            failed = true;
+            break;
+          }
+        }
+
+        if (!failed) msg.ack();
       }
     });
   }

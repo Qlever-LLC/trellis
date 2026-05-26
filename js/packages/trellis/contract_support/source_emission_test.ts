@@ -1885,6 +1885,181 @@ Deno.test("defineServiceContract emits top-level jobs with defaults", () => {
   assertEquals("jobs" in (contract.CONTRACT.resources ?? {}), false);
 });
 
+Deno.test("defineServiceContract emits event consumer groups with defaults", () => {
+  const source = defineServiceContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "events.source@v1",
+      displayName: "Event Source",
+      description: "Expose events for event consumer tests.",
+      events: {
+        "Source.Created": {
+          version: "v1",
+          event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+        },
+        "Source.Updated": {
+          version: "v1",
+          event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+        },
+      },
+    }),
+  );
+
+  const contract = defineServiceContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "events.consumer@v1",
+      displayName: "Event Consumer",
+      description: "Declare durable event consumer groups.",
+      uses: {
+        required: {
+          source: source.use({
+            events: { subscribe: ["Source.Created", "Source.Updated"] },
+          }),
+        },
+      },
+      eventConsumers: {
+        ingest: {
+          events: [
+            { use: "source", event: "Source.Updated" },
+            { use: "source", event: "Source.Created" },
+          ],
+          ackWaitMs: 1_000,
+          maxDeliver: 3,
+          backoffMs: [0, 100],
+          docs: { markdown: "Process source events." },
+        },
+      },
+    }),
+  );
+
+  assertEquals(contract.CONTRACT.eventConsumers?.ingest, {
+    events: [
+      { use: "source", event: "Source.Created" },
+      { use: "source", event: "Source.Updated" },
+    ],
+    replay: "new",
+    ordering: "strict",
+    concurrency: 1,
+    ackWaitMs: 1_000,
+    maxDeliver: 3,
+    backoffMs: [0, 100],
+    docs: { markdown: "Process source events." },
+  });
+  const ingest = contract.CONTRACT.eventConsumers?.ingest;
+  if (!ingest) {
+    throw new Error("expected emitted ingest event consumer group");
+  }
+
+  const withoutDocs = normalizeContractManifest({
+    ...contract.CONTRACT,
+    eventConsumers: {
+      ingest: {
+        ...ingest,
+        docs: undefined,
+      },
+    },
+  });
+  const changedReplay = normalizeContractManifest({
+    ...contract.CONTRACT,
+    eventConsumers: {
+      ingest: {
+        ...ingest,
+        replay: "all",
+      },
+    },
+  });
+  assertEquals(
+    digestContractManifest(contract.CONTRACT),
+    digestContractManifest(withoutDocs),
+  );
+  assertNotEquals(
+    digestContractManifest(contract.CONTRACT),
+    digestContractManifest(changedReplay),
+  );
+});
+
+Deno.test("defineServiceContract validates event consumer group uses", () => {
+  const source = defineServiceContract(
+    { schemas: baseSchemas },
+    () => ({
+      id: "events.validation-source@v1",
+      displayName: "Event Validation Source",
+      description: "Expose events for event consumer validation tests.",
+      events: {
+        "Source.Created": {
+          version: "v1",
+          event: schemaRef<typeof baseSchemas, "StringValue">("StringValue"),
+        },
+      },
+    }),
+  );
+
+  assertThrows(
+    () =>
+      defineServiceContract(
+        { schemas: baseSchemas },
+        () => ({
+          id: "events.unknown-use@v1",
+          displayName: "Unknown Use",
+          description: "Reject event consumers with unknown uses.",
+          eventConsumers: {
+            ingest: { events: [{ use: "source", event: "Source.Created" }] },
+          },
+        }),
+      ),
+    Error,
+    "references unknown use 'source'",
+  );
+
+  assertThrows(
+    () =>
+      defineServiceContract(
+        { schemas: baseSchemas },
+        () => ({
+          id: "events.not-subscribed@v1",
+          displayName: "Not Subscribed",
+          description: "Reject event consumers outside subscribed events.",
+          uses: {
+            required: {
+              source: source.use({ events: { subscribe: ["Source.Created"] } }),
+            },
+          },
+          eventConsumers: {
+            ingest: { events: [{ use: "source", event: "Source.Updated" }] },
+          },
+        }),
+      ),
+    Error,
+    "does not subscribe to",
+  );
+
+  assertThrows(
+    () =>
+      defineServiceContract(
+        { schemas: baseSchemas },
+        () => ({
+          id: "events.invalid-concurrency@v1",
+          displayName: "Invalid Concurrency",
+          description: "Reject strict event consumers above concurrency one.",
+          uses: {
+            required: {
+              source: source.use({ events: { subscribe: ["Source.Created"] } }),
+            },
+          },
+          eventConsumers: {
+            ingest: {
+              events: [{ use: "source", event: "Source.Created" }],
+              concurrency: 2,
+            },
+          },
+        }),
+      ),
+    Error,
+    "requires concurrency 1",
+  );
+});
+
 Deno.test("defineServiceContract emits store resources with defaults", () => {
   const contract = defineServiceContract({}, () => ({
     id: "store.example@v1",

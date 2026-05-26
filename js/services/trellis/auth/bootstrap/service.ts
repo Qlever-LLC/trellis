@@ -12,6 +12,7 @@ import {
   type ResourceProvisioningOptions,
 } from "../../catalog/resources.ts";
 import {
+  type ContractEntry,
   ContractUseDependencyError,
   validateActiveContractCompatibility,
 } from "../../catalog/uses.ts";
@@ -291,8 +292,11 @@ function resourceBindingsForResponse(
       continue;
     }
 
-    resourcesByKind[record.kind] ??= {};
-    resourcesByKind[record.kind][record.alias] = record.binding;
+    const responseKind = record.kind === "event-consumer"
+      ? "eventConsumers"
+      : record.kind;
+    resourcesByKind[responseKind] ??= {};
+    resourcesByKind[responseKind][record.alias] = record.binding;
   }
   for (const [kind, bindings] of Object.entries(resourcesByKind)) {
     resources[kind] = bindings;
@@ -407,8 +411,63 @@ async function buildResourceBindingRecords(input: {
     }
   }
 
+  for (
+    const [alias, consumer] of Object.entries(
+      input.bindings.eventConsumers ?? {},
+    )
+  ) {
+    if (!requestedKeys.has(resourceKey("event-consumer", alias))) continue;
+    const existing = input.existing.get(resourceKey("event-consumer", alias));
+    records.push({
+      deploymentId: input.deploymentId,
+      kind: "event-consumer",
+      alias,
+      binding: {
+        stream: consumer.stream,
+        consumerName: consumer.consumerName,
+        filterSubjects: consumer.filterSubjects,
+        replay: consumer.replay,
+        ordering: consumer.ordering,
+        concurrency: consumer.concurrency,
+        ackWaitMs: consumer.ackWaitMs,
+        maxDeliver: consumer.maxDeliver,
+        backoffMs: consumer.backoffMs,
+      },
+      limits: null,
+      createdAt: existing?.createdAt ?? input.now,
+      updatedAt: input.now,
+    });
+  }
+
   return records.sort((left, right) =>
     left.kind.localeCompare(right.kind) || left.alias.localeCompare(right.alias)
+  );
+}
+
+async function knownDependencyEntriesForProvisioning(
+  deps: Pick<
+    ServiceBootstrapDeps["contracts"],
+    "getActiveEntries" | "getKnownEntriesByContractId"
+  >,
+  contract: TrellisContractV1,
+): Promise<ContractEntry[]> {
+  const entriesByDigest = new Map<string, ContractEntry>();
+  for (const entry of await deps.getActiveEntries()) {
+    entriesByDigest.set(entry.digest, entry);
+  }
+  const contractIds = new Set<string>();
+  for (const group of [contract.uses?.required, contract.uses?.optional]) {
+    for (const use of Object.values(group ?? {})) {
+      contractIds.add(use.contract);
+    }
+  }
+  for (const contractId of contractIds) {
+    for (const entry of await deps.getKnownEntriesByContractId(contractId)) {
+      entriesByDigest.set(entry.digest, entry);
+    }
+  }
+  return [...entriesByDigest.values()].sort((left, right) =>
+    left.digest.localeCompare(right.digest)
   );
 }
 
@@ -762,13 +821,26 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       resourceBindingRecords.filter((binding) =>
         requiredResourceKeys.has(resourceKey(binding.kind, binding.alias))
       ).length;
-    if (existingRequiredCount < requiredResourceKeys.size) {
+    const requestedEventConsumers = requestedBoundary.resources.some(
+      (resource) => resource.kind === "event-consumer",
+    );
+    if (
+      existingRequiredCount < requiredResourceKeys.size ||
+      requestedEventConsumers
+    ) {
       const provisioned = await (deps.provisionResourceBindings ??
         provisionContractResourceBindings)(
           deps.nats,
           contract,
           service.deploymentId,
-          deps.resourceProvisioningOptions,
+          {
+            ...deps.resourceProvisioningOptions,
+            knownContractEntries: await knownDependencyEntriesForProvisioning(
+              deps.contracts,
+              contract,
+            ),
+            envelopeBoundary: deploymentEnvelope.boundary,
+          },
         );
       resourceBindingRecords = await buildResourceBindingRecords({
         deploymentId: service.deploymentId,

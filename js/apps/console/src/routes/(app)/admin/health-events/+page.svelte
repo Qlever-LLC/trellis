@@ -106,10 +106,9 @@
 
     void (async () => {
       try {
-        const result = await trellis.event(
-          "Health.Heartbeat",
-          {},
+        const result = await trellis.event.health.heartbeat.listen(
           handleHeartbeat,
+          {},
           { mode: "ephemeral", replay: "new", signal: controller.signal },
         );
 

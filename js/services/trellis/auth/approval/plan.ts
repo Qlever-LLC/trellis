@@ -11,10 +11,7 @@ import {
   sortUniqueStrings,
   templateToWildcard,
 } from "../../catalog/uses.ts";
-import {
-  eventSubscriptionControlPublishSubjects,
-  operationControlCapabilityRules,
-} from "../../catalog/permissions.ts";
+import { operationControlCapabilityRules } from "../../catalog/permissions.ts";
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { ContractApproval } from "../schemas.ts";
 
@@ -28,7 +25,7 @@ export type UserContractApprovalPlan = {
 
 type UserContractApprovalDeps = Pick<
   ContractsModule,
-  "validateContract" | "getKnownEntriesByContractId"
+  "validateContract" | "getActiveEntries" | "getKnownEntriesByContractId"
 >;
 
 const TRANSFER_UPLOAD_SUBJECT = "transfer.v1.upload.*.*";
@@ -53,7 +50,10 @@ function approvalCapabilitiesObject(
 }
 
 async function getKnownDependencyEntries(
-  contracts: Pick<ContractsModule, "getKnownEntriesByContractId">,
+  contracts: Pick<
+    ContractsModule,
+    "getActiveEntries" | "getKnownEntriesByContractId"
+  >,
   contract: TrellisContractV1,
 ): Promise<ContractEntry[]> {
   const dependencyIds = sortUniqueStrings([
@@ -61,10 +61,16 @@ async function getKnownDependencyEntries(
     ...Object.values(contract.uses?.optional ?? {}).map((use) => use.contract),
   ]);
   const entriesByDigest = new Map<string, ContractEntry>();
+  const activeEntriesByContractId = new Map<string, ContractEntry[]>();
+  for (const entry of await contracts.getActiveEntries()) {
+    const entries = activeEntriesByContractId.get(entry.contract.id) ?? [];
+    entries.push(entry);
+    activeEntriesByContractId.set(entry.contract.id, entries);
+  }
   for (const contractId of dependencyIds) {
-    for (
-      const entry of await contracts.getKnownEntriesByContractId(contractId)
-    ) {
+    const dependencyEntries = activeEntriesByContractId.get(contractId) ??
+      await contracts.getKnownEntriesByContractId(contractId);
+    for (const entry of dependencyEntries) {
       entriesByDigest.set(entry.digest, entry);
     }
   }
@@ -170,9 +176,6 @@ export async function planUserContractApproval(
 
   for (const event of uses.eventSubscribes) {
     subscribeSubjects.add(templateToWildcard(event.event.subject));
-    for (const subject of eventSubscriptionControlPublishSubjects()) {
-      publishSubjects.add(subject);
-    }
     for (const capability of event.event.capabilities?.subscribe ?? []) {
       addCapability(capability, event.contract);
     }

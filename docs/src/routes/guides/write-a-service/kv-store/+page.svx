@@ -47,6 +47,10 @@ Next, open `contracts/orders_service.ts` and update the `resources` section to r
 
 Finally, back in `main.ts`, open the KV store right after `TrellisService.connect(...)`. The `service.kv.orders` handle was already resolved when we connected. We just need to bind a typed client to it:
 
+Do not fetch or pass binding data yourself. Service resource bindings are
+resolved by the Trellis runtime and exposed through the connected `service`
+object.
+
 ```ts
 import { isErr } from "@qlever-llc/trellis";
 import { Order } from "./schemas.ts";

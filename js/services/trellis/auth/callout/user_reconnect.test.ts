@@ -162,13 +162,6 @@ Deno.test("resolveUserReconnectSession refreshes delegated envelope from the pre
   assertEquals(result.session.approvalSource, "stored_approval");
   assertEquals(result.session.delegatedCapabilities, ["audit"]);
   assertEquals(result.session.delegatedPublishSubjects, [
-    "$JS.ACK.>",
-    "$JS.API.CONSUMER.CREATE.trellis",
-    "$JS.API.CONSUMER.CREATE.trellis.>",
-    "$JS.API.CONSUMER.DURABLE.CREATE.trellis.>",
-    "$JS.API.CONSUMER.INFO.trellis.>",
-    "$JS.API.CONSUMER.MSG.NEXT.trellis.>",
-    "$JS.API.INFO",
     "trellis.console.audit.publish",
   ]);
   assertEquals(result.session.delegatedSubscribeSubjects, [

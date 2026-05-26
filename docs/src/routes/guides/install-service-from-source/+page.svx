@@ -107,7 +107,7 @@ When you change the contract, regenerate artifacts and submit the new source bou
 trellis svc my-service apply --source /path/to/my-service
 ```
 
-Trellis validates the new boundary against the proposed active catalog, provisions any required resource changes before making it available, and keeps the service instance key the same. Restart the service process after applying the envelope. The active catalog has one current digest per contract id, so use a Forced Update when you intentionally need the proposed digest to replace the current digest. Shrink the envelope only when you want to remove boundary that is no longer needed.
+Trellis validates the new boundary against known manifests, provisions any required resource changes before making it available, and keeps the service instance key the same. Restart the service process after applying the envelope. Production deployments use `strict` same-contract compatibility and reject incompatible replacement for an existing service instance; use a new `@vN` contract id for breaking production changes. Use `mutable-dev` only for unreleased local iteration. Shrink the envelope only when you want to remove boundary that is no longer needed.
 
 Review the resulting boundary change in Console before restarting runtimes that rely on it. The Services page shows pending service authority expansion requests for the selected deployment and provides the existing approve/reject controls. For local development or automation, the Trellis CLI `expansions` commands can list and decide the same pending requests.
 
@@ -137,6 +137,6 @@ Trellis derives service access from:
 5. restart the service
 6. confirm the expected RPCs, events, and bindings work
 
-If envelope expansion or the following active-catalog refresh fails, Trellis rolls the durable deployment record back. Once the boundary is available on an enabled service deployment, it is active for catalog and auth. Service bootstrap only proves a running instance fits the deployment envelope, so failed or absent service starts do not control catalog activation.
+If envelope expansion validation fails, Trellis rolls the durable deployment record back. Once the boundary is available on an enabled service deployment, runtime auth can grant presented evidence that fits the envelope. Service bootstrap only proves a running instance fits the deployment envelope, so failed or absent service starts do not control authority.
 
-If a locally restarted service presents a new digest for the same contract id while a different digest is current, Trellis creates one pending **Forced Contract Update** for that contract id. Repeated restarts coalesce into that same pending update. Accepting the Forced Update deletes non-selected active evidence; keeping the current digest deletes the proposal.
+If a locally restarted service presents a new digest for the same contract id, Trellis checks it against the service instance's current digest. In `strict` mode, incompatible same-contract changes fail with a compatibility violation. In `mutable-dev` mode, Trellis accepts the replacement so local development can iterate without creating a production compatibility promise.

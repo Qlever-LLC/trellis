@@ -28,7 +28,7 @@ pub struct AuthCapabilitiesListResponseEntriesItem {
     #[serde(rename = "displayName")]
     pub display_name: String,
     pub key: String,
-    pub source: Value,
+    pub source: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthCapabilitiesListResponse {
@@ -150,7 +150,7 @@ pub struct AuthCapabilityGroupsPutResponse {
 /// Generated schema type `AuthCatalogIssuesResolveRequest`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthCatalogIssuesResolveRequest {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "issueId")]
     pub issue_id: String,
 }
@@ -181,7 +181,7 @@ pub struct AuthCatalogIssuesResolveResponseDeletedEvidenceItem {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthCatalogIssuesResolveResponse {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "deletedEvidence")]
     pub deleted_evidence: Vec<AuthCatalogIssuesResolveResponseDeletedEvidenceItem>,
     #[serde(rename = "issueId")]
@@ -235,7 +235,7 @@ pub struct AuthDeploymentsCreateResponse {
 pub struct AuthDeploymentsDisableRequest {
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
-    pub kind: Value,
+    pub kind: String,
 }
 /// Generated schema type `AuthDeploymentsDisableResponse`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -247,7 +247,7 @@ pub struct AuthDeploymentsDisableResponse {
 pub struct AuthDeploymentsEnableRequest {
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
-    pub kind: Value,
+    pub kind: String,
 }
 /// Generated schema type `AuthDeploymentsEnableResponse`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -260,7 +260,7 @@ pub struct AuthDeploymentsListRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<Value>,
+    pub kind: Option<String>,
     pub limit: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
@@ -283,7 +283,7 @@ pub struct AuthDeploymentsRemoveRequest {
     pub cascade: Option<bool>,
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
-    pub kind: Value,
+    pub kind: String,
     #[serde(rename = "purgeUnusedContracts")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub purge_unused_contracts: Option<bool>,
@@ -306,7 +306,7 @@ pub struct AuthDeviceUserAuthoritiesListRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<Value>,
+    pub state: Option<String>,
 }
 /// Generated schema type `AuthDeviceUserAuthoritiesListResponse`.
 /// Generated schema type `AuthDeviceUserAuthoritiesListResponseEntriesItem`.
@@ -323,7 +323,7 @@ pub struct AuthDeviceUserAuthoritiesListResponseEntriesItemActivatedByIdentity {
 pub struct AuthDeviceUserAuthoritiesListResponseEntriesItemActivatedBy {
     pub identity: AuthDeviceUserAuthoritiesListResponseEntriesItemActivatedByIdentity,
     #[serde(rename = "participantKind")]
-    pub participant_kind: Value,
+    pub participant_kind: String,
     #[serde(rename = "userId")]
     pub user_id: String,
 }
@@ -342,7 +342,7 @@ pub struct AuthDeviceUserAuthoritiesListResponseEntriesItem {
     pub public_identity_key: String,
     #[serde(rename = "revokedAt")]
     pub revoked_at: Value,
-    pub state: Value,
+    pub state: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeviceUserAuthoritiesListResponse {
@@ -357,7 +357,7 @@ pub struct AuthDeviceUserAuthoritiesListResponse {
 /// Generated schema type `AuthDeviceUserAuthoritiesReviewsDecideRequest`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeviceUserAuthoritiesReviewsDecideRequest {
-    pub decision: Value,
+    pub decision: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(rename = "reviewId")]
@@ -378,7 +378,7 @@ pub struct AuthDeviceUserAuthoritiesReviewsDecideResponseActivationActivatedById
 pub struct AuthDeviceUserAuthoritiesReviewsDecideResponseActivationActivatedBy {
     pub identity: AuthDeviceUserAuthoritiesReviewsDecideResponseActivationActivatedByIdentity,
     #[serde(rename = "participantKind")]
-    pub participant_kind: Value,
+    pub participant_kind: String,
     #[serde(rename = "userId")]
     pub user_id: String,
 }
@@ -397,7 +397,7 @@ pub struct AuthDeviceUserAuthoritiesReviewsDecideResponseActivation {
     pub public_identity_key: String,
     #[serde(rename = "revokedAt")]
     pub revoked_at: Value,
-    pub state: Value,
+    pub state: String,
 }
 /// Generated schema type `AuthDeviceUserAuthoritiesReviewsDecideResponseReview`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -416,7 +416,7 @@ pub struct AuthDeviceUserAuthoritiesReviewsDecideResponseReview {
     pub requested_at: String,
     #[serde(rename = "reviewId")]
     pub review_id: String,
-    pub state: Value,
+    pub state: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeviceUserAuthoritiesReviewsDecideResponse {
@@ -440,7 +440,7 @@ pub struct AuthDeviceUserAuthoritiesReviewsListRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<Value>,
+    pub state: Option<String>,
 }
 /// Generated schema type `AuthDeviceUserAuthoritiesReviewsListResponse`.
 /// Generated schema type `AuthDeviceUserAuthoritiesReviewsListResponseEntriesItem`.
@@ -460,7 +460,7 @@ pub struct AuthDeviceUserAuthoritiesReviewsListResponseEntriesItem {
     pub requested_at: String,
     #[serde(rename = "reviewId")]
     pub review_id: String,
-    pub state: Value,
+    pub state: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeviceUserAuthoritiesReviewsListResponse {
@@ -498,7 +498,7 @@ pub struct AuthDevicesConnectInfoGetRequest {
 /// Generated schema type `AuthDevicesConnectInfoGetResponseConnectInfoAuth`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDevicesConnectInfoGetResponseConnectInfoAuth {
-    pub authority: Value,
+    pub authority: String,
     #[serde(rename = "iatSkewSeconds")]
     pub iat_skew_seconds: f64,
     pub mode: String,
@@ -584,7 +584,7 @@ pub struct AuthDevicesDisableResponseInstance {
     pub public_identity_key: String,
     #[serde(rename = "revokedAt")]
     pub revoked_at: Value,
-    pub state: Value,
+    pub state: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDevicesDisableResponse {
@@ -620,7 +620,7 @@ pub struct AuthDevicesEnableResponseInstance {
     pub public_identity_key: String,
     #[serde(rename = "revokedAt")]
     pub revoked_at: Value,
-    pub state: Value,
+    pub state: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDevicesEnableResponse {
@@ -636,7 +636,7 @@ pub struct AuthDevicesListRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<Value>,
+    pub state: Option<String>,
 }
 /// Generated schema type `AuthDevicesListResponse`.
 /// Generated schema type `AuthDevicesListResponseEntriesItem`.
@@ -662,7 +662,7 @@ pub struct AuthDevicesListResponseEntriesItem {
     pub public_identity_key: String,
     #[serde(rename = "revokedAt")]
     pub revoked_at: Value,
-    pub state: Value,
+    pub state: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDevicesListResponse {
@@ -710,7 +710,7 @@ pub struct AuthDevicesProvisionResponseInstance {
     pub public_identity_key: String,
     #[serde(rename = "revokedAt")]
     pub revoked_at: Value,
-    pub state: Value,
+    pub state: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDevicesProvisionResponse {
@@ -772,16 +772,16 @@ pub struct AuthEnvelopeExpansionsApproveResponseDeltaContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopeExpansionsApproveResponseDeltaResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopeExpansionsApproveResponseDeltaSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopeExpansionsApproveResponseDeltaSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -805,16 +805,16 @@ pub struct AuthEnvelopeExpansionsApproveResponseEnvelopeBoundaryContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopeExpansionsApproveResponseEnvelopeBoundaryResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopeExpansionsApproveResponseEnvelopeBoundarySurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopeExpansionsApproveResponseEnvelopeBoundarySurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -833,7 +833,7 @@ pub struct AuthEnvelopeExpansionsApproveResponseEnvelope {
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
     pub disabled: bool,
-    pub kind: Value,
+    pub kind: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
 }
@@ -850,16 +850,16 @@ pub struct AuthEnvelopeExpansionsApproveResponseRequestDeltaContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopeExpansionsApproveResponseRequestDeltaResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopeExpansionsApproveResponseRequestDeltaSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopeExpansionsApproveResponseRequestDeltaSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -893,8 +893,8 @@ pub struct AuthEnvelopeExpansionsApproveResponseRequest {
     #[serde(rename = "requestedBy")]
     pub requested_by: BTreeMap<String, Value>,
     #[serde(rename = "requestedByKind")]
-    pub requested_by_kind: Value,
-    pub state: Value,
+    pub requested_by_kind: String,
+    pub state: String,
 }
 /// Generated schema type `AuthEnvelopeExpansionsApproveResponseResourceBindingsItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -905,7 +905,7 @@ pub struct AuthEnvelopeExpansionsApproveResponseResourceBindingsItem {
     pub created_at: String,
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub limits: Value,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
@@ -930,7 +930,7 @@ pub struct AuthEnvelopeExpansionsListRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<Value>,
+    pub state: Option<String>,
 }
 /// Generated schema type `AuthEnvelopeExpansionsListResponse`.
 /// Generated schema type `AuthEnvelopeExpansionsListResponseEntriesItem`.
@@ -946,16 +946,16 @@ pub struct AuthEnvelopeExpansionsListResponseEntriesItemDeltaContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopeExpansionsListResponseEntriesItemDeltaResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopeExpansionsListResponseEntriesItemDeltaSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopeExpansionsListResponseEntriesItemDeltaSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -989,8 +989,8 @@ pub struct AuthEnvelopeExpansionsListResponseEntriesItem {
     #[serde(rename = "requestedBy")]
     pub requested_by: BTreeMap<String, Value>,
     #[serde(rename = "requestedByKind")]
-    pub requested_by_kind: Value,
-    pub state: Value,
+    pub requested_by_kind: String,
+    pub state: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopeExpansionsListResponse {
@@ -1024,16 +1024,16 @@ pub struct AuthEnvelopeExpansionsRejectResponseRequestDeltaContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopeExpansionsRejectResponseRequestDeltaResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopeExpansionsRejectResponseRequestDeltaSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopeExpansionsRejectResponseRequestDeltaSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1067,8 +1067,8 @@ pub struct AuthEnvelopeExpansionsRejectResponseRequest {
     #[serde(rename = "requestedBy")]
     pub requested_by: BTreeMap<String, Value>,
     #[serde(rename = "requestedByKind")]
-    pub requested_by_kind: Value,
-    pub state: Value,
+    pub requested_by_kind: String,
+    pub state: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopeExpansionsRejectResponse {
@@ -1087,16 +1087,16 @@ pub struct AuthEnvelopesChangesPreviewRequestProposedBoundaryContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewRequestProposedBoundaryResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesChangesPreviewRequestProposedBoundarySurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewRequestProposedBoundarySurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1128,16 +1128,16 @@ pub struct AuthEnvelopesChangesPreviewResponseCurrentBoundaryContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseCurrentBoundaryResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesChangesPreviewResponseCurrentBoundarySurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseCurrentBoundarySurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1156,7 +1156,7 @@ pub struct AuthEnvelopesChangesPreviewResponseCurrent {
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
     pub disabled: bool,
-    pub kind: Value,
+    pub kind: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
 }
@@ -1174,16 +1174,16 @@ pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMi
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissingResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissingSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissingSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1225,17 +1225,17 @@ pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesIte
 pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissingResourcesItem
 {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissingSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissingSurfacesItem
 {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1275,16 +1275,16 @@ pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemM
 pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissingResourcesItem
 {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissingSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissingSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1322,17 +1322,17 @@ pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItem
 pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissingResourcesItem
 {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissingSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissingSurfacesItem
 {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1366,16 +1366,16 @@ pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingC
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1404,7 +1404,7 @@ pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseImpactOrphanedResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
 }
 /// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactRemoved`.
 /// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactRemovedContractsItem`.
@@ -1418,16 +1418,16 @@ pub struct AuthEnvelopesChangesPreviewResponseImpactRemovedContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseImpactRemovedResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactRemovedSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseImpactRemovedSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1471,16 +1471,16 @@ pub struct AuthEnvelopesChangesPreviewResponseProposedBoundaryContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseProposedBoundaryResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesChangesPreviewResponseProposedBoundarySurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesChangesPreviewResponseProposedBoundarySurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1499,7 +1499,7 @@ pub struct AuthEnvelopesChangesPreviewResponseProposed {
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
     pub disabled: bool,
-    pub kind: Value,
+    pub kind: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
 }
@@ -1555,16 +1555,16 @@ pub struct AuthEnvelopesExpandResponseDeltaContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesExpandResponseDeltaResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesExpandResponseDeltaSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesExpandResponseDeltaSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1588,16 +1588,16 @@ pub struct AuthEnvelopesExpandResponseEnvelopeBoundaryContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesExpandResponseEnvelopeBoundaryResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesExpandResponseEnvelopeBoundarySurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesExpandResponseEnvelopeBoundarySurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1616,7 +1616,7 @@ pub struct AuthEnvelopesExpandResponseEnvelope {
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
     pub disabled: bool,
-    pub kind: Value,
+    pub kind: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
 }
@@ -1629,7 +1629,7 @@ pub struct AuthEnvelopesExpandResponseResourceBindingsItem {
     pub created_at: String,
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub limits: Value,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
@@ -1687,16 +1687,16 @@ pub struct AuthEnvelopesGetResponseEnvelopeBoundaryContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesGetResponseEnvelopeBoundaryResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesGetResponseEnvelopeBoundarySurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesGetResponseEnvelopeBoundarySurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1715,7 +1715,7 @@ pub struct AuthEnvelopesGetResponseEnvelope {
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
     pub disabled: bool,
-    pub kind: Value,
+    pub kind: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
 }
@@ -1732,16 +1732,16 @@ pub struct AuthEnvelopesGetResponseExpansionRequestsItemDeltaContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesGetResponseExpansionRequestsItemDeltaResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesGetResponseExpansionRequestsItemDeltaSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesGetResponseExpansionRequestsItemDeltaSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1775,8 +1775,8 @@ pub struct AuthEnvelopesGetResponseExpansionRequestsItem {
     #[serde(rename = "requestedBy")]
     pub requested_by: BTreeMap<String, Value>,
     #[serde(rename = "requestedByKind")]
-    pub requested_by_kind: Value,
-    pub state: Value,
+    pub requested_by_kind: String,
+    pub state: String,
 }
 /// Generated schema type `AuthEnvelopesGetResponseResourceBindingsItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1787,7 +1787,7 @@ pub struct AuthEnvelopesGetResponseResourceBindingsItem {
     pub created_at: String,
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub limits: Value,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
@@ -1856,7 +1856,7 @@ pub struct AuthEnvelopesListRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<Value>,
+    pub kind: Option<String>,
     pub limit: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
@@ -1875,16 +1875,16 @@ pub struct AuthEnvelopesListResponseEntriesItemBoundaryContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesListResponseEntriesItemBoundaryResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesListResponseEntriesItemBoundarySurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesListResponseEntriesItemBoundarySurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1903,7 +1903,7 @@ pub struct AuthEnvelopesListResponseEntriesItem {
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
     pub disabled: bool,
-    pub kind: Value,
+    pub kind: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
 }
@@ -1930,16 +1930,16 @@ pub struct AuthEnvelopesShrinkRequestProposedBoundaryContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkRequestProposedBoundaryResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesShrinkRequestProposedBoundarySurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkRequestProposedBoundarySurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -1972,16 +1972,16 @@ pub struct AuthEnvelopesShrinkResponseEnvelopeBoundaryContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseEnvelopeBoundaryResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesShrinkResponseEnvelopeBoundarySurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseEnvelopeBoundarySurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -2000,7 +2000,7 @@ pub struct AuthEnvelopesShrinkResponseEnvelope {
     #[serde(rename = "deploymentId")]
     pub deployment_id: String,
     pub disabled: bool,
-    pub kind: Value,
+    pub kind: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
 }
@@ -2018,16 +2018,16 @@ pub struct AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingCon
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -2065,16 +2065,16 @@ pub struct AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissing
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissingResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissingSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissingSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -2109,16 +2109,16 @@ pub struct AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingCo
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -2151,16 +2151,16 @@ pub struct AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingC
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -2191,16 +2191,16 @@ pub struct AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingContracts
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -2226,7 +2226,7 @@ pub struct AuthEnvelopesShrinkResponseImpactImpactedSessionsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactOrphanedResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
 }
 /// Generated schema type `AuthEnvelopesShrinkResponseImpactRemoved`.
 /// Generated schema type `AuthEnvelopesShrinkResponseImpactRemovedContractsItem`.
@@ -2240,16 +2240,16 @@ pub struct AuthEnvelopesShrinkResponseImpactRemovedContractsItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactRemovedResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
     pub required: bool,
 }
 /// Generated schema type `AuthEnvelopesShrinkResponseImpactRemovedSurfacesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseImpactRemovedSurfacesItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub name: String,
     pub required: bool,
 }
@@ -2283,7 +2283,7 @@ pub struct AuthEnvelopesShrinkResponseImpact {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponseRetainedResourcesItem {
     pub alias: String,
-    pub kind: Value,
+    pub kind: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthEnvelopesShrinkResponse {
@@ -2303,7 +2303,7 @@ pub struct AuthHealthResponseChecksItem {
     #[serde(rename = "latencyMs")]
     pub latency_ms: f64,
     pub name: String,
-    pub status: Value,
+    pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
 }
@@ -2311,7 +2311,7 @@ pub struct AuthHealthResponseChecksItem {
 pub struct AuthHealthResponse {
     pub checks: Vec<AuthHealthResponseChecksItem>,
     pub service: String,
-    pub status: Value,
+    pub status: String,
     pub timestamp: String,
 }
 /// Generated schema type `AuthIdentitiesGrantsListRequest`.
@@ -2346,7 +2346,7 @@ pub struct AuthIdentitiesGrantsListResponseEntriesItem {
     #[serde(rename = "identityEnvelopeId")]
     pub identity_envelope_id: String,
     #[serde(rename = "participantKind")]
-    pub participant_kind: Value,
+    pub participant_kind: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
 }
@@ -2390,7 +2390,7 @@ pub struct AuthIdentitiesListResponseEntriesItemContractEvidence {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthIdentitiesListResponseEntriesItem {
-    pub answer: Value,
+    pub answer: String,
     #[serde(rename = "answeredAt")]
     pub answered_at: String,
     pub capabilities: BTreeMap<String, AuthIdentitiesListResponseEntriesItemCapabilitiesValue>,
@@ -2404,7 +2404,7 @@ pub struct AuthIdentitiesListResponseEntriesItem {
     #[serde(rename = "identityEnvelopeId")]
     pub identity_envelope_id: String,
     #[serde(rename = "participantKind")]
-    pub participant_kind: Value,
+    pub participant_kind: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
     pub user: String,
@@ -2800,6 +2800,24 @@ pub struct AuthServiceInstancesDisableRequest {
 /// Generated schema type `AuthServiceInstancesDisableResponse`.
 /// Generated schema type `AuthServiceInstancesDisableResponseInstance`.
 /// Generated schema type `AuthServiceInstancesDisableResponseInstanceResourceBindings`.
+/// Generated schema type `AuthServiceInstancesDisableResponseInstanceResourceBindingsEventConsumersValue`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthServiceInstancesDisableResponseInstanceResourceBindingsEventConsumersValue {
+    #[serde(rename = "ackWaitMs")]
+    pub ack_wait_ms: i64,
+    #[serde(rename = "backoffMs")]
+    pub backoff_ms: Vec<i64>,
+    pub concurrency: i64,
+    #[serde(rename = "consumerName")]
+    pub consumer_name: String,
+    #[serde(rename = "filterSubjects")]
+    pub filter_subjects: Vec<String>,
+    #[serde(rename = "maxDeliver")]
+    pub max_deliver: i64,
+    pub ordering: String,
+    pub replay: String,
+    pub stream: String,
+}
 /// Generated schema type `AuthServiceInstancesDisableResponseInstanceResourceBindingsJobs`.
 /// Generated schema type `AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueuesValue`.
 /// Generated schema type `AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueuesValuePayload`.
@@ -2877,6 +2895,14 @@ pub struct AuthServiceInstancesDisableResponseInstanceResourceBindingsStoreValue
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthServiceInstancesDisableResponseInstanceResourceBindings {
+    #[serde(rename = "eventConsumers")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_consumers: Option<
+        BTreeMap<
+            String,
+            AuthServiceInstancesDisableResponseInstanceResourceBindingsEventConsumersValue,
+        >,
+    >,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jobs: Option<AuthServiceInstancesDisableResponseInstanceResourceBindingsJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2923,6 +2949,24 @@ pub struct AuthServiceInstancesEnableRequest {
 /// Generated schema type `AuthServiceInstancesEnableResponse`.
 /// Generated schema type `AuthServiceInstancesEnableResponseInstance`.
 /// Generated schema type `AuthServiceInstancesEnableResponseInstanceResourceBindings`.
+/// Generated schema type `AuthServiceInstancesEnableResponseInstanceResourceBindingsEventConsumersValue`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthServiceInstancesEnableResponseInstanceResourceBindingsEventConsumersValue {
+    #[serde(rename = "ackWaitMs")]
+    pub ack_wait_ms: i64,
+    #[serde(rename = "backoffMs")]
+    pub backoff_ms: Vec<i64>,
+    pub concurrency: i64,
+    #[serde(rename = "consumerName")]
+    pub consumer_name: String,
+    #[serde(rename = "filterSubjects")]
+    pub filter_subjects: Vec<String>,
+    #[serde(rename = "maxDeliver")]
+    pub max_deliver: i64,
+    pub ordering: String,
+    pub replay: String,
+    pub stream: String,
+}
 /// Generated schema type `AuthServiceInstancesEnableResponseInstanceResourceBindingsJobs`.
 /// Generated schema type `AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesValue`.
 /// Generated schema type `AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesValuePayload`.
@@ -2998,6 +3042,14 @@ pub struct AuthServiceInstancesEnableResponseInstanceResourceBindingsStoreValue 
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthServiceInstancesEnableResponseInstanceResourceBindings {
+    #[serde(rename = "eventConsumers")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_consumers: Option<
+        BTreeMap<
+            String,
+            AuthServiceInstancesEnableResponseInstanceResourceBindingsEventConsumersValue,
+        >,
+    >,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jobs: Option<AuthServiceInstancesEnableResponseInstanceResourceBindingsJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3049,6 +3101,24 @@ pub struct AuthServiceInstancesListRequest {
 /// Generated schema type `AuthServiceInstancesListResponse`.
 /// Generated schema type `AuthServiceInstancesListResponseEntriesItem`.
 /// Generated schema type `AuthServiceInstancesListResponseEntriesItemResourceBindings`.
+/// Generated schema type `AuthServiceInstancesListResponseEntriesItemResourceBindingsEventConsumersValue`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthServiceInstancesListResponseEntriesItemResourceBindingsEventConsumersValue {
+    #[serde(rename = "ackWaitMs")]
+    pub ack_wait_ms: i64,
+    #[serde(rename = "backoffMs")]
+    pub backoff_ms: Vec<i64>,
+    pub concurrency: i64,
+    #[serde(rename = "consumerName")]
+    pub consumer_name: String,
+    #[serde(rename = "filterSubjects")]
+    pub filter_subjects: Vec<String>,
+    #[serde(rename = "maxDeliver")]
+    pub max_deliver: i64,
+    pub ordering: String,
+    pub replay: String,
+    pub stream: String,
+}
 /// Generated schema type `AuthServiceInstancesListResponseEntriesItemResourceBindingsJobs`.
 /// Generated schema type `AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueuesValue`.
 /// Generated schema type `AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueuesValuePayload`.
@@ -3126,6 +3196,14 @@ pub struct AuthServiceInstancesListResponseEntriesItemResourceBindingsStoreValue
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthServiceInstancesListResponseEntriesItemResourceBindings {
+    #[serde(rename = "eventConsumers")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_consumers: Option<
+        BTreeMap<
+            String,
+            AuthServiceInstancesListResponseEntriesItemResourceBindingsEventConsumersValue,
+        >,
+    >,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jobs: Option<AuthServiceInstancesListResponseEntriesItemResourceBindingsJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3180,6 +3258,24 @@ pub struct AuthServiceInstancesProvisionRequest {
 /// Generated schema type `AuthServiceInstancesProvisionResponse`.
 /// Generated schema type `AuthServiceInstancesProvisionResponseInstance`.
 /// Generated schema type `AuthServiceInstancesProvisionResponseInstanceResourceBindings`.
+/// Generated schema type `AuthServiceInstancesProvisionResponseInstanceResourceBindingsEventConsumersValue`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthServiceInstancesProvisionResponseInstanceResourceBindingsEventConsumersValue {
+    #[serde(rename = "ackWaitMs")]
+    pub ack_wait_ms: i64,
+    #[serde(rename = "backoffMs")]
+    pub backoff_ms: Vec<i64>,
+    pub concurrency: i64,
+    #[serde(rename = "consumerName")]
+    pub consumer_name: String,
+    #[serde(rename = "filterSubjects")]
+    pub filter_subjects: Vec<String>,
+    #[serde(rename = "maxDeliver")]
+    pub max_deliver: i64,
+    pub ordering: String,
+    pub replay: String,
+    pub stream: String,
+}
 /// Generated schema type `AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobs`.
 /// Generated schema type `AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueuesValue`.
 /// Generated schema type `AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueuesValuePayload`.
@@ -3258,6 +3354,14 @@ pub struct AuthServiceInstancesProvisionResponseInstanceResourceBindingsStoreVal
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthServiceInstancesProvisionResponseInstanceResourceBindings {
+    #[serde(rename = "eventConsumers")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_consumers: Option<
+        BTreeMap<
+            String,
+            AuthServiceInstancesProvisionResponseInstanceResourceBindingsEventConsumersValue,
+        >,
+    >,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jobs: Option<AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3662,7 +3766,7 @@ pub struct AuthDeviceUserAuthoritiesApprovedEventApprovedByIdentity {
 pub struct AuthDeviceUserAuthoritiesApprovedEventApprovedBy {
     pub identity: AuthDeviceUserAuthoritiesApprovedEventApprovedByIdentity,
     #[serde(rename = "participantKind")]
-    pub participant_kind: Value,
+    pub participant_kind: String,
     #[serde(rename = "userId")]
     pub user_id: String,
 }
@@ -3679,7 +3783,7 @@ pub struct AuthDeviceUserAuthoritiesApprovedEventRequestedByIdentity {
 pub struct AuthDeviceUserAuthoritiesApprovedEventRequestedBy {
     pub identity: AuthDeviceUserAuthoritiesApprovedEventRequestedByIdentity,
     #[serde(rename = "participantKind")]
-    pub participant_kind: Value,
+    pub participant_kind: String,
     #[serde(rename = "userId")]
     pub user_id: String,
 }
@@ -3718,7 +3822,7 @@ pub struct AuthDeviceUserAuthoritiesRequestedEventRequestedByIdentity {
 pub struct AuthDeviceUserAuthoritiesRequestedEventRequestedBy {
     pub identity: AuthDeviceUserAuthoritiesRequestedEventRequestedByIdentity,
     #[serde(rename = "participantKind")]
-    pub participant_kind: Value,
+    pub participant_kind: String,
     #[serde(rename = "userId")]
     pub user_id: String,
 }
@@ -3751,7 +3855,7 @@ pub struct AuthDeviceUserAuthoritiesResolvedEventResolvedByIdentity {
 pub struct AuthDeviceUserAuthoritiesResolvedEventResolvedBy {
     pub identity: AuthDeviceUserAuthoritiesResolvedEventResolvedByIdentity,
     #[serde(rename = "participantKind")]
-    pub participant_kind: Value,
+    pub participant_kind: String,
     #[serde(rename = "userId")]
     pub user_id: String,
 }
@@ -3788,7 +3892,7 @@ pub struct AuthDeviceUserAuthoritiesReviewRequestedEventRequestedByIdentity {
 pub struct AuthDeviceUserAuthoritiesReviewRequestedEventRequestedBy {
     pub identity: AuthDeviceUserAuthoritiesReviewRequestedEventRequestedByIdentity,
     #[serde(rename = "participantKind")]
-    pub participant_kind: Value,
+    pub participant_kind: String,
     #[serde(rename = "userId")]
     pub user_id: String,
 }

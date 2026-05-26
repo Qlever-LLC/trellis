@@ -575,16 +575,11 @@ async fn approvals_list_command(
     let rows = approvals
         .into_iter()
         .map(|entry| {
-            let answer = entry
-                .answer
-                .as_str()
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| entry.answer.to_string());
             vec![
                 entry.identity_envelope_id,
                 entry.user,
                 entry.display_name,
-                answer,
+                entry.answer,
                 entry.contract_evidence.contract_digest,
                 entry.updated_at,
             ]

@@ -5,6 +5,7 @@ import {
   ContractResourceBindingsSchema,
   ContractResourcesSchema,
   ContractStoreResourceSchema,
+  EventConsumerResourceBindingSchema,
   InstalledServiceContractSchema,
   JobsQueueBindingSchema,
   JobsResourceBindingSchema,
@@ -20,6 +21,7 @@ export {
   ContractResourceBindingsSchema,
   ContractResourcesSchema,
   ContractStoreResourceSchema,
+  EventConsumerResourceBindingSchema,
   InstalledServiceContractSchema,
   JobsQueueBindingSchema,
   JobsResourceBindingSchema,
@@ -34,6 +36,9 @@ export type ContractJobs = Static<typeof ContractJobsSchema>;
 export type ContractResources = Static<typeof ContractResourcesSchema>;
 export type KvResourceBinding = Static<typeof KvResourceBindingSchema>;
 export type StoreResourceBinding = Static<typeof StoreResourceBindingSchema>;
+export type EventConsumerResourceBinding = Static<
+  typeof EventConsumerResourceBindingSchema
+>;
 export type JobsQueueBinding = Static<typeof JobsQueueBindingSchema>;
 export type JobsResourceBinding = Static<typeof JobsResourceBindingSchema>;
 export type ContractResourceBindings = Static<

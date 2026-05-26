@@ -47,6 +47,9 @@ Rules:
 - only `kind: "service"` participants should use `TrellisService.connect(...)`,
   service deployment flows, and service-owned runtime handles such as
   `service.kv`, `service.store`, and `service.jobs`
+- resolved service resource bindings are runtime internals; service authors use
+  the handles returned by `TrellisService.connect(...)` rather than fetching,
+  constructing, or passing binding payloads themselves
 
 ### Directory structure
 
@@ -114,6 +117,12 @@ Deno.addSignalListener("SIGTERM", shutdown);
 
 Rules:
 
+- service code MUST bootstrap through `TrellisService.connect(...)`; do not
+  import the core SDK to recreate service bootstrap or call
+  `Trellis.Bindings.Get` from application code
+- service code MUST NOT construct `TrellisService`, `StoreHandle`, or resource
+  handles directly, and MUST NOT pass resolved binding or resource data into
+  `Trellis` constructors
 - service shutdown handlers SHOULD release runtime resources, remove registered
   signal listeners, and let successful shutdown terminate naturally so
   `deno run --watch` can restart the program instead of exiting the watcher
@@ -208,6 +217,9 @@ Rules:
   an RPC, operation, or event rather than existing only to call other services
 - installable service code uses `TrellisService.connect(...)` and mounts only
   names from its owned contract surface
+- service resource handles come from the connected runtime; do not call
+  `Trellis.Bindings.Get` or manually construct service, KV, store, or jobs
+  handles in service-author code
 - the optional `server` block configures service-runtime concerns such as
   logging, default request timeout, event-consumer stream selection,
   no-responder retry behavior, and extra health checks
@@ -237,6 +249,10 @@ Rules:
   under `uses.required` or `uses.optional`; aliases directly under `uses` are
   invalid, and services must not hand-write remote contract ids or raw method
   strings
+- if the service needs durable event processing, declare an explicit
+  `eventConsumers` group for the subscribed dependency events. A bare
+  `uses.events.subscribe` grant authorizes live/ephemeral listening only; it
+  does not create a durable cursor.
 
 Behavior:
 
@@ -265,22 +281,20 @@ Behavior:
   until an admin approves or rejects the request
 - service-originated pending envelope expansion requests are deduplicated while
   the requester stays connected and are removed if that requester disconnects
-- if the service presents a digest for a `contractId` that already has a
-  different current active digest, Trellis creates or reuses one pending Forced
-  Contract Update for that `contractId`; repeated service restarts while waiting
-  coalesce into the same pending update
-- accepting a Forced Update deletes all non-selected active evidence for that
-  `contractId`; keeping the current digest deletes the proposal. Forced Update
-  is separate from envelope expansion and does not retain deleted evidence as
-  quarantine or repair history.
-- once the envelope fits, bootstrap first verifies that required `uses`
-  dependencies resolve against the active catalog. If the approved dependency
-  closure is still incomplete, bootstrap returns `contract_activation_pending`
-  and the service runtime keeps waiting.
-- if a service presents an older digest for the same contract id after newer
-  deployment evidence exists for that deployment, bootstrap returns
-  `contract_changed` rather than refreshing the old evidence row or issuing
-  credentials for the stale digest
+- if the service presents a different digest for the same `contractId` as the
+  instance's current evidence, Trellis validates same-lineage compatibility in
+  `strict` mode; incompatible replacement returns
+  `contract_compatibility_violation`. Development deployments may opt into
+  `mutable-dev` compatibility to skip this check for unreleased iteration.
+- compatibility mode is separate from envelope expansion and does not retain
+  deleted evidence as quarantine, repair history, or authority.
+- once the envelope fits, bootstrap verifies that required `uses` dependencies
+  resolve against known manifests and the effective envelope. If the requested
+  dependency surfaces cannot be resolved, bootstrap keeps the runtime waiting
+  behind the pending expansion request.
+- if a service presents evidence that no longer fits the enabled deployment
+  envelope, bootstrap returns `contract_changed` rather than refreshing the old
+  evidence row or issuing credentials for stale authority
 - after the dependency closure is active, bootstrap resolves or provisions
   required resource bindings, persists instance runtime state, and returns
   transport and binding details to the service runtime
@@ -292,6 +306,14 @@ Behavior:
 - when a contract declares top-level `jobs`, `TrellisService.connect(...)`
   resolves a typed `service.jobs` facade for job creation, handler registration,
   and worker startup
+- when a contract declares `eventConsumers`, `TrellisService.connect(...)`
+  receives the Trellis-provisioned event-consumer bindings during bootstrap and
+  the scoped handler `client.event.<group>.<leaf>.listen(..., { group })` uses
+  the bound stream and consumer. Service code must not choose or create a
+  JetStream `durableName` for contract event processing.
+- grouped durable event consumers start only after every event in the group has
+  a registered handler, preserving the contract-declared group as the unit of
+  ordering and replay.
 - the shared jobs streams are Trellis-owned infrastructure; service envelope
   expansion approval or successful bootstrap provisions or binds them before
   jobs-enabled services become ready. Jobs admin projections are internal to the

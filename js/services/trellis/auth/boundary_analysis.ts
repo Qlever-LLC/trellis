@@ -507,6 +507,11 @@ function deriveContractResources(
 ): EnvelopeBoundaryResource[] {
   const resources = getContractResourceAnalysis(contract);
   return [
+    ...Object.keys(validatedEventConsumers(contract)).map((alias) => ({
+      kind: "event-consumer" as const,
+      alias,
+      required: true,
+    })),
     ...resources.jobs.map((job) => ({
       kind: "jobs" as const,
       alias: job.queueType,
@@ -525,6 +530,15 @@ function deriveContractResources(
   ].sort((left, right) =>
     left.kind.localeCompare(right.kind) || left.alias.localeCompare(right.alias)
   );
+}
+
+function validatedEventConsumers(
+  contract: TrellisContractV1,
+): Record<string, unknown> {
+  return (contract as TrellisContractV1 & {
+    eventConsumers?: Record<string, unknown>;
+  })
+    .eventConsumers ?? {};
 }
 
 function deriveOwnTransferResources(

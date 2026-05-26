@@ -12,7 +12,7 @@ If the required boundary fits, a participant may bind or connect once non-envelo
 
 Approval expands an envelope. It does not approve an arbitrary list of contract digests. Contract evidence records what was reviewed and presented, while the envelope remains the authority set.
 
-Envelope expansion is separate from **Forced Contract Update**. Expansion reviews a missing boundary delta. A Forced Update chooses the single current digest for an already-global contract id and deletes non-selected active evidence instead of keeping it as quarantine or repair history.
+Envelope expansion is separate from same-contract replacement compatibility. Expansion reviews a missing boundary delta. Production service deployments default to `strict`, which rejects incompatible replacement for an existing service instance. Development deployments can opt into `mutable-dev` compatibility for unreleased local iteration. Neither mode adds authority; only envelope review can do that.
 
 ## Identity envelopes
 
@@ -32,11 +32,13 @@ Deployment envelopes answer what is available in the deployment at all. Service 
 
 ## Boundary and delta
 
-A boundary is the contract-derived set of surfaces, resources, dependencies, and capabilities a participant asks to use.
+A boundary is the contract-derived set of surfaces, resources, dependencies, event consumer groups, and capabilities a participant asks to use.
 
-A delta is the missing part of that boundary. When a contract asks for a required dependency, resource, or capability that is not yet available, Trellis records the delta for review and envelope expansion.
+A delta is the missing part of that boundary. When a contract asks for a required dependency, resource, event consumer group, or capability that is not yet available, Trellis records the delta for review and envelope expansion.
 
-Service-originated pending envelope expansion requests are deduplicated for the connected requester and removed when that requester disconnects. If the same service keeps restarting while a Forced Update is pending for its contract id, those starts coalesce into the same pending Forced Update rather than new envelope expansion requests.
+When an expansion or bootstrap includes `eventConsumers`, Trellis provisions the deployment-scoped durable consumer and stores the binding. Runtime auth then grants only the exact bound JetStream subjects needed by that service instance.
+
+Service-originated pending envelope expansion requests are deduplicated for the connected requester and removed when that requester disconnects. If the same service keeps restarting with the same missing boundary, those starts coalesce into the same pending envelope expansion request.
 
 Required boundaries fail closed. Optional boundaries are used only when they are both available and authorized.
 

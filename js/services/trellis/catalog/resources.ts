@@ -4,11 +4,37 @@ import type { NatsConnection } from "@nats-io/nats-core";
 import { Objm } from "@nats-io/obj";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
+import type { EnvelopeBoundary } from "../auth/schemas.ts";
+import {
+  type ContractEntry,
+  resolveContractUsesFromKnownEntries,
+  templateToWildcard,
+} from "./uses.ts";
+
 type StreamRetentionPolicy = "limits" | "interest" | "workqueue";
 type StreamStorageType = "file" | "memory";
 type StreamDiscardPolicy = "old" | "new";
 
 const TRELLIS_JOBS_CONTRACT_ID = "trellis.jobs@v1";
+const TRELLIS_EVENT_STREAM = "trellis";
+const DEFAULT_REDELIVERY_BACKOFF_MS = [5000, 30000, 120000, 600000, 1800000];
+
+type ContractEventConsumerGroup = {
+  events: Array<{ use: string; event: string }>;
+  replay?: "new" | "all";
+  ordering?: "strict";
+  concurrency?: number;
+  ackWaitMs?: number;
+  maxDeliver?: number;
+  backoffMs?: number[];
+};
+
+type ContractWithEventConsumers = TrellisContractV1 & {
+  eventConsumers?: Record<string, ContractEventConsumerGroup>;
+};
+type ContractUseMap = NonNullable<
+  NonNullable<TrellisContractV1["uses"]>["required"]
+>;
 
 export type KvResourceRequest = {
   alias: string;
@@ -42,6 +68,18 @@ export type JobsQueueRequest = {
   concurrency: number;
 };
 
+export type EventConsumerGroupRequest = {
+  alias: string;
+  stream: string;
+  filterSubjects: string[];
+  replay: "new" | "all";
+  ordering: "strict";
+  concurrency: number;
+  ackWaitMs: number;
+  maxDeliver: number;
+  backoffMs: number[];
+};
+
 type StreamResourceSourceBinding = {
   fromAlias: string;
   streamName: string;
@@ -63,14 +101,32 @@ type BuiltinStreamBinding = {
   sources?: StreamResourceSourceBinding[];
 };
 
+type ConsumerInfoLike = Record<string, unknown>;
+
+type EventConsumerManager = {
+  add(
+    stream: string,
+    config: Record<string, unknown>,
+  ): Promise<ConsumerInfoLike>;
+  info(stream: string, consumer: string): Promise<ConsumerInfoLike>;
+  update?(
+    stream: string,
+    consumer: string,
+    config: Record<string, unknown>,
+  ): Promise<ConsumerInfoLike>;
+};
+
 export type ContractResourceAnalysis = {
   kv: KvResourceRequest[];
   store: StoreResourceRequest[];
   jobs: JobsQueueRequest[];
+  eventConsumers: EventConsumerGroupRequest[];
 };
 
 export type ResourceProvisioningOptions = {
   jetstreamReplicas?: number;
+  knownContractEntries?: ContractEntry[];
+  envelopeBoundary?: EnvelopeBoundary;
 };
 
 export type ContractResourceBindings = {
@@ -106,6 +162,17 @@ export type ContractResourceBindings = {
       concurrency: number;
     }>;
   };
+  eventConsumers?: Record<string, {
+    stream: string;
+    consumerName: string;
+    filterSubjects: string[];
+    replay: "new" | "all";
+    ordering: "strict";
+    concurrency: number;
+    ackWaitMs: number;
+    maxDeliver: number;
+    backoffMs: number[];
+  }>;
 };
 
 export type InstalledServiceContractBinding = {
@@ -529,6 +596,13 @@ function isStreamNotFoundError(error: unknown): boolean {
   );
 }
 
+function isConsumerNotFoundError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.name === "ConsumerNotFoundError" ||
+    error.message.includes("consumer not found")
+  );
+}
+
 async function ensureBuiltinJobsInfrastructure(
   nats: NatsConnection,
   options: ResourceProvisioningOptions = {},
@@ -540,6 +614,45 @@ async function ensureBuiltinJobsInfrastructure(
     BUILTIN_JOBS_STREAMS.jobsAdvisories,
     options,
   );
+}
+
+async function ensureEventConsumer(
+  nats: NatsConnection,
+  request: EventConsumerGroupRequest,
+  consumerName: string,
+): Promise<void> {
+  const jsm = await jetstreamManager(nats);
+  const consumers: EventConsumerManager = jsm.consumers;
+  const config = {
+    durable_name: consumerName,
+    ack_policy: "explicit",
+    deliver_policy: request.replay,
+    filter_subjects: request.filterSubjects,
+    ack_wait: request.ackWaitMs * 1_000_000,
+    max_deliver: request.maxDeliver,
+    max_ack_pending: request.concurrency,
+    backoff: request.backoffMs.map((delay) => delay * 1_000_000),
+  };
+
+  try {
+    await consumers.add(request.stream, config);
+  } catch (addError) {
+    if (consumers.update) {
+      try {
+        await consumers.update(request.stream, consumerName, config);
+        return;
+      } catch (updateError) {
+        if (!isConsumerNotFoundError(updateError)) {
+          throw updateError;
+        }
+      }
+    }
+    try {
+      await consumers.info(request.stream, consumerName);
+    } catch {
+      throw addError;
+    }
+  }
 }
 
 function sanitizeToken(value: string): string {
@@ -571,6 +684,23 @@ function buildResourceName(
   const logical = sanitizeToken(alias).slice(0, 20);
   const hash = stableResourceHash([serviceDeploymentId, contractId, alias]);
   return `svc_${service}_${contract}_${logical}_${hash}`;
+}
+
+function buildEventConsumerName(
+  serviceDeploymentId: string,
+  contractId: string,
+  alias: string,
+): string {
+  const service = sanitizeToken(serviceDeploymentId).slice(0, 12);
+  const contract = sanitizeToken(contractId).slice(0, 12);
+  const logical = sanitizeToken(alias).slice(0, 24);
+  const hash = stableResourceHash([
+    serviceDeploymentId,
+    contractId,
+    alias,
+    "event-consumer",
+  ]);
+  return `svc_${service}_${contract}_${logical}_${hash}`.slice(0, 64);
 }
 
 export function getKvResourceRequests(
@@ -625,6 +755,144 @@ export function getJobsQueueRequests(
     .sort((left, right) => left.queueType.localeCompare(right.queueType));
 }
 
+function envelopeAllowsEventSubscribe(
+  envelope: EnvelopeBoundary | undefined,
+  contractId: string,
+  name: string,
+): boolean {
+  if (!envelope) return true;
+  return envelope.surfaces.some((surface) =>
+    surface.contractId === contractId &&
+    surface.kind === "event" &&
+    surface.name === name &&
+    surface.action === "subscribe"
+  );
+}
+
+function eventConsumerMaxDeliver(group: ContractEventConsumerGroup): number {
+  return group.maxDeliver ?? DEFAULT_REDELIVERY_BACKOFF_MS.length + 1;
+}
+
+function eventConsumerBackoffMs(
+  group: ContractEventConsumerGroup,
+  maxDeliver: number,
+): number[] {
+  const maxBackoffEntries = Math.max(maxDeliver - 1, 0);
+  return [...(group.backoffMs ?? DEFAULT_REDELIVERY_BACKOFF_MS)].slice(
+    0,
+    maxBackoffEntries,
+  );
+}
+
+export function getEventConsumerGroupRequests(
+  contract: TrellisContractV1,
+  options: Pick<
+    ResourceProvisioningOptions,
+    "knownContractEntries" | "envelopeBoundary"
+  > = {},
+): EventConsumerGroupRequest[] {
+  const groups = (contract as ContractWithEventConsumers).eventConsumers ?? {};
+  if (Object.keys(groups).length === 0) return [];
+
+  const eventConsumerContract = contractWithOnlyEventConsumerUses(
+    contract,
+    groups,
+  );
+  const resolved = resolveContractUsesFromKnownEntries(
+    options.knownContractEntries ?? [],
+    eventConsumerContract,
+  );
+  return Object.entries(groups)
+    .map(([alias, group]) => {
+      const maxDeliver = eventConsumerMaxDeliver(group);
+      const filterSubjects = group.events.map((eventRef) => {
+        const resolvedEvent = resolved.eventSubscribes.find((event) =>
+          event.alias === eventRef.use && event.key === eventRef.event &&
+          envelopeAllowsEventSubscribe(
+            options.envelopeBoundary,
+            event.contractId,
+            event.key,
+          )
+        );
+        if (!resolvedEvent) {
+          throw new Error(
+            `event consumer group '${alias}' references unapproved or unknown subscribed event '${eventRef.use}.${eventRef.event}'`,
+          );
+        }
+        return templateToWildcard(resolvedEvent.event.subject);
+      });
+      return {
+        alias,
+        stream: TRELLIS_EVENT_STREAM,
+        filterSubjects: [...new Set(filterSubjects)].sort((left, right) =>
+          left.localeCompare(right)
+        ),
+        replay: group.replay ?? "new",
+        ordering: group.ordering ?? "strict",
+        concurrency: group.concurrency ?? 1,
+        ackWaitMs: group.ackWaitMs ?? 300000,
+        maxDeliver,
+        backoffMs: eventConsumerBackoffMs(group, maxDeliver),
+      };
+    })
+    .sort((left, right) => left.alias.localeCompare(right.alias));
+}
+
+function contractWithOnlyEventConsumerUses(
+  contract: TrellisContractV1,
+  groups: Record<string, ContractEventConsumerGroup>,
+): TrellisContractV1 {
+  const aliases = new Set(
+    Object.values(groups).flatMap((group) =>
+      group.events.map((eventRef) => eventRef.use)
+    ),
+  );
+  const required = pickContractUses(contract.uses?.required, aliases);
+  const optional = pickContractUses(contract.uses?.optional, aliases);
+  const scopedContract: TrellisContractV1 = { ...contract };
+  if (required || optional) {
+    scopedContract.uses = {
+      ...(required ? { required } : {}),
+      ...(optional ? { optional } : {}),
+    };
+  } else {
+    delete scopedContract.uses;
+  }
+  return scopedContract;
+}
+
+function pickContractUses(
+  uses: ContractUseMap | undefined,
+  aliases: ReadonlySet<string>,
+): ContractUseMap | undefined {
+  const entries = Object.entries(uses ?? {}).filter(([alias]) =>
+    aliases.has(alias)
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function getEventConsumerGroupDeclarations(
+  contract: TrellisContractV1,
+): EventConsumerGroupRequest[] {
+  const groups = (contract as ContractWithEventConsumers).eventConsumers ?? {};
+  return Object.entries(groups)
+    .map(([alias, group]) => {
+      const maxDeliver = eventConsumerMaxDeliver(group);
+      return {
+        alias,
+        stream: TRELLIS_EVENT_STREAM,
+        filterSubjects: [],
+        replay: group.replay ?? "new",
+        ordering: group.ordering ?? "strict",
+        concurrency: group.concurrency ?? 1,
+        ackWaitMs: group.ackWaitMs ?? 300000,
+        maxDeliver,
+        backoffMs: eventConsumerBackoffMs(group, maxDeliver),
+      };
+    })
+    .sort((left, right) => left.alias.localeCompare(right.alias));
+}
+
 export function getStoreResourceRequests(
   contract: TrellisContractV1,
 ): StoreResourceRequest[] {
@@ -651,6 +919,7 @@ export function getContractResourceAnalysis(
     kv: getKvResourceRequests(contract),
     store: getStoreResourceRequests(contract),
     jobs: getJobsQueueRequests(contract),
+    eventConsumers: getEventConsumerGroupDeclarations(contract),
   };
 }
 
@@ -694,12 +963,14 @@ export async function provisionContractResourceBindings(
   const requests = getKvResourceRequests(contract);
   const stores = getStoreResourceRequests(contract);
   const jobs = getJobsQueueRequests(contract);
+  const eventConsumers = getEventConsumerGroupRequests(contract, options);
   const needsBuiltinJobsInfrastructure = jobs.length > 0 ||
     contract.id === TRELLIS_JOBS_CONTRACT_ID;
   if (
     requests.length === 0 &&
     stores.length === 0 &&
-    !needsBuiltinJobsInfrastructure
+    !needsBuiltinJobsInfrastructure &&
+    eventConsumers.length === 0
   ) {
     return {};
   }
@@ -818,6 +1089,37 @@ export async function provisionContractResourceBindings(
     };
   }
 
+  if (eventConsumers.length > 0) {
+    if (!nats) {
+      throw new Error(
+        "NATS connection is required to provision event consumer resources",
+      );
+    }
+    const consumerBindings: NonNullable<
+      ContractResourceBindings["eventConsumers"]
+    > = {};
+    for (const consumer of eventConsumers) {
+      const consumerName = buildEventConsumerName(
+        serviceDeploymentId,
+        contract.id,
+        consumer.alias,
+      );
+      await ensureEventConsumer(nats, consumer, consumerName);
+      consumerBindings[consumer.alias] = {
+        stream: consumer.stream,
+        consumerName,
+        filterSubjects: [...consumer.filterSubjects],
+        replay: consumer.replay,
+        ordering: consumer.ordering,
+        concurrency: consumer.concurrency,
+        ackWaitMs: consumer.ackWaitMs,
+        maxDeliver: consumer.maxDeliver,
+        backoffMs: [...consumer.backoffMs],
+      };
+    }
+    bindings.eventConsumers = consumerBindings;
+  }
+
   return bindings;
 }
 
@@ -869,6 +1171,17 @@ export function getResourcePermissionGrants(
       subscribe.add(`${queue.publishPrefix}.*.*`);
       subscribe.add(`${queue.publishPrefix}.*.cancelled`);
     }
+  }
+
+  for (const consumer of Object.values(bindings?.eventConsumers ?? {})) {
+    publish.add("$JS.API.INFO");
+    publish.add(
+      `$JS.API.CONSUMER.INFO.${consumer.stream}.${consumer.consumerName}`,
+    );
+    publish.add(
+      `$JS.API.CONSUMER.MSG.NEXT.${consumer.stream}.${consumer.consumerName}`,
+    );
+    publish.add(`$JS.ACK.${consumer.stream}.${consumer.consumerName}.>`);
   }
 
   return {

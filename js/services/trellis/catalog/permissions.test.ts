@@ -974,7 +974,7 @@ Deno.test("operation control publish honors empty capability lists and declared 
   });
 });
 
-Deno.test("service event subscriptions include JetStream control subjects", () => {
+Deno.test("service event subscriptions do not include durable create subjects", () => {
   withContracts(TEST_CONTRACTS, () => {
     const publishSubjects = getServicePublishSubjects(
       ["service", "service:events:auth"],
@@ -987,48 +987,55 @@ Deno.test("service event subscriptions include JetStream control subjects", () =
     assertEquals(publishSubjects.includes("$JS.API.INFO"), true);
     assertEquals(
       publishSubjects.includes("$JS.API.CONSUMER.CREATE.trellis.>"),
-      true,
+      false,
     );
     assertEquals(
       publishSubjects.includes("$JS.API.CONSUMER.DURABLE.CREATE.trellis.>"),
-      true,
+      false,
     );
     assertEquals(
       publishSubjects.includes("$JS.API.CONSUMER.INFO.trellis.>"),
-      true,
+      false,
     );
     assertEquals(
       publishSubjects.includes("$JS.API.CONSUMER.MSG.NEXT.trellis.>"),
-      true,
+      false,
     );
-    assertEquals(publishSubjects.includes("$JS.ACK.>"), true);
+    assertEquals(publishSubjects.includes("$JS.ACK.>"), false);
   });
 });
 
-Deno.test("user event subscriptions include JetStream control publish subjects", () => {
+Deno.test("user event subscriptions include raw subscribe subjects without JetStream control publish subjects", () => {
   withContracts(TEST_CONTRACTS, () => {
     const publishSubjects = getUserPublishSubjects(["partners:read"], {
       contractDigest: "portal-digest",
     });
+    const subscribeSubjects = getUserSubscribeSubjects(["partners:read"], {
+      contractDigest: "portal-digest",
+    });
 
-    assertEquals(publishSubjects.includes("$JS.API.INFO"), true);
+    assertEquals(
+      subscribeSubjects.includes("events.v1.Partner.Changed.*.*"),
+      true,
+    );
+    assertEquals(publishSubjects.includes("$JS.API.INFO"), false);
     assertEquals(
       publishSubjects.includes("$JS.API.CONSUMER.CREATE.trellis.>"),
-      true,
+      false,
     );
     assertEquals(
       publishSubjects.includes("$JS.API.CONSUMER.DURABLE.CREATE.trellis.>"),
-      true,
+      false,
     );
     assertEquals(
       publishSubjects.includes("$JS.API.CONSUMER.INFO.trellis.>"),
-      true,
+      false,
     );
     assertEquals(
       publishSubjects.includes("$JS.API.CONSUMER.MSG.NEXT.trellis.>"),
-      true,
+      false,
     );
-    assertEquals(publishSubjects.includes("$JS.ACK.>"), true);
+    assertEquals(publishSubjects.includes("$JS.ACK.>"), false);
   });
 });
 

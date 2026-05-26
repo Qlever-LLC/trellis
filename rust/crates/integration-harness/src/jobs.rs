@@ -766,7 +766,7 @@ async fn assert_jobs_list_filters(jobs_client: &JobsClient<'_>) -> Result<()> {
             offset: None,
             service: Some(HARNESS_JOBS_SERVICE.to_string()),
             since: Some("2026-03-28T12:00:11.500Z".to_string()),
-            state: Some(vec![json!("failed"), json!("dead")]),
+            state: Some(vec!["failed".to_string(), "dead".to_string()]),
             r#type: Some(HARNESS_JOBS_QUEUE.to_string()),
         })
         .await
@@ -1739,15 +1739,15 @@ async fn await_job_state(
     ))
 }
 
-fn assert_state(state: &Value, expected: &str, context: &str) -> Result<()> {
+fn assert_state(state: &str, expected: &str, context: &str) -> Result<()> {
     if state_is(state, expected) {
         return Ok(());
     }
     Err(miette!("{context} returned unexpected state `{state}`"))
 }
 
-fn state_is(state: &Value, expected: &str) -> bool {
-    state.as_str() == Some(expected)
+fn state_is(state: &str, expected: &str) -> bool {
+    state == expected
 }
 
 async fn reauth_admin_setup(

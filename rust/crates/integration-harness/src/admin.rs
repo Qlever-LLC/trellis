@@ -22,7 +22,8 @@ use trellis::sdk::auth::{
     AuthUsersUpdateRequest,
 };
 use trellis::sdk::core::{
-    CoreClient, TrellisBindingsGetRequest, TrellisContractGetRequest, TrellisSurfaceStatusRequest,
+    rpc::TrellisBindingsGetRpc, CoreClient, TrellisBindingsGetRequest, TrellisContractGetRequest,
+    TrellisSurfaceStatusRequest,
 };
 
 use crate::app::admin_setup_contract_json;
@@ -518,9 +519,9 @@ pub(crate) async fn run_admin_api_fixture(
         .trellis()
         .surface_status(&TrellisSurfaceStatusRequest {
             contract_id: "trellis.core@v1".to_string(),
-            kind: json!("rpc"),
+            kind: "rpc".to_string(),
             surface: "Trellis.Catalog".to_string(),
-            action: Some(json!("call")),
+            action: Some("call".to_string()),
         })
         .await
         .into_diagnostic()?;
@@ -836,9 +837,9 @@ async fn assert_trellis_surface_status_device_implementer(
         .trellis()
         .surface_status(&TrellisSurfaceStatusRequest {
             contract_id: contract_id.to_string(),
-            kind: json!("rpc"),
+            kind: "rpc".to_string(),
             surface: surface.to_string(),
-            action: Some(json!("call")),
+            action: Some("call".to_string()),
         })
         .await
         .into_diagnostic()?;
@@ -869,10 +870,8 @@ async fn assert_trellis_bindings_get(
     })
     .await
     .into_diagnostic()?;
-    let response = CoreClient::new(&service_client)
-        .rpc()
-        .trellis()
-        .bindings_get(&TrellisBindingsGetRequest {
+    let response = service_client
+        .call::<TrellisBindingsGetRpc>(&TrellisBindingsGetRequest {
             contract_id: Some(contract_id.to_string()),
             digest: Some(contract_digest.to_string()),
         })

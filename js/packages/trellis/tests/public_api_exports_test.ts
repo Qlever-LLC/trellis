@@ -41,6 +41,12 @@ import type { OperationTransport } from "../index.ts";
 import type { TrellisServiceRuntime } from "../index.ts";
 // @ts-expect-error Legacy server names must not be root exports.
 import type { TrellisServer } from "../index.ts";
+// @ts-expect-error resolved resource bindings are internal bootstrap state.
+import type { ResourceBindings as ServiceResourceBindings } from "../service/deno.ts";
+// @ts-expect-error resolved KV bindings are internal bootstrap state.
+import type { ResourceBindingKV } from "../server/mod.ts";
+// @ts-expect-error resolved object-store bindings are internal bootstrap state.
+import type { ResourceBindingStore } from "../service/mod.ts";
 
 Deno.test("root public API includes core runtime, contracts, and result helpers", () => {
   assertEquals("defineContract" in trellis, false);

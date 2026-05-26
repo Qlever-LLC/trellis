@@ -76,9 +76,9 @@ pub struct DeviceConnectOptions<'a> {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EventSubscriptionMode {
     /// Reuse a named durable consumer and retain delivery state across reconnects.
-    #[default]
     Durable,
     /// Create an unnamed consumer that ends when the subscription is dropped.
+    #[default]
     Ephemeral,
 }
 
@@ -86,9 +86,9 @@ pub enum EventSubscriptionMode {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EventReplayPolicy {
     /// Deliver all retained events visible to the consumer.
-    #[default]
     All,
     /// Deliver only events published after the consumer is created.
+    #[default]
     New,
 }
 
@@ -1234,9 +1234,24 @@ impl TrellisClient {
         D: EventDescriptor,
         D::Event: Send + 'static,
     {
-        let messages = self
-            .subscribe_messages::<D>(EventSubscribeOptions::default())
-            .await?;
+        self.subscribe_with_options::<D>(EventSubscribeOptions::default())
+            .await
+    }
+
+    /// Subscribe to one descriptor-backed event subject with explicit subscription options.
+    pub async fn subscribe_with_options<D>(
+        &self,
+        options: EventSubscribeOptions,
+    ) -> Result<BoxStream<'static, Result<D::Event, TrellisClientError>>, TrellisClientError>
+    where
+        D: EventDescriptor,
+        D::Event: Send + 'static,
+    {
+        if options.mode == EventSubscriptionMode::Ephemeral {
+            return self.subscribe_live::<D>().await;
+        }
+
+        let messages = self.subscribe_messages::<D>(options).await?;
         let stream = stream::try_unfold(messages, |mut messages| async move {
             match messages.next().await {
                 Some(Ok(event_message)) => {
@@ -1245,6 +1260,34 @@ impl TrellisClient {
                     Ok(Some((event, messages)))
                 }
                 Some(Err(error)) => Err(error),
+                None => Ok(None),
+            }
+        });
+
+        Ok(Box::pin(stream) as BoxStream<'static, Result<D::Event, TrellisClientError>>)
+    }
+
+    async fn subscribe_live<D>(
+        &self,
+    ) -> Result<BoxStream<'static, Result<D::Event, TrellisClientError>>, TrellisClientError>
+    where
+        D: EventDescriptor,
+        D::Event: Send + 'static,
+    {
+        let subscriber = timeout(
+            std::time::Duration::from_millis(self.timeout_ms),
+            self.nats.subscribe(D::SUBJECT.to_string()),
+        )
+        .await
+        .map_err(|_| TrellisClientError::Timeout)?
+        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+
+        let stream = stream::try_unfold(subscriber, |mut subscriber| async move {
+            match subscriber.next().await {
+                Some(message) => {
+                    let event: D::Event = serde_json::from_slice(&message.payload)?;
+                    Ok(Some((event, subscriber)))
+                }
                 None => Ok(None),
             }
         });
@@ -1273,12 +1316,18 @@ impl TrellisClient {
         .map_err(|_| TrellisClientError::Timeout)?
         .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
 
-        let config = event_consumer_config::<D>(&self.auth.session_key, &options);
+        if options.mode == EventSubscriptionMode::Durable && options.durable_name.is_none() {
+            return Err(TrellisClientError::EventSubscriptionProtocol(
+                "durable event subscriptions require a pre-provisioned durable name".to_string(),
+            ));
+        }
+
+        let config = event_consumer_config::<D>(&options);
         let durable_name = config.durable_name.clone();
         let consumer = match durable_name.as_deref() {
             Some(name) => timeout(
                 std::time::Duration::from_millis(self.timeout_ms),
-                event_stream.get_or_create_consumer(name, config),
+                event_stream.get_consumer(name),
             )
             .await
             .map_err(|_| TrellisClientError::Timeout)?
@@ -1549,21 +1598,13 @@ fn is_terminal_event(event: &Value) -> bool {
     )
 }
 
-fn event_consumer_config<D>(
-    session_key: &str,
-    options: &EventSubscribeOptions,
-) -> consumer::pull::Config
+fn event_consumer_config<D>(options: &EventSubscribeOptions) -> consumer::pull::Config
 where
     D: EventDescriptor,
 {
     consumer::pull::Config {
         durable_name: match options.mode {
-            EventSubscriptionMode::Durable => Some(
-                options
-                    .durable_name
-                    .clone()
-                    .unwrap_or_else(|| event_consumer_name::<D>(session_key)),
-            ),
+            EventSubscriptionMode::Durable => options.durable_name.clone(),
             EventSubscriptionMode::Ephemeral => None,
         },
         deliver_policy: match options.replay {
@@ -1574,20 +1615,6 @@ where
         filter_subject: D::SUBJECT.to_string(),
         ..Default::default()
     }
-}
-
-fn event_consumer_name<D>(session_key: &str) -> String
-where
-    D: EventDescriptor,
-{
-    let mut name = format!(
-        "trellis_rust_{}",
-        session_key.chars().take(16).collect::<String>()
-    );
-    for ch in D::KEY.chars() {
-        name.push(if ch.is_ascii_alphanumeric() { ch } else { '_' });
-    }
-    name
 }
 
 #[cfg(test)]
@@ -1636,31 +1663,35 @@ mod tests {
     }
 
     #[test]
-    fn event_consumer_config_uses_durable_filtered_consumer() {
-        let config = event_consumer_config::<PaymentCapturedEvent>(
-            "session_key_1234567890",
-            &EventSubscribeOptions::default(),
-        );
+    fn event_consumer_config_uses_named_durable_filtered_consumer() {
+        let config =
+            event_consumer_config::<PaymentCapturedEvent>(&EventSubscribeOptions::default());
 
         assert_eq!(config.filter_subject, PaymentCapturedEvent::SUBJECT);
-        assert_eq!(config.deliver_policy, consumer::DeliverPolicy::All);
+        assert_eq!(config.deliver_policy, consumer::DeliverPolicy::New);
         assert_eq!(config.ack_policy, consumer::AckPolicy::Explicit);
+        assert_eq!(config.durable_name, None);
+
+        let config = event_consumer_config::<PaymentCapturedEvent>(&EventSubscribeOptions {
+            mode: EventSubscriptionMode::Durable,
+            replay: EventReplayPolicy::All,
+            durable_name: Some("payments_capture_projection".to_string()),
+        });
+
         assert_eq!(
             config.durable_name.as_deref(),
-            Some("trellis_rust_session_key_1234Payment_Captured")
+            Some("payments_capture_projection")
         );
+        assert_eq!(config.deliver_policy, consumer::DeliverPolicy::All);
     }
 
     #[test]
     fn event_consumer_config_supports_ephemeral_new_events() {
-        let config = event_consumer_config::<PaymentCapturedEvent>(
-            "session_key_1234567890",
-            &EventSubscribeOptions {
-                mode: EventSubscriptionMode::Ephemeral,
-                replay: EventReplayPolicy::New,
-                durable_name: Some("ignored".to_string()),
-            },
-        );
+        let config = event_consumer_config::<PaymentCapturedEvent>(&EventSubscribeOptions {
+            mode: EventSubscriptionMode::Ephemeral,
+            replay: EventReplayPolicy::New,
+            durable_name: Some("ignored".to_string()),
+        });
 
         assert_eq!(config.filter_subject, PaymentCapturedEvent::SUBJECT);
         assert_eq!(config.deliver_policy, consumer::DeliverPolicy::New);

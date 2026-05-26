@@ -14,6 +14,24 @@ pub struct TrellisBindingsGetRequest {
 /// Generated schema type `TrellisBindingsGetResponse`.
 /// Generated schema type `TrellisBindingsGetResponseBinding`.
 /// Generated schema type `TrellisBindingsGetResponseBindingResources`.
+/// Generated schema type `TrellisBindingsGetResponseBindingResourcesEventConsumersValue`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisBindingsGetResponseBindingResourcesEventConsumersValue {
+    #[serde(rename = "ackWaitMs")]
+    pub ack_wait_ms: i64,
+    #[serde(rename = "backoffMs")]
+    pub backoff_ms: Vec<i64>,
+    pub concurrency: i64,
+    #[serde(rename = "consumerName")]
+    pub consumer_name: String,
+    #[serde(rename = "filterSubjects")]
+    pub filter_subjects: Vec<String>,
+    #[serde(rename = "maxDeliver")]
+    pub max_deliver: i64,
+    pub ordering: String,
+    pub replay: String,
+    pub stream: String,
+}
 /// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobs`.
 /// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobsQueuesValue`.
 /// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobsQueuesValuePayload`.
@@ -87,6 +105,10 @@ pub struct TrellisBindingsGetResponseBindingResourcesStoreValue {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrellisBindingsGetResponseBindingResources {
+    #[serde(rename = "eventConsumers")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_consumers:
+        Option<BTreeMap<String, TrellisBindingsGetResponseBindingResourcesEventConsumersValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jobs: Option<TrellisBindingsGetResponseBindingResourcesJobs>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -101,10 +123,31 @@ pub struct TrellisBindingsGetResponseBinding {
     pub digest: String,
     pub resources: TrellisBindingsGetResponseBindingResources,
 }
+/// Generated schema type `TrellisBindingsGetResponseEventConsumersValue`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisBindingsGetResponseEventConsumersValue {
+    #[serde(rename = "ackWaitMs")]
+    pub ack_wait_ms: i64,
+    #[serde(rename = "backoffMs")]
+    pub backoff_ms: Vec<i64>,
+    pub concurrency: i64,
+    #[serde(rename = "consumerName")]
+    pub consumer_name: String,
+    #[serde(rename = "filterSubjects")]
+    pub filter_subjects: Vec<String>,
+    #[serde(rename = "maxDeliver")]
+    pub max_deliver: i64,
+    pub ordering: String,
+    pub replay: String,
+    pub stream: String,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrellisBindingsGetResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binding: Option<TrellisBindingsGetResponseBinding>,
+    #[serde(rename = "eventConsumers")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_consumers: Option<BTreeMap<String, TrellisBindingsGetResponseEventConsumersValue>>,
 }
 /// Generated schema type `TrellisCatalogResponse`.
 /// Generated schema type `TrellisCatalogResponseCatalog`.
@@ -121,13 +164,13 @@ pub struct TrellisCatalogResponseCatalogContractsItem {
 /// Generated schema type `TrellisCatalogResponseCatalogIssuesItemActionsItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrellisCatalogResponseCatalogIssuesItemActionsItem {
-    pub action: Value,
+    pub action: String,
     #[serde(rename = "deploymentIds")]
     pub deployment_ids: Vec<String>,
     pub description: String,
     pub digests: Vec<String>,
     pub label: String,
-    pub risk: Value,
+    pub risk: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrellisCatalogResponseCatalogIssuesItem {
@@ -156,7 +199,7 @@ pub struct TrellisCatalogResponseCatalogIssuesItem {
     pub effective_digests: Option<Vec<String>>,
     #[serde(rename = "issueId")]
     pub issue_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub message: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -325,7 +368,7 @@ pub struct TrellisContractGetResponseContractStateValue {
         Option<BTreeMap<String, TrellisContractGetResponseContractStateValueAcceptedVersionsValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub docs: Option<TrellisContractGetResponseContractStateValueDocs>,
-    pub kind: Value,
+    pub kind: String,
     pub schema: TrellisContractGetResponseContractStateValueSchema,
     #[serde(rename = "stateVersion")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -348,7 +391,7 @@ pub struct TrellisContractGetResponseContract {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jobs: Option<BTreeMap<String, TrellisContractGetResponseContractJobsValue>>,
-    pub kind: Value,
+    pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub operations: Option<BTreeMap<String, BTreeMap<String, Value>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -370,10 +413,10 @@ pub struct TrellisContractGetResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrellisSurfaceStatusRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub action: Option<Value>,
+    pub action: Option<String>,
     #[serde(rename = "contractId")]
     pub contract_id: String,
-    pub kind: Value,
+    pub kind: String,
     pub surface: String,
 }
 /// Generated schema type `TrellisSurfaceStatusResponse`.

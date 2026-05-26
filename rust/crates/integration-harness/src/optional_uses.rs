@@ -790,7 +790,7 @@ async fn wait_for_pending_delta(
                 deployment_id: Some(deployment_id.to_string()),
                 limit: 20,
                 offset: None,
-                state: Some(json!("pending")),
+                state: Some("pending".to_string()),
             })
             .await
             .into_diagnostic()?;
@@ -1068,7 +1068,7 @@ async fn wait_for_consumer_pending_optional_delta(
                 deployment_id: Some(CONSUMER_DEPLOYMENT_ID.to_string()),
                 limit: 20,
                 offset: None,
-                state: Some(json!("pending")),
+                state: Some("pending".to_string()),
             })
             .await
             .into_diagnostic()?;

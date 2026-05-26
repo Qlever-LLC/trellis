@@ -5,12 +5,13 @@ A contract declares:
 - **RPCs** the service handles (request/reply operations)
 - **operations** the service exposes as caller-visible async workflows
 - **events** the service publishes or subscribes to
+- **event consumer groups** the service wants Trellis to provision for durable event processing
 - **feeds** the service exposes as authorized live streams for apps and services
 - **resources** the service needs Trellis to provision (KV buckets, stores, and job queues)
 - **dependencies** on other contracts via `uses`
 - **capabilities** required to call each operation
 
-Contracts are the source of truth for authorization. Trellis derives NATS subject permissions from deployment-owned service/device catalog entries plus identity-envelope-approved app, CLI, native, and device-user contract evidence. If an operation is not explicitly declared in an applicable contract, the participant cannot access it.
+Contracts are the source of truth for the boundary a participant asks to use. Trellis derives NATS subject permissions by checking the presented contract evidence against the relevant deployment or identity envelope. If an operation is not explicitly declared in the presented contract and covered by the effective envelope, the participant cannot access it.
 
 ## Contract kinds
 
@@ -25,13 +26,15 @@ Portals are deployment-owned browser routing records, not a contract kind. A cus
 
 ## Contract identity
 
-Each contract has a stable `id` like `graph@v1` or `trellis.auth@v1`. The `@vN` suffix is a major version; breaking changes require a new version. Within one Trellis runtime, a contract id is globally unique and the active catalog has at most one current digest for that id.
+Each contract has a stable `id` like `graph@v1` or `trellis.auth@v1`. The `@vN` suffix is a major version; breaking changes require a new version. Within one Trellis runtime, a contract id is globally unique for subject ownership and generated SDK identity.
 
 Cross-contract `uses` validation must resolve to compatible active surfaces, so compatible rollout is allowed but divergent active definitions for the same logical surface are rejected. Trellis compares resolved schema definitions, not only schema ref names: canonically equal schemas and optional fields that remain safely absent on the wire can coexist, while closed-object additions, required-field changes, and unproven schema changes fail closed.
 
 Contracts are content-addressed by a SHA-256 digest of a normalized runtime/interface projection derived from their canonical JSON form. Human-facing metadata such as `displayName`, `description`, exported-only schemas, and unused local schemas do not change the digest; callable surfaces, authorization requirements, resources, and reachable schemas do.
 
-If a service presents a different digest for an already-active contract id, Trellis creates a pending **Forced Contract Update**. A Forced Update is destructive, similar to a force push: the admin chooses the current or proposed digest, and Trellis deletes non-selected active evidence rather than keeping it as quarantine or repair history. Repeated service restarts while the decision is pending coalesce into the same Forced Update for that contract id.
+`eventConsumers` are part of that runtime projection. They reference events already listed in `uses.events.subscribe`, and Trellis provisions the physical JetStream consumer when the deployment envelope expands or the service bootstraps. Service code uses the logical group name; it does not choose a durable consumer name.
+
+If a service instance presents a different digest for the same contract id, Trellis checks same-lineage compatibility. Production deployments default to `strict` and reject incompatible same-contract replacement; development deployments may opt into `mutable-dev` compatibility for unreleased iteration. The deployment envelope remains the durable authority either way.
 
 ## Generated contract artifacts
 

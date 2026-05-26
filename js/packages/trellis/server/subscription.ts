@@ -32,7 +32,10 @@ export type SubscribeOpts = {
   startSeq?: number;
   /** Start consuming from a specific time */
   startTime?: Date;
-  /** Name for the durable consumer */
+  /**
+   * @deprecated Service event listeners should use contract `eventConsumers` and
+   * logical listener groups instead of naming JetStream consumers directly.
+   */
   consumerName?: string;
 };
 

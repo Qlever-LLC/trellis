@@ -118,10 +118,11 @@ creates an envelope expansion request for the missing delta. Approval expands an
 envelope; it does not approve contract digest lists. Optional boundaries are
 used only when both available and authorized.
 
-Envelope expansion is distinct from Forced Contract Update. A Forced Contract
-Update chooses the one current digest for a globally unique `contractId`; it
-does not expand an envelope or retain non-selected evidence as quarantine or
-repair history.
+Envelope expansion is distinct from same-contract replacement compatibility.
+Production service deployments default to `strict`, which rejects incompatible
+replacement for an existing service instance. Development deployments may opt
+into `mutable-dev` compatibility for unreleased local iteration. Neither mode
+expands an envelope; only envelope review can add authority.
 
 Non-envelope prerequisites stay separate from envelopes:
 
@@ -512,34 +513,34 @@ Rules:
 
 - Trellis MUST derive permissions from contracts rather than from a parallel
   scope system
-- runtime permission derivation and active-catalog refresh resolve `uses`
-  dependencies against currently active contracts. Inactive or missing required
-  dependencies fail closed instead of being treated as advisory metadata.
+- runtime permission derivation resolves `uses` dependencies against known
+  contract manifests. Unknown or missing required dependency surfaces fail
+  closed instead of being treated as advisory metadata.
 - contract dependencies are authored and emitted only under `uses.required` or
   `uses.optional`; flat aliases directly under `uses` are invalid and must not
   be interpreted as required dependencies.
 - approval planning may derive reviewable surfaces and capabilities from known
-  inactive required dependency manifests, but runtime permission derivation and
-  active-catalog refresh still require those dependencies to be active.
+  inactive required dependency manifests. Runtime permission derivation still
+  requires the requested dependency surfaces to be known and covered by the
+  effective envelope.
 - missing optional dependency contracts or optional requested surfaces are
   skipped during planning and grant no runtime authority; if they later become
-  active, they require a new envelope expansion and approval before a fresh
+  known, they require a new envelope expansion and approval before a fresh
   reconnect can use them.
-- active-catalog refresh, portal routing, surface status, shrink preview, and
-  unused installed-contract cleanup are derived through targeted durable-store
-  queries rather than broad scans of local manifests or in-memory catalogs.
+- catalog refresh, portal routing, surface status, shrink preview, and unused
+  installed-contract cleanup are derived through targeted durable-store queries
+  rather than broad scans of local manifests or in-memory catalogs.
 - auth callout, bootstrap, and catalog flows resolve full manifests from
   built-in Trellis contracts or the global contract store; deployment evidence
-  records are used to discover approved digests and surfaces, not to hydrate
-  manifests.
+  records are used as review/audit evidence, not to hydrate manifests or grant
+  authority.
 - bootstrap planning may use known inactive dependency manifests for review, but
   stale incompatible inactive manifests are treated as unresolved dependency
-  blockers rather than active catalog repair issues.
-- across the runtime, the active catalog projection contains at most one current
-  digest for each `contractId`; Forced Contract Update resolution deletes
-  non-selected same-id evidence, and reconnects for non-current digests fail
-  with `contract_changed` or wait behind `contract_activation_pending` while the
-  Forced Update is pending.
+  blockers rather than catalog repair issues.
+- across the runtime, non-builtin runtime authority comes from envelope fit.
+  Service reconnects whose presented evidence no longer fits fail with
+  `contract_changed`; same-instance incompatible replacement in `strict` mode
+  fails with `contract_compatibility_violation`.
 - user approval planning collects required capability keys from declared RPC,
   operation, and event capability lists and attaches the owning contract's
   capability metadata when available
@@ -549,6 +550,14 @@ Rules:
 - operation, RPC, and event access are contract-level authorization concerns;
   runtime subject permissions are derived from those surfaces, transfer
   declarations, and installed resource bindings
+- `uses.events.subscribe` authorizes the logical event subscription surface.
+  Durable service event processing also requires a matching `eventConsumers`
+  resource binding, which Trellis provisions and scopes to one physical
+  JetStream consumer.
+- event-consumer resource permissions MUST be least-privilege grants for the
+  bound stream and consumer name. Services must not receive broad durable
+  consumer-create or wildcard consumer-control subjects for ordinary event
+  processing.
 - transfer permissions MUST be derived from explicit contract transfer
   declarations rather than broad transfer or download subject grants
 - operations that declare `transfer: { direction: "send", ... }` authorize

@@ -23,7 +23,7 @@ pub struct JobsCancelResponseJobContext {
 /// Generated schema type `JobsCancelResponseJobLogsItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsCancelResponseJobLogsItem {
-    pub level: Value,
+    pub level: String,
     pub message: String,
     pub timestamp: String,
 }
@@ -66,7 +66,7 @@ pub struct JobsCancelResponseJob {
     #[serde(rename = "startedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
-    pub state: Value,
+    pub state: String,
     pub tries: i64,
     pub r#type: String,
     #[serde(rename = "updatedAt")]
@@ -97,7 +97,7 @@ pub struct JobsDismissDLQResponseJobContext {
 /// Generated schema type `JobsDismissDLQResponseJobLogsItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsDismissDLQResponseJobLogsItem {
-    pub level: Value,
+    pub level: String,
     pub message: String,
     pub timestamp: String,
 }
@@ -140,7 +140,7 @@ pub struct JobsDismissDLQResponseJob {
     #[serde(rename = "startedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
-    pub state: Value,
+    pub state: String,
     pub tries: i64,
     pub r#type: String,
     #[serde(rename = "updatedAt")]
@@ -171,7 +171,7 @@ pub struct JobsGetResponseJobContext {
 /// Generated schema type `JobsGetResponseJobLogsItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsGetResponseJobLogsItem {
-    pub level: Value,
+    pub level: String,
     pub message: String,
     pub timestamp: String,
 }
@@ -214,7 +214,7 @@ pub struct JobsGetResponseJob {
     #[serde(rename = "startedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
-    pub state: Value,
+    pub state: String,
     pub tries: i64,
     pub r#type: String,
     #[serde(rename = "updatedAt")]
@@ -243,7 +243,7 @@ pub struct JobsListRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<Vec<Value>>,
+    pub state: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub r#type: Option<String>,
 }
@@ -263,7 +263,7 @@ pub struct JobsListResponseEntriesItemContext {
 /// Generated schema type `JobsListResponseEntriesItemLogsItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsListResponseEntriesItemLogsItem {
-    pub level: Value,
+    pub level: String,
     pub message: String,
     pub timestamp: String,
 }
@@ -306,7 +306,7 @@ pub struct JobsListResponseEntriesItem {
     #[serde(rename = "startedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
-    pub state: Value,
+    pub state: String,
     pub tries: i64,
     pub r#type: String,
     #[serde(rename = "updatedAt")]
@@ -351,7 +351,7 @@ pub struct JobsListDLQResponseEntriesItemContext {
 /// Generated schema type `JobsListDLQResponseEntriesItemLogsItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsListDLQResponseEntriesItemLogsItem {
-    pub level: Value,
+    pub level: String,
     pub message: String,
     pub timestamp: String,
 }
@@ -394,7 +394,7 @@ pub struct JobsListDLQResponseEntriesItem {
     #[serde(rename = "startedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
-    pub state: Value,
+    pub state: String,
     pub tries: i64,
     pub r#type: String,
     #[serde(rename = "updatedAt")]
@@ -470,7 +470,7 @@ pub struct JobsReplayDLQResponseJobContext {
 /// Generated schema type `JobsReplayDLQResponseJobLogsItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsReplayDLQResponseJobLogsItem {
-    pub level: Value,
+    pub level: String,
     pub message: String,
     pub timestamp: String,
 }
@@ -513,7 +513,7 @@ pub struct JobsReplayDLQResponseJob {
     #[serde(rename = "startedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
-    pub state: Value,
+    pub state: String,
     pub tries: i64,
     pub r#type: String,
     #[serde(rename = "updatedAt")]
@@ -544,7 +544,7 @@ pub struct JobsRetryResponseJobContext {
 /// Generated schema type `JobsRetryResponseJobLogsItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsRetryResponseJobLogsItem {
-    pub level: Value,
+    pub level: String,
     pub message: String,
     pub timestamp: String,
 }
@@ -587,7 +587,7 @@ pub struct JobsRetryResponseJob {
     #[serde(rename = "startedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
-    pub state: Value,
+    pub state: String,
     pub tries: i64,
     pub r#type: String,
     #[serde(rename = "updatedAt")]

@@ -21,6 +21,7 @@ mod transfer;
 
 pub use bindings::{
     validate_bootstrap_contract_state, BootstrapBinding, BootstrapContractRef,
+    EventConsumerOrdering, EventConsumerReplay, EventConsumerResourceBinding,
     JobsQueueResourceBinding, JobsResourceBinding, JobsSchemaRef, KvResourceBinding,
     ServiceResourceBindings, StoreResourceBinding,
 };

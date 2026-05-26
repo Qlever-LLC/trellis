@@ -351,6 +351,7 @@ export const EnvelopeResourceKindSchema = Type.Union([
   Type.Literal("kv"),
   Type.Literal("store"),
   Type.Literal("jobs"),
+  Type.Literal("event-consumer"),
   Type.Literal("transfer"),
 ]);
 export type EnvelopeResourceKind = StaticDecode<

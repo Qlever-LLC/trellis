@@ -1,4 +1,5 @@
 import { assertEquals } from "@std/assert";
+import type { NatsConnection } from "@nats-io/nats-core";
 import { Type } from "typebox";
 
 import {
@@ -11,8 +12,11 @@ import {
   TrellisDevice,
 } from "../index.ts";
 import { checkDeviceActivation } from "../device/deno.ts";
+import { API as CORE_API, type Client as CoreClient } from "../sdk/core.ts";
 import { sdk as jobs } from "../sdk/jobs.ts";
 import { TrellisService } from "../service/deno.ts";
+import { StoreHandle } from "../server/mod.ts";
+import { Trellis, type TrellisAuth, type TrellisOpts } from "../trellis.ts";
 
 const selectionSchemas = {
   Empty: Type.Object({}),
@@ -85,6 +89,9 @@ const serviceContract = defineServiceContract({}, () => ({
 
 declare const connectedAppClient: ConnectedTrellisClient<typeof appContract>;
 declare const rootAppTrellis: RootTrellis<typeof appContract.API.trellis>;
+declare const coreClient: CoreClient;
+declare const natsConnection: NatsConnection;
+declare const trellisAuth: TrellisAuth;
 
 async function typecheckClientConnectRequestSurface() {
   const connected = connectedAppClient;
@@ -307,12 +314,43 @@ async function typecheckServiceConnectSurface() {
   return service.name;
 }
 
+function typecheckResolvedRuntimeBindingsAreNotPublicAuthoringSurface() {
+  const publicOpts: TrellisOpts<typeof serviceContract.API.owned> = {
+    api: serviceContract.API.owned,
+    // @ts-expect-error resolved event consumer bindings are internal runtime state
+    eventConsumers: {},
+  };
+
+  new Trellis("client", natsConnection, trellisAuth, {
+    api: serviceContract.API.owned,
+    // @ts-expect-error public Trellis constructor must not accept resolved bindings
+    eventConsumers: {},
+  });
+
+  // @ts-expect-error StoreHandle instances are provisioned by TrellisService
+  new StoreHandle(natsConnection, { name: "objects", ttlMs: 0 });
+
+  // @ts-expect-error TrellisService instances are created by connect/bootstrap
+  new TrellisService();
+
+  return publicOpts;
+}
+
+function typecheckGeneratedCoreInternalRpcSurface() {
+  const descriptor = CORE_API.owned.rpc["Trellis.Bindings.Get"];
+  const subject: string = descriptor.subject;
+
+  return { coreClient, descriptor, subject };
+}
+
 void typecheckClientConnectRequestSurface;
 void typecheckRootTrellisRequestSurface;
 void typecheckTrellisClientConnectRequestSurface;
 void typecheckDeviceConnectRequestSurface;
 void typecheckDeviceActivationSurface;
 void typecheckServiceConnectSurface;
+void typecheckResolvedRuntimeBindingsAreNotPublicAuthoringSurface;
+void typecheckGeneratedCoreInternalRpcSurface;
 
 Deno.test("public connect helpers preserve contract-derived request typing", () => {
   assertEquals(true, true);

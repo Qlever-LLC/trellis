@@ -6,8 +6,6 @@ export {
   type JobsFacadeOf,
   type OperationHandler,
   type OperationRegistration,
-  type ResourceBindingKV,
-  type ResourceBindings,
   type RpcHandler,
   type ServiceContract,
   type Trellis,
