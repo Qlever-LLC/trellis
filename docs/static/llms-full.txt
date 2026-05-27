@@ -89,7 +89,9 @@ await service.handle.rpc.orders.get(async ({ input, client }) => {
 ```
 
 Do not use unscoped runtime objects in handlers. The scoped `client` represents
-the service's allowed dependencies.
+the service's allowed outbound dependencies. Register event listeners during
+service startup with `service.event`; handler-injected clients can publish and
+prepare events, but they cannot listen.
 
 ### Schemas and errors
 
@@ -169,17 +171,18 @@ id or contract digest, because outbox rows should not be coupled to the
 publisher's current deployment metadata.
 
 Use `SqlInboxRepository` only when replaying a message would repeat a
-non-idempotent side effect:
+non-idempotent side effect. Register the listener during service startup, not
+inside a handler:
 
 ```ts
 import { SqlInboxRepository } from "@qlever-llc/trellis/service";
 
-await client.event.orders.shipped.listen(async (event) => {
+await service.event.orders.shipped.listen(async (event) => {
   const inbox = new SqlInboxRepository(db, "postgres");
   if (!(await inbox.record(event.header.id))) return;
 
   await applyNonIdempotentSideEffect(event);
-});
+}, {}, { group: "shipmentProjection" }).orThrow();
 ```
 
 Use `NatsKvOutboxRepository` and `NatsKvInboxRepository` for services that do not

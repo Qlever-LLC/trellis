@@ -48,6 +48,8 @@ import { mountStandardHealthRpc } from "./health_rpc.ts";
 import type { RPCDesc } from "@qlever-llc/trellis/contracts";
 import type {
   AcceptedOperation,
+  ActiveEventFacade,
+  ActiveEventPublishFacade,
   FeedEventOf,
   FeedInputOf,
   FeedRegistration as RootFeedRegistration,
@@ -1094,6 +1096,36 @@ type ServiceHandleFacade = {
   >;
 };
 
+type ServiceEventPublishLeaf = {
+  prepare(
+    event: Record<string, unknown>,
+  ): ReturnType<HandlerTrellis<TrellisAPI>["prepare"]>;
+  publish(
+    event: Record<string, unknown>,
+  ): ReturnType<HandlerTrellis<TrellisAPI>["publish"]>;
+};
+
+function createServiceEventPublishFacade<TA extends TrellisAPI>(outbound: {
+  readonly api: TA;
+  prepare(
+    event: string,
+    data: Record<string, unknown>,
+  ): ReturnType<HandlerTrellis<TA>["prepare"]>;
+  publish(
+    event: string,
+    data: Record<string, unknown>,
+  ): ReturnType<HandlerTrellis<TA>["publish"]>;
+}): ActiveEventPublishFacade<TA> {
+  const surface: Record<string, Record<string, ServiceEventPublishLeaf>> = {};
+  for (const event of Object.keys(outbound.api.events ?? {})) {
+    addSurfaceLeaf(surface, event, {
+      prepare: (payload) => outbound.prepare(event, payload),
+      publish: (payload) => outbound.publish(event, payload),
+    });
+  }
+  return surface as ActiveEventPublishFacade<TA>;
+}
+
 type PascalSurfaceName<T extends string> = T extends
   `${infer Head}.${infer Tail}`
   ? `${Capitalize<Head>}${PascalSurfaceName<Tail>}`
@@ -1402,20 +1434,13 @@ export async function createConnectedService<
 
   const handlerTrellis: Trellis<TTrellisApi, TKv, TJobs> = {
     rpc: outbound.rpc,
-    event: outbound.event,
+    event: createServiceEventPublishFacade(outbound),
     feed: outbound.feed,
     operation: outbound.operation,
     request: outbound.request.bind(outbound),
     prepare: (event, data) => outbound.prepare(event, data),
     publish: (event, data) => outbound.publish(event, data),
     publishPrepared: (event) => outbound.publishPrepared(event),
-    listenEvent: (event, subjectData, fn, opts) =>
-      outbound.listenEvent(
-        event,
-        subjectData,
-        fn as (message: unknown) => ReturnType<typeof fn>,
-        opts,
-      ),
     get kv() {
       return getHandlerResources().kv;
     },
@@ -1509,6 +1534,7 @@ export async function createConnectedService<
     args.auth,
     args.nc,
     server,
+    outbound.event,
     handlerTrellis,
     kv,
     args.contractJobs,
@@ -2198,6 +2224,8 @@ export class TrellisService<
   readonly nc: NatsConnection;
   readonly #server: TrellisServiceRuntimeFor<TOwnedApi & TTrellisApi>;
   readonly #handlerTrellis: Trellis<TTrellisApi, TKv, TJobs>;
+  /** Event lifecycle surface for service startup listeners and publishers. */
+  readonly event: ActiveEventFacade<TTrellisApi>;
   readonly kv: ServiceKvFacade<TKv>;
   readonly store: Record<string, StoreHandle>;
   readonly jobs: JobsFacadeOf<TJobs, TTrellisApi, TKv>;
@@ -2216,6 +2244,7 @@ export class TrellisService<
     auth: SessionAuth,
     nc: NatsConnection,
     server: TrellisServiceRuntimeFor<TOwnedApi & TTrellisApi>,
+    event: ActiveEventFacade<TTrellisApi>,
     handlerTrellis: Trellis<TTrellisApi, TKv, TJobs>,
     kv: ServiceKvFacade<TKv>,
     contractJobs: TJobs,
@@ -2240,6 +2269,7 @@ export class TrellisService<
       enumerable: false,
     });
     this.#handlerTrellis = handlerTrellis;
+    this.event = event;
     this.kv = kv;
     this.store = Object.fromEntries(
       Object.entries(storeBindings).map((

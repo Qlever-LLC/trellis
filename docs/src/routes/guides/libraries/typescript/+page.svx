@@ -162,10 +162,11 @@ await client.event.orders.shipped.listen(async (event) => {
 ```
 
 Service code that needs durable delivery must declare an `eventConsumers` group
-in its service contract and pass that logical group name when listening:
+in its service contract and pass that logical group name from startup code when
+listening:
 
 ```ts
-await client.event.orders.shipped.listen(async (event) => {
+await service.event.orders.shipped.listen(async (event) => {
   await projectShipment(event);
   return Result.ok(undefined);
 }, {}, { group: "shipmentProjection" }).orThrow();
@@ -174,6 +175,10 @@ await client.event.orders.shipped.listen(async (event) => {
 Do not pass `durableName`; Trellis provisions the physical JetStream consumer
 from the contract and returns the binding during service bootstrap. Use
 `mode: "ephemeral"` for live-only listeners that do not need a durable cursor.
+
+Register service listeners during startup, not inside RPC, job, operation, or
+feed handlers. Handler-injected clients are outbound-only for events: they can
+`publish(...)` and `prepare(...)`, but they cannot `listen(...)`.
 
 Services publish events from handler or job code through the scoped `client`
 passed to that code:
@@ -247,12 +252,12 @@ key, no inbox is needed.
 ```ts
 import { SqlInboxRepository } from "@qlever-llc/trellis/service";
 
-await client.event.orders.shipped.listen(async (event) => {
+await service.event.orders.shipped.listen(async (event) => {
   const inbox = new SqlInboxRepository(db, "postgres");
   if (!(await inbox.record(event.header.id))) return;
 
   await applyNonIdempotentSideEffect(event);
-});
+}, {}, { group: "shipmentProjection" }).orThrow();
 ```
 
 `NatsKvOutboxRepository` and `NatsKvInboxRepository` are durable queue and dedupe

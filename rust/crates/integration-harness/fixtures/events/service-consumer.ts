@@ -97,32 +97,33 @@ const service = await TrellisService.connect({
   server: { log: undefined },
 }).orThrow();
 
-let listenerStarted = false;
 let receivedMessage = "";
 let reportedReceived = false;
 
-await service.handle.rpc.harness.eventsStartConsumer(async ({ client }) => {
-  if (!listenerStarted) {
-    listenerStarted = true;
-    console.log("TS_EVENTS_SERVICE_CONSUMER_STARTING");
-    try {
-      await client.event.harness.rustEvent.listen(
-        (event) => {
-          const payload = event as { message?: string };
-          receivedMessage = payload.message ?? "";
-          if (!reportedReceived) {
-            reportedReceived = true;
-            console.log("TS_EVENTS_SERVICE_CONSUMER_OK");
-          }
-          return ok(undefined);
-        },
-        {},
-        { group: "serviceEvents" },
-      ).orThrow();
-    } catch (error) {
-      console.error("TS_EVENTS_SERVICE_CONSUMER_LISTEN_ERROR", error);
-      throw error;
-    }
+console.log("TS_EVENTS_SERVICE_CONSUMER_STARTING");
+try {
+  await service.event.harness.rustEvent.listen(
+    (event) => {
+      const payload = event as { message?: string };
+      receivedMessage = payload.message ?? "";
+      if (!reportedReceived) {
+        reportedReceived = true;
+        console.log("TS_EVENTS_SERVICE_CONSUMER_OK");
+      }
+      return ok(undefined);
+    },
+    {},
+    { group: "serviceEvents" },
+  ).orThrow();
+} catch (error) {
+  console.error("TS_EVENTS_SERVICE_CONSUMER_LISTEN_ERROR", error);
+  throw error;
+}
+
+await service.handle.rpc.harness.eventsStartConsumer(({ client }) => {
+  if (false) {
+    // @ts-expect-error handler-injected clients cannot register listeners
+    void client.event.harness.rustEvent.listen(() => ok(undefined));
   }
   return ok({ started: true });
 });

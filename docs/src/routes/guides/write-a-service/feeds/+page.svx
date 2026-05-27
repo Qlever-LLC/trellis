@@ -45,34 +45,27 @@ import * as schemas from "../schemas.ts";
   },
 ```
 
-Now handle the feed in `main.ts`. This example listens to the service's own order events and only emits frames the caller is allowed to see:
+Now handle the feed in `main.ts`. Feed handlers should use service-owned state or an application-local stream; they must not register Trellis event listeners inside the handler. This example watches the service's local order projection and only emits frames the caller is allowed to see:
 
 ```ts
 await service.handle.feed.orders.live(async ({ input, caller, emit, signal }) => {
   const visibleCustomerIds = await listCustomersVisibleTo(caller);
+  const shippedOrders = watchShippedOrders({ signal });
 
-  await service.event.orders.shipped.listen(
-    async (event) => {
-      if (input.customerId && event.customerId !== input.customerId) {
-        return;
-      }
-      if (!visibleCustomerIds.has(event.customerId)) {
-        return;
-      }
+  for await (const event of shippedOrders) {
+    if (input.customerId && event.customerId !== input.customerId) {
+      continue;
+    }
+    if (!visibleCustomerIds.has(event.customerId)) {
+      continue;
+    }
 
-      return emit({ name: "Orders.Shipped", event });
-    },
-    {},
-    { mode: "ephemeral", replay: "new", signal },
-  ).orThrow();
-
-  await new Promise<void>((resolve) => {
-    signal.addEventListener("abort", () => resolve(), { once: true });
-  });
+    await emit({ name: "Orders.Shipped", event }).orThrow();
+  }
 });
 ```
 
-The feed handler receives an authenticated `caller`. Your service is still responsible for checking the requested filter and every emitted frame.
+The feed handler receives an authenticated `caller`. Your service is still responsible for checking the requested filter and every emitted frame. If the feed needs data from contract events, consume those events through a startup `service.event...listen(...)` listener that updates service-local state, then have feed handlers watch that state.
 
 {/snippet}
 {#snippet rust()}

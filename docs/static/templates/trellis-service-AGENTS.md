@@ -32,9 +32,13 @@ or outbox/inbox code.
 
 ## TypeScript local rules
 
-- Prefer `client.rpc`, `client.event`, `client.feed`, and `client.operation`.
+- Prefer generated `client.rpc`, `client.event`, `client.feed`, and
+  `client.operation` for outbound calls.
 - Register handlers with `service.handle`.
-- Inside handlers, use the scoped `client` argument for outbound calls.
+- Register event listeners during startup with `service.event`, never inside
+  handlers.
+- Inside handlers, use the scoped `client` argument for outbound calls; event
+  handlers can publish and prepare events but cannot listen.
 - Use TypeBox for Trellis wire schemas and Zod for environment/config parsing.
 - Run the repository's format, typecheck, test, and Trellis generation commands
   before reporting completion.

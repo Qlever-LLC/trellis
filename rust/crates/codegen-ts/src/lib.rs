@@ -1429,7 +1429,7 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
         format!(
-            "import type {{ AcceptedOperation, AsyncResult, BaseError, EventOpts, FeedSubscribeOpts, FeedSubscription, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationObserverCallbacks, OperationRef, OperationRefData, OperationRuntimeHandle, PreparedTrellisEvent, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, Result, RpcHandlerContext, SendTransferGrant, SendTransferHandle, TerminalOperation, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
+            "import type {{ AcceptedOperation, AsyncResult, BaseError, EventOpts, FeedSubscribeOpts, FeedSubscription, HandlerTrellis, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationObserverCallbacks, OperationRef, OperationRefData, OperationRuntimeHandle, PreparedTrellisEvent, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, Result, RpcHandlerContext, SendTransferGrant, SendTransferHandle, TerminalOperation, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
             js_string(&trellis_import)
         ),
         "import type { API, Api } from \"./api.ts\";".to_string(),
@@ -1457,7 +1457,7 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
         "  bivarianceHack(message: TMessage): MaybeAsync<void, BaseError>;".to_string(),
         "}[\"bivarianceHack\"];".to_string(),
         String::new(),
-        "type RpcHandler<TInput, TOutput> = (args: { input: TInput; context: RpcHandlerContext; client: Client }) => MaybeAsync<TOutput, BaseError>;".to_string(),
+        "type RpcHandler<TInput, TOutput> = (args: { input: TInput; context: RpcHandlerContext; client: HandlerClient }) => MaybeAsync<TOutput, BaseError>;".to_string(),
         String::new(),
         state_type,
         String::new(),
@@ -1518,6 +1518,7 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
     lines.push(String::new());
     lines.push(render_service_handle_surface(loaded));
     lines.push(String::new());
+    lines.push("export type HandlerClient = HandlerTrellis<Api>;".to_string());
     lines.push(format!("export type Client = {interface_name};"));
 
     format!(
@@ -1697,7 +1698,7 @@ fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
             surface_leaf(
                 key,
                 format!(
-                    "{}(handler: (context: {{ input: Types.{base}Input; caller: unknown; signal: AbortSignal; emit(event: Types.{base}Event): AsyncResult<void, ValidationError | UnexpectedError>; client: Client }}) => unknown | Promise<unknown>): Promise<void>;",
+                    "{}(handler: (context: {{ input: Types.{base}Input; caller: unknown; signal: AbortSignal; emit(event: Types.{base}Event): AsyncResult<void, ValidationError | UnexpectedError>; client: HandlerClient }}) => unknown | Promise<unknown>): Promise<void>;",
                     surface_leaf_name(key)
                 ),
             )
@@ -1722,7 +1723,7 @@ fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
             surface_leaf(
                 key,
                 format!(
-                    "{}: ((handler: (context: {{ input: Types.{base}Input; client: Client }}) => unknown | Promise<unknown>) => Promise<void>) & {{ accept(args: {{ sessionKey: string }}): AsyncResult<AcceptedOperation<{progress}, {output}>, UnexpectedError>; control(operationId: string): AsyncResult<OperationRuntimeHandle<{progress}, {output}>, BaseError>; }};",
+                    "{}: ((handler: (context: {{ input: Types.{base}Input; client: HandlerClient }}) => unknown | Promise<unknown>) => Promise<void>) & {{ accept(args: {{ sessionKey: string }}): AsyncResult<AcceptedOperation<{progress}, {output}>, UnexpectedError>; control(operationId: string): AsyncResult<OperationRuntimeHandle<{progress}, {output}>, BaseError>; }};",
                     surface_leaf_name(key)
                 ),
             )
@@ -2504,7 +2505,7 @@ fn render_mod_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         "export * from \"./types.ts\";".to_string(),
         "export * from \"./schemas.ts\";".to_string(),
         format!(
-            "export type {{ Client, {client_interface}, {client_state} }} from \"./client.ts\";"
+            "export type {{ Client, HandlerClient, {client_interface}, {client_state} }} from \"./client.ts\";"
         ),
     ];
     if !operation_client_exports.is_empty() {
@@ -3195,6 +3196,7 @@ mod tests {
             )]))
         );
         assert!(client.contains("export interface TrellisDemoKvServiceClient {"));
+        assert!(client.contains("HandlerTrellis"));
         assert!(client.contains("import type { API, Api } from \"./api.ts\";"));
         assert!(client.contains("import type * as Types from \"./types.ts\";"));
         assert!(client.contains("TerminalOperation"));
@@ -3223,14 +3225,23 @@ mod tests {
             "live(input: Types.ExampleLiveInput, opts?: FeedSubscribeOpts): AsyncResult<FeedSubscription<Types.ExampleLiveEvent>, BaseError>;"
         ));
         assert!(client.contains("readonly handle: ServiceHandle;"));
-        assert!(client.contains("client: Client"));
+        assert!(client.contains("export type HandlerClient = HandlerTrellis<Api>;"));
+        assert!(client.contains(
+            "type RpcHandler<TInput, TOutput> = (args: { input: TInput; context: RpcHandlerContext; client: HandlerClient }) => MaybeAsync<TOutput, BaseError>;"
+        ));
+        assert!(client.contains(
+            "emit(event: Types.ExampleLiveEvent): AsyncResult<void, ValidationError | UnexpectedError>; client: HandlerClient"
+        ));
+        assert!(client.contains("input: Types.ExampleProcessInput; client: HandlerClient"));
+        assert!(!client.contains("client: Client"));
         assert!(!client.contains("request(method:"));
         assert!(!client.contains("publish(event: string"));
         assert!(!client.contains("event(event:"));
         assert!(!client.contains("feed(feed:"));
         assert!(client.contains("export type Client = TrellisDemoKvServiceClient;"));
-        assert!(mod_ts
-            .contains("export type { Client, TrellisDemoKvServiceClient, TrellisDemoKvServiceState } from \"./client.ts\";"));
+        assert!(mod_ts.contains(
+            "export type { Client, HandlerClient, TrellisDemoKvServiceClient, TrellisDemoKvServiceState } from \"./client.ts\";"
+        ));
         assert!(mod_ts.contains(
             "export type { ExampleProcessOperation, ExampleProcessOperationRef, ExampleProcessTerminal } from \"./client.ts\";"
         ));

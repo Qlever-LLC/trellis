@@ -307,10 +307,12 @@ Behavior:
   resolves a typed `service.jobs` facade for job creation, handler registration,
   and worker startup
 - when a contract declares `eventConsumers`, `TrellisService.connect(...)`
-  receives the Trellis-provisioned event-consumer bindings during bootstrap and
-  the scoped handler `client.event.<group>.<leaf>.listen(..., { group })` uses
-  the bound stream and consumer. Service code must not choose or create a
-  JetStream `durableName` for contract event processing.
+  receives the Trellis-provisioned event-consumer bindings during bootstrap.
+  Register listeners during startup through
+  `service.event.<group>.<leaf>.listen(..., { group })`; handler-injected
+  clients are outbound-only and cannot register long-lived listeners. Service
+  code must not choose or create a JetStream `durableName` for contract event
+  processing.
 - grouped durable event consumers start only after every event in the group has
   a registered handler, preserving the contract-declared group as the unit of
   ordering and replay.

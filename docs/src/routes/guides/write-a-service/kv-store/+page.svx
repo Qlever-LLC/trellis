@@ -126,21 +126,18 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
 }
 ```
 
-After preparing artifacts and applying the contract boundary, open the resolved resource binding from bootstrap:
+After preparing artifacts and applying the contract boundary, open the resource
+through the connected service runtime. Do not fetch or pass binding data yourself;
+Trellis resolves bindings during service bootstrap and exposes resource clients
+through the connected service object.
 
 ```rust
-use trellis::client::TrellisClient;
-use trellis::service::{NatsKvResourceClient, ResourceRuntimeClient, ServiceResourceBindings};
+use trellis::service::NatsKvResourceClient;
 
 async fn open_orders_kv(
-    client: &TrellisClient,
-    resources: &ServiceResourceBindings,
+    service: &trellis_sdk_orders_service::ConnectedService,
 ) -> anyhow::Result<NatsKvResourceClient> {
-    let binding = resources
-        .kv
-        .get("orders")
-        .context("service bootstrap did not include orders KV binding")?;
-    Ok(client.nats().open_kv(binding).await?)
+    Ok(service.kv_client("orders").await?)
 }
 ```
 

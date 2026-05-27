@@ -24,6 +24,8 @@ verification commands.
   `client.feed`, and `client.operation`.
 - Register providers through `service.handle`.
 - Inside handlers, use the scoped `client` argument for allowed outbound calls.
+- Register event listeners during startup with `service.event`; do not register
+  listeners inside handlers.
 - Use TypeBox for contract, RPC, event, feed, and operation wire schemas. Use Zod
   for environment/config parsing.
 - Publish simple events with `client.event.<group>.<name>.publish(...)`.

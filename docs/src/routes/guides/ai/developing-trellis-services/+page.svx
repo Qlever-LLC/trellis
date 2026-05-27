@@ -109,16 +109,19 @@ Use `SqlInboxRepository` only for handlers that are not naturally idempotent. Us
 is sufficient and no unrelated database transaction must be atomic.
 
 For durable service event processing, require an explicit `eventConsumers` group
-in the service contract and call the generated event listener with that group:
+in the service contract and register the listener during service startup with
+that group:
 
 ```ts
-await client.event.orders.shipped.listen(handleShipment, {}, {
+await service.event.orders.shipped.listen(handleShipment, {}, {
   group: "shipmentProjection",
 }).orThrow();
 ```
 
 Never invent `durableName` values in service code. Trellis provisions the
 physical consumer and grants only that bound consumer to the service token.
+Handler-injected clients may publish and prepare events, but they must not
+register listeners.
 
 ## Rust instructions for agents
 

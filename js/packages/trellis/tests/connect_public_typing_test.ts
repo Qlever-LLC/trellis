@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import type { NatsConnection } from "@nats-io/nats-core";
+import { Result } from "@qlever-llc/result";
 import { Type } from "typebox";
 
 import {
@@ -13,6 +14,7 @@ import {
 } from "../index.ts";
 import { checkDeviceActivation } from "../device/deno.ts";
 import { API as CORE_API, type Client as CoreClient } from "../sdk/core.ts";
+import type { HandlerClient as CoreHandlerClient } from "../../../../generated/packages/jsr/trellis-core/client.ts";
 import { sdk as jobs } from "../sdk/jobs.ts";
 import { TrellisService } from "../service/deno.ts";
 import { StoreHandle } from "../server/mod.ts";
@@ -81,11 +83,39 @@ const deviceContract = defineDeviceContract(() => ({
   description: "Typecheck the public device connect helper.",
 }));
 
-const serviceContract = defineServiceContract({}, () => ({
-  id: "trellis.connect-typing-service@v1",
-  displayName: "Connect Typing Service",
-  description: "Typecheck the public service connect helper.",
-}));
+const serviceSchemas = {
+  PingInput: Type.Object({ value: Type.String() }),
+  PingOutput: Type.Object({ ok: Type.Boolean() }),
+  ServiceChanged: Type.Object({
+    header: Type.Object({ id: Type.String(), time: Type.String() }),
+    id: Type.String(),
+    value: Type.String(),
+  }),
+} as const;
+
+const serviceContract = defineServiceContract(
+  { schemas: serviceSchemas },
+  (ref) => ({
+    id: "trellis.connect-typing-service@v1",
+    displayName: "Connect Typing Service",
+    description: "Typecheck the public service connect helper.",
+    rpc: {
+      "Service.Ping": {
+        version: "v1",
+        input: ref.schema("PingInput"),
+        output: ref.schema("PingOutput"),
+        errors: [],
+      },
+    },
+    events: {
+      "Service.Changed": {
+        version: "v1",
+        params: ["/id"],
+        event: ref.schema("ServiceChanged"),
+      },
+    },
+  }),
+);
 
 declare const connectedAppClient: ConnectedTrellisClient<typeof appContract>;
 declare const rootAppTrellis: RootTrellis<typeof appContract.API.trellis>;
@@ -311,7 +341,36 @@ async function typecheckServiceConnectSurface() {
     server: {},
   }).orThrow();
 
+  await service.event.service.changed.listen(
+    () => Result.ok(undefined),
+    {},
+    { group: "primary" },
+  );
+  await service.handle.rpc.service.ping(({ input, client }) => {
+    const value: string = input.value;
+    client.event.service.changed.prepare({ id: "one", value });
+    void client.event.service.changed.publish({ id: "one", value });
+    // @ts-expect-error handler-injected clients cannot subscribe to lifecycle events
+    void client.event.service.changed.listen(() => {});
+    // @ts-expect-error handler-injected clients cannot use raw event listeners
+    void client.listenEvent("Service.Changed", {}, () => {});
+    return Result.ok({ ok: true });
+  });
+
   return service.name;
+}
+
+function typecheckGeneratedServiceHandlerClientSurface(
+  client: CoreClient,
+  handlerClient: CoreHandlerClient,
+) {
+  void client.event.health.heartbeat.listen(() => Result.ok(undefined));
+  const prepare = handlerClient.event.health.heartbeat.prepare;
+  const publish = handlerClient.event.health.heartbeat.publish;
+  // @ts-expect-error generated handler clients cannot register listeners
+  const listen = handlerClient.event.health.heartbeat.listen;
+
+  return { prepare, publish, listen };
 }
 
 function typecheckResolvedRuntimeBindingsAreNotPublicAuthoringSurface() {
