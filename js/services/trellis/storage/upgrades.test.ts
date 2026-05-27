@@ -1,4 +1,4 @@
-import { assertEquals, assertMatch } from "@std/assert";
+import { assertEquals, assertInstanceOf, assertMatch } from "@std/assert";
 import {
   digestContractManifest,
   type TrellisContractV1,
@@ -10,10 +10,17 @@ import {
   initializeTrellisStorageSchema,
   openTrellisStorageDb,
 } from "./db.ts";
-import { contracts, serviceInstances, trellisUpgrades } from "./schema.ts";
+import { SqlSessionRepository } from "../auth/storage/sessions_users_approvals.ts";
+import {
+  contracts,
+  serviceInstances,
+  sessions,
+  trellisUpgrades,
+} from "./schema.ts";
 import {
   CONTRACT_DIGEST_REINDEX_UPGRADE_ID,
   runTrellisStorageUpgrades,
+  SERVICE_SESSION_CONTRACT_FIELDS_UPGRADE_ID,
 } from "./upgrades.ts";
 
 function testContract(id: string, subject: string): TrellisContractV1 {
@@ -192,6 +199,122 @@ Deno.test("contract digest reindex upgrade skips invalid stored rows without del
         skipped: 1,
         unchanged: 0,
         reindexed: 0,
+      });
+    },
+  );
+});
+
+Deno.test("service session contract fields upgrade deletes legacy session rows", async () => {
+  await withMigratedStorage(
+    "trellis-storage-upgrade-service-session-",
+    async (storage) => {
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const lastAuth = "2026-01-01T00:05:00.000Z";
+      await storage.db.insert(sessions).values({
+        sessionKey: "service-session-key",
+        trellisId: "service.trellis",
+        type: "service",
+        origin: "service",
+        externalId: "service.trellis",
+        identityEnvelopeId: null,
+        contractDigest: "legacy_digest",
+        contractId: "legacy.contract@v1",
+        participantKind: null,
+        instanceId: "service.instance",
+        deploymentId: "service.deployment",
+        instanceKey: "service-key",
+        publicIdentityKey: null,
+        createdAt,
+        lastAuth,
+        revokedAt: null,
+        session: JSON.stringify({
+          type: "service",
+          trellisId: "service.trellis",
+          origin: "service",
+          id: "service.trellis",
+          email: "service@example.test",
+          name: "Service",
+          createdAt,
+          lastAuth,
+          instanceId: "service.instance",
+          deploymentId: "service.deployment",
+          instanceKey: "service-key",
+          currentContractId: "legacy.contract@v1",
+          currentContractDigest: "legacy_digest",
+        }),
+      });
+      await storage.db.insert(sessions).values({
+        sessionKey: "current-service-session-key",
+        trellisId: "current.service.trellis",
+        type: "service",
+        origin: "service",
+        externalId: "current.service.trellis",
+        identityEnvelopeId: null,
+        contractDigest: "current_digest",
+        contractId: "current.contract@v1",
+        participantKind: null,
+        instanceId: "current.service.instance",
+        deploymentId: "current.service.deployment",
+        instanceKey: "current-service-key",
+        publicIdentityKey: null,
+        createdAt,
+        lastAuth,
+        revokedAt: null,
+        session: JSON.stringify({
+          type: "service",
+          trellisId: "current.service.trellis",
+          origin: "service",
+          id: "current.service.trellis",
+          email: "current-service@example.test",
+          name: "Current Service",
+          createdAt,
+          lastAuth,
+          instanceId: "current.service.instance",
+          deploymentId: "current.service.deployment",
+          instanceKey: "current-service-key",
+          contractId: "current.contract@v1",
+          contractDigest: "current_digest",
+        }),
+      });
+
+      await initializeTrellisStorageSchema(storage);
+
+      const repository = new SqlSessionRepository(storage.db);
+      const legacySession = await repository.getOneBySessionKey(
+        "service-session-key",
+      );
+      const currentSession = await repository.getOneBySessionKey(
+        "current-service-session-key",
+      );
+      const legacyRows = await storage.db.select().from(sessions).where(
+        eq(sessions.sessionKey, "service-session-key"),
+      );
+      const [marker] = await storage.db.select().from(trellisUpgrades).where(
+        eq(
+          trellisUpgrades.upgradeId,
+          SERVICE_SESSION_CONTRACT_FIELDS_UPGRADE_ID,
+        ),
+      );
+
+      assertEquals(legacySession, undefined);
+      assertEquals(legacyRows.length, 0);
+      assertEquals(currentSession?.type, "service");
+      if (currentSession?.type !== "service") {
+        throw new Error("expected decoded service session");
+      }
+      assertEquals(currentSession.contractId, "current.contract@v1");
+      assertEquals(currentSession.contractDigest, "current_digest");
+      assertInstanceOf(currentSession.createdAt, Date);
+      assertInstanceOf(currentSession.lastAuth, Date);
+
+      assertMatch(marker?.appliedAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
+      assertEquals(JSON.parse(marker?.summary ?? "{}"), {
+        scanned: 2,
+        deletedInvalidJson: 0,
+        deletedNonObject: 0,
+        deletedLegacy: 1,
+        deletedInvalidShape: 0,
+        unchanged: 1,
       });
     },
   );
