@@ -108,9 +108,9 @@ When NATS calls `$SYS.REQ.USER.AUTH`:
    proof freshness, and verifying the signed proof against the presented digest.
 3. Resolve the session and principal from the session key, presented proof
    shape, and explicit runtime repositories for users, services, or devices.
-4. Derive permissions from current grants, the resolved principal's contract
-   context, active service/device contracts, and installed bindings, then issue
-   a NATS JWT for the server-generated `user_nkey`.
+4. Derive permissions from current grants, the resolved principal's presented
+   contract context, effective active dependencies, and installed bindings, then
+   issue a NATS JWT for the server-generated `user_nkey`.
 5. Update session liveness and active-connection tracking.
 6. Emit `events.v1.Auth.Connections.Opened` for user and service sessions.
 
@@ -127,8 +127,8 @@ CASE: USER CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - lookup the session keyed by `sessionKey`
 - verify the bound session is still valid for the same app identity
 - verify user active
-- verify the presented contract evidence fits the identity envelope for that
-  bound user/app context
+- verify the presented contract fits the identity envelope for that bound
+  user/app context
 - derive permissions and issue JWT
 - update session liveness and active-connection tracking
 
@@ -137,23 +137,23 @@ CASE: SERVICE CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - verify sig = sign(hash("nats-connect:" + iat + ":" + contractDigest))
 - lookup the service instance keyed by `sessionKey`
 - reject if the service instance is disabled or its deployment is missing/disabled
-- reject if the service instance has no current contract evidence, if the
-  presented evidence differs from that runtime evidence, or if the required
-  boundary no longer fits the deployment envelope
-- reject with `contract_changed` if the presented evidence is ignored or no
-  longer fits the enabled deployment envelope; reconnects must not refresh ignored
-  evidence back into authority
+- reject if the presented contract does not match the accepted bootstrap offer or
+  if the required boundary no longer fits the deployment envelope
+- reject with `contract_changed` if the presented contract no longer fits the
+  enabled deployment envelope; reconnects must not refresh an expired offer back
+  into authority
 - lookup or create the session keyed by `sessionKey` only after envelope fit
   succeeds
 - compute inboxPrefix
-- derive permissions from the exact current service contract state and issue JWT
+- derive permissions from the exact presented service contract, effective active
+  dependencies, and installed bindings, then issue JWT
 
 CASE: DEVICE CONNECT / RECONNECT (`sessionKey + contractDigest + iat + sig`)
 - reject if abs(now - iat) > 30s
 - verify sig = sign(hash("nats-connect:" + iat + ":" + contractDigest))
 - if sessionKey matches an installed device, follow the installed-device path instead
 - otherwise resolve the device instance by public identity key
-- require the presented contract evidence to fit the device deployment envelope
+- require the presented contract to fit the device deployment envelope
 - reject if the device is unknown, disabled, revoked, or its deployment is
   missing or disabled
 - if an activation record exists, require it to be activated and not revoked;
@@ -199,8 +199,7 @@ auth-callout payloads are not supported.
 The auth callout derives permissions from:
 
 - current session grants and grant overrides
-- presented contract evidence resolved against identity envelopes for user
-  sessions
+- presented contracts resolved against identity envelopes for user sessions
 - deployment envelopes for service/device sessions
 - declared `operations`, `rpc`, `events`, and `uses`
 - installed resource bindings
@@ -443,7 +442,6 @@ All auth errors use `AuthError` with a `reason` code.
 | SessionKey header missing    | `missing_session_key`         |
 | Session not found            | `session_not_found`           |
 | Session expired              | `session_expired`             |
-| Fresh authentication needed  | `reauth_required`             |
 | Invalid signature            | `invalid_signature`           |
 | SessionKey mismatch in OAuth | `oauth_session_key_mismatch`  |
 | Session already bound        | `session_already_bound`       |
@@ -465,11 +463,11 @@ All auth errors use `AuthError` with a `reason` code.
 Detailed errors are acceptable because callers only reach them after passing
 connection-level auth.
 
-Browser clients treat `session_not_found` and `reauth_required` as
-authentication-required states, not as page-local application errors. Revoked or
-stale browser sessions therefore re-enter the normal login/reauth redirect flow
-so the app can preserve its current return path and show sign-in UX. Non-browser
-clients may surface the same `AuthError` directly.
+Browser clients treat `session_not_found` as an authentication-required state,
+not as a page-local application error. Revoked browser sessions therefore
+re-enter the normal login redirect flow so the app can preserve its current
+return path and show sign-in UX. Non-browser clients may surface the same
+`AuthError` directly.
 
 ## Internal State Model
 
@@ -527,13 +525,13 @@ Bind proof rules:
 
 Runtime storage responsibilities:
 
-| Storage                    | Logical contents                                                                                                                                                                                                                                                                     | TTL                                          |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
-| SQL                        | Users, sessions, identity-envelope grants, deployment grant overrides, service records, device records, deployment envelopes, auth-owned login portal records/settings/routes, deployment-owned device portal-route metadata, contract evidence, and hashed account-management flows | Durable, with session expiry from `lastAuth` |
-| `trellis_oauth_states` KV  | OAuth state mapping keyed by `hash(state)`                                                                                                                                                                                                                                           | 5 min                                        |
-| `trellis_pending_auth` KV  | Pending authenticated bind keyed by `hash(authToken)`                                                                                                                                                                                                                                | 5 min                                        |
-| `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"`                                                                                                                                                                                     | Browser-flow TTL                             |
-| `trellis_connections` KV   | Active connection presence keyed by session, principal, and NATS user key                                                                                                                                                                                                            | Connection TTL                               |
+| Storage                    | Logical contents                                                                                                                                                                                                                                                                                           | TTL                                          |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| SQL                        | Users, sessions, identity-envelope grants, deployment grant overrides, service records, device records, deployment envelopes, auth-owned login portal records/settings/routes, deployment-owned device portal-route metadata, contract history, implementation offers, and hashed account-management flows | Durable, with session expiry from `lastAuth` |
+| `trellis_oauth_states` KV  | OAuth state mapping keyed by `hash(state)`                                                                                                                                                                                                                                                                 | 5 min                                        |
+| `trellis_pending_auth` KV  | Pending authenticated bind keyed by `hash(authToken)`                                                                                                                                                                                                                                                      | 5 min                                        |
+| `trellis_browser_flows` KV | Browser flow record keyed by `flowId`, including `kind: "login"` and `kind: "device_activation"`                                                                                                                                                                                                           | Browser-flow TTL                             |
+| `trellis_connections` KV   | Active connection presence keyed by session, principal, and NATS user key                                                                                                                                                                                                                                  | Connection TTL                               |
 
 Ephemeral bearer tokens (`state`, `authToken`) are stored by `hash(token)`
 rather than raw token value.
@@ -631,7 +629,7 @@ Rules:
 - the durable session key is `sessionKey`
 - user sessions bind user identity, explicit app identity, and the last
   delegated contract envelope together; reconnect re-evaluates presented
-  contract evidence against the effective envelope for that app context
+  contract context against the effective envelope for that app context
 - activated-device sessions use the same `sessionKey` storage identity as user
   and service sessions; the device instance identity remains part of the stored
   session value
@@ -654,7 +652,10 @@ Rules:
   answer: "approved" | "denied";
   answeredAt: Date;
   updatedAt: Date;
-  approvalEvidence: ContractEvidence;
+  presentedContract: {
+    contractDigest: string;
+    contractId: string;
+  };
   publishSubjects: string[];
   subscribeSubjects: string[];
 }
@@ -666,16 +667,18 @@ app identity anchor. The identity that was active when approval was granted is
 recorded as evidence only; it is not used to decide whether a later linked local
 or OIDC identity on the same Trellis account may reuse the approval.
 
-The presented contract digest is stored as contract evidence for audit, repeat
-boundary checks, and active-set projection. It is not a manifest lookup
-fallback; full manifests are resolved from built-in Trellis contracts or the
-global `contracts` store. For one deployment and contract id, non-ignored
-reviewed evidence rows covered by an enabled deployment envelope are active;
-ignored same-id evidence remains historical and reconnects must fail with
-`contract_changed` rather than making an ignored digest active again. The normal
-portal denial path does not create or update a stored denial record; it is
-returned to the originating app as an `authError=approval_denied` browser
-callback so a later sign-in attempt can present the permission prompt again.
+The presented contract digest is stored with approval and expansion/retraction
+history for audit and repeat boundary checks. It is not a manifest lookup
+fallback or active implementation source; full manifests are resolved from
+built-in Trellis contracts or the global `contracts` store. For one deployment
+and contract id, runtime-active non-builtin implementation comes from accepted
+non-expired service or device offers covered by an enabled deployment envelope.
+Expired offers and historical rows remain audit context, and reconnects must
+fail with `contract_changed` rather than making an envelope-incompatible digest
+active again. The normal portal denial path does not create or update a stored
+denial record; it is returned to the originating app as an
+`authError=approval_denied` browser callback so a later sign-in attempt can
+present the permission prompt again.
 
 ### Grant Override Object
 
@@ -791,9 +794,9 @@ Events:
 
 Rules:
 
-- services may subscribe only if the presented contract evidence fits the
-  service deployment envelope and declares the events in grouped `uses.required`
-  or `uses.optional` entries that are active and authorized
+- services may subscribe only if the presented contract fits the service
+  deployment envelope and declares the events in grouped `uses.required` or
+  `uses.optional` entries that are active and authorized
 - extra manual capability flags are not the contract boundary
 - user sessions must never receive service-only capabilities
 

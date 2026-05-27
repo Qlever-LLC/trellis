@@ -85,21 +85,22 @@ Rules:
 - a store request declares:
   - `purpose`: required human-facing explanation of why the service needs the
     store
-  - `required`: whether activation depends on successful provisioning; default
-    `true`
+  - `required`: whether the generated service handle is typed as required;
+    default `true`
   - `ttlMs`: optional desired retention in milliseconds; `0` or omitted means no
     automatic expiry requested
   - `maxTotalBytes`: optional desired total-store size limit in bytes; omit it
     when the store should not request a finite total-size limit
 - contracts request logical stores; Trellis chooses the concrete physical store
   identity at service envelope expansion or shrink/expand update time
-- Trellis validates store declarations from contract evidence, but physical
+- Trellis validates store declarations from the presented contract, but physical
   store identity is scoped to the deployment and contract lineage rather than
   the digest so compatible service updates preserve objects
-- required stores fail envelope expansion when Trellis cannot provision or bind
-  them
-- optional stores (`required: false`) may be omitted from bindings if
-  provisioning fails or object-store support is unavailable
+- all declared stores must be provisioned or adopted during approval; approval
+  fails if Trellis cannot create or bind one according to platform policy
+- optional stores (`required: false`) still participate in approval-time
+  provisioning; the flag controls generated service typing, not best-effort
+  omission
 - when `maxTotalBytes` is omitted, Trellis reconciles the backing NATS object
   store to the backend sentinel for "no contract-requested finite total limit"
   instead of preserving a stale finite limit from an older contract digest

@@ -29,7 +29,7 @@ For user runtime reconnects, Trellis uses fresh signed proofs over the session k
 
 Browser login flows route through a Trellis **portal**. A portal is a browser web app that owns the provider-selection and contract-approval UX for one or more browser contracts. Trellis ships a built-in portal that handles both login and generic device onboarding. Login portals are auth-owned records selected by global route rules; device activation portals remain device-deployment routing configuration.
 
-If a browser session is revoked while an app is open, subsequent Trellis calls return `session_not_found`. Admin actions whose session is older than the freshness window return `reauth_required`. Browser integrations treat both as auth-required and send the user back through login or reauth, preserving the app's current return URL.
+If a browser session is revoked while an app is open, subsequent Trellis calls return `session_not_found`. Browser integrations treat that as auth-required and send the user back through login, preserving the app's current return URL.
 
 The flow:
 

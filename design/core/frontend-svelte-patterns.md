@@ -118,15 +118,14 @@ Rules:
 
 Browser apps should make session-key persistence an explicit UX choice:
 
-- temporary sessions use a memory-only non-extractable WebCrypto key and end when
-  the tab/app session is discarded
+- temporary sessions use a memory-only non-extractable WebCrypto key and end
+  when the tab/app session is discarded
 - remembered sessions use an IndexedDB-stored non-extractable WebCrypto key plus
   expiry metadata
 - both modes still rely on Trellis session TTL, revocation, and fresh
-  per-request proofs; IndexedDB persistence is not a bypass for reauth
-- `session_not_found` and `reauth_required` should both be treated as
-  auth-required states that send the user through the configured login/reauth
-  flow with the current return URL
+  per-request proofs; IndexedDB persistence is not a bypass for auth policy
+- `session_not_found` should be treated as an auth-required state that sends the
+  user through the configured login flow with the current return URL
 
 ## Local Workspace Alias Pattern
 

@@ -1138,6 +1138,98 @@ Deno.test("Auth.EnvelopeExpansions.Approve expands envelope from pending request
   assertEquals((await requests.get("request-1"))?.state, "approved");
 });
 
+Deno.test("Auth.EnvelopeExpansions.Approve keeps inactive ambiguous dependencies pending", async () => {
+  const contract = serviceContract();
+  const contracts = createTestContracts();
+  contracts.addKnownTestContract({
+    digest: "platform-old",
+    contract: dependencyContract(),
+  });
+  contracts.addKnownTestContract({
+    digest: "platform-new",
+    contract: {
+      ...dependencyContract(),
+      schemas: {
+        Empty: {
+          type: "object",
+          properties: { value: { type: "string" } },
+          required: ["value"],
+        },
+      },
+    },
+  });
+  const { envelopes, resources, evidence, contractStorage } = makeDeps({
+    contracts,
+  });
+  const requests = new InMemoryEnvelopeExpansionRequestStorage();
+  envelopes.onApproveExpansion = async (record) => {
+    const updated = await requests.updateState({
+      requestId: record.request.requestId,
+      state: "approved",
+      decidedAt: "2026-05-07T01:00:00.000Z",
+      decidedBy: { type: "user", id: "admin" },
+      decisionReason: "approve own boundary",
+    });
+    await evidence.put(record.contractEvidence);
+    return updated;
+  };
+  requests.seed({
+    requestId: "request-ambiguous-dep",
+    deploymentId: "billing.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "svc-1" },
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+    contract,
+    state: "pending",
+    createdAt: "2026-05-07T00:00:00.000Z",
+    decidedAt: null,
+    decidedBy: null,
+    decisionReason: null,
+    delta: EMPTY_BOUNDARY,
+  });
+  const handler = createAuthEnvelopesApproveRequestHandler({
+    contracts,
+    contractStorage,
+    deploymentEnvelopeStorage: envelopes,
+    deploymentResourceBindingStorage: resources,
+    deploymentContractEvidenceStorage: evidence,
+    envelopeExpansionRequestStorage: requests,
+    provisionResourceBindings: async () => ({}),
+    now: () => new Date("2026-05-07T01:00:00.000Z"),
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: {
+      requestId: "request-ambiguous-dep",
+      reason: "approve own boundary",
+    },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  const value = result.take();
+  if (Result.isErr(value)) throw value.error;
+  assertEquals(value.request.state, "approved");
+  assertEquals(value.delta.contracts, [
+    { contractId: "acme.billing@v1", required: true },
+    { contractId: "acme.platform@v1", required: true },
+  ]);
+  assertEquals(value.delta.surfaces, [{
+    contractId: "acme.billing@v1",
+    kind: "rpc",
+    name: "Charge",
+    action: "call",
+    required: true,
+  }]);
+  assertEquals(value.delta.capabilities, []);
+  assertEquals(
+    (await requests.get("request-ambiguous-dep"))?.state,
+    "approved",
+  );
+});
+
 Deno.test("Auth.EnvelopeExpansions.Approve rejects terminal requests", async () => {
   const contract = serviceContract();
   const { envelopes, resources, evidence, contractStorage } = makeDeps();

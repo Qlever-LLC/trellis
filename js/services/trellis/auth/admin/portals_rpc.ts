@@ -15,7 +15,7 @@ import type {
   SelectedLoginPortal,
   SqlLoginPortalRepository,
 } from "../storage.ts";
-import { type AdminCaller, requireAdminFreshAuth } from "./shared.ts";
+import { type AdminCaller, requireAdmin } from "./shared.ts";
 
 type RpcUser = AdminCaller;
 
@@ -108,7 +108,7 @@ export function createAuthPortalsListHandler(
     input: BoundedListQuery;
     context: { caller: RpcUser };
   }) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     try {
       return Result.ok(await storage.listPortalSummariesPage(input));
@@ -127,7 +127,7 @@ export function createAuthPortalsGetHandler(
     input: { portalId: string };
     context: { caller: RpcUser };
   }) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     try {
       const selected = await storage.getSelectedByPortalId(input.portalId);
@@ -162,7 +162,7 @@ export function createAuthPortalsPutHandler(
       AuthError | ValidationError | UnexpectedError
     >
   > => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     try {
       const existing = await storage.getPortal(input.portalId);
@@ -209,7 +209,7 @@ export function createAuthPortalsRemoveHandler(
     input: { portalId: string };
     context: { caller: RpcUser };
   }) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     try {
       const portal = await storage.getPortal(input.portalId);
@@ -253,7 +253,7 @@ export function createAuthPortalsLoginSettingsGetHandler(
     input: { portalId: string };
     context: { caller: RpcUser };
   }) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     try {
       const selected = await storage.getSelectedByPortalId(input.portalId);
@@ -292,7 +292,7 @@ export function createAuthPortalsLoginSettingsUpdateHandler(
       AuthError | ValidationError | UnexpectedError
     >
   > => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     try {
       const selected = await storage.updateSelectedLoginPortal({
@@ -336,7 +336,7 @@ export function createAuthPortalsRoutesPutHandler(
       AuthError | ValidationError | UnexpectedError
     >
   > => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     try {
       const portal = await storage.getPortal(input.portalId);
@@ -386,7 +386,7 @@ export function createAuthPortalsRoutesRemoveHandler(
     input: LoginRouteSelectorInput;
     context: { caller: RpcUser };
   }) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     try {
       const success = await storage.deleteRouteBySelector({

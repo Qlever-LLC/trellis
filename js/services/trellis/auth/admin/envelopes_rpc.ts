@@ -45,7 +45,7 @@ import type {
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
 import type { BoundedListQuery, ListPage } from "../storage.ts";
 import { MAX_STORAGE_LIST_LIMIT } from "../storage.ts";
-import { type AdminCaller, requireAdminFreshAuth } from "./shared.ts";
+import { type AdminCaller, requireAdmin } from "./shared.ts";
 
 type RpcUser =
   & StaticDecode<
@@ -124,6 +124,8 @@ type EnvelopeContractDeps = Pick<
   | "getKnownEntriesByContractId"
   | "validateContract"
 >;
+
+type ExpansionDependencyResolution = "known" | "knownOrPending";
 
 type DeploymentEnvelopeStorage = {
   get(deploymentId: string): Promise<DeploymentEnvelope | undefined>;
@@ -636,7 +638,7 @@ export function createAuthEnvelopesListHandler(deps: {
   ): Promise<
     Result<ListPage<DeploymentEnvelope>, AuthError | UnexpectedError>
   > => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     deps.logger.trace({ rpc: "Auth.Envelopes.List", caller }, "RPC request");
     try {
@@ -693,7 +695,7 @@ export function createAuthEnvelopesGetHandler(deps: {
       grantOverrides: DeploymentGrantOverride[];
     }, AuthError | ValidationError | UnexpectedError>
   > => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     deps.logger.trace(
       { rpc: "Auth.Envelopes.Get", caller, deploymentId: req.deploymentId },
@@ -751,7 +753,7 @@ export function createAuthEnvelopesGrantOverridesListHandler(deps: {
     Result<ListPage<DeploymentGrantOverride>, AuthError | UnexpectedError>
   > => {
     const { input: req, context: { caller } } = args;
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.Envelopes.GrantOverrides.List",
@@ -784,7 +786,7 @@ export function createAuthEnvelopesGrantOverridesPutHandler(deps: {
     >
   > => {
     const { input: req, context: { caller } } = args;
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.Envelopes.GrantOverrides.Put",
@@ -833,7 +835,7 @@ export function createAuthEnvelopesGrantOverridesRemoveHandler(deps: {
     >
   > => {
     const { input: req, context: { caller } } = args;
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.Envelopes.GrantOverrides.Remove",
@@ -1117,7 +1119,10 @@ export function createAuthEnvelopesExpandHandler(deps: {
   resourceProvisioningOptions?: ResourceProvisioningOptions;
   now?: () => Date;
   logger: Pick<AuthRuntimeDeps["logger"], "trace">;
-}, options: { persist?: boolean } = {}) {
+}, options: {
+  persist?: boolean;
+  dependencyResolution?: ExpansionDependencyResolution;
+} = {}) {
   return async (args: {
     input: {
       deploymentId: string;
@@ -1134,7 +1139,7 @@ export function createAuthEnvelopesExpandHandler(deps: {
     }, AuthError | ValidationError | UnexpectedError>
   > => {
     const { input: req, context: { caller } } = args;
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.Envelopes.Expand",
@@ -1148,7 +1153,7 @@ export function createAuthEnvelopesExpandHandler(deps: {
       analysis = await analyzeContractEnvelopeBoundary(
         deps.contracts,
         req.contract,
-        { dependencyResolution: "known" },
+        { dependencyResolution: options.dependencyResolution ?? "known" },
       );
       validated = await deps.contracts.validateContract(req.contract);
     } catch (error) {
@@ -1322,6 +1327,7 @@ export function createAuthEnvelopesApproveRequestHandler(deps: {
 }) {
   const expand = createAuthEnvelopesExpandHandler(deps, {
     persist: !deps.deploymentEnvelopeStorage.approveExpansion,
+    dependencyResolution: "knownOrPending",
   });
   return async (args: {
     input: { requestId: string; reason?: string };
@@ -1336,7 +1342,7 @@ export function createAuthEnvelopesApproveRequestHandler(deps: {
     }, AuthError | ValidationError | UnexpectedError>
   > => {
     const { input: req, context: { caller } } = args;
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.EnvelopeExpansions.Approve",
@@ -1462,7 +1468,7 @@ export function createAuthEnvelopeExpansionsListHandler(deps: {
     >
   > => {
     const { input: req, context: { caller } } = args;
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.EnvelopeExpansions.List",
@@ -1514,7 +1520,7 @@ export function createAuthEnvelopeExpansionsRejectHandler(deps: {
     >
   > => {
     const { input: req, context: { caller } } = args;
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.EnvelopeExpansions.Reject",
@@ -1597,7 +1603,7 @@ export function createAuthEnvelopesChangesPreviewHandler(deps: {
     }, AuthError | ValidationError | UnexpectedError>
   > => {
     const { input: req, context: { caller } } = args;
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.Envelopes.Changes.Preview",
@@ -1675,7 +1681,7 @@ export function createAuthEnvelopesShrinkHandler(deps: {
     }, AuthError | ValidationError | UnexpectedError>
   > => {
     const { input: req, context: { caller } } = args;
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     deps.logger.trace({
       rpc: "Auth.Envelopes.Shrink",

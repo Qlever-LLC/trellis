@@ -439,24 +439,6 @@ Deno.test("service admin RPC handlers require admin before touching dependencies
   }
 });
 
-Deno.test("service admin RPC handlers require fresh admin auth", async () => {
-  const result = await createAuthDeploymentsServiceListHandler(
-    serviceAdminDeps(),
-  )({
-    input: { limit: 10 },
-    context: {
-      caller: {
-        ...adminCaller,
-        lastAuth: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
-      },
-    },
-  });
-
-  assert(result.isErr());
-  assert("reason" in result.error);
-  assertEquals(result.error.reason, "reauth_required");
-});
-
 Deno.test("session and connection admin schemas expose explicit participant metadata", () => {
   assert(Value.Check(AuthSessionsListResponseSchema, {
     ...page([

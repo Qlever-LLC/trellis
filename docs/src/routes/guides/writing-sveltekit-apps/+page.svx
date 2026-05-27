@@ -242,13 +242,12 @@ After that point, pages do not need to recreate auth state. They read the live r
 
 There are also optional callbacks:
 
-- `onAuthRequired` fires whenever `trellis-svelte` decides a new authentication flow is needed to continue, including when a previously valid browser session was revoked and Trellis returns `session_not_found` or when an admin action returns `reauth_required`. If you do not provide `onAuthRequired`, the core browser client redirects to the Trellis login URL.
+- `onAuthRequired` fires whenever `trellis-svelte` decides a new authentication flow is needed to continue, including when a previously valid browser session was revoked and Trellis returns `session_not_found`. If you do not provide `onAuthRequired`, the core browser client redirects to the Trellis login URL.
 - `error(error)` renders unexpected connection failures.
 
-Trellis browser integrations treat both `session_not_found` and
-`reauth_required` as auth-required states. `reauth_required` is commonly returned
-when an admin action needs a fresh login, so route it through the same login or
-reauth UX instead of showing it as a permanent RPC failure.
+Trellis browser integrations treat `session_not_found` as an auth-required state.
+Route it through the configured login UX instead of showing it as a permanent RPC
+failure.
 
 Session-key persistence should be a visible product choice. Temporary sessions
 use a memory-only non-extractable WebCrypto key. Remembered sessions use a

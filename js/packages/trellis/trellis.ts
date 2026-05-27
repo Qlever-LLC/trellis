@@ -1784,7 +1784,7 @@ type AuthCacheEntry = {
 
 function isBrowserAuthRequiredError(error: unknown): boolean {
   const isAuthRequiredReason = (reason: unknown): boolean =>
-    reason === "session_not_found" || reason === "reauth_required";
+    reason === "session_not_found";
 
   if (error instanceof AuthError) {
     return isAuthRequiredReason(error.reason);

@@ -233,6 +233,11 @@ Rules:
   `TrellisService.connect(...)` publishes baseline heartbeats automatically and
   service code may enrich them through `service.health.setInfo(...)` and
   `service.health.add(...)`
+- health heartbeats refresh freshness and operator-visible status only for the
+  already accepted matching implementation offer; they must not create offers or
+  change the offered digest
+- graceful `service.stop()` marks the accepted offer stale for the same short
+  grace window used after unplanned disconnects
 - mounted RPC handlers should rely on Trellis-provided payload typing and
   validation rather than re-parsing the mounted payload just to recover types
 - extracted service RPC handler aliases should come from
@@ -262,42 +267,42 @@ Behavior:
   runtime for the full manifest; the runtime retries with the canonical contract
   emitted by `defineServiceContract(...)` or the generated SDK module
 - service bootstrap validates and analyzes the presented manifest before any
-  envelope decision; invalid manifests fail immediately, while unknown required
-  `uses` dependencies can still produce a pending expansion request that records
-  the unresolved contract id as an activation blocker
+  envelope decision; invalid manifests fail immediately, while unknown or
+  inactive required `uses` dependencies produce targeted dependency blockers
+  rather than deriving authority from historical manifests
 - optional `uses` dependencies that are missing or whose requested surfaces are
   missing do not fail bootstrap planning and do not grant runtime authority;
   when they later resolve as active, they require normal envelope expansion and
   approval before a fresh reconnect receives that authority
-- expansion planning resolves dependency surfaces from known inactive manifests
-  when available, so services in a dependency cycle can each submit reviewable
-  contract evidence before either one receives runtime credentials
-- if known inactive dependency manifests for the same contract are stale or
-  mutually incompatible, expansion planning treats that dependency as unresolved
-  instead of surfacing a catalog repair that Console cannot act on
 - if the deployment envelope does not cover the validated contract boundary,
-  bootstrap records the presented contract evidence, creates a pending envelope
-  expansion request for the missing delta, and asks the service runtime to retry
-  until an admin approves or rejects the request
+  bootstrap records the requested delta, creates a pending envelope expansion
+  request for that delta, and asks the service runtime to retry until an admin
+  approves or rejects the request
 - service-originated pending envelope expansion requests are deduplicated while
   the requester stays connected and are removed if that requester disconnects
 - if the service presents a different digest for the same `contractId` as the
-  instance's current evidence, Trellis validates same-lineage compatibility in
-  `strict` mode; incompatible replacement returns
+  deployment's latest accepted offer, Trellis validates same-lineage
+  compatibility in `strict` mode; incompatible replacement returns
   `contract_compatibility_violation`. Development deployments may opt into
   `mutable-dev` compatibility to skip this check for unreleased iteration.
 - compatibility mode is separate from envelope expansion and does not retain
-  deleted evidence as quarantine, repair history, or authority.
+  expired offers or history rows as quarantine, repair input, or authority.
 - once the envelope fits, bootstrap verifies that required `uses` dependencies
-  resolve against known manifests and the effective envelope. If the requested
-  dependency surfaces cannot be resolved, bootstrap keeps the runtime waiting
-  behind the pending expansion request.
-- if a service presents evidence that no longer fits the enabled deployment
-  envelope, bootstrap returns `contract_changed` rather than refreshing the old
-  evidence row or issuing credentials for stale authority
-- after the dependency closure is active, bootstrap resolves or provisions
-  required resource bindings, persists instance runtime state, and returns
-  transport and binding details to the service runtime
+  resolve against effective active contracts and the effective envelope. If a
+  required dependency has no effective active contract, bootstrap returns a
+  dependency-not-active blocker and the runtime waits and retries.
+- if a service presents a contract that no longer fits the enabled deployment
+  envelope, bootstrap returns `contract_changed` rather than refreshing an old
+  offer or issuing credentials for stale authority
+- after the dependency closure is active and all approved resource bindings are
+  present, bootstrap accepts or refreshes the implementation offer, persists
+  instance runtime state, and returns transport and binding details to the
+  service runtime
+- all declared `resources.kv`, `resources.store`, top-level `jobs`, and
+  top-level `eventConsumers` bindings are approval-time resources. A service
+  must not become ready with a silently skipped declared resource;
+  `required:
+  false` only makes the generated service handle optional.
 - schema-backed KV handles such as `service.kv.<alias>` resolve during bootstrap
   as direct typed stores, while store handles such as `service.store.<alias>`
   are opened explicitly before use
@@ -316,10 +321,10 @@ Behavior:
 - grouped durable event consumers start only after every event in the group has
   a registered handler, preserving the contract-declared group as the unit of
   ordering and replay.
-- the shared jobs streams are Trellis-owned infrastructure; service envelope
-  expansion approval or successful bootstrap provisions or binds them before
-  jobs-enabled services become ready. Jobs admin projections are internal to the
-  Jobs admin runtime.
+- the shared jobs streams are Trellis-owned infrastructure; approval provisions
+  or adopts all declared job bindings before jobs-enabled services become ready.
+  Bootstrap resolves those approved bindings. Jobs admin projections are
+  internal to the Jobs admin runtime.
 - when an RPC needs to start caller-visible follow-up work after a transfer,
   prefer a transfer-capable operation over an RPC-started workflow
 - the `trellis` control-plane service is the one bootstrap exception and may use

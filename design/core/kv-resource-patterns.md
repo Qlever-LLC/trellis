@@ -45,15 +45,15 @@ Rules:
 
 - each `resources.kv.<alias>` entry must declare `schema: ref.schema("...")`
 - the referenced schema must exist in the contract's top-level `schemas` map
-- `required` defaults to `true`; required KV resources fail installation when
-  Trellis cannot provision or bind them
-- optional KV resources (`required: false`) may be absent from bindings if
-  provisioning is unavailable or fails, so service code must treat the binding
-  as optional
-- Trellis validates KV declarations from the presented contract evidence at the
-  service deployment envelope boundary, but physical bucket identity is scoped
-  to the deployment/profile and contract lineage rather than the digest so
-  compatible service updates preserve data
+- `required` defaults to `true`; it controls whether generated service code sees
+  the alias as required or optional
+- all declared KV resources must be provisioned or adopted during approval;
+  Trellis does not silently omit `required: false` KV resources when
+  provisioning is unavailable or fails
+- Trellis validates KV declarations from the presented contract at the service
+  deployment envelope boundary, but physical bucket identity is scoped to the
+  deployment/profile and contract lineage rather than the digest so compatible
+  service updates preserve data
 - service bootstrap resolves `service.kv.<alias>` and injected handler
   `client.kv.<alias>` as direct typed KV stores; service code does not call
   `.open(schema)`

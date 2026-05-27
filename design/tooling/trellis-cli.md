@@ -198,12 +198,12 @@ Operational command behavior:
   calls; runtime transport details are discovered from the bind flow and
   persisted internally rather than exposed as normal CLI flags
 - normal authenticated CLI commands reconnect with freshly generated runtime
-  auth proofs derived from the stored session key, current contract digest, and
-  `iat`; the current contract digest is runtime contract evidence, not a hash of
-  human-facing display metadata; when the local CLI contract digest changes, the
-  CLI starts the normal auth request flow with the full contract, may complete
-  immediately when the existing identity envelope already covers the new
-  boundary, otherwise prints the detached portal login URL, may render a QR
+  auth proofs derived from the stored session key, presented contract digest,
+  and `iat`; the contract digest is the presented contract identity, not a hash
+  of human-facing display metadata; when the local CLI contract digest changes,
+  the CLI starts the normal auth request flow with the full contract, may
+  complete immediately when the existing identity envelope already covers the
+  new boundary, otherwise prints the detached portal login URL, may render a QR
   code, does not auto-open a browser or start a localhost callback listener, and
   completes by polling the auth-owned flow before reconnecting NATS and issuing
   admin RPCs
@@ -224,9 +224,10 @@ Operational command behavior:
   replacement changes without ambiguous merge behavior
 - `trellis approvals list` shows stored delegated approval decisions for app and
   CLI contracts from the `trellis` service; each row includes an
-  `identityEnvelopeId` and contract evidence, with optional filtering by exact
-  contract digest and by user for admin callers; the command pages through the
-  bounded `Auth.Identities.List` RPC rather than requesting an unbounded list
+  `identityEnvelopeId` and presented contract digest, with optional filtering by
+  exact contract digest and by user for admin callers; the command pages through
+  the bounded `Auth.Identities.List` RPC rather than requesting an unbounded
+  list
 - `trellis approvals revoke` revokes the addressed identity envelope through
   `Auth.IdentityEnvelopes.Revoke` and revokes matching active delegated sessions
   in the `trellis` service; contract digest remains list/filter evidence, not
@@ -319,8 +320,8 @@ Operational command behavior:
 Normal authenticated CLI behavior is contract-governed in the same architectural
 sense as browser apps: the CLI presents a generated contract, approval is stored
 in an identity envelope anchored to the CLI session public key, and Trellis auth
-does not create normal client sessions without contract evidence that fits that
-envelope.
+does not create normal client sessions without a presented contract that fits
+that envelope.
 
 ### Explicitness rule
 

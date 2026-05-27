@@ -431,38 +431,6 @@ Deno.test("password reset creation requires exactly one existing local identity"
   }
 });
 
-Deno.test("admin account flow creation requires fresh primary auth", async () => {
-  const cases = [{
-    name: "password reset",
-    create: createAuthUsersPasswordResetCreateHandler,
-    input: { userId: "usr_ada" },
-  }];
-
-  for (const testCase of cases) {
-    const saved: { flow?: AccountFlow } = {};
-    const handler = testCase.create({
-      ...stores(saved, makeAccount()),
-      logger,
-      portalBaseUrl,
-      now,
-    });
-
-    const result = await handler({
-      input: testCase.input,
-      context: {
-        caller: {
-          ...caller,
-          lastAuth: "2026-05-10T11:49:59.999Z",
-        },
-      },
-    });
-
-    assert(result.isErr(), testCase.name);
-    assertEquals(result.error.reason, "reauth_required", testCase.name);
-    assertEquals(saved.flow, undefined, testCase.name);
-  }
-});
-
 Deno.test("admin account flow creation requires an admin user caller", async () => {
   const saved: { flow?: AccountFlow } = {};
   const handler = createAuthUsersPasswordResetCreateHandler({

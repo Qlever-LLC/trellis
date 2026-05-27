@@ -1565,68 +1565,80 @@ export class SqlEnvelopeExpansionRequestRepository {
       throw new Error("putPending requires a pending expansion request");
     }
     const row = encodeExpansionRequest(decoded);
-    await this.#db.transaction(async (tx) => {
-      const inserted = await tx.insert(envelopeExpansionRequests).values(row)
-        .onConflictDoNothing({
-          target: envelopeExpansionRequests.pendingKey,
-        }).returning({ requestId: envelopeExpansionRequests.requestId });
-      if (inserted.length === 0) return;
-
-      if (decoded.delta.contracts.length > 0) {
-        await tx.insert(envelopeExpansionRequestContracts).values(
-          decoded.delta.contracts.map((contract) => ({
-            requestId: decoded.requestId,
-            contractId: contract.contractId,
-            required: contract.required,
-          })),
-        );
-      }
-      if (decoded.delta.surfaces.length > 0) {
-        await tx.insert(envelopeExpansionRequestSurfaces).values(
-          decoded.delta.surfaces.map((surface) => ({
-            requestId: decoded.requestId,
-            contractId: surface.contractId,
-            surfaceKind: surface.kind,
-            surfaceName: surface.name,
-            action: surface.action,
-            required: surface.required,
-          })),
-        );
-      }
-      if (decoded.delta.resources.length > 0) {
-        await tx.insert(envelopeExpansionRequestResources).values(
-          decoded.delta.resources.map((resource) => ({
-            requestId: decoded.requestId,
-            resourceKind: resource.kind,
-            resourceAlias: resource.alias,
-            required: resource.required,
-          })),
-        );
-      }
-      if (decoded.delta.capabilities.length > 0) {
-        await tx.insert(envelopeExpansionRequestCapabilities).values(
-          decoded.delta.capabilities.map((capability) => ({
-            requestId: decoded.requestId,
-            capability,
-          })),
-        );
-      }
-    });
-
     if (row.pendingKey === null || row.pendingKey === undefined) {
       throw new Error("pending expansion request key was not derived");
     }
-    const rows = await this.#db.select().from(envelopeExpansionRequests).where(
-      eq(envelopeExpansionRequests.pendingKey, row.pendingKey),
-    ).limit(1);
-    const existing = rows[0];
-    if (existing === undefined) {
-      throw new Error("pending expansion request was not stored");
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let insertedRequestId: string | undefined;
+      await this.#db.transaction(async (tx) => {
+        const inserted = await tx.insert(envelopeExpansionRequests).values(row)
+          .onConflictDoNothing({
+            target: envelopeExpansionRequests.pendingKey,
+          }).returning({ requestId: envelopeExpansionRequests.requestId });
+        insertedRequestId = inserted[0]?.requestId;
+        if (insertedRequestId === undefined) return;
+
+        if (decoded.delta.contracts.length > 0) {
+          await tx.insert(envelopeExpansionRequestContracts).values(
+            decoded.delta.contracts.map((contract) => ({
+              requestId: decoded.requestId,
+              contractId: contract.contractId,
+              required: contract.required,
+            })),
+          );
+        }
+        if (decoded.delta.surfaces.length > 0) {
+          await tx.insert(envelopeExpansionRequestSurfaces).values(
+            decoded.delta.surfaces.map((surface) => ({
+              requestId: decoded.requestId,
+              contractId: surface.contractId,
+              surfaceKind: surface.kind,
+              surfaceName: surface.name,
+              action: surface.action,
+              required: surface.required,
+            })),
+          );
+        }
+        if (decoded.delta.resources.length > 0) {
+          await tx.insert(envelopeExpansionRequestResources).values(
+            decoded.delta.resources.map((resource) => ({
+              requestId: decoded.requestId,
+              resourceKind: resource.kind,
+              resourceAlias: resource.alias,
+              required: resource.required,
+            })),
+          );
+        }
+        if (decoded.delta.capabilities.length > 0) {
+          await tx.insert(envelopeExpansionRequestCapabilities).values(
+            decoded.delta.capabilities.map((capability) => ({
+              requestId: decoded.requestId,
+              capability,
+            })),
+          );
+        }
+      });
+
+      if (insertedRequestId !== undefined) {
+        const inserted = await this.get(insertedRequestId);
+        if (inserted !== undefined) return inserted;
+      }
+
+      const rows = await this.#db.select().from(envelopeExpansionRequests)
+        .where(
+          eq(envelopeExpansionRequests.pendingKey, row.pendingKey),
+        ).limit(1);
+      const existing = rows[0];
+      if (existing !== undefined) {
+        return decodeExpansionRequest(
+          existing,
+          await this.#deltaForRequest(existing.requestId),
+        );
+      }
     }
-    return decodeExpansionRequest(
-      existing,
-      await this.#deltaForRequest(existing.requestId),
-    );
+
+    throw new Error("pending expansion request was not stored");
   }
 
   /** Updates an expansion request and all modeled delta rows atomically. */

@@ -39,7 +39,7 @@ import {
 } from "./contract_gc.ts";
 import {
   type AdminCaller,
-  requireAdminFreshAuth,
+  requireAdmin,
   type ServiceDeployment,
   validateServiceDeploymentRequest,
   validateServiceProvisionRequest,
@@ -518,7 +518,7 @@ export function createAuthDeploymentsServiceListHandler(
   ): Promise<
     Result<ListPage<ServiceDeployment>, AuthError | UnexpectedError>
   > => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const { logger, serviceDeploymentStorage } = serviceDeps;
     logger.trace(
@@ -552,7 +552,7 @@ export function createAuthDeploymentsServiceCreateHandler(
       context: { caller: RpcUser };
     },
   ) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const { logger, serviceDeploymentStorage } = serviceDeps;
     logger.trace({
@@ -618,7 +618,7 @@ export function createAuthDeploymentsServiceDisableHandler(
     input: { deploymentId: string };
     context: { caller: RpcUser };
   }) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const {
       deploymentEnvelopeStorage,
@@ -713,7 +713,7 @@ export function createAuthDeploymentsServiceEnableHandler(deps: {
       AuthError | ValidationError | UnexpectedError
     >
   > => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const { deploymentEnvelopeStorage, serviceDeploymentStorage } = deps;
     const deployment = await serviceDeploymentStorage.get(req.deploymentId);
@@ -808,7 +808,7 @@ export function createAuthDeploymentsServiceRemoveHandler(
   ): Promise<
     Result<{ success: boolean }, AuthError | ValidationError | UnexpectedError>
   > => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const { serviceDeploymentStorage, serviceInstanceStorage } = deps;
     if (req.purgeResources === true && req.cascade !== true) {
@@ -1015,7 +1015,7 @@ export function createAuthServiceInstancesProvisionHandler(
       context: { caller: RpcUser };
     },
   ) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const { logger, serviceDeploymentStorage, serviceInstanceStorage } =
       serviceDeps;
@@ -1067,7 +1067,7 @@ export function createAuthServiceInstancesListHandler(
   ): Promise<
     Result<ListPage<ServiceInstance>, AuthError | UnexpectedError>
   > => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const { logger, serviceInstanceStorage } = serviceDeps;
     logger.trace({ rpc: "Auth.ServiceInstances.List", caller }, "RPC request");
@@ -1143,7 +1143,7 @@ export function createAuthServiceInstancesDisableHandler(
     input: { instanceId: string };
     context: { caller: RpcUser };
   }) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     return await setInstanceDisabled({
       ...req,
@@ -1170,7 +1170,7 @@ export function createAuthServiceInstancesEnableHandler(
     input: { instanceId: string };
     context: { caller: RpcUser };
   }) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     return await setInstanceDisabled({
       ...req,
@@ -1197,7 +1197,7 @@ export function createAuthServiceInstancesRemoveHandler(
     input: { instanceId: string };
     context: { caller: RpcUser };
   }) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const { serviceInstanceStorage } = deps;
     const instance = await serviceInstanceStorage.get(req.instanceId);

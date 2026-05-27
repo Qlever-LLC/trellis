@@ -19,7 +19,7 @@ import {
   type DeviceInstance,
   type DeviceProvisioningSecret,
   type ProvisionDeviceInstanceRequest,
-  requireAdminFreshAuth,
+  requireAdmin,
   validateDeviceDeploymentRequest,
   validateDeviceProvisionRequest,
 } from "./shared.ts";
@@ -348,7 +348,7 @@ async function authResolveCatalogIssueHandler(
     >;
   }, AuthError | UnexpectedError>
 > {
-  const authorized = requireAdminFreshAuth(caller);
+  const authorized = requireAdmin(caller);
   if (authorized.isErr()) return authorized;
   if (!ctx.getActiveCatalogIssues) {
     return Result.err(
@@ -989,7 +989,7 @@ export function createAuthDeploymentsDeviceCreateHandler() {
     },
     ctx: DeviceDeploymentRpcContext,
   ) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const validation = validateDeviceDeploymentRequest(req);
     if (validation.isErr()) return validation;
@@ -1036,7 +1036,7 @@ export const authListDeviceDeploymentsHandler = async (
   },
   ctx: DeviceDeploymentRpcContext,
 ) => {
-  const authorized = requireAdminFreshAuth(caller);
+  const authorized = requireAdmin(caller);
   if (authorized.isErr()) return authorized;
   const deployments = await listDeviceDeployments(ctx, {
     disabled: req.disabled,
@@ -1051,7 +1051,7 @@ export function createAuthDeploymentsDeviceDisableHandler(
     input: { deploymentId: string };
     context: { caller: RpcUser };
   }, ctx: DeviceDeploymentRpcContext) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
     if (!deployment) {
@@ -1111,7 +1111,7 @@ export function createAuthDeploymentsDeviceEnableHandler(
     input: { deploymentId: string };
     context: { caller: RpcUser };
   }, ctx: DeviceDeploymentRpcContext) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const deployment = await loadDeviceDeployment(ctx, req.deploymentId);
     if (!deployment) {
@@ -1167,7 +1167,7 @@ export function createAuthDeploymentsDeviceRemoveHandler(
     };
     context: { caller: RpcUser };
   }, ctx: DeviceDeploymentRpcContext) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     if (req.purgeUnusedContracts === true && req.cascade !== true) {
       return invalidRequest({
@@ -1349,7 +1349,7 @@ export function createAuthDevicesProvisionHandler() {
     },
     ctx: AdminRpcContext,
   ) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const validation = validateDeviceProvisionRequest(req);
     if (validation.isErr()) return validation;
@@ -1382,7 +1382,7 @@ export const authListDeviceInstancesHandler = async (
   },
   ctx: AdminRpcContext,
 ) => {
-  const authorized = requireAdminFreshAuth(caller);
+  const authorized = requireAdmin(caller);
   if (authorized.isErr()) return authorized;
   const instances = await listDeviceInstancesFiltered(ctx, req, req);
   return Result.ok(instances);
@@ -1395,7 +1395,7 @@ export function createAuthDevicesDisableHandler(
     input: { instanceId: string };
     context: { caller: RpcUser };
   }, ctx: AdminRpcContext) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const instance = await loadDeviceInstance(ctx, req.instanceId);
     if (!instance) {
@@ -1429,7 +1429,7 @@ export function createAuthDevicesEnableHandler(
     input: { instanceId: string };
     context: { caller: RpcUser };
   }, ctx: AdminRpcContext) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const instance = await loadDeviceInstance(ctx, req.instanceId);
     if (!instance) {
@@ -1468,7 +1468,7 @@ export function createAuthDevicesRemoveHandler(
     input: { instanceId: string };
     context: { caller: RpcUser };
   }, ctx: AdminRpcContext) => {
-    const authorized = requireAdminFreshAuth(caller);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const instance = await loadDeviceInstance(ctx, req.instanceId);
     if (!instance) {
@@ -1523,7 +1523,7 @@ export const authListDeviceActivationsHandler = async (
   },
   ctx: AdminRpcContext,
 ) => {
-  const authorized = requireAdminFreshAuth(caller);
+  const authorized = requireAdmin(caller);
   if (authorized.isErr()) return authorized;
   const activations = await listDeviceActivations(ctx, req, req);
   return Result.ok(activations);
@@ -1536,7 +1536,7 @@ export const authRevokeDeviceActivationHandler = async (
   },
   ctx: AdminRpcContext,
 ) => {
-  const authorized = requireAdminFreshAuth(caller);
+  const authorized = requireAdmin(caller);
   if (authorized.isErr()) return authorized;
   const activation = await ctx.deviceActivationStorage.get(req.instanceId);
   if (!activation) return Result.ok({ success: false });

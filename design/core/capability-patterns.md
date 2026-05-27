@@ -111,8 +111,8 @@ Some operations require both:
 - the needed capabilities
 - a registered service identity
 
-Auth enforces this using service identity plus envelope-compatible presented
-contract evidence.
+Auth enforces this using service identity plus an envelope-compatible presented
+contract.
 
 ## Future Direction
 

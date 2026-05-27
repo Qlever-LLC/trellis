@@ -170,8 +170,6 @@ and this project adheres to
 
 ### Fixed
 
-- Fixed admin account-flow RPCs to require fresh primary authentication before
-  creating local password reset/setup flows.
 - Fixed expired browser auth/account flows to redirect back to the app login
   callback with a `flow_expired` error instead of leaving users stranded in the
   portal flow.

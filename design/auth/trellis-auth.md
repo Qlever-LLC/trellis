@@ -47,7 +47,8 @@ Durable SQL-backed records:
 - device deployments, device instances, provisioning secrets, activations, and
   review records
 - global normalized contract manifests keyed by digest
-- contract evidence records and resource bindings
+- contract expansion/retraction history, implementation offers, and resource
+  bindings
 - sessions bound to a principal, session key, contract context, and `lastAuth`
 - one-time account-management flows keyed by hashed flow id, including admin
   bootstrap, identity-link, and local-password setup/reset flows
@@ -68,7 +69,7 @@ Rules:
 - connection records describe live transport presence and are not durable
   authority
 - envelopes are the durable authority primitive; service and device instances
-  only affect runtime availability, liveness, and current contract evidence
+  only affect runtime availability, liveness, and implementation-offer freshness
 - connection-time lookups must use explicit repositories or injected
   dependencies, not hidden global state
 - session TTL is enforced from the session's `lastAuth` timestamp using the
@@ -101,10 +102,11 @@ Terms:
 - **grant override**: deployment-owned metadata that may pre-authorize envelope
   and capability decisions, but cannot create availability that the deployment
   envelope lacks
-- **contract evidence**: the manifest digest, version, and derived analysis used
-  to prove what boundary a participant presented; it tracks approved
-  digests/surfaces and may retain redundant contract JSON only as
-  historical/review evidence, not as a manifest lookup fallback
+- **presented contract**: the manifest or digest supplied by a participant for
+  approval, bootstrap, reconnect, or activation; it is scoped to that request
+- **implementation offer**: an accepted runtime statement that an enabled
+  service or device instance currently implements one contract id at one digest;
+  non-builtin offers describe availability and dependency inputs, not authority
 
 The core decision is:
 
@@ -170,18 +172,18 @@ For contract-bearing user runtimes, the reconnect proof carries:
 Rules:
 
 - session-key proof alone is not enough for ordinary user clients
-- contract-bearing clients must present contract evidence that fits their
-  effective identity envelope
-- service runtimes must present current contract evidence that fits the parent
+- contract-bearing clients must present a contract that fits their effective
+  identity envelope
+- service runtimes must present a current contract that fits the parent
   deployment envelope; stale service binaries or unavailable boundaries are
   rejected during NATS auth callout rather than receiving a partially scoped JWT
 - permissions are always derived from the caller's contract context plus current
   grants, never from hard-coded static ACLs; service/device runtime contracts
   are resolved against deployment envelopes, while user-facing app, CLI, native,
-  and device-user contract evidence is resolved against identity envelopes bound
-  to the user session
-- reconnect authorization is re-evaluated against the presented contract
-  evidence and the bound app identity
+  and device-user presented contracts are resolved against identity envelopes
+  bound to the user session
+- reconnect authorization is re-evaluated against the presented contract and the
+  bound app identity
 
 ### 4) Identity binding differs by principal class
 
@@ -247,7 +249,7 @@ Rules:
 - browser clients receive sentinel credentials only after bind succeeds
 - services load sentinel credentials from deployment configuration
 - service runtimes and reconnect-capable clients regenerate auth payloads at
-  connect and reconnect time from their session key, current contract digest,
+  connect and reconnect time from their session key, presented contract digest,
   corrected issue time, and signature; auth does not issue or renew reusable
   binding tokens
 - high-level runtime clients own bootstrap server-time handling, corrected `iat`
@@ -318,7 +320,7 @@ Rules:
 - browser apps MAY attach opaque portal context to login initiation so custom
   portals can coordinate UX without introducing portal-specific app APIs
 - approval is recorded as an account-scoped identity envelope decision for the
-  presented contract evidence and app identity
+  presented contract and app identity
 - durable approval reuse is keyed by Trellis user account plus app identity
   anchor; the provider origin and provider subject/id captured at approval time
   are audit evidence and do not prevent reuse by another linked local or OIDC
@@ -328,9 +330,9 @@ Rules:
   metadata from the owning contract
 - approval UIs should render capability metadata as the primary decision content
   and keep raw capability keys, contract ids, and digests as technical details
-- contract changes create new contract evidence; they require approval only when
-  the requested boundary exceeds the current identity envelope for the same app
-  identity
+- contract digest changes create a new presented contract context; they require
+  approval only when the requested boundary exceeds the current identity
+  envelope for the same app identity
 - user sessions bind user identity, session key, and explicit app identity
   together; app identity includes the app contract id and, when available, the
   app origin
@@ -372,15 +374,15 @@ Rules:
   approval record
 - after any successful rebind or digest change, callers MUST reconnect NATS
   before using the new rights because transport JWTs are issued per connection
-- browser clients treat both `session_not_found` and `reauth_required` as
-  auth-required states and should re-enter the login/reauth flow rather than
-  surfacing them as terminal application errors
+- browser clients treat `session_not_found` as an auth-required state and should
+  re-enter the login flow rather than surfacing it as a terminal application
+  error
 
 ### 9) Activated devices are deployment-owned
 
 Activated devices are preregistered through Trellis-admin flows and bound to a
 deployment-owned device deployment. The device identity is durable; the device
-presents contract evidence at runtime, and that evidence must fit the deployment
+presents a contract at runtime, and that contract must fit the deployment
 envelope plus any user-delegated identity envelope created by activation.
 
 Rules:
@@ -488,11 +490,10 @@ Rules:
   envelopes, while user app/agent sessions use identity envelopes
 - activated devices do not use browser bind or user session flows; they
   establish their session from activation state plus identity-key proof and
-  current contract evidence
-- browser sessions that are revoked, missing, or too stale for a protected admin
-  action surface as `session_not_found` or `reauth_required` and should re-enter
-  the browser login/reauth flow rather than displaying a terminal application
-  error
+  presented contract context
+- browser sessions that are revoked or missing surface as `session_not_found`
+  and should re-enter the browser login flow rather than displaying a terminal
+  application error
 - session-facing RPCs must not reconstruct a missing durable session from caller
   context. Missing durable session state is authoritative and returns
   `session_not_found`.
@@ -504,7 +505,7 @@ Rules:
 
 Authorization is derived from:
 
-- deployment envelopes and presented contract evidence
+- deployment envelopes and presented contracts
 - identity envelopes, grant overrides, and caller grants
 - declared `operations`, `rpc`, `events`, and `uses`
 - installed resource bindings
@@ -513,32 +514,33 @@ Rules:
 
 - Trellis MUST derive permissions from contracts rather than from a parallel
   scope system
-- runtime permission derivation resolves `uses` dependencies against known
-  contract manifests. Unknown or missing required dependency surfaces fail
-  closed instead of being treated as advisory metadata.
+- runtime permission derivation resolves `uses` dependencies against effective
+  active contracts. Unknown or inactive required dependencies fail closed
+  instead of being treated as advisory metadata.
 - contract dependencies are authored and emitted only under `uses.required` or
   `uses.optional`; flat aliases directly under `uses` are invalid and must not
   be interpreted as required dependencies.
-- approval planning may derive reviewable surfaces and capabilities from known
-  inactive required dependency manifests. Runtime permission derivation still
-  requires the requested dependency surfaces to be known and covered by the
-  effective envelope.
+- approval planning must not derive reviewable surfaces or capabilities from
+  inactive historical manifests. Required dependency surfaces must come from the
+  dependency's effective active contract and be covered by the effective
+  envelope.
 - missing optional dependency contracts or optional requested surfaces are
   skipped during planning and grant no runtime authority; if they later become
-  known, they require a new envelope expansion and approval before a fresh
+  active, they require a new envelope expansion and approval before a fresh
   reconnect can use them.
 - catalog refresh, portal routing, surface status, shrink preview, and unused
   installed-contract cleanup are derived through targeted durable-store queries
   rather than broad scans of local manifests or in-memory catalogs.
 - auth callout, bootstrap, and catalog flows resolve full manifests from
-  built-in Trellis contracts or the global contract store; deployment evidence
-  records are used as review/audit evidence, not to hydrate manifests or grant
-  authority.
-- bootstrap planning may use known inactive dependency manifests for review, but
-  stale incompatible inactive manifests are treated as unresolved dependency
-  blockers rather than catalog repair issues.
+  built-in Trellis contracts or the global contract store; expansion/retraction
+  history and implementation offers are not manifest lookup fallbacks and do not
+  grant authority.
+- bootstrap and approval planning report `dependency_not_active` when a required
+  dependency has no effective active contract. If active offers for that
+  dependency are incompatible, Trellis reports a catalog repair issue for that
+  active lineage rather than falling back to historical manifests.
 - across the runtime, non-builtin runtime authority comes from envelope fit.
-  Service reconnects whose presented evidence no longer fits fail with
+  Service reconnects whose presented contract no longer fits fail with
   `contract_changed`; same-instance incompatible replacement in `strict` mode
   fails with `contract_compatibility_violation`.
 - user approval planning collects required capability keys from declared RPC,
@@ -552,8 +554,16 @@ Rules:
   declarations, and installed resource bindings
 - `uses.events.subscribe` authorizes the logical event subscription surface.
   Durable service event processing also requires a matching `eventConsumers`
-  resource binding, which Trellis provisions and scopes to one physical
-  JetStream consumer.
+  resource binding, which Trellis provisions during approval and scopes to one
+  physical JetStream consumer.
+- approval provisions or adopts every declared `kv`, `store`, `jobs`, and
+  `eventConsumers` binding atomically from Trellis's perspective; if approval
+  fails, returns pending/waiting, or cannot persist SQL state after creating
+  NATS resources, Trellis best-effort cleans up resources created by that
+  attempt.
+- `required: false` controls generated optional typing for service code; it does
+  not allow auth or provisioning to silently skip a declared resource after
+  approval.
 - event-consumer resource permissions MUST be least-privilege grants for the
   bound stream and consumer name. Services must not receive broad durable
   consumer-create or wildcard consumer-control subjects for ordinary event

@@ -13,7 +13,7 @@ order: 15
 - [auth-protocol.md](./auth-protocol.md) - proofs, connect payloads, and
   pre-auth wait rules
 - [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md) -
-  device lineage and contract evidence rules
+  device lineage, presented contract, and implementation-offer rules
 
 ## Context
 
@@ -42,7 +42,7 @@ Key decisions:
   `trellis.portal.activation@v1`
 - the activation portal is still a browser web app; if it calls Trellis after
   login, it does so as the logged-in user rather than as a service
-- devices present contract evidence at runtime; deployments validate the derived
+- devices present a contract at runtime; deployments validate the derived
   boundary against the deployment envelope
 - device deployments do not carry a separate rollout-target digest field
 - device review is a first-class optional gate controlled by `reviewMode`
@@ -122,7 +122,10 @@ online auth.
     "contracts": ["acme.reader@v1"],
     "capabilities": ["acme.reader::read"]
   },
-  "contractEvidence": ["<digest-v1>", "<digest-v2>"],
+  "contractHistory": [
+    { "contractDigest": "<digest-v1>", "action": "expanded" },
+    { "contractDigest": "<digest-v2>", "action": "expanded" }
+  ],
   "reviewMode": "none",
   "disabled": false
 }
@@ -134,12 +137,12 @@ Rules:
   instance and activation record
 - `envelope` stores the authority boundary for the deployment
 - each `contractId` identifies one contract lineage
-- `contractEvidence` records the digests and derived boundaries reviewed for the
-  deployment; it is evidence/version metadata, not authority
-- activated devices present contract evidence; auth checks that the derived
-  required boundary fits the deployment envelope
-- unknown or envelope-incompatible evidence is rejected instead of falling back
-  to another digest in the deployment
+- `contractHistory` records reviewed expansion and retraction history for the
+  deployment; it is audit metadata, not authority
+- activated devices present a contract; auth checks that the derived required
+  boundary fits the deployment envelope
+- unknown or envelope-incompatible presented contracts are rejected instead of
+  falling back to another digest in the deployment
 - `reviewMode: "required"` means portal completion creates or resumes a pending
   review rather than activating immediately
 - there is no separate rollout-target digest field
@@ -266,7 +269,7 @@ Rules:
   admin display, but the map may also include deployment-specific opaque keys
 - auth, activation, and connect-info decisions do not depend on this metadata
 - device instances do not store authority; connect-info and runtime auth resolve
-  the presented contract evidence against the enabled device deployment envelope
+  the presented contract against the enabled device deployment envelope
 
 `DeviceProvisioningSecret` is the auth-owned activation secret material keyed by
 `instanceId`.
@@ -436,7 +439,7 @@ Rules:
   credentials, or hard-coded NATS topology; any Deno activation-state
   persistence stays internal to the Deno activation helper
 
-### 11) Runtime auth presents contract evidence
+### 11) Runtime auth presents a contract
 
 Runtime auth happens after connect-info returns `ready`. Device runtime is gated
 by registration, lifecycle state, and a presented contract boundary that fits
@@ -456,14 +459,14 @@ Auth validates:
    `activated`, or no activation exists and the instance is still `registered`
    under an admin/review-approved setup flow
 3. the device deployment is present and enabled
-4. the presented contract evidence derives a required boundary that fits the
-   device deployment envelope
+4. the presented contract derives a required boundary that fits the device
+   deployment envelope
 
-This keeps validation explicit while preserving the one-current-digest active
-catalog rule for each contract id. Activation is not the runtime gate by itself:
-registration, lifecycle state, and envelope fit remain mandatory.
-Admin/review-approved setup sessions do not create or mutate activation records;
-activation remains the separate step that adds user-delegated authority.
+This keeps validation explicit while separating envelope fit from implementation
+offer liveness. Activation is not the runtime gate by itself: registration,
+lifecycle state, and envelope fit remain mandatory. Admin/review-approved setup
+sessions do not create or mutate activation records; activation remains the
+separate step that adds user-delegated authority.
 
 Lifecycle events are:
 

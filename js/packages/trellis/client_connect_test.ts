@@ -33,14 +33,14 @@ const testContract = {
   },
 } as const;
 
-const reauthRpcContract = {
+const authRequiredRpcContract = {
   CONTRACT: testContract.CONTRACT,
   CONTRACT_DIGEST: testContract.CONTRACT_DIGEST,
   API: {
     trellis: {
       rpc: {
-        "Admin.RequireFreshAuth": {
-          subject: "rpc.v1.Admin.RequireFreshAuth",
+        "Admin.TestAuthRequired": {
+          subject: "rpc.v1.Admin.TestAuthRequired",
           input: Type.Object({}),
           output: Type.Object({}),
           callerCapabilities: ["admin:write"],
@@ -151,7 +151,7 @@ function createControllableNatsConnection(authErrorReason?: string): {
         const responseHeaders = headers();
         responseHeaders.set("status", "error");
         return {
-          subject: "rpc.v1.Admin.RequireFreshAuth",
+          subject: "rpc.v1.Admin.TestAuthRequired",
           sid: 1,
           data: new Uint8Array(),
           headers: responseHeaders,
@@ -2445,106 +2445,6 @@ Deno.test("connectClientWithDeps reauths when bootstrap reports contract_not_act
   }
 });
 
-Deno.test("browser clients start auth flow when RPC returns reauth_required", async () => {
-  const originalFetch = globalThis.fetch;
-  const handle = await createBrowserHandle();
-  const nats = createControllableNatsConnection("reauth_required");
-  const fetchUrls: string[] = [];
-  const loginUrls: string[] = [];
-
-  try {
-    globalThis.fetch = ((input: URL | Request | string) => {
-      const url = String(input);
-      fetchUrls.push(url);
-
-      if (url.endsWith("/bootstrap/client")) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              status: "ready",
-              serverNow: 1_700_000_000,
-              connectInfo: {
-                sessionKey: handle.sessionKey,
-                contractId: reauthRpcContract.CONTRACT.id,
-                contractDigest: reauthRpcContract.CONTRACT_DIGEST,
-                transports: {
-                  native: { natsServers: ["nats://127.0.0.1:4222"] },
-                  websocket: { natsServers: ["ws://localhost:8080"] },
-                },
-                transport: {
-                  inboxPrefix: "_INBOX.session-key",
-                  sentinel: { jwt: "jwt", seed: "seed" },
-                },
-              },
-            }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            },
-          ),
-        );
-      }
-
-      if (url.endsWith("/auth/requests")) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              status: "flow_started",
-              flowId: "flow-reauth",
-              loginUrl:
-                "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-reauth",
-            }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            },
-          ),
-        );
-      }
-
-      throw new Error(`Unexpected fetch ${url}`);
-    }) as typeof fetch;
-
-    const trellis = await connectClientWithDeps({
-      trellisUrl: "https://trellis.example.com",
-      contract: reauthRpcContract,
-      auth: {
-        mode: "browser",
-        handle,
-        redirectTo: "https://console.example.com/admin/users?action=delete",
-        currentUrl: "https://console.example.com/admin/users?action=delete",
-      },
-      onAuthRequired: ({ loginUrl }) => {
-        loginUrls.push(loginUrl);
-        return { status: "handled" };
-      },
-    }, {
-      loadTransport: async () => ({
-        connect: async () => nats.connection,
-      }),
-      now: () => 1_700_000_000_000,
-    });
-
-    const error = await assertRejects(
-      () =>
-        trellis.request(
-          "Admin.RequireFreshAuth",
-          {},
-        ).orThrow(),
-      AuthError,
-    );
-
-    assertEquals(error.reason, "reauth_required");
-    assertEquals(loginUrls, [
-      "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-reauth",
-    ]);
-    assertEquals(fetchUrls.some((url) => url.endsWith("/auth/requests")), true);
-  } finally {
-    await nats.close();
-    globalThis.fetch = originalFetch;
-  }
-});
-
 Deno.test("browser clients preserve session_not_found auth-required behavior", async () => {
   const originalFetch = globalThis.fetch;
   const handle = await createBrowserHandle();
@@ -2563,8 +2463,8 @@ Deno.test("browser clients preserve session_not_found auth-required behavior", a
               serverNow: 1_700_000_000,
               connectInfo: {
                 sessionKey: handle.sessionKey,
-                contractId: reauthRpcContract.CONTRACT.id,
-                contractDigest: reauthRpcContract.CONTRACT_DIGEST,
+                contractId: authRequiredRpcContract.CONTRACT.id,
+                contractDigest: authRequiredRpcContract.CONTRACT_DIGEST,
                 transports: {
                   native: { natsServers: ["nats://127.0.0.1:4222"] },
                   websocket: { natsServers: ["ws://localhost:8080"] },
@@ -2605,7 +2505,7 @@ Deno.test("browser clients preserve session_not_found auth-required behavior", a
 
     const trellis = await connectClientWithDeps({
       trellisUrl: "https://trellis.example.com",
-      contract: reauthRpcContract,
+      contract: authRequiredRpcContract,
       auth: {
         mode: "browser",
         handle,
@@ -2626,7 +2526,7 @@ Deno.test("browser clients preserve session_not_found auth-required behavior", a
     const error = await assertRejects(
       () =>
         trellis.request(
-          "Admin.RequireFreshAuth",
+          "Admin.TestAuthRequired",
           {},
         ).orThrow(),
       AuthError,

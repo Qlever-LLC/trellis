@@ -62,8 +62,7 @@ and Rust authoring walkthroughs belong in `/guides/libraries/typescript`,
 Trellis defines two canonical JSON artifacts:
 
 - `trellis.contract.v1` - one service contract manifest
-- `trellis.catalog.v1` - the runtime's catalog projection of known Trellis-owned
-  contracts
+- `trellis.catalog.v1` - the runtime's active implementation projection
 
 Both artifacts are pure JSON values. They are language-neutral and safe to
 persist, hash, validate, transmit, and use for code generation.
@@ -72,7 +71,8 @@ persist, hash, validate, transmit, and use for code generation.
 
 Every contract belongs to one stable contract lineage identified by `id`.
 Deployment and identity envelopes decide whether a presented contract boundary
-is authorized; contract evidence records what was reviewed or presented.
+is authorized; expansion and retraction history records what changed and what
+was reviewed.
 
 - Trellis-managed contracts such as `trellis.core@v1`, `trellis.auth@v1`, and
   `trellis.state@v1` are implemented by the `trellis` runtime service even when
@@ -280,7 +280,7 @@ Rules:
   `trellis.` prefix so ownership is visible from the stable lineage id
 - within one Trellis runtime, each `id` is globally unique for subject ownership
   and generated SDK identity
-- a new digest for the same `id` is reviewed as boundary evidence against the
+- a new digest for the same `id` is reviewed as a boundary change against the
   relevant envelope; the digest is not itself durable authority
 - service deployments default to `strict` same-contract compatibility, which
   rejects incompatible replacement for an existing service instance; development
@@ -323,13 +323,13 @@ Rules:
 - runtimes MUST NOT compute a digest from a service-local normalized copy of a
   manifest unless that normalization is the shared contract manifest
   normalization for the current Trellis protocol version
-- deployment envelope expansion requests that include contract evidence MUST
+- deployment envelope expansion requests that include a presented contract MUST
   carry the locally reviewed digest, and auth MUST reject the request if
-  canonical digest computation produces different evidence
+  canonical digest computation produces a different digest
 - digest-stable metadata edits may update catalog display information without
   requiring new runtime permissions or new app approvals, but capability
   metadata edits are not digest-stable
-- the runtime catalog projection MUST NOT publish multiple current digests for
+- the runtime catalog projection MUST NOT publish multiple active digests for
   one Trellis-owned `id`
 - install records bind one exact digest to one service principal public key
 
@@ -351,11 +351,75 @@ Manifest normalization is separate from digest projection:
   manifest normalization and digest projection/conformance vectors in the same
   change whenever the field has runtime or authority semantics
 
-This allows Trellis to validate a proposed replacement before a service instance
-accepts it as the new runtime evidence for the same `id`. Preregistered device
-firmware revisions that map to different digests in one device lineage still
-resolve through deployment-envelope fit rather than a deployment digest allow
-list.
+This allows Trellis to validate a proposed replacement before a service or
+device offer for the same `id` becomes accepted. Preregistered device firmware
+revisions that map to different digests in one device lineage still resolve
+through deployment-envelope fit rather than a deployment digest allow list.
+
+### 6.2) Runtime implementation offers
+
+Contracts, envelopes, and implementation liveness are separate concepts.
+
+Terms:
+
+- **known contract**: a validated normalized manifest stored by digest in the
+  global `contracts` store, or a built-in Trellis manifest. Known contracts are
+  historical content-addressed facts. They are not runtime authority and do not
+  become active merely because they are stored.
+- **presented contract**: the manifest or digest supplied by a participant
+  during bootstrap, reconnect, approval, or review. A presented contract is
+  scoped to that request.
+- **envelope-authorized boundary**: the contracts, surfaces, capabilities, and
+  resources covered by a deployment or identity envelope. Envelopes are durable
+  authority and do not retain a relationship to the digest that caused an
+  expansion.
+- **implementation offer**: an accepted statement that a service or device
+  instance currently implements one `contractId` at one digest for one
+  deployment. Offers are derived from successful runtime bootstrap or
+  activation, not from every known manifest and not from envelope authority.
+- **active offer**: an implementation offer whose deployment and instance are
+  enabled, whose current connection is live or still within the configured grace
+  window, and whose `expiresAt` has not passed.
+- **effective active contract**: for one `contractId`, the compatible union of
+  all active offers for that lineage. Multiple service versions may run together
+  during rollout only when their owned surfaces are active-compatible.
+- **stale offer**: an offer whose connection has disconnected or whose graceful
+  shutdown has been observed, but whose short grace window has not expired.
+- **expired offer**: an offer past `expiresAt`. Expired offers do not contribute
+  to active implementation projection, dependency resolution, approval
+  provisioning, or runtime authorization.
+
+Rules:
+
+- non-builtin runtime activity is derived from active offers only
+- known historical manifests MUST NOT be broadly merged into approval,
+  provisioning, dependency resolution, catalog, or runtime authorization
+  decisions
+- an envelope MAY authorize surfaces that no active implementation currently
+  offers; that is allowed because the envelope is authority, not liveness
+- if no active offer exists for a required dependency, Trellis reports a
+  targeted dependency-not-active blocker rather than searching historical
+  manifests for a compatible shape
+- if active offers for one `contractId` are compatible, Trellis derives the
+  effective active contract from their union
+- if a newly presented offer is incompatible with the latest accepted
+  same-lineage offer under a strict deployment, bootstrap rejects the new offer
+  before it becomes active
+- if incompatible active offers already exist because of a race, migration, or
+  external repair, Trellis keeps the previous effective active set and surfaces
+  a catalog repair issue for operators
+- the latest accepted expired offer for a deployment and `contractId` MAY be
+  used for strict same-lineage compatibility, because it is the implementation
+  most likely to return after an outage
+- graceful shutdown marks the offer stale for the same short grace window used
+  for unplanned disconnects
+- health heartbeats MAY refresh offer freshness and Console-visible status only
+  for an already accepted matching offer; a heartbeat MUST NOT create an offer
+  or change the offered digest
+
+This is a clean break from evidence-derived active implementation projections.
+Expansion and retraction history remains useful audit data, but it is not an
+active implementation source.
 
 Same-lineage replacement compatibility is defined by the owned communication
 surface:
@@ -363,12 +427,11 @@ surface:
 - `rpc`, `operations`, `events`, and `jobs` MUST evolve additively while
   replacement compatibility is being validated
 - `uses`, metadata, and other non-owned sections MAY vary by digest as long as
-  the presented contract evidence still validates successfully and dependency
-  resolution against known manifests stays unambiguous
-- `resources` declarations are validated from the presented contract evidence;
-  they do not need to be additive across the lineage, but Trellis MUST validate
-  and bind the exact resource set requested by the evidence bound to that
-  principal
+  the presented contract validates successfully and dependency resolution
+  against effective active contracts stays unambiguous
+- `resources` declarations are validated from the presented contract; they do
+  not need to be additive across the lineage, but Trellis MUST validate and bind
+  the exact resource set requested by the contract bound to that principal
 - physical resource identity is scoped to the deployment and contract lineage,
   not to the digest, so compatible service updates do not lose durable data
   solely because the contract digest changed
@@ -431,10 +494,10 @@ Breaking schema changes include:
 If a rollout needs one of those breaking changes, it MUST use a new contract
 `id` / major version for production deployments. During early unreleased
 development, an operator MAY mark the service deployment `mutable-dev` so the
-same instance can accept incompatible same-lineage evidence without creating a
-production compatibility guarantee.
+same instance can accept an incompatible same-lineage contract without creating
+a production compatibility guarantee.
 
-### 6.2) Capability metadata and global keys
+### 6.3) Capability metadata and global keys
 
 Contract manifests may declare top-level capability metadata keyed by global
 capability key.
@@ -486,7 +549,7 @@ Contracts MAY declare explicit dependencies on other contracts through a
 top-level `uses` object. Dependency aliases MUST be grouped under
 `uses.required` or `uses.optional`; required aliases fail closed and optional
 aliases grant authority only when their target contract and surface resolve in
-known manifests.
+the effective active contract set.
 
 Example:
 
@@ -539,54 +602,49 @@ Rules:
   `uses.optional.health` for `trellis.health@v1`, authoring helpers merge the
   baseline heartbeat publish selector into that alias rather than requiring a
   second alias
-- manifest validation is structural and MAY accept required referenced contracts
-  that are not active yet so Trellis can collect contract evidence and create
-  review requests during cyclic or staged service rollouts
-- review and approval planning MAY resolve required dependency surfaces from
-  known inactive contract manifests, but MUST fail if a required referenced
-  contract is unknown or if any required referenced RPC, operation, event, or
-  feed name does not exist on the known contract
-- if multiple known inactive manifests for the same referenced contract cannot
-  be projected into a compatible review surface, planning MUST treat that
-  dependency as unresolved instead of creating a catalog repair issue
-- runtime permission derivation MUST fail closed if a required referenced
-  contract is unknown or its referenced surface cannot be resolved from known
-  manifests
+- manifest validation is structural and MAY accept referenced contracts that are
+  not active yet, but approval, provisioning, and runtime authorization MUST NOT
+  derive dependency surfaces from inactive historical manifests
+- required dependency resolution uses the dependency's effective active
+  contract; if no effective active contract exists, Trellis reports a
+  dependency-not-active blocker
+- if the dependency's active offers are incompatible, Trellis reports a catalog
+  repair issue for that active lineage and does not resolve the dependency from
+  historical manifests
 - missing optional contracts and missing optional surfaces do not fail
-  validation and do not grant transport authority
-- if a missing optional contract or surface later becomes known, a fresh
+  structural validation and do not grant transport authority
+- if a missing optional contract or surface later becomes active, a fresh
   envelope expansion and approval is required before reconnects receive that
   optional authority
-- known optional surfaces may grant transport authority even when no
-  implementing service is currently connected; liveness is availability, not
-  authorization
-- validation happens when resolving dependencies against known manifests: if a
-  `uses` entry targets a contract with multiple known compatible digests,
-  Trellis projects the reviewable surfaces together
-- that compatible-digest projection MAY merge additive identical logical surface
+- validation happens when resolving dependencies against effective active
+  contracts: if a `uses` entry targets a contract with multiple active
+  compatible offers, Trellis projects their surfaces together
+- that active-offer projection MAY merge additive identical logical surface
   descriptors, but MUST reject divergent duplicate descriptors for the same
   operation, RPC, or event name
 - duplicate surface descriptors are compared after resolving schema refs; same
   ref names are not sufficient, and different ref names are acceptable only when
   the resolved schemas are canonically equal or proven compatible by the
   same-lineage schema verifier
+- required dependency cycles that cannot produce an active provider first are
+  not resolved through historical manifests; service authors should break such
+  cycles by staging one provider, making one edge optional, or splitting
+  contracts
 - higher-level consent scopes for user-facing applications MAY be derived from
   `uses`, but runtime enforcement remains operation-level
 - any user approval or consent record for a client contract MUST retain the
-  reviewed contract digest as evidence, while the durable authority is the
+  reviewed contract digest for audit, while the durable authority is the
   resulting identity-envelope boundary
 
 ### Runtime surface status
 
-Catalog knowledge, reviewability, authorization, and runtime availability are
-separate decisions. A contract is known when Trellis has stored a validated
-manifest by digest. A requested deployment boundary is reviewable when required
-dependency manifests are known and referenced surfaces can be displayed for
-approval. A surface is authorized only when the caller's effective envelope and
-grants cover the derived boundary. `Trellis.Surface.Status` is an advisory
-Trellis core RPC that checks known contract metadata, checks the caller's
-current capability envelope, and checks live service or device implementation
-state only after authorization succeeds.
+Catalog knowledge, authorization, and runtime availability are separate
+decisions. A contract is known when Trellis has stored a validated manifest by
+digest. A deployment boundary is authorized only when the deployment envelope
+covers it. A surface is active only when an enabled service or device offer
+currently contributes it. `Trellis.Surface.Status` is an advisory Trellis core
+RPC that checks known contract metadata, checks the caller's current capability
+envelope, and checks implementation offers only after authorization succeeds.
 
 Status outcomes are:
 
@@ -595,22 +653,23 @@ Status outcomes are:
   operation, event, or feed surface
 - `unauthorized` with missing capability keys when the caller's current envelope
   does not authorize the requested surface
-- `unavailable` with `envelope_unavailable` when the contract is known but no
-  enabled deployment envelope currently covers the requested surface
+- `unavailable` with `envelope_unavailable` when the contract is known but the
+  caller's effective envelope does not cover the requested surface
+- `unavailable` with `dependency_not_active` when the surface depends on a
+  contract with no effective active implementation offer
 - `available` with `liveImplementer: true` and `runtime: "live"` when an enabled
-  connected service or device instance currently presents envelope-compatible
-  evidence that defines the requested surface
+  connected service or device instance currently offers the requested surface
 - `available` with `liveImplementer: false` and `runtime: "no_live_implementer"`
-  when the surface is authorized and deployment-covered but no connected service
-  or device instance currently implements it
+  when the surface is authorized and recently offered within grace but no live
+  connection currently implements it
 - `available` with `liveImplementer: false` and `runtime: "disabled"` when only
   disabled matching service or device instances currently implement it
 
-Availability MUST NOT grant authority, activate catalog entries, or remove
-transport permissions that were already granted from the caller's effective
-contract envelope. During mixed-version rollouts, availability is scoped to the
-presented envelope-compatible evidence that defines the requested logical
-surface, not merely to any live digest in the same contract lineage.
+Availability MUST NOT grant authority or remove transport permissions that were
+already granted from the caller's effective contract envelope. During
+mixed-version rollouts, availability is scoped to the compatible active offers
+that define the requested logical surface, not merely to any known digest in the
+same contract lineage.
 
 ### 7) RPC operation descriptor
 
@@ -843,7 +902,15 @@ Rules:
   durable consumer name, filter subjects, and runtime binding payload
 - `eventConsumers` is part of digest identity except for nested `docs` metadata
 - envelope expansion validates the referenced subscribed event surfaces against
-  known manifests and the requested envelope before provisioning
+  effective active dependency offers and the requested envelope before
+  provisioning
+- durable event consumers are provisioned during successful approval so events
+  published after approval are captured even if the service process has not
+  finished reconnecting
+- if a referenced dependency has no effective active offer, approval fails with
+  a dependency-not-active blocker before Trellis creates any NATS resource
+- if consumer creation or adoption fails, approval fails and the envelope is not
+  expanded
 - event consumer bindings are deployment resources. Service code consumes the
   binding through the connected runtime, not by constructing or naming a
   JetStream durable consumer itself
@@ -907,9 +974,9 @@ Rules:
 - aliases are part of the contract and are stable API surface for the service
 - the contract requests logical resources; Trellis assigns physical names and
   backing infrastructure when the deployment envelope expands
-- Trellis validates requested resource declarations from reviewed contract
-  evidence, but chooses physical resource identities at the deployment/lineage
-  scope rather than the digest scope
+- Trellis validates requested resource declarations from the reviewed contract,
+  but chooses physical resource identities at the deployment/lineage scope
+  rather than the digest scope
 - the v1 resource surface supports `resources.kv` and `resources.store`
 - a KV request declares:
   - `purpose`: required human-facing explanation of why the service needs the
@@ -934,11 +1001,21 @@ Rules:
     Trellis runtime write paths when exposed in the installed binding
 - envelope expansion approves the requested alias/type/spec, not general
   infrastructure-management credentials for the service
-- required resources fail envelope expansion if Trellis cannot provision or bind
-  them
-- optional resources (`required: false`) may be omitted from installed bindings
-  if provisioning is unavailable or fails; service code must treat those aliases
-  as optional at runtime
+- all declared resources in an approved contract boundary MUST be provisioned or
+  adopted during approval; this includes `resources.kv`, `resources.store`,
+  top-level `jobs` bindings, and top-level `eventConsumers`
+- resource approval is atomic from Trellis's perspective: if approval fails,
+  returns pending/waiting, or cannot persist SQL state, Trellis MUST best-effort
+  clean up every NATS resource created by that attempt
+- resources adopted from existing matching bindings are never deleted by
+  rollback
+- deterministic resource names make retry safe when cleanup partially fails;
+  retry MUST adopt matching resources rather than creating duplicates
+- an existing resource with an incompatible shape or unsafe ownership conflict
+  fails approval before Trellis creates any new resource
+- `required: false` remains part of the contract and generated service typing,
+  but it is not a best-effort provisioning flag; Trellis does not silently skip
+  a declared resource because provisioning failed
 - v1 store bindings expose effective runtime limits, including `maxObjectBytes`
   when the contract requested a finite per-object limit; NATS object-store
   `max_bytes` is the total-store limit, while Trellis runtime write paths
@@ -1140,11 +1217,11 @@ workflows refer to contracts by digest.
 
 The Trellis runtime exposes its catalog projection as `trellis.catalog.v1`.
 Deployment envelopes and identity envelopes are the authority for approved
-surfaces. Contract-evidence rows are cold review and audit data, and resource
-binding rows describe provisioned resources for envelope-covered deployments.
-The global `contracts` store is the authority for full normalized manifests by
-digest. In-memory contract/catalog objects are validation, projection, and cache
-state only.
+surfaces. Expansion and retraction history is cold review and audit data, and
+resource binding rows describe provisioned resources for envelope-covered
+deployments. The global `contracts` store is the authority for full normalized
+manifests by digest. In-memory contract/catalog objects are validation,
+projection, and cache state only.
 
 Shape:
 
@@ -1164,22 +1241,24 @@ Shape:
 
 Catalog rules:
 
-- the catalog contains the runtime's active Trellis-owned contract projection;
-  non-builtin deployment evidence does not promote a contract into the active
-  catalog
+- the catalog contains the runtime's active implementation projection: built-in
+  Trellis contracts plus non-expired service and device offers
 - entries are keyed by digest and include `id`, `displayName`, and `description`
-- a catalog MUST contain at most one current digest for each Trellis-owned `id`
+- a catalog MAY include multiple concrete digests for one non-builtin `id`
+  during a compatible mixed-version rollout; runtime authorization uses the
+  effective active union internally
+- a catalog MUST NOT invent a synthetic union digest
 - catalog ordering is not semantically significant, but implementations SHOULD
   return a stable order for diffability and testing
 - catalog refresh is fail-closed: failure to hydrate required builtin contract
   state MUST fail startup or refresh rather than publishing a partial catalog
 - catalog hydration resolves full manifests from built-in Trellis contracts or
-  the global `contracts` store; deployment evidence MUST NOT be used as a
-  manifest lookup fallback
+  the global `contracts` store; expansion history and implementation offer rows
+  MUST NOT be used as manifest lookup fallbacks
 - catalog refresh, surface-status checks, shrink previews, and unused
   installed-contract cleanup MUST use targeted durable-store queries keyed by
-  the relevant deployment, digest, route, or install records rather than
-  scanning nearby local manifests or broad in-memory catalogs
+  the relevant deployment, digest, route, or offer records rather than scanning
+  nearby local manifests or broad in-memory catalogs
 - refresh MUST validate every proposed catalog digest before replacing the
   in-memory catalog; unknown digests or divergent duplicate surfaces keep the
   previous catalog unavailable rather than falling back to partial state
@@ -1187,15 +1266,12 @@ Catalog rules:
   dry-run mode against staged deployment-envelope records before mutating the
   durable envelope set, so incompatible boundaries fail before partial state is
   persisted or exposed to callers
-- service runtime authority is derived from enabled service deployment envelopes
-  plus presented evidence, not from active catalog promotion, service deployment
-  rows, service instances, or their current runtime evidence fields
-- device runtime authority is derived from enabled device deployment envelopes
-  plus presented evidence, not from active catalog promotion, device deployment
-  rows, or per-device current-contract fields
+- service and device runtime authority is derived from envelope fit and the
+  participant's presented contract; active offers describe implementation
+  availability and dependency resolution, not durable authority
 - deployment enable/disable validation MUST stage the matching deployment
   envelope state, because deployment-envelope enabled state determines whether
-  that deployment can authorize presented evidence
+  that deployment can authorize a presented contract
 
 Admin contract analysis records SHOULD expose enough derived metadata for CLI
 and console review without reimplementing catalog analysis in each client:
@@ -1243,6 +1319,8 @@ Semantics:
 - capability: `trellis.core::catalog.read`
 - returns a bounded runtime projection; it is not a repository scan, an
   authority source, or a way to enumerate inactive/local manifests
+- lists concrete active offered digests; callers use `Trellis.Contract.Get` to
+  read a specific known manifest by digest
 
 #### `Trellis.Contract.Get`
 
@@ -1262,38 +1340,32 @@ runtime discovery RPC set.
   digest when Trellis does not already know it
 - bootstrap validates and stores the presented manifest as a known contract;
   invalid manifests still fail before any envelope expansion request is created
-- when required dependencies are unknown, bootstrap MAY create a pending
-  expansion request that records the unresolved contract ids as activation
-  blockers, but it MUST NOT derive dependency surfaces or capabilities from
-  missing evidence
-- when required dependencies are known but inactive, bootstrap and admin review
-  MAY derive requested surfaces and capabilities from the known manifests so the
-  dependency cycle can be reviewed and approved
-- when known inactive dependency manifests are stale or mutually incompatible,
-  bootstrap treats the dependency as unresolved, records the referenced contract
-  id as an activation blocker, and does not return `contract_catalog_issue`
+- when required dependencies are unknown or inactive, bootstrap and approval
+  return targeted dependency blockers and MUST NOT derive dependency surfaces or
+  capabilities from missing or historical manifests
 - when the presented contract boundary does not fit the deployment envelope,
-  bootstrap stores the contract evidence, creates a pending envelope expansion
-  request for the missing delta, and returns `envelope_expansion_required` so
-  the service runtime can wait and retry
+  bootstrap stores the requested delta in a pending envelope expansion request
+  and returns `envelope_expansion_required` so the service runtime can wait and
+  retry
 - pending service-originated envelope expansion requests are keyed by requester
   connection and requested delta; repeated requests from the same connected
   requester are deduplicated, and requests created by that requester are removed
   when it disconnects
 - if the presented digest has the same `contractId` as the service instance's
-  current digest but is incompatible under `strict` mode, bootstrap returns
-  `contract_compatibility_violation`; production deployments should use a new
-  contract version, while development deployments may opt into `mutable-dev`
+  latest accepted offer but is incompatible under `strict` mode, bootstrap
+  returns `contract_compatibility_violation`; production deployments should use
+  a new contract version, while development deployments may opt into
+  `mutable-dev`
 - when the deployment envelope fits but required dependency surfaces cannot be
-  resolved from known manifests, bootstrap returns an expansion response with
-  unresolved blockers; service runtimes wait and retry rather than receiving
-  runtime credentials
+  resolved from effective active offers, bootstrap returns a dependency blocker;
+  service runtimes wait and retry rather than receiving runtime credentials
 - when the presented digest no longer fits the enabled deployment envelope,
-  bootstrap returns `contract_changed`; runtimes must restart with
-  envelope-compatible evidence rather than refreshing ignored evidence
-- approving the pending request expands the deployment envelope, persists the
-  reviewed evidence and resource bindings. Runtime bootstrap completes only
-  after every required dependency in the approved closure is also active.
+  bootstrap returns `contract_changed`; runtimes must restart with an
+  envelope-compatible contract rather than refreshing stale authority
+- approving the pending request expands the deployment envelope and persists
+  resource bindings only after all declared resources are created or adopted;
+  runtime bootstrap completes only after every required dependency in the
+  approved closure is active.
 - UI and CLI implementations MAY still present a human review screen before
   calling direct envelope expansion RPCs for pre-approved rollout workflows
 
@@ -1344,50 +1416,49 @@ The `trellis` runtime service MUST:
 - validate manifests against `trellis.contract.v1`
 - compute canonical digests
 - upsert full normalized manifests into the global `contracts` store by digest
-- store reviewed deployment evidence by digest; any redundant contract JSON in
-  evidence records is historical/review evidence only, not a manifest lookup
-  fallback
+- store expansion and retraction history by reviewed digest; any redundant
+  contract JSON in history records is historical/review data only, not a
+  manifest lookup fallback
 - treat `contractId` as globally unique within one Trellis runtime for subject
   ownership and SDK identity
-- store reviewed evidence rows covered by enabled deployment envelopes as cold
-  review/audit data; evidence does not promote non-builtin contracts into the
-  active catalog
-- maintain durable deployment envelope/evidence rows for the deployment and
+- store reviewed history rows covered by enabled deployment envelopes as cold
+  review/audit data; history does not promote non-builtin contracts into the
+  active implementation projection
+- maintain durable deployment envelope and history rows for the deployment and
   publish an in-memory catalog only as a fail-closed projection
 - reject subject collisions across operations, RPCs, and events using the
   effective subject after event-template wildcard normalization
-- provision or bind required cloud resources before service envelope expansion
-  or upgrade succeeds
+- provision or adopt every declared cloud resource before service envelope
+  expansion or upgrade succeeds
 - persist resource bindings so service runtimes can resolve them at runtime
 - bind each service deployment envelope to the service principal public key that
   implements it, including Trellis-owned contracts bootstrapped onto the
   `trellis` service principal
 - support deployment-owned device deployment records that resolve a device class
-  to a deployment envelope plus contract evidence
+  to a deployment envelope and presented contract
 - support auth-owned login portal route selectors for browser login and
   deployment-owned portal-route metadata for device-activation routing, with
   built-in Trellis portal paths as the fallback
 - remove the old submission/approval flow rather than preserving a compatibility
   path
 - ensure any stored user approval or consent decision references the identity
-  envelope delta and contract evidence being approved
+  envelope delta and presented contract being approved
 
 Envelope expansion validation MUST also:
 
 - reject impossible or unsafe resource combinations before provisioning begins
-- validate newly installed service digests and their known dependency surfaces
-  before external resource provisioning begins
+- validate newly installed service digests and their effective active dependency
+  surfaces before external resource provisioning begins
 - reject service or device deployment envelope changes when canonical digest
-  computation differs from the caller's reviewed contract evidence
-- validate the exact `resources` requested by the presented contract evidence
-- validate the exact `eventConsumers` requested by the presented contract
-  evidence and provision or bind their deployment-scoped consumers before
-  expansion or bootstrap succeeds
+  computation differs from the caller's reviewed presented contract digest
+- validate the exact `resources` requested by the presented contract
+- validate the exact `eventConsumers` requested by the presented contract and
+  provision or bind their deployment-scoped consumers before approval succeeds
 - preserve physical resource identity across compatible contract changes for the
   same deployment and lineage unless an operator intentionally creates a new
   lineage
 - when activation or runtime auth is deployment-driven, validate that the
-  presented contract evidence fits that deployment's envelope
+  presented contract fits that deployment's envelope
 - login portal routes are auth-owned routing config for browser UX, while device
   portal routes remain deployment-owned routing config; neither form is a
   contract kind, standalone portal authority, or source of portal-specific
@@ -1402,12 +1473,12 @@ Operationally, envelope expansion fails if any of these conditions is true:
 
 - any operation, RPC, or event subject string is already owned by a different
   known contract `id` in the validation set
-- any required resource request cannot be provisioned or bound according to
+- any declared resource request cannot be provisioned or adopted according to
   platform policy
-- any required event consumer group cannot be resolved to approved subscribed
+- any declared event consumer group cannot be resolved to approved subscribed
   dependency events or provisioned as a bound JetStream consumer
-- optional KV or store resources that cannot be provisioned are skipped and do
-  not appear in installed bindings
+- approval returns pending or waiting after creating any NATS resource but
+  before persisting the corresponding envelope and binding state
 
 Same-contract replacement rule:
 
@@ -1420,8 +1491,8 @@ Same-contract replacement rule:
 - in `mutable-dev` mode, Trellis skips same-lineage compatibility validation for
   that deployment so unreleased local development can iterate without inventing
   a production compatibility promise
-- instances that present envelope-incompatible evidence are rejected with
-  `contract_changed`; instances that present incompatible same-contract evidence
+- instances that present an envelope-incompatible contract are rejected with
+  `contract_changed`; instances that present an incompatible same-contract offer
   in `strict` mode are rejected with `contract_compatibility_violation`
 - envelope expansion remains a separate review path for missing boundaries;
   compatibility mode does not by itself expand the deployment envelope
@@ -1442,8 +1513,8 @@ This keeps routing, discovery, and permission derivation unambiguous.
 
 ### 16) Authorization derivation
 
-Authorization is derived from the presented contract evidence that fits the
-effective deployment or identity envelope.
+Authorization is derived from the presented contract that fits the effective
+deployment or identity envelope.
 
 For each envelope-compatible presented contract:
 
@@ -1458,7 +1529,7 @@ For each envelope-compatible presented contract:
   subscribe permission
 - `uses` contributes the exact cross-contract operation/RPC/event/feed
   permissions the owning service may exercise at runtime after dependency
-  resolution validates the referenced known surfaces
+  resolution validates the referenced effective active surfaces
 - operation uses that declare `transfer: { direction: "send", ... }` and grant
   `capabilities.call` contribute caller publish access to
   `transfer.v1.upload.*.*`

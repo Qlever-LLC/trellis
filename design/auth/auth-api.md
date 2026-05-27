@@ -506,7 +506,7 @@ type AuthIdentityGrantRow = {
     | { kind: "cli"; contractId: string; sessionPublicKey: string }
     | { kind: "native"; contractId: string; sessionPublicKey: string }
     | { kind: "device-user"; contractId: string; devicePublicKey: string };
-  contractEvidence: {
+  presentedContract: {
     contractDigest: string;
     contractId: string;
   };
@@ -788,16 +788,16 @@ type DeploymentEnvelope = {
   boundary: EnvelopeBoundary;
 };
 
-type DeploymentContractEvidence = {
+type DeploymentContractHistoryEntry = {
   deploymentId: string;
   contractId: string;
   contractDigest: string;
-  contract: Record<string, unknown>;
-  firstSeenAt: string;
-  lastSeenAt: string;
-  ignoredAt?: string | null;
-  ignoredBy?: Record<string, unknown> | null;
-  ignoreReason?: string | null;
+  action: "expanded" | "retracted";
+  reviewedBoundary: EnvelopeBoundary;
+  reviewedContract?: Record<string, unknown>;
+  actor?: Record<string, unknown> | null;
+  reason?: string | null;
+  createdAt: string;
 };
 
 type DeploymentPortalRoute = {
@@ -830,12 +830,11 @@ type DeploymentGrantOverride =
   );
 ```
 
-`DeploymentContractEvidence` records the manifest digest and reviewed contract
-body used for envelope resolution. It is evidence, not a standalone authority
-source. Authority comes from deployment envelopes, identity envelopes, and
-deployment grant overrides. Deployment evidence is retained for review and audit
-history; it does not promote non-builtin contracts into runtime authority.
-Ignored rows remain historical rollout and audit context.
+`DeploymentContractHistoryEntry` records reviewed expansion and retraction
+events. It is audit history, not a standalone authority source. Authority comes
+from deployment envelopes, identity envelopes, and deployment grant overrides.
+History rows do not promote non-builtin contracts into runtime authority or
+active implementation projection.
 
 ```ts
 type ServiceInstance = {
@@ -889,7 +888,7 @@ type GetEnvelopeRequest = { deploymentId: string };
 type GetEnvelopeResponse = {
   envelope: DeploymentEnvelope;
   resourceBindings: Array<Record<string, unknown>>;
-  contractEvidence: DeploymentContractEvidence[];
+  contractHistory: DeploymentContractHistoryEntry[];
   expansionRequests: Array<Record<string, unknown>>;
   portalRoute: DeploymentPortalRoute | null;
   grantOverrides: DeploymentGrantOverride[];
@@ -918,7 +917,7 @@ type ExpandEnvelopeRequest = {
 type ExpandEnvelopeResponse = {
   envelope: DeploymentEnvelope;
   delta: EnvelopeBoundary;
-  contractEvidence: DeploymentContractEvidence;
+  contractHistory: DeploymentContractHistoryEntry;
   resourceBindings: Array<Record<string, unknown>>;
 };
 
@@ -939,14 +938,15 @@ are not long-running operations, but they must behave as all-or-nothing updates
 for the durable deployment record:
 
 - `Auth.Envelopes.Expand` requires a reviewed delta, validates any presented
-  contract evidence by recomputing its digest and derived boundary, validates
-  the staged deployment envelope, then persists the durable envelope/evidence
-  rows and any resource binding rows produced by provisioning.
+  contract by recomputing its digest and derived boundary, validates the staged
+  deployment envelope, provisions or adopts every declared resource, then
+  persists the durable envelope, history, and resource binding rows atomically
+  from Trellis's perspective.
 - `Auth.Envelopes.Shrink` validates the staged deployment envelope before
   persistence, then kicks affected runtime connections.
 - service and device deployment enable/disable mutations validate with the
   matching staged deployment-envelope disabled state, because enabled deployment
-  envelopes determine whether presented evidence can authorize runtime access.
+  envelopes determine whether a presented contract can authorize runtime access.
 - `Auth.Envelopes.GrantOverrides.Put` replaces all grant override rows for one
   deployment. `Auth.Envelopes.GrantOverrides.List` pages grant override rows
   across deployments. `Auth.Envelopes.GrantOverrides.Remove` removes exact
@@ -955,8 +955,8 @@ for the durable deployment record:
   `contractId` plus browser `origin`, and session rows match a `contractId` plus
   `sessionPublicKey`.
 - service and device deployment mutations fail closed when required `uses`
-  dependencies are unknown or their referenced surfaces cannot be resolved from
-  known manifests; Trellis validates staged state before exposing it to runtime
+  dependencies are unknown, inactive, or cannot be resolved from effective
+  active contracts; Trellis validates staged state before exposing it to runtime
   permissions.
 - catalog refresh, surface-status checks, portal routing resolution, shrink
   previews, and unused installed-contract cleanup use targeted durable-store
@@ -966,46 +966,44 @@ for the durable deployment record:
   skip `uses` validation so operators can tear down an already-broken graph
   instead of being trapped by stale dependencies.
 - service and device envelope changes are race-safe review submissions: auth
-  must compare the reviewed contract evidence with the recomputed evidence
+  must compare the reviewed presented contract digest with the recomputed digest
   before mutating durable deployment state.
-- if post-persistence validation fails, auth rolls the deployment record back;
-  if rollback also fails, the RPC returns an unexpected aggregate failure rather
-  than reporting a successful envelope change.
-- service bootstrap validates that the presented contract evidence fits the
-  enabled parent deployment envelope and is compatible with the service
-  instance's current runtime evidence under the deployment compatibility mode.
-  Instance state affects runtime availability; it does not activate catalog/auth
-  surfaces.
-- envelope expansion and service bootstrap both provision or repair declared
-  `eventConsumers` as deployment resource bindings. The stored binding is what
-  runtime auth uses to grant exact JetStream consumer info, pull-next, and ack
-  subjects to service tokens.
+- if validation, resource provisioning/adoption, or SQL persistence fails after
+  creating NATS resources, auth best-effort cleans up resources created by that
+  attempt and reports failure rather than exposing a partial envelope change.
+- service bootstrap validates that the presented contract fits the enabled
+  parent deployment envelope and is compatible with the deployment's latest
+  accepted offer under the deployment compatibility mode. Instance state affects
+  runtime availability; it does not activate catalog/auth surfaces.
+- envelope expansion provisions or adopts declared `eventConsumers` as
+  deployment resource bindings. Service bootstrap resolves the stored binding,
+  which runtime auth uses to grant exact JetStream consumer info, pull-next, and
+  ack subjects to service tokens.
 - service bootstrap may create pending expansion requests from presented
-  manifests whose required dependency contracts are not live yet. Unknown
-  required dependencies are recorded as unresolved contract blockers; known
-  inactive dependencies can be used for review-time surface and capability
-  display.
-- if known inactive manifests for a required dependency are stale or mutually
-  incompatible, service bootstrap treats that dependency as unresolved rather
-  than returning a catalog issue with no admin repair action.
+  manifests whose required boundary exceeds the deployment envelope. Unknown or
+  inactive required dependencies return dependency blockers instead of creating
+  reviewable surfaces from historical manifests.
+- if active offers for a required dependency are mutually incompatible, service
+  bootstrap reports a catalog repair issue for that active lineage instead of
+  falling back to historical manifests.
 - missing optional dependency contracts or optional requested surfaces are
   absent from the requested delta and grant no authority. If they later become
-  known, a fresh reconnect requests a normal expansion before receiving that
+  active, a fresh reconnect requests a normal expansion before receiving that
   optional authority.
 - service-originated pending envelope expansion requests are deduplicated for
   the connected requester and requested delta, and requests created by that
   requester are removed when the requester disconnects. Envelope expansion stays
   separate from same-contract replacement compatibility.
 - if service bootstrap presents a same-`contractId` digest that is incompatible
-  with the service instance's current digest under `strict` mode, auth returns
+  with the deployment's latest accepted offer under `strict` mode, auth returns
   `contract_compatibility_violation`. Deployments may opt into `mutable-dev` for
   local development iteration.
-- if the deployment envelope fits but required dependency surfaces are unknown,
-  service bootstrap must not persist liveness state or resource bindings for
-  that ready attempt.
+- if the deployment envelope fits but required dependency surfaces are inactive
+  or unresolved, service bootstrap must not persist liveness state, accept a new
+  offer, or create resource bindings for that ready attempt.
 - if the digest presented at bootstrap no longer fits the enabled deployment
   envelope, service bootstrap returns `contract_changed` and must not refresh
-  that evidence row into authority.
+  that offer into authority.
 - the successful service bootstrap response includes the resolved resource
   binding payload for the presented digest; service runtimes use that binding to
   initialize KV, store, jobs, and transfer helpers without requiring a
@@ -1168,7 +1166,7 @@ type GetDeviceConnectInfoResponse = {
 // `POST /auth/devices/connect-info` and `Auth.Devices.ConnectInfo.Get` return
 // `auth.authority: "user_delegated"` for activated devices and
 // `auth.authority: "admin_reviewed"` for admin/review-approved setup flows.
-// Runtime access still requires the presented contract evidence to fit the
+// Runtime access still requires the presented contract to fit the
 // device deployment envelope.
 //
 // `POST /auth/devices/activate/wait` verifies the signed `flowId` and then
@@ -1398,11 +1396,6 @@ Canonical event inventory:
 Admin RPCs require the `admin` capability unless explicitly documented
 otherwise. Device review decision RPCs are the current exception and also allow
 `trellis.auth::device.review`.
-
-Admin RPCs also require fresh primary authentication. The default freshness
-window is 10 minutes from the session's `lastAuth`; stale admin sessions fail
-with `reauth_required` so browser, CLI, and Rust admin clients can send the user
-through the normal reauth flow before retrying the admin action.
 
 Admin list RPCs are bounded production queries using the standard live offset
 page shape. Requests are `{ offset?: number; limit: number }` plus documented
@@ -1715,7 +1708,7 @@ Response:
 
 Rules:
 
-- this is an admin RPC and requires fresh primary authentication
+- this is an admin RPC and requires the `admin` capability
 - the flow targets the supplied `userId`
 - the returned `flowId` is a ULID
 - the target user must already have exactly one local identity; reset creation
@@ -1774,9 +1767,9 @@ Trellis publishes these events as part of `trellis.auth@v1`:
 - `events.v1.Auth.DeviceUserAuthorities.Approved`
 - `events.v1.Auth.DeviceUserAuthorities.Resolved`
 
-Services may subscribe only when the presented contract evidence fits the
-service deployment envelope and declares the events in grouped `uses.required`
-or `uses.optional` entries that are active and authorized.
+Services may subscribe only when the presented contract fits the service
+deployment envelope and declares the events in grouped `uses.required` or
+`uses.optional` entries that are active and authorized.
 
 ## Non-Goals
 

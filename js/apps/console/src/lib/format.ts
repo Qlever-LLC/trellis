@@ -26,8 +26,6 @@ function formatAuthReason(reason: unknown): string | null {
       return "The request could not be completed. Check the form and try again.";
     case "insufficient_permissions":
       return "This Console session is missing permission for that action. Sign out and connect the Console again to approve the updated access.";
-    case "reauth_required":
-      return "Sign in again before completing this action.";
     case "session_not_found":
     case "session_expired":
       return "Your session has expired. Sign in again.";

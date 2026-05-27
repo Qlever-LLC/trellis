@@ -157,10 +157,9 @@ Rules:
 - app-facing auth helpers should accept opaque portal context so apps and custom
   portals can coordinate runtime UX without hard-coding portal-specific
   parameters
-- browser clients should route revoked, missing, or stale-for-admin sessions
-  (`session_not_found` or `reauth_required`) through the same auth-required path
-  so Svelte apps can redirect to their login route and preserve the current
-  return URL
+- browser clients should route revoked or missing sessions (`session_not_found`)
+  through the auth-required path so Svelte apps can redirect to their login
+  route and preserve the current return URL
 - dynamic auth-instance selection remains a valid advanced case, but the default
   public browser-app API should optimize for the fixed-instance path rather than
   forcing every app through explicit auth-state construction

@@ -15,7 +15,7 @@ import type {
   SqlAccountFlowRepository,
   SqlUserAccountRepository,
 } from "../storage.ts";
-import { requireAdminFreshAuth } from "../admin/shared.ts";
+import { requireAdmin } from "../admin/shared.ts";
 import { hashKey } from "../crypto.ts";
 import {
   createLocalCredentialPassword,
@@ -27,7 +27,6 @@ type RpcCaller = {
   type: string;
   userId?: string;
   capabilities?: string[];
-  lastAuth?: string;
 };
 type RpcUser = { userId: string; capabilities?: string[] };
 type AccountFlowAccountStorage = Pick<SqlUserAccountRepository, "get">;
@@ -97,10 +96,6 @@ function requireUserCaller(caller: {
     userId: caller.userId,
     capabilities: caller.capabilities,
   };
-}
-
-function requireFreshAdminCaller(caller: RpcCaller, now?: Date) {
-  return requireAdminFreshAuth(caller, { now });
 }
 
 function expiresAtFrom(now: Date, expiresInSeconds?: number): Date {
@@ -428,7 +423,7 @@ export function createAuthUsersPasswordResetCreateHandler(args: {
       caller: RpcCaller;
     };
   }) => {
-    const authorized = requireFreshAdminCaller(caller, args.now);
+    const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const targetAccount = await args.accountStorage.get(input.userId);
     if (targetAccount === undefined) {

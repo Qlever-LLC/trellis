@@ -813,10 +813,9 @@ jobs access.
 
 As in `../auth/trellis-auth.md` and `../contracts/trellis-contracts-catalog.md`,
 runtime service ownership is derived from the service principal and the service
-deployment envelope that the presented contract evidence must fit, not from
-contract metadata alone. The `<service>` subject segment used by Jobs must
-therefore be bound to the service identity used for routing and permission
-derivation.
+deployment envelope that the presented contract must fit, not from contract
+metadata alone. The `<service>` subject segment used by Jobs must therefore be
+bound to the service identity used for routing and permission derivation.
 
 | Capability / rule                         | Permissions                                                                                                                                        |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
